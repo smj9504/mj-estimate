@@ -1,0 +1,1 @@
+"""Domain modules following Domain-Driven Design principles"""

@@ -1,0 +1,90 @@
+/* Base Styles for PDF Templates */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+  background: #ffffff;
+}
+
+/* Container */
+.document-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 40px;
+  background: white;
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.document-title {
+  font-size: 36px;
+  font-weight: bold;
+  color: #1e40af;
+  margin-bottom: 16px;
+}
+
+/* Utility Classes */
+.text-right { text-align: right; }
+.text-center { text-align: center; }
+.text-left { text-align: left; }
+
+.flex {
+  display: flex;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.align-start {
+  align-items: flex-start;
+}
+
+/* Colors */
+.text-primary { color: #1e40af; }
+.text-secondary { color: #6b7280; }
+.text-success { color: #059669; }
+.text-warning { color: #d97706; }
+.text-error { color: #dc2626; }
+
+.bg-primary { background-color: #1e40af; }
+.bg-secondary { background-color: #f3f4f6; }
+.bg-success { background-color: #d1fae5; }
+.bg-warning { background-color: #fef3c7; }
+.bg-error { background-color: #fee2e2; }
+
+/* Spacing */
+.mb-1 { margin-bottom: 4px; }
+.mb-2 { margin-bottom: 8px; }
+.mb-3 { margin-bottom: 12px; }
+.mb-4 { margin-bottom: 16px; }
+.mb-5 { margin-bottom: 20px; }
+
+.p-1 { padding: 4px; }
+.p-2 { padding: 8px; }
+.p-3 { padding: 12px; }
+.p-4 { padding: 16px; }
+.p-5 { padding: 20px; }
+
+/* Print Styles */
+@media print {
+  body {
+    font-size: 12px;
+  }
+  
+  .document-container {
+    padding: 20px;
+    box-shadow: none;
+  }
+}

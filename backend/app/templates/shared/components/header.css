@@ -1,0 +1,78 @@
+/* Header Component Styles */
+.document-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 40px;
+  padding-bottom: 20px;
+  border-bottom: 3px solid #2563eb;
+}
+
+.company-info {
+  flex: 1;
+}
+
+.company-logo {
+  max-width: 200px;
+  margin-bottom: 16px;
+}
+
+.company-logo img {
+  max-width: 100%;
+  height: auto;
+  max-height: 80px;
+}
+
+.company-name {
+  font-size: 24px;
+  font-weight: bold;
+  color: #1e40af;
+  margin-bottom: 8px;
+}
+
+.company-details {
+  color: #666;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.document-meta {
+  text-align: right;
+  flex: 1;
+  max-width: 300px;
+}
+
+.document-details {
+  background: #f8fafc;
+  padding: 16px;
+  border-radius: 8px;
+  border-left: 4px solid #2563eb;
+}
+
+.document-details .detail-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.detail-label {
+  font-weight: 600;
+  color: #374151;
+}
+
+.detail-value {
+  color: #111827;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .document-header {
+    flex-direction: column;
+  }
+  
+  .document-meta {
+    text-align: left;
+    margin-top: 20px;
+    max-width: none;
+  }
+}

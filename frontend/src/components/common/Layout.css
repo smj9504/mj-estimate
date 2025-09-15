@@ -1,0 +1,152 @@
+/* Layout.css - Enhanced sidebar styling */
+
+/* Smooth transitions for all sidebar elements */
+.ant-layout-sider {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.ant-layout-sider .ant-menu {
+  border-right: none !important;
+}
+
+/* Custom scrollbar for sidebar menu */
+.ant-layout-sider .ant-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ant-layout-sider .ant-menu::-webkit-scrollbar-track {
+  background: #001529;
+}
+
+.ant-layout-sider .ant-menu::-webkit-scrollbar-thumb {
+  background: #4a5568;
+  border-radius: 3px;
+}
+
+.ant-layout-sider .ant-menu::-webkit-scrollbar-thumb:hover {
+  background: #5a6578;
+}
+
+/* Logo area styling */
+.sidebar-logo {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  color: white;
+  font-weight: bold;
+  transition: all 0.3s ease;
+  border-bottom: 1px solid #1f1f1f;
+  background: linear-gradient(135deg, #001529 0%, #1f1f1f 100%);
+}
+
+/* Toggle button styling */
+.sidebar-toggle-btn {
+  color: white !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  transition: all 0.3s ease !important;
+}
+
+.sidebar-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  transform: scale(1.1);
+}
+
+.sidebar-toggle-btn:focus {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Header toggle button styling */
+.header-toggle-btn {
+  transition: all 0.3s ease;
+  border-radius: 6px;
+}
+
+.header-toggle-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  transform: scale(1.05);
+}
+
+/* Menu item enhancements */
+.ant-menu-dark .ant-menu-item:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  transition: background-color 0.3s ease;
+}
+
+.ant-menu-dark .ant-menu-submenu-title:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  transition: background-color 0.3s ease;
+}
+
+/* Content area responsive margins */
+.main-content {
+  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Mobile overlay for sidebar */
+.mobile-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.45);
+  z-index: 999;
+  transition: opacity 0.3s ease;
+  backdrop-filter: blur(2px);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 992px) {
+  .ant-layout-sider {
+    z-index: 1000 !important;
+  }
+  
+  .ant-layout-sider-collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+  }
+}
+
+/* Tablet responsiveness */
+@media (max-width: 768px) {
+  .sidebar-logo {
+    font-size: 16px !important;
+    padding: 0 8px !important;
+  }
+  
+  .main-content {
+    margin: 16px !important;
+  }
+}
+
+/* Mobile phones */
+@media (max-width: 576px) {
+  .main-content {
+    margin: 8px !important;
+  }
+  
+  .ant-layout-header {
+    padding: 0 12px !important;
+  }
+}
+
+/* Enhanced focus states for accessibility */
+.sidebar-toggle-btn:focus,
+.header-toggle-btn:focus {
+  outline: 2px solid #1890ff;
+  outline-offset: 2px;
+}
+
+/* Loading states */
+@keyframes siderLoading {
+  0% { opacity: 0.6; }
+  50% { opacity: 0.8; }
+  100% { opacity: 1; }
+}
+
+.ant-layout-sider.loading {
+  animation: siderLoading 1.5s ease-in-out infinite;
+}

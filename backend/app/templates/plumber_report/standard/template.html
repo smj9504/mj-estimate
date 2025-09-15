@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plumber's Report - {{ report_number }}</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="page-container">
+        <!-- Header -->
+        <header class="report-header">
+            <div class="header-content">
+                <div class="company-info">
+                    {% if company_data %}
+                    <h1 class="company-name">{{ company_data.name }}</h1>
+                    <div class="company-details">
+                        <p>{{ company_data.address }}</p>
+                        <p>{{ company_data.city }}, {{ company_data.state }} {{ company_data.zip }}</p>
+                        <p>Phone: {{ company_data.phone }}</p>
+                        <p>Email: {{ company_data.email }}</p>
+                        {% if company_data.license %}
+                        <p>License #: {{ company_data.license }}</p>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="report-title">
+                    <h2>PLUMBER'S REPORT</h2>
+                    <p class="report-number">Report #: {{ report_number }}</p>
+                    <p class="report-date">Date: {{ service_date | date }}</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Client and Property Information -->
+        <section class="info-section">
+            <div class="info-grid">
+                <div class="info-box">
+                    <h3>Client Information</h3>
+                    <div class="info-content">
+                        <p><strong>{{ client.name }}</strong></p>
+                        {% if client.address %}
+                        <p>{{ client.address }}</p>
+                        <p>{{ client.city }}, {{ client.state }} {{ client.zip }}</p>
+                        {% endif %}
+                        {% if client.phone %}<p>Phone: {{ client.phone }}</p>{% endif %}
+                        {% if client.email %}<p>Email: {{ client.email }}</p>{% endif %}
+                    </div>
+                </div>
+                <div class="info-box">
+                    <h3>Property Information</h3>
+                    <div class="info-content">
+                        {% if property.address %}
+                        <p><strong>{{ property.address }}</strong></p>
+                        <p>{{ property.city }}, {{ property.state }} {{ property.zip }}</p>
+                        {% else %}
+                        <p><em>Same as client address</em></p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Service Details -->
+        <section class="service-details">
+            <div class="detail-row">
+                <span class="label">Technician:</span>
+                <span class="value">{{ technician_name }}</span>
+                {% if license_number %}
+                <span class="label">License #:</span>
+                <span class="value">{{ license_number }}</span>
+                {% endif %}
+            </div>
+        </section>
+
+        <!-- Cause of Damage -->
+        {% if cause_of_damage %}
+        <section class="content-section">
+            <h3>Cause of Damage</h3>
+            <div class="content-box">
+                {{ cause_of_damage | safe | nl2br }}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Work Performed -->
+        {% if work_performed %}
+        <section class="content-section">
+            <h3>Work Performed</h3>
+            <div class="content-box rich-text">
+                {{ work_performed | safe }}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Materials and Equipment -->
+        {% if materials_equipment %}
+        <section class="materials-section">
+            <h3>Materials & Equipment Utilized</h3>
+            <table class="items-table">
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Item</th>
+                        <th>Description</th>
+                        <th>Qty</th>
+                        <th>Unit</th>
+                        <th>Unit Cost</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in materials_equipment %}
+                    <tr>
+                        <td class="item-type">{{ item.type | capitalize }}</td>
+                        <td>{{ item.name }}</td>
+                        <td>
+                            {{ item.description }}
+                            {% if item.manufacturer %}
+                                <br><small>Mfg: {{ item.manufacturer }}</small>
+                            {% endif %}
+                            {% if item.model %}
+                                <br><small>Model: {{ item.model }}</small>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">{{ item.quantity }}</td>
+                        <td class="text-center">{{ item.unit }}</td>
+                        <td class="text-right">${{ "%.2f"|format(item.unit_cost) }}</td>
+                        <td class="text-right">${{ "%.2f"|format(item.total_cost) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+        {% endif %}
+
+        <!-- Recommendations -->
+        {% if recommendations %}
+        <section class="content-section">
+            <h3>Recommendations</h3>
+            <div class="content-box rich-text">
+                {{ recommendations | safe }}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Photos -->
+        {% if photos and include_photos %}
+        <section class="photos-section">
+            <h3>Photo Documentation</h3>
+            <div class="photo-grid">
+                {% for photo in photos %}
+                <div class="photo-item">
+                    <img src="{{ photo.url }}" alt="{{ photo.caption or 'Photo' }}">
+                    <p class="photo-caption">
+                        <span class="photo-category">{{ photo.category | upper }}</span>
+                        {% if photo.caption %}: {{ photo.caption }}{% endif %}
+                    </p>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Financial Summary -->
+        {% if include_financial %}
+        <section class="financial-section">
+            <h3>Cost Summary</h3>
+            <div class="financial-summary">
+                <table class="summary-table">
+                    <tbody>
+                        <tr>
+                            <td>Labor</td>
+                            <td class="text-right">${{ "%.2f"|format(financial.labor_cost) }}</td>
+                        </tr>
+                        <tr>
+                            <td>Materials</td>
+                            <td class="text-right">${{ "%.2f"|format(financial.materials_cost) }}</td>
+                        </tr>
+                        <tr>
+                            <td>Equipment</td>
+                            <td class="text-right">${{ "%.2f"|format(financial.equipment_cost) }}</td>
+                        </tr>
+                        <tr class="subtotal-row">
+                            <td>Subtotal</td>
+                            <td class="text-right">${{ "%.2f"|format(financial.subtotal) }}</td>
+                        </tr>
+                        {% if financial.tax_amount > 0 %}
+                        <tr>
+                            <td>Tax</td>
+                            <td class="text-right">${{ "%.2f"|format(financial.tax_amount) }}</td>
+                        </tr>
+                        {% endif %}
+                        {% if financial.discount > 0 %}
+                        <tr>
+                            <td>Discount</td>
+                            <td class="text-right">-${{ "%.2f"|format(financial.discount) }}</td>
+                        </tr>
+                        {% endif %}
+                        <tr class="total-row">
+                            <td><strong>Total</strong></td>
+                            <td class="text-right"><strong>${{ "%.2f"|format(financial.total_amount) }}</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Payments -->
+            {% if payments %}
+            <div class="payments-section">
+                <h4>Payment Record</h4>
+                <table class="payments-table">
+                    <tbody>
+                        {% for payment in payments %}
+                        <tr>
+                            {% if show_payment_dates and payment.date %}
+                            <td>{{ payment.date | date }}</td>
+                            {% endif %}
+                            <td>${{ "%.2f"|format(payment.amount) }}</td>
+                            {% if payment.method %}
+                            <td>{{ payment.method }}</td>
+                            {% endif %}
+                            {% if payment.reference %}
+                            <td>Ref: {{ payment.reference }}</td>
+                            {% endif %}
+                        </tr>
+                        {% endfor %}
+                        <tr class="balance-row">
+                            <td colspan="{% if show_payment_dates %}4{% else %}3{% endif %}">
+                                <strong>Balance Due: ${{ "%.2f"|format(financial.balance_due) }}</strong>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+
+        <!-- Warranty Information -->
+        {% if warranty_info %}
+        <section class="content-section">
+            <h3>Warranty Information</h3>
+            <div class="content-box">
+                {{ warranty_info | safe | nl2br }}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Terms and Conditions -->
+        {% if terms_conditions %}
+        <section class="content-section">
+            <h3>Terms & Conditions</h3>
+            <div class="content-box small-text">
+                {{ terms_conditions | safe | nl2br }}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Notes -->
+        {% if notes %}
+        <section class="content-section">
+            <h3>Additional Notes</h3>
+            <div class="content-box">
+                {{ notes | safe | nl2br }}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Footer -->
+        <footer class="report-footer">
+            <div class="footer-content">
+                <div class="footer-left">
+                    <p class="page-number">Page <span class="page"></span> of <span class="topage"></span></p>
+                </div>
+                <div class="footer-center">
+                    <p>{{ report_number }} - Generated on {{ "now" | date }}</p>
+                </div>
+                <div class="footer-right">
+                    {% if company_data and company_data.logo %}
+                    <img src="{{ company_data.logo }}" alt="{{ company_data.name }}" class="company-logo">
+                    {% endif %}
+                </div>
+            </div>
+        </footer>
+    </div>
+</body>
+</html>

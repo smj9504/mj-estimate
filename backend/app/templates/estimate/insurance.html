@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Estimate</title>
+  <style>
+    /* Template adapted from Streamlit for React backend - Inline CSS for Playwright */
+    
+    /* Theme Variables */
+    :root {
+      --primary-color: #2c5aa0;
+      --primary-light: #3d6cb9;
+      --primary-bg: #eaf2fd;
+      --primary-border: #2c5aa0;
+    }
+    
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 10px;
+      font-size: 12px;
+      line-height: 1.2;
+      color: #333;
+    }
+    
+    /* Header Section */
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 15px;
+      border-bottom: 1px solid var(--primary-border);
+      padding-bottom: 10px;
+      page-break-after: avoid;
+    }
+    
+    .invoice-meta h1 {
+      font-size: 26px;
+      color: var(--primary-color);
+      margin: 0 0 8px 0;
+      font-weight: bold;
+    }
+    
+    .invoice-meta p {
+      margin: 3px 0;
+      font-size: 13px;
+    }
+    
+    .company-logo {
+      text-align: right;
+    }
+    
+    .logo {
+      max-height: 70px;
+      max-width: 180px;
+      height: auto;
+      width: auto;
+    }
+    
+    .address-section {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      page-break-after: avoid;
+    }
+    
+    .company-info, .client-info {
+      width: 45%;
+    }
+    
+    .company-info p, .client-info p {
+      margin: 2px 0;
+      line-height: 1.3;
+    }
+    
+    .company-info p:first-child,
+    .client-info p:first-child {
+      font-size: 14px;
+      font-weight: bold;
+      color: var(--primary-color);
+      margin-bottom: 5px;
+    }
+    
+    /* Content sections */
+    .content {
+      margin-bottom: 10px;
+    }
+    
+    .trade-section {
+      margin-bottom: 8px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+    }
+    
+    .trade-header {
+      background-color: var(--primary-bg);
+      padding: 6px 8px;
+      font-weight: bold;
+      color: var(--primary-color);
+      font-size: 13px;
+      border-bottom: 1px solid #ddd;
+    }
+    
+    .location-section {
+      margin-bottom: 4px;
+    }
+    
+    .location-header {
+      background-color: #f8f9fa;
+      padding: 5px 8px;
+      font-weight: bold;
+      font-size: 12px;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+    
+    .items-table th {
+      background-color: #f5f5f5;
+      padding: 4px 6px;
+      border: 1px solid #ddd;
+      text-align: left;
+      font-weight: bold;
+      font-size: 11px;
+    }
+    
+    .items-table td {
+      padding: 3px 6px;
+      border: 1px solid #ddd;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    
+    .items-table .text-right {
+      text-align: right;
+    }
+    
+    .items-table .text-center {
+      text-align: center;
+    }
+    
+    /* Financial summary */
+    .financial-summary {
+      margin-top: 15px;
+      page-break-inside: avoid;
+    }
+    
+    .summary-table {
+      width: 300px;
+      margin-left: auto;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    
+    .summary-table td {
+      padding: 4px 8px;
+      border: 1px solid #ddd;
+    }
+    
+    .summary-table .label {
+      font-weight: bold;
+      background-color: #f8f9fa;
+      text-align: right;
+    }
+    
+    .summary-table .amount {
+      text-align: right;
+      font-weight: bold;
+    }
+    
+    .summary-table .total {
+      background-color: var(--primary-bg);
+      color: var(--primary-color);
+      font-size: 14px;
+    }
+    
+    /* Notes */
+    .notes-section {
+      margin-top: 15px;
+      page-break-inside: avoid;
+    }
+    
+    .note-box {
+      border: 1px solid #ddd;
+      padding: 8px;
+      margin-bottom: 8px;
+      background-color: #f9f9f9;
+      font-size: 11px;
+      line-height: 1.3;
+    }
+    
+    .note-title {
+      font-weight: bold;
+      margin-bottom: 4px;
+      color: var(--primary-color);
+    }
+    
+    /* Page breaks */
+    .page-break {
+      page-break-before: always;
+    }
+    
+    @media print {
+      body { margin: 0; }
+      .page-break { page-break-before: always; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header-top">
+  <div class="invoice-meta">
+    <h1>Estimate</h1>
+    <p><strong>Estimate number</strong> {{ estimate_number or 'N/A' }}</p>
+    <p>Estimate Date: {{ estimate_date or 'N/A' }}</p>
+  </div>
+
+  <div class="company-logo">
+    {% if company and company.logo %}
+    <img src="{{ company.logo }}" alt="" class="logo">
+    {% endif %}
+  </div>
+</div>
+
+<div class="address-section">
+  <div class="company-info">
+    {% if company %}
+    <p><strong>{{ company.name or 'Company Name' }}</strong></p>
+    {% if company.address %}<p>{{ company.address }}</p>{% endif %}
+    {% if company.city or company.state or company.zip %}
+    <p>{{ company.city or '' }}{% if company.city and (company.state or company.zip) %}, {% endif %}{{ company.state or '' }} {{ company.zip or '' }}</p>
+    {% endif %}
+    {% if company.phone %}<p>{{ company.phone }}</p>{% endif %}
+    {% if company.email %}<p>{{ company.email }}</p>{% endif %}
+    {% else %}
+    <p><strong>Company Name</strong></p>
+    <p>Company Address</p>
+    <p>City, State ZIP</p>
+    <p>Phone Number</p>
+    <p>Email Address</p>
+    {% endif %}
+  </div>
+  <div class="client-info">
+    <p><strong>Estimate for</strong></p>
+    {% if client %}
+      {% if client.name %}
+        <p>{{ client.name }}</p>
+      {% endif %}
+      {% if client.address %}<p>{{ client.address }}</p>{% endif %}
+      {% if client.city or client.state or client.zip %}
+      <p>{{ client.city or '' }}{% if client.city and (client.state or client.zip) %}, {% endif %}{{ client.state or '' }} {{ client.zip or '' }}</p>
+      {% endif %}
+      {% if client.phone %}
+        <p>{{ client.phone }}</p>
+      {% endif %}
+      {% if client.email %}
+        <p>{{ client.email }}</p>
+      {% endif %}
+    {% else %}
+      <p>Client Name</p>
+      <p>Client Address</p>
+      <p>City, State ZIP</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if top_note and top_note != '' %}
+  <p class="amount-due-note">{{ top_note|replace('\n', '<br>') | safe }}</p>
+{% endif %}
+
+{% set global_item_counter = namespace(value=0) %}
+
+{% if trades %}
+  {% for trade in trades %}
+    <div class="trade-section">
+      <div class="trade-title">{{ trade.name or 'Trade' }}</div>
+      
+      {% if trade.note and trade.note != '' %}
+        <div class="trade-note">{{ trade.note|replace('\n', '<br>') | safe }}</div>
+      {% endif %}
+      
+      {% if trade.locations %}
+        {% for location in trade.locations %}
+          <div class="location-section">
+            {% if location.name %}
+              <div class="location-title">{{ location.name }}</div>
+            {% endif %}
+            
+            {% if location.note and location.note != '' %}
+              <div class="location-note">{{ location.note|replace('\n', '<br>') | safe }}</div>
+            {% endif %}
+            
+            {% if location.categories %}
+              {% for category in location.categories %}
+                <div class="category-section">
+                  {% if category.name %}
+                    <div class="category-title">{{ category.name }}</div>
+                  {% endif %}
+                  
+                  <div class="line-header">
+                    <div class="col-item">Item</div>
+                    <div class="col-qty">Qty</div>
+                    <div class="col-unit">Unit</div>
+                    <div class="col-price">Unit Price</div>
+                    <div class="col-total">Total Price</div>
+                  </div>
+                  
+                  {% set items_list = category.get('items', []) %}
+                  {% if items_list and items_list|length > 0 %}
+                      {% for item in items_list %}
+                          {% if item and item.name %}
+                          {% set global_item_counter.value = global_item_counter.value + 1 %}
+                          {% set item_qty = item.qty | float if item.qty is defined and item.qty != '' and item.qty != none else 0 %}
+                          {% set item_price = item.price | float if item.price is defined and item.price != '' and item.price != none else 0 %}
+                          {% set item_total = item_qty * item_price %}
+                          <div class="line-item-group">
+                            <div class="line-row">
+                                <div class="col-item">{{ global_item_counter.value }}. {{ item.name }}</div>
+                                <div class="col-qty">
+                                {% if item.qty is defined and item.qty != '' and item.qty != none %}
+                                    {{ "{:,.2f}".format(item.qty | float) }}
+                                {% else %}
+                                    0.00
+                                {% endif %}
+                                </div>
+                                <div class="col-unit">{{ item.unit or '' }}</div>
+                                <div class="col-price">
+                                {% if item.price is defined and item.price != '' and item.price != none %}
+                                    ${{ "{:,.2f}".format(item.price | float) }}
+                                {% else %}
+                                    $0.00
+                                {% endif %}
+                                </div>
+                                <div class="col-total">
+                                    ${{ "{:,.2f}".format(item_total) }}
+                                </div>
+                            </div>
+                            {% if item.description and item.description != '' %}
+                            <div class="line-description">
+                                {{ item.description|replace('\n', '<br>') | safe }}
+                            </div>
+                            {% endif %}
+                          </div>
+                          {% endif %}
+                      {% endfor %}
+                  {% else %}
+                      <div class="line-row" style="color: #999; font-style: italic;">
+                          <div class="col-item" style="grid-column: 1 / -1;">
+                          No valid items in category "{{ category.name or 'Unnamed' }}"
+                          </div>
+                      </div>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            {% endif %}
+            
+            {% if location.showSubtotal and location.subtotal is defined %}
+              <p class="subtotal">{{ location.name or 'Location' }} Subtotal: ${{ "{:,.2f}".format(location.subtotal | float) }}</p>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="line-row">
+    <div class="col-item" style="grid-column: 1 / -1; text-align: center; padding: 20px; color: #999;">
+      No items found in this estimate
+    </div>
+  </div>
+{% endif %}
+
+<div class="footer-total">
+  <p>Subtotal: ${{ "{:,.2f}".format(subtotal | float) if subtotal is defined and subtotal != '' else '0.00' }}</p>
+  
+  {% if overhead_rate is defined and overhead_rate != '' and (overhead_rate | float) > 0 %}
+    <p>Overhead ({{ overhead_rate | float if overhead_rate is defined else 0 }}%): ${{ "{:,.2f}".format(overhead_amount | float) if overhead_amount is defined else '0.00' }}</p>
+  {% endif %}
+  
+  {% if profit_rate is defined and profit_rate != '' and (profit_rate | float) > 0 %}
+    <p>Profit ({{ profit_rate | float if profit_rate is defined else 0 }}%): ${{ "{:,.2f}".format(profit_amount | float) if profit_amount is defined else '0.00' }}</p>
+  {% endif %}
+  
+  {% if sales_tax_amount is defined and sales_tax_amount != '' and (sales_tax_amount | float) > 0 %}
+      <p>{{ (client.state if client else '') or '' }} Sales Tax: ${{ "{:,.2f}".format(sales_tax_amount | float) }}</p>
+  {% elif sales_tax is defined and sales_tax.amount is defined and (sales_tax.amount | float) > 0 %}
+      <p>{{ (client.state if client else '') or '' }} Sales Tax: ${{ "{:,.2f}".format(sales_tax.amount | float) }}</p>
+  {% endif %}
+  
+  {% if discount is defined and discount != '' and (discount | float) > 0 %}
+    <p>Discount: -${{ "{:,.2f}".format(discount | float) }}</p>
+  {% endif %}
+  
+  <p class="total">Estimate Total: ${{ "{:,.2f}".format(total | float) if total is defined and total != '' else '0.00' }}</p>
+</div>
+
+{% if bottom_note and bottom_note != '' %}
+  <p class="note">{{ bottom_note|replace('\n', '<br>') | safe }}</p>
+{% endif %}
+
+{% if disclaimer and disclaimer != '' %}
+    {% if '<ul>' in disclaimer %}
+        <div class="disclaimer">{{ disclaimer | safe }}</div>
+    {% else %}
+        <p class="disclaimer">{{ disclaimer|replace('\n', '<br>') | safe }}</p>
+    {% endif %}
+{% endif %}
+
+</body>
+</html>

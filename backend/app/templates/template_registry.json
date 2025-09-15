@@ -1,0 +1,77 @@
+{
+  "invoice": {
+    "modern": {
+      "template": "invoice/general_invoice.html",
+      "css_files": [],
+      "description": "Default invoice template with clean design",
+      "company_customizable": true
+    },
+    "legacy_standard": {
+      "template": "invoice/legacy/standard.html",
+      "css_files": [],
+      "description": "Legacy standard invoice template with inline CSS",
+      "company_customizable": false,
+      "deprecated": true
+    }
+  },
+  "estimate": {
+    "standard": {
+      "template": "estimate/standard.html",
+      "css_files": [
+        "estimate/estimate.css"
+      ],
+      "description": "Standard estimate template",
+      "company_customizable": true
+    },
+    "insurance": {
+      "template": "estimate/insurance.html",
+      "css_files": [
+        "estimate/insurance_estimate.css"
+      ],
+      "description": "Insurance estimate template",
+      "company_customizable": true
+    },
+    "insurance_with_plans": {
+      "template": "estimate/insurance_with_plans.html",
+      "css_files": [
+        "estimate/insurance_estimate.css"
+      ],
+      "description": "Insurance estimate with floor plans",
+      "company_customizable": true
+    }
+  },
+  "plumber_report": {
+    "standard": {
+      "template": "plumber_report/standard/template.html",
+      "css_files": [
+        "plumber_report/standard/style.css"
+      ],
+      "description": "Standard plumber report template",
+      "company_customizable": true
+    }
+  },
+  "work_order": {
+    "standard": {
+      "template": "work_order/standard.html",
+      "css_files": [
+        "shared/base.css",
+        "shared/components/header.css",
+        "shared/components/table.css",
+        "work_order/work_order.css"
+      ],
+      "description": "Standard work order template",
+      "company_customizable": true,
+      "status": "planned"
+    }
+  },
+  "shared_components": {
+    "base": "shared/base.css",
+    "header": "shared/components/header.css",
+    "table": "shared/components/table.css"
+  },
+  "company_overrides": {
+    "description": "Company-specific templates override defaults",
+    "structure": "{document_type}/company_{company_id}/{variant}.html",
+    "css_structure": "{document_type}/company_{company_id}/{variant}.css"
+  }
+}

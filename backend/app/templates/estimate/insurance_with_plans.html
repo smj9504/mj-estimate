@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Estimate with Floor Plans</title>
+  <link rel="stylesheet" href="insurance_estimate_style.css">
+  <style>
+    /* Additional styles for floor plans */
+    .floor-plans-section {
+      page-break-before: always;
+      padding: 10px;
+    }
+    
+    .floor-plans-header {
+      text-align: center;
+      margin-bottom: 15px;
+      padding-bottom: 5px;
+      border-bottom: 2px solid #333;
+    }
+    
+    .floor-plans-header h2 {
+      font-size: 24px;
+      margin: 0;
+      color: #333;
+    }
+    
+    .room-plan-container {
+      margin-bottom: 5px;
+      page-break-inside: avoid;
+      border: 1px solid #ddd;
+      padding: 5px;
+      background: #fff;
+      overflow: visible;
+      box-sizing: border-box;
+      height: auto;
+    }
+    
+    .room-header {
+      background: #f0f0f0;
+      padding: 8px;
+      margin: -5px -5px 5px -5px;
+      border-bottom: 2px solid #333;
+    }
+    
+    .room-header h3 {
+      margin: 0;
+      font-size: 18px;
+      color: #333;
+    }
+    
+    .plan-layout {
+      display: table;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0;
+      overflow: visible;
+      table-layout: fixed;
+    }
+    
+    .floor-plan {
+      display: table-cell;
+      width: 65%;
+      background: white;
+      padding: 0;
+      border: none;
+      text-align: center;
+      vertical-align: top;
+      min-height: auto;
+      height: auto;
+      box-sizing: border-box;
+      overflow: visible;
+    }
+    
+    .floor-plan svg {
+      max-width: 100%;
+      height: auto;
+      display: inline-block;
+      margin: 0 auto;
+    }
+    
+    .measurements-panel {
+      display: table-cell;
+      width: 35%;
+      min-width: 200px;
+      max-width: 300px;
+      box-sizing: border-box;
+      overflow: visible;
+      padding: 0 0 0 10px;
+      margin: 0;
+      vertical-align: top;
+    }
+    
+    .room-measurements {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10px;
+      background: white;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      table-layout: auto;
+    }
+    
+    .room-measurements thead th {
+      background: #333;
+      color: white;
+      padding: 6px 8px;
+      text-align: left;
+      font-size: 12px;
+      word-wrap: break-word;
+    }
+    
+    .room-measurements tbody td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #eee;
+      font-size: 11px;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+    
+    .room-measurements tbody td:first-child {
+      font-weight: bold;
+      background: #f9f9f9;
+      width: 45%;
+    }
+    
+    .work-items {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      table-layout: auto;
+    }
+    
+    .work-items thead th {
+      background: #666;
+      color: white;
+      padding: 6px 8px;
+      text-align: left;
+      font-size: 12px;
+      word-wrap: break-word;
+    }
+    
+    .work-items tbody td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #eee;
+      font-size: 11px;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+    
+    .work-items tbody td:first-child {
+      font-weight: bold;
+      background: #f9f9f9;
+      width: 45%;
+    }
+    
+    .measurement-notes {
+      margin-top: 15px;
+      padding: 10px;
+      background: #fffbf0;
+      border-left: 3px solid #ffa500;
+      font-size: 11px;
+      color: #666;
+    }
+    
+    /* Responsive layout for smaller screens */
+    @media screen and (max-width: 768px) {
+      .plan-layout {
+        display: block;
+      }
+      
+      .floor-plan,
+      .measurements-panel {
+        display: block;
+        width: 100%;
+      }
+      
+      .measurements-panel {
+        max-width: 100%;
+        padding-left: 0;
+        margin-top: 20px;
+      }
+      
+      .floor-plan {
+        min-height: auto;
+      }
+    }
+    
+    @media print {
+      .room-plan-container {
+        page-break-inside: avoid;
+      }
+      
+      .floor-plans-section {
+        page-break-before: always;
+      }
+      
+      /* Ensure proper layout in print */
+      .plan-layout {
+        display: table;
+        table-layout: fixed;
+      }
+      
+      .floor-plan {
+        display: table-cell;
+        width: 60%;
+      }
+      
+      .measurements-panel {
+        display: table-cell;
+        width: 40%;
+        max-width: 40%;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<!-- PART 1: Original Estimate Content -->
+<div class="header-top">
+  <div class="invoice-meta">
+    <h1>Estimate</h1>
+    <p><strong>Estimate number</strong> {{ estimate_number or 'N/A' }}</p>
+    <p>Estimate Date: {{ estimate_date or 'N/A' }}</p>
+  </div>
+
+  <div class="company-logo">
+    {% if company and company.logo %}
+    <img src="{{ company.logo }}" alt="" class="logo">
+    {% endif %}
+  </div>
+</div>
+
+<div class="address-section">
+  <div class="company-info">
+    {% if company %}
+    <p><strong>{{ company.name or 'Company Name' }}</strong></p>
+    {% if company.address %}<p>{{ company.address }}</p>{% endif %}
+    {% if company.city or company.state or company.zip %}
+    <p>{{ company.city or '' }}{% if company.city and (company.state or company.zip) %}, {% endif %}{{ company.state or '' }} {{ company.zip or '' }}</p>
+    {% endif %}
+    {% if company.phone %}<p>{{ company.phone }}</p>{% endif %}
+    {% if company.email %}<p>{{ company.email }}</p>{% endif %}
+    {% else %}
+    <p><strong>Company Name</strong></p>
+    <p>Company Address</p>
+    <p>City, State ZIP</p>
+    <p>Phone Number</p>
+    <p>Email Address</p>
+    {% endif %}
+  </div>
+  <div class="client-info">
+    <p><strong>Estimate for</strong></p>
+    {% if client %}
+      {% if client.name %}
+        <p>{{ client.name }}</p>
+      {% endif %}
+      {% if client.address %}<p>{{ client.address }}</p>{% endif %}
+      {% if client.city or client.state or client.zip %}
+      <p>{{ client.city or '' }}{% if client.city and (client.state or client.zip) %}, {% endif %}{{ client.state or '' }} {{ client.zip or '' }}</p>
+      {% endif %}
+      {% if client.phone %}
+        <p>{{ client.phone }}</p>
+      {% endif %}
+      {% if client.email %}
+        <p>{{ client.email }}</p>
+      {% endif %}
+    {% else %}
+      <p>Client Name</p>
+      <p>Client Address</p>
+      <p>City, State ZIP</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if top_note and top_note != '' %}
+  <p class="amount-due-note">{{ top_note|replace('\n', '<br>') | safe }}</p>
+{% endif %}
+
+<!-- Original estimate items section -->
+{% set global_item_counter = namespace(value=0) %}
+
+{% if trades %}
+  {% for trade in trades %}
+    <div class="trade-section">
+      <div class="trade-title">{{ trade.name or 'Trade' }}</div>
+      
+      {% if trade.note and trade.note != '' %}
+        <div class="trade-note">{{ trade.note|replace('\n', '<br>') | safe }}</div>
+      {% endif %}
+      
+      {% if trade.locations %}
+        {% for location in trade.locations %}
+          <div class="location-section">
+            {% if location.name %}
+              <div class="location-title">{{ location.name }}</div>
+            {% endif %}
+            
+            {% if location.note and location.note != '' %}
+              <div class="location-note">{{ location.note|replace('\n', '<br>') | safe }}</div>
+            {% endif %}
+            
+            {% if location.categories %}
+              {% for category in location.categories %}
+                <div class="category-section">
+                  {% if category.name %}
+                    <div class="category-title">{{ category.name }}</div>
+                  {% endif %}
+                  
+                  <div class="line-header">
+                    <div class="col-item">Item</div>
+                    <div class="col-code">Code</div>
+                    <div class="col-description">Description</div>
+                    <div class="col-qty">Qty</div>
+                    <div class="col-unit">Unit</div>
+                    <div class="col-price">Price</div>
+                    <div class="col-amount">Line Total</div>
+                  </div>
+                  
+                  {% if category['items'] %}
+                    {% for item in category['items'] %}
+                      {% set global_item_counter.value = global_item_counter.value + 1 %}
+                      <div class="line-item">
+                        <div class="col-item">{{ global_item_counter.value }}</div>
+                        <div class="col-code">{{ item.code or '' }}</div>
+                        <div class="col-description">
+                          {{ item.name or '' }}
+                          {% if item.description and item.description != '' %}
+                            <div class="item-description">{{ item.description }}</div>
+                          {% endif %}
+                        </div>
+                        <div class="col-qty">{{ item.qty or '' }}</div>
+                        <div class="col-unit">{{ item.unit or '' }}</div>
+                        <div class="col-price">${{ "%.2f"|format(item.price or 0) }}</div>
+                        <div class="col-amount">${{ "%.2f"|format(item.line_total or 0) }}</div>
+                      </div>
+                    {% endfor %}
+                  {% endif %}
+                  
+                  {% if category.subtotal %}
+                    <div class="subtotal-line">
+                      <div class="subtotal-label">{{ category.name }} Subtotal:</div>
+                      <div class="subtotal-amount">${{ "%.2f"|format(category.subtotal) }}</div>
+                    </div>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            {% endif %}
+            
+            {% if location.subtotal %}
+              <div class="location-subtotal">
+                <div class="subtotal-label">{{ location.name }} Subtotal:</div>
+                <div class="subtotal-amount">${{ "%.2f"|format(location.subtotal) }}</div>
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+      
+      {% if trade.subtotal %}
+        <div class="trade-subtotal">
+          <div class="subtotal-label">{{ trade.name }} Total:</div>
+          <div class="subtotal-amount">${{ "%.2f"|format(trade.subtotal) }}</div>
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+{% endif %}
+
+<!-- Total section -->
+<div class="total-section">
+  <div class="total-row">
+    <div class="total-label">Subtotal:</div>
+    <div class="total-value">${{ "%.2f"|format(subtotal or 0) }}</div>
+  </div>
+  
+  {% if overhead_percentage and overhead_percentage > 0 %}
+  <div class="total-row">
+    <div class="total-label">Overhead ({{ overhead_percentage }}%):</div>
+    <div class="total-value">${{ "%.2f"|format(overhead_amount or 0) }}</div>
+  </div>
+  {% endif %}
+  
+  {% if profit_percentage and profit_percentage > 0 %}
+  <div class="total-row">
+    <div class="total-label">Profit ({{ profit_percentage }}%):</div>
+    <div class="total-value">${{ "%.2f"|format(profit_amount or 0) }}</div>
+  </div>
+  {% endif %}
+  
+  {% if sales_tax_percentage and sales_tax_percentage > 0 %}
+  <div class="total-row">
+    <div class="total-label">Sales Tax ({{ sales_tax_percentage }}%):</div>
+    <div class="total-value">${{ "%.2f"|format(sales_tax_amount or 0) }}</div>
+  </div>
+  {% endif %}
+  
+  <div class="grand-total-row">
+    <div class="total-label">Total:</div>
+    <div class="total-value">${{ "%.2f"|format(total_amount or 0) }}</div>
+  </div>
+</div>
+
+{% if bottom_note and bottom_note != '' %}
+  <div class="bottom-note">{{ bottom_note|replace('\n', '<br>') | safe }}</div>
+{% endif %}
+
+<!-- PART 2: Floor Plans Section (on new page) -->
+{% if floor_plans and floor_plans.rooms %}
+<div class="floor-plans-section">
+  <div class="floor-plans-header">
+    <h2>Floor Plans and Measurements</h2>
+  </div>
+  
+  {% for room in floor_plans.rooms %}
+  <div class="room-plan-container">
+    <div class="room-header">
+      <h3>{{ room.name or 'Room ' + loop.index|string }}</h3>
+    </div>
+    
+    <div class="plan-layout">
+      <!-- Floor Plan SVG -->
+      <div class="floor-plan">
+        {% if room.svg_plan %}
+          {{ room.svg_plan | safe }}
+        {% else %}
+          <div style="text-align: center; color: #999;">
+            <p>Floor plan not available</p>
+            <p>Dimensions: {{ room.dimensions.length|default(0) }}' × {{ room.dimensions.width|default(0) }}'</p>
+          </div>
+        {% endif %}
+      </div>
+      
+      <!-- Measurements Panel -->
+      <div class="measurements-panel">
+        {% if room.measurement_table %}
+          {{ room.measurement_table | safe }}
+        {% else %}
+          <table class="room-measurements">
+            <thead>
+              <tr><th colspan="2">Room Measurements</th></tr>
+            </thead>
+            <tbody>
+              {% if room.area %}
+              <tr>
+                <td>Area</td>
+                <td>{{ room.area }} sq ft</td>
+              </tr>
+              {% endif %}
+              {% if room.perimeter %}
+              <tr>
+                <td>Perimeter</td>
+                <td>{{ room.perimeter }} ft</td>
+              </tr>
+              {% endif %}
+              {% if room.measurements and room.measurements.ceiling_height %}
+              <tr>
+                <td>Ceiling Height</td>
+                <td>{{ room.measurements.ceiling_height }} ft</td>
+              </tr>
+              {% endif %}
+              {% if room.dimensions %}
+              <tr>
+                <td>Length</td>
+                <td>{{ room.dimensions.length|default(0) }} ft</td>
+              </tr>
+              <tr>
+                <td>Width</td>
+                <td>{{ room.dimensions.width|default(0) }} ft</td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
+          
+          {% if room.work_items %}
+          <table class="work-items">
+            <thead>
+              <tr><th colspan="2">Work Items</th></tr>
+            </thead>
+            <tbody>
+              {% for item_name in room.work_items %}
+              {% set item_data = room.work_items[item_name] %}
+              <tr>
+                <td>{{ item_name|title|replace('_', ' ') }}</td>
+                <td>
+                  {% if item_data is mapping %}
+                    {{ item_data.quantity|default(item_data.area) }} {{ item_data.unit|default('sq ft') }}
+                  {% else %}
+                    {{ item_data }}
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% endif %}
+        {% endif %}
+        
+        {% if room.notes %}
+        <div class="measurement-notes">
+          <strong>Notes:</strong> {{ room.notes }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+</body>
+</html>

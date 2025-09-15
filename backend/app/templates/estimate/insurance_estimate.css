@@ -1,0 +1,523 @@
+/* Theme Variables */
+:root {
+    /* Default theme - Dark Green */
+    /* --primary-color: #2e7d32;
+    --primary-light: #4caf50;
+    --primary-bg: #e8f5e9;
+    --primary-border: #2e7d32; */
+    
+    /* Blue theme variables (commented out by default) */
+    --primary-color: #2c5aa0;
+    --primary-light: #3d6cb9;
+    --primary-bg: #eaf2fd;
+    --primary-border: #2c5aa0;
+}
+
+/* Blue Theme */
+body.theme-blue {
+    --primary-color: #2c5aa0;
+    --primary-light: #3d6cb9;
+    --primary-bg: #eaf2fd;
+    --primary-border: #2c5aa0;
+}
+
+/* Green Theme (explicit) */
+body.theme-green {
+    --primary-color: #2e7d32;
+    --primary-light: #4caf50;
+    --primary-bg: #e8f5e9;
+    --primary-border: #2e7d32;
+}
+
+/* General Styles */
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 10px;
+    font-size: 12px;
+    line-height: 1.2;
+    color: #333;
+}
+
+/* Header Section */
+.header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 15px;
+    border-bottom: 1px solid var(--primary-border);
+    padding-bottom: 10px;
+    page-break-after: avoid;
+}
+
+.invoice-meta h1 {
+    font-size: 26px;
+    color: var(--primary-color);
+    margin: 0 0 8px 0;
+    font-weight: bold;
+}
+
+.invoice-meta p {
+    margin: 3px 0;
+    font-size: 13px;
+}
+
+.company-logo {
+    text-align: right;
+}
+
+.logo {
+    max-height: 70px;
+    max-width: 180px;
+    height: auto;
+    width: auto;
+}
+
+.address-section {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    page-break-after: avoid;
+}
+
+.company-info, .client-info {
+    width: 45%;
+}
+
+.company-info p, .client-info p {
+    margin: 2px 0;
+    line-height: 1.3;
+}
+
+.company-info p:first-child,
+.client-info p:first-child {
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--primary-color);
+    margin-bottom: 5px;
+}
+
+.amount-due-note {
+    background-color: #f8f9fa;
+    padding: 8px 12px;
+    margin: 10px 0 10px 0;
+    font-style: italic;
+    border-radius: 0 4px 4px 0;
+    font-size: 11px;
+}
+
+/* Trade Section - 전체를 40px 들여쓰기 */
+.trade-section {
+    margin-top: 15px;
+    margin-left: 40px;
+    margin-right: 0;
+    position: relative;
+}
+
+.trade-section:first-child {
+    margin-top: 10px;
+}
+
+.trade-title {
+    font-size: 14px;
+    font-weight: bold;
+    background-color: #f8f9fa;
+    padding: 6px 10px;
+    margin-top: 0;
+    margin-bottom: 8px;
+    margin-left: 0; /* 배경도 들여쓰기 유지 */
+    border-left: 4px solid var(--primary-border);
+    page-break-after: avoid;
+    page-break-inside: avoid;
+}
+
+.trade-note {
+    padding: 6px 10px;
+    margin-bottom: 5px;
+    margin-left: 0;
+    font-style: italic;
+    color: #6c757d;
+    font-size: 12px;
+    page-break-inside: auto;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+}
+
+/* Location Section - Trade 안에서 상대적으로 -20px (실제로는 20px 들여쓰기) */
+.location-section {
+    margin: 0;
+    margin-left: -20px;
+    padding-left: 0;
+}
+
+.location-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: #333;
+    margin: 10px 0 5px 0; /* 배경도 20px 들여쓰기 유지 */
+    padding: 5px 8px;
+    background-color: var(--primary-bg);
+    border-bottom: 1px solid #495057;
+}
+
+.location-note {
+    margin: 5px 0 5px 0;
+    padding: 4px 8px;
+    font-style: italic;
+    color: #6c757d;
+    font-size: 11px;
+    page-break-inside: auto;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+}
+
+/* Category Section - Location 안에서 상대적으로 -20px (실제로는 0px 들여쓰기) */
+.category-section {
+    margin-bottom: 10px;
+    margin-left: -20px;
+    padding-left: 0;
+}
+
+.category-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: #333;
+    margin: 8px 0 3px 0;
+    padding: 8px;
+    background-color: #f8f9fa;
+    border-radius: 0 2px 2px 0;
+    page-break-after: avoid;
+}
+
+/* Table과 아이템들도 계층에 맞게 조정 */
+.category-section .line-header,
+.category-section .line-row,
+.category-section .line-description {
+    /* Category 레벨에 맞춰 표시 */
+    margin-left: 0;
+}
+
+/* Subtotal도 위치 조정 */
+.location-section > .subtotal {
+    position: relative; /* ::after 위치 기준 */
+    text-align: right;
+    font-weight: bold;
+    margin: 4px -20px 8px 0;
+    padding: 8px 10px; /* 위 여백 넉넉하게 */
+    font-size: 12px;
+    color: #333;
+    border-top: none; /* 기존 제거 */
+}
+
+.location-section > .subtotal::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -2px;
+    height: 1px;
+    background-color: #333;
+    box-shadow: 0 6px 0 0 #333; /* 6px 아래 두 번째 줄 */
+}
+
+
+/* Table Grid Layout */
+.line-header,
+.line-row {
+    display: grid;
+    grid-template-columns: 5fr 0.8fr 0.8fr 1fr 1fr;
+    gap: 10px;
+    padding: 6px 10px;
+    align-items: center;
+}
+
+/* Table Header */
+.line-header {
+    color: #333;
+    font-weight: bold;
+    margin-top: 0; 
+    margin-bottom: 0;
+    page-break-after: avoid;
+    border-bottom: 1px solid #a1a1a1;
+}
+
+/* Category specific styles */
+.category-section .line-header {
+    margin-left: 0;
+    margin-right: 0;
+    margin-top: 2px;
+    font-size: 12px;
+    padding: 5px 10px;
+}
+
+.category-section .line-row {
+    margin-left: 0;
+    margin-right: 0;
+    font-size: 12px;
+}
+
+.line-item-group {
+    margin-bottom: 0;
+    page-break-inside: avoid; 
+}
+
+.line-row {
+    border-bottom: 1px solid #e9ecef;
+    background-color: white;
+    margin: 0;
+}
+
+.line-item-group .line-row {
+    border-bottom: none;
+}
+
+.line-description {
+    padding: 1px 10px 3px 36px;
+    margin-left: 0;
+    font-size: 11px;
+    font-style: italic;
+    color: #666;
+    line-height: 1.3;
+}
+
+.category-section .line-item-group:last-child {
+    margin-bottom: 8px;
+}
+
+/* Column Alignment */
+.col-item {
+    text-align: left;
+}
+
+.col-qty {
+    text-align: right;
+}
+
+.col-unit {
+    text-align: left;
+}
+
+.col-price {
+    text-align: right;
+}
+
+.col-total {
+    text-align: right;
+}
+
+.category-title + .line-header {
+    page-break-before: avoid;
+}
+
+/* Subtotals - location 레벨에 맞춰 들여쓰기 */
+.location-section > .subtotal {
+    text-align: right;
+    font-weight: bold;
+    margin: 4px 0 8px 0;
+    padding: 3px 10px;
+    font-size: 12px;
+    color: #333;
+}
+
+/* Footer Totals */
+.footer-total {
+    margin-top: 15px;
+    border-top: 1px solid #50565c;
+    padding-top: 12px;
+    text-align: right;
+    page-break-inside: avoid;
+}
+
+.footer-total p {
+    margin: 4px 0;
+    font-weight: bold;
+    color: #333;
+    font-size: 14px;
+    padding: 2px 10px;
+}
+
+.footer-total .total {
+    font-size: 15px;
+    font-weight: bold;
+    color: #333;
+    display: inline-block;
+}
+
+.note,
+.disclaimer {
+    margin: 10px 0;
+    padding: 12px;
+    background-color: #f8f9fa;
+    border-radius: 0 4px 4px 0;
+    line-height: 1.4;
+    page-break-inside: auto;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    hyphens: auto;
+}
+
+/* Allow notes to break across pages */
+.note p,
+.disclaimer p {
+    page-break-inside: auto;
+    orphans: 3;
+    widows: 3;
+}
+
+@media print {
+    body {
+        margin: 0;
+        padding: 10px;
+        font-size: 12px;
+    }
+    
+    .header-top {
+        margin-bottom: 15px;
+        padding-bottom: 8px;
+    }
+    
+    .invoice-meta h1 {
+        font-size: 22px;
+    }
+    
+    .trade-title {
+        font-size: 13px;
+        page-break-after: avoid;
+    }
+    
+    .line-header {
+        page-break-after: avoid;
+    }
+    
+    .line-item-group {
+        page-break-inside: avoid;
+    }
+
+    .footer-total .total {
+        font-size: 16px;
+        padding: 8px 12px;
+    }
+    
+    .header-top,
+    .line-header,
+    .trade-title,
+    .footer-total .total {
+        -webkit-print-color-adjust: exact;
+        color-adjust: exact;
+    }
+    
+    .note,
+    .disclaimer {
+        page-break-inside: auto;
+        overflow-wrap: break-word;
+        word-wrap: break-word;
+        hyphens: auto;
+    }
+    
+    .note p,
+    .disclaimer p {
+        page-break-inside: auto;
+        orphans: 3;
+        widows: 3;
+    }
+}
+
+/* Responsive Design */
+@media screen and (max-width: 768px) {
+    .address-section {
+        flex-direction: column;
+    }
+    
+    .company-info, .client-info {
+        width: 100%;
+        margin-bottom: 15px;
+    }
+    
+    .header-top {
+        flex-direction: column;
+    }
+    
+    .company-logo {
+        text-align: left;
+        margin-top: 10px;
+    }
+    
+    /* Mobile에서 들여쓰기 조정 */
+    .trade-section {
+        margin-left: 20px;
+    }
+    
+    .trade-title {
+        margin-left: -20px;
+    }
+    
+    .trade-note {
+        margin-left: -10px;
+    }
+    
+    .location-section {
+        margin-left: -10px;
+    }
+    
+    .location-title {
+        margin-left: 0;
+        padding-left: 8px;
+    }
+    
+    .location-note {
+        margin-left: 0;
+    }
+    
+    .category-section {
+        margin-left: -10px;
+    }
+    
+    .category-title {
+        margin-left: 0;
+        padding-left: 6px;
+    }
+    
+    /* Mobile table layout */
+    .line-header,
+    .line-row {
+        grid-template-columns: 1fr;
+        gap: 5px;
+        padding: 8px;
+    }
+
+    .line-description {
+        padding: 6px 8px;
+        margin-left: 0;
+        font-size: 12px;
+    }
+    
+    .line-header {
+        display: none;
+    }
+    
+    .line-row {
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-bottom: 8px;
+        background-color: white !important;
+    }
+    
+    .category-section .line-header {
+        display: none;
+    }
+    
+    .category-section .line-row {
+        margin-left: 0;
+        margin-right: 0;
+    }
+    
+    /* Add labels for mobile */
+    .col-item::before { content: "Item: "; font-weight: bold; }
+    .col-qty::before { content: "Qty: "; font-weight: bold; }
+    .col-unit::before { content: "Unit: "; font-weight: bold; }
+    .col-price::before { content: "Price: "; font-weight: bold; }
+    .col-total::before { 
+        content: "Total: "; 
+        font-weight: bold; 
+    }
+}

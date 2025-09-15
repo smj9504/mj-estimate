@@ -1,0 +1,77 @@
+.rich-text-editor {
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.editor-toolbar {
+  padding: 8px;
+  background: #fafafa;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-content {
+  padding: 12px;
+  overflow-y: auto;
+  outline: none;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.editor-content:empty:before {
+  content: attr(data-placeholder);
+  color: #bfbfbf;
+  pointer-events: none;
+  display: block;
+}
+
+.editor-content:focus {
+  border-color: #40a9ff;
+}
+
+.editor-content strong {
+  font-weight: bold;
+}
+
+.editor-content em {
+  font-style: italic;
+}
+
+.editor-content u {
+  text-decoration: underline;
+}
+
+.editor-content ul,
+.editor-content ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.editor-content li {
+  margin: 4px 0;
+}
+
+.editor-content p {
+  margin: 8px 0;
+}
+
+.editor-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.editor-content::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.editor-content::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.editor-content::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}

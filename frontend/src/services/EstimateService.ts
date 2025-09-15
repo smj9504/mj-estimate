@@ -1,0 +1,534 @@
+import { apiClient } from '../api/config';
+
+export interface EstimateLineItem {
+  id?: string; // Estimate line item ID (for existing items)
+  line_item_id?: string; // Reference to master line item ID
+  item: string;
+  description?: string;
+  note?: string;  // Rich text HTML content
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  total: number;
+  
+  // Flexible grouping
+  primary_group?: string;  // 1차 분류 (섹션명)
+  secondary_group?: string;  // 2차 분류
+  sort_order?: number;  // 그룹 내 정렬 순서
+  
+  // Notes management for temporary items
+  temp_note_ids?: string[]; // Note IDs for temporary items
+  
+  // Deprecated but kept for backward compatibility
+  room?: string;
+  category?: string;
+}
+
+export interface EstimateSection {
+  id: string;
+  title: string;
+  items: EstimateLineItem[];
+  showSubtotal: boolean;
+  subtotal: number;
+  sort_order?: number;
+}
+
+export interface EstimateCreate {
+  estimate_number?: string;
+  estimate_type?: string;  // 'standard' or 'insurance'
+  company_id?: string;
+  client_name: string;
+  client_address?: string;
+  client_phone?: string;
+  client_email?: string;
+  estimate_date?: string;
+  valid_until?: string;
+  status?: string;
+  notes?: string;
+  terms?: string;
+  claim_number?: string;
+  policy_number?: string;
+  deductible?: number;
+  items: EstimateLineItem[];
+  sections?: EstimateSection[];  // 섹션 기반 데이터
+  op_percent?: number;  // O&P 퍼센트
+}
+
+export interface InsuranceEstimate {
+  id?: string;
+  estimate_number: string;
+  estimate_type?: string;  // 'standard' or 'insurance'
+  company_id?: string;
+  company_name?: string;
+  company_address?: string;
+  company_city?: string;
+  company_state?: string;
+  company_zipcode?: string;
+  company_phone?: string;
+  company_email?: string;
+  
+  // Client Information
+  client_name: string;
+  client_address?: string;
+  client_city?: string;
+  client_state?: string;
+  client_zipcode?: string;
+  client_phone?: string;
+  client_email?: string;
+  
+  // Insurance Information
+  claim_number?: string;
+  policy_number?: string;
+  insurance_company?: string;
+  adjuster_name?: string;
+  adjuster_phone?: string;
+  adjuster_email?: string;
+  deductible?: number;
+  
+  // Dates
+  estimate_date?: string;
+  valid_until?: string;
+  loss_date?: string;
+  
+  // Line Items
+  items: EstimateLineItem[];
+  sections?: EstimateSection[];  // 섹션 기반 데이터
+  
+  // Totals
+  subtotal?: number;
+  tax_rate?: number;
+  tax_amount?: number;
+  discount_amount?: number;
+  total_amount?: number;
+  rcv_total?: number;
+  op_percent?: number;  // O&P 퍼센트
+  op_amount?: number;   // O&P 금액
+  
+  // Additional
+  notes?: string;
+  terms?: string;
+  status?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+class EstimateService {
+  // Transform frontend EstimateLineItem to backend format
+  private transformItemToBackend(item: EstimateLineItem) {
+    // Ensure description is not empty - this is required by backend
+    const description = item.item?.trim();
+    if (!description) {
+      throw new Error('Item description cannot be empty');
+    }
+    
+    // Ensure quantity is valid - must be > 0
+    const quantity = Number(item.quantity) || 1.0;
+    if (quantity <= 0) {
+      throw new Error('Item quantity must be greater than 0');
+    }
+    
+    // Ensure rate is valid - must be >= 0
+    const rate = Number(item.unit_price) || 0.0;
+    if (rate < 0) {
+      throw new Error('Item rate cannot be negative');
+    }
+    
+    return {
+      description: description,
+      quantity: quantity,
+      unit: item.unit?.trim() || 'ea',
+      rate: rate,
+      room: item.room?.trim() || null,
+      category: item.category?.trim() || null,
+      primary_group: item.primary_group?.trim() || null,
+      secondary_group: item.secondary_group?.trim() || null,
+      sort_order: Number(item.sort_order) || 0,
+      note: item.note?.trim() || null,
+      depreciation_rate: 0.0,
+      depreciation_amount: 0.0,
+      acv_amount: Number(item.total) || 0.0,
+      rcv_amount: Number(item.total) || 0.0
+    };
+  }
+
+  // Transform backend item to frontend format
+  private transformItemFromBackend(item: any): EstimateLineItem {
+    return {
+      id: item.id,
+      item: item.description || '', // Map 'description' to 'item'
+      description: item.description,
+      quantity: item.quantity || 0,
+      unit: item.unit || 'ea',
+      unit_price: item.rate || 0, // Map 'rate' to 'unit_price'
+      total: item.amount || item.acv_amount || 0, // Use amount or acv_amount as total
+      room: item.room,
+      category: item.category,
+      primary_group: item.primary_group,
+      secondary_group: item.secondary_group,
+      sort_order: item.sort_order,
+      note: item.note
+    };
+  }
+
+  // Convert date string to ISO datetime format for backend
+  private formatDateForBackend(dateString?: string): string | undefined {
+    if (!dateString) return undefined;
+    
+    // If already in ISO format with time, return as is
+    if (dateString.includes('T') || dateString.includes(' ')) {
+      return dateString;
+    }
+    
+    // If it's just a date (YYYY-MM-DD), add time part
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+      return `${dateString}T00:00:00`;
+    }
+    
+    return dateString;
+  }
+
+  // Transform InsuranceEstimate to backend EstimateCreate format
+  private transformEstimateToBackend(estimate: InsuranceEstimate) {
+    // Validate items array
+    if (!estimate.items || estimate.items.length === 0) {
+      throw new Error('At least one item is required');
+    }
+
+    return {
+      estimate_number: estimate.estimate_number ? String(estimate.estimate_number).trim() : null,
+      company_id: estimate.company_id || null,
+      client_name: estimate.client_name ? String(estimate.client_name).trim() : '',
+      client_address: estimate.client_address ? String(estimate.client_address).trim() : null,
+      client_city: estimate.client_city ? String(estimate.client_city).trim() : null,
+      client_state: estimate.client_state ? String(estimate.client_state).trim() : null,
+      client_zipcode: estimate.client_zipcode ? String(estimate.client_zipcode).trim() : null,
+      client_phone: estimate.client_phone ? String(estimate.client_phone).trim() : null,
+      client_email: estimate.client_email ? String(estimate.client_email).trim() : null,
+      estimate_date: this.formatDateForBackend(estimate.estimate_date),
+      valid_until: this.formatDateForBackend(estimate.valid_until),
+      status: estimate.status?.trim() || 'draft',
+      notes: estimate.notes?.trim() || null,
+      terms: estimate.terms?.trim() || null,
+      claim_number: estimate.claim_number?.trim() || null,
+      policy_number: estimate.policy_number?.trim() || null,
+      deductible: estimate.deductible ? Number(estimate.deductible) : null,
+      items: estimate.items.map(item => this.transformItemToBackend(item))
+    };
+  }
+
+  // Transform backend response to frontend InsuranceEstimate format
+  private transformEstimateFromBackend(backendData: any): InsuranceEstimate {
+    return {
+      id: backendData.id,
+      estimate_number: backendData.estimate_number,
+      company_id: backendData.company_id,
+      client_name: backendData.client_name,
+      client_address: backendData.client_address,
+      client_phone: backendData.client_phone,
+      client_email: backendData.client_email,
+      estimate_date: backendData.estimate_date,
+      valid_until: backendData.valid_until,
+      status: backendData.status,
+      subtotal: backendData.subtotal,
+      tax_rate: backendData.tax_rate,
+      tax_amount: backendData.tax_amount,
+      discount_amount: backendData.discount_amount,
+      total_amount: backendData.total_amount,
+      claim_number: backendData.claim_number,
+      policy_number: backendData.policy_number,
+      deductible: backendData.deductible,
+      notes: backendData.notes,
+      terms: backendData.terms,
+      created_at: backendData.created_at,
+      updated_at: backendData.updated_at,
+      items: (backendData.items || []).map((item: any) => this.transformItemFromBackend(item))
+    };
+  }
+
+  async getEstimates(params?: {
+    skip?: number;
+    limit?: number;
+    client_name?: string;
+    status?: string;
+    estimate_type?: string;
+  }): Promise<InsuranceEstimate[]> {
+    const response = await apiClient.get('/api/estimates/', { params });
+    return response.data.map((item: any) => this.transformEstimateFromBackend(item));
+  }
+
+  async getEstimate(id: string): Promise<InsuranceEstimate> {
+    const response = await apiClient.get(`/api/estimates/${id}`);
+    return this.transformEstimateFromBackend(response.data);
+  }
+
+  async createEstimate(estimate: InsuranceEstimate): Promise<InsuranceEstimate> {
+    console.log('Creating estimate with data:', estimate);
+    
+    try {
+      const backendData = this.transformEstimateToBackend(estimate);
+      console.log('Transformed backend data:', JSON.stringify(backendData, null, 2));
+      
+      const response = await apiClient.post('/api/estimates/', backendData);
+      return this.transformEstimateFromBackend(response.data);
+    } catch (error: any) {
+      console.error('Error creating estimate:', error);
+      if (error.response?.status === 422) {
+        console.error('Validation errors:', error.response.data);
+        throw new Error(`Validation failed: ${JSON.stringify(error.response.data.detail || error.response.data)}`);
+      }
+      throw error;
+    }
+  }
+
+  async updateEstimate(id: string, estimate: InsuranceEstimate): Promise<InsuranceEstimate> {
+    try {
+      const backendData = this.transformEstimateToBackend(estimate);
+      console.log('Updating estimate with data:', JSON.stringify(backendData, null, 2));
+      
+      const response = await apiClient.put(`/api/estimates/${id}`, backendData);
+      return this.transformEstimateFromBackend(response.data);
+    } catch (error: any) {
+      console.error('Error updating estimate:', error);
+      if (error.response?.status === 422) {
+        console.error('Validation errors:', error.response.data);
+        throw new Error(`Validation failed: ${JSON.stringify(error.response.data.detail || error.response.data)}`);
+      }
+      throw error;
+    }
+  }
+
+  async deleteEstimate(id: string): Promise<void> {
+    await apiClient.delete(`/api/estimates/${id}`);
+  }
+
+  async duplicateEstimate(id: string): Promise<InsuranceEstimate> {
+    const response = await apiClient.post(`/api/estimates/${id}/duplicate`);
+    return this.transformEstimateFromBackend(response.data);
+  }
+
+  async generatePDF(id: string): Promise<Blob> {
+    const response = await apiClient.post(
+      `/api/estimates/${id}/pdf`,
+      {},
+      {
+        responseType: 'blob',
+      }
+    );
+    return response.data;
+  }
+
+  async previewPDF(estimate: InsuranceEstimate): Promise<Blob> {
+    // Transform the estimate data to the format expected by the PDF endpoint
+    const pdfData = {
+      estimate_number: estimate.estimate_number || this.generateEstimateNumberFallback(),
+      estimate_date: estimate.estimate_date || new Date().toISOString().split('T')[0],
+      valid_until: estimate.valid_until,
+      company: {
+        name: estimate.company_name || 'Company Name Not Provided',
+        address: estimate.company_address || '',
+        city: estimate.company_city || '',
+        state: estimate.company_state || '',
+        zip: estimate.company_zipcode || '',
+        phone: estimate.company_phone || '',
+        email: estimate.company_email || ''
+      },
+      client: {
+        name: estimate.client_name || 'Client Name Not Provided',
+        address: estimate.client_address || '',
+        city: estimate.client_city || '',
+        state: estimate.client_state || '',
+        zip: estimate.client_zipcode || '',
+        phone: estimate.client_phone || '',
+        email: estimate.client_email || ''
+      },
+      items: estimate.items.map(item => ({
+        room: item.room || '',
+        description: item.item || 'No description', // Map 'item' to 'description' for PDF
+        quantity: item.quantity || 0,
+        unit: item.unit || 'ea',
+        rate: item.unit_price || 0 // Map 'unit_price' to 'rate' for PDF
+      })),
+      subtotal: estimate.subtotal || 0,
+      tax_rate: estimate.tax_rate || 0,
+      tax_amount: estimate.tax_amount || 0,
+      discount_amount: estimate.discount_amount || 0,
+      total_amount: estimate.total_amount || 0,
+      claim_number: estimate.claim_number,
+      policy_number: estimate.policy_number,
+      deductible: estimate.deductible,
+      notes: estimate.notes,
+      terms: estimate.terms
+    };
+
+    console.log('Sending PDF preview data:', pdfData);
+    
+    try {
+      const response = await apiClient.post('/api/estimates/preview-pdf', pdfData, {
+        responseType: 'blob',
+        timeout: 30000, // 30 second timeout
+      });
+      
+      // Validate that we received a PDF blob
+      if (!response.data || response.data.size === 0) {
+        throw new Error('Received empty PDF response');
+      }
+      
+      // Check if the blob is actually a PDF
+      if (response.data.type && !response.data.type.includes('pdf')) {
+        console.warn('Response type is not PDF:', response.data.type);
+        // Try to read as text to get error message
+        const text = await response.data.text();
+        console.error('Non-PDF response content:', text);
+        throw new Error('Server returned non-PDF response');
+      }
+      
+      console.log('PDF blob received:', {
+        size: response.data.size,
+        type: response.data.type
+      });
+      
+      return response.data;
+    } catch (error: any) {
+      console.error('PDF preview request failed:', error);
+      
+      // If we received a blob error response, try to read it
+      if (error.response?.data instanceof Blob) {
+        try {
+          const errorText = await error.response.data.text();
+          console.error('Error response content:', errorText);
+          throw new Error(`PDF generation failed: ${errorText}`);
+        } catch (readError) {
+          console.error('Could not read error response:', readError);
+        }
+      }
+      
+      throw error;
+    }
+  }
+
+  async previewHTML(estimate: InsuranceEstimate): Promise<string> {
+    // Transform the estimate data to the format expected by the HTML endpoint
+    const htmlData = {
+      estimate_number: estimate.estimate_number || this.generateEstimateNumberFallback(),
+      estimate_date: estimate.estimate_date || new Date().toISOString().split('T')[0],
+      valid_until: estimate.valid_until,
+      company: {
+        name: estimate.company_name || 'Company Name Not Provided',
+        address: estimate.company_address || '',
+        city: estimate.company_city || '',
+        state: estimate.company_state || '',
+        zip: estimate.company_zipcode || '',
+        phone: estimate.company_phone || '',
+        email: estimate.company_email || ''
+      },
+      client: {
+        name: estimate.client_name || 'Client Name Not Provided',
+        address: estimate.client_address || '',
+        city: estimate.client_city || '',
+        state: estimate.client_state || '',
+        zip: estimate.client_zipcode || '',
+        phone: estimate.client_phone || '',
+        email: estimate.client_email || ''
+      },
+      items: estimate.items.map(item => ({
+        room: item.room || '',
+        description: item.item || 'No description',
+        primary_group: item.primary_group || 'General',
+        quantity: item.quantity || 0,
+        unit: item.unit || 'ea',
+        rate: item.unit_price || 0,
+        note: item.note || ''
+      })),
+      subtotal: estimate.subtotal || 0,
+      tax_rate: estimate.tax_rate || 0,
+      tax_amount: estimate.tax_amount || 0,
+      discount_amount: estimate.discount_amount || 0,
+      total_amount: estimate.total_amount || 0,
+      claim_number: estimate.claim_number,
+      policy_number: estimate.policy_number,
+      deductible: estimate.deductible,
+      notes: estimate.notes,
+      terms: estimate.terms
+    };
+
+    console.log('Sending HTML preview data:', htmlData);
+    
+    try {
+      const response = await apiClient.post('/api/estimates/preview-html', htmlData, {
+        timeout: 30000, // 30 second timeout
+      });
+      
+      return response.data;
+    } catch (error: any) {
+      console.error('Error generating HTML preview:', error);
+      if (error.response?.status === 500) {
+        throw new Error(`Server error: ${error.response?.data?.detail || 'Unknown error'}`);
+      }
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Request timed out. Please try again.');
+      }
+      throw new Error(`Failed to generate HTML preview: ${error.message}`);
+    }
+  }
+
+  async searchLineItems(searchText: string): Promise<any[]> {
+    try {
+      const response = await apiClient.get('/api/line-items/search', {
+        params: { q: searchText }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error searching line items:', error);
+      return [];
+    }
+  }
+
+  // Generate estimate number using the new API
+  async generateEstimateNumber(companyId?: string, estimateType?: string): Promise<string> {
+    try {
+      const params = new URLSearchParams();
+      if (companyId) params.append('company_id', companyId);
+      if (estimateType) params.append('estimate_type', estimateType);
+      
+      const response = await apiClient.get(`/api/estimates/generate-number?${params.toString()}`);
+      return response.data.estimate_number;
+    } catch (error) {
+      console.error('Failed to generate estimate number from API, using fallback:', error);
+      // Fallback to local generation
+      return this.generateEstimateNumberFallback();
+    }
+  }
+
+  // Fallback method for estimate number generation
+  private generateEstimateNumberFallback(): string {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `EST-${year}${month}${day}-${random}`;
+  }
+
+  calculateTotals(items: EstimateLineItem[]) {
+    const subtotal = items.reduce((sum, item) => sum + (item.total || 0), 0);
+    const rcvTotal = subtotal;
+    
+    return {
+      subtotal,
+      rcv_total: rcvTotal,
+    };
+  }
+
+  downloadPDF(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+}
+
+export const estimateService = new EstimateService();

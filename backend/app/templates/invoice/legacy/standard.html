@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice #{{ invoice_number }}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #111827;
+            background: white;
+        }
+        
+        .invoice-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: white;
+        }
+        
+        /* Header with Logo */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 24px;
+        }
+        
+        .header-left {
+            flex: 1;
+            text-align: left;
+        }
+        
+        .invoice-title {
+            font-size: 48px;
+            font-weight: 600;
+            margin-bottom: 24px;
+            letter-spacing: -0.02em;
+        }
+        
+        .invoice-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-bottom: 12px;
+        }
+        
+        .invoice-meta-row {
+            display: flex;
+            align-items: baseline;
+        }
+        
+        .invoice-meta-item {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+        
+        .invoice-meta-label {
+            font-size: 13px;
+            color: #6B7280;
+            min-width: 100px;
+        }
+        
+        .invoice-meta-value {
+            font-size: 14px;
+            font-weight: 500;
+            color: #111827;
+        }
+        
+        .company-logo-container {
+            max-width: 180px;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+        }
+        
+        .company-logo {
+            max-width: 100%;
+            max-height: 60px;
+            height: auto;
+            object-fit: contain;
+        }
+        
+        /* Company and Client Sections */
+        .info-section {
+            display: flex;
+            gap: 80px;
+            margin-bottom: 40px;
+        }
+        
+        .company-section, .client-section {
+            flex: 1;
+        }
+        
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 12px;
+        }
+        
+        .company-name {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .info-line {
+            font-size: 14px;
+            color: #374151;
+            line-height: 1.5;
+        }
+        
+        /* Amount Due Banner */
+        .amount-due-banner {
+            padding: 10px 0;
+            margin-bottom: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #E5E7EB;
+        }
+        
+        .amount-due-text {
+            font-size: 18px;
+            font-weight: 600;
+            color: #111827;
+        }
+        
+        /* Items Table */
+        .items-section {
+            margin-bottom: 32px;
+        }
+        
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .items-table thead {
+            border-bottom: 2px solid #E5E7EB;
+        }
+        
+        .items-table th {
+            text-align: left;
+            padding: 12px 0;
+            font-size: 12px;
+            font-weight: 600;
+            color: #111827;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .items-table th.text-right,
+        .items-table td.text-right {
+            text-align: right;
+        }
+        
+        .items-table tbody tr {
+            /* border removed for cleaner look */
+        }
+        
+        .items-table td {
+            padding: 10px 0;
+            font-size: 14px;
+            color: #374151;
+        }
+        
+        .item-name {
+            font-weight: 500;
+            color: #111827;
+            margin-bottom: 4px;
+        }
+        
+        .item-description {
+            font-size: 13px;
+            color: #6B7280;
+            line-height: 1.4;
+        }
+        
+        /* Totals */
+        .totals-section {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 48px;
+        }
+        
+        .totals-container {
+            width: 300px;
+        }
+        
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            font-size: 14px;
+        }
+        
+        .total-row.subtotal {
+            padding-top: 8px;
+        }
+        
+        .total-row.grand-total {
+            border-top: 1px solid #111827;
+            padding-top: 8px;
+            margin-top: 4px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        
+        .total-label {
+            color: #6B7280;
+        }
+        
+        .total-value {
+            color: #111827;
+            font-weight: 500;
+        }
+        
+        .grand-total .total-label,
+        .grand-total .total-value {
+            color: #111827;
+            font-weight: 600;
+        }
+        
+        /* Insurance Section */
+        .insurance-section {
+            padding: 20px 0;
+            margin-bottom: 32px;
+            border-bottom: 1px solid #E5E7EB;
+        }
+        
+        .insurance-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 12px;
+        }
+        
+        .insurance-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        
+        .insurance-item {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .insurance-label {
+            font-size: 13px;
+            color: #6B7280;
+        }
+        
+        .insurance-value {
+            font-size: 13px;
+            font-weight: 500;
+            color: #374151;
+        }
+        
+        /* Notes and Terms */
+        .notes-section, .terms-section {
+            margin-bottom: 32px;
+            page-break-inside: avoid;
+        }
+        
+        .section-heading {
+            font-size: 14px;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .section-content {
+            font-size: 14px;
+            color: #374151;
+            line-height: 1.8;
+            white-space: pre-wrap;
+        }
+        
+        /* Markdown-style formatting for notes */
+        .section-content strong {
+            font-weight: 600;
+            color: #111827;
+        }
+        
+        .section-content em {
+            font-style: italic;
+        }
+        
+        .section-content u {
+            text-decoration: underline;
+        }
+        
+        .section-content p {
+            margin-bottom: 12px;
+        }
+        
+        .section-content p:last-child {
+            margin-bottom: 0;
+        }
+        
+        .section-content ul,
+        .section-content ol {
+            margin-left: 20px;
+            margin-bottom: 12px;
+        }
+        
+        .section-content li {
+            margin-bottom: 4px;
+        }
+        
+        .section-content h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #111827;
+            margin-top: 16px;
+            margin-bottom: 8px;
+        }
+        
+        .section-content h4 {
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+            margin-top: 12px;
+            margin-bottom: 6px;
+        }
+        
+        /* Footer */
+        .footer {
+            margin-top: 64px;
+            padding-top: 24px;
+            border-top: 1px solid #E5E7EB;
+            text-align: center;
+        }
+        
+        .footer-text {
+            font-size: 13px;
+            color: #6B7280;
+            margin-bottom: 4px;
+        }
+        
+        .footer-website {
+            font-size: 13px;
+            color: #2563EB;
+        }
+        
+        /* Print Styles */
+        @media print {
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            
+            .invoice-container {
+                padding: 10px;
+            }
+            
+            .amount-due-banner {
+                break-inside: avoid;
+            }
+            
+            .items-table {
+                break-inside: avoid;
+            }
+            
+            .notes-section,
+            .terms-section {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="invoice-container">
+        <!-- Header with Logo -->
+        <div class="header">
+            <div class="header-left">
+                <h1 class="invoice-title">Invoice</h1>
+                
+                <div class="invoice-meta">
+                    <div class="invoice-meta-item">
+                        <span class="invoice-meta-label">Invoice number</span>
+                        <span class="invoice-meta-value">{{ invoice_number }}</span>
+                    </div>
+                    <div class="invoice-meta-item">
+                        <span class="invoice-meta-label">Date of issue</span>
+                        <span class="invoice-meta-value">{{ date }}</span>
+                    </div>
+                    <div class="invoice-meta-item">
+                        <span class="invoice-meta-label">Date due</span>
+                        <span class="invoice-meta-value">{{ due_date }}</span>
+                    </div>
+                </div>
+            </div>
+            
+            {% if company.logo %}
+            <div class="company-logo-container">
+                <img src="{{ company.logo }}" alt="{{ company.name }}" class="company-logo">
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Company and Client Information -->
+        <div class="info-section">
+            <div class="company-section">
+                <div class="company-name">{{ company.name }}</div>
+                {% if company.address %}
+                <div class="info-line">{{ company.address }}</div>
+                {% endif %}
+                {% if company.city or company.state or company.zip %}
+                <div class="info-line">{{ company.city }}{% if company.city and company.state %}, {% endif %}{{ company.state }} {{ company.zip }}</div>
+                {% endif %}
+                {% if company.phone %}
+                <div class="info-line">{{ company.phone }}</div>
+                {% endif %}
+                {% if company.email %}
+                <div class="info-line">{{ company.email }}</div>
+                {% endif %}
+                {% if company.website %}
+                <div class="info-line">{{ company.website }}</div>
+                {% endif %}
+            </div>
+            
+            <div class="client-section">
+                <div style="font-size: 14px; font-weight: 600; color: #111827; margin-bottom: 12px;">Bill to</div>
+                <div class="company-name">{{ client.name }}</div>
+                {% if client.address %}
+                <div class="info-line">{{ client.address }}</div>
+                {% endif %}
+                {% if client.city or client.state or client.zip %}
+                <div class="info-line">{{ client.city }}{% if client.city and client.state %}, {% endif %}{{ client.state }} {{ client.zip }}</div>
+                {% endif %}
+                {% if client.phone %}
+                <div class="info-line">{{ client.phone }}</div>
+                {% endif %}
+                {% if client.email %}
+                <div class="info-line">{{ client.email }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Amount Due Banner -->
+        <div class="amount-due-banner">
+            <span class="amount-due-text">
+                {% if balance_due is defined %}
+                    {% if balance_due > 0 %}
+                    ${{ '{:,.2f}'.format(balance_due) }} USD due {{ due_date }}
+                    {% elif balance_due < 0 %}
+                    ${{ '{:,.2f}'.format(abs(balance_due)) }} USD overpaid
+                    {% else %}
+                    Paid in full
+                    {% endif %}
+                {% else %}
+                ${{ '{:,.2f}'.format(total) }} USD due {{ due_date }}
+                {% endif %}
+            </span>
+        </div>
+
+        <!-- Insurance Information (Optional) -->
+        {% if insurance and (insurance.company or insurance.policy_number or insurance.claim_number) %}
+        <div class="insurance-section">
+            <div class="insurance-title">Insurance Information</div>
+            <div class="insurance-details">
+                {% if insurance.company %}
+                <div class="insurance-item">
+                    <span class="insurance-label">Company:</span>
+                    <span class="insurance-value">{{ insurance.company }}</span>
+                </div>
+                {% endif %}
+                {% if insurance.policy_number %}
+                <div class="insurance-item">
+                    <span class="insurance-label">Policy #:</span>
+                    <span class="insurance-value">{{ insurance.policy_number }}</span>
+                </div>
+                {% endif %}
+                {% if insurance.claim_number %}
+                <div class="insurance-item">
+                    <span class="insurance-label">Claim #:</span>
+                    <span class="insurance-value">{{ insurance.claim_number }}</span>
+                </div>
+                {% endif %}
+                {% if insurance.deductible %}
+                <div class="insurance-item">
+                    <span class="insurance-label">Deductible:</span>
+                    <span class="insurance-value">${{ '{:,.2f}'.format(insurance.deductible) }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Invoice Items -->
+        <div class="items-section">
+            <table class="items-table">
+                <thead>
+                    <tr>
+                        <th style="width: 50%;">Description</th>
+                        <th style="width: 15%;" class="text-right">Qty</th>
+                        <th style="width: 17.5%;" class="text-right">Unit price</th>
+                        <th style="width: 17.5%;" class="text-right">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td>
+                            <div class="item-name">{{ item.name }}</div>
+                            {% if item.description %}
+                            <div class="item-description">{{ item.description }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="text-right">{{ item.quantity }}{% if item.unit %} {{ item.unit }}{% endif %}</td>
+                        <td class="text-right">${{ '{:,.2f}'.format(item.rate) }}</td>
+                        <td class="text-right">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Totals Section -->
+        <div class="totals-section">
+            <div class="totals-container">
+                <div class="total-row subtotal">
+                    <span class="total-label">Subtotal</span>
+                    <span class="total-value">${{ '{:,.2f}'.format(subtotal) }}</span>
+                </div>
+                
+                {% if discount and discount > 0 %}
+                <div class="total-row">
+                    <span class="total-label">Discount</span>
+                    <span class="total-value">-${{ '{:,.2f}'.format(discount) }}</span>
+                </div>
+                {% endif %}
+                
+                {% if tax_amount and tax_amount > 0 %}
+                <div class="total-row">
+                    <span class="total-label">Tax{% if tax_method == 'percentage' and tax_rate %} ({{ tax_rate }}%){% endif %}</span>
+                    <span class="total-value">${{ '{:,.2f}'.format(tax_amount) }}</span>
+                </div>
+                {% endif %}
+                
+                <div class="total-row grand-total">
+                    <span class="total-label">Total</span>
+                    <span class="total-value">${{ '{:,.2f}'.format(total) }}</span>
+                </div>
+                
+                {% if payments and payments|length > 0 %}
+                    {% for payment in payments %}
+                    <div class="total-row">
+                        <span class="total-label">
+                            Paid{% if show_payment_dates and payment.date %} ({{ payment.date }}){% endif %}
+                            {% if payment.method %} - {{ payment.method|title }}{% endif %}
+                        </span>
+                        <span class="total-value">${{ '{:,.2f}'.format(payment.amount) }}</span>
+                    </div>
+                    {% endfor %}
+                    <div class="total-row grand-total">
+                        <span class="total-label">Balance Due</span>
+                        <span class="total-value">${{ '{:,.2f}'.format(balance_due) }} USD</span>
+                    </div>
+                {% else %}
+                <div class="total-row grand-total">
+                    <span class="total-label">Amount due</span>
+                    <span class="total-value">${{ '{:,.2f}'.format(total) }} USD</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Payment Terms -->
+        {% if payment_terms %}
+        <div class="terms-section">
+            <div class="section-heading">Payment Terms</div>
+            <div class="section-content">{{ payment_terms | safe }}</div>
+        </div>
+        {% endif %}
+
+        <!-- Notes (with markdown support) -->
+        {% if notes %}
+        <div class="notes-section">
+            <div class="section-heading">Notes</div>
+            <div class="section-content">{{ notes | safe }}</div>
+        </div>
+        {% endif %}
+
+        <!-- Footer -->
+        <div class="footer">
+            <div class="footer-text">Thank you for your business!</div>
+            {% if company.website %}
+            <div class="footer-website">{{ company.website }}</div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

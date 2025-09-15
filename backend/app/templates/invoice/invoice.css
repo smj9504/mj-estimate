@@ -1,0 +1,241 @@
+/* Invoice-specific styles */
+
+/* Bill To Section */
+.billing-section {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 40px;
+}
+
+.bill-to, .bill-from {
+  flex: 1;
+  padding: 20px;
+  background: #f9fafb;
+  border-radius: 8px;
+  margin-right: 20px;
+}
+
+.bill-from {
+  margin-right: 0;
+  margin-left: 20px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: bold;
+  color: #1f2937;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.client-name {
+  font-size: 18px;
+  font-weight: bold;
+  color: #111827;
+  margin-bottom: 8px;
+}
+
+.client-details {
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.client-type-badge {
+  display: inline-block;
+  background: #dbeafe;
+  color: #1e40af;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-top: 4px;
+}
+
+/* Top Note */
+.top-note {
+  background: #fef3c7;
+  border-left: 4px solid #f59e0b;
+  padding: 16px;
+  margin-bottom: 30px;
+  border-radius: 0 8px 8px 0;
+}
+
+.top-note p {
+  margin: 0;
+  color: #92400e;
+  font-style: italic;
+}
+
+/* Amount Due Banner */
+.amount-due-banner {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  color: white;
+  padding: 20px;
+  text-align: center;
+  margin-bottom: 30px;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.amount-due-text {
+  font-size: 24px;
+  font-weight: bold;
+  margin: 0;
+}
+
+.amount-due-banner.paid {
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+}
+
+/* Payment History */
+.payments-section {
+  margin-bottom: 30px;
+}
+
+.payments-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.payments-table th {
+  background: #10b981;
+  color: white;
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.payments-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.payment-amount {
+  color: #059669;
+  font-weight: bold;
+}
+
+.no-date {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* Totals Section */
+.totals-section {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 30px;
+}
+
+.totals-table {
+  width: 350px;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.totals-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.totals-row:last-child {
+  border-bottom: none;
+}
+
+.totals-row.subtotal {
+  background: #f9fafb;
+}
+
+.totals-row.tax {
+  background: #fef3c7;
+}
+
+.totals-row.total {
+  background: #1e40af;
+  color: white;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.totals-row.paid {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.totals-row.due {
+  background: #fee2e2;
+  color: #991b1b;
+  font-weight: bold;
+  font-size: 18px;
+}
+
+.totals-row.due.paid-in-full {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+/* Footer Section */
+.footer-section {
+  margin-top: 40px;
+}
+
+.bottom-note, .disclaimer {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.bottom-note h4, .disclaimer h4 {
+  color: #1e40af;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.bottom-note p, .disclaimer p {
+  margin: 0;
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.disclaimer p {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .billing-section {
+    flex-direction: column;
+  }
+  
+  .bill-to, .bill-from {
+    margin-right: 0;
+    margin-left: 0;
+    margin-bottom: 16px;
+  }
+  
+  .totals-table {
+    width: 100%;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .amount-due-banner {
+    -webkit-print-color-adjust: exact;
+    color-adjust: exact;
+  }
+}

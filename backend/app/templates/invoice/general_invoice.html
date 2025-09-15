@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Invoice</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      color: #000;
+      margin: 5px;
+    }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 20px;
+    }
+    .company-logo {
+      text-align: right;
+    }
+    .logo {
+      max-width: 150px;
+      max-height: 100px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+    }
+    .invoice-meta {
+      line-height: 1.3;
+      margin-top: 0;
+      margin-bottom: 0;
+      font-size: 12px;
+    }
+    .invoice-meta h1 {
+      margin-top: 0;
+      margin-bottom: 5px;
+      font-size: 24px;
+    }
+    .invoice-meta p {
+      margin: 2px 0;
+    }
+    .address-section {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 20px;
+    }
+    .address-section p {
+      margin: 2px 0;
+    }
+    .company-info, .client-info {
+      width: 45%;
+    }
+    .amount-due {
+      margin: 30px 0px 20px 0px;
+      font-weight: bold;
+    }
+    .line-header {
+      font-weight: bold;
+      border-bottom: 1px solid #000;
+      margin-top: 30px;
+      padding-bottom: 6px;
+      display: flex;
+    }
+    .line-row {
+      display: flex;
+      padding: 4px 0;
+    }
+    .col-item { width: 55%; }
+    .col-qty  { width: 10%; text-align: right; }
+    .col-unit  { width: 5%; text-align: right; }
+    .col-price { width: 15%; text-align: right; }
+    .col-total { width: 15%; text-align: right; }
+    .col-desc { width: 80%; }
+    .col-desc {
+      font-style: italic;
+      font-size: 11px;
+      color: #555;
+      margin-left: 30px;
+      margin-top: 2px;
+    }
+    .section-title {
+      margin-top: 20px;
+      margin-bottom: 4px;
+      font-weight: bold;
+      font-size: 13px;
+      color: #333;
+    }
+    .subtotal {
+      text-align: right;
+      font-weight: bold;
+      padding-top: 7px;
+      border-top: 1px solid #ccc;
+      margin-bottom: 10px;
+    }
+    .footer-total {
+      text-align: right;
+      font-size: 14px;
+      margin-top: 30px;
+    }
+    .payments {
+      margin-top: 10px;
+    }
+    .payments ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+    .note, .disclaimer {
+      font-size: 11px;
+      color: #555;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header-top">
+    <div class="invoice-meta">
+        <h1>Invoice</h1>
+        <p><strong>Invoice number</strong> {{ invoice_number }}</p>
+        <p>Date of issue: {{ date }}</p>
+        <p>Date due: {{ due_date }}</p>
+    </div>
+
+    <div class="company-logo">
+        {% if company.logo %}
+            <img src="{{ company.logo }}" alt="Company Logo" class="logo">
+        {% endif %}
+    </div>
+</div>
+
+<div class="address-section">
+    <div class="company-info">
+      <p><strong>{{ company.name }}</strong></p>
+      {% if company.address %}<p>{{ company.address }}</p>{% endif %}
+      {% if company.city or company.state or company.zip %}
+      <p>{{ company.city }}{% if company.city and company.state %}, {% endif %}{{ company.state }} {{ company.zip }}</p>
+      {% endif %}
+      {% if company.phone %}<p>{{ company.phone }}</p>{% endif %}
+      {% if company.email %}<p>{{ company.email }}</p>{% endif %}
+    </div>
+    <div class="client-info">
+      <p><strong>Bill to</strong></p>
+      <p>{{ client.name }}</p>
+      {% if client.address %}<p>{{ client.address }}</p>{% endif %}
+      {% if client.city or client.state or client.zip %}
+      <p>{{ client.city }}{% if client.city and client.state %}, {% endif %}{{ client.state }} {{ client.zip }}</p>
+      {% endif %}
+      {% if client.phone %}<p>{{ client.phone }}</p>{% endif %}
+      {% if client.email %}<p>{{ client.email }}</p>{% endif %}
+    </div>
+</div>
+
+<div class="amount-due">
+  <h3>${{ '{:,.2f}'.format(total) }} USD due {{ due_date }}</h3>
+</div>
+
+{% if notes %}
+<p>{{ notes }}</p>
+{% endif %}
+
+<div class="line-header">
+    <div class="col-item">Item</div>
+    <div class="col-qty">Qty</div>
+    <div class="col-unit">Unit</div>
+    <div class="col-price">Price</div>
+    <div class="col-total">Total</div>
+</div>
+
+{% for item in items %}
+<div class="line-row">
+  <div class="col-item">{{ item.name }}</div>
+  <div class="col-qty">{{ item.quantity }}</div>
+  <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
+  <div class="col-price">${{ '{:,.2f}'.format(item.rate) }}</div>
+  <div class="col-total">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</div>
+</div>
+
+{% if item.description %}
+  <div class="col-desc">{{ item.description.replace('\n', '<br>') | safe }}</div>
+{% endif %}
+{% endfor %}
+
+<div class="footer-total">
+{% if discount and discount > 0 %}
+  <p>Discount: -${{ '{:,.2f}'.format(discount) }}</p>
+{% endif %}
+
+<p>Subtotal: ${{ '{:,.2f}'.format(subtotal) }}</p>
+
+{% if tax_amount and tax_amount > 0 %}
+  {% if tax_method == 'percentage' and tax_rate %}
+    <p>Tax ({{ tax_rate }}%): ${{ '{:,.2f}'.format(tax_amount) }}</p>
+  {% else %}
+    <p>Tax: ${{ '{:,.2f}'.format(tax_amount) }}</p>
+  {% endif %}
+  <p><strong>Total with Tax: ${{ '{:,.2f}'.format(total) }}</strong></p>
+{% else %}
+  <p><strong>Total: ${{ '{:,.2f}'.format(subtotal) }}</strong></p>
+{% endif %}
+
+{% if payments and payments|length > 0 %}
+  <div class="payments">
+    <p><strong>Payments Received:</strong></p>
+    <ul style="list-style: none; padding-left: 0;">
+      {% for payment in payments %}
+      <li>
+        {% if payment.date %}
+          <span style="color: #888888; font-style: italic;">({{ payment.date }})</span>
+        {% endif %}
+        <strong>-${{ '{:,.2f}'.format(payment.amount) }}</strong>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+<p><strong>Amount Due: ${{ '{:,.2f}'.format(total) }}</strong></p>
+</div>
+
+{% if payment_terms %}
+  <p class="note">{{ payment_terms | safe }}</p>
+{% endif %}
+
+</body>
+</html>

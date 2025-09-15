@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Invoice</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            font-size: 14px;
+            line-height: 1.5;
+            color: #333;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 30px;
+        }
+
+        .invoice-meta h1 {
+            font-size: 36px;
+            margin: 0 0 20px 0;
+            color: #333;
+        }
+
+        .invoice-meta p {
+            margin: 5px 0;
+            color: #666;
+        }
+
+        .company-logo .logo {
+            max-width: 200px;
+            max-height: 80px;
+        }
+
+        .address-section {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 30px;
+        }
+
+        .company-info, .client-info {
+            width: 45%;
+        }
+
+        .company-info p, .client-info p {
+            margin: 5px 0;
+        }
+
+        .company-info strong, .client-info strong {
+            font-size: 16px;
+        }
+
+        .amount-due {
+            background-color: #f8f9fa;
+            padding: 15px;
+            margin: 20px 0;
+            border-left: 4px solid #007bff;
+        }
+
+        .amount-due h3 {
+            margin: 0;
+            color: #007bff;
+            font-size: 20px;
+        }
+
+        .line-header {
+            display: flex;
+            background-color: #f1f3f4;
+            padding: 12px 0;
+            border-bottom: 2px solid #dee2e6;
+            font-weight: bold;
+        }
+
+        .col-item { width: 40%; padding: 0 10px; }
+        .col-qty { width: 10%; padding: 0 10px; text-align: center; }
+        .col-unit { width: 10%; padding: 0 10px; text-align: center; }
+        .col-price { width: 20%; padding: 0 10px; text-align: right; }
+        .col-total { width: 20%; padding: 0 10px; text-align: right; }
+
+        .section-title {
+            font-weight: bold;
+            margin: 20px 0 10px 0;
+            padding: 8px 10px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+        }
+
+        .line-row {
+            display: flex;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .col-desc {
+            padding: 5px 10px;
+            color: #666;
+            font-style: italic;
+            margin-left: 40%;
+        }
+
+        .subtotal {
+            text-align: right;
+            margin: 15px 0;
+            font-weight: bold;
+            padding-right: 10px;
+        }
+
+        .footer-total {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .footer-total p {
+            margin: 8px 0;
+            text-align: right;
+        }
+
+        .footer-total strong {
+            font-size: 16px;
+        }
+
+        .payments {
+            margin: 15px 0;
+            padding: 15px;
+            background-color: #e8f5e8;
+            border-radius: 4px;
+        }
+
+        .payments ul {
+            list-style: none;
+            padding-left: 0;
+            margin: 10px 0 0 0;
+        }
+
+        .payments li {
+            margin: 5px 0;
+            text-align: right;
+        }
+
+        .note {
+            margin-top: 30px;
+            padding: 15px;
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+
+        .disclaimer {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header-top">
+    <div class="invoice-meta">
+        <h1>Invoice</h1>
+        <p><strong>Invoice number</strong> {{ invoice_number }}</p>
+        <p>Date of issue: {{ date }}</p>
+        <p>Date due: {{ due_date }}</p>
+    </div>
+
+    <div class="company-logo">
+        {% if company.logo %}
+            <img src="{{ company.logo }}" alt="Company Logo" class="logo">
+        {% endif %}
+    </div>
+</div>
+
+<div class="address-section">
+    <div class="company-info">
+        <p><strong>{{ company.name }}</strong></p>
+        {% if company.address %}<p>{{ company.address }}</p>{% endif %}
+        {% if company.city or company.state or company.zip %}
+        <p>{{ company.city }}{% if company.city and company.state %}, {% endif %}{{ company.state }} {{ company.zip }}</p>
+        {% endif %}
+        {% if company.phone %}<p>{{ company.phone }}</p>{% endif %}
+        {% if company.email %}<p>{{ company.email }}</p>{% endif %}
+    </div>
+    <div class="client-info">
+        <p><strong>Bill to</strong></p>
+        <p>{{ client.name }}</p>
+        {% if client.address %}<p>{{ client.address }}</p>{% endif %}
+        {% if client.city or client.state or client.zip %}
+        <p>{{ client.city }}{% if client.city and client.state %}, {% endif %}{{ client.state }} {{ client.zip }}</p>
+        {% endif %}
+        {% if client.phone %}<p>{{ client.phone }}</p>{% endif %}
+        {% if client.email %}<p>{{ client.email }}</p>{% endif %}
+    </div>
+</div>
+
+<div class="amount-due">
+    <h3>${{ '{:,.2f}'.format(total) }} USD due {{ due_date }}</h3>
+</div>
+
+{% if notes %}
+<p>{{ notes }}</p>
+{% endif %}
+
+<div class="line-header">
+    <div class="col-item">Item</div>
+    <div class="col-qty">Qty</div>
+    <div class="col-unit">Unit</div>
+    <div class="col-price">Price</div>
+    <div class="col-total">Total</div>
+</div>
+
+{% for item in items %}
+<div class="line-row">
+    <div class="col-item">{{ item.name }}</div>
+    <div class="col-qty">{{ item.quantity }}</div>
+    <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
+    <div class="col-price">${{ '{:,.2f}'.format(item.rate) }}</div>
+    <div class="col-total">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</div>
+</div>
+{% if item.description %}
+<div class="col-desc">{{ item.description }}</div>
+{% endif %}
+{% endfor %}
+
+<div class="footer-total">
+    {% if discount and discount > 0 %}
+    <p>Discount: -${{ '{:,.2f}'.format(discount) }}</p>
+    {% endif %}
+
+    <p>Subtotal: ${{ '{:,.2f}'.format(subtotal) }}</p>
+    
+    {% if tax_amount and tax_amount > 0 %}
+    <p>Tax{% if tax_method == 'percentage' and tax_rate %} ({{ tax_rate }}%){% endif %}: ${{ '{:,.2f}'.format(tax_amount) }}</p>
+    <p><strong>Total with Tax: ${{ '{:,.2f}'.format(total) }}</strong></p>
+    {% else %}
+    <p><strong>Total: ${{ '{:,.2f}'.format(subtotal) }}</strong></p>
+    {% endif %}
+
+    {% if payments and payments|length > 0 %}
+    <div class="payments">
+        <p><strong>Payments Received:</strong></p>
+        <ul>
+            {% for payment in payments %}
+            <li>
+                {% if payment.date %}
+                <span style="color: #888888; font-style: italic;">({{ payment.date }})</span>
+                {% endif %}
+                <strong>-${{ '{:,.2f}'.format(payment.amount) }}</strong>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <p><strong>Amount Due: ${{ '{:,.2f}'.format(total) }}</strong></p>
+</div>
+
+{% if payment_terms %}
+<div class="note">
+    <strong>Payment Terms:</strong><br>
+    {{ payment_terms }}
+</div>
+{% endif %}
+
+</body>
+</html>

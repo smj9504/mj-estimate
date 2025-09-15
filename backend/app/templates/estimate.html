@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Estimate</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+      font-size: 12px;
+      color: #000;
+      margin: 10px;
+    }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 20px;
+    }
+    .company-logo {
+      text-align: right;
+    }
+    .logo {
+      max-height: 60px;
+      max-width: 150px;
+    }
+    .invoice-meta {
+      line-height: 1.3;
+      margin-top: 5px;
+      margin-bottom: 0;
+      font-size: 12px;
+    }
+    .invoice-meta h1 {
+      margin: 0 0 10px 0;
+      font-size: 24px;
+    }
+    .invoice-meta p {
+      margin: 2px 0;
+    }
+    .address-section {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 20px;
+    }
+    .address-section p {
+      margin: 2px 0;
+    }
+    .company-info, .client-info {
+      width: 45%;
+    }
+    .amount-due-note {
+      margin-top: 30px;
+      font-weight: bold;
+    }
+    .line-header {
+      font-weight: bold;
+      border-bottom: 1px solid #000;
+      margin-top: 30px;
+      padding-bottom: 6px;
+      display: flex;
+    }
+    .line-row {
+      display: flex;
+      padding: 4px 0;
+    }
+    .col-item { width: 55%; }
+    .col-qty  { width: 10%; text-align: right; }
+    .col-unit  { width: 5%; text-align: right; }
+    .col-price { width: 15%; text-align: right; }
+    .col-total { width: 15%; text-align: right; }
+    .col-desc { 
+      width: 90%; 
+      font-style: italic;
+      font-size: 11px;
+      color: #555;
+      margin-left: 30px;
+      margin-top: 2px;
+    }
+    .section-title {
+      margin-top: 20px;
+      margin-bottom: 4px;
+      font-weight: bold;
+      font-size: 13px;
+      color: #333;
+    }
+    .subtotal {
+      text-align: right;
+      font-weight: bold;
+      padding-top: 7px;
+      border-top: 1px solid #ccc;
+      margin-bottom: 10px;
+    }
+    .footer-total {
+      text-align: right;
+      font-size: 12px;
+      margin-top: 30px;
+    }
+    .footer-total p.total {
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .note, .disclaimer {
+      font-size: 11px;
+      color: #555;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header-top">
+  <div class="invoice-meta">
+    <h1>Estimate</h1>
+    <p><strong>Estimate number</strong> {{ estimate_number }}</p>
+    <p>Estimate Date: {{ estimate_date | format_date }}</p>
+    {% if valid_until %}
+    <p>Valid Until: {{ valid_until | format_date }}</p>
+    {% endif %}
+  </div>
+
+  <div class="company-logo">
+    {% if company.logo %}
+    <img src="{{ company.logo }}" alt="{{ company.name }}" class="logo">
+    {% endif %}
+  </div>
+</div>
+
+<div class="address-section">
+  <div class="company-info">
+    <p><strong>{{ company.name or "Company Name Not Provided" }}</strong></p>
+    {% if company.address %}
+    <p>{{ company.address }}</p>
+    {% endif %}
+    {% if company.city or company.state or company.zip %}
+    <p>{{ company.city }}{% if company.city and company.state %}, {% endif %}{{ company.state }} {{ company.zip }}</p>
+    {% endif %}
+    {% if company.phone %}
+    <p>{{ company.phone }}</p>
+    {% endif %}
+    {% if company.email %}
+    <p>{{ company.email }}</p>
+    {% endif %}
+  </div>
+  <div class="client-info">
+    <p><strong>Estimate for</strong></p>
+    <p>{{ client.name }}</p>
+    {% if client.address %}
+    <p>{{ client.address }}</p>
+    {% endif %}
+    {% if client.city or client.state or client.zip %}
+    <p>{{ client.city }}{% if client.city and client.state %}, {% endif %}{{ client.state }} {{ client.zip }}</p>
+    {% endif %}
+    {% if client.phone %}
+    <p>{{ client.phone }}</p>
+    {% endif %}
+    {% if client.email %}
+    <p>{{ client.email }}</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Insurance Information (if available) -->
+{% if claim_number or policy_number or deductible %}
+<div class="amount-due-note">
+  {% if claim_number %}<p>Claim #: {{ claim_number }}</p>{% endif %}
+  {% if policy_number %}<p>Policy #: {{ policy_number }}</p>{% endif %}
+  {% if deductible %}<p>Deductible: ${{ '{:,.2f}'.format(deductible) }}</p>{% endif %}
+</div>
+{% endif %}
+
+<div class="line-header">
+  <div class="col-item">Item</div>
+  <div class="col-qty">Qty</div>
+  <div class="col-unit">Unit</div>
+  <div class="col-price">Price</div>
+  <div class="col-total">Total</div>
+</div>
+
+<!-- Group items by primary_group if available -->
+{% set grouped_items = {} %}
+{% for item in items %}
+  {% set group = item.primary_group or 'General' %}
+  {% if group not in grouped_items %}
+    {% set _ = grouped_items.update({group: []}) %}
+  {% endif %}
+  {% set _ = grouped_items[group].append(item) %}
+{% endfor %}
+
+{% set item_counter = namespace(value=0) %}
+{% for group_name, group_items in grouped_items.items() %}
+  {% if grouped_items.keys() | length > 1 %}
+  <div class="section-title">{{ group_name }}</div>
+  {% endif %}
+
+  {% for item in group_items %}
+    {% set item_counter.value = item_counter.value + 1 %}
+    <div class="line-row">
+      <div class="col-item">{{ item_counter.value }}. {{ item.description }}</div>
+      <div class="col-qty">{{ '{:,.2f}'.format(item.quantity) }}</div>
+      <div class="col-unit">{{ item.unit or 'ea' }}</div>
+      <div class="col-price">${{ '{:,.2f}'.format(item.rate) }}</div>
+      <div class="col-total">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</div>
+    </div>
+    {% if item.note %}
+    <div>
+      <p class="col-desc">{{ item.note | safe }}</p>
+    </div>
+    {% endif %}
+  {% endfor %}
+
+  <!-- Show subtotal for each group if more than one group -->
+  {% if grouped_items.keys() | length > 1 %}
+    {% set group_subtotal = group_items | sum(attribute='quantity') * group_items | sum(attribute='rate') %}
+    <p class="subtotal">Subtotal: ${{ '{:,.2f}'.format(group_items | sum(attribute='quantity') * group_items[0].rate if group_items else 0) }}</p>
+  {% endif %}
+{% endfor %}
+
+<div class="footer-total">
+  <p>Subtotal: ${{ '{:,.2f}'.format(subtotal) }}</p>
+  {% if discount_amount and discount_amount > 0 %}
+    <p>Discount: -${{ '{:,.2f}'.format(discount_amount) }}</p>
+  {% endif %}
+  {% if tax_amount and tax_amount > 0 %}
+    <p>Sales Tax{% if tax_rate %} ({{ tax_rate }}%){% endif %}: ${{ '{:,.2f}'.format(tax_amount) }}</p>
+  {% endif %}
+  <p class="total">Estimate Total: ${{ '{:,.2f}'.format(total_amount) }}</p>
+</div>
+
+{% if notes %}
+  <p class="note">{{ notes | safe }}</p>
+{% endif %}
+
+{% if terms %}
+  <p class="disclaimer">{{ terms | safe }}</p>
+{% endif %}
+
+</body>
+</html>
