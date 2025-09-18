@@ -508,9 +508,40 @@ async def calculate_work_order_cost(
         raise HTTPException(status_code=500, detail=f"Error calculating cost: {str(e)}")
 
 
+@router.get("/{work_order_id}/files/count")
+async def get_work_order_file_count(
+    work_order_id: UUID,
+    file_type: Optional[str] = Query(None, description="Filter by file type (image/document)")
+):
+    """Get file count for work order"""
+    try:
+        from app.domains.file.service import FileService
+        from app.core.database_factory import get_database
+
+        file_service = FileService(get_database())
+
+        if file_type:
+            count = file_service.get_file_count_by_type(
+                context="work-order",
+                context_id=str(work_order_id),
+                file_type=file_type
+            )
+        else:
+            count = file_service.get_file_count(
+                context="work-order",
+                context_id=str(work_order_id)
+            )
+
+        return {"count": count}
+
+    except Exception as e:
+        logger.error(f"Error getting file count: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting file count: {str(e)}")
+
+
 @router.get("/{work_order_id}/debug")
 async def debug_work_order(
-    work_order_id: UUID, 
+    work_order_id: UUID,
     service: WorkOrderService = Depends(get_work_order_service)
 ):
     """Debug endpoint to check work order data and cost calculation"""
@@ -519,7 +550,7 @@ async def debug_work_order(
         work_order = service.get_by_id(work_order_id)
         if not work_order:
             raise HTTPException(status_code=404, detail="Work order not found")
-        
+
         # Debug info
         debug_info = {
             "raw_work_order": {
@@ -535,7 +566,7 @@ async def debug_work_order(
                 "document_type": work_order.get('document_type')
             }
         }
-        
+
         # Try to recalculate costs
         if work_order.get('trades'):
             try:
@@ -548,7 +579,7 @@ async def debug_work_order(
                 debug_info['recalculated_costs'] = cost_breakdown
             except Exception as calc_error:
                 debug_info['calculation_error'] = str(calc_error)
-        
+
         # Apply ensure_cost_fields
         work_order_with_costs = service.ensure_cost_fields(work_order.copy())
         debug_info['after_ensure_cost_fields'] = {
@@ -557,9 +588,9 @@ async def debug_work_order(
             "final_cost": work_order_with_costs.get('final_cost'),
             "final_cost_type": str(type(work_order_with_costs.get('final_cost')))
         }
-        
+
         return debug_info
-        
+
     except HTTPException:
         raise
     except Exception as e:

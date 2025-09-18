@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import tempfile
 import os
 import json
+import logging
 
 from app.core.database_factory import get_db_session as get_db
 from app.domains.estimate.schemas import (
@@ -22,6 +23,7 @@ from app.domains.estimate.schemas import (
 from app.common.services.pdf_service import pdf_service
 from app.domains.estimate.service import EstimateService
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -114,6 +116,8 @@ async def list_estimates(
             estimate_type=est.get('estimate_type') or ('insurance' if (est.get('claim_number') or est.get('policy_number') or est.get('deductible')) else 'standard'),
             company_id=est.get('company_id'),
             client_name=est.get('client_name', ''),
+            client_address=est.get('client_address'),
+            client_city=est.get('client_city'),
             total_amount=est.get('total_amount', 0),
             status=est.get('status', 'draft'),
             estimate_date=est.get('estimate_date'),
@@ -169,7 +173,31 @@ async def get_estimate(estimate_id: str, db=Depends(get_db)):
     estimate = service.get_with_items(estimate_id)
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
-    
+
+
+    # Get company information if company_id exists
+    company_info = {}
+    if estimate.get('company_id'):
+        try:
+            from app.domains.company.repository import get_company_repository
+            company_repo = get_company_repository(db)
+            company = company_repo.get_by_id(str(estimate['company_id']))
+            if company:
+                company_info = {
+                    'company_name': company.get('name'),
+                    'company_address': company.get('address'),
+                    'company_city': company.get('city'),
+                    'company_state': company.get('state'),
+                    'company_zipcode': company.get('zipcode'),
+                    'company_phone': company.get('phone'),
+                    'company_email': company.get('email'),
+                }
+        except Exception as e:
+            logger.error(f"Error fetching company info: {e}")
+
+    # Merge company info into estimate
+    estimate.update(company_info)
+
     # Parse room_data if it's a string
     if estimate.get('room_data') and isinstance(estimate['room_data'], str):
         try:
@@ -181,7 +209,15 @@ async def get_estimate(estimate_id: str, db=Depends(get_db)):
     return EstimateResponse(
         id=estimate['id'],
         estimate_number=estimate.get('estimate_number', ''),
+        estimate_type=estimate.get('estimate_type', 'standard'),
         company_id=estimate.get('company_id'),
+        company_name=estimate.get('company_name'),
+        company_address=estimate.get('company_address'),
+        company_city=estimate.get('company_city'),
+        company_state=estimate.get('company_state'),
+        company_zipcode=estimate.get('company_zipcode'),
+        company_phone=estimate.get('company_phone'),
+        company_email=estimate.get('company_email'),
         client_name=estimate.get('client_name', ''),
         client_address=estimate.get('client_address'),
         client_city=estimate.get('client_city'),
@@ -190,6 +226,7 @@ async def get_estimate(estimate_id: str, db=Depends(get_db)):
         client_phone=estimate.get('client_phone'),
         client_email=estimate.get('client_email'),
         estimate_date=estimate.get('estimate_date'),
+        loss_date=estimate.get('loss_date'),
         valid_until=estimate.get('valid_until'),
         status=estimate.get('status', 'draft'),
         subtotal=estimate.get('subtotal', 0),
@@ -199,7 +236,11 @@ async def get_estimate(estimate_id: str, db=Depends(get_db)):
         total_amount=estimate.get('total_amount', 0),
         claim_number=estimate.get('claim_number'),
         policy_number=estimate.get('policy_number'),
+        insurance_company=estimate.get('insurance_company'),
         deductible=estimate.get('deductible'),
+        adjuster_name=estimate.get('adjuster_name'),
+        adjuster_phone=estimate.get('adjuster_phone'),
+        adjuster_email=estimate.get('adjuster_email'),
         depreciation_amount=estimate.get('depreciation_amount', 0),
         acv_amount=estimate.get('acv_amount', 0),
         rcv_amount=estimate.get('rcv_amount', 0),
@@ -221,6 +262,10 @@ async def get_estimate(estimate_id: str, db=Depends(get_db)):
                 tax_rate=item.get('tax_rate', 0),
                 tax_amount=item.get('tax_amount', 0),
                 category=item.get('category'),
+                primary_group=item.get('primary_group'),
+                secondary_group=item.get('secondary_group'),
+                sort_order=item.get('sort_order', 0),
+                note=item.get('note'),
                 depreciation_rate=item.get('depreciation_rate', 0),
                 depreciation_amount=item.get('depreciation_amount', 0),
                 acv_amount=item.get('acv_amount', 0),
@@ -283,17 +328,23 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
     
     # Convert dates if provided
     estimate_date = estimate_data.estimate_date or datetime.now()
+    loss_date = estimate_data.loss_date
     valid_until = estimate_data.valid_until or (datetime.now() + timedelta(days=30))
     
     # Prepare data for repository
     estimate_dict = {
         'estimate_number': estimate_data.estimate_number,
+        'estimate_type': estimate_data.estimate_type or 'standard',
         'company_id': str(estimate_data.company_id) if estimate_data.company_id else None,
         'client_name': estimate_data.client_name,
         'client_address': estimate_data.client_address,
+        'client_city': estimate_data.client_city,
+        'client_state': estimate_data.client_state,
+        'client_zipcode': estimate_data.client_zipcode,
         'client_phone': estimate_data.client_phone,
         'client_email': estimate_data.client_email,
         'estimate_date': estimate_date,
+        'loss_date': loss_date,
         'valid_until': valid_until,
         'status': estimate_data.status or 'draft',
         'notes': estimate_data.notes,
@@ -310,6 +361,10 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
                 'unit': item.unit,
                 'rate': item.rate,
                 'category': item.category,
+                'primary_group': item.primary_group,
+                'secondary_group': item.secondary_group,
+                'sort_order': item.sort_order,
+                'note': item.note,
                 'depreciation_rate': item.depreciation_rate,
                 'depreciation_amount': item.depreciation_amount,
                 'acv_amount': item.acv_amount,
@@ -333,12 +388,17 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
     return EstimateResponse(
         id=created_estimate['id'],
         estimate_number=created_estimate.get('estimate_number', ''),
+        estimate_type=created_estimate.get('estimate_type', 'standard'),
         company_id=created_estimate.get('company_id'),
         client_name=created_estimate.get('client_name', ''),
         client_address=created_estimate.get('client_address'),
+        client_city=created_estimate.get('client_city'),
+        client_state=created_estimate.get('client_state'),
+        client_zipcode=created_estimate.get('client_zipcode'),
         client_phone=created_estimate.get('client_phone'),
         client_email=created_estimate.get('client_email'),
         estimate_date=created_estimate.get('estimate_date'),
+        loss_date=created_estimate.get('loss_date'),
         valid_until=created_estimate.get('valid_until'),
         status=created_estimate.get('status', 'draft'),
         subtotal=created_estimate.get('subtotal', 0),
@@ -370,6 +430,10 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
                 tax_rate=item.get('tax_rate', 0),
                 tax_amount=item.get('tax_amount', 0),
                 category=item.get('category'),
+                primary_group=item.get('primary_group'),
+                secondary_group=item.get('secondary_group'),
+                sort_order=item.get('sort_order', 0),
+                note=item.get('note'),
                 depreciation_rate=item.get('depreciation_rate', 0),
                 depreciation_amount=item.get('depreciation_amount', 0),
                 acv_amount=item.get('acv_amount', 0),
@@ -401,6 +465,13 @@ async def update_estimate(
     
     # Prepare update data
     update_dict = estimate_data.dict(exclude_unset=True)
+
+    # Debug logging
+    logger.info(f"=== UPDATE ESTIMATE DEBUG ===")
+    logger.info(f"Estimate ID: {estimate_id}")
+    logger.info(f"Raw update_dict: {update_dict}")
+    logger.info(f"loss_date in update_dict: {update_dict.get('loss_date')}")
+    logger.info(f"company_id in update_dict: {update_dict.get('company_id')}")
     
     # Update estimate with items
     updated_estimate = service.update_with_items(estimate_id, update_dict)
@@ -418,12 +489,17 @@ async def update_estimate(
     return EstimateResponse(
         id=updated_estimate['id'],
         estimate_number=updated_estimate.get('estimate_number', ''),
+        estimate_type=updated_estimate.get('estimate_type', 'standard'),
         company_id=updated_estimate.get('company_id'),
         client_name=updated_estimate.get('client_name', ''),
         client_address=updated_estimate.get('client_address'),
+        client_city=updated_estimate.get('client_city'),
+        client_state=updated_estimate.get('client_state'),
+        client_zipcode=updated_estimate.get('client_zipcode'),
         client_phone=updated_estimate.get('client_phone'),
         client_email=updated_estimate.get('client_email'),
         estimate_date=updated_estimate.get('estimate_date'),
+        loss_date=updated_estimate.get('loss_date'),
         valid_until=updated_estimate.get('valid_until'),
         status=updated_estimate.get('status', 'draft'),
         subtotal=updated_estimate.get('subtotal', 0),
@@ -433,7 +509,11 @@ async def update_estimate(
         total_amount=updated_estimate.get('total_amount', 0),
         claim_number=updated_estimate.get('claim_number'),
         policy_number=updated_estimate.get('policy_number'),
+        insurance_company=updated_estimate.get('insurance_company'),
         deductible=updated_estimate.get('deductible'),
+        adjuster_name=updated_estimate.get('adjuster_name'),
+        adjuster_phone=updated_estimate.get('adjuster_phone'),
+        adjuster_email=updated_estimate.get('adjuster_email'),
         depreciation_amount=updated_estimate.get('depreciation_amount', 0),
         acv_amount=updated_estimate.get('acv_amount', 0),
         rcv_amount=updated_estimate.get('rcv_amount', 0),
@@ -455,6 +535,10 @@ async def update_estimate(
                 tax_rate=item.get('tax_rate', 0),
                 tax_amount=item.get('tax_amount', 0),
                 category=item.get('category'),
+                primary_group=item.get('primary_group'),
+                secondary_group=item.get('secondary_group'),
+                sort_order=item.get('sort_order', 0),
+                note=item.get('note'),
                 depreciation_rate=item.get('depreciation_rate', 0),
                 depreciation_amount=item.get('depreciation_amount', 0),
                 acv_amount=item.get('acv_amount', 0),
@@ -562,9 +646,13 @@ async def duplicate_estimate(estimate_id: str, db=Depends(get_db)):
     return EstimateResponse(
         id=duplicated['id'],
         estimate_number=duplicated.get('estimate_number', ''),
+        estimate_type=duplicated.get('estimate_type', 'standard'),
         company_id=duplicated.get('company_id'),
         client_name=duplicated.get('client_name', ''),
         client_address=duplicated.get('client_address'),
+        client_city=duplicated.get('client_city'),
+        client_state=duplicated.get('client_state'),
+        client_zipcode=duplicated.get('client_zipcode'),
         client_phone=duplicated.get('client_phone'),
         client_email=duplicated.get('client_email'),
         estimate_date=duplicated.get('estimate_date'),
@@ -599,6 +687,10 @@ async def duplicate_estimate(estimate_id: str, db=Depends(get_db)):
                 tax_rate=item.get('tax_rate', 0),
                 tax_amount=item.get('tax_amount', 0),
                 category=item.get('category'),
+                primary_group=item.get('primary_group'),
+                secondary_group=item.get('secondary_group'),
+                sort_order=item.get('sort_order', 0),
+                note=item.get('note'),
                 depreciation_rate=item.get('depreciation_rate', 0),
                 depreciation_amount=item.get('depreciation_amount', 0),
                 acv_amount=item.get('acv_amount', 0),

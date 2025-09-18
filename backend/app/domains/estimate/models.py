@@ -31,6 +31,7 @@ class Estimate(Base, BaseModel):
     client_email = Column(String(255))
     
     estimate_date = Column(DateTime(timezone=True), default=func.now())
+    loss_date = Column(DateTime(timezone=True))  # Insurance: Date when loss/damage occurred
     valid_until = Column(DateTime(timezone=True))
     status = Column(String(50), default="draft")  # draft, sent, accepted, rejected, expired
     
@@ -46,7 +47,11 @@ class Estimate(Base, BaseModel):
     # Insurance estimate specific fields
     claim_number = Column(String(100))
     policy_number = Column(String(100))
+    insurance_company = Column(String(255))
     deductible = Column(DECIMAL(15, 2))
+    adjuster_name = Column(String(255))
+    adjuster_phone = Column(String(50))
+    adjuster_email = Column(String(255))
     depreciation_amount = Column(DECIMAL(15, 2), default=0)
     acv_amount = Column(DECIMAL(15, 2), default=0)  # Actual Cash Value
     rcv_amount = Column(DECIMAL(15, 2), default=0)  # Replacement Cost Value
@@ -66,16 +71,19 @@ class EstimateItem(Base, BaseModel):
     __tablename__ = "estimate_items"
 
     estimate_id = Column(UUIDType(), ForeignKey("estimates.id"))  # String → UUIDType으로 수정
-    
+
     # Flexible grouping fields (replacing room field)
     primary_group = Column(String(255))  # 1차 분류 (자유 입력)
     secondary_group = Column(String(255))  # 2차 분류 (자유 입력, 선택적)
     sort_order = Column(Integer, default=0)  # 그룹 내 정렬 순서
-    
+
     # Keep room for backward compatibility (will be deprecated)
     room = Column(String(100))  # Deprecated - use primary_group/secondary_group instead
-    
-    description = Column(Text, nullable=False)
+
+    # Line item code field - stores the "Sel" value from frontend
+    item_code = Column(String(255))  # Line item selection code (Sel column) - updated
+
+    description = Column(Text, nullable=True)
     quantity = Column(DECIMAL(10, 2), default=1)
     unit = Column(String(50))
     rate = Column(DECIMAL(15, 2), default=0)

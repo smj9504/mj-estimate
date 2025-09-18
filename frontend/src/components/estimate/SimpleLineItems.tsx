@@ -39,7 +39,6 @@ const SUGGESTED_GROUPS = {
     'Windows & Doors',
     'Kitchen',
     'Bathroom',
-    'General',
     'Miscellaneous',
     'Other'
   ],

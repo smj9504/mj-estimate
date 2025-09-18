@@ -37,6 +37,23 @@ import dayjs from 'dayjs';
 const { Title } = Typography;
 const { RangePicker } = DatePicker;
 
+// Type for table data source - ensures all optional fields have default values
+interface TableDocument {
+  id: string;
+  document_number: string;
+  type: DocumentType;
+  company_id: string;
+  client_name: string;
+  client_address: string; // Required for table display
+  client_city: string; // Required for table display
+  total_amount: number;
+  status: DocumentStatus;
+  created_at: string;
+  updated_at: string;
+  estimate_type?: EstimateType; // For estimates
+  estimate_number?: string; // For estimates
+}
+
 const DocumentList: React.FC = () => {
   const navigate = useNavigate();
   const { type } = useParams<{ type: string }>();
@@ -49,9 +66,9 @@ const DocumentList: React.FC = () => {
   const [pageSize, setPageSize] = useState(20);
 
   // Fetch documents - use specific service based on type
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useQuery<{ items: TableDocument[]; total: number }>({
     queryKey: ['documents', type, filter, currentPage, pageSize],
-    queryFn: async () => {
+    queryFn: async (): Promise<{ items: TableDocument[]; total: number }> => {
       if (type === 'invoice') {
         // Use invoice service
         const invoices = await invoiceService.getInvoices({
@@ -63,12 +80,14 @@ const DocumentList: React.FC = () => {
         
         // Transform to match expected format
         return {
-          items: invoices.map((invoice: InvoiceResponse) => ({
+          items: invoices.map((invoice: InvoiceResponse): TableDocument => ({
             id: invoice.id,
             document_number: invoice.invoice_number,
             type: 'invoice' as DocumentType,
             company_id: invoice.company_id || '',
             client_name: invoice.client_name,
+            client_address: invoice.client_address || '',
+            client_city: invoice.client_city || '',
             total_amount: invoice.total,
             status: invoice.status as DocumentStatus,
             created_at: invoice.created_at,
@@ -98,7 +117,7 @@ const DocumentList: React.FC = () => {
         
         // Transform to match expected format
         return {
-          items: filteredEstimates.map((estimate: any) => {
+          items: filteredEstimates.map((estimate: any): TableDocument => {
             // If estimate_type is not available, infer from insurance fields
             let estimateType = estimate.estimate_type;
             if (!estimateType) {
@@ -114,6 +133,8 @@ const DocumentList: React.FC = () => {
               estimate_type: estimateType, // Add estimate_type to record
               company_id: estimate.company_id || '',
               client_name: estimate.client_name,
+              client_address: estimate.client_address || estimate.street_address || '',
+              client_city: estimate.client_city || estimate.city || '',
               total_amount: estimate.total_amount,
               status: estimate.status as DocumentStatus,
               created_at: estimate.created_at,
@@ -125,7 +146,24 @@ const DocumentList: React.FC = () => {
         };
       } else {
         // Use document service for other types
-        return documentService.getDocuments(filter, currentPage, pageSize);
+        const result = await documentService.getDocuments(filter, currentPage, pageSize);
+        // Transform documents to ensure required fields
+        return {
+          ...result,
+          items: result.items?.map((doc: Document): TableDocument => ({
+            id: doc.id,
+            document_number: doc.document_number,
+            type: doc.type,
+            company_id: doc.company_id,
+            client_name: doc.client_name,
+            client_address: doc.client_address || '',
+            client_city: doc.client_city || '',
+            total_amount: doc.total_amount,
+            status: doc.status,
+            created_at: doc.created_at,
+            updated_at: doc.updated_at,
+          })) || []
+        };
       }
     },
   });
@@ -211,8 +249,8 @@ const DocumentList: React.FC = () => {
           },
           client: {
             name: invoice.client_name,
-            address: invoice.client_address,
-            city: invoice.client_city,
+            address: invoice.client_address || '',
+            city: invoice.client_city || '',
             state: invoice.client_state,
             zipcode: invoice.client_zipcode,
             phone: invoice.client_phone,
@@ -284,6 +322,25 @@ const DocumentList: React.FC = () => {
       dataIndex: 'document_number',
       key: 'document_number',
       width: 150,
+      render: (text: string, record: TableDocument) => (
+        <a
+          onClick={() => {
+            // Navigate to the appropriate edit page based on document type
+            if (record.type === 'invoice') {
+              navigate(`/invoices/${record.id}/edit`);
+            } else if (record.type === 'estimate') {
+              navigate(`/estimates/${record.id}/edit`);
+            } else if (record.type === 'insurance_estimate') {
+              navigate(`/insurance-estimate/${record.id}`);
+            } else if (record.type === 'plumber_report') {
+              navigate(`/plumber-reports/${record.id}/edit`);
+            }
+          }}
+          style={{ cursor: 'pointer' }}
+        >
+          {text}
+        </a>
+      ),
     },
     {
       title: 'Type',
@@ -312,10 +369,22 @@ const DocumentList: React.FC = () => {
       },
     },
     {
-      title: 'Client Name',
-      dataIndex: 'client_name',
-      key: 'client_name',
-      width: 150,
+      title: 'Property Address',
+      key: 'property_address',
+      width: 250,
+      render: (_: any, record: any) => {
+        const address = record.client_address || record.street_address || '';
+        const city = record.client_city || record.city || '';
+
+        if (!address && !city) return '-';
+
+        return (
+          <div>
+            {address && <div>{address}</div>}
+            {city && <div style={{ color: '#666', fontSize: '12px' }}>{city}</div>}
+          </div>
+        );
+      },
     },
     {
       title: 'Amount',
@@ -343,18 +412,19 @@ const DocumentList: React.FC = () => {
       render: (date: string) => dayjs(date).format('YYYY-MM-DD'),
     },
     {
+      title: 'Updated Date',
+      dataIndex: 'updated_at',
+      key: 'updated_at',
+      width: 120,
+      render: (date: string) => dayjs(date).format('YYYY-MM-DD'),
+    },
+    {
       title: 'Actions',
       key: 'action',
       width: 120,
       fixed: 'right' as const,
       render: (_: any, record: Document) => {
         const menuItems = [
-          {
-            key: 'view',
-            icon: <EyeOutlined />,
-            label: 'View',
-            onClick: () => navigate(`/documents/${record.id}`),
-          },
           {
             key: 'edit',
             icon: <EditOutlined />,
@@ -363,8 +433,10 @@ const DocumentList: React.FC = () => {
               // Navigate to the appropriate edit page based on document type
               if (record.type === 'invoice') {
                 navigate(`/invoices/${record.id}/edit`);
-              } else if (record.type === 'estimate' || record.type === 'insurance_estimate') {
+              } else if (record.type === 'estimate') {
                 navigate(`/estimates/${record.id}/edit`);
+              } else if (record.type === 'insurance_estimate') {
+                navigate(`/insurance-estimate/${record.id}`);
               } else if (record.type === 'plumber_report') {
                 navigate(`/plumber-reports/${record.id}/edit`);
               }

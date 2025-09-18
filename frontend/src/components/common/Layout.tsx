@@ -41,6 +41,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   });
 
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [openKeys, setOpenKeys] = useState<string[]>([]);
 
   // Handle window resize for responsive behavior
   useEffect(() => {
@@ -161,6 +162,58 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     return items;
   }, [isAdmin, isManager]);
 
+  // Get the selected menu key based on current location
+  const getSelectedKey = () => {
+    const { pathname } = location;
+
+    // Check for exact matches first
+    const exactMatch = menuItems.find(item => item.key === pathname);
+    if (exactMatch) return [pathname];
+
+    // Check for parent menu items with children
+    for (const item of menuItems) {
+      if (item.children) {
+        const childMatch = item.children.find((child: any) => child.key === pathname);
+        if (childMatch) return [pathname];
+
+        // Check if current path starts with any child path
+        for (const child of item.children) {
+          if (pathname.startsWith(child.key)) {
+            return [child.key];
+          }
+        }
+      }
+
+      // Check if current path starts with the menu item path
+      if (pathname.startsWith(item.key) && item.key !== '/') {
+        return [item.key];
+      }
+    }
+
+    // Default to dashboard if no match found
+    return ['/dashboard'];
+  };
+
+  // Auto-expand parent menus based on current location
+  useEffect(() => {
+    const { pathname } = location;
+    const newOpenKeys: string[] = [];
+
+    // Find parent menu items that should be expanded
+    for (const item of menuItems) {
+      if (item.children) {
+        const hasActiveChild = item.children.some((child: any) =>
+          pathname === child.key || pathname.startsWith(child.key)
+        );
+        if (hasActiveChild) {
+          newOpenKeys.push(item.key);
+        }
+      }
+    }
+
+    setOpenKeys(newOpenKeys);
+  }, [location, menuItems]);
+
   const userMenuItems = [
     {
       key: 'profile',
@@ -191,6 +244,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     } else if (key === 'settings') {
       navigate('/settings');
     } else {
+      // Use push navigation to ensure history works properly
       navigate(key);
     }
   };
@@ -252,7 +306,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={getSelectedKey()}
+          openKeys={openKeys}
+          onOpenChange={setOpenKeys}
           items={menuItems}
           onClick={handleMenuClick}
           style={{

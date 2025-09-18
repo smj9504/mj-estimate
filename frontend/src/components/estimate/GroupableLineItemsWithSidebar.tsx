@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { message, Modal, Form, Input, AutoComplete, Button } from 'antd';
+import { message, Modal, Form, Input, AutoComplete, Button, Typography } from 'antd';
+import { AppstoreOutlined, PlusOutlined } from '@ant-design/icons';
 import GroupNavigationSidebar from './GroupNavigationSidebar';
 import LineItemManager from './LineItemManager';
 import { EstimateLineItem } from '../../services/EstimateService';
@@ -21,7 +22,6 @@ const SUGGESTED_GROUPS = {
     'Windows & Doors',
     'Kitchen',
     'Bathroom',
-    'General',
     'Miscellaneous',
     'Other'
   ],
@@ -52,7 +52,6 @@ const SUGGESTED_GROUPS = {
       'Siding'
     ],
     'default': [
-      'General',
       'Area 1',
       'Area 2',
       'Other'
@@ -90,13 +89,12 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
     });
   }, [items]);
   const [selectedGroupKey, setSelectedGroupKey] = useState<string>('');
-  const [emptyGroups, setEmptyGroups] = useState<Array<{ primary: string; secondary?: string }>>([]);
+  const [emptyGroups, setEmptyGroups] = useState<Array<{ primary: string; secondary?: string; sort_order?: number }>>([]);
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [isResizing, setIsResizing] = useState(false);
   const [isHoveringHandle, setIsHoveringHandle] = useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [groupModalVisible, setGroupModalVisible] = useState(false);
-  const [groupModalMode, setGroupModalMode] = useState<'create' | 'edit'>('create');
   const [editingGroup, setEditingGroup] = useState<{ primary?: string; secondary?: string; isSubgroup?: boolean } | null>(null);
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
 
@@ -107,6 +105,7 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
 
     // 먼저 빈 그룹들을 추가
     emptyGroups.forEach(emptyGroup => {
+      // Primary group이 없는 경우에만 생성
       if (!groups.has(emptyGroup.primary)) {
         groups.set(emptyGroup.primary, {
           name: emptyGroup.primary,
@@ -117,7 +116,8 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
           itemCount: 0,
         });
       }
-      
+
+      // Subgroup 추가 (primary group이 이미 존재하거나 방금 생성됨)
       if (emptyGroup.secondary) {
         const group = groups.get(emptyGroup.primary)!;
         if (!group.subgroups.has(emptyGroup.secondary)) {
@@ -129,12 +129,13 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
     // 아이템들을 그룹에 추가
     items.forEach((item, index) => {
       const itemWithIndex: ExtendedLineItem = { ...item, _index: index };
-      
+
       if (!item.primary_group) {
         ungrouped.push(itemWithIndex);
         return;
       }
 
+      // Primary group이 없는 경우에만 생성 (아이템이 있는 그룹)
       if (!groups.has(item.primary_group)) {
         groups.set(item.primary_group, {
           name: item.primary_group,
@@ -151,6 +152,7 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
       group.itemCount += 1;
 
       if (item.secondary_group) {
+        // Subgroup이 없는 경우에만 생성
         if (!group.subgroups.has(item.secondary_group)) {
           group.subgroups.set(item.secondary_group, []);
         }
@@ -163,9 +165,34 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
     // 정렬
     Array.from(groups.values()).forEach((group) => {
       group.items.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      Array.from(group.subgroups.values()).forEach((subgroupItems) => {
-        subgroupItems.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+      // Subgroup 순서도 정렬 (sort_order 기준)
+      const subgroupEntries = Array.from(group.subgroups.entries());
+      subgroupEntries.sort(([keyA], [keyB]) => {
+        // emptyGroups에서 sort_order 찾기
+        let orderA = emptyGroups.find(g => g.primary === group.name && g.secondary === keyA)?.sort_order || 0;
+        let orderB = emptyGroups.find(g => g.primary === group.name && g.secondary === keyB)?.sort_order || 0;
+
+        // 만약 sort_order가 없으면 아이템의 첫 번째 sort_order에서 추출
+        if (orderA === 0 && group.subgroups.get(keyA)!.length > 0) {
+          const firstItemA = group.subgroups.get(keyA)![0];
+          orderA = Math.floor((firstItemA.sort_order || 0) / 1000) * 1000;
+        }
+        if (orderB === 0 && group.subgroups.get(keyB)!.length > 0) {
+          const firstItemB = group.subgroups.get(keyB)![0];
+          orderB = Math.floor((firstItemB.sort_order || 0) / 1000) * 1000;
+        }
+
+        return orderA - orderB;
       });
+
+      // 정렬된 순서로 subgroups 재구성
+      const sortedSubgroups = new Map();
+      subgroupEntries.forEach(([key, value]) => {
+        value.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        sortedSubgroups.set(key, value);
+      });
+      group.subgroups = sortedSubgroups;
     });
 
     return { groups, ungrouped };
@@ -192,11 +219,8 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
           setSelectedGroupKey(groupName);
         }
       } else {
-        // 그룹이 없으면 기본 그룹을 자동 생성
-        const defaultGroup = { primary: 'General' };
-        setEmptyGroups([defaultGroup]);
-        setSelectedGroupKey('General');
-        setExpandedKeys(['General']);
+        // 그룹이 없을 때는 아무것도 선택하지 않음 (빈 상태 허용)
+        setSelectedGroupKey('');
       }
     }
   }, [groupedData, selectedGroupKey, expandedKeys.length]);
@@ -256,127 +280,384 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
   }, [selectedGroupKey, groupedData]);
 
   const handleCreateGroup = () => {
-    setGroupModalMode('create');
     setEditingGroup(null);
     setGroupModalVisible(true);
   };
 
   const handleGroupSubmit = useCallback((values: { group_name: string }) => {
     const { group_name } = values;
-      
-      if (groupModalMode === 'create') {
-        if (editingGroup?.primary) {
-          // 서브그룹 생성
-          const newEmptyGroup = { primary: editingGroup.primary, secondary: group_name };
-          setEmptyGroups([...emptyGroups, newEmptyGroup]);
-          // 부모 그룹을 확장하여 새 서브그룹이 보이도록 함
-          if (!expandedKeys.includes(editingGroup.primary)) {
-            setExpandedKeys([...expandedKeys, editingGroup.primary]);
-          }
-          // 새로 생성한 서브그룹으로 포커싱
-          setSelectedGroupKey(`${editingGroup.primary}/${group_name}`);
-          message.success(`Subgroup '${group_name}' created under '${editingGroup.primary}'`);
-        } else {
-          // Primary 그룹 생성
-          const newEmptyGroup = { primary: group_name };
-          setEmptyGroups([...emptyGroups, newEmptyGroup]);
-          // 새로 생성한 그룹으로 포커싱
-          setSelectedGroupKey(group_name);
-          message.success(`Group '${group_name}' created`);
+
+      // Create mode only
+      if (editingGroup?.primary) {
+        // 서브그룹 생성
+        console.log('Creating subgroup:', {
+          parentGroup: editingGroup.primary,
+          subgroupName: group_name,
+          existingEmptyGroups: emptyGroups.map(g => `${g.primary}${g.secondary ? '/' + g.secondary : ''}`)
+        });
+
+        // Validate parent group name doesn't contain '/'
+        if (editingGroup.primary.includes('/')) {
+          console.error('Invalid parent group name contains slash:', editingGroup.primary);
+          message.error('Cannot create subgroup under an invalid parent group');
+          return;
         }
-      } else if (groupModalMode === 'edit') {
-        if (editingGroup?.isSubgroup) {
-          // 서브그룹 이름 변경
-          setEmptyGroups(emptyGroups.map(g => {
-            if (g.primary === editingGroup.primary && g.secondary === editingGroup.secondary) {
-              return { ...g, secondary: group_name };
-            }
-            return g;
-          }));
-          const newItems = items.map(item => {
-            if (item.primary_group === editingGroup.primary && item.secondary_group === editingGroup.secondary) {
-              return { ...item, secondary_group: group_name };
-            }
-            return item;
-          });
-          onItemsChange(newItems);
-          message.success('Subgroup renamed successfully');
-        } else if (editingGroup?.primary) {
-          // Primary 그룹 이름 변경
-          setEmptyGroups(emptyGroups.map(g => {
-            if (g.primary === editingGroup.primary) {
-              return { ...g, primary: group_name };
-            }
-            return g;
-          }));
-          const newItems = items.map(item => {
-            if (item.primary_group === editingGroup.primary) {
-              return { ...item, primary_group: group_name };
-            }
-            return item;
-          });
-          onItemsChange(newItems);
-          message.success('Group renamed successfully');
+
+        // Check if the parent group already exists in emptyGroups or has items
+        const parentGroupExists = emptyGroups.some(g => g.primary === editingGroup.primary && !g.secondary) ||
+                                  items.some(item => item.primary_group === editingGroup.primary);
+
+        // Only add the subgroup, don't create a new parent group entry
+        const newSubgroup = { primary: editingGroup.primary, secondary: group_name };
+
+        // If parent group doesn't exist in emptyGroups, add it first
+        let updatedEmptyGroups = [...emptyGroups];
+        if (!parentGroupExists && !emptyGroups.some(g => g.primary === editingGroup.primary)) {
+          updatedEmptyGroups.push({ primary: editingGroup.primary });
         }
+
+        // Add the subgroup
+        updatedEmptyGroups.push(newSubgroup);
+        console.log('Updated empty groups after subgroup creation:', updatedEmptyGroups.map(g => `${g.primary}${g.secondary ? '/' + g.secondary : ''}`));
+        setEmptyGroups(updatedEmptyGroups);
+
+        // 부모 그룹을 확장하여 새 서브그룹이 보이도록 함
+        if (!expandedKeys.includes(editingGroup.primary)) {
+          setExpandedKeys([...expandedKeys, editingGroup.primary]);
+        }
+        // 새로 생성한 서브그룹으로 포커싱
+        setSelectedGroupKey(`${editingGroup.primary}/${group_name}`);
+        message.success(`Subgroup '${group_name}' created under '${editingGroup.primary}'`);
+      } else {
+        // Primary 그룹 생성
+        console.log('Creating primary group:', group_name);
+        const newEmptyGroup = { primary: group_name };
+        setEmptyGroups([...emptyGroups, newEmptyGroup]);
+        // 새로 생성한 그룹으로 포커싱
+        setSelectedGroupKey(group_name);
+        message.success(`Group '${group_name}' created`);
       }
-      
+
       setGroupModalVisible(false);
-  }, [groupModalMode, editingGroup, emptyGroups, items, onItemsChange, expandedKeys]);
+  }, [editingGroup, emptyGroups, items, onItemsChange, expandedKeys]);
 
   const handleGroupSelect = (groupKey: string) => {
     setSelectedGroupKey(groupKey);
   };
   
   const handleCreateSubgroup = (primaryGroup: string) => {
-    setGroupModalMode('create');
     setEditingGroup({ primary: primaryGroup });
     setGroupModalVisible(true);
   };
   
-  const handleEditGroup = (primaryGroup: string, secondaryGroup?: string) => {
-    setGroupModalMode('edit');
-    if (secondaryGroup) {
-      setEditingGroup({ primary: primaryGroup, secondary: secondaryGroup, isSubgroup: true });
+
+  const handleRenameGroup = (oldName: string, newName: string, isSubgroup: boolean, parentGroup?: string) => {
+    if (!newName.trim() || newName === oldName) return;
+
+    if (isSubgroup && parentGroup) {
+      // Rename subgroup
+      setEmptyGroups(emptyGroups.map(g => {
+        if (g.primary === parentGroup && g.secondary === oldName) {
+          return { ...g, secondary: newName };
+        }
+        return g;
+      }));
+
+      // Update items with this subgroup
+      const newItems = items.map(item => {
+        if (item.primary_group === parentGroup && item.secondary_group === oldName) {
+          return { ...item, secondary_group: newName };
+        }
+        return item;
+      });
+      onItemsChange(newItems);
+
+      // Update selected key if needed
+      if (selectedGroupKey === `${parentGroup}/${oldName}`) {
+        setSelectedGroupKey(`${parentGroup}/${newName}`);
+      }
+
+      message.success(`Subgroup renamed from '${oldName}' to '${newName}'`);
     } else {
-      setEditingGroup({ primary: primaryGroup });
+      // Rename primary group
+      setEmptyGroups(emptyGroups.map(g => {
+        if (g.primary === oldName) {
+          return { ...g, primary: newName };
+        }
+        return g;
+      }));
+
+      // Update items with this primary group
+      const newItems = items.map(item => {
+        if (item.primary_group === oldName) {
+          return { ...item, primary_group: newName };
+        }
+        return item;
+      });
+      onItemsChange(newItems);
+
+      // Update selected key if needed
+      if (selectedGroupKey === oldName) {
+        setSelectedGroupKey(newName);
+      } else if (selectedGroupKey.startsWith(oldName + '/')) {
+        const subgroup = selectedGroupKey.substring(oldName.length + 1);
+        setSelectedGroupKey(`${newName}/${subgroup}`);
+      }
+
+      // Update expanded keys if needed
+      if (expandedKeys.includes(oldName)) {
+        setExpandedKeys(expandedKeys.map(key => key === oldName ? newName : key));
+      }
+
+      message.success(`Group renamed from '${oldName}' to '${newName}'`);
     }
-    setGroupModalVisible(true);
   };
   
   const handleDeleteGroup = (primaryGroup: string, secondaryGroup?: string) => {
-    Modal.confirm({
-      title: 'Delete Group',
-      content: `Are you sure you want to delete ${secondaryGroup ? `subgroup '${secondaryGroup}'` : `group '${primaryGroup}'`}? Items in this group will be ungrouped.`,
-      onOk: () => {
-        if (secondaryGroup) {
-          // Delete subgroup
-          setEmptyGroups(emptyGroups.filter(g => 
-            !(g.primary === primaryGroup && g.secondary === secondaryGroup)
-          ));
-          // Ungroup items in this subgroup
-          const newItems = items.map(item => {
-            if (item.primary_group === primaryGroup && item.secondary_group === secondaryGroup) {
-              return { ...item, secondary_group: undefined };
-            }
-            return item;
-          });
-          onItemsChange(newItems);
-          message.success('Subgroup deleted');
-        } else {
-          // Delete primary group
-          setEmptyGroups(emptyGroups.filter(g => g.primary !== primaryGroup));
-          // Ungroup all items in this group
-          const newItems = items.map(item => {
-            if (item.primary_group === primaryGroup) {
-              return { ...item, primary_group: undefined, secondary_group: undefined };
-            }
-            return item;
-          });
-          onItemsChange(newItems);
-          message.success('Group deleted');
-        }
+    // Check if this group has any items
+    const groupItems = items.filter(item => {
+      if (secondaryGroup) {
+        return item.primary_group === primaryGroup && item.secondary_group === secondaryGroup;
+      } else {
+        return item.primary_group === primaryGroup;
       }
     });
+
+    const hasItems = groupItems.length > 0;
+
+    // Updated logic: Delete group and all items by default
+    if (hasItems) {
+      Modal.confirm({
+        title: 'Delete Group',
+        content: (
+          <div>
+            <p>
+              {`Are you sure you want to delete ${secondaryGroup ? `subgroup '${secondaryGroup}'` : `group '${primaryGroup}'`}?
+              This group contains ${groupItems.length} item(s).`}
+            </p>
+            <p style={{ color: '#ff4d4f', fontWeight: 'bold' }}>
+              This will permanently delete the group and all items in it.
+            </p>
+          </div>
+        ),
+        okText: 'Delete Group & Items',
+        okType: 'danger',
+        cancelText: 'Cancel',
+        onOk: () => {
+          if (secondaryGroup) {
+            // Delete subgroup and its items
+            setEmptyGroups(emptyGroups.filter(g =>
+              !(g.primary === primaryGroup && g.secondary === secondaryGroup)
+            ));
+            // Remove items in this subgroup
+            const newItems = items.filter(item =>
+              !(item.primary_group === primaryGroup && item.secondary_group === secondaryGroup)
+            );
+            onItemsChange(newItems);
+            message.success(`Subgroup '${secondaryGroup}' and ${groupItems.length} item(s) deleted`);
+          } else {
+            // Delete primary group and all its items
+            setEmptyGroups(emptyGroups.filter(g => g.primary !== primaryGroup));
+            // Remove all items in this group
+            const newItems = items.filter(item => item.primary_group !== primaryGroup);
+            onItemsChange(newItems);
+            // Clear selection if the deleted group was selected
+            if (selectedGroupKey === primaryGroup || selectedGroupKey.startsWith(primaryGroup + '/')) {
+              setSelectedGroupKey('');
+            }
+            message.success(`Group '${primaryGroup}' and ${groupItems.length} item(s) deleted`);
+          }
+        }
+      });
+    } else {
+      // Empty group - just delete the group
+      Modal.confirm({
+        title: 'Delete Empty Group',
+        content: `Are you sure you want to delete ${secondaryGroup ? `subgroup '${secondaryGroup}'` : `group '${primaryGroup}'`}? This group is empty.`,
+        onOk: () => {
+          if (secondaryGroup) {
+            // Delete empty subgroup
+            setEmptyGroups(emptyGroups.filter(g =>
+              !(g.primary === primaryGroup && g.secondary === secondaryGroup)
+            ));
+            message.success(`Empty subgroup '${secondaryGroup}' deleted`);
+          } else {
+            // Delete empty primary group
+            setEmptyGroups(emptyGroups.filter(g => g.primary !== primaryGroup));
+            // Clear selection if the deleted group was selected
+            if (selectedGroupKey === primaryGroup || selectedGroupKey.startsWith(primaryGroup + '/')) {
+              setSelectedGroupKey('');
+            }
+            message.success(`Empty group '${primaryGroup}' deleted`);
+          }
+        }
+      });
+    }
+  };
+
+  const handleSubgroupMove = (subgroupKey: string, targetGroupKey: string, dropPosition?: 'before' | 'after', targetSubgroupKey?: string) => {
+    const [sourceGroup, subgroupName] = subgroupKey.split('/');
+
+    // Handle reordering within the same group
+    if (sourceGroup === targetGroupKey && targetSubgroupKey && dropPosition) {
+      handleSubgroupReorder(subgroupKey, targetSubgroupKey, dropPosition);
+      return;
+    }
+
+    // Handle moving to different group (existing logic)
+    // Check if target group already has a subgroup with the same name
+    const targetGroup = groupedData.groups.get(targetGroupKey);
+    if (targetGroup && targetGroup.subgroups.has(subgroupName)) {
+      message.error(`Target group '${targetGroupKey}' already has a subgroup named '${subgroupName}'`);
+      return;
+    }
+
+    // Find all items in the source subgroup
+    const itemsToMove = items.filter(item =>
+      item.primary_group === sourceGroup && item.secondary_group === subgroupName
+    );
+
+    // Update items to new primary group
+    const updatedItems = items.map(item => {
+      if (item.primary_group === sourceGroup && item.secondary_group === subgroupName) {
+        return { ...item, primary_group: targetGroupKey };
+      }
+      return item;
+    });
+
+    // Update empty groups state
+    const updatedEmptyGroups = emptyGroups.map(group => {
+      if (group.primary === sourceGroup && group.secondary === subgroupName) {
+        return { ...group, primary: targetGroupKey };
+      }
+      return group;
+    });
+
+    // If moving an empty subgroup that doesn't exist in emptyGroups, create it
+    if (itemsToMove.length === 0) {
+      const existsInEmptyGroups = emptyGroups.some(g =>
+        g.primary === sourceGroup && g.secondary === subgroupName
+      );
+      if (!existsInEmptyGroups) {
+        updatedEmptyGroups.push({ primary: targetGroupKey, secondary: subgroupName });
+      }
+    }
+
+    // Apply updates
+    onItemsChange(updatedItems);
+    setEmptyGroups(updatedEmptyGroups);
+
+    // Update selected group if currently viewing the moved subgroup
+    if (selectedGroupKey === subgroupKey) {
+      setSelectedGroupKey(`${targetGroupKey}/${subgroupName}`);
+    }
+
+    // Ensure target group is expanded to show the moved subgroup
+    if (!expandedKeys.includes(targetGroupKey)) {
+      setExpandedKeys([...expandedKeys, targetGroupKey]);
+    }
+
+    message.success(`Subgroup '${subgroupName}' moved from '${sourceGroup}' to '${targetGroupKey}' with ${itemsToMove.length} item(s)`);
+  };
+
+  const handleSubgroupReorder = (sourceSubgroupKey: string, targetSubgroupKey: string, position: 'before' | 'after') => {
+    console.log('handleSubgroupReorder called:', {
+      sourceSubgroupKey,
+      targetSubgroupKey,
+      position
+    });
+
+    const [sourceGroup, sourceSubgroupName] = sourceSubgroupKey.split('/');
+    const [targetGroup, targetSubgroupName] = targetSubgroupKey.split('/');
+
+    if (sourceGroup !== targetGroup) {
+      console.log('Different groups, skipping reorder');
+      return; // This should not happen for reordering
+    }
+
+    if (sourceSubgroupName === targetSubgroupName) {
+      console.log('Same subgroup, no reordering needed');
+      return; // Same subgroup, no reordering needed
+    }
+
+    // Get all subgroups in the group
+    const group = groupedData.groups.get(sourceGroup);
+    if (!group) {
+      console.log('Group not found:', sourceGroup);
+      return;
+    }
+
+    const subgroupNames = Array.from(group.subgroups.keys());
+    console.log('Current subgroup order:', subgroupNames);
+
+    const sourceIndex = subgroupNames.indexOf(sourceSubgroupName);
+    const targetIndex = subgroupNames.indexOf(targetSubgroupName);
+
+    if (sourceIndex === -1 || targetIndex === -1) {
+      console.log('Subgroup not found in list:', { sourceIndex, targetIndex });
+      return;
+    }
+
+    // Calculate new position
+    let newIndex = targetIndex;
+    if (position === 'after') {
+      newIndex = targetIndex + 1;
+    }
+    if (sourceIndex < targetIndex && position === 'before') {
+      newIndex = targetIndex - 1;
+    }
+
+    console.log('Index calculation:', {
+      sourceIndex,
+      targetIndex,
+      newIndex,
+      position
+    });
+
+    // Remove source and insert at new position
+    const reorderedNames = [...subgroupNames];
+    reorderedNames.splice(sourceIndex, 1);
+    reorderedNames.splice(newIndex, 0, sourceSubgroupName);
+
+    console.log('New subgroup order:', reorderedNames);
+
+    // Update sort_order for all items in these subgroups
+    const updatedItems = items.map(item => {
+      if (item.primary_group === sourceGroup && item.secondary_group) {
+        const subgroupIndex = reorderedNames.indexOf(item.secondary_group);
+        if (subgroupIndex !== -1) {
+          const newSortOrder = (subgroupIndex + 1) * 1000 + ((item.sort_order || 0) % 1000);
+          console.log(`Updating item sort_order: ${item.secondary_group} -> ${newSortOrder}`);
+          return {
+            ...item,
+            sort_order: newSortOrder
+          };
+        }
+      }
+      return item;
+    });
+
+    // Update empty groups order
+    const updatedEmptyGroups = emptyGroups.map(group => {
+      if (group.primary === sourceGroup && group.secondary) {
+        const subgroupIndex = reorderedNames.indexOf(group.secondary);
+        if (subgroupIndex !== -1) {
+          const newSortOrder = (subgroupIndex + 1) * 1000;
+          console.log(`Updating empty group sort_order: ${group.secondary} -> ${newSortOrder}`);
+          return {
+            ...group,
+            sort_order: newSortOrder
+          };
+        }
+      }
+      return group;
+    });
+
+    console.log('Applying updates...');
+    onItemsChange(updatedItems);
+    setEmptyGroups(updatedEmptyGroups);
+
+    message.success(`Subgroup '${sourceSubgroupName}' reordered ${position} '${targetSubgroupName}'`);
   };
 
   // Handle sidebar resize
@@ -448,8 +729,9 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
           onGroupSelect={handleGroupSelect}
           onCreateGroup={handleCreateGroup}
           onCreateSubgroup={handleCreateSubgroup}
-          onEditGroup={handleEditGroup}
           onDeleteGroup={handleDeleteGroup}
+          onRenameGroup={handleRenameGroup}
+          onSubgroupMove={handleSubgroupMove}
           expandedKeys={expandedKeys}
           onExpandedKeysChange={setExpandedKeys}
           isNarrow={sidebarWidth < 250}
@@ -487,10 +769,37 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
       
       {/* Content Area */}
       <div style={{ flex: 1, padding: '16px', overflow: 'auto', height: '100%' }}>
-        <LineItemManager
-          items={Array.isArray(filteredItems) ? filteredItems.filter(item => item != null) : []}
-          selectedGroup={selectedGroupKey}
-          onItemsChange={(newItems) => {
+        {!selectedGroupKey ? (
+          // Show empty state when no group is selected
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            textAlign: 'center',
+            color: '#8c8c8c'
+          }}>
+            <AppstoreOutlined style={{ fontSize: 48, marginBottom: 24 }} />
+            <Typography.Title level={4} type="secondary">
+              No Group Selected
+            </Typography.Title>
+            <Typography.Text type="secondary" style={{ marginBottom: 24 }}>
+              Select a group from the sidebar or create a new group to start adding line items.
+            </Typography.Text>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleCreateGroup}
+            >
+              Create Group
+            </Button>
+          </div>
+        ) : (
+          <LineItemManager
+            items={Array.isArray(filteredItems) ? filteredItems.filter(item => item != null) : []}
+            selectedGroup={selectedGroupKey}
+            onItemsChange={(newItems) => {
             console.log('GroupableLineItemsWithSidebar: onItemsChange called with:', newItems);
             console.log('GroupableLineItemsWithSidebar: Current filteredItems:', filteredItems);
             console.log('GroupableLineItemsWithSidebar: Current full items:', items);
@@ -541,17 +850,13 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
             console.log('GroupableLineItemsWithSidebar: Final updated items (update/delete):', updatedItems);
             onItemsChange(updatedItems);
           }}
-        />
+          />
+        )}
       </div>
       
       {/* Group Creation Modal */}
       <Modal
-        title={(() => {
-          if (groupModalMode === 'edit') {
-            return editingGroup?.isSubgroup ? 'Edit Subgroup' : 'Edit Group';
-          }
-          return editingGroup?.primary ? 'Create Subgroup' : 'Create Group';
-        })()}
+        title={editingGroup?.primary ? 'Create Subgroup' : 'Create Group'}
         open={groupModalVisible}
         footer={null}
         onCancel={() => {
@@ -564,9 +869,7 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
           layout="vertical" 
           onFinish={handleGroupSubmit}
           initialValues={{
-            group_name: groupModalMode === 'edit' 
-              ? (editingGroup?.secondary || editingGroup?.primary)
-              : ''
+            group_name: ''
           }}
         >
           {editingGroup?.primary ? (
@@ -609,7 +912,7 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
                 Cancel
               </Button>
               <Button type="primary" htmlType="submit">
-                {groupModalMode === 'create' ? 'Create' : 'Save'}
+                Create
               </Button>
             </div>
           </Form.Item>

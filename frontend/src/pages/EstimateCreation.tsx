@@ -6,16 +6,13 @@ import {
   DatePicker,
   InputNumber,
   Select,
-  AutoComplete,
   Card,
   Row,
   Col,
   Space,
-  Table,
   Modal,
   message,
   Divider,
-  Switch,
   Typography,
   Tooltip,
   Popconfirm,
@@ -29,12 +26,28 @@ import {
   SaveOutlined,
   EyeOutlined,
   EditOutlined,
-  DragOutlined,
-  UpOutlined,
-  DownOutlined,
   HolderOutlined,
 } from '@ant-design/icons';
 import DraggableTable from '../components/common/DraggableTable';
+import SortableSection from '../components/common/SortableSection';
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragStartEvent,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -45,8 +58,6 @@ import UnitSelect from '../components/common/UnitSelect';
 import { DEFAULT_UNIT } from '../constants/units';
 
 const { Title } = Typography;
-const { TextArea } = Input;
-const { Panel } = Collapse;
 
 const EstimateCreation: React.FC = () => {
   const [form] = Form.useForm();
@@ -58,17 +69,23 @@ const EstimateCreation: React.FC = () => {
   // Section-based state
   const [sections, setSections] = useState<EstimateSection[]>([]);
   const [newSectionTitle, setNewSectionTitle] = useState('');
-  const [showSubtotalForNewSection, setShowSubtotalForNewSection] = useState(true);
   
   // Other states
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
+
+  // Section drag and drop states
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+
   const [itemModalVisible, setItemModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<EstimateLineItem | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingSectionIndex, setEditingSectionIndex] = useState<number | null>(null);
   const [itemForm] = Form.useForm();
   const [useCustomCompany, setUseCustomCompany] = useState(false);
+
+  // Multi-select state
+  const [selectedItemKeys, setSelectedItemKeys] = useState<{[sectionIndex: number]: string[]}>({});
   
   // O&P and calculations
   const [opPercent, setOpPercent] = useState(0);
@@ -193,13 +210,12 @@ const EstimateCreation: React.FC = () => {
       id: `section-${Date.now()}`,
       title: newSectionTitle.trim(),
       items: [],
-      showSubtotal: showSubtotalForNewSection,
+      showSubtotal: true,
       subtotal: 0,
     };
     
     setSections([...sections, newSection]);
     setNewSectionTitle('');
-    setShowSubtotalForNewSection(true);
     message.success('Section added successfully');
   };
 
@@ -209,22 +225,37 @@ const EstimateCreation: React.FC = () => {
     message.success('Section deleted successfully');
   };
 
-  const moveSectionUp = (sectionIndex: number) => {
-    if (sectionIndex === 0) return;
-    
-    const newSections = [...sections];
-    [newSections[sectionIndex], newSections[sectionIndex - 1]] = 
-    [newSections[sectionIndex - 1], newSections[sectionIndex]];
-    setSections(newSections);
+  // Section drag and drop handlers
+  const sectionSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleSectionDragStart = (event: DragStartEvent) => {
+    setActiveSectionId(event.active.id as string);
   };
 
-  const moveSectionDown = (sectionIndex: number) => {
-    if (sectionIndex === sections.length - 1) return;
-    
-    const newSections = [...sections];
-    [newSections[sectionIndex], newSections[sectionIndex + 1]] = 
-    [newSections[sectionIndex + 1], newSections[sectionIndex]];
-    setSections(newSections);
+  const handleSectionDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveSectionId(null);
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const oldIndex = sections.findIndex(section => section.id === active.id);
+    const newIndex = sections.findIndex(section => section.id === over.id);
+
+    if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+      const newSections = arrayMove(sections, oldIndex, newIndex);
+      setSections(newSections);
+    }
   };
 
   const updateSectionTitle = (sectionIndex: number, newTitle: string) => {
@@ -265,31 +296,53 @@ const EstimateCreation: React.FC = () => {
     setItemModalVisible(true);
   };
 
-  const deleteItemFromSection = (sectionIndex: number, itemIndex: number) => {
-    const newSections = [...sections];
-    newSections[sectionIndex].items = newSections[sectionIndex].items.filter((_, index) => index !== itemIndex);
-    newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
-    setSections(newSections);
-    message.success('Item deleted successfully');
-  };
 
-  const moveItemUp = (sectionIndex: number, itemIndex: number) => {
-    if (itemIndex === 0) return;
-    
+  // Drag and drop reorder handler
+  const handleItemReorder = (sectionIndex: number, newItems: EstimateLineItem[]) => {
     const newSections = [...sections];
-    const items = newSections[sectionIndex].items;
-    [items[itemIndex], items[itemIndex - 1]] = [items[itemIndex - 1], items[itemIndex]];
+    newSections[sectionIndex].items = newItems;
+    newSections[sectionIndex].subtotal = calculateSectionSubtotal(newItems);
     setSections(newSections);
   };
 
-  const moveItemDown = (sectionIndex: number, itemIndex: number) => {
-    const section = sections[sectionIndex];
-    if (itemIndex === section.items.length - 1) return;
-    
+  // Multi-select handlers
+  const handleRowSelection = (sectionIndex: number, selectedRowKeys: string[]) => {
+    setSelectedItemKeys(prev => ({
+      ...prev,
+      [sectionIndex]: selectedRowKeys
+    }));
+  };
+
+  // Delete selected items with keyboard
+  const handleKeyDown = (event: React.KeyboardEvent, sectionIndex: number) => {
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      const selectedKeys = selectedItemKeys[sectionIndex] || [];
+      if (selectedKeys.length > 0) {
+        event.preventDefault();
+        deleteSelectedItems(sectionIndex, selectedKeys);
+      }
+    }
+  };
+
+  // Delete multiple selected items
+  const deleteSelectedItems = (sectionIndex: number, selectedKeys: string[]) => {
     const newSections = [...sections];
-    const items = newSections[sectionIndex].items;
-    [items[itemIndex], items[itemIndex + 1]] = [items[itemIndex + 1], items[itemIndex]];
+    const currentItems = newSections[sectionIndex].items;
+
+    // Filter out selected items (selectedKeys are indices as strings)
+    const filteredItems = currentItems.filter((_, index) => !selectedKeys.includes(String(index)));
+
+    newSections[sectionIndex].items = filteredItems;
+    newSections[sectionIndex].subtotal = calculateSectionSubtotal(filteredItems);
     setSections(newSections);
+
+    // Clear selection
+    setSelectedItemKeys(prev => ({
+      ...prev,
+      [sectionIndex]: []
+    }));
+
+    message.success(`${selectedKeys.length} item(s) deleted successfully`);
   };
 
   const calculateSectionSubtotal = (items: EstimateLineItem[]): number => {
@@ -357,7 +410,7 @@ const EstimateCreation: React.FC = () => {
     });
   };
 
-  const handleCompanyChange = (value: string) => {
+  const handleCompanyChange = async (value: string) => {
     if (value === 'custom') {
       setUseCustomCompany(true);
       setSelectedCompany(null);
@@ -369,6 +422,23 @@ const EstimateCreation: React.FC = () => {
       setSelectedCompany(company || null);
       // Set form value to the selected company ID
       form.setFieldValue('company_selection', value);
+
+      // Generate new estimate number based on selected company (only in create mode)
+      if (!isEditMode && company) {
+        try {
+          const newEstimateNumber = await estimateService.generateEstimateNumber(
+            company.id,
+            'standard'
+          );
+          form.setFieldsValue({ estimate_number: newEstimateNumber });
+          console.log('Generated new estimate number:', newEstimateNumber);
+        } catch (error) {
+          console.error('Failed to generate estimate number:', error);
+          // Fallback to default number if API fails
+          const fallbackNumber = `EST-STD-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+          form.setFieldsValue({ estimate_number: fallbackNumber });
+        }
+      }
     }
   };
 
@@ -560,7 +630,11 @@ const EstimateCreation: React.FC = () => {
                     label="Estimate Number"
                     rules={[{ required: true, message: 'Please enter estimate number' }]}
                   >
-                    <Input placeholder="EST-001" />
+                    <Input
+                      prefix="#"
+                      placeholder={isEditMode ? "Estimate number" : "Select company to generate number"}
+                      disabled={!isEditMode && !selectedCompany}
+                    />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
@@ -657,14 +731,6 @@ const EstimateCreation: React.FC = () => {
                   />
                 </Col>
                 <Col>
-                  <Switch
-                    checked={showSubtotalForNewSection}
-                    onChange={setShowSubtotalForNewSection}
-                    checkedChildren="Show Subtotal"
-                    unCheckedChildren="Hide Subtotal"
-                  />
-                </Col>
-                <Col>
                   <Button type="primary" icon={<PlusOutlined />} onClick={addSection}>
                     Add Section
                   </Button>
@@ -678,165 +744,137 @@ const EstimateCreation: React.FC = () => {
                   <p>Add sections to organize your estimate items by room or category</p>
                 </div>
               ) : (
-                <Collapse>
-                  {sections.map((section, sectionIndex) => (
-                    <Panel
-                      key={section.id}
-                      header={
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                          <div>
-                            <HolderOutlined style={{ marginRight: 8, color: '#999' }} />
-                            <strong>{section.title}</strong>
-                            <Badge count={section.items.length} style={{ marginLeft: 8 }} />
-                          </div>
-                          {section.showSubtotal && (
-                            <Tag color="blue">${section.subtotal.toFixed(2)}</Tag>
+                <DndContext
+                  sensors={sectionSensors}
+                  collisionDetection={closestCenter}
+                  onDragStart={handleSectionDragStart}
+                  onDragEnd={handleSectionDragEnd}
+                  modifiers={[restrictToVerticalAxis]}
+                >
+                  <SortableContext items={sections.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                    <Collapse>
+                      {sections.map((section, sectionIndex) => (
+                        <SortableSection
+                          key={section.id}
+                          section={section}
+                          sectionIndex={sectionIndex}
+                          onAddItem={addItemToSection}
+                          onEditSection={(sectionId, title) => {
+                            setEditingSectionName(title);
+                            setEditingSectionId(sectionId);
+                            setSectionModalVisible(true);
+                          }}
+                          onDeleteSection={deleteSection}
+                        >
+                          {/* Section Items */}
+                          {section.items.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                              <p>No items in this section yet</p>
+                              <Button type="dashed" icon={<PlusOutlined />} onClick={() => addItemToSection(sectionIndex)}>
+                                Add First Item
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <div
+                                tabIndex={0}
+                                onKeyDown={(e) => handleKeyDown(e, sectionIndex)}
+                                style={{ outline: 'none' }}
+                              >
+                                <DraggableTable
+                                  dataSource={section.items.map((item, index) => ({ ...item, key: index }))}
+                                  onReorder={(newItems) => handleItemReorder(sectionIndex, newItems)}
+                                  pagination={false}
+                                  size="small"
+                                  showDragHandle={true}
+                                  dragHandlePosition="start"
+                                  dragColumnWidth={30}
+                                  getRowId={(record, index) => String(index)}
+                                  rowSelection={{
+                                    selectedRowKeys: selectedItemKeys[sectionIndex] || [],
+                                    onChange: (selectedRowKeys) => handleRowSelection(sectionIndex, selectedRowKeys as string[]),
+                                    type: 'checkbox',
+                                  }}
+                                  onRow={(record, index) => ({
+                                    onDoubleClick: () => editItemInSection(sectionIndex, index!),
+                                    style: {
+                                      cursor: 'pointer',
+                                    }
+                                  })}
+                                  columns={[
+                                    {
+                                      title: 'Item',
+                                      dataIndex: 'item',
+                                      key: 'item',
+                                      width: 120,
+                                    },
+                                    {
+                                      title: 'Description',
+                                      dataIndex: 'description',
+                                      key: 'description',
+                                      ellipsis: true,
+                                      render: (value) => value ? (
+                                        <div dangerouslySetInnerHTML={{ __html: value }} />
+                                      ) : null,
+                                    },
+                                    {
+                                      title: 'Qty',
+                                      dataIndex: 'quantity',
+                                      key: 'quantity',
+                                      width: 80,
+                                    },
+                                    {
+                                      title: 'Unit',
+                                      dataIndex: 'unit',
+                                      key: 'unit',
+                                      width: 80,
+                                    },
+                                    {
+                                      title: 'Rate',
+                                      dataIndex: 'unit_price',
+                                      key: 'unit_price',
+                                      width: 100,
+                                      render: (value) => `$${value?.toFixed(2) || '0.00'}`,
+                                    },
+                                    {
+                                      title: 'Total',
+                                      dataIndex: 'total',
+                                      key: 'total',
+                                      width: 100,
+                                      render: (value) => `$${value?.toFixed(2) || '0.00'}`,
+                                    },
+                                  ]}
+                                />
+                              </div>
+                            </>
                           )}
-                        </div>
-                      }
-                      extra={
-                        <Space onClick={(e) => e.stopPropagation()}>
-                          <Tooltip title="Move up">
-                            <Button
-                              size="small"
-                              icon={<UpOutlined />}
-                              disabled={sectionIndex === 0}
-                              onClick={() => moveSectionUp(sectionIndex)}
-                            />
-                          </Tooltip>
-                          <Tooltip title="Move down">
-                            <Button
-                              size="small"
-                              icon={<DownOutlined />}
-                              disabled={sectionIndex === sections.length - 1}
-                              onClick={() => moveSectionDown(sectionIndex)}
-                            />
-                          </Tooltip>
-                          <Tooltip title="Edit section name">
-                            <Button
-                              size="small"
-                              icon={<EditOutlined />}
-                              onClick={() => {
-                                setEditingSectionName(section.title);
-                                setEditingSectionId(section.id);
-                                setSectionModalVisible(true);
-                              }}
-                            />
-                          </Tooltip>
-                          <Popconfirm
-                            title="Are you sure you want to delete this section?"
-                            onConfirm={() => deleteSection(sectionIndex)}
-                            okText="Yes"
-                            cancelText="No"
-                          >
-                            <Button size="small" icon={<DeleteOutlined />} danger />
-                          </Popconfirm>
-                        </Space>
-                      }
-                    >
-                      {/* Section Items */}
-                      {section.items.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
-                          <p>No items in this section yet</p>
-                          <Button type="dashed" icon={<PlusOutlined />} onClick={() => addItemToSection(sectionIndex)}>
-                            Add First Item
-                          </Button>
-                        </div>
-                      ) : (
-                        <>
-                          <Table
-                            dataSource={section.items.map((item, index) => ({ ...item, key: index }))}
-                            pagination={false}
-                            size="small"
-                            columns={[
-                              {
-                                title: 'Item',
-                                dataIndex: 'item',
-                                key: 'item',
-                              },
-                              {
-                                title: 'Description',
-                                dataIndex: 'description',
-                                key: 'description',
-                                ellipsis: true,
-                                render: (value) => value ? (
-                                  <div dangerouslySetInnerHTML={{ __html: value }} />
-                                ) : null,
-                              },
-                              {
-                                title: 'Qty',
-                                dataIndex: 'quantity',
-                                key: 'quantity',
-                                width: 80,
-                              },
-                              {
-                                title: 'Unit',
-                                dataIndex: 'unit',
-                                key: 'unit',
-                                width: 80,
-                              },
-                              {
-                                title: 'Rate',
-                                dataIndex: 'unit_price',
-                                key: 'unit_price',
-                                width: 100,
-                                render: (value) => `$${value?.toFixed(2) || '0.00'}`,
-                              },
-                              {
-                                title: 'Total',
-                                dataIndex: 'total',
-                                key: 'total',
-                                width: 100,
-                                render: (value) => `$${value?.toFixed(2) || '0.00'}`,
-                              },
-                              {
-                                title: 'Actions',
-                                key: 'actions',
-                                width: 120,
-                                render: (_, record, index) => (
-                                  <Space size="small">
-                                    <Tooltip title="Move up">
-                                      <Button
-                                        size="small"
-                                        icon={<UpOutlined />}
-                                        disabled={index === 0}
-                                        onClick={() => moveItemUp(sectionIndex, index)}
-                                      />
-                                    </Tooltip>
-                                    <Tooltip title="Move down">
-                                      <Button
-                                        size="small"
-                                        icon={<DownOutlined />}
-                                        disabled={index === section.items.length - 1}
-                                        onClick={() => moveItemDown(sectionIndex, index)}
-                                      />
-                                    </Tooltip>
-                                    <Button
-                                      size="small"
-                                      icon={<EditOutlined />}
-                                      onClick={() => editItemInSection(sectionIndex, index)}
-                                    />
-                                    <Popconfirm
-                                      title="Are you sure?"
-                                      onConfirm={() => deleteItemFromSection(sectionIndex, index)}
-                                    >
-                                      <Button size="small" icon={<DeleteOutlined />} danger />
-                                    </Popconfirm>
-                                  </Space>
-                                ),
-                              },
-                            ]}
-                          />
-                          <div style={{ marginTop: 16 }}>
-                            <Button type="dashed" icon={<PlusOutlined />} onClick={() => addItemToSection(sectionIndex)}>
-                              Add Item to {section.title}
-                            </Button>
-                          </div>
-                        </>
-                      )}
-                    </Panel>
-                  ))}
-                </Collapse>
+                        </SortableSection>
+                      ))}
+                    </Collapse>
+                  </SortableContext>
+
+                  <DragOverlay>
+                    {activeSectionId ? (
+                      <div
+                        style={{
+                          backgroundColor: 'white',
+                          border: '1px solid #d9d9d9',
+                          borderRadius: '6px',
+                          padding: '12px 16px',
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                          fontSize: '14px',
+                          minWidth: '300px',
+                          opacity: 0.9,
+                        }}
+                      >
+                        <HolderOutlined style={{ marginRight: 8, color: '#999' }} />
+                        <strong>
+                          {sections.find(s => s.id === activeSectionId)?.title || 'Section'}
+                        </strong>
+                      </div>
+                    ) : null}
+                  </DragOverlay>
+                </DndContext>
               )}
             </Card>
           </Col>

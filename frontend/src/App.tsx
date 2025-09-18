@@ -162,6 +162,13 @@ function App() {
                   </Layout>
                 </ProtectedRoute>
               } />
+              <Route path="/insurance-estimate/:id" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <InsuranceEstimateCreation />
+                  </Layout>
+                </ProtectedRoute>
+              } />
               <Route path="/estimates/:id" element={
                 <ProtectedRoute>
                   <Layout>

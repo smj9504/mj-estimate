@@ -115,26 +115,31 @@ export interface InsuranceEstimate {
 class EstimateService {
   // Transform frontend EstimateLineItem to backend format
   private transformItemToBackend(item: EstimateLineItem) {
-    // Ensure description is not empty - this is required by backend
-    const description = item.item?.trim();
-    if (!description) {
-      throw new Error('Item description cannot be empty');
+    // Handle both new data format and ensure proper validation
+    const itemCode = item.item?.trim() || null;
+    const description = item.description?.trim() || '';
+
+    // If no description provided, this is acceptable for items with just codes
+    // But we need at least item code or description
+    if (!itemCode && !description) {
+      throw new Error('Item must have either a code or description');
     }
-    
+
     // Ensure quantity is valid - must be > 0
     const quantity = Number(item.quantity) || 1.0;
     if (quantity <= 0) {
       throw new Error('Item quantity must be greater than 0');
     }
-    
+
     // Ensure rate is valid - must be >= 0
     const rate = Number(item.unit_price) || 0.0;
     if (rate < 0) {
       throw new Error('Item rate cannot be negative');
     }
-    
+
     return {
-      description: description,
+      item_code: itemCode,  // Store the "Sel" value in item_code field
+      description: description, // Keep empty if no description provided
       quantity: quantity,
       unit: item.unit?.trim() || 'ea',
       rate: rate,
@@ -153,10 +158,21 @@ class EstimateService {
 
   // Transform backend item to frontend format
   private transformItemFromBackend(item: any): EstimateLineItem {
+    // Handle legacy data compatibility
+    // If item_code is empty/null but description looks like a code (uppercase, short), treat description as code
+    let itemCode = item.item_code || '';
+    let description = item.description || '';
+
+    // Legacy data compatibility: if no item_code but description looks like a code
+    if (!itemCode && description && this.isLikelyItemCode(description)) {
+      itemCode = description;
+      description = ''; // Clear description since it's actually a code
+    }
+
     return {
       id: item.id,
-      item: item.description || '', // Map 'description' to 'item'
-      description: item.description,
+      item: itemCode,  // Use resolved item code
+      description: description, // Use resolved description
       quantity: item.quantity || 0,
       unit: item.unit || 'ea',
       unit_price: item.rate || 0, // Map 'rate' to 'unit_price'
@@ -168,6 +184,38 @@ class EstimateService {
       sort_order: item.sort_order,
       note: item.note
     };
+  }
+
+  // Helper method to detect if a string looks like an item code rather than a description
+  private isLikelyItemCode(text: string): boolean {
+    if (!text || text.length === 0) return false;
+
+    // Check if text looks like a code:
+    // - Short length (typically <= 15 characters)
+    // - Contains uppercase letters or numbers
+    // - Doesn't contain common description words
+    const trimmed = text.trim();
+
+    // Short codes are likely item codes
+    if (trimmed.length <= 10 && /^[A-Z0-9]+$/i.test(trimmed)) {
+      return true;
+    }
+
+    // Common patterns for Xactimate codes
+    if (/^[A-Z]{3,6}\d{3}$/i.test(trimmed)) { // e.g., DRY001, PAINT123
+      return true;
+    }
+
+    // Contains mostly uppercase and is short
+    if (trimmed.length <= 15) {
+      const uppercaseCount = (trimmed.match(/[A-Z]/g) || []).length;
+      const uppercaseRatio = uppercaseCount / trimmed.length;
+      if (uppercaseRatio > 0.5) { // More than 50% uppercase
+        return true;
+      }
+    }
+
+    return false;
   }
 
   // Convert date string to ISO datetime format for backend
@@ -196,6 +244,7 @@ class EstimateService {
 
     return {
       estimate_number: estimate.estimate_number ? String(estimate.estimate_number).trim() : null,
+      estimate_type: 'insurance', // Insurance estimate type
       company_id: estimate.company_id || null,
       client_name: estimate.client_name ? String(estimate.client_name).trim() : '',
       client_address: estimate.client_address ? String(estimate.client_address).trim() : null,
@@ -205,13 +254,18 @@ class EstimateService {
       client_phone: estimate.client_phone ? String(estimate.client_phone).trim() : null,
       client_email: estimate.client_email ? String(estimate.client_email).trim() : null,
       estimate_date: this.formatDateForBackend(estimate.estimate_date),
+      loss_date: this.formatDateForBackend(estimate.loss_date),
       valid_until: this.formatDateForBackend(estimate.valid_until),
       status: estimate.status?.trim() || 'draft',
       notes: estimate.notes?.trim() || null,
       terms: estimate.terms?.trim() || null,
       claim_number: estimate.claim_number?.trim() || null,
       policy_number: estimate.policy_number?.trim() || null,
+      insurance_company: estimate.insurance_company?.trim() || null,
       deductible: estimate.deductible ? Number(estimate.deductible) : null,
+      adjuster_name: estimate.adjuster_name?.trim() || null,
+      adjuster_phone: estimate.adjuster_phone?.trim() || null,
+      adjuster_email: estimate.adjuster_email?.trim() || null,
       items: estimate.items.map(item => this.transformItemToBackend(item))
     };
   }
@@ -221,12 +275,24 @@ class EstimateService {
     return {
       id: backendData.id,
       estimate_number: backendData.estimate_number,
+      estimate_type: backendData.estimate_type || 'insurance',
       company_id: backendData.company_id,
+      company_name: backendData.company_name,
+      company_address: backendData.company_address,
+      company_city: backendData.company_city,
+      company_state: backendData.company_state,
+      company_zipcode: backendData.company_zipcode,
+      company_phone: backendData.company_phone,
+      company_email: backendData.company_email,
       client_name: backendData.client_name,
       client_address: backendData.client_address,
+      client_city: backendData.client_city,
+      client_state: backendData.client_state,
+      client_zipcode: backendData.client_zipcode,
       client_phone: backendData.client_phone,
       client_email: backendData.client_email,
       estimate_date: backendData.estimate_date,
+      loss_date: backendData.loss_date,
       valid_until: backendData.valid_until,
       status: backendData.status,
       subtotal: backendData.subtotal,
@@ -236,7 +302,11 @@ class EstimateService {
       total_amount: backendData.total_amount,
       claim_number: backendData.claim_number,
       policy_number: backendData.policy_number,
+      insurance_company: backendData.insurance_company,
       deductible: backendData.deductible,
+      adjuster_name: backendData.adjuster_name,
+      adjuster_phone: backendData.adjuster_phone,
+      adjuster_email: backendData.adjuster_email,
       notes: backendData.notes,
       terms: backendData.terms,
       created_at: backendData.created_at,
@@ -343,7 +413,7 @@ class EstimateService {
       },
       items: estimate.items.map(item => ({
         room: item.room || '',
-        description: item.item || 'No description', // Map 'item' to 'description' for PDF
+        description: item.description || 'No description', // Use actual description for PDF
         quantity: item.quantity || 0,
         unit: item.unit || 'ea',
         rate: item.unit_price || 0 // Map 'unit_price' to 'rate' for PDF
@@ -407,6 +477,13 @@ class EstimateService {
   }
 
   async previewHTML(estimate: InsuranceEstimate): Promise<string> {
+    // Check for items without primary_group and show warning
+    const itemsWithoutGroup = estimate.items.filter(item => !item.primary_group);
+    if (itemsWithoutGroup.length > 0) {
+      console.warn(`Warning: ${itemsWithoutGroup.length} items found without primary_group assignment`);
+      // Could show a user notification here if needed
+    }
+
     // Transform the estimate data to the format expected by the HTML endpoint
     const htmlData = {
       estimate_number: estimate.estimate_number || this.generateEstimateNumberFallback(),
@@ -432,8 +509,8 @@ class EstimateService {
       },
       items: estimate.items.map(item => ({
         room: item.room || '',
-        description: item.item || 'No description',
-        primary_group: item.primary_group || 'General',
+        description: item.description || 'No description',
+        primary_group: item.primary_group || 'Uncategorized',
         quantity: item.quantity || 0,
         unit: item.unit || 'ea',
         rate: item.unit_price || 0,

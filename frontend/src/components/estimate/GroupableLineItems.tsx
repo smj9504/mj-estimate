@@ -59,7 +59,6 @@ const SUGGESTED_GROUPS = {
     'Windows & Doors',
     'Kitchen',
     'Bathroom',
-    'General',
     'Miscellaneous',
     'Other'
   ],
@@ -90,7 +89,6 @@ const SUGGESTED_GROUPS = {
       'Siding'
     ],
     'default': [
-      'General',
       'Area 1',
       'Area 2',
       'Other'

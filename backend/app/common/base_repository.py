@@ -2,7 +2,7 @@
 Base repository implementations for different database providers.
 """
 
-from typing import Any, Dict, List, Optional, Type, TypeVar, Tuple
+from typing import Any, Dict, List, Optional, Type, TypeVar, Tuple, Set
 from datetime import datetime
 import logging
 import json
@@ -25,44 +25,76 @@ class BaseRepository(Repository[T, ID]):
         self.model_class = model_class
         self.table_name = table_name
     
-    def _convert_to_dict(self, entity: Any) -> Dict[str, Any]:
-        """Convert entity to dictionary representation"""
+    def _convert_to_dict(self, entity: Any, visited: Optional[set] = None) -> Dict[str, Any]:
+        """Convert entity to dictionary representation with circular reference protection"""
         from uuid import UUID
-        if hasattr(entity, '__dict__'):
-            result = {}
-            for key, value in entity.__dict__.items():
-                if not key.startswith('_'):
-                    # Handle special types
-                    if isinstance(value, UUID):
-                        result[key] = str(value)
-                    elif isinstance(value, Decimal):
-                        result[key] = float(value)
-                    elif isinstance(value, datetime):
-                        result[key] = value.isoformat()
-                    elif value is None:
-                        result[key] = None
-                    # For string UUIDs (already converted by UUIDType), keep as is
-                    elif isinstance(value, str) and key.endswith('_id'):
-                        result[key] = value
-                    # Convert cost string fields to float for API response
-                    elif isinstance(value, str) and key in ['base_cost', 'final_cost', 'tax_amount', 'discount_amount', 'estimated_cost', 'actual_cost']:
-                        try:
-                            result[key] = float(value) if value else 0.0
-                        except (ValueError, TypeError):
-                            result[key] = 0.0
+
+        # Initialize visited set to track processed objects and prevent circular references
+        if visited is None:
+            visited = set()
+
+        # Check if this entity has already been processed to prevent infinite recursion
+        entity_id = id(entity)
+        if entity_id in visited:
+            # Return minimal representation for already processed entities
+            if hasattr(entity, 'id'):
+                return {"id": str(entity.id) if hasattr(entity.id, '__str__') else entity.id}
+            elif hasattr(entity, '__dict__') and hasattr(entity, '__class__'):
+                return {"_ref": entity.__class__.__name__}
+            else:
+                return {"_circular_ref": True}
+
+        # Add current entity to visited set
+        visited.add(entity_id)
+
+        try:
+            if hasattr(entity, '__dict__'):
+                result = {}
+                for key, value in entity.__dict__.items():
+                    if not key.startswith('_'):
+                        # Handle special types
+                        if isinstance(value, UUID):
+                            result[key] = str(value)
+                        elif isinstance(value, Decimal):
+                            result[key] = float(value)
+                        elif isinstance(value, datetime):
+                            result[key] = value.isoformat()
+                        elif value is None:
+                            result[key] = None
+                        # For string UUIDs (already converted by UUIDType), keep as is
+                        elif isinstance(value, str) and key.endswith('_id'):
+                            result[key] = value
+                        # Convert cost string fields to float for API response
+                        elif isinstance(value, str) and key in ['base_cost', 'final_cost', 'tax_amount', 'discount_amount', 'estimated_cost', 'actual_cost']:
+                            try:
+                                result[key] = float(value) if value else 0.0
+                            except (ValueError, TypeError):
+                                result[key] = 0.0
+                        else:
+                            result[key] = value
+
+                # Handle relationships (like invoice items) with circular reference protection
+                # Check for common relationship names
+                if hasattr(entity, 'items') and hasattr(entity.items, '__iter__'):
+                    result['items'] = [self._convert_to_dict(item, visited.copy()) for item in entity.items]
+
+                # Handle category relationship for Xactimate items with circular reference protection
+                if hasattr(entity, 'category') and entity.category is not None:
+                    # Check if it's a relationship object that needs conversion
+                    if hasattr(entity.category, '__dict__'):
+                        result['category'] = self._convert_to_dict(entity.category, visited.copy())
                     else:
-                        result[key] = value
-            
-            # Handle relationships (like invoice items)
-            # Check for common relationship names
-            if hasattr(entity, 'items') and hasattr(entity.items, '__iter__'):
-                result['items'] = [self._convert_to_dict(item) for item in entity.items]
-            
-            return result
-        elif isinstance(entity, dict):
-            return entity
-        else:
-            return {"data": entity}
+                        result['category'] = entity.category
+
+                return result
+            elif isinstance(entity, dict):
+                return entity
+            else:
+                return {"data": entity}
+        finally:
+            # Remove from visited set after processing to allow the same entity
+            # to be processed in different branches of the object tree
+            visited.discard(entity_id)
     
     def _prepare_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare data for database insertion/update"""
@@ -88,17 +120,31 @@ class BaseRepository(Repository[T, ID]):
         """Validate and clean data before database operations"""
         if not data:
             raise ValueError(f"No data provided for {operation} operation")
-        
+
+        logger.info(f"=== BASE REPOSITORY _validate_data ===")
+        logger.info(f"Operation: {operation}")
+        logger.info(f"Input data loss_date: {data.get('loss_date')}")
+        logger.info(f"Input data client_name: {data.get('client_name')}")
+
         # Remove None values if specified in settings (but not for update operations)
         if operation != "update" and getattr(settings, 'REMOVE_NONE_VALUES', True):
             data = {k: v for k, v in data.items() if v is not None}
-        
+            logger.info(f"After None removal (create): loss_date: {data.get('loss_date')}")
+
         # Remove system fields that shouldn't be set manually
         system_fields = {'created_at', 'updated_at'} if operation == "create" else {'created_at'}
         for field in system_fields:
             data.pop(field, None)
-        
-        return self._prepare_data(data)
+
+        logger.info(f"Before _prepare_data: loss_date: {data.get('loss_date')}")
+        logger.info(f"Before _prepare_data: client_name: {data.get('client_name')}")
+
+        prepared_data = self._prepare_data(data)
+
+        logger.info(f"After _prepare_data: loss_date: {prepared_data.get('loss_date')}")
+        logger.info(f"After _prepare_data: client_name: {prepared_data.get('client_name')}")
+
+        return prepared_data
 
 
 class SQLAlchemyRepository(BaseRepository[T, ID]):
@@ -448,16 +494,35 @@ class SupabaseRepository(BaseRepository[T, ID]):
     def update(self, entity_id: ID, update_data: Dict[str, Any]) -> Optional[T]:
         """Update entity by ID using Supabase"""
         try:
+            logger.info(f"=== SUPABASE REPOSITORY update START ===")
+            logger.info(f"Table: {self.table_name}")
+            logger.info(f"Entity ID: {entity_id}")
+            logger.info(f"Raw update_data: {update_data}")
+            logger.info(f"loss_date in raw data: {update_data.get('loss_date')}")
+            logger.info(f"client_name in raw data: {update_data.get('client_name')}")
+
             validated_data = self._validate_data(update_data, "update")
-            
+
+            logger.info(f"After validation: {validated_data}")
+            logger.info(f"loss_date after validation: {validated_data.get('loss_date')}")
+            logger.info(f"client_name after validation: {validated_data.get('client_name')}")
+
             if not validated_data:
+                logger.warning("No validated data, returning None")
                 return None
-            
+
+            logger.info(f"Sending to Supabase: {validated_data}")
             response = self.client.table(self.table_name).update(validated_data).eq("id", entity_id).execute()
-            
+
+            logger.info(f"Supabase response.data: {response.data}")
+            if response.data:
+                logger.info(f"Response loss_date: {response.data[0].get('loss_date')}")
+                logger.info(f"Response client_name: {response.data[0].get('client_name')}")
+
             if not response.data:
+                logger.warning("No response data from Supabase")
                 return None
-            
+
             # Convert cost strings to floats for specific fields
             data = response.data[0]
             for key in ['base_cost', 'final_cost', 'tax_amount', 'discount_amount', 'estimated_cost', 'actual_cost']:

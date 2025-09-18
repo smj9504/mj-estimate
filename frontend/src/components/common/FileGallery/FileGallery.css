@@ -1,0 +1,451 @@
+/* FileGallery Main Styles */
+.file-gallery {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.file-gallery-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+.file-gallery-content {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+/* Upload Zone Styles */
+.file-upload-zone {
+  margin-bottom: 24px;
+}
+
+.file-upload-zone .ant-upload-drag {
+  border: 2px dashed #d9d9d9;
+  border-radius: 8px;
+  background: #fafafa;
+  transition: all 0.3s ease;
+}
+
+.file-upload-zone .ant-upload-drag:hover {
+  border-color: #1890ff;
+  background: #f0f9ff;
+}
+
+.file-upload-zone .ant-upload-drag.ant-upload-drag-hover {
+  border-color: #1890ff;
+  background: #f0f9ff;
+}
+
+/* Category Manager Styles */
+.category-manager {
+  padding: 12px 0;
+}
+
+.category-manager .ant-tag {
+  margin: 2px 4px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.category-manager .ant-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Grid View Styles */
+.file-grid {
+  display: grid;
+  gap: 16px;
+  padding: 8px;
+}
+
+/* Responsive grid columns */
+.file-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (min-width: 576px) {
+  .file-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 768px) {
+  .file-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 992px) {
+  .file-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+@media (min-width: 1200px) {
+  .file-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+.file-grid-item {
+  transition: all 0.2s ease;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.file-grid-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.file-grid-item .ant-card-cover {
+  position: relative;
+  overflow: hidden;
+}
+
+.file-image {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+.file-image:hover {
+  transform: scale(1.05);
+}
+
+.file-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.file-grid-item:hover .file-overlay {
+  opacity: 1;
+}
+
+.file-document-icon {
+  width: 100%;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fafafa;
+  border: 1px dashed #d9d9d9;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.file-document-icon:hover {
+  background: #f0f9ff;
+  border-color: #1890ff;
+}
+
+/* List View Styles */
+.file-list {
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #f0f0f0;
+  overflow: hidden;
+}
+
+.file-list .ant-list-item {
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.file-list .ant-list-item:hover {
+  background: #f8f9fa;
+}
+
+.file-list .ant-list-item:last-child {
+  border-bottom: none;
+}
+
+.file-list .ant-list-item.selected {
+  background: #e6f7ff;
+  border-left: 3px solid #1890ff;
+}
+
+/* Card View Styles */
+.file-cards-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: flex-start;
+}
+
+.file-card {
+  width: 280px;
+  transition: all 0.2s ease;
+}
+
+.file-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.file-card.selected {
+  border-color: #1890ff;
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.15);
+}
+
+/* View Mode Selector Styles */
+.view-mode-selector .ant-radio-group {
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #d9d9d9;
+  overflow: hidden;
+}
+
+.view-mode-selector .ant-radio-button-wrapper {
+  border: none;
+  background: transparent;
+}
+
+.view-mode-selector .ant-radio-button-wrapper:hover {
+  background: #f5f5f5;
+}
+
+.view-mode-selector .ant-radio-button-wrapper-checked {
+  background: #1890ff;
+  color: white;
+}
+
+/* Loading and Empty States */
+.file-gallery-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+}
+
+.file-gallery-empty {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 300px;
+  flex-direction: column;
+  color: #8c8c8c;
+}
+
+.file-gallery-empty .ant-empty-image {
+  height: 100px;
+  margin-bottom: 16px;
+}
+
+/* Progress and Status */
+.upload-progress {
+  margin-top: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+}
+
+.upload-progress .ant-progress {
+  margin-bottom: 8px;
+}
+
+.upload-status {
+  font-size: 12px;
+  color: #666;
+}
+
+/* File Actions */
+.file-actions {
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.file-grid-item:hover .file-actions,
+.file-list .ant-list-item:hover .file-actions,
+.file-card:hover .file-actions {
+  opacity: 1;
+}
+
+.file-actions .ant-btn {
+  border: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Selection Checkbox */
+.file-selection-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 4px;
+  padding: 2px;
+}
+
+/* File Info */
+.file-info {
+  padding: 8px 12px;
+}
+
+.file-info-title {
+  font-weight: 500;
+  margin-bottom: 4px;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.file-info-meta {
+  font-size: 11px;
+  color: #8c8c8c;
+  line-height: 1.2;
+}
+
+.file-category-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  margin-top: 4px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .file-gallery-header {
+    padding: 12px 16px;
+  }
+
+  .file-gallery-content {
+    padding: 12px;
+  }
+
+  .file-grid {
+    gap: 12px;
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .file-image {
+    height: 150px;
+  }
+
+  .file-document-icon {
+    height: 150px;
+  }
+
+  .file-card {
+    width: 100%;
+    max-width: 300px;
+  }
+
+  .file-cards-container {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .file-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px;
+  }
+
+  .file-image {
+    height: 120px;
+  }
+
+  .file-document-icon {
+    height: 120px;
+  }
+
+  .file-gallery-header {
+    padding: 8px 12px;
+  }
+
+  .file-gallery-content {
+    padding: 8px;
+  }
+}
+
+/* Dark mode support (optional) */
+@media (prefers-color-scheme: dark) {
+  .file-gallery {
+    background: #1f1f1f;
+    color: #fff;
+  }
+
+  .file-gallery-header {
+    background: #262626;
+    border-bottom-color: #434343;
+  }
+
+  .file-document-icon {
+    background: #262626;
+    border-color: #434343;
+  }
+
+  .file-list {
+    background: #1f1f1f;
+    border-color: #434343;
+  }
+
+  .file-list .ant-list-item {
+    border-bottom-color: #303030;
+  }
+}
+
+/* Animation for file uploads */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.file-grid-item {
+  animation: fadeInUp 0.3s ease;
+}
+
+/* Accessibility improvements */
+.file-grid-item:focus,
+.file-list .ant-list-item:focus,
+.file-card:focus {
+  outline: 2px solid #1890ff;
+  outline-offset: 2px;
+}
+
+/* Print styles */
+@media print {
+  .file-gallery {
+    box-shadow: none;
+    border: 1px solid #ccc;
+  }
+
+  .file-actions,
+  .file-upload-zone,
+  .category-manager {
+    display: none !important;
+  }
+
+  .file-overlay {
+    display: none !important;
+  }
+}

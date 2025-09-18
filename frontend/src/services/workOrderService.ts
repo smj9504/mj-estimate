@@ -146,6 +146,12 @@ export const workOrderService = {
     return response.data;
   },
 
+  // File management
+  async getFileCount(workOrderId: string, fileType: 'image' | 'document'): Promise<number> {
+    const response = await api.get(`/api/work-orders/${workOrderId}/files/count?file_type=${fileType}`);
+    return response.data.count;
+  },
+
   // Payment management
   async getWorkOrderPayments(workOrderId: string): Promise<any[]> {
     const response = await api.get(`/api/work-orders/${workOrderId}/payments`);

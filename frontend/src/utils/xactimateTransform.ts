@@ -43,8 +43,8 @@ export const convertXactimateToLineItem = (
   return {
     // EstimateLineItem base properties
     id: `xact_${xactimateItem.id}_${Date.now()}`, // Unique ID for this line item
-    item: xactimateItem.item_code,
-    description: xactimateItem.description,
+    item: xactimateItem.item_code, // Xactimate item code for reference
+    description: xactimateItem.description, // Actual description
     note: formatXactimateNote(xactimateItem), // Convert to rich text HTML
     quantity,
     unit,

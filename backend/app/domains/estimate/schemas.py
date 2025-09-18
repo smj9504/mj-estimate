@@ -15,11 +15,14 @@ class EstimateItemBase(BaseModel):
     primary_group: Optional[str] = None  # 1차 분류
     secondary_group: Optional[str] = None  # 2차 분류
     sort_order: Optional[int] = 0  # 그룹 내 정렬 순서
-    
+
     # Deprecated but kept for backward compatibility
     room: Optional[str] = None  # Use primary_group/secondary_group instead
-    
-    description: str
+
+    # Line item code field - stores the "Sel" value from frontend
+    item_code: Optional[str] = None  # Line item selection code (Sel column)
+
+    description: Optional[str] = None
     quantity: float = 1.0
     unit: Optional[str] = "ea"
     rate: float = 0.0
@@ -44,6 +47,7 @@ class EstimateItemUpdate(BaseModel):
     secondary_group: Optional[str] = None
     sort_order: Optional[int] = None
     room: Optional[str] = None  # Deprecated
+    item_code: Optional[str] = None  # Line item selection code
     description: Optional[str] = None
     quantity: Optional[float] = None
     unit: Optional[str] = None
@@ -64,6 +68,7 @@ class EstimateItemResponse(EstimateItemBase):
     primary_group: Optional[str] = None
     secondary_group: Optional[str] = None
     sort_order: Optional[int] = 0
+    item_code: Optional[str] = None  # Line item selection code
     note: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -86,6 +91,7 @@ class EstimateBase(BaseModel):
     client_email: Optional[str] = None
     
     estimate_date: Optional[datetime] = None
+    loss_date: Optional[datetime] = None  # Insurance: Date when loss/damage occurred
     valid_until: Optional[datetime] = None
     status: Optional[str] = "draft"
     
@@ -95,7 +101,11 @@ class EstimateBase(BaseModel):
     # Insurance estimate specific fields
     claim_number: Optional[str] = None
     policy_number: Optional[str] = None
+    insurance_company: Optional[str] = None
     deductible: Optional[float] = None
+    adjuster_name: Optional[str] = None
+    adjuster_phone: Optional[str] = None
+    adjuster_email: Optional[str] = None
     
     # Room data for floor plans
     room_data: Optional[Dict[str, Any]] = None
@@ -110,6 +120,14 @@ class EstimateUpdate(BaseModel):
     """Schema for updating estimates"""
     estimate_number: Optional[str] = None
     estimate_type: Optional[str] = None  # standard or insurance
+    company_id: Optional[UUID] = None  # ✅ Fixed type to match EstimateBase
+    company_name: Optional[str] = None
+    company_address: Optional[str] = None
+    company_city: Optional[str] = None
+    company_state: Optional[str] = None
+    company_zipcode: Optional[str] = None
+    company_phone: Optional[str] = None
+    company_email: Optional[str] = None
     client_name: Optional[str] = None
     client_address: Optional[str] = None
     client_city: Optional[str] = None
@@ -117,22 +135,39 @@ class EstimateUpdate(BaseModel):
     client_zipcode: Optional[str] = None
     client_phone: Optional[str] = None
     client_email: Optional[str] = None
-    
+
     estimate_date: Optional[datetime] = None
+    loss_date: Optional[datetime] = None  # Insurance: Date when loss/damage occurred
     valid_until: Optional[datetime] = None
     status: Optional[str] = None
-    
+
+    # ✅ Added missing financial fields
+    subtotal: Optional[float] = None
+    tax_rate: Optional[float] = None
+    tax_amount: Optional[float] = None
+    discount_amount: Optional[float] = None
+    total_amount: Optional[float] = None
+
     notes: Optional[str] = None
     terms: Optional[str] = None
-    
+
     # Insurance fields
     claim_number: Optional[str] = None
     policy_number: Optional[str] = None
+    insurance_company: Optional[str] = None
     deductible: Optional[float] = None
-    
+    adjuster_name: Optional[str] = None
+    adjuster_phone: Optional[str] = None
+    adjuster_email: Optional[str] = None
+
+    # ✅ Added missing insurance total fields
+    depreciation_amount: Optional[float] = None
+    acv_amount: Optional[float] = None
+    rcv_amount: Optional[float] = None
+
     # Room data
     room_data: Optional[Dict[str, Any]] = None
-    
+
     # Items
     items: Optional[List[EstimateItemCreate]] = None
 
@@ -144,13 +179,15 @@ class EstimateListResponse(BaseModel):
     estimate_type: Optional[str] = "standard"  # standard or insurance
     company_id: Optional[UUID] = None
     client_name: str
+    client_address: Optional[str] = None
+    client_city: Optional[str] = None
     total_amount: float
     status: str
     estimate_date: Optional[datetime] = None
     valid_until: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -161,7 +198,16 @@ class EstimateResponse(BaseModel):
     estimate_number: str
     estimate_type: Optional[str] = "standard"  # standard or insurance
     company_id: Optional[UUID] = None
-    
+
+    # Company info
+    company_name: Optional[str] = None
+    company_address: Optional[str] = None
+    company_city: Optional[str] = None
+    company_state: Optional[str] = None
+    company_zipcode: Optional[str] = None
+    company_phone: Optional[str] = None
+    company_email: Optional[str] = None
+
     # Client info
     client_name: str
     client_address: Optional[str] = None
@@ -173,6 +219,7 @@ class EstimateResponse(BaseModel):
     
     # Dates
     estimate_date: Optional[datetime] = None
+    loss_date: Optional[datetime] = None  # Insurance: Date when loss/damage occurred
     valid_until: Optional[datetime] = None
     status: str = "draft"
     
@@ -186,7 +233,11 @@ class EstimateResponse(BaseModel):
     # Insurance specific
     claim_number: Optional[str] = None
     policy_number: Optional[str] = None
+    insurance_company: Optional[str] = None
     deductible: Optional[float] = None
+    adjuster_name: Optional[str] = None
+    adjuster_phone: Optional[str] = None
+    adjuster_email: Optional[str] = None
     depreciation_amount: Optional[float] = 0.0
     acv_amount: Optional[float] = 0.0
     rcv_amount: Optional[float] = 0.0

@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, date
 from decimal import Decimal
 import json
-from sqlalchemy import text
+from sqlalchemy import text, select, func
 
 from app.common.base_service import TransactionalService
 from app.domains.estimate.repository import get_estimate_repository
@@ -201,25 +201,40 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
     def update_with_items(self, estimate_id: str, estimate_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Update estimate with items.
-        
+
         Args:
             estimate_id: Estimate ID
             estimate_data: Updated estimate data including items
-            
+
         Returns:
             Updated estimate dictionary with items
         """
+        logger.info(f"=== SERVICE update_with_items START ===")
+        logger.info(f"Estimate ID: {estimate_id}")
+        logger.info(f"Input data keys: {list(estimate_data.keys())}")
+        logger.info(f"Input loss_date: {estimate_data.get('loss_date')}")
+        logger.info(f"Input client_name: {estimate_data.get('client_name')}")
+
         def _update_operation(session, estimate_id, data):
+            logger.info(f"=== _update_operation START ===")
+            logger.info(f"Data keys in _update_operation: {list(data.keys())}")
+            logger.info(f"loss_date in _update_operation: {data.get('loss_date')}")
+            logger.info(f"client_name in _update_operation: {data.get('client_name')}")
+
             repository = self._get_repository_instance(session)
-            
+
             # Extract items and room_data
             items_data = data.pop('items', [])
             room_data = data.get('room_data')
-            
+
             # Convert room_data to JSON string if it's a dict
             if isinstance(room_data, dict):
                 data['room_data'] = json.dumps(room_data)
-            
+
+            logger.info(f"Final data before repository.update: {list(data.keys())}")
+            logger.info(f"Final loss_date before repository.update: {data.get('loss_date')}")
+            logger.info(f"Final client_name before repository.update: {data.get('client_name')}")
+
             # Update estimate
             updated_estimate = repository.update(estimate_id, data)
             if not updated_estimate:
@@ -423,52 +438,75 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
     def generate_estimate_number(self, company_id: Optional[str] = None, estimate_type: Optional[str] = None) -> Dict[str, Any]:
         """
         Generate next estimate number with metadata.
-        
+
         Args:
             company_id: Optional company ID for company-specific numbering
             estimate_type: Optional estimate type (insurance, standard, etc.)
-        
+
         Returns:
             Dictionary with estimate_number, sequence, company_prefix, and year
         """
         try:
             now = datetime.utcnow()
             year = str(now.year)
-            
+
             # Build prefix based on company and type
             prefix_parts = ["EST"]
-            
+            company_prefix = None
+
             if company_id:
-                # Get company prefix (first 3 chars of company name/code)
+                # Get company code and name
                 with self.database.get_session() as session:
-                    company_query = text("SELECT name FROM companies WHERE id = :company_id")
-                    result = session.execute(company_query, {"company_id": company_id}).fetchone()
-                    if result:
-                        company_name = result[0]
-                        company_prefix = company_name[:3].upper()
+                    from app.domains.company.models import Company
+
+                    company = session.query(Company).filter(Company.id == company_id).first()
+                    if company:
+                        # Use company_code if available, otherwise first 3 chars of name
+                        if company.company_code:
+                            company_prefix = company.company_code.upper()
+                        else:
+                            company_prefix = company.name[:3].upper() if company.name else "UNK"
                         prefix_parts.append(company_prefix)
-            
+
             if estimate_type and estimate_type != "standard":
                 # Add type suffix (e.g., INS for insurance)
                 type_suffix = estimate_type[:3].upper()
                 prefix_parts.append(type_suffix)
-            
+
             prefix_parts.append(year)
             prefix = "-".join(prefix_parts)
-            
-            # Count existing estimates with this prefix
-            existing_estimates = self.get_all(
-                filters={'estimate_number__startswith': prefix}
-            )
-            
-            # Calculate next sequence number
-            sequence = len(existing_estimates) + 1
+
+            # Count existing estimates for this company in current year
+            sequence = 1
+            if company_id:
+                with self.database.get_session() as session:
+                    # Count estimates for this specific company in the current year
+                    from app.domains.estimate.models import Estimate
+                    from sqlalchemy import extract
+
+                    count = session.query(func.count(Estimate.id)).filter(
+                        Estimate.company_id == company_id,
+                        extract('year', Estimate.estimate_date) == int(year)
+                    ).scalar()
+
+                    if count:
+                        sequence = count + 1
+            else:
+                # If no company, count all estimates with this prefix
+                existing_estimates = self.get_all(
+                    filters={'estimate_number__startswith': prefix}
+                )
+                sequence = len(existing_estimates) + 1
+
+            # Generate final estimate number
             estimate_number = f"{prefix}-{sequence:04d}"
-            
+
+            logger.info(f"Generated estimate number: {estimate_number} (company_id: {company_id}, sequence: {sequence})")
+
             return {
                 'estimate_number': estimate_number,
                 'sequence': sequence,
-                'company_prefix': prefix_parts[1] if len(prefix_parts) > 2 else None,
+                'company_prefix': company_prefix,
                 'year': year
             }
             
@@ -541,10 +579,18 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
     
     def _validate_update_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Validate data for estimate update"""
+        logger.info(f"=== SERVICE _validate_update_data INPUT ===")
+        logger.info(f"Original data keys: {list(data.keys())}")
+        logger.info(f"loss_date in original data: {data.get('loss_date')}")
+        logger.info(f"client_name in original data: {data.get('client_name')}")
+
         validated_data = data.copy()
-        
+
         # Remove None values
+        logger.info(f"Before removing None values - loss_date: {validated_data.get('loss_date')}")
         validated_data = {k: v for k, v in validated_data.items() if v is not None}
+        logger.info(f"After removing None values - loss_date: {validated_data.get('loss_date')}")
+        logger.info(f"After removing None values - client_name: {validated_data.get('client_name')}")
         
         # Remove system fields and ID
         for field in ['created_at', 'updated_at', 'id']:

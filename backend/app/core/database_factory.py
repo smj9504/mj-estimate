@@ -328,6 +328,7 @@ class SQLiteDatabase(DatabaseProvider):
             import app.domains.payment.models
             import app.domains.credit.models
             import app.domains.staff.models
+            import app.domains.file.models  # File management 모델 추가
             from sqlalchemy import inspect
             
             # Check if tables already exist
@@ -436,6 +437,7 @@ class PostgreSQLDatabase(DatabaseProvider):
             import app.domains.staff.models
             import app.domains.line_items.models  # Line Items 모델 추가
             import app.domains.line_items.category_models  # Line Item Categories 모델 추가
+            import app.domains.file.models  # File management 모델 추가
             from sqlalchemy import inspect
             
             # Check if tables already exist

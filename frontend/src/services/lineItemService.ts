@@ -625,7 +625,7 @@ class LineItemService {
     try {
       // Only include category param if it has a value
       const params: any = {};
-      if (category && category !== 'undefined' && category !== 'General') {
+      if (category && category !== 'undefined') {
         params.category = category;
       }
       

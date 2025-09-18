@@ -182,10 +182,13 @@ class XactimateItemSQLAlchemyRepository(SQLAlchemyRepository, XactimateItemRepos
         query = self.db_session.query(XactimateItem).filter(
             XactimateItem.item_code == item_code
         )
-        
+
+        # Always include category relationship
+        query = query.options(selectinload(XactimateItem.category))
+
         if include_components:
             query = query.options(selectinload(XactimateItem.components))
-        
+
         entity = query.first()
         return self._convert_to_dict(entity) if entity else None
     
@@ -194,17 +197,20 @@ class XactimateItemSQLAlchemyRepository(SQLAlchemyRepository, XactimateItemRepos
         query = self.db_session.query(XactimateItem).filter(
             XactimateItem.category_code == category_code
         ).order_by(XactimateItem.item_code).limit(limit)
-        
+
+        # Always include category relationship
+        query = query.options(selectinload(XactimateItem.category))
+
         if include_components:
             query = query.options(selectinload(XactimateItem.components))
-        
+
         entities = query.all()
         return [self._convert_to_dict(entity) for entity in entities]
     
     def search(self, search_request: XactimateSearchRequest) -> Tuple[List[Dict[str, Any]], int]:
         """Advanced search with multiple filters"""
         query = self.db_session.query(XactimateItem)
-        
+
         # Apply filters
         if search_request.search_term:
             search_term = f"%{search_request.search_term}%"
@@ -215,25 +221,25 @@ class XactimateItemSQLAlchemyRepository(SQLAlchemyRepository, XactimateItemRepos
                     XactimateItem.includes_description.ilike(search_term)
                 )
             )
-        
+
         if search_request.category_code:
             query = query.filter(XactimateItem.category_code == search_request.category_code)
-        
+
         if search_request.item_code:
             query = query.filter(XactimateItem.item_code.ilike(f"%{search_request.item_code}%"))
-        
+
         if search_request.price_year:
             query = query.filter(XactimateItem.price_year == search_request.price_year)
-        
+
         if search_request.price_month:
             query = query.filter(XactimateItem.price_month == search_request.price_month)
-        
+
         if search_request.min_price is not None:
             query = query.filter(XactimateItem.untaxed_unit_price >= search_request.min_price)
-        
+
         if search_request.max_price is not None:
             query = query.filter(XactimateItem.untaxed_unit_price <= search_request.max_price)
-        
+
         if search_request.has_components is not None:
             if search_request.has_components:
                 query = query.join(XactimateComponent)
@@ -241,10 +247,10 @@ class XactimateItemSQLAlchemyRepository(SQLAlchemyRepository, XactimateItemRepos
                 query = query.outerjoin(XactimateComponent).filter(
                     XactimateComponent.id.is_(None)
                 )
-        
+
         # Get total count
         total_count = query.count()
-        
+
         # Apply pagination and ordering
         query = query.order_by(
             XactimateItem.category_code,
@@ -252,14 +258,17 @@ class XactimateItemSQLAlchemyRepository(SQLAlchemyRepository, XactimateItemRepos
         ).offset(
             (search_request.page - 1) * search_request.page_size
         ).limit(search_request.page_size)
-        
+
+        # Always include category relationship for proper grouping
+        query = query.options(selectinload(XactimateItem.category))
+
         # Include components if requested
         if search_request.include_components:
             query = query.options(selectinload(XactimateItem.components))
-        
+
         entities = query.all()
         items = [self._convert_to_dict(entity) for entity in entities]
-        
+
         return items, total_count
     
     def get_latest_by_item_codes(self, item_codes: List[str]) -> List[Dict[str, Any]]:

@@ -63,6 +63,8 @@ export interface InvoiceResponse {
   company_id?: string;
   company_name: string;
   client_name: string;
+  client_address?: string;
+  client_city?: string;
   total: number;
   paid_amount: number;
   created_at: string;

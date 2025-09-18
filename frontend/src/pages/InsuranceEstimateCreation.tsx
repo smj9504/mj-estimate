@@ -16,7 +16,6 @@ import {
   Typography,
   Collapse,
   Badge,
-  Alert,
   Tabs,
 } from 'antd';
 import {
@@ -26,12 +25,14 @@ import {
   SafetyOutlined,
   DollarOutlined,
   CheckCircleOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
 import { estimateService, EstimateLineItem, InsuranceEstimate } from '../services/EstimateService';
 import { companyService } from '../services/companyService';
 import GroupableLineItemsWithSidebar from '../components/estimate/GroupableLineItemsWithSidebar';
+import RichTextEditor from '../components/editor/RichTextEditor';
 import { Company } from '../types';
 
 const { Title, Text } = Typography;
@@ -60,7 +61,7 @@ const InsuranceEstimateCreation: React.FC = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [items, setItems] = useState<EstimateLineItem[]>([]);
-  const [showInsurance, setShowInsurance] = useState(false);
+  const [showInsurance, setShowInsurance] = useState(true); // Default to true for insurance estimates
   const [activeTab, setActiveTab] = useState('basic');
   
   // Modal and editing states - removed unused modal states since using GroupableLineItemsWithSidebar
@@ -68,9 +69,9 @@ const InsuranceEstimateCreation: React.FC = () => {
   // Removed unused search states since using GroupableLineItemsWithSidebar
 
   // Load companies only when needed
-  const loadCompanies = async () => {
-    if (companies.length > 0) return; // Already loaded
-    
+  const loadCompanies = useCallback(async () => {
+    if (companies.length > 0) return companies; // Already loaded
+
     try {
       setLoading(true);
       const companiesData = await companyService.getCompanies();
@@ -83,7 +84,7 @@ const InsuranceEstimateCreation: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [companies]);
 
   // Load initial data (only for edit mode)
   useEffect(() => {
@@ -92,26 +93,111 @@ const InsuranceEstimateCreation: React.FC = () => {
 
       try {
         setLoading(true);
-        
+
         // Load companies first for edit mode
         const companiesData = await loadCompanies();
 
         const estimate = await estimateService.getEstimate(id);
+        console.log('=== ESTIMATE LOADED ===', estimate);
+        console.log('=== CLIENT DATA LOADED ===');
+        console.log('estimate.client_name:', `"${estimate.client_name}"`);
+        console.log('estimate.loss_date:', estimate.loss_date);
+
         if (estimate) {
-          form.setFieldsValue({
-            ...estimate,
+          // Find and set the selected company from the loaded companies list
+          console.log('Estimate company_id:', estimate.company_id);
+          console.log('Estimate company_name:', estimate.company_name);
+          console.log('Companies loaded:', companiesData.length, companiesData);
+
+          // Handle company selection - prioritize company_id, fallback to company_name
+          let companyToSelect: Company | null = null;
+
+          if (estimate.company_id && companiesData.length > 0) {
+            // Try to find by company_id first
+            companyToSelect = companiesData.find(c => c.id === estimate.company_id) || null;
+            console.log('Found company by ID:', companyToSelect?.name);
+          }
+
+          if (!companyToSelect && estimate.company_name && companiesData.length > 0) {
+            // Fallback to find by company name
+            companyToSelect = companiesData.find(c =>
+              c.name.toLowerCase() === estimate.company_name!.toLowerCase()
+            ) || null;
+            console.log('Found company by name:', companyToSelect?.name);
+            // Update the estimate data with the found company_id
+            if (companyToSelect) {
+              estimate.company_id = companyToSelect.id;
+            }
+          }
+
+          if (!companyToSelect && estimate.company_name) {
+            // Create company from estimate data if not found in companies list
+            companyToSelect = {
+              id: estimate.company_id || `temp-${Date.now()}`,
+              name: estimate.company_name,
+              address: estimate.company_address || '',
+              city: estimate.company_city || '',
+              state: estimate.company_state || '',
+              zipcode: estimate.company_zipcode || '',
+              phone: estimate.company_phone || '',
+              email: estimate.company_email || '',
+            };
+            // Add it to the companies list so it appears in the dropdown
+            setCompanies([companyToSelect, ...companiesData]);
+            console.log('Created company from estimate data:', companyToSelect.name);
+          }
+
+          if (companyToSelect) {
+            setSelectedCompany(companyToSelect);
+            console.log('Set selected company:', companyToSelect.name);
+            // Also make sure the form field is updated with the correct company_id
+            if (companyToSelect.id && companyToSelect.id !== `temp-${Date.now()}`) {
+              estimate.company_id = companyToSelect.id;
+            }
+          } else {
+            console.log('No company could be determined from estimate data');
+          }
+
+          // Set form values including all fields
+          const formValues = {
+            estimate_number: estimate.estimate_number,
+            company_id: estimate.company_id,
+            client_name: estimate.client_name,
+            client_address: estimate.client_address,
+            client_city: estimate.client_city,
+            client_state: estimate.client_state,
+            client_zipcode: estimate.client_zipcode,
+            client_phone: estimate.client_phone,
+            client_email: estimate.client_email,
+            claim_number: estimate.claim_number,
+            policy_number: estimate.policy_number,
+            insurance_company: estimate.insurance_company,
+            adjuster_name: estimate.adjuster_name,
+            adjuster_phone: estimate.adjuster_phone,
+            adjuster_email: estimate.adjuster_email,
+            deductible: estimate.deductible,
             estimate_date: estimate.estimate_date ? dayjs(estimate.estimate_date) : dayjs(),
             loss_date: estimate.loss_date ? dayjs(estimate.loss_date) : undefined,
-          });
-          
+            notes: estimate.notes,
+            terms: estimate.terms,
+          };
+
+          console.log('=== FORM VALUES BEING SET ===', formValues);
+          form.setFieldsValue(formValues);
+
           setItems(estimate.items || []);
-          setShowInsurance(!!estimate.claim_number || !!estimate.policy_number);
-          
-          // Find company if companiesData is available
-          if (companiesData && companiesData.length > 0) {
-            const company = companiesData.find(c => c.id === estimate.company_id);
-            if (company) setSelectedCompany(company);
-          }
+          // Show insurance section if any insurance field has data OR if it's an insurance estimate
+          setShowInsurance(
+            estimate.estimate_type === 'insurance' ||
+            !!estimate.claim_number ||
+            !!estimate.policy_number ||
+            !!estimate.insurance_company ||
+            !!estimate.adjuster_name ||
+            !!estimate.adjuster_phone ||
+            !!estimate.adjuster_email ||
+            !!estimate.deductible ||
+            !!estimate.loss_date
+          );
         }
       } catch (error) {
         message.error('Failed to load data');
@@ -122,7 +208,8 @@ const InsuranceEstimateCreation: React.FC = () => {
     };
 
     loadData();
-  }, [id, form, loadCompanies]);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Note: form and loadCompanies are stable, companies and selectedCompany are managed within the effect
 
   // Removed unused search functions since using GroupableLineItemsWithSidebar
 
@@ -135,62 +222,126 @@ const InsuranceEstimateCreation: React.FC = () => {
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
-      console.log('Form values:', values);
+      // Get all form values including optional fields
+      const allFormValues = form.getFieldsValue();
+      // Merge validated required fields with all form values
+      const completeValues = { ...allFormValues, ...values };
+      console.log('Form values (validated):', values);
+      console.log('All form values:', allFormValues);
+      console.log('Complete values:', completeValues);
+      console.log('Selected company:', selectedCompany);
+      console.log('=== COMPANY DEBUG ===');
+      console.log('completeValues.company_id:', completeValues.company_id);
+      console.log('selectedCompany?.id:', selectedCompany?.id);
+      console.log('currentSelectedCompany will be:', selectedCompany);
+      console.log('=== LOSS DATE DEBUG ===');
+      console.log('completeValues.loss_date:', completeValues.loss_date);
+      console.log('completeValues.loss_date type:', typeof completeValues.loss_date);
+      console.log('Is dayjs object?', completeValues.loss_date && typeof completeValues.loss_date.format === 'function');
+      console.log('=== CLIENT DEBUG ===');
+      console.log('completeValues.client_name:', completeValues.client_name);
+      console.log('values.client_name:', values.client_name);
+      console.log('allFormValues.client_name:', allFormValues.client_name);
       setLoading(true);
+
+      // Ensure selectedCompany is set if company_id is provided but selectedCompany is null
+      let currentSelectedCompany = selectedCompany;
+      if (!currentSelectedCompany && completeValues.company_id) {
+        // Try to find company in the existing companies list
+        if (companies.length > 0) {
+          currentSelectedCompany = companies.find(c => c.id === completeValues.company_id) || null;
+          if (currentSelectedCompany) {
+            setSelectedCompany(currentSelectedCompany);
+            console.log('Restored selected company from companies list:', currentSelectedCompany.name);
+          }
+        }
+
+        // If still not found, load companies and try again
+        if (!currentSelectedCompany) {
+          try {
+            const companiesData = await loadCompanies();
+            currentSelectedCompany = companiesData.find(c => c.id === completeValues.company_id) || null;
+            if (currentSelectedCompany) {
+              setSelectedCompany(currentSelectedCompany);
+              console.log('Loaded and set selected company:', currentSelectedCompany.name);
+            }
+          } catch (error) {
+            console.error('Failed to load companies for company lookup:', error);
+          }
+        }
+      }
 
       const totals = calculateTotals();
 
       // Generate estimate number if not provided
-      let estimateNumber = values.estimate_number;
+      let estimateNumber = completeValues.estimate_number;
       if (!estimateNumber) {
         estimateNumber = await estimateService.generateEstimateNumber();
       }
 
+      console.log('Using company info for save:', {
+        company_id: completeValues.company_id || currentSelectedCompany?.id,
+        company_name: currentSelectedCompany?.name,
+        company_address: currentSelectedCompany?.address,
+        company_city: currentSelectedCompany?.city,
+        company_state: currentSelectedCompany?.state,
+        company_zipcode: currentSelectedCompany?.zipcode,
+        company_phone: currentSelectedCompany?.phone,
+        company_email: currentSelectedCompany?.email,
+      });
+
       const estimateData: InsuranceEstimate = {
         estimate_number: estimateNumber,
         estimate_type: 'insurance',  // Mark as insurance estimate
-        company_id: values.company_id,
-        company_name: selectedCompany?.name,
-        company_address: selectedCompany?.address,
-        company_city: selectedCompany?.city,
-        company_state: selectedCompany?.state,
-        company_zipcode: selectedCompany?.zipcode,
-        company_phone: selectedCompany?.phone,
-        company_email: selectedCompany?.email,
-        client_name: values.client_name,
-        client_address: values.client_address,
-        client_city: values.client_city,
-        client_state: values.client_state,
-        client_zipcode: values.client_zipcode,
-        client_phone: values.client_phone,
-        client_email: values.client_email,
+        company_id: completeValues.company_id || currentSelectedCompany?.id,
+        company_name: currentSelectedCompany?.name,
+        company_address: currentSelectedCompany?.address,
+        company_city: currentSelectedCompany?.city,
+        company_state: currentSelectedCompany?.state,
+        company_zipcode: currentSelectedCompany?.zipcode,
+        company_phone: currentSelectedCompany?.phone,
+        company_email: currentSelectedCompany?.email,
+        client_name: completeValues.client_name,
+        client_address: completeValues.client_address,
+        client_city: completeValues.client_city,
+        client_state: completeValues.client_state,
+        client_zipcode: completeValues.client_zipcode,
+        client_phone: completeValues.client_phone,
+        client_email: completeValues.client_email,
         ...(showInsurance && {
-          claim_number: values.claim_number,
-          policy_number: values.policy_number,
-          insurance_company: values.insurance_company,
-          adjuster_name: values.adjuster_name,
-          adjuster_phone: values.adjuster_phone,
-          adjuster_email: values.adjuster_email,
-          deductible: values.deductible,
+          claim_number: completeValues.claim_number,
+          policy_number: completeValues.policy_number,
+          insurance_company: completeValues.insurance_company,
+          adjuster_name: completeValues.adjuster_name,
+          adjuster_phone: completeValues.adjuster_phone,
+          adjuster_email: completeValues.adjuster_email,
+          deductible: completeValues.deductible,
+          loss_date: completeValues.loss_date ? completeValues.loss_date.format('YYYY-MM-DD') : undefined,
         }),
-        estimate_date: values.estimate_date ? values.estimate_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
-        loss_date: values.loss_date ? values.loss_date.format('YYYY-MM-DD') : undefined,
+        estimate_date: completeValues.estimate_date ? completeValues.estimate_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
         items,
         ...totals,
-        notes: values.notes,
-        terms: values.terms,
+        notes: completeValues.notes,
+        terms: completeValues.terms,
         status: 'draft',
       };
+
+      console.log('=== FINAL ESTIMATE DATA TO SAVE ===');
+      console.log('estimateData.company_id:', estimateData.company_id);
+      console.log('estimateData.company_name:', estimateData.company_name);
+      console.log('estimateData.loss_date:', estimateData.loss_date);
+      console.log('Full estimateData:', estimateData);
 
       let response;
       if (id) {
         response = await estimateService.updateEstimate(id, estimateData);
+        message.success('Estimate updated successfully!');
       } else {
         response = await estimateService.createEstimate(estimateData);
+        message.success('Estimate created successfully!');
+        // Update URL to edit mode after creation to prevent duplicate creation
+        navigate(`/insurance-estimate/${response.id}`, { replace: true });
       }
-
-      message.success(`Estimate ${id ? 'updated' : 'created'} successfully!`);
-      navigate(`/estimates/${response.id}`);
     } catch (error) {
       message.error(`Failed to ${id ? 'update' : 'create'} estimate`);
       console.error(error);
@@ -199,14 +350,46 @@ const InsuranceEstimateCreation: React.FC = () => {
     }
   };
 
+  const handleDelete = async () => {
+    if (!id) {
+      message.warning('Cannot delete an unsaved estimate');
+      return;
+    }
+
+    // Show confirmation dialog
+    const confirmed = window.confirm(
+      `Are you sure you want to delete this estimate? This action cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await estimateService.deleteEstimate(id);
+      message.success('Estimate deleted successfully');
+      navigate('/documents');
+    } catch (error) {
+      message.error('Failed to delete estimate');
+      console.error('Delete estimate error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handlePreviewPDF = async () => {
     try {
       const values = await form.validateFields();
+      // Get all form values including optional fields
+      const allFormValues = form.getFieldsValue();
+      // Merge validated required fields with all form values
+      const completeValues = { ...allFormValues, ...values };
       setLoading(true);
       
       const totals = calculateTotals();
       // Generate estimate number if not provided
-      let estimateNumber = values.estimate_number;
+      let estimateNumber = completeValues.estimate_number;
       if (!estimateNumber) {
         estimateNumber = await estimateService.generateEstimateNumber();
       }
@@ -214,7 +397,7 @@ const InsuranceEstimateCreation: React.FC = () => {
       const estimateData: InsuranceEstimate = {
         estimate_number: estimateNumber,
         estimate_type: 'insurance',  // Mark as insurance estimate
-        company_id: values.company_id,
+        company_id: completeValues.company_id || selectedCompany?.id,
         company_name: selectedCompany?.name,
         company_address: selectedCompany?.address,
         company_city: selectedCompany?.city,
@@ -222,28 +405,28 @@ const InsuranceEstimateCreation: React.FC = () => {
         company_zipcode: selectedCompany?.zipcode,
         company_phone: selectedCompany?.phone,
         company_email: selectedCompany?.email,
-        client_name: values.client_name,
-        client_address: values.client_address,
-        client_city: values.client_city,
-        client_state: values.client_state,
-        client_zipcode: values.client_zipcode,
-        client_phone: values.client_phone,
-        client_email: values.client_email,
+        client_name: completeValues.client_name,
+        client_address: completeValues.client_address,
+        client_city: completeValues.client_city,
+        client_state: completeValues.client_state,
+        client_zipcode: completeValues.client_zipcode,
+        client_phone: completeValues.client_phone,
+        client_email: completeValues.client_email,
         ...(showInsurance && {
-          claim_number: values.claim_number,
-          policy_number: values.policy_number,
-          insurance_company: values.insurance_company,
-          adjuster_name: values.adjuster_name,
-          adjuster_phone: values.adjuster_phone,
-          adjuster_email: values.adjuster_email,
-          deductible: values.deductible,
+          claim_number: completeValues.claim_number,
+          policy_number: completeValues.policy_number,
+          insurance_company: completeValues.insurance_company,
+          adjuster_name: completeValues.adjuster_name,
+          adjuster_phone: completeValues.adjuster_phone,
+          adjuster_email: completeValues.adjuster_email,
+          deductible: completeValues.deductible,
+          loss_date: completeValues.loss_date ? completeValues.loss_date.format('YYYY-MM-DD') : undefined,
         }),
-        estimate_date: values.estimate_date ? values.estimate_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
-        loss_date: values.loss_date ? values.loss_date.format('YYYY-MM-DD') : undefined,
+        estimate_date: completeValues.estimate_date ? completeValues.estimate_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
         items,
         ...totals,
-        notes: values.notes,
-        terms: values.terms,
+        notes: completeValues.notes,
+        terms: completeValues.terms,
         status: 'draft',
       };
 
@@ -316,27 +499,52 @@ const InsuranceEstimateCreation: React.FC = () => {
               name="company_id"
               label="Company"
               rules={[{ required: true, message: 'Please select a company' }]}
+              extra={!selectedCompany && isEditMode ? "No company selected for this estimate. Please select one." : null}
             >
               <Select
-                placeholder="Select a company"
+                placeholder={isEditMode && !selectedCompany ? "Select a company for this estimate" : "Select a company"}
+                status={!selectedCompany && isEditMode ? "warning" : undefined}
                 onChange={async (value) => {
+                  console.log('Select onChange triggered with value:', value);
                   const company = companies.find(c => c.id === value);
+                  console.log('Found company:', company);
+
                   if (company) {
-                    setSelectedCompany(company);
-                    
-                    // Generate new estimate number based on selected company
-                    try {
-                      const newEstimateNumber = await estimateService.generateEstimateNumber(
-                        company.id, 
-                        'insurance'
-                      );
-                      // Use setFieldsValue to avoid circular reference warning
-                      form.setFieldsValue({ estimate_number: newEstimateNumber });
-                    } catch (error) {
-                      console.error('Failed to generate estimate number:', error);
-                      // Fallback to default number if API fails
-                      const fallbackNumber = `EST-INS-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
-                      form.setFieldsValue({ estimate_number: fallbackNumber });
+                    // Create a clean copy of company to avoid circular references
+                    const cleanCompany: Company = {
+                      id: company.id,
+                      name: company.name,
+                      address: company.address,
+                      city: company.city,
+                      state: company.state,
+                      zipcode: company.zipcode,
+                      phone: company.phone,
+                      email: company.email,
+                      company_code: company.company_code
+                    };
+
+                    setSelectedCompany(cleanCompany);
+                    console.log('Set selectedCompany:', cleanCompany.name);
+
+                    // Update form field with company_id
+                    form.setFieldsValue({ company_id: cleanCompany.id });
+                    console.log('Set form company_id:', cleanCompany.id);
+
+                    // Generate new estimate number based on selected company (only in create mode)
+                    if (!isEditMode) {
+                      try {
+                        const newEstimateNumber = await estimateService.generateEstimateNumber(
+                          company.id,
+                          'insurance'
+                        );
+                        form.setFieldsValue({ estimate_number: newEstimateNumber });
+                        console.log('Generated new estimate number:', newEstimateNumber);
+                      } catch (error) {
+                        console.error('Failed to generate estimate number:', error);
+                        // Fallback to default number if API fails
+                        const fallbackNumber = `EST-INS-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+                        form.setFieldsValue({ estimate_number: fallbackNumber });
+                      }
                     }
                   }
                 }}
@@ -348,6 +556,7 @@ const InsuranceEstimateCreation: React.FC = () => {
                 showSearch
                 optionFilterProp="children"
                 loading={loading && companies.length === 0}
+                notFoundContent={companies.length === 0 ? "Loading companies..." : "No companies found"}
               >
                 {companies.map(company => (
                   <Option key={company.id} value={company.id}>
@@ -362,13 +571,13 @@ const InsuranceEstimateCreation: React.FC = () => {
               name="estimate_number"
               label="Estimate Number"
               rules={[
-                { required: true, message: 'Please select a company first to generate estimate number' }
+                { required: true, message: 'Estimate number is required' }
               ]}
             >
-              <Input 
-                prefix="#" 
-                placeholder="Select company to generate number"
-                disabled={!selectedCompany}
+              <Input
+                prefix="#"
+                placeholder={isEditMode ? "Estimate number" : "Select company to generate number"}
+                disabled={!isEditMode && !selectedCompany}
               />
             </Form.Item>
           </Col>
@@ -384,7 +593,7 @@ const InsuranceEstimateCreation: React.FC = () => {
         </Row>
       </Card>
 
-      {selectedCompany && (
+{selectedCompany ? (
         <Card title="Selected Company Details" style={{ marginBottom: 24 }}>
           <Row gutter={16}>
             <Col xs={24} md={12}>
@@ -405,7 +614,21 @@ const InsuranceEstimateCreation: React.FC = () => {
             </Col>
           </Row>
         </Card>
-      )}
+      ) : isEditMode ? (
+        <Card
+          title="Company Information Missing"
+          style={{ marginBottom: 24, borderColor: '#faad14' }}
+        >
+          <Row gutter={16}>
+            <Col span={24}>
+              <Text type="warning">
+                This estimate doesn't have a company associated with it.
+                Please select a company above to complete the estimate information.
+              </Text>
+            </Col>
+          </Row>
+        </Card>
+      ) : null}
     </>
   );
 
@@ -539,8 +762,8 @@ const InsuranceEstimateCreation: React.FC = () => {
     ];
 
     return (
-      <Collapse 
-        defaultActiveKey={['client']}
+      <Collapse
+        defaultActiveKey={['client', 'insurance']}
         style={{ marginBottom: 24 }}
         expandIconPosition="end"
         items={collapseItems}
@@ -609,11 +832,19 @@ const InsuranceEstimateCreation: React.FC = () => {
           <Divider />
           
           <Form.Item name="notes" label="Additional Notes">
-            <TextArea rows={4} placeholder="Enter any additional notes..." />
+            <RichTextEditor
+              placeholder="Enter any additional notes..."
+              minHeight={120}
+              maxHeight={300}
+            />
           </Form.Item>
-          
+
           <Form.Item name="terms" label="Terms & Conditions">
-            <TextArea rows={4} placeholder="Enter terms and conditions..." />
+            <RichTextEditor
+              placeholder="Enter terms and conditions..."
+              minHeight={120}
+              maxHeight={300}
+            />
           </Form.Item>
         </Card>
       </Col>
@@ -670,7 +901,18 @@ const InsuranceEstimateCreation: React.FC = () => {
             >
               Preview PDF
             </Button>
-            <Button block onClick={() => navigate('/documents/insurance_estimate')}>
+            {isEditMode && (
+              <Button
+                icon={<DeleteOutlined />}
+                onClick={handleDelete}
+                loading={loading}
+                block
+                danger
+              >
+                Delete Estimate
+              </Button>
+            )}
+            <Button block onClick={() => navigate('/documents')}>
               Cancel
             </Button>
           </Space>
@@ -707,20 +949,30 @@ const InsuranceEstimateCreation: React.FC = () => {
           </Col>
           <Col>
             <Space>
-              <Button 
-                icon={<SaveOutlined />} 
-                onClick={handleSave} 
+              <Button
+                icon={<SaveOutlined />}
+                onClick={handleSave}
                 loading={loading}
               >
                 Save Draft
               </Button>
-              <Button 
-                icon={<EyeOutlined />} 
-                onClick={handlePreviewPDF} 
+              <Button
+                icon={<EyeOutlined />}
+                onClick={handlePreviewPDF}
                 loading={loading}
               >
                 Preview PDF
               </Button>
+              {isEditMode && (
+                <Button
+                  icon={<DeleteOutlined />}
+                  onClick={handleDelete}
+                  loading={loading}
+                  danger
+                >
+                  Delete
+                </Button>
+              )}
             </Space>
           </Col>
         </Row>
@@ -732,8 +984,9 @@ const InsuranceEstimateCreation: React.FC = () => {
           form={form}
           layout="vertical"
           initialValues={{
-            estimate_number: '', // Will be set when company is selected
             estimate_date: dayjs(),
+            // Don't set estimate_number initial value to avoid conflicts
+            // Don't set company_id initial value to avoid conflicts in edit mode
           }}
         >
           <Tabs

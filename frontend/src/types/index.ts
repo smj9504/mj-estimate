@@ -10,6 +10,8 @@ export interface Company {
   email?: string;
   logo?: string; // Base64 encoded logo or URL
   company_code?: string; // 4-character unique code
+  is_active?: boolean; // ✅ Added missing field
+  is_default?: boolean; // ✅ Added missing field
   payment_method?: string; // Legacy field
   payment_frequency?: string; // Legacy field
   payment_method_id?: string; // Reference to payment_methods table
@@ -66,6 +68,7 @@ export interface Document {
   client_email?: string;
   client_phone?: string;
   client_address?: string;
+  client_city?: string;
   status: DocumentStatus;
   total_amount: number;
   created_at: string;
@@ -293,4 +296,87 @@ export interface CalculatorResult {
   formula: string;
   isValid: boolean;
   error: string | null;
+}
+
+// Work Order File Management Types
+export interface WorkOrderFile {
+  id: string;
+  work_order_id: string;
+  original_name: string;
+  file_name: string;
+  file_size: number;
+  file_type: string;
+  mime_type: string;
+  file_url: string;
+  thumbnail_url?: string;
+  category_id?: string;
+  category_name?: string;
+  description?: string;
+  uploaded_at: string;
+  uploaded_by: string;
+  metadata?: Record<string, any>;
+}
+
+export interface FileCategory {
+  id: string;
+  name: string;
+  color?: string;
+  description?: string;
+  work_order_id: string;
+  file_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FileUploadProgress {
+  file: File;
+  progress: number;
+  status: 'pending' | 'uploading' | 'success' | 'error';
+  error?: string;
+  uploadedFile?: WorkOrderFile;
+}
+
+export interface FileUploadResult {
+  success: boolean;
+  file?: WorkOrderFile;
+  error?: string;
+}
+
+export type ViewMode = 'grid' | 'list' | 'card';
+
+export interface FileGridProps {
+  files: WorkOrderFile[];
+  categories: FileCategory[];
+  selectedFiles: string[];
+  viewMode: ViewMode;
+  onFileSelect: (fileId: string, selected: boolean) => void;
+  onFileMove: (fileId: string, categoryId: string | null) => void;
+  onFileDelete: (fileId: string) => void;
+  onFilePreview: (file: WorkOrderFile) => void;
+  onCategoryCreate: (name: string) => void;
+  onCategoryUpdate: (categoryId: string, updates: Partial<FileCategory>) => void;
+  onCategoryDelete: (categoryId: string) => void;
+}
+
+export interface FileUploadZoneProps {
+  workOrderId: string;
+  categories: FileCategory[];
+  onUploadComplete: (files: WorkOrderFile[]) => void;
+  onUploadProgress: (progress: FileUploadProgress[]) => void;
+  accept?: string;
+  maxFileSize?: number;
+  maxFiles?: number;
+  disabled?: boolean;
+}
+
+export interface FileManagerState {
+  files: WorkOrderFile[];
+  categories: FileCategory[];
+  selectedFiles: string[];
+  viewMode: ViewMode;
+  loading: boolean;
+  uploading: boolean;
+  uploadProgress: FileUploadProgress[];
+  searchQuery: string;
+  selectedCategory: string | null;
 }

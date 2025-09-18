@@ -109,15 +109,13 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
   }, [items, selectedGroup]);
   // Helper functions for group validation
   const validateGroupSelection = (selectedGroup?: string): boolean => {
-    return !!(selectedGroup && selectedGroup !== 'ungrouped');
+    // Allow item creation even without group selection - user can assign group later
+    return true; // Always allow item creation
   };
 
   const getGroupValidationMessage = (selectedGroup?: string): string => {
     if (!selectedGroup) {
-      return 'Please select a group from the sidebar to add items';
-    }
-    if (selectedGroup === 'ungrouped') {
-      return 'Please select a proper group instead of ungrouped items';
+      return 'No group selected - items will be created without grouping';
     }
     return '';
   };
@@ -426,10 +424,15 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
   const transformModalItem = (selectedItem: LineItemModalItem) => {
     // Get the correct ID (handle both string and number IDs)
     const itemId = typeof selectedItem.id === 'number' ? selectedItem.id.toString() : selectedItem.id;
-    
+
     // Get the component code (handle both component_code and item_code)
-    const componentCode = selectedItem.component_code || (selectedItem as any).item_code || itemId;
-    
+    // Also check for 'item' field as fallback
+    const componentCode = selectedItem.component_code ||
+                          (selectedItem as any).item_code ||
+                          (selectedItem as any).item ||
+                          itemId ||
+                          `CUSTOM-${Date.now()}`;
+
     // Log the transformation for debugging
     console.log('LineItemManager: Transforming modal item:', {
       originalItem: selectedItem,
@@ -437,7 +440,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
       transformedComponentCode: componentCode,
       type: (selectedItem as any).type || 'unknown'
     });
-    
+
     return {
       id: itemId,
       component_code: componentCode,
@@ -487,7 +490,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
           const newItem: EstimateLineItem = {
             id: `temp-${Date.now()}-${index}`, // Temporary ID for frontend, will be replaced by backend
             line_item_id: transformed.id, // Reference to master line item
-            item: transformed.component_code,
+            item: transformed.component_code || transformed.id, // Ensure item field is set with fallback to id
             description: transformed.description,
             quantity: quantity,
             unit: transformed.unit,
@@ -529,26 +532,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
 
   // Handle save with improved validation
   const handleSave = () => {
-    // Group validation first
-    if (!validateGroupSelection(selectedGroup)) {
-      Modal.confirm({
-        title: 'No Group Selected',
-        content: 'Items should be organized in groups. Would you like to create a group first?',
-        okText: 'OK, I\'ll create a group',
-        cancelText: 'Add to Ungrouped anyway',
-        onOk: () => {
-          message.info('Please create a group from the sidebar first, then try adding items again');
-          return;
-        },
-        onCancel: () => {
-          // Continue with existing validation
-          validateAndSave();
-        }
-      });
-      return;
-    }
-    
-    // Continue with existing validation
+    // Always allow saving - no group restrictions
     validateAndSave();
   };
 
@@ -731,15 +715,16 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
       let primary_group = item.primary_group; // Default to the item's own group from Xactimate
       let secondary_group = item.secondary_group;
 
-      if (selectedGroup && selectedGroup !== 'ungrouped') {
-        // If selectedGroup contains '|', it's a subgroup selection
-        if (selectedGroup.includes('|')) {
-          const [primary, secondary] = selectedGroup.split('|');
+      if (selectedGroup) {
+        // If selectedGroup contains '/', it's a subgroup selection
+        if (selectedGroup.includes('/')) {
+          const [primary, secondary] = selectedGroup.split('/');
           primary_group = primary;
           secondary_group = secondary;
         } else {
           // Otherwise it's just a primary group
           primary_group = selectedGroup;
+          secondary_group = undefined;
         }
       }
 
@@ -755,7 +740,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
     setXactimateModalVisible(false);
 
     // Show appropriate success message
-    const groupMessage = selectedGroup && selectedGroup !== 'ungrouped'
+    const groupMessage = selectedGroup
       ? ` to ${selectedGroup}`
       : ' (using Xactimate categories)';
     message.success(`${xactimateItems.length} Xactimate item(s) added successfully${groupMessage}`);
@@ -824,6 +809,17 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
     setContextMenuVisible(true);
   };
 
+  // Handle right-click on empty table area
+  const handleEmptyAreaRightClick = (event: React.MouseEvent) => {
+    event.preventDefault();
+
+    // Clear selection when right-clicking on empty area
+    setSelectedRowKeys([]);
+    setContextMenuItems([]);
+    setContextMenuPosition({ x: event.clientX, y: event.clientY });
+    setContextMenuVisible(true);
+  };
+
   // Handle context menu actions
   const handleContextMenuAction = (action: string) => {
     const selectedIndices = selectedRowKeys.map(key => parseInt(key));
@@ -886,6 +882,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
         const newItems = (copiedItems || []).map(item => ({
           ...item,
           id: undefined, // Generate new ID
+          item: generateItemCode(item.description || 'Copied Item'), // Generate new item code
           primary_group: selectedGroup?.split('/')[0] || item.primary_group,
           secondary_group: selectedGroup?.includes('/') ? selectedGroup.split('/')[1] : item.secondary_group,
         }));
@@ -1350,10 +1347,11 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
       width: 80,
       render: (value: string, record: EstimateLineItem, index: number | undefined) => {
         // Safety check for index
-        if (typeof index !== 'number') return (record as any)?.category || record.primary_group || '-';
+        if (typeof index !== 'number') return (record as any)?.category_code || (record as any)?.category || record.primary_group || '-';
         
         // Show actual category code if available, fallback to primary_group
-        const displayValue = (record as any)?.category || record.primary_group || '-';
+        // For Xactimate items, check category_code first, then category, then primary_group
+        const displayValue = (record as any)?.category_code || (record as any)?.category || record.primary_group || '-';
         
         return (
           <div
@@ -1781,21 +1779,6 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
           marginBottom: 16,
         }}
       >
-        {/* Group Status Alert */}
-        {!isGroupSelected && (
-          <Alert
-            message="No Group Selected"
-            description="Please select a group from the sidebar to add items. This helps organize your estimate properly."
-            type="warning"
-            showIcon
-            style={{ marginBottom: 16 }}
-            action={
-              <Button size="small" type="link">
-                Create Group First
-              </Button>
-            }
-          />
-        )}
 
 
 
@@ -2006,7 +1989,12 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
             {(copiedItems || []).length > 0 && ` • ${(copiedItems || []).length} item(s) in clipboard`}
           </Text>
         </div>
-        <div onKeyDown={handleTableKeyDown} tabIndex={0} style={{ outline: 'none' }}>
+        <div
+          onKeyDown={handleTableKeyDown}
+          onContextMenu={handleEmptyAreaRightClick}
+          tabIndex={0}
+          style={{ outline: 'none' }}
+        >
           <Table
             columns={columns}
             dataSource={tableDataSource}
@@ -2083,30 +2071,35 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div
-            style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '14px' }}
-            onClick={() => handleContextMenuAction('edit')}
-            onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#f5f5f5'}
-            onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = 'transparent'}
-          >
-            <EditOutlined style={{ marginRight: 8 }} />Edit
-          </div>
-          <div
-            style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '14px' }}
-            onClick={() => handleContextMenuAction('duplicate')}
-            onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#f5f5f5'}
-            onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = 'transparent'}
-          >
-            <CopyOutlined style={{ marginRight: 8 }} />Duplicate
-          </div>
-          <div
-            style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '14px' }}
-            onClick={() => handleContextMenuAction('copy')}
-            onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#f5f5f5'}
-            onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = 'transparent'}
-          >
-            <CopyOutlined style={{ marginRight: 8 }} />Copy
-          </div>
+          {/* Only show item-specific options when items are selected */}
+          {(contextMenuItems || []).length > 0 && (
+            <>
+              <div
+                style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '14px' }}
+                onClick={() => handleContextMenuAction('edit')}
+                onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#f5f5f5'}
+                onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = 'transparent'}
+              >
+                <EditOutlined style={{ marginRight: 8 }} />Edit
+              </div>
+              <div
+                style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '14px' }}
+                onClick={() => handleContextMenuAction('duplicate')}
+                onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#f5f5f5'}
+                onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = 'transparent'}
+              >
+                <CopyOutlined style={{ marginRight: 8 }} />Duplicate
+              </div>
+              <div
+                style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '14px' }}
+                onClick={() => handleContextMenuAction('copy')}
+                onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#f5f5f5'}
+                onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = 'transparent'}
+              >
+                <CopyOutlined style={{ marginRight: 8 }} />Copy
+              </div>
+            </>
+          )}
           {(copiedItems || []).length > 0 && (
             <div
               style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '14px' }}
@@ -2117,21 +2110,26 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
               <CopyOutlined style={{ marginRight: 8 }} />Paste ({(copiedItems || []).length})
             </div>
           )}
-          <div
-            style={{ 
-              height: '1px', 
-              backgroundColor: '#f0f0f0', 
-              margin: '4px 0'
-            }}
-          />
-          <div
-            style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '14px', color: '#ff4d4f' }}
-            onClick={() => handleContextMenuAction('delete')}
-            onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#fff2f0'}
-            onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = 'transparent'}
-          >
-            <DeleteOutlined style={{ marginRight: 8 }} />Delete
-          </div>
+          {/* Show separator and delete option only when items are selected */}
+          {(contextMenuItems || []).length > 0 && (
+            <>
+              <div
+                style={{
+                  height: '1px',
+                  backgroundColor: '#f0f0f0',
+                  margin: '4px 0'
+                }}
+              />
+              <div
+                style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '14px', color: '#ff4d4f' }}
+                onClick={() => handleContextMenuAction('delete')}
+                onMouseEnter={(e) => (e.target as HTMLElement).style.backgroundColor = '#fff2f0'}
+                onMouseLeave={(e) => (e.target as HTMLElement).style.backgroundColor = 'transparent'}
+              >
+                <DeleteOutlined style={{ marginRight: 8 }} />Delete
+              </div>
+            </>
+          )}
         </div>
       )}
 
