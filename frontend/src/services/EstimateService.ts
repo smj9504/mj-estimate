@@ -39,6 +39,9 @@ export interface EstimateCreate {
   company_id?: string;
   client_name: string;
   client_address?: string;
+  client_city?: string;
+  client_state?: string;
+  client_zipcode?: string;
   client_phone?: string;
   client_email?: string;
   estimate_date?: string;
@@ -48,6 +51,7 @@ export interface EstimateCreate {
   terms?: string;
   claim_number?: string;
   policy_number?: string;
+  insurance_company?: string;
   deductible?: number;
   items: EstimateLineItem[];
   sections?: EstimateSection[];  // 섹션 기반 데이터

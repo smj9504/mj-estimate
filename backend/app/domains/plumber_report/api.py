@@ -17,13 +17,31 @@ from app.domains.plumber_report.schemas import (
     PlumberReportUpdate,
     PlumberReportResponse,
     PlumberReportListResponse,
-    PlumberReportPDFRequest
+    PlumberReportPDFRequest,
+    PlumberReportNumberResponse
 )
 from app.domains.plumber_report.service import PlumberReportService
 from app.common.services.pdf_service import PDFService
 from sqlalchemy.orm import Session
 
 router = APIRouter()
+
+
+@router.get("/generate-number", response_model=PlumberReportNumberResponse)
+async def generate_report_number(
+    company_id: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Generate next PLM report number with company-specific formatting"""
+    try:
+        report_number = PlumberReportService.generate_report_number_with_company(
+            db=db,
+            company_id=company_id
+        )
+
+        return PlumberReportNumberResponse(report_number=report_number)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate report number: {str(e)}")
 
 
 @router.post("/", response_model=PlumberReportResponse)

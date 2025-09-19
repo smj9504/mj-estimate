@@ -618,3 +618,91 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
         except Exception as e:
             logger.error(f"Error removing payment from invoice: {e}")
             raise
+
+    def generate_invoice_number(self, company_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Generate next invoice number with metadata.
+        Format: INV-[CompanyCode]-[Year]-[Count+1]
+
+        Args:
+            company_id: Optional company ID for company-specific numbering
+
+        Returns:
+            Dictionary with invoice_number, sequence, company_code, and year
+        """
+        try:
+            now = datetime.utcnow()
+            year = str(now.year)
+
+            # Build prefix and get company info
+            company_code = None
+            if company_id:
+                # Get company code from the company
+                try:
+                    # Import here to avoid circular dependencies
+                    from app.core.database_factory import get_database
+                    from app.domains.company.repository import get_company_repository
+
+                    # Get a fresh database session
+                    database = get_database()
+                    with database.get_session() as session:
+                        company_repo = get_company_repository(session)
+                        company = company_repo.get_by_id(str(company_id))
+                        if company:
+                            company_code = company.get('company_code')
+                            logger.info(f"Found company code: {company_code} for company_id: {company_id}")
+                        else:
+                            logger.warning(f"Company not found for ID: {company_id}")
+                except Exception as e:
+                    logger.error(f"Error fetching company for invoice number generation: {e}")
+
+            if company_code:
+                # Company-specific numbering: INV-[CompanyCode]-[Year]-[Count+1]
+                prefix = f"INV-{company_code}-{year}-"
+
+                # Count existing invoices for this company in current year
+                with self.database.get_session() as session:
+                    repository = self._get_repository_instance(session)
+
+                    # Use document number service to get count
+                    from app.common.services.document_number_service import DocumentNumberService
+                    doc_service = DocumentNumberService(self.database.db)
+                    count = doc_service.get_document_count_for_company('invoice', company_code)
+
+                    sequence = count + 1
+                    invoice_number = f"INV-{company_code}-{year}-{sequence}"
+
+                    # Verify uniqueness
+                    existing = repository.get_by_invoice_number(invoice_number)
+                    while existing:
+                        sequence += 1
+                        invoice_number = f"INV-{company_code}-{year}-{sequence}"
+                        existing = repository.get_by_invoice_number(invoice_number)
+
+                    return {
+                        'invoice_number': invoice_number,
+                        'sequence': sequence,
+                        'company_code': company_code,
+                        'year': year
+                    }
+            else:
+                # Fallback to timestamp-based numbering
+                timestamp = int(now.timestamp())
+                return {
+                    'invoice_number': f"INV-{year}-{timestamp % 10000}",
+                    'sequence': timestamp % 10000,
+                    'company_code': None,
+                    'year': year
+                }
+
+        except Exception as e:
+            logger.error(f"Error generating invoice number: {e}")
+            # Fallback to timestamp-based number
+            timestamp = int(datetime.utcnow().timestamp())
+            year = str(datetime.utcnow().year)
+            return {
+                'invoice_number': f"INV-{year}-{timestamp % 10000}",
+                'sequence': timestamp % 10000,
+                'company_code': None,
+                'year': year
+            }

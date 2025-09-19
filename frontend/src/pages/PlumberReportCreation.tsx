@@ -26,20 +26,40 @@ import {
   SaveOutlined,
   EyeOutlined,
   EditOutlined,
+  HolderOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
-import { 
-  plumberReportService, 
-  PlumberReport, 
-  InvoiceItem, 
+import {
+  plumberReportService,
+  PlumberReport,
+  InvoiceItem,
   PaymentRecord,
-  PhotoRecord 
+  PhotoRecord
 } from '../services/plumberReportService';
 import { companyService } from '../services/companyService';
 import { Company } from '../types';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import UnitSelect from '../components/common/UnitSelect';
+import DraggableTable from '../components/common/DraggableTable';
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragStartEvent,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -65,15 +85,22 @@ const PlumberReportCreation: React.FC = () => {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [itemForm] = Form.useForm();
   const [paymentForm] = Form.useForm();
+  const [itemDescription, setItemDescription] = useState('');
 
   // Text input values
   const [causeOfDamage, setCauseOfDamage] = useState('');
   const [workPerformed, setWorkPerformed] = useState('');
   const [recommendations, setRecommendations] = useState('');
   const [materialsEquipment, setMaterialsEquipment] = useState('');
-  
+  const [warrantyInfo, setWarrantyInfo] = useState('');
+  const [termsConditions, setTermsConditions] = useState('');
+  const [notes, setNotes] = useState('');
+
   // Property same as client toggle
   const [propertyDifferent, setPropertyDifferent] = useState(false);
+
+  // Drag and drop states
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
 
   // Load companies only once on mount
   useEffect(() => {
@@ -86,12 +113,27 @@ const PlumberReportCreation: React.FC = () => {
           form.setFieldsValue({
             company_id: data[0].id,
           });
+
+          // Generate report number for the first company
+          try {
+            const reportNumber = await plumberReportService.generateReportNumber(data[0].id);
+            form.setFieldsValue({
+              report_number: reportNumber
+            });
+          } catch (error) {
+            console.error('Failed to generate report number:', error);
+            // Fallback to manual generation
+            const timestamp = new Date().toISOString().replace(/[-T:.Z]/g, '').slice(0, 14);
+            form.setFieldsValue({
+              report_number: `PLM-${timestamp}`
+            });
+          }
         }
       } catch (error) {
         console.error('Failed to load companies:', error);
       }
     };
-    
+
     loadCompanies();
   }, []); // Empty dependency array - runs only once on mount
 
@@ -129,9 +171,6 @@ const PlumberReportCreation: React.FC = () => {
           labor_cost: report.financial?.labor_cost,
           tax_amount: report.financial?.tax_amount,
           discount: report.financial?.discount,
-          warranty_info: report.warranty_info,
-          terms_conditions: report.terms_conditions,
-          notes: report.notes,
         });
 
         // Set text content
@@ -139,6 +178,9 @@ const PlumberReportCreation: React.FC = () => {
         setWorkPerformed(report.work_performed || '');
         setRecommendations(report.recommendations || '');
         setMaterialsEquipment(report.materials_equipment_text || '');
+        setWarrantyInfo(report.warranty_info || '');
+        setTermsConditions(report.terms_conditions || '');
+        setNotes(report.notes || '');
 
         // Set other states
         setInvoiceItems(report.invoice_items || []);
@@ -165,10 +207,25 @@ const PlumberReportCreation: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, companies.length]); // Only re-run when id changes or companies are loaded
 
-  const handleCompanyChange = (companyId: string) => {
+  const handleCompanyChange = async (companyId: string) => {
     const company = companies.find(c => c.id === companyId);
     if (company) {
       setSelectedCompany(company);
+
+      // Generate new report number when company is selected
+      try {
+        const reportNumber = await plumberReportService.generateReportNumber(companyId);
+        form.setFieldsValue({
+          report_number: reportNumber
+        });
+      } catch (error) {
+        console.error('Failed to generate report number:', error);
+        // Fallback to manual generation
+        const timestamp = new Date().toISOString().replace(/[-T:.Z]/g, '').slice(0, 14);
+        form.setFieldsValue({
+          report_number: `PLM-${timestamp}`
+        });
+      }
     }
   };
 
@@ -176,6 +233,7 @@ const PlumberReportCreation: React.FC = () => {
     itemForm.resetFields();
     setEditingItem(null);
     setEditingIndex(null);
+    setItemDescription('');
     setItemModalVisible(true);
   };
 
@@ -183,6 +241,7 @@ const PlumberReportCreation: React.FC = () => {
     setEditingItem(item);
     setEditingIndex(index);
     itemForm.setFieldsValue(item);
+    setItemDescription(item.description || '');
     setItemModalVisible(true);
   };
 
@@ -191,6 +250,7 @@ const PlumberReportCreation: React.FC = () => {
       const newItem: InvoiceItem = {
         id: editingItem?.id || crypto.randomUUID(),
         ...values,
+        description: itemDescription,
         total_cost: values.quantity * values.unit_cost,
       };
 
@@ -206,6 +266,7 @@ const PlumberReportCreation: React.FC = () => {
       itemForm.resetFields();
       setEditingItem(null);
       setEditingIndex(null);
+      setItemDescription('');
     });
   };
 
@@ -237,6 +298,41 @@ const PlumberReportCreation: React.FC = () => {
   const handleDeletePayment = (index: number) => {
     const updated = payments.filter((_, i) => i !== index);
     setPayments(updated);
+  };
+
+  // Drag and drop sensors and handlers
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveItemId(event.active.id as string);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!over || active.id === over.id) {
+      setActiveItemId(null);
+      return;
+    }
+
+    const activeIndex = invoiceItems.findIndex((_, index) => `item-${index}` === active.id);
+    const overIndex = invoiceItems.findIndex((_, index) => `item-${index}` === over.id);
+
+    if (activeIndex !== -1 && overIndex !== -1) {
+      const reorderedItems = arrayMove(invoiceItems, activeIndex, overIndex);
+      setInvoiceItems(reorderedItems);
+    }
+
+    setActiveItemId(null);
   };
 
   const calculateTotals = () => {
@@ -297,9 +393,9 @@ const PlumberReportCreation: React.FC = () => {
         payments,
         show_payment_dates: showPaymentDates,
         photos,
-        warranty_info: values.warranty_info,
-        terms_conditions: values.terms_conditions,
-        notes: values.notes,
+        warranty_info: warrantyInfo,
+        terms_conditions: termsConditions,
+        notes: notes,
       };
 
       let response;
@@ -356,9 +452,9 @@ const PlumberReportCreation: React.FC = () => {
         payments,
         show_payment_dates: showPaymentDates,
         photos,
-        warranty_info: values.warranty_info,
-        terms_conditions: values.terms_conditions,
-        notes: values.notes,
+        warranty_info: warrantyInfo,
+        terms_conditions: termsConditions,
+        notes: notes,
       };
 
       const blob = await plumberReportService.previewPDF(reportData, {
@@ -386,7 +482,6 @@ const PlumberReportCreation: React.FC = () => {
         form={form}
         layout="vertical"
         initialValues={{
-          report_number: plumberReportService.generateReportNumber(),
           service_date: dayjs(),
           template_type: 'standard',
         }}
@@ -397,11 +492,14 @@ const PlumberReportCreation: React.FC = () => {
             <Card title="Report Details" style={{ marginBottom: 24 }}>
               <Row gutter={16}>
                 <Col xs={24} md={8}>
-                  <Form.Item label="Select Company">
+                  <Form.Item
+                    name="company_id"
+                    label="Select Company"
+                    rules={[{ required: true, message: 'Please select a company' }]}
+                  >
                     <Select
-                      value={selectedCompany?.id}
-                      onChange={handleCompanyChange}
                       placeholder="Select a company"
+                      onChange={handleCompanyChange}
                     >
                       {companies.map(company => (
                         <Option key={company.id} value={company.id}>
@@ -449,10 +547,9 @@ const PlumberReportCreation: React.FC = () => {
             </Card>
           </Col>
 
-          {/* Client & Property Information */}
+          {/* Client Information */}
           <Col xs={24}>
-            <Card title="Client & Property Information" style={{ marginBottom: 24 }}>
-              <Divider orientation="left">Client Information</Divider>
+            <Card title="Client Information" style={{ marginBottom: 24 }}>
               <Row gutter={16}>
                 <Col xs={24} md={12}>
                   <Form.Item
@@ -460,44 +557,50 @@ const PlumberReportCreation: React.FC = () => {
                     label="Client Name"
                     rules={[{ required: true }]}
                   >
-                    <Input />
+                    <Input placeholder="Enter client name" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={12}>
                   <Form.Item name="email" label="Email">
-                    <Input type="email" />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={12}>
-                  <Form.Item name="address" label="Address">
-                    <Input />
+                    <Input type="email" placeholder="Enter email address" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={12}>
                   <Form.Item name="phone" label="Phone">
-                    <Input />
+                    <Input placeholder="Enter phone number" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Form.Item name="address" label="Address">
+                    <Input placeholder="Enter street address" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
                   <Form.Item name="city" label="City">
-                    <Input />
+                    <Input placeholder="Enter city" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
                   <Form.Item name="state" label="State">
-                    <Input />
+                    <Input placeholder="Enter state" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
-                  <Form.Item name="zipcode" label="ZIP">
-                    <Input />
+                  <Form.Item name="zipcode" label="ZIP Code">
+                    <Input placeholder="Enter ZIP code" />
                   </Form.Item>
                 </Col>
               </Row>
+            </Card>
+          </Col>
 
-              <Divider orientation="left">
-                <Space>
-                  Property Information
+          {/* Property Information */}
+          <Col xs={24}>
+            {propertyDifferent ? (
+              <Card
+                title="Property Information"
+                style={{ marginBottom: 24 }}
+                extra={
                   <Checkbox
                     checked={propertyDifferent}
                     onChange={(e) => {
@@ -515,33 +618,88 @@ const PlumberReportCreation: React.FC = () => {
                   >
                     Different from Client Address
                   </Checkbox>
-                </Space>
-              </Divider>
-              {propertyDifferent && (
+                }
+              >
                 <Row gutter={16}>
                   <Col xs={24} md={12}>
                     <Form.Item name="property_address" label="Property Address">
-                      <Input />
+                      <Input placeholder="Enter property address" />
                     </Form.Item>
                   </Col>
-                  <Col xs={24} md={4}>
+                  <Col xs={24} md={8}>
                     <Form.Item name="property_city" label="City">
-                      <Input />
+                      <Input placeholder="Enter city" />
                     </Form.Item>
                   </Col>
-                  <Col xs={24} md={4}>
+                  <Col xs={24} md={8}>
                     <Form.Item name="property_state" label="State">
-                      <Input />
+                      <Input placeholder="Enter state" />
                     </Form.Item>
                   </Col>
-                  <Col xs={24} md={4}>
-                    <Form.Item name="property_zipcode" label="ZIP">
-                      <Input />
+                  <Col xs={24} md={8}>
+                    <Form.Item name="property_zipcode" label="ZIP Code">
+                      <Input placeholder="Enter ZIP code" />
                     </Form.Item>
                   </Col>
                 </Row>
-              )}
-            </Card>
+              </Card>
+            ) : (
+              <div
+                style={{
+                  border: '1px solid #d9d9d9',
+                  borderRadius: '6px',
+                  marginBottom: 24,
+                  backgroundColor: '#fafafa',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '16px 24px',
+                    borderBottom: 'none',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontWeight: 500,
+                    fontSize: '16px',
+                  }}
+                >
+                  <span>Property Information</span>
+                  <Checkbox
+                    checked={propertyDifferent}
+                    onChange={(e) => {
+                      setPropertyDifferent(e.target.checked);
+                      if (!e.target.checked) {
+                        // Clear property fields when same as client
+                        form.setFieldsValue({
+                          property_address: undefined,
+                          property_city: undefined,
+                          property_state: undefined,
+                          property_zipcode: undefined,
+                        });
+                      }
+                    }}
+                  >
+                    Different from Client Address
+                  </Checkbox>
+                </div>
+                <div style={{
+                  padding: '20px 24px',
+                  textAlign: 'center',
+                  color: '#999',
+                  backgroundColor: '#f9f9f9',
+                  borderBottomLeftRadius: '6px',
+                  borderBottomRightRadius: '6px'
+                }}>
+                  <Text type="secondary">
+                    Property address is same as client address
+                  </Text>
+                  <br />
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    Check "Different from Client Address" above to enter a different property address
+                  </Text>
+                </div>
+              </div>
+            )}
           </Col>
 
           {/* Report Content */}
@@ -587,7 +745,7 @@ const PlumberReportCreation: React.FC = () => {
 
           {/* Invoice Items */}
           <Col xs={24}>
-            <Card 
+            <Card
               title="Invoice Items"
               style={{ marginBottom: 24 }}
               extra={
@@ -600,8 +758,23 @@ const PlumberReportCreation: React.FC = () => {
                 </Button>
               }
             >
-              <Table
-                dataSource={invoiceItems}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                modifiers={[restrictToVerticalAxis]}
+              >
+                <SortableContext items={invoiceItems.map((_, index) => `item-${index}`)} strategy={verticalListSortingStrategy}>
+                  <DraggableTable
+                dataSource={invoiceItems.map((item, index) => ({ ...item, key: index }))}
+                onReorder={() => {}} // Handled by drag handlers above
+                showDragHandle={true}
+                dragHandlePosition="start"
+                dragColumnWidth={30}
+                getRowId={(record, index) => `item-${index}`}
+                disableDrag={false}
+                activeId={activeItemId}
                 columns={[
                   {
                     title: '#',
@@ -677,11 +850,10 @@ const PlumberReportCreation: React.FC = () => {
                   },
                 ]}
                 pagination={false}
-                rowKey={(record) => record.id}
                 summary={() => (
                   <Table.Summary>
                     <Table.Summary.Row>
-                      <Table.Summary.Cell index={0} colSpan={5} align="right">
+                      <Table.Summary.Cell index={0} colSpan={6} align="right">
                         <strong>Subtotal:</strong>
                       </Table.Summary.Cell>
                       <Table.Summary.Cell index={1} align="right">
@@ -692,6 +864,43 @@ const PlumberReportCreation: React.FC = () => {
                   </Table.Summary>
                 )}
               />
+                </SortableContext>
+                <DragOverlay>
+                  {activeItemId ? (
+                    <div
+                      style={{
+                        backgroundColor: 'white',
+                        border: '1px solid #d9d9d9',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                        fontSize: '13px',
+                        minWidth: '200px',
+                        opacity: 0.95,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
+                      <span style={{ fontWeight: '500' }}>
+                        {(() => {
+                          const index = parseInt(activeItemId.split('-')[1]);
+                          const item = invoiceItems[index];
+                          return item ? item.name || 'Item' : 'Item';
+                        })()}
+                      </span>
+                      <span style={{ color: '#1890ff', marginLeft: 'auto' }}>
+                        ${(() => {
+                          const index = parseInt(activeItemId.split('-')[1]);
+                          const item = invoiceItems[index];
+                          return item ? (item.total_cost || 0).toFixed(2) : '0.00';
+                        })()}
+                      </span>
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
             </Card>
           </Col>
 
@@ -820,18 +1029,33 @@ const PlumberReportCreation: React.FC = () => {
             <Card title="Additional Information" style={{ marginBottom: 24 }}>
               <Row gutter={16}>
                 <Col xs={24} md={8}>
-                  <Form.Item name="warranty_info" label="Warranty Information">
-                    <TextArea rows={3} placeholder="Enter warranty details..." />
+                  <Form.Item label="Warranty Information">
+                    <RichTextEditor
+                      value={warrantyInfo}
+                      onChange={setWarrantyInfo}
+                      placeholder="Enter warranty details (supports rich text formatting)..."
+                      minHeight={120}
+                    />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
-                  <Form.Item name="terms_conditions" label="Terms & Conditions">
-                    <TextArea rows={3} placeholder="Enter terms and conditions..." />
+                  <Form.Item label="Terms & Conditions">
+                    <RichTextEditor
+                      value={termsConditions}
+                      onChange={setTermsConditions}
+                      placeholder="Enter terms and conditions (supports rich text formatting)..."
+                      minHeight={120}
+                    />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
-                  <Form.Item name="notes" label="Additional Notes">
-                    <TextArea rows={3} placeholder="Any additional notes..." />
+                  <Form.Item label="Additional Notes">
+                    <RichTextEditor
+                      value={notes}
+                      onChange={setNotes}
+                      placeholder="Any additional notes (supports rich text formatting)..."
+                      minHeight={120}
+                    />
                   </Form.Item>
                 </Col>
               </Row>
@@ -874,6 +1098,7 @@ const PlumberReportCreation: React.FC = () => {
         onCancel={() => {
           setItemModalVisible(false);
           itemForm.resetFields();
+          setItemDescription('');
         }}
         width={600}
       >
@@ -882,7 +1107,7 @@ const PlumberReportCreation: React.FC = () => {
           layout="vertical"
           initialValues={{
             quantity: 1,
-            unit: 'ea',
+            unit: 'EA',
             unit_cost: 0,
           }}
         >
@@ -893,11 +1118,13 @@ const PlumberReportCreation: React.FC = () => {
           >
             <Input />
           </Form.Item>
-          <Form.Item
-            name="description"
-            label="Description"
-          >
-            <TextArea rows={2} />
+          <Form.Item label="Description">
+            <RichTextEditor
+              value={itemDescription}
+              onChange={setItemDescription}
+              placeholder="Enter item description (supports rich text formatting)..."
+              minHeight={100}
+            />
           </Form.Item>
           <Row gutter={16}>
             <Col span={8}>

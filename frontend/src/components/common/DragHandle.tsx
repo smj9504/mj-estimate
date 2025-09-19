@@ -6,6 +6,7 @@ interface DragHandleProps {
   attributes?: any;
   isDragging?: boolean;
   style?: React.CSSProperties;
+  className?: string;
 }
 
 const DragHandle: React.FC<DragHandleProps> = ({
@@ -13,11 +14,13 @@ const DragHandle: React.FC<DragHandleProps> = ({
   attributes,
   isDragging = false,
   style,
+  className,
 }) => {
   return (
     <div
       {...attributes}
       {...listeners}
+      className={className}
       style={{
         cursor: isDragging ? 'grabbing' : 'grab',
         padding: '4px 8px',

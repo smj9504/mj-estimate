@@ -19,6 +19,7 @@ import {
   Collapse,
   Tag,
   Badge,
+  Switch,
 } from 'antd';
 import {
   PlusOutlined,
@@ -74,8 +75,13 @@ const EstimateCreation: React.FC = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
 
-  // Section drag and drop states
-  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  // Unified drag and drop states
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeDragType, setActiveDragType] = useState<'section' | 'item' | null>(null);
+  const [activeSectionIndex, setActiveSectionIndex] = useState<number | null>(null);
+
+  // Collapse active keys state for controlling which sections are expanded
+  const [activeKeys, setActiveKeys] = useState<string[]>([]);
 
   const [itemModalVisible, setItemModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<EstimateLineItem | null>(null);
@@ -83,6 +89,7 @@ const EstimateCreation: React.FC = () => {
   const [editingSectionIndex, setEditingSectionIndex] = useState<number | null>(null);
   const [itemForm] = Form.useForm();
   const [useCustomCompany, setUseCustomCompany] = useState(false);
+  const [showInsuranceInfo, setShowInsuranceInfo] = useState(false);
 
   // Multi-select state
   const [selectedItemKeys, setSelectedItemKeys] = useState<{[sectionIndex: number]: string[]}>({});
@@ -127,23 +134,35 @@ const EstimateCreation: React.FC = () => {
         estimate_number: estimate.estimate_number,
         client_name: estimate.client_name,
         client_address: estimate.client_address,
+        client_city: estimate.client_city,
+        client_state: estimate.client_state,
+        client_zipcode: estimate.client_zipcode,
         client_phone: estimate.client_phone,
         client_email: estimate.client_email,
         estimate_date: estimate.estimate_date ? dayjs(estimate.estimate_date) : dayjs(),
         claim_number: estimate.claim_number,
         policy_number: estimate.policy_number,
+        insurance_company: estimate.insurance_company,
         deductible: estimate.deductible,
         notes: estimate.notes,
         terms: estimate.terms,
         status: estimate.status || 'draft',
       });
+
+      // Show insurance info if any insurance fields are filled
+      const hasInsuranceInfo = estimate.claim_number || estimate.policy_number || estimate.insurance_company || estimate.deductible;
+      setShowInsuranceInfo(!!hasInsuranceInfo);
       
       // Convert items to sections or use existing sections
       if (estimate.sections && estimate.sections.length > 0) {
         setSections(estimate.sections);
+        // Expand all sections when loading an existing estimate
+        setActiveKeys(estimate.sections.map(s => s.id));
       } else {
         const sectionsFromItems = convertItemsToSections(estimate.items || []);
         setSections(sectionsFromItems);
+        // Expand all sections when loading converted items
+        setActiveKeys(sectionsFromItems.map(s => s.id));
       }
       
       // Set O&P percent
@@ -205,7 +224,7 @@ const EstimateCreation: React.FC = () => {
       message.warning('Please enter a section title');
       return;
     }
-    
+
     const newSection: EstimateSection = {
       id: `section-${Date.now()}`,
       title: newSectionTitle.trim(),
@@ -213,8 +232,10 @@ const EstimateCreation: React.FC = () => {
       showSubtotal: true,
       subtotal: 0,
     };
-    
+
     setSections([...sections, newSection]);
+    // Auto-expand the new section
+    setActiveKeys([...activeKeys, newSection.id]);
     setNewSectionTitle('');
     message.success('Section added successfully');
   };
@@ -225,11 +246,11 @@ const EstimateCreation: React.FC = () => {
     message.success('Section deleted successfully');
   };
 
-  // Section drag and drop handlers
-  const sectionSensors = useSensors(
+  // Unified drag and drop sensors with improved activation
+  const unifiedSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 5,
+        distance: 8,
       },
     }),
     useSensor(KeyboardSensor, {
@@ -237,25 +258,90 @@ const EstimateCreation: React.FC = () => {
     })
   );
 
-  const handleSectionDragStart = (event: DragStartEvent) => {
-    setActiveSectionId(event.active.id as string);
+  const handleUnifiedDragStart = (event: DragStartEvent) => {
+    const { active, activatorEvent } = event;
+    const activeIdStr = active.id as string;
+
+    if (activeIdStr.startsWith('section-')) {
+      // Section drag
+      if (activatorEvent && 'target' in activatorEvent) {
+        const target = activatorEvent.target as Element;
+        const isFromSectionHandle = target.closest('.section-drag-handle');
+
+        // Cancel if not from section handle
+        if (!isFromSectionHandle) {
+          return;
+        }
+      }
+      setActiveDragType('section');
+      setActiveId(activeIdStr);
+    } else if (activeIdStr.startsWith('item-')) {
+      // Item drag - parse section index
+      const parts = activeIdStr.split('-');
+      if (parts.length >= 3) {
+        const sectionIdx = parseInt(parts[1]);
+        setActiveDragType('item');
+        setActiveId(activeIdStr);
+        setActiveSectionIndex(sectionIdx);
+      }
+    }
   };
 
-  const handleSectionDragEnd = (event: DragEndEvent) => {
+  const handleUnifiedDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    setActiveSectionId(null);
 
     if (!over || active.id === over.id) {
+      resetDragState();
       return;
     }
 
-    const oldIndex = sections.findIndex(section => section.id === active.id);
-    const newIndex = sections.findIndex(section => section.id === over.id);
+    const activeIdStr = active.id as string;
+    const overIdStr = over.id as string;
 
-    if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-      const newSections = arrayMove(sections, oldIndex, newIndex);
-      setSections(newSections);
+    if (activeDragType === 'section') {
+      // Handle section reordering
+      const oldIndex = sections.findIndex(section => section.id === activeIdStr);
+      const newIndex = sections.findIndex(section => section.id === overIdStr);
+
+      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+        const newSections = arrayMove(sections, oldIndex, newIndex);
+        setSections(newSections);
+      }
+    } else if (activeDragType === 'item' && activeSectionIndex !== null) {
+      // Handle item reordering within the same section
+      if (activeIdStr.startsWith('item-') && overIdStr.startsWith('item-')) {
+        const activeParts = activeIdStr.split('-');
+        const overParts = overIdStr.split('-');
+
+        if (activeParts.length >= 3 && overParts.length >= 3) {
+          const activeSectionIdx = parseInt(activeParts[1]);
+          const overSectionIdx = parseInt(overParts[1]);
+
+          // Only allow reordering within the same section
+          if (activeSectionIdx === overSectionIdx) {
+            const activeItemIdx = parseInt(activeParts[2]);
+            const overItemIdx = parseInt(overParts[2]);
+
+            if (activeItemIdx !== overItemIdx) {
+              const newSections = [...sections];
+              const sectionItems = [...newSections[activeSectionIdx].items];
+              const newItems = arrayMove(sectionItems, activeItemIdx, overItemIdx);
+              newSections[activeSectionIdx].items = newItems;
+              newSections[activeSectionIdx].subtotal = calculateSectionSubtotal(newItems);
+              setSections(newSections);
+            }
+          }
+        }
+      }
     }
+
+    resetDragState();
+  };
+
+  const resetDragState = () => {
+    setActiveId(null);
+    setActiveDragType(null);
+    setActiveSectionIndex(null);
   };
 
   const updateSectionTitle = (sectionIndex: number, newTitle: string) => {
@@ -297,13 +383,6 @@ const EstimateCreation: React.FC = () => {
   };
 
 
-  // Drag and drop reorder handler
-  const handleItemReorder = (sectionIndex: number, newItems: EstimateLineItem[]) => {
-    const newSections = [...sections];
-    newSections[sectionIndex].items = newItems;
-    newSections[sectionIndex].subtotal = calculateSectionSubtotal(newItems);
-    setSections(newSections);
-  };
 
   // Multi-select handlers
   const handleRowSelection = (sectionIndex: number, selectedRowKeys: string[]) => {
@@ -403,6 +482,13 @@ const EstimateCreation: React.FC = () => {
       setItemModalVisible(false);
       setEditingItem(null);
       setEditingIndex(null);
+
+      // Auto-expand the section when an item is added
+      const sectionId = sections[editingSectionIndex!].id;
+      if (!activeKeys.includes(sectionId)) {
+        setActiveKeys([...activeKeys, sectionId]);
+      }
+
       setEditingSectionIndex(null);
       setCurrentItemDescription('');
       setCurrentItemNote('');
@@ -577,7 +663,6 @@ const EstimateCreation: React.FC = () => {
       value: 'custom',
       label: (
         <>
-          <Divider style={{ margin: '4px 0' }} />
           <Space>
             <EditOutlined />
             <span>Enter Custom Company</span>
@@ -679,8 +764,23 @@ const EstimateCreation: React.FC = () => {
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={12}>
-                  <Form.Item name="client_address" label="Client Address">
-                    <Input placeholder="Enter address" />
+                  <Form.Item name="client_address" label="Street Address">
+                    <Input placeholder="Enter street address" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={8}>
+                  <Form.Item name="client_city" label="City">
+                    <Input placeholder="Enter city" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={8}>
+                  <Form.Item name="client_state" label="State">
+                    <Input placeholder="Enter state" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={8}>
+                  <Form.Item name="client_zipcode" label="ZIP Code">
+                    <Input placeholder="Enter ZIP code" />
                   </Form.Item>
                 </Col>
               </Row>
@@ -689,32 +789,81 @@ const EstimateCreation: React.FC = () => {
 
           {/* Insurance Information */}
           <Col xs={24}>
-            <Card title="Insurance Information (Optional)" style={{ marginBottom: 24 }}>
-              <Row gutter={16}>
-                <Col xs={24} md={8}>
-                  <Form.Item name="claim_number" label="Claim Number">
-                    <Input placeholder="Enter claim number" />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={8}>
-                  <Form.Item name="policy_number" label="Policy Number">
-                    <Input placeholder="Enter policy number" />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={8}>
-                  <Form.Item name="deductible" label="Deductible">
-                    <InputNumber
-                      style={{ width: '100%' }}
-                      placeholder="Enter deductible amount"
-                      min={0}
-                      step={100}
-                      formatter={(value?: string | number) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                      parser={(value?: string) => parseFloat(value?.replace(/\$\s?|(,*)/g, '') || '0') || 0}
+            {showInsuranceInfo ? (
+              <Card
+                title={
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Insurance Information (Optional)</span>
+                    <Switch
+                      checked={showInsuranceInfo}
+                      onChange={setShowInsuranceInfo}
+                      checkedChildren="Show"
+                      unCheckedChildren="Hide"
                     />
-                  </Form.Item>
-                </Col>
-              </Row>
-            </Card>
+                  </div>
+                }
+                style={{ marginBottom: 24 }}
+              >
+                <Row gutter={16}>
+                  <Col xs={24} md={6}>
+                    <Form.Item name="insurance_company" label="Insurance Company">
+                      <Input placeholder="Enter insurance company name" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={6}>
+                    <Form.Item name="claim_number" label="Claim Number">
+                      <Input placeholder="Enter claim number" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={6}>
+                    <Form.Item name="policy_number" label="Policy Number">
+                      <Input placeholder="Enter policy number" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={6}>
+                    <Form.Item name="deductible" label="Deductible">
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        placeholder="Enter deductible amount"
+                        min={0}
+                        step={100}
+                        formatter={(value?: string | number) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                        parser={(value?: string) => parseFloat(value?.replace(/\$\s?|(,*)/g, '') || '0') || 0}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </Card>
+            ) : (
+              <div
+                style={{
+                  border: '1px solid #d9d9d9',
+                  borderRadius: '6px',
+                  marginBottom: 24,
+                  backgroundColor: '#fafafa',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '16px 24px',
+                    borderBottom: 'none',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontWeight: 500,
+                    fontSize: '16px',
+                  }}
+                >
+                  <span>Insurance Information (Optional)</span>
+                  <Switch
+                    checked={showInsuranceInfo}
+                    onChange={setShowInsuranceInfo}
+                    checkedChildren="Show"
+                    unCheckedChildren="Hide"
+                  />
+                </div>
+              </div>
+            )}
           </Col>
 
           {/* Section Management */}
@@ -745,51 +894,63 @@ const EstimateCreation: React.FC = () => {
                 </div>
               ) : (
                 <DndContext
-                  sensors={sectionSensors}
+                  sensors={unifiedSensors}
                   collisionDetection={closestCenter}
-                  onDragStart={handleSectionDragStart}
-                  onDragEnd={handleSectionDragEnd}
+                  onDragStart={handleUnifiedDragStart}
+                  onDragEnd={handleUnifiedDragEnd}
+                  onDragCancel={resetDragState}
                   modifiers={[restrictToVerticalAxis]}
                 >
                   <SortableContext items={sections.map(s => s.id)} strategy={verticalListSortingStrategy}>
-                    <Collapse>
-                      {sections.map((section, sectionIndex) => (
-                        <SortableSection
-                          key={section.id}
-                          section={section}
-                          sectionIndex={sectionIndex}
-                          onAddItem={addItemToSection}
-                          onEditSection={(sectionId, title) => {
-                            setEditingSectionName(title);
-                            setEditingSectionId(sectionId);
-                            setSectionModalVisible(true);
-                          }}
-                          onDeleteSection={deleteSection}
-                        >
-                          {/* Section Items */}
-                          {section.items.length === 0 ? (
-                            <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
-                              <p>No items in this section yet</p>
-                              <Button type="dashed" icon={<PlusOutlined />} onClick={() => addItemToSection(sectionIndex)}>
-                                Add First Item
-                              </Button>
-                            </div>
-                          ) : (
-                            <>
+                    <Collapse
+                      activeKey={activeKeys}
+                      onChange={(keys) => setActiveKeys(keys as string[])}
+                      items={sections.map((section, sectionIndex) => ({
+                        key: section.id,
+                        label: (
+                          <SortableSection
+                            section={section}
+                            sectionIndex={sectionIndex}
+                            onAddItem={addItemToSection}
+                            onEditSection={(sectionId, title) => {
+                              setEditingSectionName(title);
+                              setEditingSectionId(sectionId);
+                              setSectionModalVisible(true);
+                            }}
+                            onDeleteSection={deleteSection}
+                            renderHeaderOnly={true}
+                          />
+                        ),
+                        children: (
+                          <div>
+                            {/* Section Items */}
+                            {section.items.length === 0 ? (
+                              <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                                <p>No items in this section yet</p>
+                                <Button type="dashed" icon={<PlusOutlined />} onClick={() => addItemToSection(sectionIndex)}>
+                                  Add First Item
+                                </Button>
+                              </div>
+                            ) : (
                               <div
                                 tabIndex={0}
                                 onKeyDown={(e) => handleKeyDown(e, sectionIndex)}
                                 style={{ outline: 'none' }}
                               >
                                 <DraggableTable
+                                  className="draggable-table"
                                   dataSource={section.items.map((item, index) => ({ ...item, key: index }))}
-                                  onReorder={(newItems) => handleItemReorder(sectionIndex, newItems)}
+                                  onReorder={() => {}} // Not used anymore - handled by unified handler
                                   pagination={false}
                                   size="small"
                                   showDragHandle={true}
                                   dragHandlePosition="start"
                                   dragColumnWidth={30}
-                                  getRowId={(record, index) => String(index)}
+                                  getRowId={(record, index) => `item-${sectionIndex}-${index}`}
+                                  disableDrag={false}
+                                  sectionIndex={sectionIndex}
+                                  dragType="item"
+                                  activeId={activeId}
                                   rowSelection={{
                                     selectedRowKeys: selectedItemKeys[sectionIndex] || [],
                                     onChange: (selectedRowKeys) => handleRowSelection(sectionIndex, selectedRowKeys as string[]),
@@ -846,15 +1007,15 @@ const EstimateCreation: React.FC = () => {
                                   ]}
                                 />
                               </div>
-                            </>
-                          )}
-                        </SortableSection>
-                      ))}
-                    </Collapse>
+                            )}
+                          </div>
+                        ),
+                      }))}
+                    />
                   </SortableContext>
 
                   <DragOverlay>
-                    {activeSectionId ? (
+                    {activeId && activeDragType === 'section' ? (
                       <div
                         style={{
                           backgroundColor: 'white',
@@ -869,9 +1030,45 @@ const EstimateCreation: React.FC = () => {
                       >
                         <HolderOutlined style={{ marginRight: 8, color: '#999' }} />
                         <strong>
-                          {sections.find(s => s.id === activeSectionId)?.title || 'Section'}
+                          {sections.find(s => s.id === activeId)?.title || 'Section'}
                         </strong>
                       </div>
+                    ) : activeId && activeDragType === 'item' && activeSectionIndex !== null ? (
+                      (() => {
+                        const parts = activeId.split('-');
+                        if (parts.length >= 3) {
+                          const sectionIdx = parseInt(parts[1]);
+                          const itemIdx = parseInt(parts[2]);
+                          const section = sections[sectionIdx];
+                          const item = section?.items[itemIdx];
+
+                          if (item) {
+                            return (
+                              <div
+                                style={{
+                                  backgroundColor: 'white',
+                                  border: '1px solid #d9d9d9',
+                                  borderRadius: '6px',
+                                  padding: '8px 12px',
+                                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                                  fontSize: '13px',
+                                  minWidth: '200px',
+                                  opacity: 0.95,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                }}
+                              >
+                                <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
+                                <span style={{ fontWeight: '500' }}>{item.item || 'Item'}</span>
+                                <span style={{ color: '#999' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
+                                <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${(item.total || 0).toFixed(2)}</span>
+                              </div>
+                            );
+                          }
+                        }
+                        return null;
+                      })()
                     ) : null}
                   </DragOverlay>
                 </DndContext>

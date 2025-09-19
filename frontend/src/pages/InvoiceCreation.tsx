@@ -25,7 +25,26 @@ import {
   SaveOutlined,
   EyeOutlined,
   EditOutlined,
+  HolderOutlined,
 } from '@ant-design/icons';
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragStartEvent,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import DraggableTable from '../components/common/DraggableTable';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -51,7 +70,7 @@ interface InvoiceItem {
 
 interface PaymentRecord {
   amount: number;
-  date: dayjs.Dayjs;
+  date?: dayjs.Dayjs | null;
   method?: string;
   reference?: string;
 }
@@ -78,7 +97,55 @@ const InvoiceCreation: React.FC = () => {
   const [showPaymentDates, setShowPaymentDates] = useState(true);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [paymentForm] = Form.useForm();
+  const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null);
+  const [editingPaymentIndex, setEditingPaymentIndex] = useState<number | null>(null);
   const [useCustomCompany, setUseCustomCompany] = useState(false);
+  const [opPercent, setOpPercent] = useState(0);
+
+  // Drag and drop states
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  // Setup sensors for drag interactions
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    const activeIdStr = active.id as string;
+    setActiveId(activeIdStr);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    setActiveId(null);
+
+    if (!over || active.id === over.id) {
+      return;
+    }
+
+    const activeIdStr = active.id as string;
+    const overIdStr = over.id as string;
+
+    // Parse item indices from IDs
+    if (activeIdStr.startsWith('item-0-') && overIdStr.startsWith('item-0-')) {
+      const activeIndex = parseInt(activeIdStr.split('-')[2]);
+      const overIndex = parseInt(overIdStr.split('-')[2]);
+
+      if (activeIndex !== overIndex && !isNaN(activeIndex) && !isNaN(overIndex)) {
+        const newItems = arrayMove(items, activeIndex, overIndex);
+        setItems(newItems);
+      }
+    }
+  };
 
   const loadCompanies = useCallback(async () => {
     try {
@@ -152,7 +219,7 @@ const InvoiceCreation: React.FC = () => {
       if (data.payments && data.payments.length > 0) {
         const processedPayments = data.payments.map((payment: any) => ({
           amount: payment.amount || 0,
-          date: payment.date ? dayjs(payment.date) : dayjs(),
+          date: payment.date ? dayjs(payment.date) : null,
           method: payment.method || '',
           reference: payment.reference || ''
         }));
@@ -162,6 +229,11 @@ const InvoiceCreation: React.FC = () => {
       // Set payment display option
       if (data.show_payment_dates !== undefined) {
         setShowPaymentDates(data.show_payment_dates);
+      }
+
+      // Set O&P percent
+      if (data.op_percent) {
+        setOpPercent(data.op_percent);
       }
       
       // Set up company info - will be handled separately when companies load
@@ -214,6 +286,7 @@ const InvoiceCreation: React.FC = () => {
         tax_rate: 0,
         discount: 0,
         invoice_number: '', // Will be generated
+        op_percent: 0,
       });
     }
   }, [isEditMode, id, form]); // Reset when isEditMode or id changes
@@ -290,6 +363,7 @@ const InvoiceCreation: React.FC = () => {
         client_email: invoiceData.client_email,
         tax_rate: invoiceData.tax_rate || 0,
         discount: invoiceData.discount_amount || invoiceData.discount || 0,
+        op_percent: invoiceData.op_percent || 0,
         notes: invoiceData.notes,
         terms: invoiceData.terms,
         payment_terms: invoiceData.payment_terms,
@@ -327,12 +401,26 @@ const InvoiceCreation: React.FC = () => {
     setFormMounted(true);
   }, []);
 
-  const handleCompanyChange = (companyId: string) => {
+  const handleCompanyChange = async (companyId: string) => {
     if (companyId === 'custom') {
       setUseCustomCompany(true);
       setSelectedCompany(null);
       // Set form value to indicate custom company is selected
       form.setFieldValue('company_selection', 'custom');
+
+      // Generate invoice number for custom company too (only in create mode)
+      if (!isEditMode) {
+        try {
+          const newInvoiceNumber = await invoiceService.generateInvoiceNumber();
+          form.setFieldsValue({ invoice_number: newInvoiceNumber });
+          console.log('Generated new invoice number for custom company:', newInvoiceNumber);
+        } catch (error) {
+          console.error('Failed to generate invoice number:', error);
+          // Fallback to default number if API fails
+          const fallbackNumber = `INV-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+          form.setFieldsValue({ invoice_number: fallbackNumber });
+        }
+      }
     } else {
       setUseCustomCompany(false);
       const company = companies.find(c => c.id === companyId);
@@ -340,6 +428,20 @@ const InvoiceCreation: React.FC = () => {
         setSelectedCompany(company);
         // Set form value to the selected company ID
         form.setFieldValue('company_selection', companyId);
+
+        // Generate new invoice number based on selected company (only in create mode)
+        if (!isEditMode) {
+          try {
+            const newInvoiceNumber = await invoiceService.generateInvoiceNumber(company.id);
+            form.setFieldsValue({ invoice_number: newInvoiceNumber });
+            console.log('Generated new invoice number:', newInvoiceNumber);
+          } catch (error) {
+            console.error('Failed to generate invoice number:', error);
+            // Fallback to default number if API fails
+            const fallbackNumber = `INV-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+            form.setFieldsValue({ invoice_number: fallbackNumber });
+          }
+        }
       }
     }
   };
@@ -451,12 +553,16 @@ const InvoiceCreation: React.FC = () => {
     setItems(updatedItems);
   };
 
-  const handleItemReorder = (newItems: InvoiceItem[]) => {
-    setItems(newItems);
-    message.success('Items reordered');
-  };
 
   const handleAddPayment = () => {
+    setEditingPayment(null);
+    setEditingPaymentIndex(null);
+    setPaymentModalVisible(true);
+  };
+
+  const handleEditPayment = (payment: PaymentRecord, index: number) => {
+    setEditingPayment(payment);
+    setEditingPaymentIndex(index);
     setPaymentModalVisible(true);
   };
 
@@ -468,22 +574,29 @@ const InvoiceCreation: React.FC = () => {
         return;
       }
 
-      // Validate date
-      if (!values.date) {
-        message.error('Please select a payment date');
-        return;
-      }
+      // Date is now optional - no validation needed
 
       const newPayment: PaymentRecord = {
         amount: values.amount,
-        date: values.date,
+        date: values.date || null,
         method: values.method || '',
         reference: values.reference || '',
       };
-      setPayments([...payments, newPayment]);
+
+      if (editingPaymentIndex !== null) {
+        const updatedPayments = [...payments];
+        updatedPayments[editingPaymentIndex] = newPayment;
+        setPayments(updatedPayments);
+        message.success('Payment updated successfully');
+      } else {
+        setPayments([...payments, newPayment]);
+        message.success('Payment added successfully');
+      }
+
       setPaymentModalVisible(false);
       paymentForm.resetFields();
-      message.success('Payment added successfully');
+      setEditingPayment(null);
+      setEditingPaymentIndex(null);
     }).catch(error => {
       console.error('Payment validation failed:', error);
       message.error('Please fill in all required payment information');
@@ -496,7 +609,7 @@ const InvoiceCreation: React.FC = () => {
   };
 
   const calculateTotals = useCallback(() => {
-    const subtotal = items.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
+    const itemsSubtotal = items.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
     
     // Safely get form values, default to 0 if form not ready
     let discount = 0;
@@ -524,23 +637,36 @@ const InvoiceCreation: React.FC = () => {
         }
         return sum;
       }, 0);
-      taxAmount = (taxableAmount - discount) * (taxRate / 100);
+
+      // Calculate O&P on items subtotal (before discount and tax)
+      const opAmount = itemsSubtotal * (opPercent / 100);
+      const subtotalWithOP = itemsSubtotal + opAmount;
+
+      // Calculate tax on subtotal + O&P - discount
+      taxAmount = (subtotalWithOP - discount) * (taxRate / 100);
     } else {
+      // For specific tax amount, still add O&P to subtotal
+      const opAmount = itemsSubtotal * (opPercent / 100);
+      const subtotalWithOP = itemsSubtotal + opAmount;
       taxAmount = specificTaxAmount;
     }
-    
+
+    const opAmount = itemsSubtotal * (opPercent / 100);
+    const subtotal = itemsSubtotal + opAmount;
     const total = subtotal - discount + taxAmount;
     const totalPaid = payments.reduce((sum, payment) => sum + payment.amount, 0);
     const balanceDue = total - totalPaid;
 
     return {
+      itemsSubtotal,
+      opAmount: itemsSubtotal * (opPercent / 100),
       subtotal,
       taxAmount,
       total,
       totalPaid,
       balanceDue,
     };
-  }, [items, taxMethod, specificTaxAmount, payments, form, formMounted]);
+  }, [items, taxMethod, specificTaxAmount, payments, form, formMounted, opPercent]);
 
   const handleSave = async (status: string = 'draft') => {
     try {
@@ -619,7 +745,12 @@ const InvoiceCreation: React.FC = () => {
       invoiceData.tax_amount = totals.taxAmount;
       invoiceData.discount = values.discount || 0;
       invoiceData.total = totals.total;
-      invoiceData.payments = payments;
+      invoiceData.payments = payments.map(payment => ({
+        amount: payment.amount,
+        date: payment.date ? payment.date.format('MM-DD-YYYY') : null,
+        method: payment.method,
+        reference: payment.reference
+      }));
       invoiceData.show_payment_dates = showPaymentDates;
       invoiceData.balance_due = totals.balanceDue;
       invoiceData.payment_terms = values.payment_terms;
@@ -708,7 +839,12 @@ const InvoiceCreation: React.FC = () => {
         tax_amount: totals.taxAmount,
         discount: values.discount || 0,
         total: totals.total,
-        payments: payments,
+        payments: payments.map(payment => ({
+          amount: payment.amount,
+          date: payment.date ? payment.date.format('MM-DD-YYYY') : null,
+          method: payment.method,
+          reference: payment.reference
+        })),
         show_payment_dates: showPaymentDates,
         balance_due: totals.balanceDue,
         payment_terms: values.payment_terms,
@@ -846,19 +982,20 @@ const InvoiceCreation: React.FC = () => {
         form={form}
         layout="vertical"
         initialValues={{
-          invoice_number: `INV-${dayjs().format('YYYYMMDDHHmmss')}`,
+          invoice_number: isEditMode ? '' : '', // Will be generated when company is selected
           date: dayjs(),
           due_date: dayjs().add(30, 'days'),
           tax_rate: 0,
           discount: 0,
+          op_percent: 0,
         }}
         onFieldsChange={(changedFields) => {
           if (!formMounted) {
             setFormMounted(true);
           }
-          // Track field changes for discount and tax_rate
-          const affectedFields = changedFields.filter(field => 
-            field.name?.[0] === 'discount' || field.name?.[0] === 'tax_rate'
+          // Track field changes for discount, tax_rate, and op_percent
+          const affectedFields = changedFields.filter(field =>
+            field.name?.[0] === 'discount' || field.name?.[0] === 'tax_rate' || field.name?.[0] === 'op_percent'
           );
           if (affectedFields.length > 0) {
             setFormFieldsChanged(prev => prev + 1);
@@ -908,7 +1045,11 @@ const InvoiceCreation: React.FC = () => {
                     label="Invoice Number"
                     rules={[{ required: true }]}
                   >
-                    <Input />
+                    <Input
+                      prefix="#"
+                      placeholder={isEditMode ? "Invoice number" : "Select company to generate number"}
+                      readOnly={!isEditMode && !selectedCompany && !useCustomCompany}
+                    />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
@@ -1081,28 +1222,79 @@ const InvoiceCreation: React.FC = () => {
             </Button>
           }
         >
-          <DraggableTable
-            dataSource={items}
-            columns={columns}
-            pagination={false}
-            onReorder={handleItemReorder}
-            dragColumnTitle=""
-            dragColumnWidth={40}
-            getRowId={(_, index) => `item-${index}`}
-            summary={() => (
-              <Table.Summary>
-                <Table.Summary.Row>
-                  <Table.Summary.Cell index={0} colSpan={7} align="right">
-                    <strong>Subtotal:</strong>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={1} align="right">
-                    <strong>${totals.subtotal.toFixed(2)}</strong>
-                  </Table.Summary.Cell>
-                  <Table.Summary.Cell index={2} />
-                </Table.Summary.Row>
-              </Table.Summary>
-            )}
-          />
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            modifiers={[restrictToVerticalAxis]}
+          >
+            <SortableContext items={items.map((_, index) => `item-0-${index}`)} strategy={verticalListSortingStrategy}>
+              <DraggableTable
+                dataSource={items}
+                columns={columns}
+                pagination={false}
+                onReorder={() => {}} // Not used anymore - handled by unified handler
+                dragColumnTitle=""
+                dragColumnWidth={40}
+                getRowId={(_, index) => `item-0-${index}`}
+                sectionIndex={0}
+                dragType="item"
+                activeId={activeId}
+                summary={() => (
+                  <Table.Summary>
+                    <Table.Summary.Row>
+                      <Table.Summary.Cell index={0} colSpan={7} align="right">
+                        <strong>Items Subtotal:</strong>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={1} align="right">
+                        <strong>${totals.itemsSubtotal.toFixed(2)}</strong>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={2} />
+                    </Table.Summary.Row>
+                  </Table.Summary>
+                )}
+              />
+            </SortableContext>
+
+            <DragOverlay>
+              {activeId ? (
+                (() => {
+                  const parts = activeId.split('-');
+                  if (parts.length >= 3 && parts[0] === 'item') {
+                    const itemIdx = parseInt(parts[2]);
+                    const item = items[itemIdx];
+
+                    if (item) {
+                      return (
+                        <div
+                          style={{
+                            backgroundColor: 'white',
+                            border: '1px solid #d9d9d9',
+                            borderRadius: '6px',
+                            padding: '8px 12px',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                            fontSize: '13px',
+                            minWidth: '200px',
+                            opacity: 0.95,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                          }}
+                        >
+                          <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
+                          <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
+                          <span style={{ color: '#999' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
+                          <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${(item.amount || (item.quantity * item.rate) || 0).toFixed(2)}</span>
+                        </div>
+                      );
+                    }
+                  }
+                  return null;
+                })()
+              ) : null}
+            </DragOverlay>
+          </DndContext>
         </Card>
 
         {/* Totals and Additional Info */}
@@ -1139,12 +1331,27 @@ const InvoiceCreation: React.FC = () => {
                 </Col>
               </Row>
 
-              <Divider orientation="left">Tax Settings</Divider>
               <Row gutter={16}>
                 <Col span={24}>
+                  <Form.Item name="op_percent" label="O&P Percentage (%)">
+                    <InputNumber
+                      style={{ width: '100%' }}
+                      min={0}
+                      max={100}
+                      step={0.1}
+                      value={opPercent}
+                      onChange={(value) => setOpPercent(value || 0)}
+                      formatter={(value?: string | number) => `${value}%`}
+                      parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Row gutter={16}>
+                <Col span={12}>
                   <Form.Item label="Tax Method">
-                    <Select 
-                      value={taxMethod} 
+                    <Select
+                      value={taxMethod}
                       onChange={setTaxMethod}
                       options={[
                         { value: 'percentage', label: 'Percentage of Subtotal' },
@@ -1153,8 +1360,8 @@ const InvoiceCreation: React.FC = () => {
                     />
                   </Form.Item>
                 </Col>
-                {taxMethod === 'percentage' ? (
-                  <Col span={24}>
+                <Col span={12}>
+                  {taxMethod === 'percentage' ? (
                     <Form.Item name="tax_rate" label="Tax Rate (%)">
                       <InputNumber
                         style={{ width: '100%' }}
@@ -1164,9 +1371,7 @@ const InvoiceCreation: React.FC = () => {
                         parser={value => value!.replace('%', '') as any}
                       />
                     </Form.Item>
-                  </Col>
-                ) : (
-                  <Col span={24}>
+                  ) : (
                     <Form.Item label="Tax Amount">
                       <InputNumber
                         style={{ width: '100%' }}
@@ -1177,39 +1382,36 @@ const InvoiceCreation: React.FC = () => {
                         parser={value => value!.replace(/\$\s?|(,*)/g, '') as any}
                       />
                     </Form.Item>
-                  </Col>
-                )}
+                  )}
+                </Col>
               </Row>
 
-              <Divider orientation="left">
-                <Space>
-                  <span>Payment Records</span>
-                  <Switch
-                    size="small"
-                    checked={showPaymentDates}
-                    onChange={setShowPaymentDates}
-                    checkedChildren="Show Dates"
-                    unCheckedChildren="Hide Dates"
-                  />
-                </Space>
-              </Divider>
               
               <Space direction="vertical" style={{ width: '100%' }}>
                 {payments.map((payment, index) => (
                   <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Space>
-                      {showPaymentDates && (
+                      {payment.date && (
                         <span style={{ color: '#666' }}>{payment.date.format('MM/DD/YYYY')}</span>
                       )}
                       <span>${payment.amount.toFixed(2)}</span>
                       {payment.method && <span>({payment.method})</span>}
                     </Space>
-                    <Button
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={() => handleDeletePayment(index)}
-                    />
+                    <Space>
+                      <Tooltip title="Edit">
+                        <Button
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={() => handleEditPayment(payment, index)}
+                        />
+                      </Tooltip>
+                      <Button
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => handleDeletePayment(index)}
+                      />
+                    </Space>
                   </div>
                 ))}
                 <Button
@@ -1225,6 +1427,16 @@ const InvoiceCreation: React.FC = () => {
               <Divider />
 
               <div style={{ fontSize: '16px' }}>
+                <Row justify="space-between" style={{ marginBottom: 8 }}>
+                  <Col>Items Subtotal:</Col>
+                  <Col>${totals.itemsSubtotal.toFixed(2)}</Col>
+                </Row>
+                {opPercent > 0 && (
+                  <Row justify="space-between" style={{ marginBottom: 8 }}>
+                    <Col>O&P ({opPercent}%):</Col>
+                    <Col>${totals.opAmount.toFixed(2)}</Col>
+                  </Row>
+                )}
                 <Row justify="space-between" style={{ marginBottom: 8 }}>
                   <Col>Subtotal:</Col>
                   <Col>${totals.subtotal.toFixed(2)}</Col>
@@ -1430,23 +1642,34 @@ const InvoiceCreation: React.FC = () => {
 
       {/* Payment Modal */}
       <Modal
-        title="Add Payment"
+        title={editingPayment ? 'Edit Payment' : 'Add Payment'}
         open={paymentModalVisible}
         onOk={handlePaymentSubmit}
         onCancel={() => {
           setPaymentModalVisible(false);
           paymentForm.resetFields();
+          setEditingPayment(null);
+          setEditingPaymentIndex(null);
         }}
         afterOpenChange={(open) => {
           if (open) {
             // Modal이 완전히 열린 후에 form 값 설정
-            paymentForm.resetFields();
-            paymentForm.setFieldsValue({
-              amount: undefined,
-              date: dayjs(),
-              method: '',
-              reference: '',
-            });
+            if (editingPayment) {
+              paymentForm.setFieldsValue({
+                amount: editingPayment.amount,
+                date: editingPayment.date,
+                method: editingPayment.method,
+                reference: editingPayment.reference,
+              });
+            } else {
+              paymentForm.resetFields();
+              paymentForm.setFieldsValue({
+                amount: undefined,
+                date: null,
+                method: '',
+                reference: '',
+              });
+            }
           }
         }}
         width={500}
@@ -1456,7 +1679,7 @@ const InvoiceCreation: React.FC = () => {
           layout="vertical"
           initialValues={{
             amount: undefined,
-            date: dayjs(),
+            date: null,
             method: '',
             reference: '',
           }}
@@ -1492,10 +1715,9 @@ const InvoiceCreation: React.FC = () => {
             <Col span={12}>
               <Form.Item
                 name="date"
-                label="Payment Date"
-                rules={[{ required: true, message: 'Please select payment date' }]}
+                label="Payment Date (Optional)"
               >
-                <DatePicker style={{ width: '100%' }} placeholder="Select date" />
+                <DatePicker style={{ width: '100%' }} placeholder="Select date (optional)" allowClear />
               </Form.Item>
             </Col>
             <Col span={12}>

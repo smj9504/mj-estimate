@@ -27,6 +27,72 @@ class PlumberReportService:
         """Generate a unique report number"""
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         return f"PLR-{timestamp}"
+
+    @staticmethod
+    def generate_report_number_with_company(db: Session, company_id: Optional[str] = None) -> str:
+        """
+        Generate next PLM report number with company-specific formatting.
+        Format: PLM-[CompanyCode]-[Year]-[Count+1]
+
+        Args:
+            db: Database session
+            company_id: Optional company ID for company-specific numbering
+
+        Returns:
+            Generated report number
+        """
+        try:
+            now = datetime.now()
+            year = str(now.year)
+
+            # Build prefix and get company info
+            company_code = None
+            if company_id:
+                try:
+                    company = db.query(Company).filter(Company.id == company_id).first()
+                    if company:
+                        company_code = company.company_code
+                        print(f"Found company code: {company_code} for company_id: {company_id}")
+                    else:
+                        print(f"Company not found for ID: {company_id}")
+                except Exception as e:
+                    print(f"Error fetching company for report number generation: {e}")
+
+            if company_code:
+                # Company-specific numbering: PLM-[CompanyCode]-[Year]-[Count+1]
+                prefix = f"PLM-{company_code}-{year}"
+
+                # Count existing reports for this company in current year
+                count = db.query(PlumberReport).filter(
+                    PlumberReport.report_number.like(f"{prefix}%")
+                ).count()
+
+                sequence = count + 1
+                report_number = f"PLM-{company_code}-{year}-{sequence}"
+
+                # Verify uniqueness
+                existing = db.query(PlumberReport).filter(
+                    PlumberReport.report_number == report_number
+                ).first()
+
+                while existing:
+                    sequence += 1
+                    report_number = f"PLM-{company_code}-{year}-{sequence}"
+                    existing = db.query(PlumberReport).filter(
+                        PlumberReport.report_number == report_number
+                    ).first()
+
+                return report_number
+            else:
+                # Fallback to timestamp-based numbering
+                timestamp = now.strftime("%Y%m%d%H%M%S")
+                return f"PLM-{year}-{timestamp[-6:]}"
+
+        except Exception as e:
+            print(f"Error generating report number: {e}")
+            # Fallback to simple timestamp
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            return f"PLM-{timestamp}"
     
     @staticmethod
     def calculate_financial_summary(report_data: Dict[str, Any]) -> FinancialSummary:

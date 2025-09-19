@@ -162,6 +162,11 @@ class PlumberReportListResponse(BaseModel):
     limit: int
 
 
+class PlumberReportNumberResponse(BaseModel):
+    """Schema for report number generation response"""
+    report_number: str
+
+
 class PlumberReportPDFRequest(BaseModel):
     """Schema for PDF generation request"""
     report_data: PlumberReportResponse

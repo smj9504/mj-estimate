@@ -169,6 +169,31 @@ class InvoiceService {
     return response.data;
   }
 
+  // Generate invoice number using the new API
+  async generateInvoiceNumber(companyId?: string): Promise<string> {
+    try {
+      const params = new URLSearchParams();
+      if (companyId) params.append('company_id', companyId);
+
+      const response = await apiClient.get(`/api/invoices/generate-number?${params.toString()}`);
+      return response.data.invoice_number;
+    } catch (error) {
+      console.error('Failed to generate invoice number from API, using fallback:', error);
+      // Fallback to local generation
+      return this.generateInvoiceNumberFallback();
+    }
+  }
+
+  // Fallback method for invoice number generation
+  private generateInvoiceNumberFallback(): string {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `INV-${year}${month}${day}-${random}`;
+  }
+
   downloadPDF(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');

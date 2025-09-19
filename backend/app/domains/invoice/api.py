@@ -18,6 +18,7 @@ from app.domains.invoice.schemas import (
     InvoiceListResponse,
     InvoiceItemResponse,
     InvoicePDFRequest,
+    InvoiceNumberResponse,
     CompanyInfo,
     PaymentRecord
 )
@@ -46,6 +47,53 @@ def get_invoice_service():
 
 router = APIRouter()
 
+
+@router.get("/generate-number", response_model=InvoiceNumberResponse)
+async def generate_invoice_number(
+    company_id: Optional[str] = None,
+    db=Depends(get_db)
+):
+    """Generate next invoice number with company-specific formatting"""
+    import logging
+    import traceback
+    logger = logging.getLogger(__name__)
+
+    # Log the incoming request
+    logger.info(f"=== GENERATE INVOICE NUMBER REQUEST ===")
+    logger.info(f"company_id: {company_id}")
+    logger.info(f"db dependency: {db}")
+
+    try:
+        # Initialize database and service
+        logger.info("Initializing database connection...")
+        from app.core.database_factory import get_database
+        database = get_database()
+        logger.info(f"Database initialized: {database}")
+
+        logger.info("Creating InvoiceService...")
+        service = InvoiceService(database)
+        logger.info(f"InvoiceService created: {service}")
+
+        # Call the service method
+        logger.info("Calling service.generate_invoice_number...")
+        result = service.generate_invoice_number(company_id)
+        logger.info(f"Service result: {result}")
+
+        # Create response
+        logger.info("Creating InvoiceNumberResponse...")
+        response = InvoiceNumberResponse(**result)
+        logger.info(f"Response created: {response}")
+
+        logger.info("=== GENERATE INVOICE NUMBER SUCCESS ===")
+        return response
+
+    except Exception as e:
+        logger.error(f"=== GENERATE INVOICE NUMBER ERROR ===")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error message: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error(f"=== END ERROR ===")
+        raise HTTPException(status_code=500, detail=f"Failed to generate invoice number: {str(e)}")
 
 
 @router.get("/")

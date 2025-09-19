@@ -329,6 +329,14 @@ class InvoicePDFRequest(BaseModel):
     payments: Optional[List[PaymentRecord]] = Field(default_factory=list)
     show_payment_dates: Optional[bool] = True
     balance_due: Optional[float] = 0
-    
+
     payment_terms: Optional[str] = None
     notes: Optional[str] = None
+
+
+class InvoiceNumberResponse(BaseModel):
+    """Response model for invoice number generation"""
+    invoice_number: str
+    sequence: int
+    company_code: Optional[str] = None
+    year: str
