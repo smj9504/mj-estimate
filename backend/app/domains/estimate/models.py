@@ -36,6 +36,9 @@ class Estimate(Base, BaseModel):
     status = Column(String(50), default="draft")  # draft, sent, accepted, rejected, expired
     
     subtotal = Column(DECIMAL(15, 2), default=0)
+    op_percent = Column(DECIMAL(5, 2), default=0)  # O&P percentage
+    op_amount = Column(DECIMAL(15, 2), default=0)  # O&P amount
+    tax_method = Column(String(50), default="percentage")  # 'percentage' or 'specific'
     tax_rate = Column(DECIMAL(5, 2), default=0)
     tax_amount = Column(DECIMAL(15, 2), default=0)
     discount_amount = Column(DECIMAL(15, 2), default=0)
@@ -80,14 +83,15 @@ class EstimateItem(Base, BaseModel):
     # Keep room for backward compatibility (will be deprecated)
     room = Column(String(100))  # Deprecated - use primary_group/secondary_group instead
 
-    # Line item code field - stores the "Sel" value from frontend
-    item_code = Column(String(255))  # Line item selection code (Sel column) - updated
+    # Item name field - aligned with invoice_items table for consistency
+    name = Column(String(255))  # Item name or identifier (renamed from item_code)
 
     description = Column(Text, nullable=True)
     quantity = Column(DECIMAL(10, 2), default=1)
     unit = Column(String(50))
     rate = Column(DECIMAL(15, 2), default=0)
     amount = Column(DECIMAL(15, 2), default=0)
+    taxable = Column(Boolean, default=True)  # Whether the item is taxable
     tax_rate = Column(DECIMAL(5, 2), default=0)
     tax_amount = Column(DECIMAL(15, 2), default=0)
     

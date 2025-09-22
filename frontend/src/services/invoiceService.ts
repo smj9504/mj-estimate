@@ -1,11 +1,19 @@
 import { apiClient } from '../api/config';
 
 export interface InvoiceItem {
+  id?: string; // Invoice line item ID (for existing items)
   name: string;
   description?: string;
   quantity: number;
   unit: string;
   rate: number;
+  amount?: number;
+  taxable?: boolean;
+
+  // Flexible grouping
+  primary_group?: string;  // Section name
+  secondary_group?: string;  // Sub-category
+  sort_order?: number;  // Sort order within group
 }
 
 export interface CompanyInfo {
@@ -37,6 +45,15 @@ export interface InsuranceInfo {
   deductible?: number;
 }
 
+export interface InvoiceSection {
+  id: string;
+  title: string;
+  items: InvoiceItem[];
+  showSubtotal: boolean;
+  subtotal: number;
+  sort_order?: number;
+}
+
 export interface InvoiceData {
   invoice_number?: string;
   date?: string;
@@ -46,12 +63,16 @@ export interface InvoiceData {
   client: ClientInfo;
   insurance?: InsuranceInfo | null;
   items: InvoiceItem[];
+  sections?: InvoiceSection[];  // Section-based data
+  tax_method?: 'percentage' | 'specific'; // Tax calculation method
   tax_rate?: number;
+  tax_amount?: number;
   discount?: number;
   shipping?: number;
   paid_amount?: number;
   payment_terms?: string;
   notes?: string;
+  op_percent?: number;  // O&P percentage
 }
 
 export interface InvoiceResponse {
@@ -79,37 +100,32 @@ export interface InvoiceDetailResponse extends InvoiceResponse {
   company_phone?: string;
   company_email?: string;
   company_logo?: string;
-  
+
   client_address?: string;
   client_city?: string;
   client_state?: string;
   client_zipcode?: string;
   client_phone?: string;
   client_email?: string;
-  
+
   insurance_company?: string;
   insurance_policy_number?: string;
   insurance_claim_number?: string;
   insurance_deductible?: number;
-  
+
   subtotal: number;
+  op_percent?: number;
+  tax_method?: 'percentage' | 'specific';
   tax_rate: number;
   tax_amount: number;
   discount: number;
   shipping: number;
-  
+
   payment_terms?: string;
   notes?: string;
-  
-  items: Array<{
-    id: string;
-    name: string;
-    description?: string;
-    quantity: number;
-    unit: string;
-    rate: number;
-    amount: number;
-  }>;
+
+  items: InvoiceItem[];
+  sections?: InvoiceSection[];  // Section-based data
 }
 
 class InvoiceService {

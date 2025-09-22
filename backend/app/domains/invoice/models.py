@@ -23,6 +23,9 @@ class Invoice(Base, BaseModel):
     company_id = Column(UUIDType(), ForeignKey("companies.id"))  # String → UUIDType으로 수정
     client_name = Column(String(255), nullable=False)
     client_address = Column(Text)
+    client_city = Column(String(100))
+    client_state = Column(String(50))
+    client_zipcode = Column(String(20))
     client_phone = Column(String(50))
     client_email = Column(String(255))
     
@@ -31,6 +34,7 @@ class Invoice(Base, BaseModel):
     status = Column(String(50), default="pending")  # pending, paid, overdue, cancelled
     
     subtotal = Column(DECIMAL(15, 2), default=0)
+    op_percent = Column(DECIMAL(5, 2), default=0)  # O&P percentage
     tax_method = Column(String(50), default="percentage")  # 'percentage' or 'specific'
     tax_rate = Column(DECIMAL(5, 2), default=0)
     tax_amount = Column(DECIMAL(15, 2), default=0)
@@ -42,10 +46,16 @@ class Invoice(Base, BaseModel):
     show_payment_dates = Column(Boolean, default=True)
     balance_due = Column(DECIMAL(15, 2), default=0)
     
+    # Insurance information
+    insurance_company = Column(String(255))
+    insurance_policy_number = Column(String(100))
+    insurance_claim_number = Column(String(100))
+    insurance_deductible = Column(DECIMAL(15, 2))
+
     notes = Column(Text)
     terms = Column(Text)
     payment_terms = Column(Text)
-    
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -68,6 +78,11 @@ class InvoiceItem(Base, BaseModel):
     tax_rate = Column(DECIMAL(5, 2), default=0)
     tax_amount = Column(DECIMAL(15, 2), default=0)
     order_index = Column(Integer, default=0)
+
+    # Section/Group fields for organizing items
+    primary_group = Column(String(255))  # Section name
+    secondary_group = Column(String(255))  # Sub-category (optional)
+    sort_order = Column(Integer, default=0)  # Sort order within section
     
     # Line item integration
     line_item_id = Column(UUIDType(), nullable=True)  # References line_items.id - String → UUIDType으로 수정

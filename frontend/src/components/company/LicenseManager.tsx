@@ -192,7 +192,11 @@ const LicenseManager: React.FC<LicenseManagerProps> = ({
       title: 'Expiration Date',
       dataIndex: 'expiration_date',
       key: 'expiration_date',
-      render: (date) => dayjs(date).format('MMM DD, YYYY'),
+      render: (date) => {
+        if (!date) return '-';
+        const formattedDate = dayjs(date);
+        return formattedDate.isValid() ? formattedDate.format('MMM DD, YYYY') : '-';
+      },
     },
     {
       title: 'Status',

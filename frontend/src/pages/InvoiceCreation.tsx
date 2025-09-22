@@ -48,17 +48,26 @@ import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import DraggableTable from '../components/common/DraggableTable';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
-import { invoiceService } from '../services/invoiceService';
+import { invoiceService, InvoiceSection } from '../services/invoiceService';
 import { companyService } from '../services/companyService';
 import { Company } from '../types';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import UnitSelect from '../components/common/UnitSelect';
 import { DEFAULT_UNIT } from '../constants/units';
+import ItemCodeSelector from '../components/estimate/ItemCodeSelector';
+import { EstimateLineItem } from '../services/EstimateService';
+import SortableSection from '../components/common/SortableSection';
+import {
+  Collapse,
+  Tag,
+  Badge,
+} from 'antd';
 
 const { Title } = Typography;
 const { TextArea } = Input;
 
 interface InvoiceItem {
+  id?: string;
   name: string;
   description?: string;
   quantity: number;
@@ -66,6 +75,9 @@ interface InvoiceItem {
   rate: number;
   amount?: number;
   taxable?: boolean;
+  primary_group?: string;
+  secondary_group?: string;
+  sort_order?: number;
 }
 
 interface PaymentRecord {
@@ -83,6 +95,11 @@ const InvoiceCreation: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [formMounted, setFormMounted] = useState(false);
   const [formFieldsChanged, setFormFieldsChanged] = useState(0);
+  // Section-based state
+  const [sections, setSections] = useState<InvoiceSection[]>([]);
+  const [newSectionTitle, setNewSectionTitle] = useState('');
+
+  // Legacy items array for backward compatibility
   const [items, setItems] = useState<InvoiceItem[]>([]);
   const [showInsurance, setShowInsurance] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -90,9 +107,12 @@ const InvoiceCreation: React.FC = () => {
   const [itemModalVisible, setItemModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<InvoiceItem | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingSectionIndex, setEditingSectionIndex] = useState<number | null>(null);
   const [itemForm] = Form.useForm();
   const [taxMethod, setTaxMethod] = useState<'percentage' | 'specific'>('percentage');
+  const [taxRate, setTaxRate] = useState(0);
   const [specificTaxAmount, setSpecificTaxAmount] = useState(0);
+  const [discount, setDiscount] = useState(0);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [showPaymentDates, setShowPaymentDates] = useState(true);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
@@ -102,8 +122,18 @@ const InvoiceCreation: React.FC = () => {
   const [useCustomCompany, setUseCustomCompany] = useState(false);
   const [opPercent, setOpPercent] = useState(0);
 
+  // Section editing state
+  const [sectionEditModalVisible, setSectionEditModalVisible] = useState(false);
+  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+  const [editingSectionTitle, setEditingSectionTitle] = useState('');
+
   // Drag and drop states
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeDragType, setActiveDragType] = useState<'section' | 'item' | null>(null);
+  const [activeSectionIndex, setActiveSectionIndex] = useState<number | null>(null);
+
+  // Collapse active keys state for controlling which sections are expanded
+  const [activeKeys, setActiveKeys] = useState<string[]>([]);
 
   // Setup sensors for drag interactions
   const sensors = useSensors(
@@ -118,33 +148,89 @@ const InvoiceCreation: React.FC = () => {
   );
 
   const handleDragStart = (event: DragStartEvent) => {
-    const { active } = event;
+    const { active, activatorEvent } = event;
     const activeIdStr = active.id as string;
-    setActiveId(activeIdStr);
+
+    if (activeIdStr.startsWith('section-')) {
+      // Section drag
+      if (activatorEvent && 'target' in activatorEvent) {
+        const target = activatorEvent.target as Element;
+        const isFromSectionHandle = target.closest('.section-drag-handle');
+
+        // Cancel if not from section handle
+        if (!isFromSectionHandle) {
+          return;
+        }
+      }
+      setActiveDragType('section');
+      setActiveId(activeIdStr);
+    } else if (activeIdStr.startsWith('item-')) {
+      // Item drag - parse section index
+      const parts = activeIdStr.split('-');
+      if (parts.length >= 3) {
+        const sectionIdx = parseInt(parts[1]);
+        setActiveDragType('item');
+        setActiveId(activeIdStr);
+        setActiveSectionIndex(sectionIdx);
+      }
+    }
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
-    setActiveId(null);
-
     if (!over || active.id === over.id) {
+      resetDragState();
       return;
     }
 
     const activeIdStr = active.id as string;
     const overIdStr = over.id as string;
 
-    // Parse item indices from IDs
-    if (activeIdStr.startsWith('item-0-') && overIdStr.startsWith('item-0-')) {
-      const activeIndex = parseInt(activeIdStr.split('-')[2]);
-      const overIndex = parseInt(overIdStr.split('-')[2]);
+    if (activeDragType === 'section') {
+      // Handle section reordering
+      const oldIndex = sections.findIndex(section => section.id === activeIdStr);
+      const newIndex = sections.findIndex(section => section.id === overIdStr);
 
-      if (activeIndex !== overIndex && !isNaN(activeIndex) && !isNaN(overIndex)) {
-        const newItems = arrayMove(items, activeIndex, overIndex);
-        setItems(newItems);
+      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+        const newSections = arrayMove(sections, oldIndex, newIndex);
+        setSections(newSections);
+      }
+    } else if (activeDragType === 'item' && activeSectionIndex !== null) {
+      // Handle item reordering within the same section
+      if (activeIdStr.startsWith('item-') && overIdStr.startsWith('item-')) {
+        const activeParts = activeIdStr.split('-');
+        const overParts = overIdStr.split('-');
+
+        if (activeParts.length >= 3 && overParts.length >= 3) {
+          const activeSectionIdx = parseInt(activeParts[1]);
+          const overSectionIdx = parseInt(overParts[1]);
+
+          // Only allow reordering within the same section
+          if (activeSectionIdx === overSectionIdx) {
+            const activeItemIdx = parseInt(activeParts[2]);
+            const overItemIdx = parseInt(overParts[2]);
+
+            if (activeItemIdx !== overItemIdx) {
+              const newSections = [...sections];
+              const sectionItems = [...newSections[activeSectionIdx].items];
+              const newItems = arrayMove(sectionItems, activeItemIdx, overItemIdx);
+              newSections[activeSectionIdx].items = newItems;
+              newSections[activeSectionIdx].subtotal = calculateSectionSubtotal(newItems);
+              setSections(newSections);
+            }
+          }
+        }
       }
     }
+
+    resetDragState();
+  };
+
+  const resetDragState = () => {
+    setActiveId(null);
+    setActiveDragType(null);
+    setActiveSectionIndex(null);
   };
 
   const loadCompanies = useCallback(async () => {
@@ -172,10 +258,15 @@ const InvoiceCreation: React.FC = () => {
       const data = invoice as any;
       setInvoiceData(data);
       
-      // Set items
-      if (data.items && data.items.length > 0) {
+      // Convert items to sections or use existing sections
+      if (data.sections && data.sections.length > 0) {
+        setSections(data.sections);
+        // Expand all sections when loading an existing invoice
+        setActiveKeys(data.sections.map((s: any) => s.id));
+      } else if (data.items && data.items.length > 0) {
         console.log('Processing loaded items:', JSON.stringify(data.items, null, 2));
         const processedItems = data.items.map((item: any) => ({
+          id: item.id,
           name: item.name || item.description,
           description: item.description,
           quantity: item.quantity,
@@ -183,13 +274,24 @@ const InvoiceCreation: React.FC = () => {
           rate: item.rate || item.unit_price,
           amount: item.amount || item.total,
           taxable: item.taxable !== false,
+          primary_group: item.primary_group,
+          secondary_group: item.secondary_group,
+          sort_order: item.sort_order,
         }));
         console.log('Processed items:', processedItems);
+
+        // Convert items to sections
+        const sectionsFromItems = convertItemsToSections(processedItems);
+        setSections(sectionsFromItems);
+        // Expand all sections when loading converted items
+        setActiveKeys(sectionsFromItems.map(s => s.id));
+
+        // Keep legacy items for backward compatibility
         setItems(processedItems);
       }
       
       // Set form values immediately
-      form.setFieldsValue({
+      const formValues = {
         invoice_number: data.invoice_number,
         date: data.date ? dayjs(data.date) : dayjs(),
         due_date: data.due_date ? dayjs(data.due_date) : dayjs().add(30, 'day'),
@@ -204,15 +306,37 @@ const InvoiceCreation: React.FC = () => {
         notes: data.notes,
         payment_terms: data.payment_terms,
         tax_rate: data.tax_rate || 0,
+        tax_amount: data.tax_amount || 0,
         discount: data.discount || data.discount_amount || 0,
-      });
+        op_percent: data.op_percent || 0,
+        // Insurance information
+        insurance_company: data.insurance_company || '',
+        insurance_policy_number: data.insurance_policy_number || '',
+        insurance_claim_number: data.insurance_claim_number || '',
+        insurance_deductible: data.insurance_deductible || 0,
+      };
+      // console.log('Setting form values:', formValues);
+      form.setFieldsValue(formValues);
       
       // Set tax method and amount
       if (data.tax_method) {
         setTaxMethod(data.tax_method);
+        // Set tax rate for percentage method
+        if (data.tax_method === 'percentage') {
+          setTaxRate(data.tax_rate || 0);
+        }
+        // Set specific tax amount regardless of whether it's 0 or not
+        if (data.tax_method === 'specific') {
+          setSpecificTaxAmount(data.tax_amount || 0);
+        }
       }
-      if (data.tax_amount && data.tax_method === 'specific') {
-        setSpecificTaxAmount(data.tax_amount);
+
+      // Set discount state
+      setDiscount(data.discount || data.discount_amount || 0);
+
+      // Set insurance visibility if insurance data exists
+      if (data.insurance_company || data.insurance_policy_number || data.insurance_claim_number || data.insurance_deductible) {
+        setShowInsurance(true);
       }
       
       // Set payments
@@ -232,8 +356,8 @@ const InvoiceCreation: React.FC = () => {
       }
 
       // Set O&P percent
-      if (data.op_percent) {
-        setOpPercent(data.op_percent);
+      if (data.op_percent !== undefined) {
+        setOpPercent(data.op_percent || 0);
       }
       
       // Set up company info - will be handled separately when companies load
@@ -261,6 +385,171 @@ const InvoiceCreation: React.FC = () => {
     }
   }, [id, form]); // Remove companies dependency
 
+  const convertItemsToSections = (items: InvoiceItem[]): InvoiceSection[] => {
+    const groupedItems: { [key: string]: InvoiceItem[] } = {};
+
+    items.forEach(item => {
+      const groupKey = item.primary_group || 'Default Section';
+      if (!groupedItems[groupKey]) {
+        groupedItems[groupKey] = [];
+      }
+      groupedItems[groupKey].push(item);
+    });
+
+    return Object.entries(groupedItems).map(([title, groupItems], index) => ({
+      id: `section-${index}`,
+      title,
+      items: groupItems,
+      showSubtotal: true,
+      subtotal: groupItems.reduce((sum, item) => sum + (item.amount || (item.quantity * item.rate)), 0),
+    }));
+  };
+
+  const convertSectionsToItems = (): InvoiceItem[] => {
+    const allItems: InvoiceItem[] = [];
+    sections.forEach(section => {
+      section.items.forEach(item => {
+        allItems.push({
+          ...item,
+          primary_group: section.title,
+        });
+      });
+    });
+    return allItems;
+  };
+
+  // Section management functions
+  const addSection = () => {
+    if (!newSectionTitle.trim()) {
+      message.warning('Please enter a section title');
+      return;
+    }
+
+    const newSection: InvoiceSection = {
+      id: `section-${Date.now()}`,
+      title: newSectionTitle.trim(),
+      items: [],
+      showSubtotal: true,
+      subtotal: 0,
+    };
+
+    setSections([...sections, newSection]);
+    // Auto-expand the new section
+    setActiveKeys([...activeKeys, newSection.id]);
+    setNewSectionTitle('');
+    message.success('Section added successfully');
+  };
+
+  const deleteSection = (sectionIndex: number) => {
+    const newSections = sections.filter((_, index) => index !== sectionIndex);
+    setSections(newSections);
+    message.success('Section deleted successfully');
+  };
+
+  // Section editing functions
+  const handleEditSection = (sectionId: string, currentTitle: string) => {
+    setEditingSectionId(sectionId);
+    setEditingSectionTitle(currentTitle);
+    setSectionEditModalVisible(true);
+  };
+
+  const handleSectionTitleSave = () => {
+    if (!editingSectionTitle.trim()) {
+      message.error('Section title cannot be empty');
+      return;
+    }
+
+    if (!editingSectionId) {
+      message.error('No section selected for editing');
+      return;
+    }
+
+    const newSections = sections.map(section =>
+      section.id === editingSectionId
+        ? {
+            ...section,
+            title: editingSectionTitle.trim(),
+            items: section.items.map(item => ({
+              ...item,
+              primary_group: editingSectionTitle.trim()
+            }))
+          }
+        : section
+    );
+
+    setSections(newSections);
+    setSectionEditModalVisible(false);
+    setEditingSectionId(null);
+    setEditingSectionTitle('');
+    message.success('Section title updated successfully');
+  };
+
+  const handleSectionEditCancel = () => {
+    setSectionEditModalVisible(false);
+    setEditingSectionId(null);
+    setEditingSectionTitle('');
+  };
+
+  const calculateSectionSubtotal = (items: InvoiceItem[]): number => {
+    return items.reduce((sum, item) => sum + (item.amount || (item.quantity * item.rate)), 0);
+  };
+
+  // Add items to a specific section
+  const addItemsToSection = (sectionIndex: number, itemsToAdd: EstimateLineItem[]) => {
+    const newSections = [...sections];
+    const currentSection = sections[sectionIndex];
+
+    // Convert EstimateLineItem to InvoiceItem and update with section title
+    const convertedItems: InvoiceItem[] = itemsToAdd.map(item => ({
+      id: item.id,
+      name: item.name,
+      description: item.description,
+      quantity: item.quantity,
+      unit: item.unit,
+      rate: item.unit_price,
+      amount: item.total,
+      taxable: item.taxable !== false,
+      primary_group: currentSection.title,
+      secondary_group: item.secondary_group,
+      sort_order: item.sort_order,
+    }));
+
+    newSections[sectionIndex].items.push(...convertedItems);
+    newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+
+    setSections(newSections);
+
+    // Auto-expand the section when items are added
+    expandSection(currentSection.id);
+
+    return convertedItems.length;
+  };
+
+  // Handle adding multiple line items from ItemCodeSelector
+  const handleLineItemsAdd = (lineItems: EstimateLineItem[]) => {
+    if (editingSectionIndex !== null && lineItems.length > 0) {
+      const itemsAdded = addItemsToSection(editingSectionIndex, lineItems);
+
+      resetItemModal();
+      message.success(`${itemsAdded} item(s) added successfully`);
+    }
+  };
+
+  // Section expansion utility
+  const expandSection = (sectionId: string) => {
+    if (!activeKeys.includes(sectionId)) {
+      setActiveKeys([...activeKeys, sectionId]);
+    }
+  };
+
+  // Modal state management functions
+  const resetItemModal = () => {
+    setItemModalVisible(false);
+    setEditingItem(null);
+    setEditingIndex(null);
+    setEditingSectionIndex(null);
+  };
+
   useEffect(() => {
     loadCompanies();
   }, [loadCompanies]);
@@ -270,10 +559,19 @@ const InvoiceCreation: React.FC = () => {
     // Reset all state when mode changes
     setInvoiceData(null);
     setItems([]);
+    setSections([]);
+    setActiveKeys([]);
+    setNewSectionTitle('');
+    setPayments([]);
+    setShowPaymentDates(true);
+    setTaxMethod('percentage');
+    setTaxRate(0);
+    setSpecificTaxAmount(0);
+    setOpPercent(0);
     setSelectedCompany(null);
     setUseCustomCompany(false);
     setLoading(false);
-    
+
     // Reset form
     form.resetFields();
     
@@ -363,7 +661,6 @@ const InvoiceCreation: React.FC = () => {
         client_email: invoiceData.client_email,
         tax_rate: invoiceData.tax_rate || 0,
         discount: invoiceData.discount_amount || invoiceData.discount || 0,
-        op_percent: invoiceData.op_percent || 0,
         notes: invoiceData.notes,
         terms: invoiceData.terms,
         payment_terms: invoiceData.payment_terms,
@@ -459,12 +756,17 @@ const InvoiceCreation: React.FC = () => {
   };
 
   const handleItemSubmit = () => {
+    if (editingSectionIndex === null) {
+      message.error('Please select a section to add the item to');
+      return;
+    }
+
     itemForm.validateFields().then(values => {
       // Comprehensive validation with user-friendly error messages
-      
+
       // Validate item name/description
       if (!values.name || values.name.toString().trim() === '') {
-        message.error('Please enter a valid item name');
+        message.error('Please enter a valid item code');
         return;
       }
 
@@ -500,34 +802,42 @@ const InvoiceCreation: React.FC = () => {
         rate: Number(values.rate),
         amount: Number(values.quantity) * Number(values.rate),
         taxable: values.taxable !== false, // Default to taxable if not specified
+        primary_group: sections[editingSectionIndex]?.title,
       };
 
+      const newSections = [...sections];
+
       if (editingIndex !== null) {
-        const updatedItems = [...items];
-        updatedItems[editingIndex] = newItem;
-        setItems(updatedItems);
+        // Edit existing item
+        newSections[editingSectionIndex].items[editingIndex] = newItem;
         message.success('Item updated successfully');
       } else {
-        setItems([...items, newItem]);
+        // Add new item
+        newSections[editingSectionIndex].items.push(newItem);
         message.success('Item added successfully');
       }
 
-      setItemModalVisible(false);
-      itemForm.resetFields();
-      setEditingItem(null);
-      setEditingIndex(null);
+      // Recalculate section subtotal
+      newSections[editingSectionIndex].subtotal = calculateSectionSubtotal(newSections[editingSectionIndex].items);
+      setSections(newSections);
+
+      // Auto-expand the section when an item is added
+      const sectionId = sections[editingSectionIndex].id;
+      expandSection(sectionId);
+
+      resetItemModal();
     }).catch(error => {
       console.error('Item validation failed:', error);
-      
+
       // Handle specific validation errors
       if (error.errorFields && error.errorFields.length > 0) {
         const firstError = error.errorFields[0];
         if (firstError.name && firstError.name.length > 0) {
           const fieldName = firstError.name[0];
           const errorMessages = firstError.errors || [];
-          
+
           if (fieldName === 'name') {
-            message.error('Please enter a valid item name');
+            message.error('Please enter a valid item code');
           } else if (fieldName === 'quantity') {
             message.error('Please enter a valid quantity greater than 0');
           } else if (fieldName === 'unit') {
@@ -548,10 +858,6 @@ const InvoiceCreation: React.FC = () => {
     });
   };
 
-  const handleDeleteItem = (index: number) => {
-    const updatedItems = items.filter((_, i) => i !== index);
-    setItems(updatedItems);
-  };
 
 
   const handleAddPayment = () => {
@@ -609,64 +915,51 @@ const InvoiceCreation: React.FC = () => {
   };
 
   const calculateTotals = useCallback(() => {
-    const itemsSubtotal = items.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
-    
-    // Safely get form values, default to 0 if form not ready
-    let discount = 0;
-    let taxRate = 0;
-    
-    // Only get form values if form is mounted
-    if (formMounted) {
-      try {
-        const formValues = form.getFieldsValue(['discount', 'tax_rate']);
-        discount = formValues.discount || 0;
-        if (taxMethod === 'percentage') {
-          taxRate = formValues.tax_rate || 0;
-        }
-      } catch (error) {
-        // Form not ready yet, use defaults
-      }
-    }
-    
+    // Calculate subtotal from sections
+    const itemsSubtotal = sections.reduce((sum, section) => sum + section.subtotal, 0);
+
+    // Calculate O&P on items subtotal
+    const opAmount = itemsSubtotal * (opPercent / 100);
+
     let taxAmount = 0;
     if (taxMethod === 'percentage') {
-      // If items have taxable property, only tax taxable items
-      const taxableAmount = items.reduce((sum, item) => {
-        if (item.taxable !== false) { // Default to taxable if not specified
-          return sum + (item.quantity * item.rate);
-        }
-        return sum;
+      // Calculate tax on taxable items only
+      const taxableAmount = sections.reduce((sum, section) => {
+        return sum + section.items.reduce((itemSum, item) => {
+          if (item.taxable !== false) { // Default to taxable if not specified
+            return itemSum + (item.amount || (item.quantity * item.rate));
+          }
+          return itemSum;
+        }, 0);
       }, 0);
 
-      // Calculate O&P on items subtotal (before discount and tax)
-      const opAmount = itemsSubtotal * (opPercent / 100);
-      const subtotalWithOP = itemsSubtotal + opAmount;
-
-      // Calculate tax on subtotal + O&P - discount
-      taxAmount = (subtotalWithOP - discount) * (taxRate / 100);
+      // Calculate tax on taxable amount + proportional O&P
+      const taxableRatio = itemsSubtotal > 0 ? taxableAmount / itemsSubtotal : 0;
+      const taxableOpAmount = opAmount * taxableRatio;
+      taxAmount = (taxableAmount + taxableOpAmount) * (taxRate / 100);
     } else {
-      // For specific tax amount, still add O&P to subtotal
-      const opAmount = itemsSubtotal * (opPercent / 100);
-      const subtotalWithOP = itemsSubtotal + opAmount;
       taxAmount = specificTaxAmount;
     }
 
-    const opAmount = itemsSubtotal * (opPercent / 100);
-    const subtotal = itemsSubtotal + opAmount;
-    const total = subtotal - discount + taxAmount;
+    // Subtotal includes Items + O&P + Tax
+    const subtotal = itemsSubtotal + opAmount + taxAmount;
+
+    // Total is subtotal minus discount, then subtract payments for balance
+    const total = subtotal - discount;
     const totalPaid = payments.reduce((sum, payment) => sum + payment.amount, 0);
     const balanceDue = total - totalPaid;
 
     return {
       itemsSubtotal,
-      opAmount: itemsSubtotal * (opPercent / 100),
+      opAmount,
       subtotal,
+      discount,
       taxAmount,
       total,
       totalPaid,
       balanceDue,
     };
-  }, [items, taxMethod, specificTaxAmount, payments, form, formMounted, opPercent]);
+  }, [sections, taxMethod, taxRate, specificTaxAmount, discount, payments, form, formMounted, opPercent]);
 
   const handleSave = async (status: string = 'draft') => {
     try {
@@ -737,13 +1030,19 @@ const InvoiceCreation: React.FC = () => {
         deductible: values.insurance_deductible,
       } : null;
       
-      console.log('Current items state:', JSON.stringify(items, null, 2));
-      invoiceData.items = items;
+      console.log('Current sections state:', JSON.stringify(sections, null, 2));
+
+      // Send both items (converted from sections) and sections
+      const allItems = convertSectionsToItems();
+      invoiceData.items = allItems;
+      invoiceData.sections = sections;
       invoiceData.subtotal = totals.subtotal;
+      invoiceData.op_percent = opPercent;
       invoiceData.tax_method = taxMethod;
-      invoiceData.tax_rate = taxMethod === 'percentage' ? (values.tax_rate || 0) : 0;
-      invoiceData.tax_amount = totals.taxAmount;
+      invoiceData.tax_rate = taxMethod === 'percentage' ? taxRate : 0;
+      invoiceData.tax_amount = taxMethod === 'specific' ? (values.tax_amount || 0) : totals.taxAmount;
       invoiceData.discount = values.discount || 0;
+      invoiceData.discount_amount = values.discount || 0;
       invoiceData.total = totals.total;
       invoiceData.payments = payments.map(payment => ({
         amount: payment.amount,
@@ -832,12 +1131,14 @@ const InvoiceCreation: React.FC = () => {
           claim_number: values.insurance_claim_number,
           deductible: values.insurance_deductible,
         } : null,
-        items,
+        items: convertSectionsToItems(),
         subtotal: totals.subtotal,
+        op_percent: opPercent,
         tax_method: taxMethod,
-        tax_rate: taxMethod === 'percentage' ? (values.tax_rate || 0) : 0,
-        tax_amount: totals.taxAmount,
+        tax_rate: taxMethod === 'percentage' ? taxRate : 0,
+        tax_amount: taxMethod === 'specific' ? (values.tax_amount || 0) : totals.taxAmount,
         discount: values.discount || 0,
+        discount_amount: values.discount || 0,
         total: totals.total,
         payments: payments.map(payment => ({
           amount: payment.amount,
@@ -910,10 +1211,27 @@ const InvoiceCreation: React.FC = () => {
       render: (_: any, record: InvoiceItem) => `$${(record.quantity * record.rate).toFixed(2)}`,
     },
     ...(taxMethod === 'percentage' ? [{
-      title: 'Taxable',
+      title: (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>Taxable</span>
+          <Tooltip title="Toggle all items">
+            <Switch
+              size="small"
+              checked={items.every(item => item.taxable !== false)}
+              onChange={(checked) => {
+                const updatedItems = items.map(item => ({
+                  ...item,
+                  taxable: checked
+                }));
+                setItems(updatedItems);
+              }}
+            />
+          </Tooltip>
+        </div>
+      ),
       dataIndex: 'taxable',
       key: 'taxable',
-      width: 80,
+      width: 120,
       align: 'center' as const,
       render: (value: boolean | undefined, record: InvoiceItem, index: number) => (
         <Switch
@@ -940,16 +1258,7 @@ const InvoiceCreation: React.FC = () => {
               onClick={() => handleEditItem(record, index)}
             />
           </Tooltip>
-          <Popconfirm
-            title="Delete this item?"
-            onConfirm={() => handleDeleteItem(index)}
-          >
-            <Button
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-            />
-          </Popconfirm>
+          {/* Delete functionality is now handled by section-based system */}
         </Space>
       ),
     },
@@ -999,6 +1308,12 @@ const InvoiceCreation: React.FC = () => {
           );
           if (affectedFields.length > 0) {
             setFormFieldsChanged(prev => prev + 1);
+
+            // Update op_percent state when form field changes
+            const opPercentField = changedFields.find(field => field.name?.[0] === 'op_percent');
+            if (opPercentField && opPercentField.value !== undefined) {
+              setOpPercent(opPercentField.value || 0);
+            }
           }
         }}
       >
@@ -1122,7 +1437,8 @@ const InvoiceCreation: React.FC = () => {
           <Col xs={24}>
             <Card title="Client Information" style={{ marginBottom: 24 }}>
               <Row gutter={16}>
-                <Col xs={24} md={12}>
+                {/* Client Name, Email, Phone in one row */}
+                <Col xs={24} md={8}>
                   <Form.Item
                     name="client_name"
                     label="Client Name"
@@ -1131,39 +1447,46 @@ const InvoiceCreation: React.FC = () => {
                     <Input />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={12}>
+                <Col xs={24} md={8}>
                   <Form.Item name="client_email" label="Email">
                     <Input type="email" />
                   </Form.Item>
                 </Col>
+                <Col xs={24} md={8}>
+                  <Form.Item name="client_phone" label="Phone">
+                    <Input />
+                  </Form.Item>
+                </Col>
+
+                {/* Address, City, State, Zip in one row */}
                 <Col xs={24} md={12}>
                   <Form.Item name="client_address" label="Address">
                     <Input />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={12}>
-                  <Form.Item name="client_phone" label="Phone">
-                    <Input />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={8}>
+                <Col xs={24} md={6}>
                   <Form.Item name="client_city" label="City">
                     <Input />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={8}>
+                <Col xs={24} md={3}>
                   <Form.Item name="client_state" label="State">
                     <Input />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={8}>
+                <Col xs={24} md={3}>
                   <Form.Item name="client_zipcode" label="ZIP">
                     <Input />
                   </Form.Item>
                 </Col>
               </Row>
-              
-              <Divider orientation="left" style={{ margin: '16px 0' }}>
+            </Card>
+          </Col>
+
+          {/* Insurance Information */}
+          <Col xs={24}>
+            <Card
+              title={
                 <Space>
                   <span>Insurance Information</span>
                   <Switch
@@ -1174,26 +1497,27 @@ const InvoiceCreation: React.FC = () => {
                     unCheckedChildren="No"
                   />
                 </Space>
-              </Divider>
-
+              }
+              style={{ marginBottom: 24 }}
+            >
               {showInsurance && (
                 <Row gutter={16}>
-                  <Col xs={24} md={12}>
+                  <Col xs={24} md={6}>
                     <Form.Item name="insurance_company" label="Insurance Company">
                       <Input />
                     </Form.Item>
                   </Col>
-                  <Col xs={24} md={12}>
+                  <Col xs={24} md={6}>
                     <Form.Item name="insurance_policy_number" label="Policy Number">
                       <Input />
                     </Form.Item>
                   </Col>
-                  <Col xs={24} md={12}>
+                  <Col xs={24} md={6}>
                     <Form.Item name="insurance_claim_number" label="Claim Number">
                       <Input />
                     </Form.Item>
                   </Col>
-                  <Col xs={24} md={12}>
+                  <Col xs={24} md={6}>
                     <Form.Item name="insurance_deductible" label="Deductible">
                       <InputNumber
                         style={{ width: '100%' }}
@@ -1208,20 +1532,23 @@ const InvoiceCreation: React.FC = () => {
           </Col>
         </Row>
 
-        {/* Invoice Items */}
-        <Card
-          title="Invoice Items"
-          style={{ marginBottom: 24 }}
-          extra={
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={handleAddItem}
-            >
-              Add Item
+        {/* Invoice Items - Section Based */}
+        <Card title="Invoice Items" style={{ marginBottom: 24 }}>
+          {/* Section Creation */}
+          <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Input
+              placeholder="Enter section title..."
+              value={newSectionTitle}
+              onChange={(e) => setNewSectionTitle(e.target.value)}
+              onPressEnter={addSection}
+              style={{ maxWidth: 300 }}
+            />
+            <Button type="primary" icon={<PlusOutlined />} onClick={addSection}>
+              Add Section
             </Button>
-          }
-        >
+          </div>
+
+          {/* Sections */}
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -1229,53 +1556,260 @@ const InvoiceCreation: React.FC = () => {
             onDragEnd={handleDragEnd}
             modifiers={[restrictToVerticalAxis]}
           >
-            <SortableContext items={items.map((_, index) => `item-0-${index}`)} strategy={verticalListSortingStrategy}>
-              <DraggableTable
-                dataSource={items}
-                columns={columns}
-                pagination={false}
-                onReorder={() => {}} // Not used anymore - handled by unified handler
-                dragColumnTitle=""
-                dragColumnWidth={40}
-                getRowId={(_, index) => `item-0-${index}`}
-                sectionIndex={0}
-                dragType="item"
-                activeId={activeId}
-                summary={() => (
-                  <Table.Summary>
-                    <Table.Summary.Row>
-                      <Table.Summary.Cell index={0} colSpan={7} align="right">
-                        <strong>Items Subtotal:</strong>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={1} align="right">
-                        <strong>${totals.itemsSubtotal.toFixed(2)}</strong>
-                      </Table.Summary.Cell>
-                      <Table.Summary.Cell index={2} />
-                    </Table.Summary.Row>
-                  </Table.Summary>
-                )}
+            <SortableContext
+              items={sections.map(section => section.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <Collapse
+                activeKey={activeKeys}
+                onChange={setActiveKeys}
+                expandIconPosition="end"
+                size="small"
+                items={sections.map((section, sectionIndex) => ({
+                  key: section.id,
+                  label: (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                      <Space>
+                        <HolderOutlined className="section-drag-handle" style={{ cursor: 'grab', color: '#999' }} />
+                        <span style={{ fontWeight: 'bold' }}>{section.title}</span>
+                        <Badge count={section.items.length} showZero color="#108ee9" />
+                        {section.showSubtotal && (
+                          <Tag color="blue">${section.subtotal.toFixed(2)}</Tag>
+                        )}
+                      </Space>
+                      <Space onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          size="small"
+                          type="primary"
+                          icon={<PlusOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingSectionIndex(sectionIndex);
+                            setEditingItem(null);
+                            setEditingIndex(null);
+                            itemForm.resetFields();
+                            itemForm.setFieldsValue({
+                              quantity: 1,
+                              unit: DEFAULT_UNIT,
+                              rate: 0,
+                              taxable: true,
+                            });
+                            setItemModalVisible(true);
+                          }}
+                        >
+                          Add Item
+                        </Button>
+                        <Tooltip title="Edit section name">
+                          <Button
+                            size="small"
+                            icon={<EditOutlined />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditSection(section.id, section.title);
+                            }}
+                          />
+                        </Tooltip>
+                        <Popconfirm
+                          title="Delete this section?"
+                          description="This will delete all items in this section."
+                          onConfirm={() => deleteSection(sectionIndex)}
+                        >
+                          <Button size="small" danger icon={<DeleteOutlined />} />
+                        </Popconfirm>
+                      </Space>
+                    </div>
+                  ),
+                  children: (
+                    <div style={{ padding: '8px 0' }}>
+                      {section.items.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+                          No items in this section. Click "Add Item" to add items.
+                        </div>
+                      ) : (
+                        <DraggableTable
+                          className="draggable-table"
+                          dataSource={section.items.map((item, index) => ({
+                            ...item,
+                            key: `item-${sectionIndex}-${index}`
+                          }))}
+                          onReorder={() => {}} // Handled by DnD context
+                          pagination={false}
+                          size="small"
+                          showDragHandle={true}
+                          dragHandlePosition="start"
+                          dragColumnWidth={30}
+                          getRowId={(record, index) => `item-${sectionIndex}-${index}`}
+                          disableDrag={false}
+                          sectionIndex={sectionIndex}
+                          dragType="item"
+                          activeId={activeId}
+                          columns={[
+                            {
+                              title: 'Item Code',
+                              dataIndex: 'name',
+                              key: 'name',
+                              width: 120,
+                            },
+                            {
+                              title: 'Description',
+                              dataIndex: 'description',
+                              key: 'description',
+                              ellipsis: true,
+                              render: (value) => value ? (
+                                <div dangerouslySetInnerHTML={{ __html: value }} />
+                              ) : null,
+                            },
+                            {
+                              title: 'Qty',
+                              dataIndex: 'quantity',
+                              key: 'quantity',
+                              width: 80,
+                              align: 'center' as const,
+                            },
+                            {
+                              title: 'Unit',
+                              dataIndex: 'unit',
+                              key: 'unit',
+                              width: 80,
+                              align: 'center' as const,
+                            },
+                            {
+                              title: 'Rate',
+                              dataIndex: 'rate',
+                              key: 'rate',
+                              width: 100,
+                              align: 'right' as const,
+                              render: (value) => `$${value?.toFixed(2) || '0.00'}`,
+                            },
+                            {
+                              title: 'Amount',
+                              key: 'amount',
+                              width: 100,
+                              align: 'right' as const,
+                              render: (_: any, record: InvoiceItem) => `$${((record.quantity || 0) * (record.rate || 0)).toFixed(2)}`,
+                            },
+                            ...(taxMethod === 'percentage' ? [{
+                              title: (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span>Taxable</span>
+                                  <Tooltip title="Toggle all items in this section">
+                                    <Switch
+                                      size="small"
+                                      checked={section.items.every(item => item.taxable !== false)}
+                                      onChange={(checked) => {
+                                        const newSections = [...sections];
+                                        newSections[sectionIndex].items = newSections[sectionIndex].items.map(item => ({
+                                          ...item,
+                                          taxable: checked
+                                        }));
+                                        newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+                                        setSections(newSections);
+                                      }}
+                                    />
+                                  </Tooltip>
+                                </div>
+                              ),
+                              dataIndex: 'taxable',
+                              key: 'taxable',
+                              width: 120,
+                              align: 'center' as const,
+                              render: (value: boolean | undefined, record: InvoiceItem, recordIndex: number) => (
+                                <Switch
+                                  size="small"
+                                  checked={value !== false}
+                                  onChange={(checked) => {
+                                    const newSections = [...sections];
+                                    newSections[sectionIndex].items[recordIndex] = {
+                                      ...newSections[sectionIndex].items[recordIndex],
+                                      taxable: checked
+                                    };
+                                    newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+                                    setSections(newSections);
+                                  }}
+                                />
+                              ),
+                            }] : []),
+                            {
+                              title: 'Actions',
+                              key: 'actions',
+                              width: 100,
+                              align: 'center' as const,
+                              render: (_: any, record: InvoiceItem, index: number) => (
+                                <Space size="small">
+                                  <Tooltip title="Edit item">
+                                    <Button
+                                      type="text"
+                                      size="small"
+                                      icon={<EditOutlined />}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingSectionIndex(sectionIndex);
+                                        setEditingItem(record);
+                                        setEditingIndex(index);
+                                        itemForm.setFieldsValue({
+                                          name: record.name,
+                                          description: record.description,
+                                          quantity: record.quantity,
+                                          unit: record.unit,
+                                          rate: record.rate,
+                                          taxable: record.taxable !== false,
+                                        });
+                                        setItemModalVisible(true);
+                                      }}
+                                    />
+                                  </Tooltip>
+                                  <Tooltip title="Delete item">
+                                    <Popconfirm
+                                      title="Are you sure you want to delete this item?"
+                                      onConfirm={(e) => {
+                                        e?.stopPropagation();
+                                        const newSections = [...sections];
+                                        newSections[sectionIndex].items.splice(index, 1);
+                                        newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+                                        setSections(newSections);
+                                        message.success('Item deleted successfully');
+                                      }}
+                                      okText="Yes"
+                                      cancelText="No"
+                                    >
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        icon={<DeleteOutlined />}
+                                        danger
+                                        onClick={(e) => e.stopPropagation()}
+                                      />
+                                    </Popconfirm>
+                                  </Tooltip>
+                                </Space>
+                              ),
+                            },
+                          ]}
+                        />
+                      )}
+                    </div>
+                  ),
+                }))}
               />
             </SortableContext>
 
+            {/* Drag Overlay for unified drag and drop */}
             <DragOverlay>
               {activeId ? (
                 (() => {
-                  const parts = activeId.split('-');
-                  if (parts.length >= 3 && parts[0] === 'item') {
-                    const itemIdx = parseInt(parts[2]);
-                    const item = items[itemIdx];
-
-                    if (item) {
+                  if (activeDragType === 'section') {
+                    const section = sections.find(s => s.id === activeId);
+                    if (section) {
                       return (
                         <div
                           style={{
                             backgroundColor: 'white',
                             border: '1px solid #d9d9d9',
                             borderRadius: '6px',
-                            padding: '8px 12px',
+                            padding: '12px 16px',
                             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                            fontSize: '13px',
-                            minWidth: '200px',
+                            fontSize: '14px',
+                            minWidth: '300px',
                             opacity: 0.95,
                             display: 'flex',
                             alignItems: 'center',
@@ -1283,11 +1817,42 @@ const InvoiceCreation: React.FC = () => {
                           }}
                         >
                           <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
-                          <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
-                          <span style={{ color: '#999' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
-                          <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${(item.amount || (item.quantity * item.rate) || 0).toFixed(2)}</span>
+                          <span style={{ fontWeight: '600' }}>{section.title}</span>
+                          <Badge count={section.items.length} showZero color="#108ee9" />
+                          <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${section.subtotal.toFixed(2)}</span>
                         </div>
                       );
+                    }
+                  } else if (activeDragType === 'item' && activeSectionIndex !== null) {
+                    const parts = activeId.split('-');
+                    if (parts.length >= 3 && parts[0] === 'item') {
+                      const itemIdx = parseInt(parts[2]);
+                      const item = sections[activeSectionIndex]?.items[itemIdx];
+
+                      if (item) {
+                        return (
+                          <div
+                            style={{
+                              backgroundColor: 'white',
+                              border: '1px solid #d9d9d9',
+                              borderRadius: '6px',
+                              padding: '8px 12px',
+                              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                              fontSize: '13px',
+                              minWidth: '200px',
+                              opacity: 0.95,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                            }}
+                          >
+                            <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
+                            <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
+                            <span style={{ color: '#999' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
+                            <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${(item.amount || (item.quantity * item.rate) || 0).toFixed(2)}</span>
+                          </div>
+                        );
+                      }
                     }
                   }
                   return null;
@@ -1295,6 +1860,14 @@ const InvoiceCreation: React.FC = () => {
               ) : null}
             </DragOverlay>
           </DndContext>
+
+          {/* Grand Total Summary */}
+          <div style={{ marginTop: 16, padding: 16, background: '#f5f5f5', borderRadius: 4 }}>
+            <Row justify="space-between" style={{ fontWeight: 'bold', fontSize: '16px' }}>
+              <Col>Grand Total:</Col>
+              <Col>${totals.itemsSubtotal.toFixed(2)}</Col>
+            </Row>
+          </div>
         </Card>
 
         {/* Totals and Additional Info */}
@@ -1320,10 +1893,16 @@ const InvoiceCreation: React.FC = () => {
             <Card title="Payment Summary" style={{ marginBottom: 24 }}>
               <Row gutter={16}>
                 <Col span={24}>
-                  <Form.Item name="discount" label="Discount">
+                  <Form.Item label="Discount">
                     <InputNumber
                       style={{ width: '100%' }}
                       min={0}
+                      value={discount}
+                      onChange={value => {
+                        const newValue = value || 0;
+                        setDiscount(newValue);
+                        form.setFieldValue('discount', newValue);
+                      }}
                       formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                       parser={value => value!.replace(/\$\s?|(,*)/g, '') as any}
                     />
@@ -1339,7 +1918,6 @@ const InvoiceCreation: React.FC = () => {
                       min={0}
                       max={100}
                       step={0.1}
-                      value={opPercent}
                       onChange={(value) => setOpPercent(value || 0)}
                       formatter={(value?: string | number) => `${value}%`}
                       parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
@@ -1362,22 +1940,32 @@ const InvoiceCreation: React.FC = () => {
                 </Col>
                 <Col span={12}>
                   {taxMethod === 'percentage' ? (
-                    <Form.Item name="tax_rate" label="Tax Rate (%)">
+                    <Form.Item label="Tax Rate (%)">
                       <InputNumber
                         style={{ width: '100%' }}
                         min={0}
                         max={100}
+                        value={taxRate}
+                        onChange={value => {
+                          const newValue = value || 0;
+                          setTaxRate(newValue);
+                          form.setFieldValue('tax_rate', newValue);
+                        }}
                         formatter={value => `${value}%`}
                         parser={value => value!.replace('%', '') as any}
                       />
                     </Form.Item>
                   ) : (
-                    <Form.Item label="Tax Amount">
+                    <Form.Item label="Tax Amount" name="tax_amount">
                       <InputNumber
                         style={{ width: '100%' }}
                         min={0}
                         value={specificTaxAmount}
-                        onChange={value => setSpecificTaxAmount(value || 0)}
+                        onChange={value => {
+                          const newValue = value || 0;
+                          setSpecificTaxAmount(newValue);
+                          form.setFieldValue('tax_amount', newValue);
+                        }}
                         formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                         parser={value => value!.replace(/\$\s?|(,*)/g, '') as any}
                       />
@@ -1386,7 +1974,33 @@ const InvoiceCreation: React.FC = () => {
                 </Col>
               </Row>
 
-              
+              {taxMethod === 'percentage' && (
+                <Row gutter={16}>
+                  <Col span={24}>
+                    <Form.Item label="All Items Taxable">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Switch
+                          checked={items.every(item => item.taxable !== false)}
+                          onChange={(checked) => {
+                            const updatedItems = items.map(item => ({
+                              ...item,
+                              taxable: checked
+                            }));
+                            setItems(updatedItems);
+                          }}
+                          checkedChildren="All Taxable"
+                          unCheckedChildren="Mixed"
+                        />
+                        <span style={{ color: '#666', fontSize: '12px' }}>
+                          Toggle taxable status for all items
+                        </span>
+                      </div>
+                    </Form.Item>
+                  </Col>
+                </Row>
+              )}
+
+
               <Space direction="vertical" style={{ width: '100%' }}>
                 {payments.map((payment, index) => (
                   <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1437,22 +2051,22 @@ const InvoiceCreation: React.FC = () => {
                     <Col>${totals.opAmount.toFixed(2)}</Col>
                   </Row>
                 )}
+                {totals.taxAmount > 0 && (
+                  <Row justify="space-between" style={{ marginBottom: 8 }}>
+                    <Col>
+                      Tax {taxMethod === 'percentage' ? `(${taxRate}%)` : ''}:
+                    </Col>
+                    <Col>${totals.taxAmount.toFixed(2)}</Col>
+                  </Row>
+                )}
                 <Row justify="space-between" style={{ marginBottom: 8 }}>
                   <Col>Subtotal:</Col>
                   <Col>${totals.subtotal.toFixed(2)}</Col>
                 </Row>
-                {safeFormValues.discount > 0 && (
+                {totals.discount > 0 && (
                   <Row justify="space-between" style={{ marginBottom: 8 }}>
                     <Col>Discount:</Col>
-                    <Col>-${safeFormValues.discount.toFixed(2)}</Col>
-                  </Row>
-                )}
-                {totals.taxAmount > 0 && (
-                  <Row justify="space-between" style={{ marginBottom: 8 }}>
-                    <Col>
-                      Tax {taxMethod === 'percentage' ? `(${safeFormValues.taxRate}%)` : ''}:
-                    </Col>
-                    <Col>${totals.taxAmount.toFixed(2)}</Col>
+                    <Col>-${totals.discount.toFixed(2)}</Col>
                   </Row>
                 )}
                 <Divider />
@@ -1532,53 +2146,49 @@ const InvoiceCreation: React.FC = () => {
             quantity: 1,
             unit: DEFAULT_UNIT,
             rate: 0,
-            taxable: false,
+            taxable: true,
           }}
         >
           <Form.Item
             name="name"
-            label="Item Name"
+            label="Item Code"
             rules={[
-              { required: true, message: 'Please enter item name' },
-              { whitespace: true, message: 'Item name cannot be empty or just whitespace' },
-              { min: 1, message: 'Item name is required' }
+              { required: true, message: 'Please enter item code' },
+              { whitespace: true, message: 'Item code cannot be empty or just whitespace' },
+              { min: 1, message: 'Item code is required' }
             ]}
           >
-            <Input placeholder="Enter item name" />
-          </Form.Item>
-          <Form.Item
-            name="description"
-            label="Description"
-          >
-            <RichTextEditor
-              placeholder="Optional description"
-              minHeight={120}
+            <ItemCodeSelector
+              value={itemForm.getFieldValue('name')}
+              onChange={(value) => itemForm.setFieldValue('name', value)}
+              onLineItemAdd={handleLineItemsAdd}
+              placeholder="Enter item code or search line items"
             />
           </Form.Item>
           <Row gutter={16}>
-            <Col span={8}>
+            <Col span={6}>
               <Form.Item
                 name="quantity"
                 label="Quantity"
                 rules={[
                   { required: true, message: 'Please enter quantity' },
-                  { 
+                  {
                     type: 'number',
                     min: 0.01,
                     message: 'Quantity must be greater than 0'
                   }
                 ]}
               >
-                <InputNumber 
-                  style={{ width: '100%' }} 
-                  min={0.01} 
-                  step={1} 
+                <InputNumber
+                  style={{ width: '100%' }}
+                  min={0.01}
+                  step={1}
                   precision={2}
                   placeholder="Enter quantity"
                 />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col span={6}>
               <Form.Item
                 name="unit"
                 label="Unit"
@@ -1589,13 +2199,13 @@ const InvoiceCreation: React.FC = () => {
                 <UnitSelect />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col span={6}>
               <Form.Item
                 name="rate"
                 label="Rate"
                 rules={[
                   { required: true, message: 'Please enter rate' },
-                  { 
+                  {
                     type: 'number',
                     min: 0.01,
                     message: 'Rate must be greater than $0'
@@ -1616,16 +2226,27 @@ const InvoiceCreation: React.FC = () => {
                 />
               </Form.Item>
             </Col>
+            {taxMethod === 'percentage' && (
+              <Col span={6}>
+                <Form.Item
+                  name="taxable"
+                  label="Taxable"
+                  valuePropName="checked"
+                >
+                  <Switch checkedChildren="Yes" unCheckedChildren="No" />
+                </Form.Item>
+              </Col>
+            )}
           </Row>
-          {taxMethod === 'percentage' && (
-            <Form.Item
-              name="taxable"
-              label="Taxable"
-              valuePropName="checked"
-            >
-              <Switch checkedChildren="Yes" unCheckedChildren="No" />
-            </Form.Item>
-          )}
+          <Form.Item
+            name="description"
+            label="Description"
+          >
+            <RichTextEditor
+              placeholder="Optional description"
+              minHeight={120}
+            />
+          </Form.Item>
           <Form.Item dependencies={['quantity', 'rate']} noStyle>
             {({ getFieldValue }) => {
               const quantity = getFieldValue('quantity');
@@ -1751,6 +2372,32 @@ const InvoiceCreation: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+        </Form>
+      </Modal>
+
+      {/* Section Edit Modal */}
+      <Modal
+        title="Edit Section Name"
+        open={sectionEditModalVisible}
+        onOk={handleSectionTitleSave}
+        onCancel={handleSectionEditCancel}
+        width={400}
+        okText="Save"
+        cancelText="Cancel"
+      >
+        <Form layout="vertical">
+          <Form.Item
+            label="Section Title"
+            required
+          >
+            <Input
+              value={editingSectionTitle}
+              onChange={(e) => setEditingSectionTitle(e.target.value)}
+              placeholder="Enter section title"
+              onPressEnter={handleSectionTitleSave}
+              autoFocus
+            />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

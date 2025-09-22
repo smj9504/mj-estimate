@@ -406,7 +406,7 @@ class XactimateUnifiedRepository:
         # Xactimate part
         if include_xactimate:
             xactimate_sql = f"""
-                SELECT 
+                SELECT
                     'xactimate_' || id::text as id,
                     'XACTIMATE' as type,
                     category_code as cat,
@@ -440,7 +440,7 @@ class XactimateUnifiedRepository:
             custom_where = "WHERE " + " AND ".join(custom_conditions) if custom_conditions else ""
             
             custom_sql = f"""
-                SELECT 
+                SELECT
                     id::text,
                     type::text,
                     cat,

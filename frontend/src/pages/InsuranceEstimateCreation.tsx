@@ -29,7 +29,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
-import { estimateService, EstimateLineItem, InsuranceEstimate } from '../services/EstimateService';
+import { estimateService, EstimateLineItem, EstimateResponse } from '../services/EstimateService';
 import { companyService } from '../services/companyService';
 import GroupableLineItemsWithSidebar from '../components/estimate/GroupableLineItemsWithSidebar';
 import RichTextEditor from '../components/editor/RichTextEditor';
@@ -50,7 +50,11 @@ const formatNumber = (num: number | undefined | null): string => {
 
 // Removed unused LineItemSearchResult interface since using GroupableLineItemsWithSidebar
 
-const InsuranceEstimateCreation: React.FC = () => {
+interface InsuranceEstimateCreationProps {
+  initialEstimate?: EstimateResponse;
+}
+
+const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ initialEstimate }) => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -97,7 +101,7 @@ const InsuranceEstimateCreation: React.FC = () => {
         // Load companies first for edit mode
         const companiesData = await loadCompanies();
 
-        const estimate = await estimateService.getEstimate(id);
+        const estimate = initialEstimate || await estimateService.getEstimate(id);
         console.log('=== ESTIMATE LOADED ===', estimate);
         console.log('=== CLIENT DATA LOADED ===');
         console.log('estimate.client_name:', `"${estimate.client_name}"`);
@@ -208,7 +212,7 @@ const InsuranceEstimateCreation: React.FC = () => {
     };
 
     loadData();
-  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [id, initialEstimate]); // eslint-disable-line react-hooks/exhaustive-deps
   // Note: form and loadCompanies are stable, companies and selectedCompany are managed within the effect
 
   // Removed unused search functions since using GroupableLineItemsWithSidebar
@@ -290,7 +294,7 @@ const InsuranceEstimateCreation: React.FC = () => {
         company_email: currentSelectedCompany?.email,
       });
 
-      const estimateData: InsuranceEstimate = {
+      const estimateData: EstimateResponse = {
         estimate_number: estimateNumber,
         estimate_type: 'insurance',  // Mark as insurance estimate
         company_id: completeValues.company_id || currentSelectedCompany?.id,
@@ -336,6 +340,8 @@ const InsuranceEstimateCreation: React.FC = () => {
       if (id) {
         response = await estimateService.updateEstimate(id, estimateData);
         message.success('Estimate updated successfully!');
+        navigate('/documents/estimate');
+        return;
       } else {
         response = await estimateService.createEstimate(estimateData);
         message.success('Estimate created successfully!');
@@ -394,7 +400,7 @@ const InsuranceEstimateCreation: React.FC = () => {
         estimateNumber = await estimateService.generateEstimateNumber();
       }
 
-      const estimateData: InsuranceEstimate = {
+      const estimateData: EstimateResponse = {
         estimate_number: estimateNumber,
         estimate_type: 'insurance',  // Mark as insurance estimate
         company_id: completeValues.company_id || selectedCompany?.id,
@@ -646,7 +652,8 @@ const InsuranceEstimateCreation: React.FC = () => {
         ),
         children: (
           <Row gutter={16}>
-            <Col xs={24} md={12}>
+            {/* Client Name, Email, Phone in one row */}
+            <Col xs={24} md={8}>
               <Form.Item
                 name="client_name"
                 label="Client Name"
@@ -654,11 +661,18 @@ const InsuranceEstimateCreation: React.FC = () => {
                 <Input placeholder="Enter client name" />
               </Form.Item>
             </Col>
-            <Col xs={24} md={12}>
+            <Col xs={24} md={8}>
               <Form.Item name="client_email" label="Email">
                 <Input type="email" placeholder="client@example.com" />
               </Form.Item>
             </Col>
+            <Col xs={24} md={8}>
+              <Form.Item name="client_phone" label="Phone">
+                <Input placeholder="(xxx) xxx-xxxx" />
+              </Form.Item>
+            </Col>
+
+            {/* Address, City, State, Zip in one row */}
             <Col xs={24} md={12}>
               <Form.Item
                 name="client_address"
@@ -668,22 +682,17 @@ const InsuranceEstimateCreation: React.FC = () => {
                 <Input placeholder="Street address" />
               </Form.Item>
             </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="client_phone" label="Phone">
-                <Input placeholder="(xxx) xxx-xxxx" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={8}>
+            <Col xs={24} md={6}>
               <Form.Item name="client_city" label="City">
                 <Input placeholder="City" />
               </Form.Item>
             </Col>
-            <Col xs={24} md={8}>
+            <Col xs={24} md={3}>
               <Form.Item name="client_state" label="State">
                 <Input placeholder="State" maxLength={2} style={{ textTransform: 'uppercase' }} />
               </Form.Item>
             </Col>
-            <Col xs={24} md={8}>
+            <Col xs={24} md={3}>
               <Form.Item name="client_zipcode" label="ZIP Code">
                 <Input placeholder="12345" maxLength={10} />
               </Form.Item>
@@ -707,21 +716,28 @@ const InsuranceEstimateCreation: React.FC = () => {
         children: showInsurance ? (
           <>
             <Row gutter={16}>
-              <Col xs={24} md={12}>
-                <Form.Item name="claim_number" label="Claim Number">
-                  <Input placeholder="Insurance claim number" />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={12}>
-                <Form.Item name="policy_number" label="Policy Number">
-                  <Input placeholder="Insurance policy number" />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={12}>
+              <Col xs={24} md={6}>
                 <Form.Item name="insurance_company" label="Insurance Company">
                   <Input placeholder="Insurance company name" />
                 </Form.Item>
               </Col>
+              <Col xs={24} md={6}>
+                <Form.Item name="claim_number" label="Claim Number">
+                  <Input placeholder="Insurance claim number" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={6}>
+                <Form.Item name="policy_number" label="Policy Number">
+                  <Input placeholder="Insurance policy number" />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={6}>
+                <Form.Item name="loss_date" label="Date of Loss">
+                  <DatePicker style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
               <Col xs={24} md={12}>
                 <Form.Item name="deductible" label="Deductible">
                   <InputNumber
@@ -737,11 +753,10 @@ const InsuranceEstimateCreation: React.FC = () => {
                   />
                 </Form.Item>
               </Col>
-              <Col xs={24} md={8}>
-                <Form.Item name="loss_date" label="Date of Loss">
-                  <DatePicker style={{ width: '100%' }} />
-                </Form.Item>
-              </Col>
+            </Row>
+
+            {/* Adjuster Information in one row */}
+            <Row gutter={16}>
               <Col xs={24} md={8}>
                 <Form.Item name="adjuster_name" label="Adjuster Name">
                   <Input placeholder="Adjuster name" />
@@ -752,10 +767,12 @@ const InsuranceEstimateCreation: React.FC = () => {
                   <Input placeholder="(xxx) xxx-xxxx" />
                 </Form.Item>
               </Col>
+              <Col xs={24} md={8}>
+                <Form.Item name="adjuster_email" label="Adjuster Email">
+                  <Input type="email" placeholder="adjuster@insurance.com" />
+                </Form.Item>
+              </Col>
             </Row>
-            <Form.Item name="adjuster_email" label="Adjuster Email">
-              <Input type="email" placeholder="adjuster@insurance.com" />
-            </Form.Item>
           </>
         ) : null
       }
@@ -781,7 +798,7 @@ const InsuranceEstimateCreation: React.FC = () => {
     newItems.forEach((item, index) => {
       console.log(`InsuranceEstimateCreation: Item ${index}:`, {
         id: item.id,
-        item: item.item,
+        name: item.name,
         primary_group: item.primary_group,
         secondary_group: item.secondary_group,
         hasGroup: !!(item.primary_group || item.secondary_group)

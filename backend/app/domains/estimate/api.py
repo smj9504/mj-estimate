@@ -113,7 +113,7 @@ async def list_estimates(
         EstimateListResponse(
             id=est['id'],
             estimate_number=est.get('estimate_number', ''),
-            estimate_type=est.get('estimate_type') or ('insurance' if (est.get('claim_number') or est.get('policy_number') or est.get('deductible')) else 'standard'),
+            estimate_type=est.get('estimate_type', 'standard'),
             company_id=est.get('company_id'),
             client_name=est.get('client_name', ''),
             client_address=est.get('client_address'),
@@ -173,6 +173,13 @@ async def get_estimate(estimate_id: str, db=Depends(get_db)):
     estimate = service.get_with_items(estimate_id)
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
+
+    logger.info(f"API get_estimate - estimate items before response conversion:")
+    if estimate.get('items'):
+        for i, item in enumerate(estimate['items']):
+            logger.info(f"  Item {i}: name='{item.get('name')}', description='{item.get('description')}'")
+    else:
+        logger.info("  No items found in estimate")
 
 
     # Get company information if company_id exists
@@ -254,6 +261,7 @@ async def get_estimate(estimate_id: str, db=Depends(get_db)):
                 id=item.get('id'),
                 estimate_id=item.get('estimate_id'),
                 room=item.get('room'),
+                name=item.get('name'),
                 description=item.get('description', ''),
                 quantity=item.get('quantity', 0),
                 unit=item.get('unit', ''),
@@ -422,6 +430,7 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
                 id=item.get('id'),
                 estimate_id=item.get('estimate_id'),
                 room=item.get('room'),
+                name=item.get('name'),
                 description=item.get('description', ''),
                 quantity=item.get('quantity', 0),
                 unit=item.get('unit', ''),
@@ -527,6 +536,7 @@ async def update_estimate(
                 id=item.get('id'),
                 estimate_id=item.get('estimate_id'),
                 room=item.get('room'),
+                name=item.get('name'),
                 description=item.get('description', ''),
                 quantity=item.get('quantity', 0),
                 unit=item.get('unit', ''),
@@ -679,6 +689,7 @@ async def duplicate_estimate(estimate_id: str, db=Depends(get_db)):
                 id=item.get('id'),
                 estimate_id=item.get('estimate_id'),
                 room=item.get('room'),
+                name=item.get('name'),
                 description=item.get('description', ''),
                 quantity=item.get('quantity', 0),
                 unit=item.get('unit', ''),

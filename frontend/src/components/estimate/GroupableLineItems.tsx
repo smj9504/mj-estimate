@@ -431,7 +431,7 @@ const GroupableLineItems: React.FC<GroupableLineItemsProps> = ({
         <div style={{ flex: 1 }}>
           <Space>
             <FileTextOutlined />
-            <Text strong>{item.item}</Text>
+            <Text strong>{item.name}</Text>
             {item.description && <Text type="secondary">({item.description})</Text>}
           </Space>
         </div>
@@ -547,7 +547,7 @@ const GroupableLineItems: React.FC<GroupableLineItemsProps> = ({
                 onClick: () => {
                   // 그룹이 미리 선택된 상태로 아이템 추가 모달 열기
                   const newItem: EstimateLineItem = {
-                    item: '',
+                    name: '',
                     description: '',
                     quantity: 1,
                     unit: 'EA',

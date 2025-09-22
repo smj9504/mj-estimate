@@ -174,10 +174,42 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
             
             # Create items
             for idx, item_data in enumerate(items_data):
-                item_data['invoice_id'] = invoice_id
-                item_data['order_index'] = idx
-                
-                item_entity = InvoiceItem(**item_data)
+                # Calculate item amount and tax
+                quantity = float(item_data.get('quantity', 1))
+                rate = float(item_data.get('rate', 0))
+                amount = quantity * rate
+
+                # Calculate item tax if taxable
+                taxable = item_data.get('taxable', True)
+                item_tax_rate = float(item_data.get('tax_rate', 0))
+                tax_amount = amount * (item_tax_rate / 100) if taxable and item_tax_rate > 0 else 0
+
+                # Filter and map fields for InvoiceItem model
+                valid_fields = {
+                    'invoice_id': invoice_id,
+                    'order_index': idx,
+                    'name': item_data.get('name', item_data.get('description', '')),
+                    'description': item_data.get('description'),
+                    'quantity': quantity,
+                    'unit': item_data.get('unit', 'ea'),
+                    'rate': rate,
+                    'amount': amount,
+                    'taxable': taxable,
+                    'tax_rate': item_tax_rate,
+                    'tax_amount': tax_amount,
+                    'line_item_id': item_data.get('line_item_id'),
+                    'is_custom_override': item_data.get('is_custom_override', False),
+                    'override_values': item_data.get('override_values'),
+                    # Section/Group fields
+                    'primary_group': item_data.get('primary_group'),
+                    'secondary_group': item_data.get('secondary_group'),
+                    'sort_order': item_data.get('sort_order', 0)
+                }
+
+                # Remove None values
+                filtered_fields = {k: v for k, v in valid_fields.items() if v is not None}
+
+                item_entity = InvoiceItem(**filtered_fields)
                 self.db_session.add(item_entity)
             
             self.db_session.flush()
@@ -197,10 +229,7 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
             # Extract items if present
             items_data = update_data.pop('items', None)
             
-            # If items are provided, recalculate totals
-            if items_data is not None:
-                totals = self.calculate_totals({'items': items_data})
-                update_data.update(totals)
+            # Items data will be handled separately - totals are already calculated in service layer
             
             # Update invoice fields (without items)
             invoice = self.db_session.query(Invoice).filter(
@@ -253,7 +282,11 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                         'tax_amount': tax_amount,
                         'line_item_id': item_data.get('line_item_id'),
                         'is_custom_override': item_data.get('is_custom_override', False),
-                        'override_values': item_data.get('override_values')
+                        'override_values': item_data.get('override_values'),
+                        # Section/Group fields
+                        'primary_group': item_data.get('primary_group'),
+                        'secondary_group': item_data.get('secondary_group'),
+                        'sort_order': item_data.get('sort_order', 0)
                     }
                     
                     # Remove None values

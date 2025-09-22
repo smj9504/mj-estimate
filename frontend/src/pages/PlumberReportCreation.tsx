@@ -27,6 +27,8 @@ import {
   EyeOutlined,
   EditOutlined,
   HolderOutlined,
+  FileTextOutlined,
+  ClearOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -42,6 +44,7 @@ import { Company } from '../types';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import UnitSelect from '../components/common/UnitSelect';
 import DraggableTable from '../components/common/DraggableTable';
+import TemplateSelector from '../components/plumber-report/TemplateSelector';
 import {
   DndContext,
   DragOverlay,
@@ -101,6 +104,11 @@ const PlumberReportCreation: React.FC = () => {
 
   // Drag and drop states
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
+
+  // Template selection states
+  const [selectedWarrantyTemplate, setSelectedWarrantyTemplate] = useState<any>(null);
+  const [selectedTermsTemplate, setSelectedTermsTemplate] = useState<any>(null);
+  const [selectedNotesTemplate, setSelectedNotesTemplate] = useState<any>(null);
 
   // Load companies only once on mount
   useEffect(() => {
@@ -551,7 +559,8 @@ const PlumberReportCreation: React.FC = () => {
           <Col xs={24}>
             <Card title="Client Information" style={{ marginBottom: 24 }}>
               <Row gutter={16}>
-                <Col xs={24} md={12}>
+                {/* Client Name, Email, Phone in one row */}
+                <Col xs={24} md={8}>
                   <Form.Item
                     name="name"
                     label="Client Name"
@@ -560,32 +569,34 @@ const PlumberReportCreation: React.FC = () => {
                     <Input placeholder="Enter client name" />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={12}>
+                <Col xs={24} md={8}>
                   <Form.Item name="email" label="Email">
                     <Input type="email" placeholder="Enter email address" />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={12}>
+                <Col xs={24} md={8}>
                   <Form.Item name="phone" label="Phone">
                     <Input placeholder="Enter phone number" />
                   </Form.Item>
                 </Col>
+
+                {/* Address, City, State, Zip in one row */}
                 <Col xs={24} md={12}>
                   <Form.Item name="address" label="Address">
                     <Input placeholder="Enter street address" />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={8}>
+                <Col xs={24} md={6}>
                   <Form.Item name="city" label="City">
                     <Input placeholder="Enter city" />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={8}>
+                <Col xs={24} md={3}>
                   <Form.Item name="state" label="State">
                     <Input placeholder="Enter state" />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={8}>
+                <Col xs={24} md={3}>
                   <Form.Item name="zipcode" label="ZIP Code">
                     <Input placeholder="Enter ZIP code" />
                   </Form.Item>
@@ -1027,33 +1038,72 @@ const PlumberReportCreation: React.FC = () => {
           {/* Additional Information */}
           <Col xs={24}>
             <Card title="Additional Information" style={{ marginBottom: 24 }}>
-              <Row gutter={16}>
-                <Col xs={24} md={8}>
+              <Row gutter={[16, 24]}>
+                <Col xs={24}>
                   <Form.Item label="Warranty Information">
+                    <TemplateSelector
+                      companyId={form.getFieldValue('company_id') || selectedCompany?.id || ''}
+                      templateType="warranty"
+                      selectedTemplate={selectedWarrantyTemplate}
+                      onTemplateSelect={(content, template) => {
+                        setWarrantyInfo(content);
+                        setSelectedWarrantyTemplate(template);
+                      }}
+                      onTemplateClear={() => {
+                        setSelectedWarrantyTemplate(null);
+                      }}
+                      disabled={!selectedCompany}
+                    />
                     <RichTextEditor
                       value={warrantyInfo}
                       onChange={setWarrantyInfo}
-                      placeholder="Enter warranty details (supports rich text formatting)..."
+                      placeholder="Enter warranty details or select a template above..."
                       minHeight={120}
                     />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={8}>
+                <Col xs={24}>
                   <Form.Item label="Terms & Conditions">
+                    <TemplateSelector
+                      companyId={form.getFieldValue('company_id') || selectedCompany?.id || ''}
+                      templateType="terms"
+                      selectedTemplate={selectedTermsTemplate}
+                      onTemplateSelect={(content, template) => {
+                        setTermsConditions(content);
+                        setSelectedTermsTemplate(template);
+                      }}
+                      onTemplateClear={() => {
+                        setSelectedTermsTemplate(null);
+                      }}
+                      disabled={!selectedCompany}
+                    />
                     <RichTextEditor
                       value={termsConditions}
                       onChange={setTermsConditions}
-                      placeholder="Enter terms and conditions (supports rich text formatting)..."
+                      placeholder="Enter terms and conditions or select a template above..."
                       minHeight={120}
                     />
                   </Form.Item>
                 </Col>
-                <Col xs={24} md={8}>
+                <Col xs={24}>
                   <Form.Item label="Additional Notes">
+                    <TemplateSelector
+                      companyId={form.getFieldValue('company_id') || selectedCompany?.id || ''}
+                      templateType="notes"
+                      selectedTemplate={selectedNotesTemplate}
+                      onTemplateSelect={(content, template) => {
+                        setNotes(content);
+                        setSelectedNotesTemplate(template);
+                      }}
+                      onTemplateClear={() => {
+                        setSelectedNotesTemplate(null);
+                      }}
+                      disabled={!selectedCompany}
+                    />
                     <RichTextEditor
                       value={notes}
                       onChange={setNotes}
-                      placeholder="Any additional notes (supports rich text formatting)..."
+                      placeholder="Any additional notes or select a template above..."
                       minHeight={120}
                     />
                   </Form.Item>

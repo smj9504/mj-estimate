@@ -182,11 +182,11 @@
 {% endfor %}
 
 <div class="footer-total">
-{% if discount and discount > 0 %}
-  <p>Discount: -${{ '{:,.2f}'.format(discount) }}</p>
-{% endif %}
+<p>Items Subtotal: ${{ '{:,.2f}'.format(items_subtotal) }}</p>
 
-<p>Subtotal: ${{ '{:,.2f}'.format(subtotal) }}</p>
+{% if op_percent and op_percent > 0 %}
+  <p>O&P ({{ op_percent }}%): ${{ '{:,.2f}'.format(op_amount) }}</p>
+{% endif %}
 
 {% if tax_amount and tax_amount > 0 %}
   {% if tax_method == 'percentage' and tax_rate %}
@@ -194,10 +194,15 @@
   {% else %}
     <p>Tax: ${{ '{:,.2f}'.format(tax_amount) }}</p>
   {% endif %}
-  <p><strong>Total with Tax: ${{ '{:,.2f}'.format(total) }}</strong></p>
-{% else %}
-  <p><strong>Total: ${{ '{:,.2f}'.format(subtotal) }}</strong></p>
 {% endif %}
+
+<p>Subtotal: ${{ '{:,.2f}'.format(subtotal) }}</p>
+
+{% if discount and discount > 0 %}
+  <p>Discount: -${{ '{:,.2f}'.format(discount) }}</p>
+{% endif %}
+
+<p><strong>Total: ${{ '{:,.2f}'.format(total) }}</strong></p>
 
 {% if payments and payments|length > 0 %}
   <div class="payments">
@@ -212,10 +217,13 @@
       </li>
       {% endfor %}
     </ul>
+    {% set total_paid = payments | sum(attribute='amount') %}
+    <p>Total Paid: ${{ '{:,.2f}'.format(total_paid) }}</p>
+    <p><strong>Balance Due: ${{ '{:,.2f}'.format(total - total_paid) }}</strong></p>
   </div>
+{% else %}
+  <p><strong>Amount Due: ${{ '{:,.2f}'.format(total) }}</strong></p>
 {% endif %}
-
-<p><strong>Amount Due: ${{ '{:,.2f}'.format(total) }}</strong></p>
 </div>
 
 {% if payment_terms %}

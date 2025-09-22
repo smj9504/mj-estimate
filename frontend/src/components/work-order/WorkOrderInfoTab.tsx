@@ -349,23 +349,9 @@ const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
                 Back to List
               </Button>
               <Divider type="vertical" />
-              <Space direction="vertical" size={0}>
-                <Title level={2} style={{ margin: 0 }}>
-                  {workOrder.work_order_number}
-                </Title>
-                <Space align="center">
-                  <Tag
-                    color={currentStatusConfig.color}
-                    icon={currentStatusConfig.icon}
-                    style={{ fontSize: '14px', padding: '4px 12px' }}
-                  >
-                    {currentStatusConfig.label}
-                  </Tag>
-                  <Text type="secondary">
-                    {currentStatusConfig.description}
-                  </Text>
-                </Space>
-              </Space>
+              <Title level={2} style={{ margin: 0 }}>
+                {workOrder.work_order_number}
+              </Title>
             </Space>
           </Col>
           <Col>

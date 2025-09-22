@@ -86,15 +86,15 @@ class CompanyService(BaseService[Dict[str, Any], str]):
     def search_companies(self, search_term: str) -> List[Dict[str, Any]]:
         """
         Search companies by name, address, email, or phone.
-        
+
         Args:
             search_term: Text to search for
-            
+
         Returns:
             List of matching company dictionaries
         """
         try:
-            session = self.database.get_session()
+            session = self.database.get_readonly_session()
             try:
                 repository = self._get_repository_instance(session)
                 return repository.search_companies(search_term)

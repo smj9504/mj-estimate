@@ -44,18 +44,18 @@ class BaseService(Generic[T, ID], ServiceInterface):
                 offset: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Get all entities with optional filtering, ordering, and pagination.
-        
+
         Args:
             filters: Dictionary of field-value pairs to filter by
             order_by: Field to order by (prefix with '-' for descending)
             limit: Maximum number of results to return
             offset: Number of results to skip
-            
+
         Returns:
             List of entity dictionaries
         """
         try:
-            session = self.database.get_session()
+            session = self.database.get_readonly_session()
             try:
                 repository = self._get_repository_instance(session)
                 return repository.get_all(
@@ -69,19 +69,19 @@ class BaseService(Generic[T, ID], ServiceInterface):
         except Exception as e:
             logger.error(f"Error getting all {self.__class__.__name__} entities: {e}")
             raise
-    
+
     def get_by_id(self, entity_id: ID) -> Optional[Dict[str, Any]]:
         """
         Get entity by ID.
-        
+
         Args:
             entity_id: Unique identifier of the entity
-            
+
         Returns:
             Entity dictionary or None if not found
         """
         try:
-            session = self.database.get_session()
+            session = self.database.get_readonly_session()
             try:
                 repository = self._get_repository_instance(session)
                 return repository.get_by_id(entity_id)

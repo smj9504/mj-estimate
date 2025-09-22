@@ -245,8 +245,8 @@ class LineItemService {
         // Transform unified format to modal format
         const modalItem: LineItemModalItem = {
           id: item.id,
-          component_code: item.item, // Use 'item' field as component_code
-          item_code: item.item, // Also provide item_code for backward compatibility
+          component_code: item.name, // Use 'name' field as component_code
+          item_code: item.name, // Also provide item_code for backward compatibility
           description: item.description || 'No description',
           unit: item.unit || 'EA',
           act: item.type === 'XACTIMATE' ? '&' : '+', // "&" for Xactimate, "+" for custom
@@ -294,6 +294,27 @@ class LineItemService {
   }
 
   /**
+   * Simple search for line items without authentication (for autocomplete)
+   */
+  async searchLineItemsSimple(
+    searchQuery: string,
+    limit = 10
+  ): Promise<LineItemModalItem[]> {
+    try {
+      const response = await apiClient.get('/api/line-items/modal/search', {
+        params: {
+          q: searchQuery,
+          limit: limit
+        }
+      });
+      return response.data || [];
+    } catch (error: any) {
+      console.error('Simple line item search failed:', error);
+      return [];
+    }
+  }
+
+  /**
    * Search line items for modal with multi-keyword support (unified search)
    */
   async searchLineItemsForModal(
@@ -317,8 +338,8 @@ class LineItemService {
       const modalItems = unifiedItems.map((item: any) => {
         const modalItem: LineItemModalItem = {
           id: item.id,
-          component_code: item.item,
-          item_code: item.item,
+          component_code: item.name,
+          item_code: item.name,
           description: item.description || 'No description',
           unit: item.unit || 'EA',
           act: item.type === 'XACTIMATE' ? '&' : '+',

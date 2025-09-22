@@ -118,14 +118,15 @@ const DocumentList: React.FC = () => {
         // Transform to match expected format
         return {
           items: filteredEstimates.map((estimate: any): TableDocument => {
-            // If estimate_type is not available, infer from insurance fields
-            let estimateType = estimate.estimate_type;
-            if (!estimateType) {
-              estimateType = (estimate.claim_number || estimate.policy_number || estimate.deductible) 
-                ? EstimateType.INSURANCE 
-                : EstimateType.STANDARD;
+            // Always use estimate_type from API - do NOT infer from insurance fields
+            // A standard estimate can have insurance info but still be standard type
+            let estimateType = estimate.estimate_type || EstimateType.STANDARD;
+
+            // Convert string to enum if needed
+            if (typeof estimateType === 'string') {
+              estimateType = estimateType === 'insurance' ? EstimateType.INSURANCE : EstimateType.STANDARD;
             }
-            
+
             return {
               id: estimate.id,
               document_number: estimate.estimate_number,
@@ -409,14 +410,22 @@ const DocumentList: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 120,
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD'),
+      render: (date: string) => {
+        if (!date) return '-';
+        const formattedDate = dayjs(date);
+        return formattedDate.isValid() ? formattedDate.format('YYYY-MM-DD') : '-';
+      },
     },
     {
       title: 'Updated Date',
       dataIndex: 'updated_at',
       key: 'updated_at',
       width: 120,
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD'),
+      render: (date: string) => {
+        if (!date) return '-';
+        const formattedDate = dayjs(date);
+        return formattedDate.isValid() ? formattedDate.format('YYYY-MM-DD') : '-';
+      },
     },
     {
       title: 'Actions',

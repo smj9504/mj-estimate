@@ -95,12 +95,9 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
         """Normalize estimate data by adding missing fields with defaults"""
         if data and isinstance(data, dict):
             # Add estimate_type if missing (backward compatibility)
+            # DO NOT infer from insurance fields - respect explicit estimate_type
             if 'estimate_type' not in data or data.get('estimate_type') is None:
-                # Determine type based on insurance fields
-                if data.get('claim_number') or data.get('policy_number'):
-                    data['estimate_type'] = 'insurance'
-                else:
-                    data['estimate_type'] = 'standard'
+                data['estimate_type'] = 'standard'  # Default to standard
         return data
     
     def get_by_id(self, entity_id: str) -> Optional[Dict[str, Any]]:
@@ -180,11 +177,23 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
             items = self.db_session.query(EstimateItem).filter(
                 EstimateItem.estimate_id == estimate_id
             ).order_by(EstimateItem.order_index).all()
-            
-            estimate_dict['items'] = [self._convert_to_dict(item) for item in items]
-            
+
+            logger.info(f"Found {len(items)} items for estimate {estimate_id}")
+            items_list = []
+            for item in items:
+                logger.info(f"Raw item from DB: name='{item.name}', description='{item.description}'")
+                item_dict = self._convert_to_dict(item)
+                logger.info(f"After _convert_to_dict: name='{item_dict.get('name')}', description='{item_dict.get('description')}'")
+                logger.info(f"Item dict keys: {list(item_dict.keys())}")
+                items_list.append(item_dict)
+
+            estimate_dict['items'] = items_list
+
             # Normalize data (add missing fields)
-            return self._normalize_estimate_data(estimate_dict)
+            result = self._normalize_estimate_data(estimate_dict)
+
+            logger.info(f"Final result items count: {len(result.get('items', []))}")
+            return result
             
         except Exception as e:
             logger.error(f"Error getting estimate with items: {e}")
@@ -213,7 +222,7 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
             for idx, item_data in enumerate(items_data):
                 item_data['estimate_id'] = estimate_id
                 item_data['order_index'] = idx
-                
+
                 item_entity = EstimateItem(**item_data)
                 self.db_session.add(item_entity)
             
@@ -407,12 +416,9 @@ class EstimateSupabaseRepository(SupabaseRepository, EstimateRepositoryMixin):
         """Normalize estimate data by adding missing fields with defaults"""
         if data and isinstance(data, dict):
             # Add estimate_type if missing (backward compatibility)
+            # DO NOT infer from insurance fields - respect explicit estimate_type
             if 'estimate_type' not in data:
-                # Determine type based on insurance fields
-                if data.get('claim_number') or data.get('policy_number'):
-                    data['estimate_type'] = 'insurance'
-                else:
-                    data['estimate_type'] = 'standard'
+                data['estimate_type'] = 'standard'  # Default to standard
         return data
     
     def get_by_id(self, entity_id: str) -> Optional[Dict[str, Any]]:

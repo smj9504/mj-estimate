@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Spin, message } from 'antd';
-import { estimateService } from '../services/EstimateService';
+import { estimateService, EstimateResponse } from '../services/EstimateService';
 import EstimateCreation from './EstimateCreation';
 import InsuranceEstimateCreation from './InsuranceEstimateCreation';
 
 const EstimateEditWrapper: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [loading, setLoading] = useState(true);
-  const [estimateType, setEstimateType] = useState<string | null>(null);
+  const [estimate, setEstimate] = useState<EstimateResponse | null>(null);
 
   useEffect(() => {
     const fetchEstimate = async () => {
@@ -19,23 +19,11 @@ const EstimateEditWrapper: React.FC = () => {
 
       try {
         setLoading(true);
-        // Fetch estimate to determine its type
-        const estimate = await estimateService.getEstimate(id);
-        
-        // Check estimate_type field first
-        if (estimate.estimate_type) {
-          setEstimateType(estimate.estimate_type);
-        } 
-        // Fallback: check if it has insurance fields
-        else if (estimate.claim_number || estimate.policy_number) {
-          setEstimateType('insurance');
-        } else {
-          setEstimateType('standard');
-        }
+        const estimateData = await estimateService.getEstimate(id);
+        setEstimate(estimateData);
       } catch (error) {
         console.error('Failed to fetch estimate:', error);
         message.error('Failed to load estimate');
-        setEstimateType('standard'); // Default to standard if error
       } finally {
         setLoading(false);
       }
@@ -52,11 +40,15 @@ const EstimateEditWrapper: React.FC = () => {
     );
   }
 
+  if (!estimate) {
+    return <div>Estimate not found</div>;
+  }
+
   // Render appropriate component based on estimate type
-  if (estimateType === 'insurance') {
-    return <InsuranceEstimateCreation />;
+  if (estimate.estimate_type === 'insurance') {
+    return <InsuranceEstimateCreation initialEstimate={estimate} />;
   } else {
-    return <EstimateCreation />;
+    return <EstimateCreation initialEstimate={estimate} />;
   }
 };
 

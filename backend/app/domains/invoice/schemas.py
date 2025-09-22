@@ -80,6 +80,11 @@ class InvoiceItemBase(BaseModel):
     rate: float = 0
     taxable: Optional[bool] = True
 
+    # Section/Group fields
+    primary_group: Optional[str] = None  # Section name
+    secondary_group: Optional[str] = None  # Sub-category (optional)
+    sort_order: Optional[int] = 0  # Sort order within section
+
 
 class InvoiceItemCreate(InvoiceItemBase):
     pass
@@ -91,9 +96,15 @@ class InvoiceItemResponse(InvoiceItemBase):
     amount: float
     taxable: Optional[bool] = True
     order_index: Optional[int] = None
+
+    # Section/Group fields (inherited from base but explicitly included for clarity)
+    primary_group: Optional[str] = None
+    secondary_group: Optional[str] = None
+    sort_order: Optional[int] = 0
+
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -115,8 +126,9 @@ class InvoiceBase(BaseModel):
     tax_method: Optional[str] = Field("percentage", description="Tax calculation method: 'percentage' or 'specific'")
     tax_rate: Optional[float] = 0
     tax_amount: Optional[float] = 0
-    
+
     # Other financial fields
+    op_percent: Optional[float] = 0  # O&P percentage
     discount: Optional[float] = 0
     paid_amount: Optional[float] = 0
     
@@ -205,6 +217,7 @@ class InvoiceUpdate(BaseModel):
     tax_method: Optional[str] = None
     tax_rate: Optional[float] = None
     tax_amount: Optional[float] = None
+    op_percent: Optional[float] = None  # O&P percentage
     discount: Optional[float] = None
     paid_amount: Optional[float] = None
     
@@ -277,6 +290,7 @@ class InvoiceResponse(BaseModel):
     
     # Financial
     subtotal: float
+    op_percent: Optional[float] = 0  # O&P percentage
     tax_method: Optional[str] = "percentage"
     tax_rate: float
     tax_amount: float
@@ -318,6 +332,7 @@ class InvoicePDFRequest(BaseModel):
     items: List[InvoiceItemBase] = []
     
     subtotal: float = 0
+    op_percent: Optional[float] = 0  # O&P percentage
     tax_method: Optional[str] = "percentage"
     tax_rate: float = 0
     tax_amount: float = 0

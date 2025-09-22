@@ -21,6 +21,7 @@ from app.domains.company.api import router as company_router
 from app.domains.invoice.api import router as invoice_router
 from app.domains.estimate.api import router as estimate_router
 from app.domains.plumber_report.api import router as plumber_report_router
+from app.domains.plumber_report.templates.api import router as plumber_report_template_router
 from app.domains.document.api import router as document_router
 from app.domains.work_order.api import router as work_order_router
 from app.domains.payment.api import router as payment_router
@@ -247,6 +248,7 @@ app.include_router(company_router, prefix="/api/companies", tags=["Companies"])
 app.include_router(invoice_router, prefix="/api/invoices", tags=["Invoices"])
 app.include_router(estimate_router, prefix="/api/estimates", tags=["Estimates"])
 app.include_router(plumber_report_router, prefix="/api/plumber-reports", tags=["Plumber Reports"])
+app.include_router(plumber_report_template_router, prefix="/api", tags=["Plumber Report Templates"])
 app.include_router(document_router, prefix="/api/documents", tags=["Documents"])
 
 # New Work Order System endpoints

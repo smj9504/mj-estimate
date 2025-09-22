@@ -123,14 +123,33 @@ async def list_invoices(
         # Convert to response format
         invoice_responses = []
         for invoice in invoices:
+            # Calculate paid amount from payments JSON field
+            payments = invoice.get('payments', [])
+            if isinstance(payments, str):
+                import json
+                try:
+                    payments = json.loads(payments)
+                except:
+                    payments = []
+            elif payments is None:
+                payments = []
+
+            paid_amount = sum(float(payment.get('amount', 0)) for payment in payments if isinstance(payment, dict))
+
             invoice_responses.append({
                 'id': invoice.get('id', ''),
                 'invoice_number': invoice.get('invoice_number', ''),
                 'client_name': invoice.get('client_name', ''),
+                'client_address': invoice.get('client_address', ''),
+                'client_city': invoice.get('client_city', ''),
                 'status': invoice.get('status', ''),
+                'total': float(invoice.get('total_amount', 0)),
                 'total_amount': float(invoice.get('total_amount', 0)),
+                'paid_amount': paid_amount,
                 'date': invoice.get('invoice_date', invoice.get('date', '')),
-                'due_date': invoice.get('due_date', '')
+                'due_date': invoice.get('due_date', ''),
+                'created_at': str(invoice.get('created_at', '')),
+                'updated_at': str(invoice.get('updated_at', ''))
             })
         
         return {
@@ -252,13 +271,22 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         'due_date': due_date,
         'status': invoice_data.status or 'pending',
         'company_id': str(invoice_data.company_id) if invoice_data.company_id else None,
-        
+
         # Client information - directly on Invoice model
         'client_name': invoice_data.client.name if invoice_data.client else '',
         'client_address': invoice_data.client.address if invoice_data.client else '',
+        'client_city': invoice_data.client.city if invoice_data.client else '',
+        'client_state': invoice_data.client.state if invoice_data.client else '',
+        'client_zipcode': invoice_data.client.zipcode if invoice_data.client else '',
         'client_phone': invoice_data.client.phone if invoice_data.client else '',
         'client_email': invoice_data.client.email if invoice_data.client else '',
-        
+
+        # Insurance information
+        'insurance_company': invoice_data.insurance.company if invoice_data.insurance else None,
+        'insurance_policy_number': invoice_data.insurance.policy_number if invoice_data.insurance else None,
+        'insurance_claim_number': invoice_data.insurance.claim_number if invoice_data.insurance else None,
+        'insurance_deductible': invoice_data.insurance.deductible if invoice_data.insurance else None,
+
         # Financial information
         'subtotal': subtotal,
         'tax_method': tax_method,
@@ -266,12 +294,12 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         'tax_amount': tax_amount,
         'discount_amount': discount,
         'total_amount': total,
-        
+
         # Payment tracking
         'payments': [payment.dict() for payment in payments],
         'show_payment_dates': invoice_data.show_payment_dates if hasattr(invoice_data, 'show_payment_dates') else True,
         'balance_due': balance_due,
-        
+
         # Additional fields
         'payment_terms': invoice_data.payment_terms if hasattr(invoice_data, 'payment_terms') else 'Net 30',
         'notes': invoice_data.notes if hasattr(invoice_data, 'notes') else None,
@@ -281,11 +309,13 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
     # Prepare items separately
     items_data = [
         {
-            'description': item.name,  # InvoiceItem model uses description as the main field
+            'name': item.name,  # Required field in InvoiceItem model
+            'description': item.description if hasattr(item, 'description') else '',  # Optional field
             'quantity': item.quantity,
             'unit': item.unit if hasattr(item, 'unit') else 'ea',
             'rate': item.rate,
-            'amount': item.quantity * item.rate
+            'amount': item.quantity * item.rate,
+            'taxable': item.taxable if hasattr(item, 'taxable') else True
         }
         for item in invoice_data.items
     ]
@@ -360,10 +390,10 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         client_zipcode=created_invoice.get('client_zipcode'),
         client_phone=created_invoice.get('client_phone'),
         client_email=created_invoice.get('client_email'),
-        insurance_company=None,  # Not stored directly on invoice
-        insurance_policy_number=None,
-        insurance_claim_number=None,
-        insurance_deductible=None,
+        insurance_company=created_invoice.get('insurance_company'),
+        insurance_policy_number=created_invoice.get('insurance_policy_number'),
+        insurance_claim_number=created_invoice.get('insurance_claim_number'),
+        insurance_deductible=created_invoice.get('insurance_deductible'),
         subtotal=created_invoice.get('subtotal', 0),
         tax_method=created_invoice.get('tax_method', 'percentage'),
         tax_rate=created_invoice.get('tax_rate', 0),
@@ -388,6 +418,10 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
                 unit=item.get('unit', ''),
                 rate=item.get('rate', 0),
                 amount=item.get('amount', 0),
+                taxable=item.get('taxable', True),
+                primary_group=item.get('primary_group'),
+                secondary_group=item.get('secondary_group'),
+                sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
@@ -484,6 +518,10 @@ async def update_invoice(
                 unit=item.get('unit', ''),
                 rate=item.get('rate', 0),
                 amount=item.get('amount', 0),
+                taxable=item.get('taxable', True),
+                primary_group=item.get('primary_group'),
+                secondary_group=item.get('secondary_group'),
+                sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
@@ -717,6 +755,10 @@ async def duplicate_invoice(invoice_id: str, db=Depends(get_db)):
                 unit=item.get('unit', ''),
                 rate=item.get('rate', 0),
                 amount=item.get('amount', 0),
+                taxable=item.get('taxable', True),
+                primary_group=item.get('primary_group'),
+                secondary_group=item.get('secondary_group'),
+                sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
@@ -739,12 +781,12 @@ async def add_payment(
     from app.core.database_factory import get_database
     database = get_database()
     service = InvoiceService(database)
-    
+
     # Add payment to invoice
     updated_invoice = service.add_payment(invoice_id, payment.dict())
     if not updated_invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    
+
     # Convert to response format
     return InvoiceResponse(
         id=updated_invoice['id'],
@@ -797,6 +839,9 @@ async def add_payment(
                 rate=item.get('rate', 0),
                 amount=item.get('amount', 0),
                 taxable=item.get('taxable', True),
+                primary_group=item.get('primary_group'),
+                secondary_group=item.get('secondary_group'),
+                sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
@@ -816,12 +861,12 @@ async def remove_payment(
     from app.core.database_factory import get_database
     database = get_database()
     service = InvoiceService(database)
-    
+
     # Remove payment from invoice
     updated_invoice = service.remove_payment(invoice_id, payment_index)
     if not updated_invoice:
         raise HTTPException(status_code=404, detail="Invoice not found or invalid payment index")
-    
+
     # Convert to response format (similar to add_payment response)
     return InvoiceResponse(
         id=updated_invoice['id'],
@@ -874,6 +919,9 @@ async def remove_payment(
                 rate=item.get('rate', 0),
                 amount=item.get('amount', 0),
                 taxable=item.get('taxable', True),
+                primary_group=item.get('primary_group'),
+                secondary_group=item.get('secondary_group'),
+                sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
@@ -924,6 +972,7 @@ async def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_inv
             insurance_claim_number=invoice.get('insurance_claim_number'),
             insurance_deductible=invoice.get('insurance_deductible'),
             subtotal=invoice.get('subtotal', 0),
+            op_percent=invoice.get('op_percent', 0),
             tax_method=invoice.get('tax_method', 'percentage'),
             tax_rate=invoice.get('tax_rate', 0),
             tax_amount=invoice.get('tax_amount', 0),
@@ -950,6 +999,9 @@ async def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_inv
                     rate=item.get('rate', 0),
                     amount=item.get('amount', 0),
                     taxable=item.get('taxable', True),
+                    primary_group=item.get('primary_group'),
+                    secondary_group=item.get('secondary_group'),
+                    sort_order=item.get('sort_order'),
                     order_index=item.get('order_index'),
                     created_at=item.get('created_at'),
                     updated_at=item.get('updated_at')

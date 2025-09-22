@@ -47,7 +47,12 @@ class DatabaseProvider(ABC):
     def get_session(self) -> DatabaseSession:
         """Get a database session"""
         pass
-    
+
+    def get_readonly_session(self) -> DatabaseSession:
+        """Get a read-only database session with autocommit for SELECT queries"""
+        # Default implementation falls back to regular session
+        return self.get_session()
+
     @abstractmethod
     def close(self):
         """Close database connections"""

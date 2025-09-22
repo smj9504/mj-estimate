@@ -84,7 +84,7 @@ const CustomLineItemForm: React.FC<CustomLineItemFormProps> = ({
 
       const lineItemData: LineItemCreate = {
         cat: values.category,
-        item: values.item_code || undefined,
+        name: values.item_code || undefined,
         description: values.description,
         includes: values.includes || undefined,
         unit: values.unit || 'EA',

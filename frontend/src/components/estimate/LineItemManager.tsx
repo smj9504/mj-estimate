@@ -373,11 +373,11 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
 
   // Handle line item selection
   const handleLineItemSelect = (itemCode: string) => {
-    const selectedItem = (lineItems || []).find(item => item.item === itemCode);
+    const selectedItem = (lineItems || []).find(item => item.name === itemCode);
     if (selectedItem) {
       setFormData(prev => ({
         ...prev,
-        itemCode: selectedItem.item,
+        itemCode: selectedItem.name,
         description: selectedItem.description,
         unit: selectedItem.unit,
         unitPrice: selectedItem.untaxed_unit_price,
@@ -400,7 +400,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
         // Clear only the line_item_id since we're changing category
         line_item_id: undefined,
         // Reset item code to indicate it needs to be reselected
-        item: currentItem.item || `CUSTOM-${Date.now()}`,
+        name: currentItem.name || `CUSTOM-${Date.now()}`,
       };
       onItemsChange(updatedItems);
       message.success('Category updated - other values preserved');
@@ -425,11 +425,11 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
     // Get the correct ID (handle both string and number IDs)
     const itemId = typeof selectedItem.id === 'number' ? selectedItem.id.toString() : selectedItem.id;
 
-    // Get the component code (handle both component_code and item_code)
-    // Also check for 'item' field as fallback
+    // Get the component code (handle both component_code and name)
+    // Also check for 'item_code' field as fallback for backwards compatibility
     const componentCode = selectedItem.component_code ||
                           (selectedItem as any).item_code ||
-                          (selectedItem as any).item ||
+                          (selectedItem as any).name ||
                           itemId ||
                           `CUSTOM-${Date.now()}`;
 
@@ -490,7 +490,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
           const newItem: EstimateLineItem = {
             id: `temp-${Date.now()}-${index}`, // Temporary ID for frontend, will be replaced by backend
             line_item_id: transformed.id, // Reference to master line item
-            item: transformed.component_code || transformed.id, // Ensure item field is set with fallback to id
+            name: transformed.component_code || transformed.id, // Ensure name field is set with fallback to id
             description: transformed.description,
             quantity: quantity,
             unit: transformed.unit,
@@ -513,7 +513,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
         console.log('LineItemManager: Total items count:', updatedItems.length);
         
         // Validate that items have required fields
-        const invalidItems = newItems.filter(item => !item.item || !item.description);
+        const invalidItems = newItems.filter(item => !item.name || !item.description);
         if (invalidItems.length > 0) {
           console.error('LineItemManager: Some items are missing required fields:', invalidItems);
           message.error('Some items could not be added due to missing data');
@@ -554,7 +554,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
     
     const newItem: EstimateLineItem = {
       id: editingIndex !== null ? items[editingIndex]?.id : undefined,
-      item: formData.itemCode || generateItemCode(formData.description || 'Custom Item'),
+      name: formData.itemCode || generateItemCode(formData.description || 'Custom Item'),
       description: formData.description!,
       quantity: quantity,
       unit: unit,
@@ -569,7 +569,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
 
     // Check if this is a new line item (not from existing DB)
     const isNewLineItem = !formData.itemCode || !items.some(item => 
-      item.line_item_id && item.item === formData.itemCode
+      item.line_item_id && item.name === formData.itemCode
     );
 
     if (editingIndex !== null) {
@@ -650,7 +650,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
     try {
       await lineItemService.createLineItem({
         cat: formData.category || '',
-        item: item.item,
+        name: item.name,
         description: item.description || '',
         unit: item.unit || '',
         untaxed_unit_price: item.unit_price || 0,
@@ -682,7 +682,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
     const item = (items || [])[index];
     setFormData({
       category: item.primary_group,
-      itemCode: item.item,
+      itemCode: item.name,
       description: item.description,
       quantity: item.quantity,
       unit: item.unit,
@@ -857,7 +857,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
             unit: item.unit,
             unit_price: item.unit_price,
             total: item.total,
-            item: item.item,
+            name: item.name,
             primary_group: item.primary_group,
             secondary_group: item.secondary_group,
           })), null, 2);

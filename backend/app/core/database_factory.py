@@ -298,6 +298,18 @@ class SQLiteDatabase(DatabaseProvider):
         except Exception as e:
             logger.error(f"Failed to create SQLite session: {e}")
             raise ConnectionError("Failed to connect to SQLite database", e)
+
+    @retry_on_database_error(max_retries=3)
+    def get_readonly_session(self) -> DatabaseSession:
+        """Get read-only SQLAlchemy session with autocommit for SELECT queries"""
+        try:
+            # Create session with autocommit for read-only operations
+            raw_session = self.SessionLocal()
+            raw_session.connection(execution_options={"autocommit": True})
+            return SQLAlchemySession(raw_session)
+        except Exception as e:
+            logger.error(f"Failed to create read-only SQLite session: {e}")
+            raise ConnectionError("Failed to connect to SQLite database", e)
     
     @contextmanager
     def get_unit_of_work(self) -> SQLAlchemyUnitOfWork:
@@ -403,6 +415,18 @@ class PostgreSQLDatabase(DatabaseProvider):
             return SQLAlchemySession(raw_session)
         except Exception as e:
             logger.error(f"Failed to create PostgreSQL session: {e}")
+            raise ConnectionError("Failed to connect to PostgreSQL database", e)
+
+    @retry_on_database_error(max_retries=3)
+    def get_readonly_session(self) -> DatabaseSession:
+        """Get read-only SQLAlchemy session with autocommit for SELECT queries"""
+        try:
+            # Create session with autocommit for read-only operations
+            raw_session = self.SessionLocal()
+            raw_session.connection(execution_options={"autocommit": True})
+            return SQLAlchemySession(raw_session)
+        except Exception as e:
+            logger.error(f"Failed to create read-only PostgreSQL session: {e}")
             raise ConnectionError("Failed to connect to PostgreSQL database", e)
     
     @contextmanager

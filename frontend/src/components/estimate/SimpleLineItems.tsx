@@ -99,7 +99,7 @@ const SimpleLineItems: React.FC<SimpleLineItemsProps> = ({
   // 아이템 렌더링
   const renderLineItem = (item: EstimateLineItem, index: number) => {
     const isSelected = selectedItems.has(index);
-    
+
     return (
       <div
         key={index}
@@ -147,7 +147,7 @@ const SimpleLineItems: React.FC<SimpleLineItemsProps> = ({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
             <Text strong style={{ marginRight: 8 }}>
-              {item.item}
+              {item.name || ''}
             </Text>
             {item.description && (
               <Text type="secondary" style={{ fontSize: 12 }}>

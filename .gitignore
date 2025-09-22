@@ -33,6 +33,9 @@ backend/.env.local
 mjestimate_dev.db
 /backend/uploads/
 /backend/logs/
+/backend/scripts/
+/backend/migrations/
+
 
 # IDE files
 .vscode/

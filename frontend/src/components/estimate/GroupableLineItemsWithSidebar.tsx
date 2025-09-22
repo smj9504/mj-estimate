@@ -232,7 +232,7 @@ const GroupableLineItemsWithSidebar: React.FC<GroupableLineItemsWithSidebarProps
       totalItems: items.length,
       items: items.map(item => ({
         id: item.id,
-        item: item.item,
+        name: item.name,
         primary_group: item.primary_group,
         secondary_group: item.secondary_group
       }))

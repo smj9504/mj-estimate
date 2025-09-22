@@ -242,14 +242,28 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             
             # Update items (simplified approach)
             # In a production system, you might want to handle item updates more granularly
-            if hasattr(repository, 'delete_items_by_estimate_id'):
-                repository.delete_items_by_estimate_id(estimate_id)
+            # Delete existing items
+            from app.domains.estimate.models import EstimateItem
+            repository.db_session.query(EstimateItem).filter(EstimateItem.estimate_id == estimate_id).delete()
             
             # Create new items
+            logger.info(f"Creating {len(items_data)} items for estimate {estimate_id}")
             for idx, item_data in enumerate(items_data):
+                logger.info(f"Processing item {idx}: {item_data}")
+                logger.info(f"Item fields - name: {item_data.get('name')}, description: {item_data.get('description')}")
+
                 item_data['estimate_id'] = estimate_id
                 item_data['order_index'] = idx
-                # Create item logic would go here
+                # Calculate the amount for the item
+                quantity = float(item_data.get('quantity', 1))
+                rate = float(item_data.get('rate', 0))
+                item_data['amount'] = quantity * rate
+
+                # Create the item directly using SQLAlchemy
+                from app.domains.estimate.models import EstimateItem
+                item_entity = EstimateItem(**item_data)
+                logger.info(f"Created EstimateItem entity: name={item_entity.name}, description={item_entity.description}")
+                repository.db_session.add(item_entity)
             
             return repository.get_with_items(estimate_id)
         
@@ -338,48 +352,79 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             logger.error(f"Error converting estimate to invoice: {e}")
             raise
     
-    def calculate_totals(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def calculate_totals(self, items: List[Dict[str, Any]], op_percent: float = 0, tax_method: str = 'percentage', tax_rate: float = 0, tax_amount: float = 0) -> Dict[str, Any]:
         """
-        Calculate estimate totals based on items.
-        
+        Calculate estimate totals based on items with O&P and tax calculations.
+
         Args:
             items: List of estimate items
-            
+            op_percent: O&P percentage
+            tax_method: Tax method ('percentage' or 'specific')
+            tax_rate: Tax rate percentage (used when tax_method is 'percentage')
+            tax_amount: Specific tax amount (used when tax_method is 'specific')
+
         Returns:
             Dictionary with calculated totals
         """
         try:
             subtotal = Decimal('0')
-            total_tax = Decimal('0')
+            total_item_tax = Decimal('0')
             total_depreciation = Decimal('0')
-            
+
             for item in items:
                 quantity = Decimal(str(item.get('quantity', 1)))
                 rate = Decimal(str(item.get('rate', 0)))
-                tax_rate = Decimal(str(item.get('tax_rate', 0)))
+                item_tax_rate = Decimal(str(item.get('tax_rate', 0)))
                 depreciation_rate = Decimal(str(item.get('depreciation_rate', 0)))
-                
+
                 item_amount = quantity * rate
-                item_tax = item_amount * (tax_rate / 100)
+                item_tax = item_amount * (item_tax_rate / 100)
                 item_depreciation = item_amount * (depreciation_rate / 100)
-                
+
                 subtotal += item_amount
-                total_tax += item_tax
+                total_item_tax += item_tax
                 total_depreciation += item_depreciation
-            
+
+            # Calculate O&P amount
+            op_amount = subtotal * (Decimal(str(op_percent)) / 100)
+
+            # Calculate tax based on method
+            if tax_method == 'percentage':
+                # Calculate tax on taxable items only + proportional O&P
+                taxable_amount = Decimal('0')
+                for item in items:
+                    if item.get('taxable', True):  # Default to taxable if not specified
+                        quantity = Decimal(str(item.get('quantity', 1)))
+                        rate = Decimal(str(item.get('rate', 0)))
+                        taxable_amount += quantity * rate
+
+                # Calculate taxable ratio and apply to O&P
+                taxable_ratio = taxable_amount / subtotal if subtotal > 0 else Decimal('0')
+                taxable_op_amount = op_amount * taxable_ratio
+
+                # Calculate tax on taxable items + taxable portion of O&P
+                calculated_tax_amount = (taxable_amount + taxable_op_amount) * (Decimal(str(tax_rate)) / 100)
+            else:
+                # Use specific tax amount
+                calculated_tax_amount = Decimal(str(tax_amount))
+
             discount = Decimal(str(items[0].get('discount_amount', 0) if items else 0))
-            rcv_amount = subtotal + total_tax - discount  # Replacement Cost Value
+            rcv_amount = subtotal + op_amount + calculated_tax_amount - discount  # Replacement Cost Value
             acv_amount = rcv_amount - total_depreciation  # Actual Cash Value
-            
+
             return {
                 'subtotal': float(subtotal),
-                'tax_amount': float(total_tax),
+                'op_percent': float(op_percent),
+                'op_amount': float(op_amount),
+                'tax_method': tax_method,
+                'tax_rate': float(tax_rate) if tax_method == 'percentage' else 0,
+                'tax_amount': float(calculated_tax_amount),
                 'depreciation_amount': float(total_depreciation),
                 'rcv_amount': float(rcv_amount),
                 'acv_amount': float(acv_amount),
                 'total_amount': float(rcv_amount)  # Use RCV as total
             }
-            
+
         except Exception as e:
             logger.error(f"Error calculating estimate totals: {e}")
             raise
@@ -559,8 +604,7 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             raise ValueError("At least one estimate item is required")
         
         for item in items:
-            if not item.get('description'):
-                raise ValueError("Item description is required")
+            # Description is optional, can be empty
             if float(item.get('rate', 0)) < 0:
                 raise ValueError("Item rate cannot be negative")
             if float(item.get('quantity', 0)) <= 0:
@@ -571,8 +615,13 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
         if room_data and not isinstance(room_data, (dict, str)):
             raise ValueError("Room data must be a dictionary or JSON string")
         
-        # Calculate totals
-        totals = self.calculate_totals(items)
+        # Calculate totals with O&P and tax information
+        op_percent = float(validated_data.get('op_percent', 0))
+        tax_method = validated_data.get('tax_method', 'percentage')
+        tax_rate = float(validated_data.get('tax_rate', 0))
+        tax_amount = float(validated_data.get('tax_amount', 0))
+
+        totals = self.calculate_totals(items, op_percent, tax_method, tax_rate, tax_amount)
         validated_data.update(totals)
         
         return validated_data
@@ -606,15 +655,19 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                 raise ValueError("At least one estimate item is required")
             
             for item in items:
-                if not item.get('description'):
-                    raise ValueError("Item description is required")
+                # Description is optional, can be empty
                 if float(item.get('rate', 0)) < 0:
                     raise ValueError("Item rate cannot be negative")
                 if float(item.get('quantity', 0)) <= 0:
                     raise ValueError("Item quantity must be positive")
             
-            # Calculate totals
-            totals = self.calculate_totals(items)
+            # Calculate totals with O&P and tax information
+            op_percent = float(validated_data.get('op_percent', 0))
+            tax_method = validated_data.get('tax_method', 'percentage')
+            tax_rate = float(validated_data.get('tax_rate', 0))
+            tax_amount = float(validated_data.get('tax_amount', 0))
+
+            totals = self.calculate_totals(items, op_percent, tax_method, tax_rate, tax_amount)
             validated_data.update(totals)
         
         # Validate room data if provided

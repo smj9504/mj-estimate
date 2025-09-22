@@ -343,23 +343,51 @@ class PDFService:
         if not context['client'].get('name'):
             context['client']['name'] = 'Unknown Client'
         
-        # Calculate totals
+        # Calculate totals - matching frontend logic
         items = context.get('items', [])
-        subtotal = sum(
+        items_subtotal = sum(
             float(item.get('quantity', 0)) * float(item.get('rate', 0))
             for item in items
         )
-        
-        context['subtotal'] = subtotal
-        context['subtotal_total'] = subtotal  # Template expects this name
+
+        # Get O&P percentage and calculate O&P amount
+        op_percent = float(context.get('op_percent', 0))
+        op_amount = items_subtotal * (op_percent / 100)
+
+        # Calculate tax
         context.setdefault('tax_rate', 0)
-        tax_amount = subtotal * float(context['tax_rate']) / 100
-        context['tax_amount'] = tax_amount
-        context['tax_calculated'] = tax_amount  # Template expects this name
-        
+        tax_method = context.get('tax_method', 'percentage')
+
+        if tax_method == 'percentage':
+            # Calculate tax on taxable items + proportional O&P
+            taxable_amount = sum(
+                float(item.get('quantity', 0)) * float(item.get('rate', 0))
+                for item in items
+                if item.get('taxable', True)  # Default to taxable
+            )
+            taxable_ratio = taxable_amount / items_subtotal if items_subtotal > 0 else 0
+            taxable_op_amount = op_amount * taxable_ratio
+            tax_amount = (taxable_amount + taxable_op_amount) * float(context['tax_rate']) / 100
+        else:
+            tax_amount = float(context.get('tax_amount', 0))
+
+        # Subtotal includes Items + O&P + Tax
+        subtotal = items_subtotal + op_amount + tax_amount
+
         context.setdefault('discount', 0)
         context.setdefault('shipping', 0)
-        total = subtotal - float(context.get('discount', 0)) + tax_amount + float(context.get('shipping', 0))
+
+        # Total is subtotal minus discount plus shipping
+        total = subtotal - float(context.get('discount', 0)) + float(context.get('shipping', 0))
+
+        # Set all required context values
+        context['items_subtotal'] = items_subtotal
+        context['op_percent'] = op_percent
+        context['op_amount'] = op_amount
+        context['subtotal'] = subtotal
+        context['subtotal_total'] = subtotal  # Template expects this name
+        context['tax_amount'] = tax_amount
+        context['tax_calculated'] = tax_amount  # Template expects this name
         context['total'] = total
         context['total_with_tax'] = total  # Template expects this name
         
@@ -405,6 +433,14 @@ class PDFService:
         context.setdefault('disclaimer', '')
         context.setdefault('payments', [])
         context.setdefault('tax_type', 'percentage')
+
+        # Calculate payment totals
+        payments = context.get('payments', [])
+        total_paid = sum(float(payment.get('amount', 0)) for payment in payments)
+        balance_due = total - total_paid
+
+        context['total_paid'] = total_paid
+        context['balance_due'] = balance_due
         
         # Convert markdown in notes and payment_terms
         if context.get('notes'):

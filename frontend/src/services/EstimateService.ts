@@ -3,22 +3,23 @@ import { apiClient } from '../api/config';
 export interface EstimateLineItem {
   id?: string; // Estimate line item ID (for existing items)
   line_item_id?: string; // Reference to master line item ID
-  item: string;
+  name: string; // Aligned with invoice_items for consistency
   description?: string;
   note?: string;  // Rich text HTML content
   quantity: number;
   unit: string;
   unit_price: number;
   total: number;
-  
+  taxable?: boolean; // Whether the item is taxable
+
   // Flexible grouping
   primary_group?: string;  // 1차 분류 (섹션명)
   secondary_group?: string;  // 2차 분류
   sort_order?: number;  // 그룹 내 정렬 순서
-  
+
   // Notes management for temporary items
   temp_note_ids?: string[]; // Note IDs for temporary items
-  
+
   // Deprecated but kept for backward compatibility
   room?: string;
   category?: string;
@@ -56,9 +57,12 @@ export interface EstimateCreate {
   items: EstimateLineItem[];
   sections?: EstimateSection[];  // 섹션 기반 데이터
   op_percent?: number;  // O&P 퍼센트
+  tax_method?: 'percentage' | 'specific'; // Tax calculation method
+  tax_rate?: number;
+  tax_amount?: number;
 }
 
-export interface InsuranceEstimate {
+export interface EstimateResponse {
   id?: string;
   estimate_number: string;
   estimate_type?: string;  // 'standard' or 'insurance'
@@ -100,6 +104,7 @@ export interface InsuranceEstimate {
   
   // Totals
   subtotal?: number;
+  tax_method?: 'percentage' | 'specific'; // Tax calculation method
   tax_rate?: number;
   tax_amount?: number;
   discount_amount?: number;
@@ -120,13 +125,13 @@ class EstimateService {
   // Transform frontend EstimateLineItem to backend format
   private transformItemToBackend(item: EstimateLineItem) {
     // Handle both new data format and ensure proper validation
-    const itemCode = item.item?.trim() || null;
+    const name = item.name?.trim() || null;
     const description = item.description?.trim() || '';
 
     // If no description provided, this is acceptable for items with just codes
-    // But we need at least item code or description
-    if (!itemCode && !description) {
-      throw new Error('Item must have either a code or description');
+    // But we need at least name or description
+    if (!name && !description) {
+      throw new Error('Item must have either a name or description');
     }
 
     // Ensure quantity is valid - must be > 0
@@ -142,11 +147,12 @@ class EstimateService {
     }
 
     return {
-      item_code: itemCode,  // Store the "Sel" value in item_code field
+      name: name,  // Aligned with invoice_items for consistency
       description: description, // Keep empty if no description provided
       quantity: quantity,
       unit: item.unit?.trim() || 'ea',
       rate: rate,
+      taxable: item.taxable ?? true, // Include taxable status
       room: item.room?.trim() || null,
       category: item.category?.trim() || null,
       primary_group: item.primary_group?.trim() || null,
@@ -163,24 +169,25 @@ class EstimateService {
   // Transform backend item to frontend format
   private transformItemFromBackend(item: any): EstimateLineItem {
     // Handle legacy data compatibility
-    // If item_code is empty/null but description looks like a code (uppercase, short), treat description as code
-    let itemCode = item.item_code || '';
+    // If name is empty/null but description looks like a code (uppercase, short), treat description as code
+    let name = item.name || '';
     let description = item.description || '';
 
-    // Legacy data compatibility: if no item_code but description looks like a code
-    if (!itemCode && description && this.isLikelyItemCode(description)) {
-      itemCode = description;
+    // Legacy data compatibility: if no name but description looks like a code
+    if (!name && description && this.isLikelyItemCode(description)) {
+      name = description;
       description = ''; // Clear description since it's actually a code
     }
 
     return {
       id: item.id,
-      item: itemCode,  // Use resolved item code
+      name: name,  // Use resolved name
       description: description, // Use resolved description
       quantity: item.quantity || 0,
       unit: item.unit || 'ea',
       unit_price: item.rate || 0, // Map 'rate' to 'unit_price'
       total: item.amount || item.acv_amount || 0, // Use amount or acv_amount as total
+      taxable: item.taxable ?? true, // Include taxable status
       room: item.room,
       category: item.category,
       primary_group: item.primary_group,
@@ -239,8 +246,8 @@ class EstimateService {
     return dateString;
   }
 
-  // Transform InsuranceEstimate to backend EstimateCreate format
-  private transformEstimateToBackend(estimate: InsuranceEstimate) {
+  // Transform EstimateResponse to backend EstimateCreate format
+  private transformEstimateToBackend(estimate: EstimateResponse) {
     // Validate items array
     if (!estimate.items || estimate.items.length === 0) {
       throw new Error('At least one item is required');
@@ -248,7 +255,7 @@ class EstimateService {
 
     return {
       estimate_number: estimate.estimate_number ? String(estimate.estimate_number).trim() : null,
-      estimate_type: 'insurance', // Insurance estimate type
+      estimate_type: estimate.estimate_type || 'standard', // Use provided estimate_type or default to standard
       company_id: estimate.company_id || null,
       client_name: estimate.client_name ? String(estimate.client_name).trim() : '',
       client_address: estimate.client_address ? String(estimate.client_address).trim() : null,
@@ -270,16 +277,25 @@ class EstimateService {
       adjuster_name: estimate.adjuster_name?.trim() || null,
       adjuster_phone: estimate.adjuster_phone?.trim() || null,
       adjuster_email: estimate.adjuster_email?.trim() || null,
+      // Financial fields
+      subtotal: estimate.subtotal ? Number(estimate.subtotal) : null,
+      op_percent: estimate.op_percent ? Number(estimate.op_percent) : null,
+      op_amount: estimate.op_amount ? Number(estimate.op_amount) : null,
+      tax_method: estimate.tax_method || 'percentage',
+      tax_rate: estimate.tax_rate ? Number(estimate.tax_rate) : null,
+      tax_amount: estimate.tax_amount ? Number(estimate.tax_amount) : null,
+      discount_amount: estimate.discount_amount ? Number(estimate.discount_amount) : null,
+      total_amount: estimate.total_amount ? Number(estimate.total_amount) : null,
       items: estimate.items.map(item => this.transformItemToBackend(item))
     };
   }
 
-  // Transform backend response to frontend InsuranceEstimate format
-  private transformEstimateFromBackend(backendData: any): InsuranceEstimate {
+  // Transform backend response to frontend EstimateResponse format
+  private transformEstimateFromBackend(backendData: any): EstimateResponse {
     return {
       id: backendData.id,
       estimate_number: backendData.estimate_number,
-      estimate_type: backendData.estimate_type || 'insurance',
+      estimate_type: backendData.estimate_type || 'standard',
       company_id: backendData.company_id,
       company_name: backendData.company_name,
       company_address: backendData.company_address,
@@ -300,10 +316,14 @@ class EstimateService {
       valid_until: backendData.valid_until,
       status: backendData.status,
       subtotal: backendData.subtotal,
+      op_percent: backendData.op_percent, // Add missing O&P percentage
+      op_amount: backendData.op_amount, // Add missing O&P amount
+      tax_method: backendData.tax_method, // Add missing tax method
       tax_rate: backendData.tax_rate,
       tax_amount: backendData.tax_amount,
       discount_amount: backendData.discount_amount,
       total_amount: backendData.total_amount,
+      rcv_total: backendData.rcv_amount, // Add missing RCV total
       claim_number: backendData.claim_number,
       policy_number: backendData.policy_number,
       insurance_company: backendData.insurance_company,
@@ -325,17 +345,17 @@ class EstimateService {
     client_name?: string;
     status?: string;
     estimate_type?: string;
-  }): Promise<InsuranceEstimate[]> {
+  }): Promise<EstimateResponse[]> {
     const response = await apiClient.get('/api/estimates/', { params });
     return response.data.map((item: any) => this.transformEstimateFromBackend(item));
   }
 
-  async getEstimate(id: string): Promise<InsuranceEstimate> {
+  async getEstimate(id: string): Promise<EstimateResponse> {
     const response = await apiClient.get(`/api/estimates/${id}`);
     return this.transformEstimateFromBackend(response.data);
   }
 
-  async createEstimate(estimate: InsuranceEstimate): Promise<InsuranceEstimate> {
+  async createEstimate(estimate: EstimateResponse): Promise<EstimateResponse> {
     console.log('Creating estimate with data:', estimate);
     
     try {
@@ -354,7 +374,7 @@ class EstimateService {
     }
   }
 
-  async updateEstimate(id: string, estimate: InsuranceEstimate): Promise<InsuranceEstimate> {
+  async updateEstimate(id: string, estimate: EstimateResponse): Promise<EstimateResponse> {
     try {
       const backendData = this.transformEstimateToBackend(estimate);
       console.log('Updating estimate with data:', JSON.stringify(backendData, null, 2));
@@ -375,7 +395,7 @@ class EstimateService {
     await apiClient.delete(`/api/estimates/${id}`);
   }
 
-  async duplicateEstimate(id: string): Promise<InsuranceEstimate> {
+  async duplicateEstimate(id: string): Promise<EstimateResponse> {
     const response = await apiClient.post(`/api/estimates/${id}/duplicate`);
     return this.transformEstimateFromBackend(response.data);
   }
@@ -391,7 +411,7 @@ class EstimateService {
     return response.data;
   }
 
-  async previewPDF(estimate: InsuranceEstimate): Promise<Blob> {
+  async previewPDF(estimate: EstimateResponse): Promise<Blob> {
     // Transform the estimate data to the format expected by the PDF endpoint
     const pdfData = {
       estimate_number: estimate.estimate_number || this.generateEstimateNumberFallback(),
@@ -420,9 +440,13 @@ class EstimateService {
         description: item.description || 'No description', // Use actual description for PDF
         quantity: item.quantity || 0,
         unit: item.unit || 'ea',
-        rate: item.unit_price || 0 // Map 'unit_price' to 'rate' for PDF
+        rate: item.unit_price || 0, // Map 'unit_price' to 'rate' for PDF
+        taxable: item.taxable ?? true // Include taxable status for PDF
       })),
       subtotal: estimate.subtotal || 0,
+      op_percent: estimate.op_percent || 0, // Include O&P percentage
+      op_amount: estimate.op_amount || 0, // Include O&P amount
+      tax_method: estimate.tax_method || 'percentage', // Include tax method
       tax_rate: estimate.tax_rate || 0,
       tax_amount: estimate.tax_amount || 0,
       discount_amount: estimate.discount_amount || 0,
@@ -480,7 +504,7 @@ class EstimateService {
     }
   }
 
-  async previewHTML(estimate: InsuranceEstimate): Promise<string> {
+  async previewHTML(estimate: EstimateResponse): Promise<string> {
     // Check for items without primary_group and show warning
     const itemsWithoutGroup = estimate.items.filter(item => !item.primary_group);
     if (itemsWithoutGroup.length > 0) {
@@ -518,9 +542,13 @@ class EstimateService {
         quantity: item.quantity || 0,
         unit: item.unit || 'ea',
         rate: item.unit_price || 0,
+        taxable: item.taxable ?? true, // Include taxable status for HTML
         note: item.note || ''
       })),
       subtotal: estimate.subtotal || 0,
+      op_percent: estimate.op_percent || 0, // Include O&P percentage
+      op_amount: estimate.op_amount || 0, // Include O&P amount
+      tax_method: estimate.tax_method || 'percentage', // Include tax method
       tax_rate: estimate.tax_rate || 0,
       tax_amount: estimate.tax_amount || 0,
       discount_amount: estimate.discount_amount || 0,

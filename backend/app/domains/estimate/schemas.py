@@ -19,13 +19,14 @@ class EstimateItemBase(BaseModel):
     # Deprecated but kept for backward compatibility
     room: Optional[str] = None  # Use primary_group/secondary_group instead
 
-    # Line item code field - stores the "Sel" value from frontend
-    item_code: Optional[str] = None  # Line item selection code (Sel column)
+    # Item name field - aligned with invoice_items table for consistency
+    name: Optional[str] = None  # Item name or identifier (aligned with invoice_items)
 
     description: Optional[str] = None
     quantity: float = 1.0
     unit: Optional[str] = "ea"
     rate: float = 0.0
+    taxable: Optional[bool] = True  # Whether the item is taxable
     category: Optional[str] = None
     note: Optional[str] = None  # Rich text HTML content
     
@@ -47,11 +48,12 @@ class EstimateItemUpdate(BaseModel):
     secondary_group: Optional[str] = None
     sort_order: Optional[int] = None
     room: Optional[str] = None  # Deprecated
-    item_code: Optional[str] = None  # Line item selection code
+    name: Optional[str] = None  # Item name or identifier
     description: Optional[str] = None
     quantity: Optional[float] = None
     unit: Optional[str] = None
     rate: Optional[float] = None
+    taxable: Optional[bool] = None
     category: Optional[str] = None
     note: Optional[str] = None
     depreciation_rate: Optional[float] = None
@@ -62,13 +64,14 @@ class EstimateItemResponse(EstimateItemBase):
     id: UUID
     estimate_id: Optional[UUID] = None
     amount: float = 0.0
+    taxable: Optional[bool] = True
     tax_rate: float = 0.0
     tax_amount: float = 0.0
     order_index: Optional[int] = None
     primary_group: Optional[str] = None
     secondary_group: Optional[str] = None
     sort_order: Optional[int] = 0
-    item_code: Optional[str] = None  # Line item selection code
+    name: Optional[str] = None  # Item name or identifier
     note: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -143,6 +146,9 @@ class EstimateUpdate(BaseModel):
 
     # ✅ Added missing financial fields
     subtotal: Optional[float] = None
+    op_percent: Optional[float] = None  # O&P percentage
+    op_amount: Optional[float] = None  # O&P amount
+    tax_method: Optional[str] = None  # 'percentage' or 'specific'
     tax_rate: Optional[float] = None
     tax_amount: Optional[float] = None
     discount_amount: Optional[float] = None
@@ -225,6 +231,9 @@ class EstimateResponse(BaseModel):
     
     # Financial
     subtotal: float = 0.0
+    op_percent: float = 0.0  # O&P percentage
+    op_amount: float = 0.0  # O&P amount
+    tax_method: Optional[str] = "percentage"  # 'percentage' or 'specific'
     tax_rate: float = 0.0
     tax_amount: float = 0.0
     discount_amount: float = 0.0
@@ -282,6 +291,8 @@ class EstimatePDFRequest(BaseModel):
     
     # Financial
     subtotal: float = 0
+    op_percent: float = 0  # O&P percentage
+    op_amount: float = 0  # O&P amount
     tax_rate: float = 0
     tax_amount: float = 0
     discount_amount: float = 0

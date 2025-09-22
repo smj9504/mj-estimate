@@ -1,0 +1,64 @@
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional, List
+from datetime import datetime
+from enum import Enum
+
+
+class PlumberReportTemplateType(str, Enum):
+    WARRANTY = "warranty"
+    TERMS = "terms"
+    NOTES = "notes"
+
+
+class PlumberReportTemplateCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    type: PlumberReportTemplateType
+    content: str = Field(..., min_length=1)
+    description: Optional[str] = None
+
+
+class PlumberReportTemplateUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    content: Optional[str] = Field(None, min_length=1)
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class PlumberReportTemplateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    company_id: str
+    name: str
+    type: PlumberReportTemplateType
+    content: str
+    description: Optional[str] = None
+    is_active: bool
+    usage_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class PlumberReportTemplateListResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    type: PlumberReportTemplateType
+    description: Optional[str] = None
+    usage_count: int
+    updated_at: datetime
+
+
+class PlumberReportTemplateContentResponse(BaseModel):
+    content: str
+    template_id: str
+    template_name: str
+
+
+class PlumberReportTemplateSearchFilters(BaseModel):
+    type: Optional[PlumberReportTemplateType] = None
+    search: Optional[str] = None
+    is_active: Optional[bool] = True
+    sort_by: Optional[str] = "name"  # name, created_at, usage_count
+    sort_order: Optional[str] = "asc"  # asc, desc

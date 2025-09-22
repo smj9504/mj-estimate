@@ -57,7 +57,7 @@ export interface LineItemModalItem {
 export interface LineItem {
   id: string;
   cat?: string;
-  item?: string;
+  name?: string; // Aligned with invoice_items for consistency
   description: string;
   includes?: string;
   unit?: string;
@@ -89,7 +89,7 @@ export interface LineItemCreate extends Omit<LineItem, 'id' | 'created_at' | 'up
 
 export interface LineItemUpdate {
   cat?: string;
-  item?: string;
+  name?: string; // Aligned with invoice_items for consistency
   description?: string;
   includes?: string;
   unit?: string;
