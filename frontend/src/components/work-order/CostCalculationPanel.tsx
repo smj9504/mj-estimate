@@ -52,7 +52,7 @@ const CostCalculationPanel: React.FC<CostCalculationPanelProps> = ({
   loading = false
 }) => {
   const [costBreakdown, setCostBreakdown] = useState<CostBreakdown>({
-    baseCost: 0,
+    baseFee: 0,
     creditsApplied: 0,
     finalCost: 0,
     availableCredits: 0
@@ -96,16 +96,16 @@ const CostCalculationPanel: React.FC<CostCalculationPanelProps> = ({
 
     // Simulate API delay
     const timer = setTimeout(() => {
-      // Get base cost from document type
-      const baseDocumentCost = parseFloat(selectedDocumentType.base_price) || 0;
+      // Get base fee from document type
+      const baseDocumentFee = parseFloat(selectedDocumentType.base_fee) || 0;
       
       // Calculate total trade costs (for now we'll use 0 since trades don't have individual prices)
       const tradesCost = 0; // Trades are included in document type pricing
       
-      const totalBaseCost = baseDocumentCost + tradesCost;
+      const totalBaseFee = baseDocumentFee + tradesCost;
       
       // Add additional costs to subtotal
-      const subtotal = totalBaseCost + additionalCostsTotal;
+      const subtotal = totalBaseFee + additionalCostsTotal;
       
       // Calculate tax only if enabled
       const taxAmount = taxEnabled ? (subtotal * (taxRate / 100)) : 0;
@@ -122,7 +122,7 @@ const CostCalculationPanel: React.FC<CostCalculationPanelProps> = ({
       const finalCalculatedCost = Math.max(0, subtotal + taxAmount - appliedCredits);
 
       const newBreakdown: CostBreakdown = {
-        baseCost: totalBaseCost,
+        baseFee: totalBaseFee,
         creditsApplied: appliedCredits,
         finalCost: manualOverride ? overrideCost : finalCalculatedCost,
         availableCredits: totalAvailableCredits
@@ -195,7 +195,7 @@ const CostCalculationPanel: React.FC<CostCalculationPanelProps> = ({
                     </Col>
                     <Col>
                       <Text style={{ fontSize: '12px' }}>
-                        ${selectedDocumentType ? parseFloat(selectedDocumentType.base_price).toFixed(2) : '0.00'}
+                        ${selectedDocumentType ? parseFloat(selectedDocumentType.base_fee).toFixed(2) : '0.00'}
                       </Text>
                     </Col>
                   </Row>
@@ -232,7 +232,7 @@ const CostCalculationPanel: React.FC<CostCalculationPanelProps> = ({
                       <Text>Subtotal:</Text>
                     </Col>
                     <Col>
-                      <Text>${(costBreakdown.baseCost + additionalCostsTotal).toFixed(2)}</Text>
+                      <Text>${(costBreakdown.baseFee + additionalCostsTotal).toFixed(2)}</Text>
                     </Col>
                   </Row>
                   
@@ -243,7 +243,7 @@ const CostCalculationPanel: React.FC<CostCalculationPanelProps> = ({
                       </Col>
                       <Col>
                         <Text style={{ fontSize: '12px' }}>
-                          ${((costBreakdown.baseCost + additionalCostsTotal) * (taxRate / 100)).toFixed(2)}
+                          ${((costBreakdown.baseFee + additionalCostsTotal) * (taxRate / 100)).toFixed(2)}
                         </Text>
                       </Col>
                     </Row>
@@ -256,7 +256,7 @@ const CostCalculationPanel: React.FC<CostCalculationPanelProps> = ({
                     </Col>
                     <Col>
                       <Text strong>
-                        ${((costBreakdown.baseCost + additionalCostsTotal) * (1 + (taxEnabled ? taxRate / 100 : 0))).toFixed(2)}
+                        ${((costBreakdown.baseFee + additionalCostsTotal) * (1 + (taxEnabled ? taxRate / 100 : 0))).toFixed(2)}
                       </Text>
                     </Col>
                   </Row>

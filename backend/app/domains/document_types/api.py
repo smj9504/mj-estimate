@@ -94,17 +94,17 @@ async def delete_document_type(
     return {"message": "Document type deleted successfully"}
 
 
-@router.post("/document-types/{document_type_id}/calculate-price")
-async def calculate_document_price(
+@router.post("/document-types/{document_type_id}/calculate-fee")
+async def calculate_document_fee(
     document_type_id: UUID,
-    params: schemas.PriceCalculationParams,
+    params: schemas.FeeCalculationParams,
     db: Session = Depends(get_db)
 ):
-    """Calculate price for a document type based on parameters"""
-    price = service.calculate_document_price(db, document_type_id, params)
-    if price is None:
+    """Calculate fee for a document type based on parameters"""
+    fee = service.calculate_document_fee(db, document_type_id, params)
+    if fee is None:
         raise HTTPException(status_code=404, detail="Document type not found")
-    return {"price": price, "parameters": params.dict()}
+    return {"fee": fee, "parameters": params.dict()}
 
 
 # Trades endpoints
@@ -225,14 +225,14 @@ async def delete_measurement_report_type(
     return {"message": "Measurement report type deleted successfully"}
 
 
-@router.post("/measurement-report-types/{report_type_id}/calculate-price")
-async def calculate_report_price(
+@router.post("/measurement-report-types/{report_type_id}/calculate-fee")
+async def calculate_report_fee(
     report_type_id: UUID,
     rush: bool = False,
     db: Session = Depends(get_db)
 ):
-    """Calculate price for a measurement report"""
-    price = service.calculate_report_price(db, report_type_id, rush)
-    if price is None:
+    """Calculate fee for a measurement report"""
+    fee = service.calculate_report_fee(db, report_type_id, rush)
+    if fee is None:
         raise HTTPException(status_code=404, detail="Measurement report type not found")
-    return {"price": price, "rush": rush}
+    return {"fee": fee, "rush": rush}

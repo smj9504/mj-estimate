@@ -51,6 +51,7 @@ class Company(Base, BaseModel):
     invoices = relationship("Invoice", back_populates="company", cascade="all, delete-orphan")
     estimates = relationship("Estimate", back_populates="company", cascade="all, delete-orphan")
     plumber_reports = relationship("PlumberReport", back_populates="company", cascade="all, delete-orphan")
+    sketches = relationship("Sketch", back_populates="company", cascade="all, delete-orphan")
     
     # Payment configuration relationships - temporarily commented out to resolve circular import
     # payment_method_ref = relationship("PaymentMethod", foreign_keys=[payment_method_id], lazy="joined")

@@ -125,3 +125,6 @@ temp/
 
 # Docker
 .dockerignore
+
+# Reference files
+reference/

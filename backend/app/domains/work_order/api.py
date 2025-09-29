@@ -154,7 +154,7 @@ async def get_work_orders(
             service.ensure_cost_fields(wo)
             
             # Ensure cost fields are numeric for serialization
-            cost_fields = ['base_cost', 'final_cost', 'tax_amount', 'discount_amount', 'credits_applied']
+            cost_fields = ['base_fee', 'final_cost', 'tax_amount', 'discount_amount', 'credits_applied']
             for field in cost_fields:
                 if field not in wo or wo[field] is None:
                     wo[field] = 0.0
@@ -183,18 +183,18 @@ async def get_work_order(
         if not work_order:
             raise HTTPException(status_code=404, detail="Work order not found")
         
-        logger.info(f"API: Work order {work_order_id} - base_cost: {work_order.get('base_cost')} (type: {type(work_order.get('base_cost'))})")
+        logger.info(f"API: Work order {work_order_id} - base_fee: {work_order.get('base_fee')} (type: {type(work_order.get('base_fee'))})")
         logger.info(f"API: Work order {work_order_id} - final_cost: {work_order.get('final_cost')} (type: {type(work_order.get('final_cost'))})")
         logger.info(f"API: Work order {work_order_id} - trades: {work_order.get('trades')}")
         logger.info(f"API: Work order {work_order_id} - additional_costs: {work_order.get('additional_costs')}")
         
         # Store cost fields before populate_staff_names
-        original_base_cost = work_order.get('base_cost')
+        original_base_fee = work_order.get('base_fee')
         original_final_cost = work_order.get('final_cost')
         original_tax_amount = work_order.get('tax_amount')
         original_discount_amount = work_order.get('discount_amount')
         
-        logger.info(f"API: Before populate_staff_names - base_cost: {original_base_cost}, final_cost: {original_final_cost}")
+        logger.info(f"API: Before populate_staff_names - base_fee: {original_base_fee}, final_cost: {original_final_cost}")
         
         # Populate staff names for single work order
         work_orders = populate_staff_names([work_order], staff_service)
@@ -203,11 +203,11 @@ async def get_work_order(
         if work_orders and work_orders[0]:
             wo = work_orders[0]
             
-            logger.info(f"API: After populate_staff_names - base_cost: {wo.get('base_cost')}, final_cost: {wo.get('final_cost')}")
+            logger.info(f"API: After populate_staff_names - base_fee: {wo.get('base_fee')}, final_cost: {wo.get('final_cost')}")
             
             # Restore original cost values if they were lost
-            if original_base_cost is not None:
-                wo['base_cost'] = original_base_cost
+            if original_base_fee is not None:
+                wo['base_fee'] = original_base_fee
             if original_final_cost is not None:
                 wo['final_cost'] = original_final_cost
             if original_tax_amount is not None:
@@ -216,7 +216,7 @@ async def get_work_order(
                 wo['discount_amount'] = original_discount_amount
             
             # Ensure cost fields exist and are numeric
-            cost_fields = ['base_cost', 'final_cost', 'tax_amount', 'discount_amount', 'credits_applied']
+            cost_fields = ['base_fee', 'final_cost', 'tax_amount', 'discount_amount', 'credits_applied']
             for field in cost_fields:
                 if field not in wo or wo[field] is None:
                     wo[field] = 0.0
@@ -232,7 +232,7 @@ async def get_work_order(
                     except (ValueError, TypeError):
                         wo[field] = 0.0
             
-            logger.info(f"API: Final values - base_cost: {wo.get('base_cost')} (type: {type(wo.get('base_cost'))})")
+            logger.info(f"API: Final values - base_fee: {wo.get('base_fee')} (type: {type(wo.get('base_fee'))})")
             logger.info(f"API: Final values - final_cost: {wo.get('final_cost')} (type: {type(wo.get('final_cost'))})")
         
         return WorkOrderResponse(data=work_orders[0])
@@ -298,7 +298,7 @@ async def update_work_order(
                 )
                 
                 # Update cost fields
-                update_data['base_cost'] = str(cost_breakdown['base_cost'])
+                update_data['base_fee'] = str(cost_breakdown['base_fee'])
                 update_data['final_cost'] = str(cost_breakdown['final_cost'])
                 update_data['tax_amount'] = str(cost_breakdown['tax_amount'])
                 update_data['discount_amount'] = str(cost_breakdown['discount_amount'])
@@ -557,8 +557,8 @@ async def debug_work_order(
                 "id": work_order.get('id'),
                 "trades": work_order.get('trades'),
                 "trades_type": str(type(work_order.get('trades'))),
-                "base_cost": work_order.get('base_cost'),
-                "base_cost_type": str(type(work_order.get('base_cost'))),
+                "base_fee": work_order.get('base_fee'),
+                "base_fee_type": str(type(work_order.get('base_fee'))),
                 "final_cost": work_order.get('final_cost'),
                 "final_cost_type": str(type(work_order.get('final_cost'))),
                 "additional_costs": work_order.get('additional_costs'),
@@ -583,8 +583,8 @@ async def debug_work_order(
         # Apply ensure_cost_fields
         work_order_with_costs = service.ensure_cost_fields(work_order.copy())
         debug_info['after_ensure_cost_fields'] = {
-            "base_cost": work_order_with_costs.get('base_cost'),
-            "base_cost_type": str(type(work_order_with_costs.get('base_cost'))),
+            "base_fee": work_order_with_costs.get('base_fee'),
+            "base_fee_type": str(type(work_order_with_costs.get('base_fee'))),
             "final_cost": work_order_with_costs.get('final_cost'),
             "final_cost_type": str(type(work_order_with_costs.get('final_cost')))
         }

@@ -435,13 +435,31 @@ class EstimateService {
         phone: estimate.client_phone || '',
         email: estimate.client_email || ''
       },
+      // Include sections data if available (preferred format)
+      sections: estimate.sections ? estimate.sections.map(section => ({
+        title: section.title,
+        showSubtotal: section.showSubtotal,
+        subtotal: section.subtotal,
+        items: section.items.map(item => ({
+          name: item.name || '',
+          description: item.description || '',
+          note: item.note || '',
+          quantity: item.quantity || 0,
+          unit: item.unit || 'ea',
+          rate: item.unit_price || 0,
+          taxable: item.taxable ?? true
+        }))
+      })) : undefined,
+      // Fallback items array for backwards compatibility
       items: estimate.items.map(item => ({
+        name: item.name || '',
         room: item.room || '',
-        description: item.description || 'No description', // Use actual description for PDF
+        description: item.description || 'No description',
+        note: item.note || '',
         quantity: item.quantity || 0,
         unit: item.unit || 'ea',
-        rate: item.unit_price || 0, // Map 'unit_price' to 'rate' for PDF
-        taxable: item.taxable ?? true // Include taxable status for PDF
+        rate: item.unit_price || 0,
+        taxable: item.taxable ?? true
       })),
       subtotal: estimate.subtotal || 0,
       op_percent: estimate.op_percent || 0, // Include O&P percentage

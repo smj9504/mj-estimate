@@ -31,7 +31,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { documentService } from '../services/documentService';
 import { invoiceService, InvoiceResponse } from '../services/invoiceService';
 import { estimateService } from '../services/EstimateService';
-import { Document, DocumentFilter, DocumentType, DocumentStatus, EstimateType, EstimateTypeLabels } from '../types';
+import { Document, DocumentFilter, DocumentType, DocumentStatus, InvoiceStatus, EstimateStatus, EstimateType, EstimateTypeLabels } from '../types';
 import dayjs from 'dayjs';
 
 const { Title } = Typography;
@@ -299,20 +299,38 @@ const DocumentList: React.FC = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      // Invoice statuses
+      case 'pending': return 'processing';
+      case 'paid': return 'success';
+      case 'overdue': return 'error';
+      case 'cancelled': return 'default';
+
+      // Estimate statuses
       case 'draft': return 'default';
       case 'sent': return 'processing';
-      case 'paid': return 'success';
-      case 'cancelled': return 'error';
+      case 'accepted': return 'success';
+      case 'rejected': return 'error';
+      case 'expired': return 'warning';
+
       default: return 'default';
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status) {
+      // Invoice statuses
+      case 'pending': return 'Pending';
+      case 'paid': return 'Paid';
+      case 'overdue': return 'Overdue';
+      case 'cancelled': return 'Cancelled';
+
+      // Estimate statuses
       case 'draft': return 'Draft';
       case 'sent': return 'Sent';
-      case 'paid': return 'Paid';
-      case 'cancelled': return 'Cancelled';
+      case 'accepted': return 'Accepted';
+      case 'rejected': return 'Rejected';
+      case 'expired': return 'Expired';
+
       default: return status;
     }
   };

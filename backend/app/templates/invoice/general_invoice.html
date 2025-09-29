@@ -20,8 +20,8 @@
       text-align: right;
     }
     .logo {
-      max-width: 150px;
-      max-height: 100px;
+      max-width: 100px;
+      max-height: 60px;
       width: auto;
       height: auto;
       object-fit: contain;
@@ -57,8 +57,8 @@
     }
     .line-header {
       font-weight: bold;
-      border-bottom: 1px solid #000;
-      margin-top: 30px;
+      border-bottom: 1px solid #ccc;
+      margin-top: 8px;
       padding-bottom: 6px;
       display: flex;
     }
@@ -83,8 +83,10 @@
       margin-top: 20px;
       margin-bottom: 4px;
       font-weight: bold;
-      font-size: 13px;
-      color: #333;
+      font-size: 14px;
+      color: #000;
+      border-bottom: 1px solid #333;
+      padding-bottom: 4px;
     }
     .subtotal {
       text-align: right;
@@ -94,16 +96,58 @@
       margin-bottom: 10px;
     }
     .footer-total {
-      text-align: right;
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 20px;
+      margin-bottom: 20px;
+    }
+    .totals-container {
+      width: 300px;
+    }
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 13px;
+    }
+    .total-row.grand-total {
+      border-top: 1px solid #000;
+      padding-top: 8px;
+      margin-top: 4px;
       font-size: 14px;
-      margin-top: 30px;
+      font-weight: bold;
+    }
+    .total-label {
+      color: #555;
+    }
+    .total-value {
+      color: #000;
+      font-weight: 500;
+    }
+    .grand-total .total-label,
+    .grand-total .total-value {
+      color: #000;
+      font-weight: bold;
+    }
+    .balance-due {
+      margin-top: 15px;
+      font-size: 14px;
     }
     .payments {
       margin-top: 10px;
     }
-    .payments ul {
-      margin: 0;
-      padding-left: 20px;
+    .payment-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 13px;
+    }
+    .payment-label {
+      color: #555;
+    }
+    .payment-value {
+      color: #000;
+      font-weight: 500;
     }
     .note, .disclaimer {
       font-size: 11px;
@@ -159,71 +203,128 @@
 <p>{{ notes }}</p>
 {% endif %}
 
-<div class="line-header">
-    <div class="col-item">Item</div>
-    <div class="col-qty">Qty</div>
-    <div class="col-unit">Unit</div>
-    <div class="col-price">Price</div>
-    <div class="col-total">Total</div>
-</div>
+{% if serviceSections %}
+  {% for section in serviceSections %}
+    {% if serviceSections|length > 1 %}
+      <div class="section-title">{{ section.title }}</div>
+    {% endif %}
 
-{% for item in items %}
-<div class="line-row">
-  <div class="col-item">{{ item.name }}</div>
-  <div class="col-qty">{{ item.quantity }}</div>
-  <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
-  <div class="col-price">${{ '{:,.2f}'.format(item.rate) }}</div>
-  <div class="col-total">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</div>
-</div>
+    <div class="line-header">
+        <div class="col-item">Item</div>
+        <div class="col-qty">Qty</div>
+        <div class="col-unit">Unit</div>
+        <div class="col-price">Price</div>
+        <div class="col-total">Total</div>
+    </div>
 
-{% if item.description %}
-  <div class="col-desc">{{ item.description.replace('\n', '<br>') | safe }}</div>
+    {% for item in section.line_items %}
+    <div class="line-row">
+      <div class="col-item">{{ item.name }}</div>
+      <div class="col-qty">{{ item.qty }}</div>
+      <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
+      <div class="col-price">${{ '{:,.2f}'.format(item.price) }}</div>
+      <div class="col-total">${{ '{:,.2f}'.format(item.qty * item.price) }}</div>
+    </div>
+
+    {% if item.dec %}
+      <div class="col-desc">{{ item.dec.replace('\n', '<br>') | safe }}</div>
+    {% endif %}
+    {% endfor %}
+  {% endfor %}
+{% else %}
+  <div class="line-header">
+      <div class="col-item">Item</div>
+      <div class="col-qty">Qty</div>
+      <div class="col-unit">Unit</div>
+      <div class="col-price">Price</div>
+      <div class="col-total">Total</div>
+  </div>
+
+  {% for item in items %}
+  <div class="line-row">
+    <div class="col-item">{{ item.name }}</div>
+    <div class="col-qty">{{ item.quantity }}</div>
+    <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
+    <div class="col-price">${{ '{:,.2f}'.format(item.rate) }}</div>
+    <div class="col-total">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</div>
+  </div>
+
+  {% if item.description %}
+    <div class="col-desc">{{ item.description.replace('\n', '<br>') | safe }}</div>
+  {% endif %}
+  {% endfor %}
 {% endif %}
-{% endfor %}
 
 <div class="footer-total">
-<p>Items Subtotal: ${{ '{:,.2f}'.format(items_subtotal) }}</p>
+  <div class="totals-container">
+    <div class="total-row">
+      <span class="total-label">Items Subtotal</span>
+      <span class="total-value">${{ '{:,.2f}'.format(items_subtotal) }}</span>
+    </div>
 
-{% if op_percent and op_percent > 0 %}
-  <p>O&P ({{ op_percent }}%): ${{ '{:,.2f}'.format(op_amount) }}</p>
-{% endif %}
+    {% if op_percent and op_percent > 0 %}
+    <div class="total-row">
+      <span class="total-label">O&P ({{ op_percent }}%)</span>
+      <span class="total-value">${{ '{:,.2f}'.format(op_amount) }}</span>
+    </div>
+    {% endif %}
 
-{% if tax_amount and tax_amount > 0 %}
-  {% if tax_method == 'percentage' and tax_rate %}
-    <p>Tax ({{ tax_rate }}%): ${{ '{:,.2f}'.format(tax_amount) }}</p>
-  {% else %}
-    <p>Tax: ${{ '{:,.2f}'.format(tax_amount) }}</p>
-  {% endif %}
-{% endif %}
+    {% if tax_amount and tax_amount > 0 %}
+    <div class="total-row">
+      {% if tax_method == 'percentage' and tax_rate %}
+        <span class="total-label">Tax ({{ tax_rate }}%)</span>
+      {% else %}
+        <span class="total-label">Tax</span>
+      {% endif %}
+      <span class="total-value">${{ '{:,.2f}'.format(tax_amount) }}</span>
+    </div>
+    {% endif %}
 
-<p>Subtotal: ${{ '{:,.2f}'.format(subtotal) }}</p>
+    {% if discount and discount > 0 %}
+    <div class="total-row">
+      <span class="total-label">Discount</span>
+      <span class="total-value">-${{ '{:,.2f}'.format(discount) }}</span>
+    </div>
+    {% endif %}
 
-{% if discount and discount > 0 %}
-  <p>Discount: -${{ '{:,.2f}'.format(discount) }}</p>
-{% endif %}
+    {% if shipping and shipping > 0 %}
+    <div class="total-row">
+      <span class="total-label">Shipping</span>
+      <span class="total-value">${{ '{:,.2f}'.format(shipping) }}</span>
+    </div>
+    {% endif %}
 
-<p><strong>Total: ${{ '{:,.2f}'.format(total) }}</strong></p>
+    <div class="total-row grand-total">
+      <span class="total-label">Total</span>
+      <span class="total-value">${{ '{:,.2f}'.format(total) }}</span>
+    </div>
 
-{% if payments and payments|length > 0 %}
-  <div class="payments">
-    <p><strong>Payments Received:</strong></p>
-    <ul style="list-style: none; padding-left: 0;">
+    {% if payments and payments|length > 0 %}
       {% for payment in payments %}
-      <li>
-        {% if payment.date %}
-          <span style="color: #888888; font-style: italic;">({{ payment.date }})</span>
-        {% endif %}
-        <strong>-${{ '{:,.2f}'.format(payment.amount) }}</strong>
-      </li>
+      <div class="total-row">
+        <span class="total-label">Payment{% if payment.date %} ({{ payment.date }}){% endif %}</span>
+        <span class="total-value">-${{ '{:,.2f}'.format(payment.amount) }}</span>
+      </div>
       {% endfor %}
-    </ul>
-    {% set total_paid = payments | sum(attribute='amount') %}
-    <p>Total Paid: ${{ '{:,.2f}'.format(total_paid) }}</p>
-    <p><strong>Balance Due: ${{ '{:,.2f}'.format(total - total_paid) }}</strong></p>
+
+      {% set total_paid = payments | sum(attribute='amount') %}
+      <div class="total-row">
+        <span class="total-label">Total Paid</span>
+        <span class="total-value">${{ '{:,.2f}'.format(total_paid) }}</span>
+      </div>
+
+      <div class="total-row grand-total balance-due">
+        <span class="total-label">Balance Due</span>
+        <span class="total-value">${{ '{:,.2f}'.format(total - total_paid) }}</span>
+      </div>
+    {% else %}
+      <div class="total-row grand-total balance-due">
+        <span class="total-label">Amount Due</span>
+        <span class="total-value">${{ '{:,.2f}'.format(total) }}</span>
+      </div>
+    {% endif %}
   </div>
-{% else %}
-  <p><strong>Amount Due: ${{ '{:,.2f}'.format(total) }}</strong></p>
-{% endif %}
+</div>
 </div>
 
 {% if payment_terms %}

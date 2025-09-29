@@ -733,6 +733,18 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     return allItems;
   };
 
+  // Clean notes from duplicate O&P information
+  const cleanNotesFromOPInfo = (notes: string): string => {
+    if (!notes) return notes;
+
+    // Remove O&P information patterns
+    return notes
+      .replace(/\n\nO&P:\s*\d+(\.\d+)?%/g, '') // Remove "\n\nO&P: X%"
+      .replace(/^O&P:\s*\d+(\.\d+)?%\n?/g, '') // Remove "O&P: X%" at start
+      .replace(/\nO&P:\s*\d+(\.\d+)?%/g, '')   // Remove "\nO&P: X%"
+      .trim();
+  };
+
   // Create estimate data object
   const createEstimateData = (values: any): EstimateResponse => {
     const allItems = convertSectionsToItems();
@@ -752,8 +764,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       tax_rate: taxMethod === 'percentage' ? taxRate : 0,
       tax_amount: grandTotal.taxAmount,
       total_amount: grandTotal.total,
-      // Add O&P info to notes if needed
-      notes: values.notes ? `${values.notes}\n\nO&P: ${opPercent}%` : `O&P: ${opPercent}%`,
+      notes: cleanNotesFromOPInfo(values.notes),
     };
   };
 
@@ -965,9 +976,8 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                   <Form.Item
                     name="client_name"
                     label="Client Name"
-                    rules={[{ required: true, message: 'Please enter client name' }]}
                   >
-                    <Input placeholder="Enter client name" />
+                    <Input placeholder="Enter client name (optional)" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>

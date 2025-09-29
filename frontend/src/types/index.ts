@@ -46,7 +46,14 @@ export interface CompanyFilter {
 
 // Document Types
 export type DocumentType = 'estimate' | 'invoice' | 'insurance_estimate' | 'plumber_report' | 'work_order';
-export type DocumentStatus = 'draft' | 'sent' | 'paid' | 'cancelled';
+// Invoice statuses
+export type InvoiceStatus = 'pending' | 'paid' | 'overdue' | 'cancelled';
+
+// Estimate statuses
+export type EstimateStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired';
+
+// Combined document status for backward compatibility
+export type DocumentStatus = InvoiceStatus | EstimateStatus;
 
 // Estimate Type ENUM
 export enum EstimateType {
@@ -133,8 +140,10 @@ export interface WorkOrder {
   client_zipcode?: string;
   trades: string[];
   work_description?: string;
+  scope_of_work?: string;
+  special_instructions?: string;
   consultation_notes?: string;
-  base_cost: number;
+  base_fee: number;
   credits_applied: number;
   final_cost: number;
   cost_override?: number;
@@ -164,6 +173,8 @@ export interface WorkOrderFormData {
   client_zipcode?: string;
   trades: string[];
   work_description?: string;
+  scope_of_work?: string;
+  special_instructions?: string;
   consultation_notes?: string;
   cost_override?: number;
   additional_costs?: any[];
@@ -174,7 +185,7 @@ export interface WorkOrderFormData {
 export interface Trade {
   id: string;
   name: string;
-  base_cost: number;
+  base_fee: number;
   description?: string;
 }
 
@@ -189,7 +200,7 @@ export interface Credit {
 }
 
 export interface CostBreakdown {
-  baseCost: number;
+  baseFee: number;
   creditsApplied: number;
   finalCost: number;
   availableCredits: number;

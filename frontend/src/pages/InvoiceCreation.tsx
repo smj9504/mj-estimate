@@ -295,7 +295,7 @@ const InvoiceCreation: React.FC = () => {
         invoice_number: data.invoice_number,
         date: data.date ? dayjs(data.date) : dayjs(),
         due_date: data.due_date ? dayjs(data.due_date) : dayjs().add(30, 'day'),
-        status: data.status || 'draft',
+        status: data.status || 'pending',
         client_name: data.client_name,
         client_address: data.client_address,
         client_city: data.client_city,
@@ -580,7 +580,7 @@ const InvoiceCreation: React.FC = () => {
       form.setFieldsValue({
         date: dayjs(),
         due_date: dayjs().add(30, 'day'),
-        status: 'draft',
+        status: 'pending',
         tax_rate: 0,
         discount: 0,
         invoice_number: '', // Will be generated
@@ -961,7 +961,7 @@ const InvoiceCreation: React.FC = () => {
     };
   }, [sections, taxMethod, taxRate, specificTaxAmount, discount, payments, form, formMounted, opPercent]);
 
-  const handleSave = async (status: string = 'draft') => {
+  const handleSave = async (status: string = 'pending') => {
     try {
       const values = await form.validateFields();
       setLoading(true);
@@ -1077,23 +1077,23 @@ const InvoiceCreation: React.FC = () => {
     }
   };
 
-  const handlePreviewPDF = async () => {
+  const handlePreviewHTML = async () => {
     try {
       setLoading(true);
       const values = await form.validateFields();
-      
+
       // Validate company information
       if (!selectedCompany && !useCustomCompany) {
         message.error('Please select a company or choose to enter custom company information');
         setLoading(false);
         return;
       }
-      
+
       let companyName = values.company_name;
       if (!useCustomCompany && selectedCompany) {
         companyName = selectedCompany.name;
       }
-      
+
       if (!companyName && useCustomCompany) {
         message.error('Please enter company name for custom company');
         setLoading(false);
@@ -1152,11 +1152,12 @@ const InvoiceCreation: React.FC = () => {
         notes: values.notes,
       };
 
-      const blob = await invoiceService.previewPDF(pdfData);
+      const htmlContent = await invoiceService.previewHTML(pdfData);
+      const blob = new Blob([htmlContent], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
     } catch (error) {
-      message.error('Failed to generate PDF preview');
+      message.error('Failed to generate HTML preview');
       console.error(error);
     } finally {
       setLoading(false);
@@ -1918,7 +1919,7 @@ const InvoiceCreation: React.FC = () => {
                       min={0}
                       max={100}
                       step={0.1}
-                      onChange={(value) => setOpPercent(value || 0)}
+                      onChange={(value) => setOpPercent(typeof value === 'number' ? value : 0)}
                       formatter={(value?: string | number) => `${value}%`}
                       parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
                     />
@@ -2104,7 +2105,7 @@ const InvoiceCreation: React.FC = () => {
             </Button>
             <Button
               icon={<EyeOutlined />}
-              onClick={handlePreviewPDF}
+              onClick={handlePreviewHTML}
               loading={loading}
             >
               Preview PDF

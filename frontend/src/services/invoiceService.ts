@@ -180,6 +180,17 @@ class InvoiceService {
     return response.data;
   }
 
+  async previewHTML(data: InvoiceData): Promise<string> {
+    const response = await apiClient.post(
+      '/api/invoices/preview-html',
+      data,
+      {
+        responseType: 'text',
+      }
+    );
+    return response.data;
+  }
+
   async duplicateInvoice(id: string): Promise<InvoiceDetailResponse> {
     const response = await apiClient.post(`/api/invoices/${id}/duplicate`);
     return response.data;

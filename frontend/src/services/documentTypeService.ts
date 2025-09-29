@@ -3,8 +3,8 @@ import type {
   DocumentType, 
   Trade, 
   MeasurementReportType, 
-  PriceCalculationParams, 
-  PriceCalculationResponse 
+  FeeCalculationParams,
+  FeeCalculationResponse 
 } from '../types/documentTypes';
 
 const documentTypeService = {
@@ -35,11 +35,11 @@ const documentTypeService = {
     await api.delete(`/api/document-types/${id}`);
   },
 
-  async calculateDocumentPrice(
-    id: string, 
-    params: PriceCalculationParams
-  ): Promise<PriceCalculationResponse> {
-    const response = await api.post(`/api/document-types/${id}/calculate-price`, params);
+  async calculateDocumentFee(
+    id: string,
+    params: FeeCalculationParams
+  ): Promise<FeeCalculationResponse> {
+    const response = await api.post(`/api/document-types/${id}/calculate-fee`, params);
     return response.data;
   },
 
@@ -103,8 +103,8 @@ const documentTypeService = {
     await api.delete(`/api/measurement-report-types/${id}`);
   },
 
-  async calculateReportPrice(id: string, rush: boolean = false): Promise<{ price: number; rush: boolean }> {
-    const response = await api.post(`/api/measurement-report-types/${id}/calculate-price`, { rush });
+  async calculateReportFee(id: string, rush: boolean = false): Promise<{ fee: number; rush: boolean }> {
+    const response = await api.post(`/api/measurement-report-types/${id}/calculate-fee`, { rush });
     return response.data;
   },
 };

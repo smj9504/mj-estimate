@@ -87,7 +87,7 @@ class WorkOrderCreate(WorkOrderBase):
     """Schema for creating a work order"""
     work_order_number: Optional[str] = None
     created_by_staff_id: Optional[UUID] = None
-    base_cost: Optional[float] = None
+    base_fee: Optional[float] = None
     discount_amount: Optional[float] = None
     tax_amount: Optional[float] = None
     final_cost: Optional[float] = None
@@ -178,7 +178,7 @@ class WorkOrder(WorkOrderBase):
     assigned_to_staff_name: Optional[str] = None
     
     # Cost fields (calculated, no defaults to preserve actual values)
-    base_cost: Optional[float] = None
+    base_fee: Optional[float] = None
     credits_applied: Optional[float] = None
     final_cost: Optional[float] = None
     tax_amount: Optional[float] = None

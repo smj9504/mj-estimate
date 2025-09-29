@@ -189,13 +189,13 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
                 )
                 
                 # Store calculated costs
-                data['base_cost'] = str(cost_breakdown['base_cost'])
+                data['base_fee'] = str(cost_breakdown['base_fee'])
                 data['final_cost'] = str(cost_breakdown['final_cost'])
                 data['tax_amount'] = str(cost_breakdown['tax_amount'])
                 data['discount_amount'] = str(cost_breakdown['discount_amount'])
             else:
                 # Set default values if no trades
-                data['base_cost'] = '0.0'
+                data['base_fee'] = '0.0'
                 data['final_cost'] = '0.0'
                 data['tax_amount'] = '0.0'
                 data['discount_amount'] = '0.0'
@@ -346,7 +346,7 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
         try:
             session = self.database.get_session()
             try:
-                base_cost = 0.0
+                base_fee = 0.0
                 trade_costs = []
                 
                 # Get base cost from document type
@@ -358,25 +358,25 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
                     for doc_type in document_types:
                         # Match by code (e.g., 'work_order', 'estimate', etc.)
                         if hasattr(doc_type, 'code') and doc_type.code == document_type:
-                            if hasattr(doc_type, 'base_price') and doc_type.base_price is not None:
+                            if hasattr(doc_type, 'base_fee') and doc_type.base_fee is not None:
                                 try:
-                                    base_cost = float(doc_type.base_price)
-                                    logger.info(f"Document type {document_type} base_price: {base_cost}")
+                                    base_fee = float(doc_type.base_fee)
+                                    logger.info(f"Document type {document_type} base_fee: {base_fee}")
                                 except (ValueError, TypeError):
-                                    base_cost = 0.0
+                                    base_fee = 0.0
                             break
                         # Also try matching by name
                         elif hasattr(doc_type, 'name') and doc_type.name.lower().replace(' ', '_') == document_type:
-                            if hasattr(doc_type, 'base_price') and doc_type.base_price is not None:
+                            if hasattr(doc_type, 'base_fee') and doc_type.base_fee is not None:
                                 try:
-                                    base_cost = float(doc_type.base_price)
-                                    logger.info(f"Document type {document_type} base_price: {base_cost}")
+                                    base_fee = float(doc_type.base_fee)
+                                    logger.info(f"Document type {document_type} base_fee: {base_fee}")
                                 except (ValueError, TypeError):
-                                    base_cost = 0.0
+                                    base_fee = 0.0
                             break
-                    
-                    if base_cost == 0.0:
-                        logger.warning(f"No base_price found for document type: {document_type}")
+
+                    if base_fee == 0.0:
+                        logger.warning(f"No base_fee found for document type: {document_type}")
                 
                 # Get trades (for information only, not for cost calculation)
                 if trade_ids:
@@ -427,7 +427,7 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
                         additional_costs_detail.append(detail_item)
                 
                 # Calculate subtotal (trades + additional costs)
-                subtotal = base_cost + additional_costs_total
+                subtotal = base_fee + additional_costs_total
                 
                 # Calculate tax only if apply_tax is True
                 if apply_tax:
@@ -442,14 +442,14 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
                 final_cost = subtotal + tax_amount
                 
                 logger.info(f"Cost calculation summary:")
-                logger.info(f"  - Base cost (from trades): ${base_cost}")
+                logger.info(f"  - Base cost (from trades): ${base_fee}")
                 logger.info(f"  - Additional costs total: ${additional_costs_total}")
                 logger.info(f"  - Subtotal: ${subtotal}")
                 logger.info(f"  - Tax amount ({actual_tax_rate * 100}%): ${tax_amount}")
                 logger.info(f"  - Final cost: ${final_cost}")
                 
                 return {
-                    'base_cost': base_cost,
+                    'base_fee': base_fee,
                     'additional_costs': additional_costs_detail,
                     'additional_costs_total': additional_costs_total,
                     'subtotal': subtotal,
@@ -468,7 +468,7 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
             logger.error(f"Error calculating cost: {e}")
             # Return default cost breakdown on error
             return {
-                'base_cost': 0.0,
+                'base_fee': 0.0,
                 'tax_amount': 0.0,
                 'tax_rate': 0.081,
                 'discount_amount': 0.0,
@@ -637,21 +637,21 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
         """
         logger.info(f"ensure_cost_fields called for work order {work_order.get('id')}")
         logger.info(f"Trades: {work_order.get('trades')}")
-        logger.info(f"Initial base_cost: {work_order.get('base_cost')} (type: {type(work_order.get('base_cost'))})")
+        logger.info(f"Initial base_fee: {work_order.get('base_fee')} (type: {type(work_order.get('base_fee'))})")
         logger.info(f"Initial final_cost: {work_order.get('final_cost')} (type: {type(work_order.get('final_cost'))})")
         
         # Convert cost fields to float first for proper comparison
-        base_cost_value = 0.0
+        base_fee_value = 0.0
         final_cost_value = 0.0
         
-        if work_order.get('base_cost') is not None:
+        if work_order.get('base_fee') is not None:
             try:
-                if isinstance(work_order['base_cost'], str):
-                    base_cost_value = float(work_order['base_cost'])
+                if isinstance(work_order['base_fee'], str):
+                    base_fee_value = float(work_order['base_fee'])
                 else:
-                    base_cost_value = float(work_order['base_cost'] or 0.0)
+                    base_fee_value = float(work_order['base_fee'] or 0.0)
             except (ValueError, TypeError):
-                base_cost_value = 0.0
+                base_fee_value = 0.0
         
         if work_order.get('final_cost') is not None:
             try:
@@ -662,7 +662,7 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
             except (ValueError, TypeError):
                 final_cost_value = 0.0
         
-        logger.info(f"Converted base_cost_value: {base_cost_value}, final_cost_value: {final_cost_value}")
+        logger.info(f"Converted base_fee_value: {base_fee_value}, final_cost_value: {final_cost_value}")
         
         # Always recalculate if trades exist to ensure accuracy
         if work_order.get('trades'):
@@ -687,19 +687,19 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
             )
             logger.info(f"Calculated cost breakdown: {cost_breakdown}")
             
-            work_order['base_cost'] = cost_breakdown['base_cost']
+            work_order['base_fee'] = cost_breakdown['base_fee']
             work_order['final_cost'] = cost_breakdown['final_cost']
             work_order['tax_amount'] = cost_breakdown['tax_amount']
             work_order['discount_amount'] = cost_breakdown['discount_amount']
         else:
             # No trades, ensure fields exist with 0 values
-            work_order['base_cost'] = 0.0
+            work_order['base_fee'] = 0.0
             work_order['final_cost'] = 0.0
             work_order['tax_amount'] = 0.0
             work_order['discount_amount'] = 0.0
         
         # Ensure all cost fields are numeric (not strings)
-        for field in ['base_cost', 'final_cost', 'tax_amount', 'discount_amount']:
+        for field in ['base_fee', 'final_cost', 'tax_amount', 'discount_amount']:
             if field not in work_order or work_order[field] is None:
                 work_order[field] = 0.0
             elif isinstance(work_order[field], str):
@@ -714,7 +714,7 @@ class WorkOrderService(BaseService[WorkOrder, UUID]):
                 except (ValueError, TypeError):
                     work_order[field] = 0.0
         
-        logger.info(f"Final base_cost: {work_order.get('base_cost')} (type: {type(work_order.get('base_cost'))})")
+        logger.info(f"Final base_fee: {work_order.get('base_fee')} (type: {type(work_order.get('base_fee'))})")
         logger.info(f"Final final_cost: {work_order.get('final_cost')} (type: {type(work_order.get('final_cost'))})")
         
         return work_order

@@ -85,7 +85,7 @@ class EstimateBase(BaseModel):
     estimate_number: Optional[str] = None
     estimate_type: Optional[str] = "standard"  # standard or insurance
     company_id: Optional[UUID] = None
-    client_name: str
+    client_name: Optional[str] = None
     client_address: Optional[str] = None
     client_city: Optional[str] = None
     client_state: Optional[str] = None
@@ -184,7 +184,7 @@ class EstimateListResponse(BaseModel):
     estimate_number: str
     estimate_type: Optional[str] = "standard"  # standard or insurance
     company_id: Optional[UUID] = None
-    client_name: str
+    client_name: Optional[str] = None
     client_address: Optional[str] = None
     client_city: Optional[str] = None
     total_amount: float
@@ -215,7 +215,7 @@ class EstimateResponse(BaseModel):
     company_email: Optional[str] = None
 
     # Client info
-    client_name: str
+    client_name: Optional[str] = None
     client_address: Optional[str] = None
     client_city: Optional[str] = None
     client_state: Optional[str] = None

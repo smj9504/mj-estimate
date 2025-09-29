@@ -10,7 +10,7 @@ from uuid import UUID
 from enum import Enum
 
 
-class PricingRuleType(str, Enum):
+class FeeRuleType(str, Enum):
     flat = "flat"
     tiered = "tiered"
     location_based = "location_based"
@@ -30,8 +30,8 @@ class DocumentTypeBase(BaseModel):
     code: str
     description: Optional[str] = None
     category: Optional[str] = None
-    base_price: Decimal = Decimal("0.00")
-    pricing_rules: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    base_fee: Decimal = Decimal("0.00")
+    fee_rules: Optional[Dict[str, Any]] = Field(default_factory=dict)
     requires_measurement_report: bool = False
     measurement_report_providers: Optional[List[str]] = Field(default_factory=list)
     template_name: Optional[str] = None
@@ -57,8 +57,8 @@ class DocumentTypeUpdate(BaseModel):
     code: Optional[str] = None
     description: Optional[str] = None
     category: Optional[str] = None
-    base_price: Optional[Decimal] = None
-    pricing_rules: Optional[Dict[str, Any]] = None
+    base_fee: Optional[Decimal] = None
+    fee_rules: Optional[Dict[str, Any]] = None
     requires_measurement_report: Optional[bool] = None
     measurement_report_providers: Optional[List[str]] = None
     template_name: Optional[str] = None
@@ -189,8 +189,8 @@ class MeasurementReportTypeResponse(MeasurementReportTypeBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-# Price calculation schemas
-class PriceCalculationParams(BaseModel):
+# Fee calculation schemas
+class FeeCalculationParams(BaseModel):
     locations: Optional[int] = 1
     selected_addons: Optional[List[str]] = Field(default_factory=list)
     quantity: Optional[int] = 1
@@ -199,10 +199,10 @@ class PriceCalculationParams(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class PriceCalculationResponse(BaseModel):
-    base_price: Decimal
+class FeeCalculationResponse(BaseModel):
+    base_fee: Decimal
     adjustments: List[Dict[str, Any]]
-    final_price: Decimal
+    final_fee: Decimal
     parameters: Dict[str, Any]
 
     model_config = ConfigDict(from_attributes=True)

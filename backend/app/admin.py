@@ -376,7 +376,7 @@ class DocumentTypeAdmin(ModelView, model=DocumentType):
         DocumentType.name,
         DocumentType.code,
         DocumentType.category,
-        DocumentType.base_price,
+        DocumentType.base_fee,
         DocumentType.is_active,
         DocumentType.display_order
     ]
@@ -387,7 +387,7 @@ class DocumentTypeAdmin(ModelView, model=DocumentType):
         "code": "코드",
         "description": "Description",
         "category": "카테고리",
-        "base_price": "기본 가격",
+        "base_fee": "기본 가격",
         "pricing_rules": "가격 규칙",
         "requires_measurement_report": "측정 보고서 필요",
         "measurement_report_providers": "측정 보고서 제공자",
@@ -402,10 +402,10 @@ class DocumentTypeAdmin(ModelView, model=DocumentType):
     }
     
     column_searchable_list = [DocumentType.name, DocumentType.code]
-    column_sortable_list = [DocumentType.name, DocumentType.base_price, DocumentType.display_order]
+    column_sortable_list = [DocumentType.name, DocumentType.base_fee, DocumentType.display_order]
     column_default_sort = [(DocumentType.display_order, False)]
     column_formatters = {
-        DocumentType.base_price: lambda m, a: f"${m.base_price:,.2f}" if m.base_price else "$0.00",
+        DocumentType.base_fee: lambda m, a: f"${m.base_fee:,.2f}" if m.base_fee else "$0.00",
         DocumentType.is_active: lambda m, a: "활성" if m.is_active else "비활성"
     }
     page_size = 50

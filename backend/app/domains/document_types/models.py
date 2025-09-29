@@ -12,10 +12,10 @@ import enum
 from app.core.database_factory import Base
 
 
-class PricingRuleType(str, enum.Enum):
-    """Pricing rule type enumeration"""
-    FLAT = "flat"  # Flat rate pricing
-    TIERED = "tiered"  # Tiered pricing based on quantity
+class FeeRuleType(str, enum.Enum):
+    """Fee rule type enumeration"""
+    FLAT = "flat"  # Flat rate fee
+    TIERED = "tiered"  # Tiered fee based on quantity
     LOCATION_BASED = "location_based"  # Based on number of locations
     ADDON = "addon"  # Additional service addon
 
@@ -41,25 +41,25 @@ class DocumentType(Base):
     description = Column(Text)
     category = Column(String(50))  # estimate, report, invoice, etc.
     
-    # Base Pricing
-    base_price = Column(DECIMAL(10, 2), default=0.00)
+    # Base Fee (service fee we charge customers)
+    base_fee = Column(DECIMAL(10, 2), default=0.00)
     
-    # Complex Pricing Rules (JSON structure for flexibility)
+    # Complex Fee Rules (JSON structure for flexibility)
     # Example structure:
     # {
     #   "location_rules": {
     #     "base_locations": 3,
-    #     "additional_location_price": 25.00,
+    #     "additional_location_fee": 25.00,
     #     "additional_location_grouping": 3
     #   },
     #   "addons": [
-    #     {"name": "cabinet_estimate", "price": 30.00}
+    #     {"name": "cabinet_estimate", "fee": 30.00}
     #   ],
     #   "volume_discounts": [
     #     {"min_quantity": 10, "discount_percent": 10}
     #   ]
     # }
-    pricing_rules = Column(JSON, default={})
+    fee_rules = Column(JSON, default={})
     
     # Requirements
     requires_measurement_report = Column(Boolean, default=False)
@@ -90,17 +90,17 @@ class DocumentType(Base):
     updated_by = Column(UUID(as_uuid=True))
     
     # Relationships
-    pricing_rules_rel = relationship("PricingRule", back_populates="document_type", cascade="all, delete-orphan")
+    fee_rules_rel = relationship("FeeRule", back_populates="document_type", cascade="all, delete-orphan")
     work_order_document_types = relationship("WorkOrderDocumentType", back_populates="document_type", cascade="all, delete-orphan")
     
-    def calculate_price(self, **kwargs):
-        """Calculate price based on complex rules"""
-        total_price = float(self.base_price)
+    def calculate_fee(self, **kwargs):
+        """Calculate service fee based on complex rules"""
+        total_fee = float(self.base_fee)
         
-        if self.pricing_rules:
-            # Location-based pricing
-            if 'location_rules' in self.pricing_rules and 'locations' in kwargs:
-                location_rules = self.pricing_rules['location_rules']
+        if self.fee_rules:
+            # Location-based fees
+            if 'location_rules' in self.fee_rules and 'locations' in kwargs:
+                location_rules = self.fee_rules['location_rules']
                 locations = kwargs['locations']
                 base_locations = location_rules.get('base_locations', 0)
                 
@@ -108,34 +108,34 @@ class DocumentType(Base):
                     additional = locations - base_locations
                     grouping = location_rules.get('additional_location_grouping', 1)
                     groups = (additional + grouping - 1) // grouping  # Ceiling division
-                    additional_price = location_rules.get('additional_location_price', 0)
-                    total_price += groups * additional_price
+                    additional_fee = location_rules.get('additional_location_fee', 0)
+                    total_fee += groups * additional_fee
             
-            # Addon pricing
-            if 'addons' in self.pricing_rules and 'selected_addons' in kwargs:
-                addons = self.pricing_rules['addons']
+            # Addon fees
+            if 'addons' in self.fee_rules and 'selected_addons' in kwargs:
+                addons = self.fee_rules['addons']
                 selected = kwargs['selected_addons']
                 for addon in addons:
                     if addon['name'] in selected:
-                        total_price += addon.get('price', 0)
+                        total_fee += addon.get('fee', 0)
             
             # Volume discounts
-            if 'volume_discounts' in self.pricing_rules and 'quantity' in kwargs:
-                discounts = self.pricing_rules['volume_discounts']
+            if 'volume_discounts' in self.fee_rules and 'quantity' in kwargs:
+                discounts = self.fee_rules['volume_discounts']
                 quantity = kwargs['quantity']
                 for discount in sorted(discounts, key=lambda x: x['min_quantity'], reverse=True):
                     if quantity >= discount['min_quantity']:
                         discount_percent = discount.get('discount_percent', 0)
-                        total_price *= (1 - discount_percent / 100)
+                        total_fee *= (1 - discount_percent / 100)
                         break
-        
-        return total_price
+
+        return total_fee
     
     def __str__(self):
-        return f"{self.name} (${self.base_price})"
+        return f"{self.name} (${self.base_fee})"
     
     def __repr__(self):
-        return f"<DocumentType(id={self.id}, name={self.name}, base_price={self.base_price})>"
+        return f"<DocumentType(id={self.id}, name={self.name}, base_fee={self.base_fee})>"
 
 
 class Trade(Base):
@@ -187,9 +187,9 @@ class Trade(Base):
         return f"<Trade(id={self.id}, name={self.name}, category={self.category})>"
 
 
-class PricingRule(Base):
-    """Detailed pricing rules for document types"""
-    __tablename__ = "pricing_rules"
+class FeeRule(Base):
+    """Detailed fee rules for document types"""
+    __tablename__ = "fee_rules"
     __table_args__ = {'extend_existing': True}
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
@@ -199,15 +199,15 @@ class PricingRule(Base):
     
     # Rule Definition
     rule_name = Column(String(100), nullable=False)
-    rule_type = Column(Enum(PricingRuleType), nullable=False)
+    rule_type = Column(Enum(FeeRuleType), nullable=False)
     priority = Column(Integer, default=0)  # Higher priority rules apply first
     
     # Rule Parameters (JSON for flexibility)
     # Examples:
-    # Flat: {"price": 50.00}
-    # Tiered: {"tiers": [{"min": 0, "max": 3, "price": 75}, {"min": 4, "max": 6, "price": 100}]}
-    # Location-based: {"base_locations": 3, "price_per_additional": 25}
-    # Addon: {"addon_name": "cabinet_estimate", "price": 30}
+    # Flat: {"fee": 50.00}
+    # Tiered: {"tiers": [{"min": 0, "max": 3, "fee": 75}, {"min": 4, "max": 6, "fee": 100}]}
+    # Location-based: {"base_locations": 3, "fee_per_additional": 25}
+    # Addon: {"addon_name": "cabinet_estimate", "fee": 30}
     parameters = Column(JSON, nullable=False)
     
     # Conditions (when this rule applies)
@@ -225,7 +225,7 @@ class PricingRule(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    document_type = relationship("DocumentType", back_populates="pricing_rules_rel")
+    document_type = relationship("DocumentType", back_populates="fee_rules_rel")
     
     def applies_to(self, **context):
         """Check if this rule applies given the context"""
@@ -247,41 +247,41 @@ class PricingRule(Base):
         
         return True
     
-    def calculate_price(self, **context):
-        """Calculate price based on this rule"""
+    def calculate_fee(self, **context):
+        """Calculate fee based on this rule"""
         if not self.applies_to(**context):
             return 0
         
-        if self.rule_type == PricingRuleType.FLAT:
-            return self.parameters.get('price', 0)
+        if self.rule_type == FeeRuleType.FLAT:
+            return self.parameters.get('fee', 0)
         
-        elif self.rule_type == PricingRuleType.TIERED:
+        elif self.rule_type == FeeRuleType.TIERED:
             tiers = self.parameters.get('tiers', [])
             quantity = context.get('quantity', 1)
             for tier in tiers:
                 if tier['min'] <= quantity <= tier.get('max', float('inf')):
-                    return tier['price']
+                    return tier['fee']
             return 0
         
-        elif self.rule_type == PricingRuleType.LOCATION_BASED:
+        elif self.rule_type == FeeRuleType.LOCATION_BASED:
             locations = context.get('locations', 1)
             base_locations = self.parameters.get('base_locations', 0)
             if locations > base_locations:
                 additional = locations - base_locations
-                return self.parameters.get('price_per_additional', 0) * additional
+                return self.parameters.get('fee_per_additional', 0) * additional
             return 0
         
-        elif self.rule_type == PricingRuleType.ADDON:
+        elif self.rule_type == FeeRuleType.ADDON:
             selected_addons = context.get('selected_addons', [])
             addon_name = self.parameters.get('addon_name')
             if addon_name in selected_addons:
-                return self.parameters.get('price', 0)
+                return self.parameters.get('fee', 0)
             return 0
         
         return 0
     
     def __repr__(self):
-        return f"<PricingRule(id={self.id}, name={self.rule_name}, type={self.rule_type})>"
+        return f"<FeeRule(id={self.id}, name={self.rule_name}, type={self.rule_type})>"
 
 
 class MeasurementReportType(Base):
@@ -296,7 +296,7 @@ class MeasurementReportType(Base):
     provider = Column(Enum(MeasurementReportProvider), nullable=False)
     description = Column(Text)
     
-    # Pricing (pass-through or marked up)
+    # Fee structure (pass-through or marked up)
     base_cost = Column(DECIMAL(10, 2), default=0.00)  # Our cost
     markup_percent = Column(DECIMAL(5, 2), default=0)  # Markup percentage
     fixed_markup = Column(DECIMAL(10, 2), default=0)  # Fixed markup amount
@@ -321,8 +321,8 @@ class MeasurementReportType(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    def calculate_price(self, rush=False):
-        """Calculate customer price for the report"""
+    def calculate_fee(self, rush=False):
+        """Calculate customer fee for the report"""
         base = float(self.base_cost)
         if self.markup_percent:
             base *= (1 + float(self.markup_percent) / 100)
@@ -347,9 +347,9 @@ class TradeDocumentTypeConfig(Base):
     trade_id = Column(UUID(as_uuid=True), ForeignKey("trades.id"), nullable=False)
     document_type_id = Column(UUID(as_uuid=True), ForeignKey("document_types.id"), nullable=False)
     
-    # Trade-specific pricing adjustments
-    price_adjustment = Column(DECIMAL(10, 2), default=0)  # Fixed adjustment
-    price_multiplier = Column(DECIMAL(5, 2), default=1)  # Multiplier for base price
+    # Trade-specific fee adjustments
+    fee_adjustment = Column(DECIMAL(10, 2), default=0)  # Fixed adjustment
+    fee_multiplier = Column(DECIMAL(5, 2), default=1)  # Multiplier for base fee
     
     # Trade-specific requirements
     additional_fields = Column(JSON, default=[])  # Additional required fields for this trade
@@ -381,10 +381,10 @@ class WorkOrderDocumentType(Base):
     work_order_id = Column(UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=False)
     document_type_id = Column(UUID(as_uuid=True), ForeignKey("document_types.id"), nullable=False)
     
-    # Pricing at time of order
+    # Service fees at time of order
     quantity = Column(Integer, default=1)
-    unit_price = Column(DECIMAL(10, 2), nullable=False)
-    total_price = Column(DECIMAL(10, 2), nullable=False)
+    unit_fee = Column(DECIMAL(10, 2), nullable=False)
+    total_fee = Column(DECIMAL(10, 2), nullable=False)
     
     # Additional details
     locations_count = Column(Integer)

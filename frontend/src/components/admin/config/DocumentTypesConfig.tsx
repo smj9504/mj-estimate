@@ -34,7 +34,7 @@ import {
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import documentTypeService from '../../../services/documentTypeService';
-import type { DocumentType, PricingRule } from '../../../types/documentTypes';
+import type { DocumentType, FeeRule } from '../../../types/documentTypes';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -94,11 +94,11 @@ const DocumentTypesConfig: React.FC = () => {
     setEditingDocType(record);
     form.setFieldsValue({
       ...record,
-      base_price: parseFloat(record.base_price),
-      location_base: record.pricing_rules?.location_rules?.base_locations,
-      location_additional_price: record.pricing_rules?.location_rules?.additional_location_price,
-      location_grouping: record.pricing_rules?.location_rules?.additional_location_grouping,
-      addons: record.pricing_rules?.addons || [],
+      base_fee: parseFloat(record.base_fee),
+      location_base: record.fee_rules?.location_rules?.base_locations,
+      location_additional_fee: record.fee_rules?.location_rules?.additional_location_fee,
+      location_grouping: record.fee_rules?.location_rules?.additional_location_grouping,
+      addons: record.fee_rules?.addons || [],
     });
     setIsModalOpen(true);
   };
@@ -117,19 +117,19 @@ const DocumentTypesConfig: React.FC = () => {
     try {
       const values = await form.validateFields();
       
-      // Build pricing rules from form values
-      const pricingRules: any = {};
+      // Build fee rules from form values
+      const feeRules: any = {};
       
-      if (values.location_base || values.location_additional_price || values.location_grouping) {
-        pricingRules.location_rules = {
+      if (values.location_base || values.location_additional_fee || values.location_grouping) {
+        feeRules.location_rules = {
           base_locations: values.location_base || 0,
-          additional_location_price: values.location_additional_price || 0,
+          additional_location_fee: values.location_additional_fee || 0,
           additional_location_grouping: values.location_grouping || 1,
         };
       }
       
       if (values.addons && values.addons.length > 0) {
-        pricingRules.addons = values.addons;
+        feeRules.addons = values.addons;
       }
       
       const submitData = {
@@ -137,8 +137,8 @@ const DocumentTypesConfig: React.FC = () => {
         code: values.code,
         description: values.description,
         category: values.category,
-        base_price: values.base_price,
-        pricing_rules: pricingRules,
+        base_fee: values.base_fee,
+        fee_rules: feeRules,
         requires_measurement_report: values.requires_measurement_report || false,
         measurement_report_providers: values.measurement_report_providers || [],
         template_name: values.template_name,
@@ -175,31 +175,31 @@ const DocumentTypesConfig: React.FC = () => {
       ),
     },
     {
-      title: 'Base Price',
-      dataIndex: 'base_price',
-      key: 'base_price',
+      title: 'Base Fee',
+      dataIndex: 'base_fee',
+      key: 'base_fee',
       width: 120,
-      render: (price: string) => (
-        <Text strong>${parseFloat(price).toFixed(2)}</Text>
+      render: (fee: string) => (
+        <Text strong>${parseFloat(fee).toFixed(2)}</Text>
       ),
     },
     {
-      title: 'Pricing Rules',
-      key: 'pricing_rules',
+      title: 'Fee Rules',
+      key: 'fee_rules',
       width: 200,
       render: (_, record) => {
         const rules = [];
-        if (record.pricing_rules?.location_rules) {
+        if (record.fee_rules?.location_rules) {
           rules.push(
             <Tag key="location" color="green">
               Location-based
             </Tag>
           );
         }
-        if (record.pricing_rules?.addons && record.pricing_rules.addons.length > 0) {
+        if (record.fee_rules?.addons && record.fee_rules.addons.length > 0) {
           rules.push(
             <Tag key="addons" color="purple">
-              {record.pricing_rules.addons.length} Addon(s)
+              {record.fee_rules.addons.length} Addon(s)
             </Tag>
           );
         }
@@ -344,9 +344,9 @@ const DocumentTypesConfig: React.FC = () => {
                 </Col>
                 <Col span={8}>
                   <Form.Item
-                    name="base_price"
-                    label="Base Price ($)"
-                    rules={[{ required: true, message: 'Please enter base price' }]}
+                    name="base_fee"
+                    label="Base Service Fee ($)"
+                    rules={[{ required: true, message: 'Please enter base service fee' }]}
                   >
                     <InputNumber
                       style={{ width: '100%' }}
@@ -408,9 +408,9 @@ const DocumentTypesConfig: React.FC = () => {
                 </Col>
                 <Col span={8}>
                   <Form.Item
-                    name="location_additional_price"
-                    label="Additional Location Price ($)"
-                    tooltip="Price for each additional location group"
+                    name="location_additional_fee"
+                    label="Additional Location Fee ($)"
+                    tooltip="Fee for each additional location group"
                   >
                     <InputNumber
                       style={{ width: '100%' }}

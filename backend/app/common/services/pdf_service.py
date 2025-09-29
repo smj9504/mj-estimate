@@ -11,6 +11,7 @@ import sys
 from typing import Dict, Any, Optional
 import json
 import re
+import logging
 
 # Add GTK+ path for WeasyPrint on Windows
 gtk_path = r"C:\Program Files\GTK3-Runtime Win64\bin"
@@ -183,7 +184,48 @@ class PDFService:
         )
         
         return str(output_path)
-    
+
+    def generate_invoice_html(self, data: Dict[str, Any]) -> str:
+        """
+        Generate invoice HTML from data (without converting to PDF)
+
+        Args:
+            data: Invoice data dictionary
+
+        Returns:
+            HTML content as string
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("Starting invoice HTML generation...")
+        logger.info(f"Input data keys: {list(data.keys())}")
+
+        # Validate and prepare data
+        try:
+            context = self._prepare_invoice_context(data)
+            logger.info(f"Context prepared with keys: {list(context.keys())}")
+        except Exception as e:
+            logger.error(f"Error preparing context: {e}")
+            raise
+
+        # Load template
+        try:
+            template_path = "invoice/general_invoice.html"
+            template = self.env.get_template(template_path)
+            logger.info(f"Using {template_path} template")
+        except Exception as e:
+            logger.error(f"Could not load template: {e}")
+            raise
+
+        try:
+            html_content = template.render(**context)
+            logger.info(f"HTML content rendered, length: {len(html_content)}")
+            return html_content
+        except Exception as e:
+            logger.error(f"Error rendering template: {e}")
+            raise
+
     def generate_estimate_html(self, data: Dict[str, Any]) -> str:
         """
         Generate estimate HTML from data (without converting to PDF)
@@ -220,8 +262,18 @@ class PDFService:
             except Exception as e2:
                 logger.error(f"Could not load any template: {e2}")
                 raise
-        
+
         try:
+            # Debug: Log the exact context structure before rendering
+            if 'sections' in context:
+                logger.info(f"Context has {len(context['sections'])} sections before rendering")
+                for i, section in enumerate(context['sections']):
+                    logger.info(f"  Context Section {i}: type={type(section)}")
+                    logger.info(f"    keys: {list(section.keys()) if hasattr(section, 'keys') else 'No keys method'}")
+                    if 'items' in section:
+                        logger.info(f"    items value type: {type(section['items'])}")
+                        logger.info(f"    items is list: {isinstance(section['items'], list)}")
+
             html_content = template.render(**context)
             logger.info(f"HTML content rendered, length: {len(html_content)}")
             return html_content
@@ -380,6 +432,10 @@ class PDFService:
         # Total is subtotal minus discount plus shipping
         total = subtotal - float(context.get('discount', 0)) + float(context.get('shipping', 0))
 
+        # Ensure discount and shipping are properly set in context
+        context['discount'] = float(context.get('discount', 0))
+        context['shipping'] = float(context.get('shipping', 0))
+
         # Set all required context values
         context['items_subtotal'] = items_subtotal
         context['op_percent'] = op_percent
@@ -392,26 +448,63 @@ class PDFService:
         context['total_with_tax'] = total  # Template expects this name
         
         # Modern template expects serviceSections structure
-        # IMPORTANT: Using 'line_items' instead of 'items' to avoid conflict with dict.items() method
-        if items:
-            context['serviceSections'] = [
-                {
-                    'title': 'Services',
+        # Check if data already has sections structure
+        if data.get('sections'):
+            # Use sections from frontend
+            service_sections = []
+            for section in data['sections']:
+                section_items = section.get('items', [])
+                service_sections.append({
+                    'title': section.get('title', 'Services'),
                     'line_items': [
                         {
                             'name': str(item.get('name', '')),
-                            'dec': str(item.get('description', '')),  # modern template uses 'dec' not 'description'
+                            'dec': str(item.get('description', '')),
                             'qty': float(item.get('quantity', 0)),
                             'unit': str(item.get('unit', 'ea')),
-                            'price': float(item.get('rate', 0)),  # modern template uses 'price' not 'rate'
+                            'price': float(item.get('rate', 0)),
                             'hide_price': False
                         }
-                        for item in items
+                        for item in section_items
                     ],
-                    'subtotal': subtotal,
-                    'showSubtotal': len(items) > 1
-                }
-            ]
+                    'subtotal': sum(
+                        float(item.get('quantity', 0)) * float(item.get('rate', 0))
+                        for item in section_items
+                    ),
+                    'showSubtotal': len(section_items) > 1
+                })
+            context['serviceSections'] = service_sections
+        elif items:
+            # Group items by primary_group if available
+            sections_map = {}
+            for item in items:
+                group_name = item.get('primary_group', 'Services')
+                if group_name not in sections_map:
+                    sections_map[group_name] = []
+                sections_map[group_name].append(item)
+
+            # Convert to sections structure
+            context['serviceSections'] = []
+            for section_name, section_items in sections_map.items():
+                context['serviceSections'].append({
+                    'title': section_name,
+                    'line_items': [
+                        {
+                            'name': str(item.get('name', '')),
+                            'dec': str(item.get('description', '')),
+                            'qty': float(item.get('quantity', 0)),
+                            'unit': str(item.get('unit', 'ea')),
+                            'price': float(item.get('rate', 0)),
+                            'hide_price': False
+                        }
+                        for item in section_items
+                    ],
+                    'subtotal': sum(
+                        float(item.get('quantity', 0)) * float(item.get('rate', 0))
+                        for item in section_items
+                    ),
+                    'showSubtotal': len(section_items) > 1
+                })
         else:
             context['serviceSections'] = []
             
@@ -458,6 +551,7 @@ class PDFService:
     
     def _prepare_estimate_context(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare and validate estimate context for template"""
+        logger = logging.getLogger(__name__)
         context = data.copy()
         
         # Set defaults
@@ -472,16 +566,21 @@ class PDFService:
         # Clean empty string values from company and client
         cleaned_company = {k: v for k, v in company.items() if v and str(v).strip()}
         cleaned_client = {k: v for k, v in client.items() if v and str(v).strip()}
-        
+
         # Set defaults for missing required fields
         cleaned_company.setdefault('name', 'Company Name Not Provided')
-        cleaned_client.setdefault('name', 'Client Name Not Provided')
+        # Don't set default for client name - let template handle it
         
         context['company'] = cleaned_company
         context['client'] = cleaned_client
         context.setdefault('items', [])
         context.setdefault('sections', [])
-        
+
+        # Log sections data for debugging
+        logger.info(f"PDF Service - Processing sections: {len(context.get('sections', []))} sections")
+        for i, section in enumerate(context.get('sections', [])):
+            logger.info(f"  Section {i+1}: '{section.get('title')}' with {len(section.get('items', []))} items")
+
         # Process sections and items to preserve HTML content
         if context.get('sections'):
             # Section-based structure
@@ -506,19 +605,28 @@ class PDFService:
                     
                     # Calculate item total
                     quantity = float(item.get('quantity', 0))
-                    unit_price = float(item.get('unit_price', 0))
+                    unit_price = float(item.get('unit_price', item.get('rate', 0)))
                     item_total = quantity * unit_price
                     processed_item['total'] = item_total
                     section_subtotal += item_total
                     
                     processed_items.append(processed_item)
                 
-                processed_section = section.copy()
-                processed_section['items'] = processed_items
-                processed_section['subtotal'] = section_subtotal
+                processed_section = {
+                    'title': section.get('title', ''),
+                    'items': processed_items,
+                    'subtotal': section_subtotal,
+                    'showSubtotal': section.get('showSubtotal', True)
+                }
                 processed_sections.append(processed_section)
                 total_subtotal += section_subtotal
             
+            # Debug logging before assigning to context
+            logger.info(f"Final processed_sections count: {len(processed_sections)}")
+            for i, section in enumerate(processed_sections):
+                logger.info(f"  Final Section {i+1}: type={type(section)}, keys={list(section.keys())}")
+                logger.info(f"    items type: {type(section.get('items'))}, items count: {len(section.get('items', []))}")
+
             context['sections'] = processed_sections
             context['subtotal'] = total_subtotal
         else:

@@ -42,7 +42,7 @@
         }
         
         .estimate-title {
-            font-size: 48px;
+            font-size: 36px;
             font-weight: 600;
             margin-bottom: 24px;
             letter-spacing: -0.02em;
@@ -75,15 +75,16 @@
         }
         
         .company-logo-container {
-            max-width: 180px;
+            max-width: 200px;
             display: flex;
             justify-content: flex-end;
-            align-items: center;
+            align-items: flex-start;
         }
-        
+
         .company-logo {
-            max-width: 100%;
-            max-height: 60px;
+            max-width: 150px;
+            max-height: 80px;
+            width: auto;
             height: auto;
             object-fit: contain;
         }
@@ -113,7 +114,7 @@
         
         /* Amount Banner */
         .amount-banner {
-            padding: 12px 0;
+            padding: 6px 0;
             margin-bottom: 32px;
             display: flex;
             align-items: center;
@@ -129,51 +130,127 @@
         
         /* Items Table */
         .items-section {
-            margin-bottom: 32px;
+            margin-bottom: 40px;
         }
-        
+
         .items-table {
             width: 100%;
             border-collapse: collapse;
         }
-        
+
         .items-table thead {
             border-bottom: 2px solid #E5E7EB;
         }
-        
+
         .items-table th {
             text-align: left;
-            padding: 12px 0;
+            padding: 6px 4px;
             font-size: 12px;
             font-weight: 600;
             color: #111827;
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
-        
+
+        .items-table th.text-center,
+        .items-table td.text-center {
+            text-align: center;
+        }
+
         .items-table th.text-right,
         .items-table td.text-right {
             text-align: right;
         }
-        
+
         .items-table td {
-            padding: 10px 0;
+            padding: 8px 4px;
             font-size: 14px;
-            color: #374151;
+            color: #000000;
+            vertical-align: top;  /* Align content to top */
+            border-bottom: 1px solid #F3F4F6;  /* Light border between items */
         }
-        
+
+        .items-table tr:last-child td {
+            border-bottom: none;  /* Remove border from last row */
+        }
+
+        .item-content {
+            display: block;  /* Changed from flex to block for better alignment */
+        }
+
         .item-name {
             font-weight: 500;
             color: #111827;
-            margin-bottom: 4px;
+            font-size: 14px;
+            line-height: 1.5;  /* Match line height with table cells */
+            margin: 0;  /* Remove margin to align with other cells */
         }
-        
+
         .item-description {
             font-size: 13px;
+            color: #374151;
+            line-height: 1.4;
+            margin-top: 4px;  /* Small gap between name and description */
+        }
+
+        .item-note {
+            font-size: 12px;
             color: #6B7280;
             line-height: 1.4;
+            margin-top: 4px;  /* Small gap from previous element */
+            padding-left: 16px;
+            font-style: italic;
         }
-        
+
+        .section-header {
+            font-size: 16px;
+            font-weight: 600;
+            color: #ffffff;
+            margin-top: 32px;
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            background-color: #059669;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* First section doesn't need top margin */
+        .items-section:first-of-type .section-header {
+            margin-top: 0;
+        }
+
+        .section-subtotal {
+            text-align: right;
+            font-size: 14px;
+            font-weight: 600;
+            color: #059669;
+            margin-top: 16px;
+            margin-bottom: 24px;
+            padding: 10px 16px;
+            background-color: #F0FDF4;
+            border-top: 2px solid #059669;
+            border-radius: 0 0 4px 4px;
+        }
+
+        /* Style for section without header (default section) */
+        .items-section.no-header {
+            margin-top: 0;
+        }
+
+
+        /* Force section header visibility */
+        .section-header {
+            display: block !important;
+            visibility: visible !important;
+        }
+
+        /* Add page break avoidance for sections */
+        .items-section {
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+
         .room-header {
             font-size: 13px;
             color: #059669;
@@ -368,7 +445,11 @@
             
             <div class="client-section">
                 <div style="font-size: 14px; font-weight: 600; color: #111827; margin-bottom: 12px;">Estimate for</div>
+                {% if client.name %}
                 <div class="company-name">{{ client.name }}</div>
+                {% else %}
+                <div class="company-name" style="font-style: italic; color: #6B7280;">Client name not specified</div>
+                {% endif %}
                 {% if client.address %}
                 <div class="info-line">{{ client.address }}</div>
                 {% endif %}
@@ -418,37 +499,92 @@
         </div>
         {% endif %}
 
-        <!-- Estimate Items -->
-        <div class="items-section">
-            <table class="items-table">
-                <thead>
-                    <tr>
-                        <th style="width: 15%;">Room</th>
-                        <th style="width: 40%;">Description</th>
-                        <th style="width: 15%;" class="text-right">Qty</th>
-                        <th style="width: 15%;" class="text-right">Unit price</th>
-                        <th style="width: 15%;" class="text-right">Amount</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in items %}
-                    <tr>
-                        <td>
-                            {% if item.room %}
-                            <span class="room-header">{{ item.room }}</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            <div class="item-name">{{ item.description }}</div>
-                        </td>
-                        <td class="text-right">{{ item.quantity }}{% if item.unit %} {{ item.unit }}{% endif %}</td>
-                        <td class="text-right">${{ '{:,.2f}'.format(item.rate) }}</td>
-                        <td class="text-right">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+        <!-- Estimate Items by Section -->
+        {% if sections and sections|length > 0 %}
+            {% for section in sections %}
+            <div class="items-section">
+                <!-- Always show section header for debugging -->
+                <div class="section-header">{{ section.title or 'Untitled Section' }}</div>
+
+                <table class="items-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 50%;">Item</th>
+                            <th class="text-center" style="width: 8%;">Qty</th>
+                            <th class="text-center" style="width: 12%;">Unit</th>
+                            <th class="text-right" style="width: 15%;">Price</th>
+                            <th class="text-right" style="width: 15%;">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if section['items'] %}
+                        {% for item in section['items'] %}
+                        <tr>
+                            <td>
+                                <div class="item-content">
+                                    <div class="item-name">{{ item.name }}</div>
+                                    {% if item.description %}
+                                        <div class="item-description">{{ item.description|replace('\n', '<br>')|safe }}</div>
+                                    {% endif %}
+                                    {% if item.note %}
+                                        <div class="item-note">Note: {{ item.note|replace('\n', '<br>')|safe }}</div>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td class="text-center">{{ item.quantity }}</td>
+                            <td class="text-center">{{ item.unit if item.unit else 'EA' }}</td>
+                            <td class="text-right">${{ '{:,.2f}'.format(item.rate) }}</td>
+                            <td class="text-right">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% endif %}
+                    </tbody>
+                </table>
+
+                {% if section.showSubtotal and section['items'] and section['items']|length > 0 %}
+                    <div class="section-subtotal">
+                        Section Subtotal: ${{ '{:,.2f}'.format(section.subtotal) }}
+                    </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <!-- Fallback to items if sections are not available -->
+            <div class="items-section no-header">
+                <table class="items-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 50%;">Item</th>
+                            <th class="text-center" style="width: 8%;">Qty</th>
+                            <th class="text-center" style="width: 12%;">Unit</th>
+                            <th class="text-right" style="width: 15%;">Price</th>
+                            <th class="text-right" style="width: 15%;">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr>
+                            <td>
+                                <div class="item-content">
+                                    <div class="item-name">{{ item.name }}</div>
+                                    {% if item.description %}
+                                        <div class="item-description">{{ item.description|replace('\n', '<br>')|safe }}</div>
+                                    {% endif %}
+                                    {% if item.note %}
+                                        <div class="item-note">Note: {{ item.note|replace('\n', '<br>')|safe }}</div>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td class="text-center">{{ item.quantity }}</td>
+                            <td class="text-center">{{ item.unit if item.unit else 'EA' }}</td>
+                            <td class="text-right">${{ '{:,.2f}'.format(item.rate) }}</td>
+                            <td class="text-right">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
 
         <!-- Totals Section -->
         <div class="totals-section">
@@ -457,21 +593,28 @@
                     <span class="total-label">Subtotal</span>
                     <span class="total-value">${{ '{:,.2f}'.format(subtotal) }}</span>
                 </div>
-                
+
                 {% if discount_amount and discount_amount > 0 %}
                 <div class="total-row">
                     <span class="total-label">Discount</span>
                     <span class="total-value">-${{ '{:,.2f}'.format(discount_amount) }}</span>
                 </div>
                 {% endif %}
-                
+
+                {% if op_amount and op_amount > 0 %}
+                <div class="total-row">
+                    <span class="total-label">O&P{% if op_percent %} ({{ op_percent }}%){% endif %}</span>
+                    <span class="total-value">${{ '{:,.2f}'.format(op_amount) }}</span>
+                </div>
+                {% endif %}
+
                 {% if tax_amount and tax_amount > 0 %}
                 <div class="total-row">
                     <span class="total-label">Tax{% if tax_rate %} ({{ tax_rate }}%){% endif %}</span>
                     <span class="total-value">${{ '{:,.2f}'.format(tax_amount) }}</span>
                 </div>
                 {% endif %}
-                
+
                 <div class="total-row grand-total">
                     <span class="total-label">Total Estimate</span>
                     <span class="total-value">${{ '{:,.2f}'.format(total) }}</span>

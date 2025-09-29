@@ -15,6 +15,7 @@ import {
   DatabaseOutlined,
   MenuUnfoldOutlined,
   MenuFoldOutlined,
+  SketchOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -95,6 +96,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         key: '/work-orders',
         icon: <ProjectOutlined />,
         label: 'Work Orders',
+      },
+      {
+        key: '/sketch-test',
+        icon: <SketchOutlined />,
+        label: 'Sketch Test',
       },
       {
         key: '/create',

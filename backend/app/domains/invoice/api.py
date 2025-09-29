@@ -550,6 +550,93 @@ async def delete_invoice(invoice_id: str, db=Depends(get_db)):
     return {"message": "Invoice deleted successfully"}
 
 
+@router.get("/{invoice_id}/html")
+async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
+    """Generate HTML for an invoice"""
+    from app.core.database_factory import get_database
+    database = get_database()
+    service = InvoiceService(database)
+
+    # Get invoice from database
+    invoice = service.get_by_id(invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # Prepare data for HTML generation
+    html_data = {
+        "invoice_number": invoice.get('invoice_number', ''),
+        "date": invoice.get('date', invoice.get('created_at', '')),
+        "due_date": invoice.get('due_date', ''),
+        "company": {
+            "name": invoice.get('company_name', ''),
+            "address": invoice.get('company_address'),
+            "city": invoice.get('company_city'),
+            "state": invoice.get('company_state'),
+            "zip": invoice.get('company_zip'),
+            "phone": invoice.get('company_phone'),
+            "email": invoice.get('company_email'),
+            "logo": invoice.get('company_logo')
+        },
+        "client": {
+            "name": invoice.get('client_name', ''),
+            "address": invoice.get('client_address'),
+            "city": invoice.get('client_city'),
+            "state": invoice.get('client_state'),
+            "zip": invoice.get('client_zip'),
+            "phone": invoice.get('client_phone'),
+            "email": invoice.get('client_email')
+        },
+        "items": [
+            {
+                "name": item.get('name', ''),
+                "description": item.get('description'),
+                "quantity": item.get('quantity', 0),
+                "unit": item.get('unit', ''),
+                "rate": item.get('rate', 0)
+            }
+            for item in invoice.get('items', [])
+        ],
+        "subtotal": invoice.get('subtotal', 0),
+        "tax_rate": invoice.get('tax_rate', 0),
+        "tax_amount": invoice.get('tax_amount', 0),
+        "discount": invoice.get('discount', 0),
+        "shipping": invoice.get('shipping', 0),
+        "total": invoice.get('total', 0),
+        "payments": invoice.get('payments', []),
+        "paid_amount": invoice.get('paid_amount', 0),
+        "payment_terms": invoice.get('payment_terms'),
+        "notes": invoice.get('notes')
+    }
+
+    # Add insurance info if present
+    if invoice.get('insurance_company'):
+        html_data["insurance"] = {
+            "company": invoice.get('insurance_company'),
+            "policy_number": invoice.get('insurance_policy_number'),
+            "claim_number": invoice.get('insurance_claim_number'),
+            "deductible": invoice.get('insurance_deductible')
+        }
+
+    # Generate HTML
+    if not pdf_service:
+        raise HTTPException(status_code=500, detail="PDF service not available")
+
+    try:
+        # Generate HTML
+        html_content = pdf_service.generate_invoice_html(html_data)
+
+        # Return HTML as response
+        return Response(
+            content=html_content,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f"inline; filename=invoice_{invoice['invoice_number']}.html"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{invoice_id}/pdf")
 async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
     """Generate PDF for an invoice"""
@@ -646,6 +733,36 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
         # Clean up on error
         if os.path.exists(output_path):
             os.unlink(output_path)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/preview-html")
+async def preview_invoice_html(data: InvoicePDFRequest):
+    """Generate a preview HTML from invoice data without saving"""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not pdf_service:
+        raise HTTPException(status_code=500, detail="PDF service not available")
+
+    try:
+        # Prepare data for HTML generation
+        html_data = data.dict()
+        logger.info(f"Generating HTML preview with data keys: {html_data.keys()}")
+
+        # Generate HTML
+        html_content = pdf_service.generate_invoice_html(html_data)
+
+        # Return HTML as response
+        return Response(
+            content=html_content,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": "inline; filename=preview_invoice.html"
+            }
+        )
+    except Exception as e:
+        logger.error(f"HTML generation error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

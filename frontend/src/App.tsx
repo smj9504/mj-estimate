@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider } from 'antd';
 import enUS from 'antd/locale/en_US';
@@ -21,6 +21,7 @@ import WorkOrderCreation from './pages/WorkOrderCreation';
 import WorkOrderList from './pages/WorkOrderList';
 import WorkOrderDetail from './pages/WorkOrderDetail';
 import AdminConfig from './pages/AdminConfig';
+import SketchTest from './pages/SketchTest';
 import NotFound from './pages/NotFound';
 import 'antd/dist/reset.css';
 
@@ -37,231 +38,181 @@ const queryClient = new QueryClient({
   },
 });
 
+// Create router with future flags to eliminate warnings
+const router = createBrowserRouter([
+  // Public routes
+  {
+    path: "/login",
+    element: <Login />
+  },
+  // Protected routes
+  {
+    path: "/",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Navigate to="/dashboard" replace />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/dashboard",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <RoleBasedDashboard />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Admin only routes
+  {
+    path: "/admin/dashboard",
+    element: (
+      <ProtectedRoute requiredRole="admin">
+        <Layout>
+          <AdminDashboard />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/admin/config",
+    element: (
+      <ProtectedRoute requiredRole="admin">
+        <Layout>
+          <AdminConfig />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Manager and Admin routes
+  {
+    path: "/companies",
+    element: (
+      <ProtectedRoute requiredRole="manager">
+        <Layout>
+          <CompanyManagement />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Regular user routes
+  {
+    path: "/documents",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <DocumentList />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/create/estimate",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <EstimateCreation />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/create/insurance-estimate",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <InsuranceEstimateCreation />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/edit/estimate/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <EstimateEditWrapper />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/create/plumber-report",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <PlumberReportCreation />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/create/invoice",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <InvoiceCreation />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/work-orders",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <WorkOrderList />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/work-order/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <WorkOrderDetail />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/create/work-order",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <WorkOrderCreation />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Sketch Test Route
+  {
+    path: "/sketch-test",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <SketchTest />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // 404 Not Found - catch all undefined routes
+  {
+    path: "*",
+    element: <NotFound />
+  }
+]);
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ConfigProvider locale={enUS}>
         <AuthProvider>
-          <Router>
-            <Routes>
-              {/* Public routes */}
-              <Route path="/login" element={<Login />} />
-              
-              {/* Protected routes */}
-              <Route path="/" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Navigate to="/dashboard" replace />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              <Route path="/dashboard" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <RoleBasedDashboard />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              {/* Admin only routes */}
-              <Route path="/admin/dashboard" element={
-                <ProtectedRoute requiredRole="admin">
-                  <Layout>
-                    <AdminDashboard />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              
-              
-              <Route path="/admin/config" element={
-                <ProtectedRoute requiredRole="admin">
-                  <Layout>
-                    <AdminConfig />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              {/* Manager and Admin routes */}
-              <Route path="/companies" element={
-                <ProtectedRoute requiredRole="manager">
-                  <Layout>
-                    <CompanyManagement />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              {/* Regular user routes */}
-              <Route path="/documents" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <DocumentList />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/documents/:type" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <DocumentList />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              {/* Invoice Routes */}
-              <Route path="/create/invoice" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <InvoiceCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/invoices/:id" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <InvoiceCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/invoices/:id/edit" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <InvoiceCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              {/* Estimate Routes */}
-              <Route path="/create/estimate" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <EstimateCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/estimates/create" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <EstimateCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              {/* Insurance Estimate Routes */}
-              <Route path="/create/insurance-estimate" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <InsuranceEstimateCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/estimates/new" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <InsuranceEstimateCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/insurance-estimate/:id" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <InsuranceEstimateCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/estimates/:id" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <EstimateEditWrapper />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/estimates/:id/edit" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <EstimateEditWrapper />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              {/* Plumber Report Routes */}
-              <Route path="/create/plumber" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <PlumberReportCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/plumber-reports" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <PlumberReportCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/plumber-reports/new" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <PlumberReportCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/plumber-reports/:id" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <PlumberReportCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/plumber-reports/:id/edit" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <PlumberReportCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              {/* Work Order Routes */}
-              <Route path="/work-orders" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <WorkOrderList />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/work-orders/new" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <WorkOrderCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/work-orders/:id" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <WorkOrderDetail />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/work-orders/:id/edit" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <WorkOrderCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              <Route path="/create/work-order" element={
-                <ProtectedRoute>
-                  <Layout>
-                    <WorkOrderCreation />
-                  </Layout>
-                </ProtectedRoute>
-              } />
-              
-              {/* 404 Not Found - catch all undefined routes */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Router>
+          <RouterProvider router={router} />
         </AuthProvider>
       </ConfigProvider>
     </QueryClientProvider>

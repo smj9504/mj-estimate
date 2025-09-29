@@ -4,16 +4,16 @@ export interface DocumentType {
   code: string;
   description?: string;
   category?: string;
-  base_price: string;
-  pricing_rules?: {
+  base_fee: string;
+  fee_rules?: {
     location_rules?: {
       base_locations: number;
-      additional_location_price: number;
+      additional_location_fee: number;
       additional_location_grouping: number;
     };
     addons?: Array<{
       name: string;
-      price: number;
+      fee: number;
     }>;
     volume_discounts?: Array<{
       min_quantity: number;
@@ -64,7 +64,7 @@ export interface MeasurementReportType {
   name: string;
   provider: 'eagleview' | 'roofr' | 'hover' | 'custom';
   description?: string;
-  base_cost: string;
+  base_fee: string;
   markup_percent: string;
   fixed_markup: string;
   standard_turnaround_hours: number;
@@ -78,7 +78,7 @@ export interface MeasurementReportType {
   updated_at: string;
 }
 
-export interface PricingRule {
+export interface FeeRule {
   id: string;
   document_type_id: string;
   rule_name: string;
@@ -93,20 +93,20 @@ export interface PricingRule {
   updated_at: string;
 }
 
-export interface PriceCalculationParams {
+export interface FeeCalculationParams {
   locations?: number;
   selected_addons?: string[];
   quantity?: number;
   rush?: boolean;
 }
 
-export interface PriceCalculationResponse {
-  base_price: number;
+export interface FeeCalculationResponse {
+  base_fee: number;
   adjustments: Array<{
     type: string;
     description: string;
     amount: number;
   }>;
-  final_price: number;
-  parameters: PriceCalculationParams;
+  final_fee: number;
+  parameters: FeeCalculationParams;
 }

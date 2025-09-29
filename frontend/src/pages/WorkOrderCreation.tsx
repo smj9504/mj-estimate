@@ -382,7 +382,7 @@ const WorkOrderCreation: React.FC = () => {
                 >
                   {documentTypes.map(type => (
                     <Option key={type.id} value={type.id}>
-                      {type.name} - ${parseFloat(type.base_price).toFixed(2)}
+                      {type.name} - ${parseFloat(type.base_fee).toFixed(2)}
                       {type.description && (
                         <span style={{ color: '#666', fontSize: '11px' }}>
                           {' '}({type.description})

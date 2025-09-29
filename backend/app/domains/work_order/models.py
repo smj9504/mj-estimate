@@ -85,7 +85,7 @@ class WorkOrder(Base):
     actual_cost = Column(String(50))
     
     # Calculated Cost Fields
-    base_cost = Column(String(50))  # Base cost from selected trades
+    base_fee = Column(String(50))  # Base fee from selected trades
     final_cost = Column(String(50))  # Total cost including base + additional costs + tax
     tax_amount = Column(String(50))  # Tax amount
     discount_amount = Column(String(50))  # Discount amount if any

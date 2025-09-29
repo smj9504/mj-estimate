@@ -50,6 +50,95 @@ const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 const { confirm } = Modal;
 
+// CSS styles for scrollable work details
+const scrollStyles = `
+  .work-details-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  .work-details-scroll::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 3px;
+  }
+  .work-details-scroll::-webkit-scrollbar-thumb {
+    background: #d4d4d4;
+    border-radius: 3px;
+  }
+  .work-details-scroll::-webkit-scrollbar-thumb:hover {
+    background: #b8b8b8;
+  }
+
+  .work-details-scroll .ant-descriptions-item-content {
+    max-width: none !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    display: block !important;
+  }
+
+  .work-details-scroll .ant-descriptions-item-content > div {
+    max-width: none !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    line-height: 1.6 !important;
+    display: block !important;
+  }
+
+  .work-details-scroll .ant-descriptions-item {
+    padding-bottom: 16px !important;
+    overflow: visible !important;
+  }
+
+  .work-details-scroll .ant-descriptions {
+    overflow: visible !important;
+  }
+
+  .work-details-scroll .ant-descriptions-row {
+    overflow: visible !important;
+  }
+
+  .work-details-scroll .ant-descriptions-item:last-child {
+    margin-bottom: 0 !important;
+    padding-bottom: 40px !important;
+  }
+
+  .work-details-scroll .ant-descriptions-item:last-child .consultation-notes-content {
+    margin-bottom: 20px !important;
+    padding-bottom: 20px !important;
+  }
+
+  .work-details-scroll {
+    position: relative !important;
+    z-index: 1 !important;
+    box-sizing: border-box !important;
+    border: 1px solid transparent !important;
+  }
+
+  .work-details-scroll::after {
+    content: '';
+    display: block;
+    height: 60px;
+    clear: both;
+    width: 100%;
+  }
+
+  .consultation-notes-content {
+    max-width: none !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    display: block !important;
+    line-height: 1.6 !important;
+    width: 100% !important;
+  }
+`;
+
 // Status configuration
 const statusConfig = {
   draft: {
@@ -336,7 +425,9 @@ const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
   const currentStatusConfig = statusConfig[workOrder.status];
 
   return (
-    <div className="work-order-info-tab" style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
+    <>
+      <style dangerouslySetInnerHTML={{ __html: scrollStyles }} />
+      <div className="work-order-info-tab" style={{ padding: '16px' }}>
       {/* Header Section */}
       <Card style={{ marginBottom: 24 }} className="no-print">
         <Row justify="space-between" align="middle">
@@ -494,8 +585,25 @@ const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
           </Card>
 
           {/* Work Details */}
-          <Card title="Work Details" style={{ marginBottom: 24 }}>
-            <Descriptions column={1} size="small">
+          <Card
+            title="Work Details"
+            style={{ marginBottom: 24 }}
+            bodyStyle={{ padding: '20px 20px 0px 20px' }}
+          >
+            <div
+              style={{
+                maxHeight: 'calc(100vh - 300px)',
+                minHeight: '300px',
+                overflowY: 'auto',
+                paddingRight: '8px',
+                paddingBottom: '40px',
+                paddingTop: '10px',
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#d4d4d4 transparent'
+              }}
+              className="work-details-scroll"
+            >
+              <Descriptions column={1} size="small" style={{ wordBreak: 'break-word', marginBottom: '20px' }}>
               <Descriptions.Item label="Document Type">
                 <Tag color="blue">
                   {workOrder.document_type_name || workOrder.document_type}
@@ -515,19 +623,35 @@ const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
               </Descriptions.Item>
               {workOrder.work_description && (
                 <Descriptions.Item label="Work Description">
-                  <Paragraph>
-                    <div dangerouslySetInnerHTML={{ __html: workOrder.work_description }} />
-                  </Paragraph>
+                  <div
+                    className="consultation-notes-content"
+                    dangerouslySetInnerHTML={{ __html: workOrder.work_description }}
+                  />
                 </Descriptions.Item>
               )}
               {workOrder.consultation_notes && (
                 <Descriptions.Item label="Phone Consultation Notes">
-                  <Paragraph>
+                  <div className="consultation-notes-content">
                     {workOrder.consultation_notes}
-                  </Paragraph>
+                  </div>
+                </Descriptions.Item>
+              )}
+              {workOrder.scope_of_work && (
+                <Descriptions.Item label="Scope of Work">
+                  <div className="consultation-notes-content">
+                    {workOrder.scope_of_work}
+                  </div>
+                </Descriptions.Item>
+              )}
+              {workOrder.special_instructions && (
+                <Descriptions.Item label="Special Instructions">
+                  <div className="consultation-notes-content">
+                    {workOrder.special_instructions}
+                  </div>
                 </Descriptions.Item>
               )}
             </Descriptions>
+            </div>
           </Card>
         </Col>
 
@@ -538,8 +662,8 @@ const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
             <Space direction="vertical" style={{ width: '100%' }}>
               {/* Cost Breakdown */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text>Base Cost:</Text>
-                <Text>${(workOrder.base_cost || 0).toLocaleString()}</Text>
+                <Text>Base Fee:</Text>
+                <Text>${(workOrder.base_fee || 0).toLocaleString()}</Text>
               </div>
 
               {/* Additional Costs */}
@@ -655,6 +779,7 @@ const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
         loading={commentMutation.isPending}
       />
     </div>
+    </>
   );
 };
 

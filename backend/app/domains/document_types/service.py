@@ -78,12 +78,12 @@ def delete_document_type(db: Session, document_type_id: UUID) -> bool:
     return True
 
 
-def calculate_document_price(db: Session, document_type_id: UUID, params: schemas.PriceCalculationParams) -> Optional[float]:
+def calculate_document_fee(db: Session, document_type_id: UUID, params: schemas.FeeCalculationParams) -> Optional[float]:
     db_document_type = get_document_type(db, document_type_id)
     if not db_document_type:
         return None
     
-    return db_document_type.calculate_price(**params.dict())
+    return db_document_type.calculate_fee(**params.dict())
 
 
 # Trades services
@@ -214,9 +214,9 @@ def delete_measurement_report_type(db: Session, report_type_id: UUID) -> bool:
     return True
 
 
-def calculate_report_price(db: Session, report_type_id: UUID, rush: bool = False) -> Optional[float]:
+def calculate_report_fee(db: Session, report_type_id: UUID, rush: bool = False) -> Optional[float]:
     db_report_type = get_measurement_report_type(db, report_type_id)
     if not db_report_type:
         return None
     
-    return db_report_type.calculate_price(rush=rush)
+    return db_report_type.calculate_fee(rush=rush)

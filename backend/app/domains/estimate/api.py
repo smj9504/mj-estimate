@@ -3,12 +3,13 @@ Estimate domain API endpoints
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Response
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import tempfile
 import os
 import json
 import logging
+import traceback
 
 from app.core.database_factory import get_db_session as get_db
 from app.domains.estimate.schemas import (
@@ -715,6 +716,81 @@ async def duplicate_estimate(estimate_id: str, db=Depends(get_db)):
     )
 
 
+def _group_items_into_sections(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Group items by primary_group to create sections for PDF rendering"""
+    logger = logging.getLogger(__name__)
+    logger.info(f"_group_items_into_sections called with {len(items)} items")
+
+    if not items:
+        logger.info("No items found, returning empty sections")
+        return []
+
+    # Debug: log first item structure and all group fields
+    if items:
+        first_item = items[0]
+        logger.info(f"First item structure: {list(first_item.keys())}")
+        logger.info(f"First item primary_group: '{first_item.get('primary_group')}'")
+        logger.info(f"First item secondary_group: '{first_item.get('secondary_group')}'")
+        logger.info(f"First item room: '{first_item.get('room')}'")
+
+        # Log all items' group information
+        for i, item in enumerate(items[:5]):  # Log first 5 items only
+            item_name = item.get('name') or item.get('description', '')
+            logger.info(f"Item {i+1}: name='{item_name[:50]}...', primary_group='{item.get('primary_group')}', room='{item.get('room')}'")
+
+    sections_dict = {}
+    for item in items:
+        # Try multiple possible field names for section/group
+        group = (item.get('primary_group') or
+                item.get('secondary_group') or
+                item.get('room') or
+                item.get('section') or
+                item.get('group') or
+                item.get('category') or
+                'General')
+
+        if not group or group.strip() == '':
+            group = 'General'
+
+        if group not in sections_dict:
+            sections_dict[group] = {
+                'title': group,
+                'items': [],
+                'subtotal': 0,
+                'showSubtotal': True
+            }
+
+        # Add processed item to section
+        # Use description as name if name is not provided (frontend compatibility)
+        item_name = item.get('name') or item.get('description', '')
+        item_description = item.get('description', '') if item.get('name') else ''
+
+        sections_dict[group]['items'].append({
+            'name': item_name,
+            'description': item_description,
+            'note': item.get('note', ''),
+            'quantity': item.get('quantity', 0),
+            'unit': item.get('unit', 'EA'),
+            'rate': item.get('rate', 0)
+        })
+
+        # Update section subtotal
+        item_total = item.get('quantity', 0) * item.get('rate', 0)
+        sections_dict[group]['subtotal'] += item_total
+
+    # Convert to list and sort by section name
+    sections = list(sections_dict.values())
+    sections.sort(key=lambda x: x['title'])
+
+    logger.info(f"Created {len(sections)} sections:")
+    for section in sections:
+        logger.info(f"  Section '{section['title']}': {len(section['items'])} items, subtotal: {section['subtotal']}")
+        # Debug: check if items is actually a list
+        logger.info(f"  Section items type: {type(section['items'])}")
+
+    return sections
+
+
 @router.post("/{estimate_id}/pdf")
 async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
     """Generate PDF for an estimate"""
@@ -722,12 +798,44 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
     database = get_database()
     service = EstimateService(database)
     
-    # Get estimate from database with company info
-    estimate = service.get_with_items_and_company(estimate_id)
+    # Get estimate from database
+    estimate = service.get_with_items(estimate_id)
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
-    
+
+    # Get company info if company_id exists
+    if estimate.get('company_id'):
+        try:
+            from app.domains.company.repository import get_company_repository
+            company_repo = get_company_repository(db)
+            company_info = company_repo.get_by_id(str(estimate['company_id']))
+            if company_info:
+                # Merge company info
+                estimate['company_name'] = company_info.get('name')
+                estimate['company_address'] = company_info.get('address')
+                estimate['company_city'] = company_info.get('city')
+                estimate['company_state'] = company_info.get('state')
+                estimate['company_zipcode'] = company_info.get('zipcode')
+                estimate['company_phone'] = company_info.get('phone')
+                estimate['company_email'] = company_info.get('email')
+                estimate['company_logo'] = company_info.get('logo')
+        except Exception as e:
+            logger.error(f"Error fetching company info: {e}")
+
     # Prepare data for PDF generation
+    # Generate sections from items first
+    items_data = estimate.get('items', [])
+    logger.info(f"Total items for PDF: {len(items_data)}")
+    if items_data:
+        logger.info(f"Sample item structure: {items_data[0]}")
+
+    sections_data = _group_items_into_sections(items_data)
+    logger.info(f"PDF context sections: {len(sections_data)} sections created")
+
+    # Log each section details
+    for i, section in enumerate(sections_data):
+        logger.info(f"  Section {i+1}: '{section.get('title')}' with {len(section.get('items', []))} items")
+
     pdf_data = {
         "estimate_number": estimate.get('estimate_number', ''),
         "estimate_date": estimate.get('estimate_date', estimate.get('created_at', '')),
@@ -753,8 +861,10 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
         },
         "items": [
             {
+                "name": item.get('name') or item.get('description', ''),
                 "room": item.get('room', ''),
                 "description": item.get('description', ''),
+                "note": item.get('note', ''),
                 "quantity": item.get('quantity', 0),
                 "unit": item.get('unit', ''),
                 "rate": item.get('rate', 0),
@@ -762,11 +872,15 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
             }
             for item in estimate.get('items', [])
         ],
+        # Add sections data for proper section-based display
+        "sections": sections_data,
         "subtotal": estimate.get('subtotal', 0),
+        "op_percent": estimate.get('op_percent', 0),
+        "op_amount": estimate.get('op_amount', 0),
         "tax_rate": estimate.get('tax_rate', 0),
         "tax_amount": estimate.get('tax_amount', 0),
         "discount_amount": estimate.get('discount_amount', 0),
-        "total_amount": estimate.get('total_amount', 0),
+        "total": estimate.get('total_amount', 0),
         "claim_number": estimate.get('claim_number'),
         "policy_number": estimate.get('policy_number'),
         "deductible": estimate.get('deductible'),
@@ -818,9 +932,16 @@ async def preview_estimate_html(data: EstimatePDFRequest):
         # Prepare data for HTML generation
         html_data = data.dict()
         logger.info(f"Generating HTML preview with data keys: {html_data.keys()}")
-        
+
+        # Generate sections from items before passing to PDF service
+        if 'items' in html_data:
+            sections_data = _group_items_into_sections(html_data.get('items', []))
+            html_data['sections'] = sections_data
+            logger.info(f"Generated {len(sections_data)} sections for HTML preview")
+
         # Use the same PDF service but get HTML instead of PDF
-        pdf_service = PDFService()
+        if not pdf_service:
+            raise HTTPException(status_code=500, detail="PDF service not available")
         html_content = pdf_service.generate_estimate_html(html_data)
         
         logger.info(f"HTML content length: {len(html_content)} characters")
@@ -859,7 +980,13 @@ async def preview_estimate_pdf(data: EstimatePDFRequest):
         # Prepare data for PDF generation
         pdf_data = data.dict()
         logger.info(f"Generating PDF preview with data keys: {pdf_data.keys()}")
-        
+
+        # Generate sections from items before passing to PDF service
+        if 'items' in pdf_data:
+            sections_data = _group_items_into_sections(pdf_data.get('items', []))
+            pdf_data['sections'] = sections_data
+            logger.info(f"Generated {len(sections_data)} sections for PDF preview")
+
         # Generate PDF
         pdf_path = pdf_service.generate_estimate_pdf(pdf_data, output_path)
         logger.info(f"PDF generated successfully at: {pdf_path}")

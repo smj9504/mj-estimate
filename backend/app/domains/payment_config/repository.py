@@ -3,6 +3,7 @@ Payment configuration repository
 """
 
 from typing import Optional, List
+from sqlalchemy.orm import Session
 from app.common.base_repository import SQLAlchemyRepository, SupabaseRepository
 from app.core.config import settings
 from .models import PaymentMethod, PaymentFrequency
@@ -12,9 +13,12 @@ class PaymentMethodRepository:
     """Repository for payment method operations"""
     
     def __init__(self, session):
-        if settings.USE_SQLITE:
+        # Check if session is SQLAlchemy Session (PostgreSQL/SQLite) or Supabase client
+        if isinstance(session, Session) or hasattr(session, 'query'):
+            # SQLAlchemy session (PostgreSQL or SQLite)
             self.repo = SQLAlchemyRepository(session, PaymentMethod)
         else:
+            # Supabase client
             self.repo = SupabaseRepository(session, "payment_methods", PaymentMethod)
     
     def get_by_code(self, code: str) -> Optional[dict]:
@@ -51,9 +55,12 @@ class PaymentFrequencyRepository:
     """Repository for payment frequency operations"""
     
     def __init__(self, session):
-        if settings.USE_SQLITE:
+        # Check if session is SQLAlchemy Session (PostgreSQL/SQLite) or Supabase client
+        if isinstance(session, Session) or hasattr(session, 'query'):
+            # SQLAlchemy session (PostgreSQL or SQLite)
             self.repo = SQLAlchemyRepository(session, PaymentFrequency)
         else:
+            # Supabase client
             self.repo = SupabaseRepository(session, "payment_frequencies", PaymentFrequency)
     
     def get_by_code(self, code: str) -> Optional[dict]:

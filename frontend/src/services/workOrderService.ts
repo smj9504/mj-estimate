@@ -77,7 +77,7 @@ export const workOrderService = {
   },
 
   // Document type operations
-  async getDocumentTypes(): Promise<{ id: string; name: string; base_cost: number }[]> {
+  async getDocumentTypes(): Promise<{ id: string; name: string; base_fee: number }[]> {
     const response = await api.get('/api/document-types/');
     return response.data;
   },

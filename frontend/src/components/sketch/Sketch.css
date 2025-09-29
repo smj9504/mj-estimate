@@ -1,0 +1,154 @@
+/* ====================================================================
+ * UNIFIED SKETCH VIEWPORT CSS SOLUTION
+ * Consolidates all sketch viewport styles to eliminate conflicts
+ * ==================================================================== */
+
+/* Base Konva.js content positioning */
+.konvajs-content {
+  position: relative;
+  display: block;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Sketch Canvas Container - Root container */
+.sketch-canvas-container {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sketch Content Layout - Middle layer */
+.sketch-content-layout {
+  flex: 1;
+  display: flex;
+  position: relative;
+  min-height: 300px; /* Ensure minimum height for content */
+  height: 100%; /* Explicit height inheritance */
+}
+
+/* ====================================================================
+ * MAIN VIEWPORT CONTAINER - Primary styling
+ * This is the main element causing height issues
+ * ==================================================================== */
+
+/* Base viewport container styles */
+.sketch-viewport-container {
+  /* Layout */
+  flex: 1;
+  display: block; /* Change from flex to block to let children set their own size */
+
+  /* Positioning */
+  position: relative;
+
+  /* Spacing */
+  padding: 0;
+  margin: 0;
+
+  /* Sizing */
+  box-sizing: border-box;
+  min-width: 400px;
+  min-height: 300px;
+  height: 100%; /* Explicit height to ensure inheritance */
+  width: 100%;  /* Explicit width for consistency */
+
+  /* Overflow */
+  overflow: hidden;
+
+  /* Background */
+  background: #ffffff;
+}
+
+/* Ant Design Layout Content specific overrides */
+.ant-layout-content.sketch-viewport-container {
+  /* Force proper block behavior for Ant Design Content */
+  flex: 1;
+  display: block; /* Change to block */
+
+  /* Reset Ant Design defaults */
+  padding: 0;
+  margin: 0;
+
+  /* Ensure proper box model */
+  box-sizing: border-box;
+
+  /* Height inheritance */
+  height: 100%; /* Explicit height */
+  min-height: 300px; /* Minimum height */
+}
+
+/* CSS-in-JS generated class overrides */
+.ant-layout-content.sketch-viewport-container[class*="css-dev-only-do-not-override"] {
+  /* Same properties as above but with higher specificity */
+  flex: 1;
+  display: block; /* Change to block */
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  height: 100%; /* Explicit height */
+  min-height: 300px; /* Minimum height */
+}
+
+/* Child element alignment within viewport */
+.sketch-viewport-container > div {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  display: block;
+}
+
+/* Konva content within viewport - Use actual size from inline styles */
+.sketch-viewport-container .konvajs-content {
+  position: relative !important;
+  top: 0 !important;
+  left: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  transform: none !important;
+  /* Remove width and height overrides to let inline styles work */
+  /* width and height are set inline by Konva */
+}
+
+/* Canvas elements positioning - Use Konva's inline styles */
+.sketch-viewport-container canvas {
+  /* Let Konva handle all canvas styles inline */
+  /* Remove all overrides that might conflict with Konva's calculations */
+  display: block !important;
+}
+
+/* ====================================================================
+ * RESPONSIVE AND ACCESSIBILITY
+ * ==================================================================== */
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .sketch-viewport-container {
+    min-width: 300px;
+    min-height: 200px;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sketch-content-layout {
+    flex-direction: column;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .sketch-viewport-container {
+    border: 2px solid #000000;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .sketch-viewport-container * {
+    transition: none;
+    animation: none;
+  }
+}
