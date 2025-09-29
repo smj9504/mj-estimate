@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Stage, Layer, Rect, Line, Circle, Text, Shape } from 'react-konva';
 import { Modal, Input, InputNumber, Form, Button } from 'antd';
 import Konva from 'konva';
+import { useSketchContext } from '../context/SketchProvider';
 
 interface Point {
   x: number;
@@ -39,6 +40,7 @@ interface WallDragInfo {
   wallIds: string[];
   startPositions: { [wallId: string]: { start: Point; end: Point } };
   offset: Point;
+  clickPosition?: Point; // Position where user clicked on the wall
 }
 
 interface RoomDragInfo {
@@ -99,8 +101,8 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
   onStageClick = () => {},
   onStageMouseMove = () => {},
 }) => {
+  const { currentTool, setCurrentTool } = useSketchContext();
   const [isDrawing, setIsDrawing] = useState(false);
-  const [currentTool, setCurrentTool] = useState<'wall' | 'select' | 'room'>('wall');
   const [walls, setWalls] = useState<Wall[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomCounter, setRoomCounter] = useState(0);
@@ -135,48 +137,44 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [actualSize, setActualSize] = useState({ width, height });
 
-  // Update actual size based on container
+  // Wall length editing states
+  const [editingWallId, setEditingWallId] = useState<string | null>(null);
+  const [wallLengthInput, setWallLengthInput] = useState<{ feet: number; inches: number }>({ feet: 0, inches: 0 });
+  const [wallEditPosition, setWallEditPosition] = useState<{ x: number; y: number } | null>(null);
+
+  // Update actual size based on props (SketchCanvas handles container sizing)
   useEffect(() => {
     const updateActualSize = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const newWidth = rect.width > 0 ? rect.width : width;
-        const newHeight = rect.height > 0 ? rect.height : height;
+      // Trust the parent SketchCanvas for size calculations
+      // Just apply minimum constraints for safety
+      const newWidth = Math.max(300, Math.min(width, 2000)); // Max reasonable width
+      const newHeight = Math.max(200, Math.min(height, 1500)); // Max reasonable height
 
-        // Debug logging to trace height calculation
-        console.log('SketchViewport size calculation:', {
-          containerRect: { width: rect.width, height: rect.height },
-          propsSize: { width, height },
-          calculatedSize: { width: newWidth, height: newHeight },
-          containerElement: containerRef.current,
-          parentElement: containerRef.current?.parentElement,
-          parentRect: containerRef.current?.parentElement?.getBoundingClientRect()
-        });
+      // Debug logging to trace height calculation
+      console.log('SketchViewport simplified size calculation:', {
+        propsSize: { width, height },
+        appliedSize: { width: newWidth, height: newHeight },
+        containerElement: containerRef.current,
+        parentRect: containerRef.current?.parentElement?.getBoundingClientRect()
+      });
 
-        setActualSize({
-          width: newWidth,
-          height: newHeight
-        });
-      } else {
-        // Fallback to props if container is not ready
-        console.log('SketchViewport fallback to props:', { width, height });
-        setActualSize({ width, height });
-      }
+      setActualSize({
+        width: newWidth,
+        height: newHeight
+      });
     };
 
-    // Multiple update attempts to handle timing issues
-    const timeoutId1 = setTimeout(updateActualSize, 10);   // Quick check
-    const timeoutId2 = setTimeout(updateActualSize, 100);  // Normal check
-    const timeoutId3 = setTimeout(updateActualSize, 500);  // Late check for slow renders
+    // Simple immediate update since parent handles the complex logic
+    updateActualSize();
 
-    updateActualSize(); // Immediate check
-    window.addEventListener('resize', updateActualSize);
+    // Optional resize handler for edge cases
+    const handleResize = () => {
+      setTimeout(updateActualSize, 50);
+    };
+    window.addEventListener('resize', handleResize);
 
     return () => {
-      window.removeEventListener('resize', updateActualSize);
-      clearTimeout(timeoutId1);
-      clearTimeout(timeoutId2);
-      clearTimeout(timeoutId3);
+      window.removeEventListener('resize', handleResize);
     };
   }, [width, height]);
 
@@ -268,6 +266,361 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
     return inside;
   };
+
+  // Calculate wall length in pixels
+  const calculateWallLength = (wall: Wall): number => {
+    const dx = wall.end.x - wall.start.x;
+    const dy = wall.end.y - wall.start.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  // Convert pixels to feet and inches (assuming 1 foot = 20 pixels as base scale)
+  const pixelsToFeetInches = (pixels: number): { feet: number; inches: number } => {
+    const totalInches = (pixels / 20) * 12; // 20 pixels = 1 foot = 12 inches
+    const feet = Math.floor(totalInches / 12);
+    const inches = Math.round(totalInches % 12);
+    return { feet, inches };
+  };
+
+  // Convert feet and inches to pixels
+  const feetInchesToPixels = (feet: number, inches: number): number => {
+    const totalInches = feet * 12 + inches;
+    return (totalInches / 12) * 20; // 20 pixels = 1 foot
+  };
+
+  // Get wall midpoint for positioning the edit input
+  const getWallMidpoint = (wall: Wall): Point => {
+    return {
+      x: (wall.start.x + wall.end.x) / 2,
+      y: (wall.start.y + wall.end.y) / 2
+    };
+  };
+
+  // Handle wall double-click for length editing
+  const handleWallDoubleClick = useCallback((wallId: string, e: any) => {
+    console.log('Wall double-clicked:', wallId);
+    e.evt.stopPropagation();
+
+    const wall = walls.find(w => w.id === wallId);
+    if (!wall) {
+      console.log('Wall not found for double click:', wallId);
+      return;
+    }
+
+    // Calculate current length and convert to feet/inches
+    const currentLengthPixels = calculateWallLength(wall);
+    const { feet, inches } = pixelsToFeetInches(currentLengthPixels);
+
+    console.log('Wall length info:', {
+      wallId,
+      currentLengthPixels,
+      feet,
+      inches,
+      wall
+    });
+
+    // Set editing state
+    setEditingWallId(wallId);
+    setWallLengthInput({ feet, inches });
+
+    // Calculate position for edit input (convert wall midpoint to screen coordinates)
+    const midpoint = getWallMidpoint(wall);
+    const stage = stageRef.current;
+    const container = containerRef.current;
+
+    if (stage && container) {
+      // Get stage's transformation
+      const stageBox = stage.getClientRect();
+      const containerBox = container.getBoundingClientRect();
+
+      // Apply zoom and pan transformations
+      const scaledX = midpoint.x * zoom + pan.x;
+      const scaledY = midpoint.y * zoom + pan.y;
+
+      // Position relative to container
+      const editPosition = {
+        x: scaledX + containerBox.left - containerBox.left, // Relative to container
+        y: scaledY + containerBox.top - containerBox.top - 40 // Position above the wall
+      };
+
+      console.log('Edit position calculated:', {
+        midpoint,
+        scaledX,
+        scaledY,
+        editPosition,
+        zoom,
+        pan
+      });
+      setWallEditPosition(editPosition);
+    } else {
+      console.log('Stage or container ref not available');
+    }
+  }, [walls]);
+
+  // Update wall length based on input
+  const updateWallLength = useCallback((wallId: string, newFeet: number, newInches: number) => {
+    console.log('updateWallLength called:', { wallId, newFeet, newInches });
+    console.log('Current walls array:', walls);
+
+    // Validate input values first
+    if (newFeet < 0 || newInches < 0 || newInches >= 12) {
+      console.log('Invalid input values:', { newFeet, newInches });
+      return;
+    }
+
+    const newLengthPixels = feetInchesToPixels(newFeet, newInches);
+
+    if (newLengthPixels <= 0) {
+      console.log('Invalid length: must be greater than 0');
+      return;
+    }
+
+    let wall = walls.find(w => w.id === wallId);
+
+    if (!wall) {
+      console.log('Wall not found in walls array:', wallId);
+      console.log('Available wall IDs:', walls.map(w => w.id));
+
+      // Check if wall might be stored in rooms and try to reconstruct it
+      const roomsWithWalls = rooms.filter(room => room.wallIds?.includes(wallId));
+      console.log('Rooms containing this wall ID:', roomsWithWalls);
+
+      if (roomsWithWalls.length > 0) {
+        // Try to reconstruct wall from room data
+        const room = roomsWithWalls[0];
+        if (wallId.includes('-wall-right')) {
+          wall = {
+            id: wallId,
+            start: { x: room.bounds.x + room.bounds.width, y: room.bounds.y },
+            end: { x: room.bounds.x + room.bounds.width, y: room.bounds.y + room.bounds.height }
+          };
+          console.log('Reconstructed right wall:', wall);
+        } else if (wallId.includes('-wall-left')) {
+          wall = {
+            id: wallId,
+            start: { x: room.bounds.x, y: room.bounds.y },
+            end: { x: room.bounds.x, y: room.bounds.y + room.bounds.height }
+          };
+          console.log('Reconstructed left wall:', wall);
+        } else if (wallId.includes('-wall-top')) {
+          wall = {
+            id: wallId,
+            start: { x: room.bounds.x, y: room.bounds.y },
+            end: { x: room.bounds.x + room.bounds.width, y: room.bounds.y }
+          };
+          console.log('Reconstructed top wall:', wall);
+        } else if (wallId.includes('-wall-bottom')) {
+          wall = {
+            id: wallId,
+            start: { x: room.bounds.x + room.bounds.width, y: room.bounds.y + room.bounds.height },
+            end: { x: room.bounds.x, y: room.bounds.y + room.bounds.height }
+          };
+          console.log('Reconstructed bottom wall:', wall);
+        }
+      }
+
+      if (!wall) {
+        console.log('Could not find or reconstruct wall');
+        return;
+      }
+    }
+
+    const currentLengthPixels = calculateWallLength(wall);
+
+    console.log('Length calculation:', {
+      newLengthPixels,
+      currentLengthPixels,
+      wall: wall
+    });
+
+    if (Math.abs(newLengthPixels - currentLengthPixels) < 1) {
+      console.log('Length unchanged (difference < 1 pixel)');
+      // Clear editing state even if no change
+      setEditingWallId(null);
+      setWallEditPosition(null);
+      return;
+    }
+
+    // IRREGULAR SHAPE SUPPORT: Update only the specific wall instead of regenerating all room walls
+    // This allows rooms to have irregular/non-rectangular shapes for property blueprints
+    const roomsWithWalls = rooms.filter(room => room.wallIds?.includes(wallId));
+    if (roomsWithWalls.length > 0) {
+      console.log('Updating individual wall for irregular shape support');
+
+      const room = roomsWithWalls[0];
+
+      // Calculate new wall endpoints based on the wall direction and new length
+      const dx = wall.end.x - wall.start.x;
+      const dy = wall.end.y - wall.start.y;
+      const currentLength = Math.sqrt(dx * dx + dy * dy);
+
+      if (currentLength === 0) {
+        console.log('Invalid wall: zero length');
+        return;
+      }
+
+      // Calculate unit vector for wall direction
+      const unitX = dx / currentLength;
+      const unitY = dy / currentLength;
+
+      // Calculate new end position based on start point and new length
+      const newEnd: Point = {
+        x: wall.start.x + unitX * newLengthPixels,
+        y: wall.start.y + unitY * newLengthPixels
+      };
+
+      console.log('Individual wall update:', {
+        wallId,
+        currentLength,
+        newLength: newLengthPixels,
+        oldEnd: wall.end,
+        newEnd
+      });
+
+      // Update the specific wall and handle connectivity in a single update
+      setWalls(prevWalls => {
+        const updatedWalls = prevWalls.map(w => {
+          if (w.id === wallId) {
+            return {
+              ...w,
+              end: newEnd
+            };
+          }
+          return w;
+        });
+
+        console.log('Updated individual wall:', updatedWalls.find(w => w.id === wallId));
+
+        // Optional: Update connected walls to maintain connectivity
+        const shouldUpdateConnectedWalls = true; // Can be made configurable
+
+        if (shouldUpdateConnectedWalls) {
+          const tolerance = 10; // pixels - distance threshold for considering walls connected
+
+          return updatedWalls.map(w => {
+            // Skip the wall we just updated
+            if (w.id === wallId) return w;
+
+            // Check if this wall should connect to our updated wall's new endpoint
+            const distanceToNewEnd = Math.sqrt(
+              Math.pow(w.start.x - newEnd.x, 2) + Math.pow(w.start.y - newEnd.y, 2)
+            );
+            const distanceToNewEndFromEnd = Math.sqrt(
+              Math.pow(w.end.x - newEnd.x, 2) + Math.pow(w.end.y - newEnd.y, 2)
+            );
+
+            // If wall start point is close to our new endpoint, connect it
+            if (distanceToNewEnd <= tolerance) {
+              console.log(`Connecting wall ${w.id} start to updated wall ${wallId} end`);
+              return { ...w, start: newEnd };
+            }
+
+            // If wall end point is close to our new endpoint, connect it
+            if (distanceToNewEndFromEnd <= tolerance) {
+              console.log(`Connecting wall ${w.id} end to updated wall ${wallId} end`);
+              return { ...w, end: newEnd };
+            }
+
+            return w;
+          });
+        }
+
+        return updatedWalls;
+      });
+
+      // Update room bounds to encompass all walls (for rendering purposes)
+      // Calculate bounding box from all room walls
+      const roomWallIds = room.wallIds || [];
+      const roomWalls = walls.filter(w => roomWallIds.includes(w.id));
+
+      // Include the updated wall in calculations
+      const updatedWall = { ...wall, end: newEnd };
+      const allRoomWalls = roomWalls.map(w => w.id === wallId ? updatedWall : w);
+
+      if (allRoomWalls.length > 0) {
+        // Calculate bounding box from all wall points
+        let minX = Number.MAX_VALUE;
+        let minY = Number.MAX_VALUE;
+        let maxX = Number.MIN_VALUE;
+        let maxY = Number.MIN_VALUE;
+
+        allRoomWalls.forEach(w => {
+          minX = Math.min(minX, w.start.x, w.end.x);
+          minY = Math.min(minY, w.start.y, w.end.y);
+          maxX = Math.max(maxX, w.start.x, w.end.x);
+          maxY = Math.max(maxY, w.start.y, w.end.y);
+        });
+
+        const newBounds = {
+          x: minX,
+          y: minY,
+          width: maxX - minX,
+          height: maxY - minY
+        };
+
+        console.log('Updated room bounds from walls:', newBounds);
+
+        // Update room bounds for layout purposes only
+        setRooms(prevRooms => prevRooms.map(r =>
+          r.id === room.id ? { ...r, bounds: newBounds } : r
+        ));
+      }
+    } else {
+      // For standalone walls (not part of a room), use the original logic
+      const dx = wall.end.x - wall.start.x;
+      const dy = wall.end.y - wall.start.y;
+      const currentLength = Math.sqrt(dx * dx + dy * dy);
+
+      if (currentLength === 0) {
+        console.log('Invalid wall: zero length');
+        return;
+      }
+
+      // Calculate unit vector
+      const unitX = dx / currentLength;
+      const unitY = dy / currentLength;
+
+      // Calculate new end position
+      const newEnd: Point = {
+        x: wall.start.x + unitX * newLengthPixels,
+        y: wall.start.y + unitY * newLengthPixels
+      };
+
+      console.log('New end position:', newEnd);
+
+      // Update standalone wall
+      setWalls(prevWalls => {
+        const existingWallIndex = prevWalls.findIndex(w => w.id === wallId);
+        if (existingWallIndex >= 0) {
+          // Update existing wall
+          return prevWalls.map(w =>
+            w.id === wallId ? { ...w, end: newEnd } : w
+          );
+        } else {
+          // Add wall if it doesn't exist (only if wall was found)
+          if (wall) {
+            const updatedWall: Wall = {
+              id: wall.id,
+              start: wall.start,
+              end: newEnd
+            };
+            return [...prevWalls, updatedWall];
+          }
+          return prevWalls;
+        }
+      });
+    }
+
+    // Clear editing state
+    setEditingWallId(null);
+    setWallEditPosition(null);
+  }, [walls]);
+
+  // Cancel wall editing
+  const cancelWallEdit = useCallback(() => {
+    setEditingWallId(null);
+    setWallEditPosition(null);
+  }, []);
 
   // Convex Hull algorithm to find the outer boundary
   const getConvexHull = (points: Point[]): Point[] => {
@@ -838,8 +1191,8 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     return null;
   };
 
-  // Check if a point is on a wall line
-  const getWallAtPosition = (pos: Point): string | null => {
+  // Check if a point is on a wall line - returns wall info with click position
+  const getWallAtPosition = (pos: Point): { wallId: string; clickPoint: Point } | null => {
     const WALL_CLICK_THRESHOLD = 8;
 
     for (const wall of walls) {
@@ -873,10 +1226,19 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       if (distance <= WALL_CLICK_THRESHOLD) {
-        return wall.id;
+        return {
+          wallId: wall.id,
+          clickPoint: { x: xx, y: yy } // Return the closest point on the wall
+        };
       }
     }
     return null;
+  };
+
+  // Legacy function for backward compatibility
+  const getWallIdAtPosition = (pos: Point): string | null => {
+    const result = getWallAtPosition(pos);
+    return result ? result.wallId : null;
   };
 
   // Check if walls are inside selection rectangle
@@ -989,6 +1351,30 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         }
         // Switch to select mode
         setCurrentTool('select');
+      }
+
+      if (e.key === 'w' || e.key === 'W') {
+        // Cancel any ongoing operations
+        if (isDrawingRoom) {
+          setIsDrawingRoom(false);
+          setCurrentRoom(null);
+        }
+        setSelectedWallIds([]);
+        setSelectedRoomIds([]);
+        // Switch to wall mode
+        setCurrentTool('wall');
+      }
+
+      if (e.key === 'r' || e.key === 'R') {
+        // Cancel any ongoing operations
+        if (isDrawing) {
+          setIsDrawing(false);
+          setCurrentWall(null);
+        }
+        setSelectedWallIds([]);
+        setSelectedRoomIds([]);
+        // Switch to room mode
+        setCurrentTool('room');
       }
     };
 
@@ -1125,7 +1511,8 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
       }
 
       // Check if clicking on a wall line first (priority over rooms)
-      const wallId = getWallAtPosition(pos);
+      const wallResult = getWallAtPosition(pos);
+      const wallId = wallResult ? wallResult.wallId : null;
 
       // Check if clicking on a room (only if no wall was clicked)
       const roomId = getRoomAtPosition(pos);
@@ -1158,10 +1545,18 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
             }
           });
 
+          // Calculate offset from the click position to maintain natural dragging
+          // wallResult is guaranteed to be non-null here since we're inside the wallResult check
+          const clickOffset = {
+            x: pos.x - wallResult!.clickPoint.x,
+            y: pos.y - wallResult!.clickPoint.y
+          };
+
           setWallDragInfo({
             wallIds: selectedIds,
             startPositions,
-            offset: { x: 0, y: 0 }
+            offset: clickOffset,
+            clickPosition: wallResult!.clickPoint
           });
           setIsMovingWalls(true);
         }
@@ -1317,6 +1712,20 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
       }));
 
       setIsDragging(false);
+
+      // Update wall length input if editing the dragged wall
+      if (editingWallId === dragInfo.wallId) {
+        const updatedWall = walls.find(w => w.id === dragInfo.wallId);
+        if (updatedWall) {
+          const tempWall = {
+            ...updatedWall,
+            [dragInfo.endpoint]: finalPos
+          };
+          const newLengthPixels = calculateWallLength(tempWall);
+          const { feet, inches } = pixelsToFeetInches(newLengthPixels);
+          setWallLengthInput({ feet, inches });
+        }
+      }
 
       // Update room dimensions immediately after wall endpoint change
       updateRoomDimensions();
@@ -1542,14 +1951,14 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     };
 
     // Check for wall first
-    const wallId = getWallAtPosition(pos);
-    if (wallId) {
+    const wallResult = getWallAtPosition(pos);
+    if (wallResult) {
       setContextMenu({
         visible: true,
         x: menuPosition.x,
         y: menuPosition.y,
         roomId: null,
-        wallId,
+        wallId: wallResult.wallId,
         type: 'wall'
       });
       return;
@@ -1671,27 +2080,40 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
           return wall;
         }));
       }
+
+      // Update wall length input in real-time if editing the dragged wall
+      if (editingWallId === dragInfo.wallId) {
+        const updatedWall = walls.find(w => w.id === dragInfo.wallId);
+        if (updatedWall) {
+          const newEndpoint = snapPoint ? snapPoint.point : {
+            x: snapToGrid(pos.x),
+            y: snapToGrid(pos.y)
+          };
+          const tempWall = {
+            ...updatedWall,
+            [dragInfo.endpoint]: newEndpoint
+          };
+          const newLengthPixels = calculateWallLength(tempWall);
+          const { feet, inches } = pixelsToFeetInches(newLengthPixels);
+          setWallLengthInput({ feet, inches });
+        }
+      }
+
       // Update room dimensions in real-time during dragging
       updateRoomDimensions();
     }
     // Handle moving multiple walls
     else if (isMovingWalls && wallDragInfo) {
-      const dx = pos.x - wallDragInfo.startPositions[wallDragInfo.wallIds[0]].start.x;
-      const dy = pos.y - wallDragInfo.startPositions[wallDragInfo.wallIds[0]].start.y;
+      // Calculate movement delta from the click position, accounting for the click offset
+      const targetPosition = {
+        x: pos.x - wallDragInfo.offset.x,
+        y: pos.y - wallDragInfo.offset.y
+      };
 
-      // Calculate offset from the first wall's start position
-      if (wallDragInfo.offset.x === 0 && wallDragInfo.offset.y === 0) {
-        const firstWall = walls.find(w => w.id === wallDragInfo.wallIds[0]);
-        if (firstWall) {
-          setWallDragInfo(prev => prev ? {
-            ...prev,
-            offset: {
-              x: pos.x - firstWall.start.x,
-              y: pos.y - firstWall.start.y
-            }
-          } : null);
-        }
-      }
+      // Use click position as reference point for movement
+      const referencePoint = wallDragInfo.clickPosition || wallDragInfo.startPositions[wallDragInfo.wallIds[0]].start;
+      const dx = targetPosition.x - referencePoint.x;
+      const dy = targetPosition.y - referencePoint.y;
 
       // Update all selected walls
       setWalls(prevWalls => prevWalls.map(wall => {
@@ -2018,27 +2440,6 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         </span>
       </div>
 
-      {/* Tool selector for testing */}
-      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 10, background: 'white', padding: '5px', borderRadius: '4px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-        <button
-          onClick={() => setCurrentTool('wall')}
-          style={{ marginRight: '5px', padding: '5px 10px', background: currentTool === 'wall' ? '#1890ff' : '#fff', color: currentTool === 'wall' ? '#fff' : '#000', border: '1px solid #d9d9d9', borderRadius: '3px', cursor: 'pointer' }}
-        >
-          Wall Tool
-        </button>
-        <button
-          onClick={() => setCurrentTool('room')}
-          style={{ marginRight: '5px', padding: '5px 10px', background: currentTool === 'room' ? '#1890ff' : '#fff', color: currentTool === 'room' ? '#fff' : '#000', border: '1px solid #d9d9d9', borderRadius: '3px', cursor: 'pointer' }}
-        >
-          Room Tool
-        </button>
-        <button
-          onClick={() => setCurrentTool('select')}
-          style={{ padding: '5px 10px', background: currentTool === 'select' ? '#1890ff' : '#fff', color: currentTool === 'select' ? '#fff' : '#000', border: '1px solid #d9d9d9', borderRadius: '3px', cursor: 'pointer' }}
-        >
-          Select
-        </button>
-      </div>
 
       {/* Mouse position indicator */}
       <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 5, background: 'white', padding: '5px', borderRadius: '4px', fontSize: '12px' }}>
@@ -2286,15 +2687,59 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
             const isHighlighted = isWallSelected || belongsToSelectedRoom;
 
             return (
-              <Line
-                key={wall.id}
-                points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
-                stroke={isHighlighted ? '#1890ff' : '#000'}
-                strokeWidth={isHighlighted ? 5 : 4}
-                lineCap="round"
-                lineJoin="round"
-                opacity={(isDragging && dragInfo?.wallId === wall.id) || (isMovingWalls && wallDragInfo?.wallIds.includes(wall.id)) ? 0.6 : 1}
-              />
+              <React.Fragment key={wall.id}>
+                <Line
+                  points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
+                  stroke={isHighlighted ? '#1890ff' : '#000'}
+                  strokeWidth={isHighlighted ? 5 : 4}
+                  lineCap="round"
+                  lineJoin="round"
+                  opacity={(isDragging && dragInfo?.wallId === wall.id) || (isMovingWalls && wallDragInfo?.wallIds.includes(wall.id)) ? 0.6 : 1}
+                  onDblClick={(e) => handleWallDoubleClick(wall.id, e)}
+                  style={{ cursor: 'pointer' }}
+                />
+
+                {/* Always-visible wall length label */}
+                {(() => {
+                  const midpoint = getWallMidpoint(wall);
+                  const lengthPixels = calculateWallLength(wall);
+                  const { feet, inches } = pixelsToFeetInches(lengthPixels);
+                  const lengthText = inches > 0 ? `${feet}'${inches}"` : `${feet}'`;
+
+                  // Calculate angle for label rotation
+                  const dx = wall.end.x - wall.start.x;
+                  const dy = wall.end.y - wall.start.y;
+                  const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+                  // Normalize angle to prevent upside-down text
+                  const normalizedAngle = angle > 90 ? angle - 180 : angle < -90 ? angle + 180 : angle;
+
+                  // Calculate offset position for label (perpendicular to wall)
+                  const perpAngle = (angle + 90) * Math.PI / 180;
+                  const offset = 15; // Distance from wall
+                  const labelX = midpoint.x + Math.cos(perpAngle) * offset;
+                  const labelY = midpoint.y + Math.sin(perpAngle) * offset;
+
+                  return (
+                    <Text
+                      x={labelX}
+                      y={labelY}
+                      text={lengthText}
+                      fontSize={11}
+                      fill={isHighlighted ? '#1890ff' : '#333'}
+                      fontFamily="Arial, sans-serif"
+                      fontStyle={isHighlighted ? 'bold' : 'normal'}
+                      align="center"
+                      verticalAlign="middle"
+                      rotation={normalizedAngle}
+                      offsetX={lengthText.length * 3} // Center the text horizontally
+                      offsetY={6} // Center the text vertically
+                      listening={false} // Don't interfere with wall interactions
+                      opacity={0.9}
+                    />
+                  );
+                })()}
+              </React.Fragment>
             );
           })}
 
@@ -2619,6 +3064,103 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* Wall Length Edit Input */}
+      {editingWallId && wallEditPosition && (
+        <div
+          style={{
+            position: 'absolute',
+            left: wallEditPosition.x - 60, // Center the input
+            top: wallEditPosition.y,
+            zIndex: 1000,
+            background: 'white',
+            border: '2px solid #1890ff',
+            borderRadius: '4px',
+            padding: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <InputNumber
+            size="small"
+            min={0}
+            max={99}
+            value={wallLengthInput.feet}
+            onChange={(value) => {
+              // Only update if value is valid, otherwise keep current value
+              if (value !== null && value !== undefined && value >= 0) {
+                setWallLengthInput(prev => ({ ...prev, feet: value }));
+              }
+            }}
+            onPressEnter={(e) => {
+              console.log('Feet input enter pressed');
+              updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                console.log('Feet input enter key detected');
+                updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
+              }
+              if (e.key === 'Escape') {
+                cancelWallEdit();
+              }
+            }}
+            style={{ width: '50px' }}
+            autoFocus
+          />
+          <span style={{ fontSize: '12px', color: '#666' }}>′</span>
+
+          <InputNumber
+            size="small"
+            min={0}
+            max={11}
+            value={wallLengthInput.inches}
+            onChange={(value) => {
+              // Only update if value is valid, otherwise keep current value
+              if (value !== null && value !== undefined && value >= 0 && value < 12) {
+                setWallLengthInput(prev => ({ ...prev, inches: value }));
+              }
+            }}
+            onPressEnter={(e) => {
+              console.log('Inches input enter pressed');
+              updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                console.log('Inches input enter key detected');
+                updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
+              }
+              if (e.key === 'Escape') {
+                cancelWallEdit();
+              }
+            }}
+            style={{ width: '50px' }}
+          />
+          <span style={{ fontSize: '12px', color: '#666' }}>″</span>
+
+          <Button
+            type="primary"
+            size="small"
+            onClick={() => {
+              console.log('Confirm button clicked');
+              updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
+            }}
+            style={{ marginLeft: '4px' }}
+          >
+            ✓
+          </Button>
+          <Button
+            size="small"
+            onClick={cancelWallEdit}
+            style={{ marginLeft: '2px' }}
+          >
+            ✕
+          </Button>
+        </div>
+      )}
     </div>
   );
 };

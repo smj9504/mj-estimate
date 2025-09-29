@@ -1,5 +1,7 @@
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, ReactNode, useState } from 'react';
 import { useSketch, SketchDocument } from '../hooks/useSketch';
+
+type SketchTool = 'select' | 'wall' | 'room' | 'fixture' | 'measure';
 
 interface SketchContextValue {
   sketch: SketchDocument | null;
@@ -8,6 +10,8 @@ interface SketchContextValue {
   updateSketch: (updates: Partial<SketchDocument>) => void;
   saveSketch: () => Promise<void>;
   exportSketch: (options: any) => Promise<any>;
+  currentTool: SketchTool;
+  setCurrentTool: (tool: SketchTool) => void;
 }
 
 const SketchContext = createContext<SketchContextValue | undefined>(undefined);
@@ -24,9 +28,16 @@ export const SketchProvider: React.FC<SketchProviderProps> = ({
   children
 }) => {
   const sketchHook = useSketch(instanceId, initialSketch);
+  const [currentTool, setCurrentTool] = useState<SketchTool>('select');
+
+  const value: SketchContextValue = {
+    ...sketchHook,
+    currentTool,
+    setCurrentTool,
+  };
 
   return (
-    <SketchContext.Provider value={sketchHook}>
+    <SketchContext.Provider value={value}>
       {children}
     </SketchContext.Provider>
   );

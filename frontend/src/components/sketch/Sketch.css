@@ -27,8 +27,8 @@
   flex: 1;
   display: flex;
   position: relative;
-  min-height: 300px; /* Ensure minimum height for content */
-  height: 100%; /* Explicit height inheritance */
+  min-height: 0; /* Allow flex child to shrink properly */
+  overflow: hidden; /* Prevent layout overflow */
 }
 
 /* ====================================================================
@@ -40,7 +40,9 @@
 .sketch-viewport-container {
   /* Layout */
   flex: 1;
-  display: block; /* Change from flex to block to let children set their own size */
+  display: flex; /* Use flex to properly contain Konva stage */
+  align-items: flex-start; /* Changed from center to flex-start */
+  justify-content: flex-start; /* Changed from center to flex-start */
 
   /* Positioning */
   position: relative;
@@ -51,10 +53,11 @@
 
   /* Sizing */
   box-sizing: border-box;
-  min-width: 400px;
-  min-height: 300px;
-  height: 100%; /* Explicit height to ensure inheritance */
-  width: 100%;  /* Explicit width for consistency */
+  min-width: 0; /* Allow flex child to shrink */
+  /* Modern responsive height using clamp() - scales from 300px to 70vh with 500px preferred */
+  min-height: clamp(300px, 500px, 70vh);
+  width: 100%;  /* Full width */
+  height: 100%; /* Full height */
 
   /* Overflow */
   overflow: hidden;
@@ -65,9 +68,11 @@
 
 /* Ant Design Layout Content specific overrides */
 .ant-layout-content.sketch-viewport-container {
-  /* Force proper block behavior for Ant Design Content */
+  /* Force proper flex behavior for Ant Design Content */
   flex: 1;
-  display: block; /* Change to block */
+  display: flex; /* Use flex for proper containment */
+  align-items: flex-start; /* Changed from center to flex-start */
+  justify-content: flex-start; /* Changed from center to flex-start */
 
   /* Reset Ant Design defaults */
   padding: 0;
@@ -76,21 +81,29 @@
   /* Ensure proper box model */
   box-sizing: border-box;
 
-  /* Height inheritance */
-  height: 100%; /* Explicit height */
-  min-height: 300px; /* Minimum height */
+  /* Height inheritance - critical for proper sizing */
+  /* Modern responsive height using clamp() - ensures usable sketch area on all devices */
+  min-height: clamp(400px, 60vh, 800px);
+  height: 100%; /* Full height */
+
+  /* Ensure the Content element fills its parent */
+  align-self: stretch; /* Stretch to fill parent height */
 }
 
 /* CSS-in-JS generated class overrides */
 .ant-layout-content.sketch-viewport-container[class*="css-dev-only-do-not-override"] {
   /* Same properties as above but with higher specificity */
   flex: 1;
-  display: block; /* Change to block */
+  display: flex; /* Use flex for proper containment */
+  align-items: flex-start; /* Changed from center to flex-start */
+  justify-content: flex-start; /* Changed from center to flex-start */
   padding: 0;
   margin: 0;
   box-sizing: border-box;
-  height: 100%; /* Explicit height */
-  min-height: 300px; /* Minimum height */
+  /* Modern responsive height using clamp() - ensures usable sketch area on all devices */
+  min-height: clamp(400px, 60vh, 800px);
+  height: 100%; /* Full height */
+  align-self: stretch; /* Stretch to fill parent height */
 }
 
 /* Child element alignment within viewport */
@@ -99,6 +112,9 @@
   margin: 0;
   padding: 0;
   display: block;
+  max-width: 100%; /* Prevent child from exceeding container width */
+  max-height: 100%; /* Prevent child from exceeding container height */
+  overflow: hidden; /* Hide any overflow */
 }
 
 /* Konva content within viewport - Use actual size from inline styles */
@@ -124,17 +140,76 @@
  * RESPONSIVE AND ACCESSIBILITY
  * ==================================================================== */
 
-/* Mobile adjustments */
+/* ====================================================================
+ * ADVANCED RESPONSIVE AND CONTAINER QUERIES
+ * ==================================================================== */
+
+/* Container Queries - Modern responsive design for sketch viewport */
+@container (max-width: 600px) {
+  .sketch-viewport-container {
+    /* Mobile container adjustments */
+    min-height: clamp(250px, 40vh, 400px);
+    padding: 8px;
+  }
+}
+
+@container (min-width: 600px) and (max-width: 1200px) {
+  .sketch-viewport-container {
+    /* Tablet container adjustments */
+    min-height: clamp(350px, 50vh, 600px);
+  }
+}
+
+@container (min-width: 1200px) {
+  .sketch-viewport-container {
+    /* Desktop container adjustments */
+    min-height: clamp(500px, 65vh, 900px);
+  }
+}
+
+/* Fallback media queries for browsers without container query support */
 @media (max-width: 768px) {
   .sketch-viewport-container {
     min-width: 300px;
-    min-height: 200px;
+    /* Use smaller clamp range for mobile devices */
+    min-height: clamp(250px, 40vh, 400px) !important;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
   }
 
   .sketch-content-layout {
     flex-direction: column;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .sketch-viewport-container {
+    /* Tablet-specific height optimization */
+    min-height: clamp(350px, 55vh, 650px) !important;
+  }
+}
+
+@media (min-width: 1025px) {
+  .sketch-viewport-container {
+    /* Desktop optimization for larger screens */
+    min-height: clamp(500px, 70vh, 1000px) !important;
+  }
+}
+
+/* Landscape orientation optimizations */
+@media (orientation: landscape) and (max-height: 600px) {
+  .sketch-viewport-container {
+    /* Optimize for landscape mobile/tablet */
+    min-height: clamp(200px, 60vh, 350px) !important;
+  }
+}
+
+/* Ultra-wide screen optimizations */
+@media (min-width: 1920px) {
+  .sketch-viewport-container {
+    /* Ultra-wide desktop optimization */
+    min-height: clamp(600px, 60vh, 1200px) !important;
+    max-height: 90vh; /* Prevent excessive height on very tall screens */
   }
 }
 
@@ -150,5 +225,90 @@
   .sketch-viewport-container * {
     transition: none;
     animation: none;
+  }
+}
+
+/* ====================================================================
+ * ALTERNATIVE LAYOUT STRATEGIES
+ * ==================================================================== */
+
+/* CSS Grid fallback for complex layouts */
+.sketch-content-layout.grid-layout {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: 1fr;
+  gap: 0;
+  min-height: clamp(400px, 60vh, 800px);
+}
+
+.sketch-content-layout.grid-layout .sketch-viewport-container {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: auto; /* Let grid control height */
+}
+
+/* Aspect ratio support for sketch canvas */
+@supports (aspect-ratio: 16 / 9) {
+  .sketch-viewport-container.aspect-ratio-mode {
+    aspect-ratio: 16 / 9;
+    min-height: 300px; /* Fallback minimum */
+    max-height: 80vh; /* Prevent excessive height */
+  }
+
+  /* Landscape aspect ratio for wide screens */
+  @media (min-width: 1200px) {
+    .sketch-viewport-container.aspect-ratio-mode {
+      aspect-ratio: 21 / 9; /* Ultra-wide ratio for desktop */
+    }
+  }
+
+  /* Square aspect ratio for mobile */
+  @media (max-width: 768px) {
+    .sketch-viewport-container.aspect-ratio-mode {
+      aspect-ratio: 4 / 3; /* More square for mobile */
+    }
+  }
+}
+
+/* Performance optimization for sketch rendering */
+.sketch-viewport-container {
+  /* Enable GPU acceleration */
+  will-change: transform;
+  transform: translateZ(0);
+
+  /* Optimize for smooth interactions */
+  touch-action: manipulation;
+
+  /* Contain layout and style for better performance */
+  contain: layout style;
+}
+
+/* Custom property support for dynamic sizing */
+.sketch-viewport-container {
+  /* CSS custom properties for dynamic configuration */
+  --sketch-min-height: clamp(400px, 60vh, 800px);
+  --sketch-mobile-height: clamp(250px, 40vh, 400px);
+  --sketch-tablet-height: clamp(350px, 55vh, 650px);
+  --sketch-desktop-height: clamp(500px, 70vh, 1000px);
+
+  min-height: var(--sketch-min-height);
+}
+
+/* Dynamic height assignment based on screen size */
+@media (max-width: 768px) {
+  .sketch-viewport-container {
+    min-height: var(--sketch-mobile-height) !important;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .sketch-viewport-container {
+    min-height: var(--sketch-tablet-height) !important;
+  }
+}
+
+@media (min-width: 1025px) {
+  .sketch-viewport-container {
+    min-height: var(--sketch-desktop-height) !important;
   }
 }

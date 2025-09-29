@@ -7,16 +7,10 @@ import {
   AppstoreOutlined,
   ColumnHeightOutlined,
 } from '@ant-design/icons';
+import { useSketchContext } from '../context/SketchProvider';
 
-interface SketchToolbarProps {
-  activeTool?: string;
-  onToolChange?: (tool: string) => void;
-}
-
-const SketchToolbar: React.FC<SketchToolbarProps> = ({
-  activeTool = 'select',
-  onToolChange = () => {},
-}) => {
+const SketchToolbar: React.FC = () => {
+  const { currentTool, setCurrentTool } = useSketchContext();
   const tools = [
     { key: 'select', icon: <SelectOutlined />, label: 'Select' },
     { key: 'wall', icon: <LineOutlined />, label: 'Wall' },
@@ -35,9 +29,9 @@ const SketchToolbar: React.FC<SketchToolbarProps> = ({
         {tools.map((tool) => (
           <Button
             key={tool.key}
-            type={activeTool === tool.key ? 'primary' : 'default'}
+            type={currentTool === tool.key ? 'primary' : 'default'}
             icon={tool.icon}
-            onClick={() => onToolChange(tool.key)}
+            onClick={() => setCurrentTool(tool.key as any)}
             size="small"
           >
             {tool.label}

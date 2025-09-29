@@ -89,49 +89,103 @@ const SketchCanvasInternal: React.FC<SketchCanvasProps> = ({
   style = {},
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
+    const viewportRef = useRef<HTMLDivElement>(null);
     const [viewportSize, setViewportSize] = useState({ width: 800, height: 600 });
 
-  // Detect container size for responsive viewport
+  // Detect viewport size for responsive canvas with proper container measurement
   useEffect(() => {
     const updateViewportSize = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        // Don't subtract toolbar/sidebar sizes - let CSS handle the layout
-        const contentHeight = rect.height;
-        const contentWidth = rect.width;
+      // Try viewport element first, fall back to container
+      const mainElement = viewportRef.current || containerRef.current;
+      if (mainElement) {
+        const rect = mainElement.getBoundingClientRect();
 
-        // Debug logging for height tracking
-        console.log('SketchCanvas container size calculation:', {
-          containerRect: { width: rect.width, height: rect.height },
-          calculatedViewportSize: {
-            width: Math.max(400, contentWidth),
-            height: Math.max(300, contentHeight)
+        // Start with available dimensions
+        let availableWidth = rect.width;
+        let availableHeight = rect.height;
+
+        // If using container ref, account for UI elements
+        if (mainElement === containerRef.current) {
+          // Account for sidebar width when visible and not collapsed
+          const sidebarWidth = showSidebar ? 320 : 0;
+
+          // Account for toolbar and status bar heights
+          const toolbarHeight = showToolbar ? 48 : 0;
+          const statusBarHeight = showStatusBar ? 32 : 0;
+
+          // Calculate available space
+          availableWidth = Math.max(300, availableWidth - sidebarWidth - 8); // 8px for padding
+          availableHeight = Math.max(200, availableHeight - toolbarHeight - statusBarHeight - 8);
+        } else {
+          // Using viewport ref - minimal padding only
+          const borderPadding = 4;
+          availableWidth = Math.max(300, availableWidth - borderPadding);
+          availableHeight = Math.max(200, availableHeight - borderPadding);
+        }
+
+        // Debug logging for size tracking
+        console.log('SketchCanvas size calculation:', {
+          elementUsed: mainElement === containerRef.current ? 'container' : 'viewport',
+          originalRect: { width: rect.width, height: rect.height },
+          adjustments: {
+            sidebarWidth: showSidebar ? 320 : 0,
+            toolbarHeight: showToolbar ? 48 : 0,
+            statusBarHeight: showStatusBar ? 32 : 0
           },
-          showToolbar,
-          showSidebar,
-          showStatusBar
+          finalViewportSize: {
+            width: availableWidth,
+            height: availableHeight
+          }
         });
 
         setViewportSize({
-          width: Math.max(400, contentWidth), // Use full available width
-          height: Math.max(300, contentHeight) // Use full available height
+          width: availableWidth,
+          height: availableHeight
         });
       }
     };
 
-    // Initial size calculation
-    updateViewportSize();
+    // Use ResizeObserver for accurate container size detection
+    let resizeObserver: ResizeObserver | null = null;
 
-    // Update on window resize
-    const handleResize = () => updateViewportSize();
+    if ('ResizeObserver' in window) {
+      resizeObserver = new ResizeObserver((entries) => {
+        if (entries.length > 0) {
+          // Small delay to ensure layout is settled
+          setTimeout(updateViewportSize, 50);
+        }
+      });
+
+      // Observe both viewport and container if available
+      if (viewportRef.current) {
+        resizeObserver.observe(viewportRef.current);
+      }
+      if (containerRef.current) {
+        resizeObserver.observe(containerRef.current);
+      }
+    }
+
+    // Fallback to timeouts for browsers without ResizeObserver
+    const timeouts = [
+      setTimeout(updateViewportSize, 10),   // Quick initial check
+      setTimeout(updateViewportSize, 100),  // Normal timing
+      setTimeout(updateViewportSize, 300),  // Late check for slow renders
+      setTimeout(updateViewportSize, 500),  // Extra late check
+      setTimeout(updateViewportSize, 1000), // Final fallback
+    ];
+
+    // Window resize handler
+    const handleResize = () => {
+      setTimeout(updateViewportSize, 50);
+    };
     window.addEventListener('resize', handleResize);
-
-    // Update when sidebar visibility changes
-    const timeoutId = setTimeout(updateViewportSize, 100);
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      clearTimeout(timeoutId);
+      timeouts.forEach(clearTimeout);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
     };
   }, [showToolbar, showSidebar, showStatusBar]);
 
@@ -270,7 +324,7 @@ const SketchCanvasInternal: React.FC<SketchCanvasProps> = ({
           {/* Main Content Area */}
           <Layout className="sketch-content-layout">
             {/* Drawing Viewport */}
-            <Content className="sketch-viewport-container">
+            <Content ref={viewportRef} className="sketch-viewport-container">
               <SketchViewport
                 width={viewportSize.width}
                 height={viewportSize.height}
