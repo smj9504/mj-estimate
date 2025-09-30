@@ -4,7 +4,8 @@ import SketchToolbar from './toolbar/SketchToolbar';
 import SketchViewport from './viewport/SketchViewport';
 import SketchSidebar from './sidebar/SketchSidebar';
 import SketchStatusBar from './statusbar/SketchStatusBar';
-import { useSketch, SketchDocument, SketchExportOptions, SketchExportResult } from './hooks/useSketch';
+import { useSketch } from './hooks/useSketch';
+import { SketchDocument, SketchExportOptions, SketchExportResult } from '../../types/sketch';
 import './Sketch.css';
 import { SketchProvider } from './context/SketchProvider';
 import './SketchCanvas.less';
@@ -123,21 +124,6 @@ const SketchCanvasInternal: React.FC<SketchCanvasProps> = ({
           availableHeight = Math.max(200, availableHeight - borderPadding);
         }
 
-        // Debug logging for size tracking
-        console.log('SketchCanvas size calculation:', {
-          elementUsed: mainElement === containerRef.current ? 'container' : 'viewport',
-          originalRect: { width: rect.width, height: rect.height },
-          adjustments: {
-            sidebarWidth: showSidebar ? 320 : 0,
-            toolbarHeight: showToolbar ? 48 : 0,
-            statusBarHeight: showStatusBar ? 32 : 0
-          },
-          finalViewportSize: {
-            width: availableWidth,
-            height: availableHeight
-          }
-        });
-
         setViewportSize({
           width: availableWidth,
           height: availableHeight
@@ -145,15 +131,15 @@ const SketchCanvasInternal: React.FC<SketchCanvasProps> = ({
       }
     };
 
+    // Initial size update
+    updateViewportSize();
+
     // Use ResizeObserver for accurate container size detection
     let resizeObserver: ResizeObserver | null = null;
 
     if ('ResizeObserver' in window) {
-      resizeObserver = new ResizeObserver((entries) => {
-        if (entries.length > 0) {
-          // Small delay to ensure layout is settled
-          setTimeout(updateViewportSize, 50);
-        }
+      resizeObserver = new ResizeObserver(() => {
+        updateViewportSize();
       });
 
       // Observe both viewport and container if available
@@ -165,24 +151,7 @@ const SketchCanvasInternal: React.FC<SketchCanvasProps> = ({
       }
     }
 
-    // Fallback to timeouts for browsers without ResizeObserver
-    const timeouts = [
-      setTimeout(updateViewportSize, 10),   // Quick initial check
-      setTimeout(updateViewportSize, 100),  // Normal timing
-      setTimeout(updateViewportSize, 300),  // Late check for slow renders
-      setTimeout(updateViewportSize, 500),  // Extra late check
-      setTimeout(updateViewportSize, 1000), // Final fallback
-    ];
-
-    // Window resize handler
-    const handleResize = () => {
-      setTimeout(updateViewportSize, 50);
-    };
-    window.addEventListener('resize', handleResize);
-
     return () => {
-      window.removeEventListener('resize', handleResize);
-      timeouts.forEach(clearTimeout);
       if (resizeObserver) {
         resizeObserver.disconnect();
       }

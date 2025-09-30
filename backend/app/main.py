@@ -414,6 +414,19 @@ async def switch_database_provider(provider: str):
         )
 
 
+# Mount uploads directory for local file serving (development only)
+# In production, files will be served from cloud storage
+if settings.ENVIRONMENT in ["development", "dev", "local"]:
+    uploads_path = Path(__file__).parent.parent / "uploads"
+    if not uploads_path.exists():
+        uploads_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Created uploads directory at: {uploads_path.absolute()}")
+
+    logger.info(f"[DEV] Mounting uploads directory from: {uploads_path.absolute()}")
+    app.mount("/uploads", StaticFiles(directory=str(uploads_path)), name="uploads")
+else:
+    logger.info(f"[PROD] Uploads will be served from cloud storage")
+
 # Serve React build files in production (optional)
 # Check if frontend build directory exists
 frontend_build_path = Path(__file__).parent.parent.parent / "frontend" / "build"
@@ -426,7 +439,7 @@ logger.info(f"Frontend static exists: {frontend_static_path.exists()}")
 
 if frontend_build_path.exists() and frontend_static_path.exists():
     logger.info(f"Serving static files from {frontend_build_path}")
-    
+
     # Mount static files for assets
     app.mount("/static", StaticFiles(directory=str(frontend_static_path)), name="static")
 else:

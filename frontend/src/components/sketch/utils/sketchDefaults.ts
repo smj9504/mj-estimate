@@ -8,9 +8,15 @@ import {
   Wall,
   SketchRoom,
   WallFixture,
+  RoomFixture,
   Point,
   SketchTool,
-  InteractionMode
+  InteractionMode,
+  DoorType,
+  WindowType,
+  CabinetType,
+  VanityType,
+  ApplianceType
 } from '../../../types/sketch';
 import { generateId } from './idUtils';
 
@@ -25,6 +31,8 @@ export const createDefaultSketch = (name: string = 'Untitled Sketch'): SketchDoc
     documentType: 'standalone',
     rooms: [],
     walls: [],
+    wallFixtures: [],
+    roomFixtures: [],
     metadata: {
       version: '1.0.0',
       project: {
@@ -143,6 +151,8 @@ export const createDefaultWall = (start: Point, end: Point): Wall => {
   const now = new Date().toISOString();
   return {
     id: generateId(),
+    originalStart: start,
+    originalEnd: end,
     start,
     end,
     thickness: 4, // inches
@@ -152,12 +162,19 @@ export const createDefaultWall = (start: Point, end: Point): Wall => {
       totalInches: 96,
       display: "8' 0\""
     },
+    originalLength: {
+      feet: 0,
+      inches: 0,
+      totalInches: 0,
+      display: "0' 0\""
+    },
     length: {
       feet: 0,
       inches: 0,
       totalInches: 0,
       display: "0' 0\""
     },
+    segments: [],
     type: 'interior',
     fixtures: [],
     roomId: '',
@@ -218,19 +235,23 @@ export const createDefaultRoom = (name: string = 'Room'): SketchRoom => {
 };
 
 /**
- * Create a default fixture
+ * Create a default wall fixture (doors and windows only)
  */
-export const createDefaultFixture = (
-  fixtureType: 'door' | 'window' | 'cabinet' | 'vanity' | 'appliance' | 'electrical' | 'plumbing',
+export const createDefaultWallFixture = (
+  fixtureType: 'door' | 'window',
+  specificType: DoorType | WindowType,
   positionOnWall: number = 0.5
 ): WallFixture => {
   const dimensions = getDefaultFixtureDimensions(fixtureType);
 
   return {
     id: generateId(),
-    type: fixtureType,
+    category: fixtureType,
+    type: specificType,
     position: positionOnWall,
     dimensions,
+    rotation: 0,
+    wallId: '',
     properties: {
       material: 'default',
       label: fixtureType.charAt(0).toUpperCase() + fixtureType.slice(1)
@@ -241,7 +262,41 @@ export const createDefaultFixture = (
       strokeWidth: 1,
       opacity: 1
     },
-    isOpening: fixtureType === 'door' || fixtureType === 'window'
+    isOpening: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+};
+
+/**
+ * Create a default room fixture
+ */
+export const createDefaultRoomFixture = (
+  fixtureType: 'cabinet' | 'vanity' | 'appliance' | 'electrical' | 'plumbing',
+  specificType: CabinetType | VanityType | ApplianceType | string
+): RoomFixture => {
+  const dimensions = getDefaultFixtureDimensions(fixtureType);
+
+  return {
+    id: generateId(),
+    category: fixtureType,
+    type: specificType,
+    position: { x: 0, y: 0 },
+    dimensions,
+    rotation: 0,
+    roomId: '',
+    properties: {
+      material: 'default',
+      label: fixtureType.charAt(0).toUpperCase() + fixtureType.slice(1)
+    },
+    style: {
+      fillColor: '#8c8c8c',
+      strokeColor: '#666666',
+      strokeWidth: 1,
+      opacity: 1
+    },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   };
 };
 

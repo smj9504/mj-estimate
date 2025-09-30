@@ -67,22 +67,44 @@ export interface AreaCalculation {
 // Wall System
 // =====================
 
+export interface WallSegment {
+  id: string;
+  /** Start point of segment */
+  start: Point;
+  /** End point of segment */
+  end: Point;
+  /** Length of this segment */
+  length: Measurement;
+  /** Type of segment */
+  type: 'wall' | 'fixture_gap';
+  /** Fixture ID if this is a fixture gap */
+  fixtureId?: string;
+}
+
 export interface Wall {
   id: string;
-  /** Start point of wall */
+  /** Original start point of wall (before fixtures) */
+  originalStart: Point;
+  /** Original end point of wall (before fixtures) */
+  originalEnd: Point;
+  /** Current start point (may be adjusted by fixtures) */
   start: Point;
-  /** End point of wall */
+  /** Current end point (may be adjusted by fixtures) */
   end: Point;
   /** Wall thickness in inches (default: 4) */
   thickness: number;
   /** Wall height in feet */
   height: Measurement;
-  /** Length calculated from start/end points */
+  /** Total original length (before fixtures) */
+  originalLength: Measurement;
+  /** Current total length (including fixtures) */
   length: Measurement;
+  /** Wall segments (walls + fixture gaps) */
+  segments: WallSegment[];
   /** Wall type for styling/behavior */
   type: 'exterior' | 'interior' | 'load_bearing';
   /** Associated fixtures on this wall */
-  fixtures: WallFixture[];
+  fixtures: string[]; // Changed to fixture IDs array
   /** Room ID this wall belongs to */
   roomId: string;
   /** Connected wall IDs for wall joining */
@@ -107,15 +129,69 @@ export interface WallStyle {
 // Fixture System
 // =====================
 
-export type FixtureType = 'door' | 'window' | 'cabinet' | 'vanity' | 'appliance' | 'electrical' | 'plumbing';
+export type WallFixtureCategory = 'door' | 'window';
+export type RoomFixtureCategory = 'cabinet' | 'vanity' | 'appliance' | 'electrical' | 'plumbing';
+export type FixtureCategory = WallFixtureCategory | RoomFixtureCategory;
+
+export type DoorType =
+  | 'single_door'
+  | 'double_door'
+  | 'sliding_door'
+  | 'french_door'
+  | 'pocket_door'
+  | 'bi_fold_door';
+
+export type WindowType =
+  | 'single_window'
+  | 'double_window'
+  | 'triple_window'
+  | 'bay_window'
+  | 'casement_window'
+  | 'sliding_window';
+
+export type CabinetType =
+  | 'base_cabinet'
+  | 'wall_cabinet'
+  | 'tall_cabinet'
+  | 'island'
+  | 'peninsula';
+
+export type VanityType =
+  | 'single_vanity'
+  | 'double_vanity'
+  | 'floating_vanity';
+
+export type ApplianceType =
+  | 'refrigerator'
+  | 'stove'
+  | 'oven'
+  | 'dishwasher'
+  | 'washer'
+  | 'dryer'
+  | 'microwave';
+
+export interface FixtureVariant {
+  id: string;
+  name: string;
+  category: FixtureCategory;
+  type: DoorType | WindowType | CabinetType | VanityType | ApplianceType | string;
+  defaultDimensions: Dimensions;
+  icon?: string;
+  svgPath?: string; // SVG path for industry standard icons
+}
 
 export interface WallFixture {
   id: string;
-  type: FixtureType;
-  /** Position along the wall (0-1, where 0 is start, 1 is end) */
+  category: WallFixtureCategory;
+  type: DoorType | WindowType;
+  /** Absolute position along the wall in pixels from start point */
   position: number;
-  /** Fixture dimensions */
+  /** Fixture dimensions in feet (absolute size) */
   dimensions: Dimensions;
+  /** Rotation angle in degrees (0 = aligned with wall) */
+  rotation: number;
+  /** Wall ID this fixture belongs to */
+  wallId: string;
   /** Fixture-specific properties */
   properties: FixtureProperties;
   /** Visual representation */
@@ -124,6 +200,34 @@ export interface WallFixture {
   isOpening: boolean;
   /** Opening dimensions if different from fixture dimensions */
   openingDimensions?: Dimensions;
+  /** Creation timestamp */
+  createdAt: string;
+  /** Last modified timestamp */
+  updatedAt: string;
+}
+
+export interface RoomFixture {
+  id: string;
+  category: RoomFixtureCategory;
+  type: CabinetType | VanityType | ApplianceType | string;
+  /** Position in room coordinates (pixels from room origin) */
+  position: Point;
+  /** Fixture dimensions in feet (absolute size) */
+  dimensions: Dimensions;
+  /** Rotation angle in degrees (0 = aligned with room) */
+  rotation: number;
+  /** Room ID this fixture belongs to */
+  roomId: string;
+  /** Fixture-specific properties */
+  properties: FixtureProperties;
+  /** Visual representation */
+  style: FixtureStyle;
+  /** SVG path for industry standard icons */
+  svgPath?: string;
+  /** Creation timestamp */
+  createdAt: string;
+  /** Last modified timestamp */
+  updatedAt: string;
 }
 
 export interface FixtureProperties {
@@ -230,6 +334,10 @@ export interface SketchDocument {
   rooms: SketchRoom[];
   /** All walls in this sketch */
   walls: Wall[];
+  /** All wall fixtures in this sketch (doors, windows) */
+  wallFixtures: WallFixture[];
+  /** All room fixtures in this sketch (cabinets, vanities, appliances) */
+  roomFixtures: RoomFixture[];
   /** Sketch metadata */
   metadata: SketchMetadata;
   /** Sketch settings */
@@ -282,7 +390,7 @@ export interface SketchSettings {
   defaultStyles: {
     wall: WallStyle;
     room: RoomStyle;
-    fixtures: Record<FixtureType, FixtureStyle>;
+    fixtures: Record<FixtureCategory, FixtureStyle>;
   };
 }
 
@@ -290,7 +398,7 @@ export interface SketchSettings {
 // Interaction System
 // =====================
 
-export type SketchTool = 'select' | 'wall' | 'room' | 'fixture' | 'measure' | 'pan' | 'zoom';
+export type SketchTool = 'select' | 'wall' | 'room' | 'fixture' | 'measure' | 'pan' | 'zoom' | 'fixture_door' | 'fixture_window';
 
 export type InteractionMode = 'draw' | 'edit' | 'view';
 
@@ -304,6 +412,12 @@ export interface SketchState {
     walls: string[];
     rooms: string[];
     fixtures: string[];
+  };
+  /** Current fixture being placed */
+  activeFixture?: {
+    category: FixtureCategory;
+    type: DoorType | WindowType | string;
+    dimensions: Dimensions;
   };
   /** Viewport state */
   viewport: {

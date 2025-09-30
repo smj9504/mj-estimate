@@ -116,17 +116,20 @@ const exportToSvg = async (
   });
 
   // Add fixtures (as rectangles or circles)
-  sketch.walls.forEach(wall => {
-    wall.fixtures.forEach(fixture => {
-      const wallLength = Math.sqrt(
-        Math.pow(wall.end.x - wall.start.x, 2) +
-        Math.pow(wall.end.y - wall.start.y, 2)
-      );
-      const x = wall.start.x + (wall.end.x - wall.start.x) * fixture.position;
-      const y = wall.start.y + (wall.end.y - wall.start.y) * fixture.position;
-      const { width, height } = fixture.dimensions;
+  sketch.wallFixtures.forEach(fixture => {
+    // Find the wall this fixture belongs to
+    const wall = sketch.walls.find(w => w.id === fixture.wallId);
+    if (!wall) return;
 
-      svgContent += `
+    const wallLength = Math.sqrt(
+      Math.pow(wall.end.x - wall.start.x, 2) +
+      Math.pow(wall.end.y - wall.start.y, 2)
+    );
+    const x = wall.start.x + (wall.end.x - wall.start.x) * fixture.position;
+    const y = wall.start.y + (wall.end.y - wall.start.y) * fixture.position;
+    const { width, height } = fixture.dimensions;
+
+    svgContent += `
   <rect x="${x - width/2}" y="${y - height/2}"
         width="${width}" height="${height}"
         fill="${fixture.style.fillColor}"
@@ -135,7 +138,6 @@ const exportToSvg = async (
   <text x="${x}" y="${y + height/2 + 15}"
         font-family="Arial" font-size="10"
         text-anchor="middle" fill="#333">${fixture.type}</text>`;
-    });
   });
 
   svgContent += '\n</svg>';

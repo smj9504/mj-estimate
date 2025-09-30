@@ -33,7 +33,15 @@ export const useFileGallery = ({
     queryKey: ['files', context, contextId, fileCategory],
     queryFn: async () => {
       if (!contextId) return [];
-      return await fileService.getFiles(context, contextId, undefined, fileCategory);
+      const result = await fileService.getFiles(context, contextId, undefined, fileCategory);
+      console.log('🔍 Fetched files:', {
+        context,
+        contextId,
+        fileCategory,
+        count: result?.length || 0,
+        files: result
+      });
+      return result;
     },
     enabled: !!contextId,
     staleTime: 30 * 1000, // 30 seconds
@@ -51,21 +59,25 @@ export const useFileGallery = ({
         throw new Error('Context ID is required for file upload');
       }
 
-      await fileService.uploadFiles(files, context, contextId, category || 'general');
+      const result = await fileService.uploadFiles(files, context, contextId, category || 'general');
+      return result;
     },
-    onSuccess: () => {
-      // Invalidate and refetch files
-      queryClient.invalidateQueries({
+    onSuccess: async () => {
+      // Invalidate and refetch files immediately
+      await queryClient.invalidateQueries({
         queryKey: ['files', context, contextId, fileCategory]
       });
 
       // Also invalidate file count queries
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: ['work-order-images-count', contextId]
       });
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: ['work-order-documents-count', contextId]
       });
+
+      // Force refetch to ensure UI updates
+      await refetch();
 
       setUploadProgress({});
     },

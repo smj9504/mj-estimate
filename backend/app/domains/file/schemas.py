@@ -2,9 +2,15 @@
 File management schemas for API requests and responses
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import Optional, List
 from datetime import datetime
+
+
+def to_camel(string: str) -> str:
+    """Convert snake_case to camelCase"""
+    components = string.split('_')
+    return components[0] + ''.join(x.title() for x in components[1:])
 
 
 class FileBase(BaseModel):
@@ -20,6 +26,12 @@ class FileBase(BaseModel):
     category: str = Field("general", description="File category")
     description: Optional[str] = Field(None, description="File description")
     uploaded_by: Optional[str] = Field(None, description="Uploader username")
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        alias_generator=to_camel,
+        by_alias=True  # Ensure output uses camelCase
+    )
 
 
 class FileCreate(FileBase):
@@ -42,8 +54,12 @@ class FileResponse(FileBase):
     created_at: datetime
     updated_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        alias_generator=to_camel,
+        by_alias=True  # This ensures output uses aliases (camelCase)
+    )
 
 
 

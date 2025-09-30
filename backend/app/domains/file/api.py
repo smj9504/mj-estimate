@@ -3,7 +3,7 @@ File API endpoints for file upload and management
 """
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse as FastAPIFileResponse
 from typing import List, Optional
 import logging
 import mimetypes
@@ -28,7 +28,7 @@ def get_file_service():
     return FileService(get_database())
 
 
-@router.post("/upload", response_model=FilesResponse)
+@router.post("/upload", response_model=FilesResponse, response_model_by_alias=True)
 async def upload_files(
     files: List[UploadFile] = File(...),
     context: str = Form(...),
@@ -84,25 +84,112 @@ async def upload_files(
 
             uploaded_files.append(uploaded_file)
 
-        # Debug: Log the structure of uploaded files
-        logger.info(f"Uploaded files data: {uploaded_files}")
-        if uploaded_files:
-            logger.info(f"First file keys: {list(uploaded_files[0].keys())}")
+        # Commit transaction to save files to database
+        service.repository.session.commit()
+        logger.info(f"✅ Transaction committed for {len(uploaded_files)} file(s)")
+
+        # Convert dict to FileResponse models for proper alias generation
+        file_responses = [FileResponse(**file_dict) for file_dict in uploaded_files]
+
+        logger.info(f"Successfully uploaded {len(file_responses)} file(s)")
 
         return FilesResponse(
-            data=uploaded_files,
-            total=len(uploaded_files),
-            message=f"Successfully uploaded {len(uploaded_files)} file(s)"
+            data=file_responses,
+            total=len(file_responses),
+            message=f"Successfully uploaded {len(file_responses)} file(s)"
+        )
+
+    except HTTPException:
+        service.repository.session.rollback()
+        logger.error("❌ Transaction rolled back due to HTTPException")
+        raise
+    except Exception as e:
+        service.repository.session.rollback()
+        logger.error(f"❌ Transaction rolled back due to error: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@router.get("/download/{file_id}")
+async def download_file(
+    file_id: str,
+    service: FileService = Depends(get_file_service)
+):
+    """Download a file by ID"""
+    try:
+        file_record = service.repository.get_by_id(file_id)
+        if not file_record or not file_record.get('is_active', True):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        file_path = Path(file_record['url'])
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found on disk")
+
+        # Determine media type
+        media_type = file_record.get('content_type')
+        if not media_type:
+            media_type, _ = mimetypes.guess_type(str(file_path))
+            media_type = media_type or 'application/octet-stream'
+
+        return FastAPIFileResponse(
+            path=str(file_path),
+            filename=file_record['original_name'],
+            media_type=media_type
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error uploading files: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        logger.error(f"Error downloading file {file_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
 
 
-@router.get("/{context}/{context_id}", response_model=FilesResponse)
+@router.get("/preview/{file_id}")
+async def preview_file(
+    file_id: str,
+    service: FileService = Depends(get_file_service)
+):
+    """Get file preview (for images, returns thumbnail if available)"""
+    try:
+        file_record = service.repository.get_by_id(file_id)
+        if not file_record or not file_record.get('is_active', True):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        # For images, try to return thumbnail first
+        if (file_record.get('content_type', '').startswith('image/') and
+            file_record.get('thumbnail_url')):
+            thumb_path = Path(file_record['thumbnail_url'])
+            if thumb_path.exists():
+                return FastAPIFileResponse(
+                    path=str(thumb_path),
+                    media_type='image/jpeg',
+                    headers={"Content-Disposition": "inline"}
+                )
+
+        # Otherwise return the original file
+        file_path = Path(file_record['url'])
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found on disk")
+
+        media_type = file_record.get('content_type', 'application/octet-stream')
+
+        # For PDFs and images, use inline display
+        # For other files, use attachment (download)
+        content_disposition = "inline" if media_type in ['application/pdf'] or media_type.startswith('image/') else "attachment"
+
+        return FastAPIFileResponse(
+            path=str(file_path),
+            media_type=media_type,
+            headers={"Content-Disposition": content_disposition}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error previewing file {file_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Preview failed: {str(e)}")
+
+
+@router.get("/{context}/{context_id}", response_model=FilesResponse, response_model_by_alias=True)
 async def get_files(
     context: str,
     context_id: str,
@@ -114,21 +201,34 @@ async def get_files(
 ):
     """Get files by context and context_id"""
     try:
+        logger.info(f"📥 GET request - context={context}, context_id={context_id}, file_type={file_type}, is_active={is_active}")
+
         if search:
-            files = service.search_files(context, context_id, search, is_active)
+            file_dicts = service.search_files(context, context_id, search, is_active)
         elif file_type:
-            files = service.get_files_by_type(context, context_id, file_type, is_active)
+            file_dicts = service.get_files_by_type(context, context_id, file_type, is_active)
         else:
-            files = service.get_files_by_context(context, context_id, category, is_active)
+            file_dicts = service.get_files_by_context(context, context_id, category, is_active)
+
+        logger.info(f"📊 Retrieved {len(file_dicts) if file_dicts else 0} file dicts from repository")
+        if file_dicts:
+            logger.info(f"📄 First file dict keys: {list(file_dicts[0].keys())}")
+            logger.info(f"📄 First file dict: {file_dicts[0]}")
 
         # Ensure files is always a list
-        if files is None:
-            files = []
+        if file_dicts is None:
+            file_dicts = []
+
+        # Convert dict to FileResponse models for proper alias generation
+        files = [FileResponse(**file_dict) for file_dict in file_dicts]
+
+        logger.info(f"✅ Returning {len(files)} files for context={context}, context_id={context_id}, file_type={file_type}")
 
         return FilesResponse(data=files, total=len(files))
 
     except Exception as e:
-        logger.error(f"Error retrieving files for context={context}, context_id={context_id}, file_type={file_type}: {e}")
+        logger.error(f"❌ Error retrieving files for context={context}, context_id={context_id}, file_type={file_type}: {e}")
+        logger.exception(e)
         # Return empty result instead of error for non-existent data
         return FilesResponse(data=[], total=0)
 
@@ -200,40 +300,6 @@ async def get_categories(
         )
 
 
-@router.get("/download/{file_id}")
-async def download_file(
-    file_id: str,
-    service: FileService = Depends(get_file_service)
-):
-    """Download a file by ID"""
-    try:
-        file_record = service.repository.get_by_id(file_id)
-        if not file_record or not file_record.get('is_active', True):
-            raise HTTPException(status_code=404, detail="File not found")
-
-        file_path = Path(file_record['url'])
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail="File not found on disk")
-
-        # Determine media type
-        media_type = file_record.get('content_type')
-        if not media_type:
-            media_type, _ = mimetypes.guess_type(str(file_path))
-            media_type = media_type or 'application/octet-stream'
-
-        return FileResponse(
-            path=str(file_path),
-            filename=file_record['original_name'],
-            media_type=media_type
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error downloading file {file_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
-
-
 @router.put("/{file_id}", response_model=FileResponse)
 async def update_file_metadata(
     file_id: str,
@@ -280,42 +346,3 @@ async def delete_file(
     except Exception as e:
         logger.error(f"Error deleting file {file_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
-
-
-@router.get("/preview/{file_id}")
-async def preview_file(
-    file_id: str,
-    service: FileService = Depends(get_file_service)
-):
-    """Get file preview (for images, returns thumbnail if available)"""
-    try:
-        file_record = service.repository.get_by_id(file_id)
-        if not file_record or not file_record.get('is_active', True):
-            raise HTTPException(status_code=404, detail="File not found")
-
-        # For images, try to return thumbnail first
-        if (file_record.get('content_type', '').startswith('image/') and
-            file_record.get('thumbnail_url')):
-            thumb_path = Path(file_record['thumbnail_url'])
-            if thumb_path.exists():
-                return FileResponse(
-                    path=str(thumb_path),
-                    media_type='image/jpeg'
-                )
-
-        # Otherwise return the original file
-        file_path = Path(file_record['url'])
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail="File not found on disk")
-
-        media_type = file_record.get('content_type', 'application/octet-stream')
-        return FileResponse(
-            path=str(file_path),
-            media_type=media_type
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error previewing file {file_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Preview failed: {str(e)}")

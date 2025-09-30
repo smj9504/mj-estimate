@@ -15,6 +15,7 @@ import {
   UserOutlined
 } from '@ant-design/icons';
 import { FileItem, FileCategory } from './types';
+import { fileService } from '../../../services/fileService';
 
 const { Text, Paragraph } = Typography;
 const { Meta } = Card;
@@ -67,9 +68,12 @@ const FileCard: React.FC<FileCardProps> = ({
 
   const handlePreview = (file: FileItem) => {
     if (file.contentType.startsWith('image/') && showImagePreview) {
-      setPreviewImage(file.url);
+      setPreviewImage(fileService.getPreviewUrl(file.id));
       setPreviewTitle(file.originalName);
       setPreviewVisible(true);
+    } else if (file.contentType === 'application/pdf') {
+      // Open PDF in new tab
+      window.open(fileService.getPreviewUrl(file.id), '_blank');
     } else if (onFileClick) {
       onFileClick(file);
     }
@@ -78,7 +82,7 @@ const FileCard: React.FC<FileCardProps> = ({
   const handleDownload = (file: FileItem, e: React.MouseEvent) => {
     e.stopPropagation();
     const link = document.createElement('a');
-    link.href = file.url;
+    link.href = fileService.getDownloadUrl(file.id);
     link.download = file.originalName;
     document.body.appendChild(link);
     link.click();
@@ -162,7 +166,7 @@ const FileCard: React.FC<FileCardProps> = ({
     const cover = isImage ? (
       <div style={{ position: 'relative', height: 200, overflow: 'hidden' }}>
         <img
-          src={file.thumbnailUrl || file.url}
+          src={fileService.getPreviewUrl(file.id)}
           alt={file.originalName}
           style={{
             width: '100%',

@@ -201,11 +201,11 @@ const WorkOrderList: React.FC = () => {
 
   // Handle actions
   const handleView = useCallback((record: WorkOrder) => {
-    navigate(`/work-orders/${record.id}`);
+    navigate(`/work-order/${record.id}`);
   }, [navigate]);
 
   const handleEdit = useCallback((record: WorkOrder) => {
-    navigate(`/work-orders/${record.id}/edit`);
+    navigate(`/work-order/${record.id}/edit`);
   }, [navigate]);
 
   const handleDelete = useCallback((id: string) => {

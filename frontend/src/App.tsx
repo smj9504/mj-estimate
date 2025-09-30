@@ -110,6 +110,16 @@ const router = createBrowserRouter([
     )
   },
   {
+    path: "/documents/:type",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <DocumentList />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
     path: "/create/estimate",
     element: (
       <ProtectedRoute>

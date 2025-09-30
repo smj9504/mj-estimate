@@ -35,7 +35,8 @@ import {
 export function calculateRoomAreas(
   room: SketchRoom,
   walls: Wall[],
-  pixelsPerFoot: number
+  pixelsPerFoot: number,
+  sketch: SketchDocument
 ): AreaCalculation {
   const roomWalls = walls.filter(wall => room.wallIds.includes(wall.id));
   const boundary = room.boundary;
@@ -53,7 +54,7 @@ export function calculateRoomAreas(
   const perimeter = pixelsToFeet(pixelPerimeter, pixelsPerFoot);
 
   // Calculate wall areas
-  const wallAreaData = calculateWallAreas(roomWalls, pixelsPerFoot);
+  const wallAreaData = calculateWallAreas(roomWalls, pixelsPerFoot, sketch);
   const wallArea = wallAreaData.totalArea;
   const netWallArea = wallAreaData.netArea;
 
@@ -77,7 +78,7 @@ export function calculateRoomAreas(
 /**
  * Calculate wall areas for a set of walls
  */
-export function calculateWallAreas(walls: Wall[], pixelsPerFoot: number): {
+export function calculateWallAreas(walls: Wall[], pixelsPerFoot: number, sketch: SketchDocument): {
   totalArea: number;
   netArea: number;
   wallDetails: Array<{
@@ -112,8 +113,11 @@ export function calculateWallAreas(walls: Wall[], pixelsPerFoot: number): {
     const height = wall.height.totalInches / 12; // Convert to feet
     const wallArea = length * height;
 
-    // Calculate opening areas
-    const openingArea = calculateOpeningAreas(wall.fixtures);
+    // Calculate opening areas - resolve fixture IDs to actual fixtures
+    const wallFixtures = wall.fixtures.map(fixtureId =>
+      sketch.wallFixtures.find(f => f.id === fixtureId)
+    ).filter(f => f !== undefined) as WallFixture[];
+    const openingArea = calculateOpeningAreas(wallFixtures);
 
     const wallNetArea = Math.max(0, wallArea - openingArea);
 
@@ -173,7 +177,7 @@ export function calculateSketchAreas(sketch: SketchDocument): void {
   // Update each room's areas
   rooms.forEach(room => {
     const roomWalls = walls.filter(wall => room.wallIds.includes(wall.id));
-    const areas = calculateRoomAreas(room, roomWalls, pixelsPerFoot);
+    const areas = calculateRoomAreas(room, roomWalls, pixelsPerFoot, sketch);
 
     // Update room object
     room.areas = areas;
@@ -257,6 +261,7 @@ export interface MaterialCalculation {
 export function calculateMaterials(
   room: SketchRoom,
   walls: Wall[],
+  sketch: SketchDocument,
   options: {
     flooringWastePercent?: number;
     paintCoverage?: number; // sq ft per gallon
@@ -295,8 +300,9 @@ export function calculateMaterials(
 
     // Calculate casing for openings
     roomWalls.forEach(wall => {
-      wall.fixtures.forEach(fixture => {
-        if (fixture.isOpening) {
+      wall.fixtures.forEach(fixtureId => {
+        const fixture = sketch.wallFixtures.find(f => f.id === fixtureId);
+        if (fixture && fixture.isOpening) {
           const width = fixture.dimensions.width / 12;
           const height = fixture.dimensions.height / 12;
           // Approximate casing: 2 sides + top
@@ -468,7 +474,7 @@ export function generateAreaSummary(
     let costs: CostEstimation | undefined;
 
     if (includeEstimates) {
-      materials = calculateMaterials(room, roomWalls);
+      materials = calculateMaterials(room, roomWalls, sketch);
       if (unitPrices) {
         costs = calculateCostEstimation(materials, unitPrices);
       }

@@ -73,7 +73,21 @@ export const fileService = {
     if (fileType) params.file_type = fileType;
     if (search) params.search = search;
 
+    console.log('📡 API Request:', {
+      url: `/api/files/${context}/${contextId}`,
+      params
+    });
+
     const response = await api.get(`/api/files/${context}/${contextId}`, { params });
+
+    console.log('📡 API Response:', {
+      status: response.status,
+      dataKeys: Object.keys(response.data),
+      data: response.data,
+      filesCount: response.data?.data?.length || 0,
+      firstFile: response.data?.data?.[0]
+    });
+
     return response.data.data;
   },
 

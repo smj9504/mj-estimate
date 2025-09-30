@@ -63,12 +63,10 @@ export const validateSketch = (sketch: SketchDocument): ValidationResult => {
   });
 
   // Validate wall fixtures
-  sketch.walls.forEach(wall => {
-    wall.fixtures.forEach(fixture => {
-      const fixtureValidation = validateFixture(fixture, sketch.walls);
-      errors.push(...fixtureValidation.errors);
-      warnings.push(...fixtureValidation.warnings);
-    });
+  sketch.wallFixtures.forEach(fixture => {
+    const fixtureValidation = validateFixture(fixture, sketch.walls);
+    errors.push(...fixtureValidation.errors);
+    warnings.push(...fixtureValidation.warnings);
   });
 
   // Check for disconnected walls

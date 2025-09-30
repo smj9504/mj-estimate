@@ -1,28 +1,64 @@
-import React from 'react';
-import { Card, List, Button, Space, Typography, Divider } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import React, { useState, useMemo, useCallback } from 'react';
+import { Card, List, Button, Space, Typography, Divider, Collapse, message } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons';
+import { useSketchContext } from '../context/SketchProvider';
+import FixtureSelector from '../ui/FixtureSelector';
+import { FixtureVariant, Dimensions, WallFixtureCategory, RoomFixtureCategory, DoorType, WindowType, CabinetType, VanityType, ApplianceType } from '../../../types/sketch';
 
 const { Title, Text } = Typography;
+const { Panel } = Collapse;
 
 interface SketchSidebarProps {
   width?: number;
-  rooms?: Array<{ id: string; name: string; area: number; type: string }>;
-  fixtures?: Array<{ id: string; name: string; type: string }>;
-  onAddRoom?: () => void;
-  onEditRoom?: (id: string) => void;
-  onDeleteRoom?: (id: string) => void;
-  onAddFixture?: () => void;
 }
 
 const SketchSidebar: React.FC<SketchSidebarProps> = ({
   width = 300,
-  rooms = [],
-  fixtures = [],
-  onAddRoom = () => {},
-  onEditRoom = () => {},
-  onDeleteRoom = () => {},
-  onAddFixture = () => {},
 }) => {
+  const {
+    sketch,
+    addWallFixture,
+    addRoomFixture,
+    setCurrentTool,
+    selectedFixture,
+    fixtureDimensions,
+    placementMode,
+    setFixturePlacement
+  } = useSketchContext();
+  const [showFixtureSelector, setShowFixtureSelector] = useState(false);
+
+  // Get current sketch data
+  const rooms = sketch?.rooms || [];
+  const wallFixtures = sketch?.wallFixtures || [];
+  const roomFixtures = sketch?.roomFixtures || [];
+
+  // Memoize allFixtures array to prevent unnecessary re-creation
+  const allFixtures = useMemo(() => {
+    return [...wallFixtures, ...roomFixtures];
+  }, [wallFixtures, roomFixtures]);
+
+  const handleAddFixture = useCallback(() => {
+    setShowFixtureSelector(true);
+  }, []);
+
+  const handleFixtureSelect = useCallback((variant: FixtureVariant, dimensions: Dimensions) => {
+    // Determine placement mode based on fixture category
+    if (variant.category === 'door' || variant.category === 'window') {
+      setFixturePlacement(variant, dimensions, 'wall');
+      setCurrentTool('fixture');
+      message.info('Click on a wall to place the ' + variant.name);
+    } else {
+      setFixturePlacement(variant, dimensions, 'room');
+      setCurrentTool('fixture');
+      message.info('Click in a room to place the ' + variant.name);
+    }
+  }, [setFixturePlacement, setCurrentTool]);
+
+  const cancelFixturePlacement = useCallback(() => {
+    setShowFixtureSelector(false);
+    setFixturePlacement(null, null, null);
+    setCurrentTool('select');
+  }, [setFixturePlacement, setCurrentTool]);
   return (
     <div
       style={{
@@ -44,7 +80,7 @@ const SketchSidebar: React.FC<SketchSidebarProps> = ({
                 type="primary"
                 size="small"
                 icon={<PlusOutlined />}
-                onClick={onAddRoom}
+                onClick={() => message.info('Room creation not yet implemented')}
               >
                 Add
               </Button>
@@ -65,7 +101,7 @@ const SketchSidebar: React.FC<SketchSidebarProps> = ({
                       type="text"
                       size="small"
                       icon={<EditOutlined />}
-                      onClick={() => onEditRoom(room.id)}
+                      onClick={() => message.info('Room editing not yet implemented')}
                     />,
                     <Button
                       key="delete"
@@ -73,7 +109,7 @@ const SketchSidebar: React.FC<SketchSidebarProps> = ({
                       size="small"
                       danger
                       icon={<DeleteOutlined />}
-                      onClick={() => onDeleteRoom(room.id)}
+                      onClick={() => message.info('Room deletion not yet implemented')}
                     />,
                   ]}
                 >
@@ -82,7 +118,7 @@ const SketchSidebar: React.FC<SketchSidebarProps> = ({
                     description={
                       <div>
                         <div>{room.type}</div>
-                        <div>{room.area.toFixed(1)} sq ft</div>
+                        <div>{room.areas.floorArea.toFixed(1)} sq ft</div>
                       </div>
                     }
                   />
@@ -96,35 +132,89 @@ const SketchSidebar: React.FC<SketchSidebarProps> = ({
         <Card
           title={
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Title level={5} style={{ margin: 0 }}>Fixtures ({fixtures.length})</Title>
-              <Button
-                type="primary"
-                size="small"
-                icon={<PlusOutlined />}
-                onClick={onAddFixture}
-              >
-                Add
-              </Button>
+              <Title level={5} style={{ margin: 0 }}>Fixtures ({allFixtures.length})</Title>
+              {!showFixtureSelector ? (
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<PlusOutlined />}
+                  onClick={handleAddFixture}
+                >
+                  Add
+                </Button>
+              ) : (
+                <Button
+                  size="small"
+                  icon={<CloseOutlined />}
+                  onClick={cancelFixturePlacement}
+                >
+                  Cancel
+                </Button>
+              )}
             </div>
           }
           size="small"
         >
-          {fixtures.length === 0 ? (
-            <Text type="secondary">No fixtures added yet</Text>
-          ) : (
-            <List
-              dataSource={fixtures}
-              renderItem={(fixture) => (
-                <List.Item>
-                  <List.Item.Meta
-                    title={fixture.name}
-                    description={fixture.type}
-                  />
-                </List.Item>
-              )}
+          {showFixtureSelector ? (
+            <FixtureSelector
+              onSelectFixture={handleFixtureSelect}
+              selectedFixture={selectedFixture || undefined}
             />
+          ) : (
+            <>
+              {allFixtures.length === 0 ? (
+                <Text type="secondary">No fixtures added yet</Text>
+              ) : (
+                <List
+                  dataSource={allFixtures}
+                  renderItem={(fixture) => (
+                    <List.Item
+                      actions={[
+                        <Button
+                          key="delete"
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={() => {
+                            // TODO: Implement fixture deletion
+                            message.info('Fixture deletion not yet implemented');
+                          }}
+                        />,
+                      ]}
+                    >
+                      <List.Item.Meta
+                        title={fixture.category || 'Unknown'}
+                        description={`${fixture.dimensions.width}' × ${fixture.dimensions.height}'`}
+                      />
+                    </List.Item>
+                  )}
+                />
+              )}
+            </>
           )}
         </Card>
+
+        {/* Placement Instructions */}
+        {placementMode && selectedFixture && (
+          <Card size="small" style={{ backgroundColor: '#e6f7ff', borderColor: '#91d5ff' }}>
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Text strong>Placing: {selectedFixture.name}</Text>
+              <Text>
+                {placementMode === 'wall'
+                  ? 'Click on a wall to place this fixture'
+                  : 'Click in a room to place this fixture'
+                }
+              </Text>
+              <Text type="secondary">
+                Size: {fixtureDimensions?.width}' × {fixtureDimensions?.height}'
+              </Text>
+              <Button size="small" block onClick={cancelFixturePlacement}>
+                Cancel Placement
+              </Button>
+            </Space>
+          </Card>
+        )}
 
         {/* Properties Section */}
         <Card title="Properties" size="small">
@@ -144,7 +234,7 @@ const SketchSidebar: React.FC<SketchSidebarProps> = ({
             <div>
               <Text strong>Total Area:</Text>
               <br />
-              <Text>{rooms.reduce((sum, room) => sum + room.area, 0).toFixed(1)} sq ft</Text>
+              <Text>{rooms.reduce((sum, room) => sum + room.areas.floorArea, 0).toFixed(1)} sq ft</Text>
             </div>
           </Space>
         </Card>

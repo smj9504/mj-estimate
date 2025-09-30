@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useRef } from 'react';
 import { Upload, Button, message, Progress } from 'antd';
 import { InboxOutlined, UploadOutlined } from '@ant-design/icons';
 import { FileCategory } from './types';
@@ -33,6 +33,7 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
 }) => {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const processingBatchRef = useRef<boolean>(false);
 
   const validateFile = (file: File): boolean => {
     // File size validation
@@ -74,30 +75,45 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
     setUploadProgress(0);
 
     try {
+      // Show uploading message
+      const hideLoading = message.loading(`Uploading ${validFiles.length} file${validFiles.length > 1 ? 's' : ''}...`, 0);
+
       // Simulate progress for better UX
       const progressInterval = setInterval(() => {
-        setUploadProgress(prev => Math.min(prev + 10, 90));
-      }, 200);
+        setUploadProgress(prev => Math.min(prev + 5, 90));
+      }, 300);
 
       await onUpload(validFiles, selectedCategory);
 
       clearInterval(progressInterval);
       setUploadProgress(100);
+      hideLoading();
 
-      message.success(`${validFiles.length} file${validFiles.length > 1 ? 's' : ''} uploaded successfully`);
+      // Reset progress after a short delay
+      setTimeout(() => {
+        setUploadProgress(0);
+        processingBatchRef.current = false; // Reset for next upload
+      }, 1500);
     } catch (error: any) {
       message.error(`Upload failed: ${error.message || 'Unknown error'}`);
+      setUploadProgress(0);
+      processingBatchRef.current = false; // Reset on error
     } finally {
       setUploading(false);
-      setTimeout(() => setUploadProgress(0), 1000);
     }
   }, [onUpload, selectedCategory, allowedTypes, maxFileSize, maxFiles]);
 
   const beforeUpload = (file: File, fileList: File[]) => {
-    // Handle multiple files at once
+    // Ant Design calls beforeUpload for each file in the selection
+    // We need to process the batch only once to avoid duplicates
     if (allowBulkUpload && fileList.length > 1) {
-      handleUpload(fileList);
+      // Only process the batch on the first file
+      if (!processingBatchRef.current) {
+        processingBatchRef.current = true;
+        handleUpload(fileList);
+      }
     } else {
+      // Single file upload
       handleUpload([file]);
     }
     return false; // Prevent default upload
@@ -160,13 +176,17 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
       </Dragger>
 
       {/* Upload Progress */}
-      {uploading && uploadProgress > 0 && (
+      {(uploading || uploadProgress > 0) && (
         <div style={{ marginTop: 16 }}>
           <Progress
             percent={uploadProgress}
             status={uploadProgress === 100 ? 'success' : 'active'}
-            size="small"
+            strokeColor={uploadProgress === 100 ? '#52c41a' : '#1890ff'}
+            showInfo={true}
           />
+          <div style={{ marginTop: 8, textAlign: 'center', color: '#666', fontSize: '12px' }}>
+            {uploading ? 'Uploading files...' : uploadProgress === 100 ? 'Upload complete!' : ''}
+          </div>
         </div>
       )}
     </div>
