@@ -3,6 +3,9 @@ import { Stage, Layer, Rect, Line, Circle, Text, Shape } from 'react-konva';
 import { Modal, Input, InputNumber, Form, Button } from 'antd';
 import Konva from 'konva';
 import { useSketchContext } from '../context/SketchProvider';
+import { FixtureLayer } from '../rendering/FixtureRenderer';
+import { Wall as SketchWall, SketchRoom } from '../../../types/sketch';
+import { DOOR_VARIANTS, WINDOW_VARIANTS, CABINET_VARIANTS, VANITY_VARIANTS, APPLIANCE_VARIANTS } from '../../../constants/fixtures';
 
 interface Point {
   x: number;
@@ -28,6 +31,7 @@ interface Room {
   area: number; // Area in square feet
   wallIds?: string[]; // IDs of walls that belong to this room
   vertices?: Point[]; // Vertices of the room polygon (corners)
+  boundary?: Point[]; // Room boundary points for point-in-polygon testing
 }
 
 interface DragInfo {
@@ -68,13 +72,27 @@ interface RoomEditModal {
   roomId: string | null;
 }
 
+interface FixtureEditModal {
+  visible: boolean;
+  fixtureId: string | null;
+  isWallFixture: boolean;
+}
+
 interface ContextMenu {
   visible: boolean;
   x: number;
   y: number;
   roomId: string | null;
   wallId: string | null;
-  type: 'room' | 'wall' | null;
+  fixtureId: string | null;
+  type: 'room' | 'wall' | 'fixture' | null;
+}
+
+interface SubContextMenu {
+  visible: boolean;
+  x: number;
+  y: number;
+  parentId: string; // To identify which menu item opened this submenu
 }
 
 const SNAP_THRESHOLD = 15; // Distance threshold for snapping in pixels
@@ -91,6 +109,65 @@ interface SketchViewportProps {
   onStageMouseMove?: (e: any) => void;
 }
 
+// Type converter functions
+const convertToSketchWalls = (localWalls: Wall[]): SketchWall[] => {
+  return localWalls.map(wall => ({
+    id: wall.id,
+    originalStart: wall.start,
+    originalEnd: wall.end,
+    start: wall.start,
+    end: wall.end,
+    thickness: 4, // Default thickness in inches
+    height: { feet: 8, inches: 0, totalInches: 96, display: '8\'' }, // Default 8 foot walls
+    originalLength: { feet: 0, inches: 0, totalInches: 0, display: '0\'' }, // Calculate if needed
+    length: { feet: 0, inches: 0, totalInches: 0, display: '0\'' }, // Calculate if needed
+    segments: [], // Empty for now
+    type: 'interior' as const,
+    fixtures: [],
+    roomId: '', // Empty for now
+    connectedWalls: [],
+    style: {
+      strokeColor: '#333333',
+      strokeWidth: 3,
+      fillColor: '#f0f0f0',
+      opacity: 1
+    },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }));
+};
+
+const convertToSketchRooms = (localRooms: Room[]): SketchRoom[] => {
+  return localRooms.map(room => ({
+    id: room.id,
+    name: room.name,
+    type: 'other' as const,
+    wallIds: room.wallIds || [],
+    boundary: room.vertices || [],
+    dimensions: {
+      width: room.bounds.width / 20, // Convert pixels to feet (20 pixels = 1 foot)
+      height: room.bounds.height / 20
+    },
+    areas: {
+      floorArea: room.area,
+      ceilingArea: room.area,
+      wallArea: 0,
+      netWallArea: 0,
+      volume: room.area * room.height,
+      perimeter: 0
+    },
+    properties: {},
+    style: {
+      fillColor: '#e6f3ff',
+      strokeColor: '#0066cc',
+      strokeWidth: 1,
+      opacity: 0.3
+    },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }));
+};
+
 const SketchViewport: React.FC<SketchViewportProps> = ({
   width = 800,
   height = 600,
@@ -101,12 +178,32 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
   onStageClick = () => {},
   onStageMouseMove = () => {},
 }) => {
-  const { currentTool, setCurrentTool } = useSketchContext();
+  const {
+    sketch,
+    updateSketch,
+    currentTool,
+    setCurrentTool,
+    selectedFixture,
+    fixtureDimensions,
+    placementMode,
+    setFixturePlacement,
+    addWallFixture,
+    addRoomFixture,
+    removeWallFixture,
+    removeRoomFixture,
+    moveWallFixture,
+    changeWallFixtureWall,
+    rotateWallFixture,
+    moveRoomFixture,
+    rotateRoomFixture,
+    updateRoomFixtureDimensions
+  } = useSketchContext();
   const [isDrawing, setIsDrawing] = useState(false);
   const [walls, setWalls] = useState<Wall[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomCounter, setRoomCounter] = useState(0);
   const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
+  const [selectedFixtureIds, setSelectedFixtureIds] = useState<string[]>([]);
   const [isDrawingRoom, setIsDrawingRoom] = useState(false);
   const [currentRoom, setCurrentRoom] = useState<{ start: Point; end: Point } | null>(null);
 
@@ -117,8 +214,41 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
   const [lastRawPointerPosition, setLastRawPointerPosition] = useState<Point | null>(null);
   const [isPanModeActive, setIsPanModeActive] = useState(false);
   const [roomEditModal, setRoomEditModal] = useState<RoomEditModal>({ visible: false, roomId: null });
+  const [fixtureEditModal, setFixtureEditModal] = useState<FixtureEditModal>({ visible: false, fixtureId: null, isWallFixture: false });
+  const [fixtureEditForm] = Form.useForm();
+  const [subContextMenu, setSubContextMenu] = useState<SubContextMenu>({ visible: false, x: 0, y: 0, parentId: '' });
+
+  // Synchronize local walls with sketch state
+  const syncWallsToSketch = useCallback((updatedWalls: Wall[]) => {
+    if (updateSketch) {
+      const sketchWalls = convertToSketchWalls(updatedWalls);
+      updateSketch({ walls: sketchWalls });
+    }
+  }, [updateSketch]);
+
+  // Custom setWalls that also syncs to sketch
+  const setWallsAndSync = useCallback((wallsOrUpdater: Wall[] | ((prev: Wall[]) => Wall[])) => {
+    setWalls(prevWalls => {
+      const newWalls = typeof wallsOrUpdater === 'function' ? wallsOrUpdater(prevWalls) : wallsOrUpdater;
+      syncWallsToSketch(newWalls);
+      return newWalls;
+    });
+  }, [syncWallsToSketch]);
+
+  // Initialize walls from sketch state if available
+  useEffect(() => {
+    if (sketch?.walls && sketch.walls.length > 0 && walls.length === 0) {
+      const localWalls: Wall[] = sketch.walls.map(wall => ({
+        id: wall.id,
+        start: wall.start,
+        end: wall.end
+      }));
+      setWalls(localWalls);
+    }
+  }, [sketch?.walls, walls.length]);
+
   const [roomEditForm] = Form.useForm(); // Add form instance
-  const [contextMenu, setContextMenu] = useState<ContextMenu>({ visible: false, x: 0, y: 0, roomId: null, wallId: null, type: null });
+  const [contextMenu, setContextMenu] = useState<ContextMenu>({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
   const [currentWall, setCurrentWall] = useState<{ start: Point; end: Point } | null>(null);
   const [mousePos, setMousePos] = useState<Point>({ x: 0, y: 0 });
   const [selectedWallIds, setSelectedWallIds] = useState<string[]>([]);
@@ -130,6 +260,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
   const [wallDragInfo, setWallDragInfo] = useState<WallDragInfo | null>(null);
   const [roomDragInfo, setRoomDragInfo] = useState<RoomDragInfo | null>(null);
   const [dragSelection, setDragSelection] = useState<DragSelection>({ isActive: false, start: { x: 0, y: 0 }, current: { x: 0, y: 0 } });
+  const [isDraggingFixture, setIsDraggingFixture] = useState(false);
   const [isDragSelecting, setIsDragSelecting] = useState(false);
   const [isMovingWalls, setIsMovingWalls] = useState(false);
   const [isMovingRooms, setIsMovingRooms] = useState(false);
@@ -144,38 +275,15 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
   // Update actual size based on props (SketchCanvas handles container sizing)
   useEffect(() => {
-    const updateActualSize = () => {
-      // Trust the parent SketchCanvas for size calculations
-      // Just apply minimum constraints for safety
-      const newWidth = Math.max(300, Math.min(width, 2000)); // Max reasonable width
-      const newHeight = Math.max(200, Math.min(height, 1500)); // Max reasonable height
+    // Trust the parent SketchCanvas for size calculations
+    // Just apply minimum constraints for safety
+    const newWidth = Math.max(300, Math.min(width, 2000)); // Max reasonable width
+    const newHeight = Math.max(200, Math.min(height, 1500)); // Max reasonable height
 
-      // Debug logging to trace height calculation
-      console.log('SketchViewport simplified size calculation:', {
-        propsSize: { width, height },
-        appliedSize: { width: newWidth, height: newHeight },
-        containerElement: containerRef.current,
-        parentRect: containerRef.current?.parentElement?.getBoundingClientRect()
-      });
-
-      setActualSize({
-        width: newWidth,
-        height: newHeight
-      });
-    };
-
-    // Simple immediate update since parent handles the complex logic
-    updateActualSize();
-
-    // Optional resize handler for edge cases
-    const handleResize = () => {
-      setTimeout(updateActualSize, 50);
-    };
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-    };
+    setActualSize({
+      width: newWidth,
+      height: newHeight
+    });
   }, [width, height]);
 
   // Snap to grid helper
@@ -298,26 +406,16 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
   // Handle wall double-click for length editing
   const handleWallDoubleClick = useCallback((wallId: string, e: any) => {
-    console.log('Wall double-clicked:', wallId);
     e.evt.stopPropagation();
 
     const wall = walls.find(w => w.id === wallId);
     if (!wall) {
-      console.log('Wall not found for double click:', wallId);
       return;
     }
 
     // Calculate current length and convert to feet/inches
     const currentLengthPixels = calculateWallLength(wall);
     const { feet, inches } = pixelsToFeetInches(currentLengthPixels);
-
-    console.log('Wall length info:', {
-      wallId,
-      currentLengthPixels,
-      feet,
-      inches,
-      wall
-    });
 
     // Set editing state
     setEditingWallId(wallId);
@@ -343,47 +441,28 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         y: scaledY + containerBox.top - containerBox.top - 40 // Position above the wall
       };
 
-      console.log('Edit position calculated:', {
-        midpoint,
-        scaledX,
-        scaledY,
-        editPosition,
-        zoom,
-        pan
-      });
       setWallEditPosition(editPosition);
-    } else {
-      console.log('Stage or container ref not available');
     }
   }, [walls]);
 
   // Update wall length based on input
   const updateWallLength = useCallback((wallId: string, newFeet: number, newInches: number) => {
-    console.log('updateWallLength called:', { wallId, newFeet, newInches });
-    console.log('Current walls array:', walls);
-
     // Validate input values first
     if (newFeet < 0 || newInches < 0 || newInches >= 12) {
-      console.log('Invalid input values:', { newFeet, newInches });
       return;
     }
 
     const newLengthPixels = feetInchesToPixels(newFeet, newInches);
 
     if (newLengthPixels <= 0) {
-      console.log('Invalid length: must be greater than 0');
       return;
     }
 
     let wall = walls.find(w => w.id === wallId);
 
     if (!wall) {
-      console.log('Wall not found in walls array:', wallId);
-      console.log('Available wall IDs:', walls.map(w => w.id));
-
       // Check if wall might be stored in rooms and try to reconstruct it
       const roomsWithWalls = rooms.filter(room => room.wallIds?.includes(wallId));
-      console.log('Rooms containing this wall ID:', roomsWithWalls);
 
       if (roomsWithWalls.length > 0) {
         // Try to reconstruct wall from room data
@@ -394,47 +473,35 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
             start: { x: room.bounds.x + room.bounds.width, y: room.bounds.y },
             end: { x: room.bounds.x + room.bounds.width, y: room.bounds.y + room.bounds.height }
           };
-          console.log('Reconstructed right wall:', wall);
         } else if (wallId.includes('-wall-left')) {
           wall = {
             id: wallId,
             start: { x: room.bounds.x, y: room.bounds.y },
             end: { x: room.bounds.x, y: room.bounds.y + room.bounds.height }
           };
-          console.log('Reconstructed left wall:', wall);
         } else if (wallId.includes('-wall-top')) {
           wall = {
             id: wallId,
             start: { x: room.bounds.x, y: room.bounds.y },
             end: { x: room.bounds.x + room.bounds.width, y: room.bounds.y }
           };
-          console.log('Reconstructed top wall:', wall);
         } else if (wallId.includes('-wall-bottom')) {
           wall = {
             id: wallId,
             start: { x: room.bounds.x + room.bounds.width, y: room.bounds.y + room.bounds.height },
             end: { x: room.bounds.x, y: room.bounds.y + room.bounds.height }
           };
-          console.log('Reconstructed bottom wall:', wall);
         }
       }
 
       if (!wall) {
-        console.log('Could not find or reconstruct wall');
         return;
       }
     }
 
     const currentLengthPixels = calculateWallLength(wall);
 
-    console.log('Length calculation:', {
-      newLengthPixels,
-      currentLengthPixels,
-      wall: wall
-    });
-
     if (Math.abs(newLengthPixels - currentLengthPixels) < 1) {
-      console.log('Length unchanged (difference < 1 pixel)');
       // Clear editing state even if no change
       setEditingWallId(null);
       setWallEditPosition(null);
@@ -445,8 +512,6 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     // This allows rooms to have irregular/non-rectangular shapes for property blueprints
     const roomsWithWalls = rooms.filter(room => room.wallIds?.includes(wallId));
     if (roomsWithWalls.length > 0) {
-      console.log('Updating individual wall for irregular shape support');
-
       const room = roomsWithWalls[0];
 
       // Calculate new wall endpoints based on the wall direction and new length
@@ -455,7 +520,6 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
       const currentLength = Math.sqrt(dx * dx + dy * dy);
 
       if (currentLength === 0) {
-        console.log('Invalid wall: zero length');
         return;
       }
 
@@ -469,16 +533,8 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         y: wall.start.y + unitY * newLengthPixels
       };
 
-      console.log('Individual wall update:', {
-        wallId,
-        currentLength,
-        newLength: newLengthPixels,
-        oldEnd: wall.end,
-        newEnd
-      });
-
       // Update the specific wall and handle connectivity in a single update
-      setWalls(prevWalls => {
+      setWallsAndSync(prevWalls => {
         const updatedWalls = prevWalls.map(w => {
           if (w.id === wallId) {
             return {
@@ -488,8 +544,6 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
           }
           return w;
         });
-
-        console.log('Updated individual wall:', updatedWalls.find(w => w.id === wallId));
 
         // Optional: Update connected walls to maintain connectivity
         const shouldUpdateConnectedWalls = true; // Can be made configurable
@@ -511,13 +565,11 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
             // If wall start point is close to our new endpoint, connect it
             if (distanceToNewEnd <= tolerance) {
-              console.log(`Connecting wall ${w.id} start to updated wall ${wallId} end`);
               return { ...w, start: newEnd };
             }
 
             // If wall end point is close to our new endpoint, connect it
             if (distanceToNewEndFromEnd <= tolerance) {
-              console.log(`Connecting wall ${w.id} end to updated wall ${wallId} end`);
               return { ...w, end: newEnd };
             }
 
@@ -558,7 +610,6 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
           height: maxY - minY
         };
 
-        console.log('Updated room bounds from walls:', newBounds);
 
         // Update room bounds for layout purposes only
         setRooms(prevRooms => prevRooms.map(r =>
@@ -572,7 +623,6 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
       const currentLength = Math.sqrt(dx * dx + dy * dy);
 
       if (currentLength === 0) {
-        console.log('Invalid wall: zero length');
         return;
       }
 
@@ -586,10 +636,9 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         y: wall.start.y + unitY * newLengthPixels
       };
 
-      console.log('New end position:', newEnd);
 
       // Update standalone wall
-      setWalls(prevWalls => {
+      setWallsAndSync(prevWalls => {
         const existingWallIndex = prevWalls.findIndex(w => w.id === wallId);
         if (existingWallIndex >= 0) {
           // Update existing wall
@@ -1307,7 +1356,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedWallIds.length > 0) {
-          setWalls(prevWalls => prevWalls.filter(wall => !selectedWallIds.includes(wall.id)));
+          setWallsAndSync(prevWalls => prevWalls.filter(wall => !selectedWallIds.includes(wall.id)));
           setSelectedWallIds([]);
         }
         if (selectedRoomIds.length > 0) {
@@ -1315,18 +1364,34 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
           const roomsToDelete = rooms.filter(room => selectedRoomIds.includes(room.id));
           const wallIdsToDelete = roomsToDelete.flatMap(room => room.wallIds || []);
 
-          setWalls(prevWalls => prevWalls.filter(wall => !wallIdsToDelete.includes(wall.id)));
+          setWallsAndSync(prevWalls => prevWalls.filter(wall => !wallIdsToDelete.includes(wall.id)));
           setRooms(prevRooms => prevRooms.filter(room => !selectedRoomIds.includes(room.id)));
           setSelectedRoomIds([]);
+        }
+        if (selectedFixtureIds.length > 0) {
+          // Delete selected fixtures
+          selectedFixtureIds.forEach(fixtureId => {
+            // Check if it's a wall fixture or room fixture and call appropriate delete function
+            const wallFixture = sketch?.wallFixtures.find(f => f.id === fixtureId);
+            const roomFixture = sketch?.roomFixtures.find(f => f.id === fixtureId);
+
+            if (wallFixture && removeWallFixture) {
+              removeWallFixture(fixtureId);
+            } else if (roomFixture && removeRoomFixture) {
+              removeRoomFixture(fixtureId);
+            }
+          });
+          setSelectedFixtureIds([]);
         }
       }
 
       if (e.key === 'Escape') {
         setSelectedWallIds([]);
         setSelectedRoomIds([]);
+        setSelectedFixtureIds([]);
         setDragSelection({ isActive: false, start: { x: 0, y: 0 }, current: { x: 0, y: 0 } });
         setIsDragSelecting(false);
-        setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, type: null });
+        setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
         if (isDrawingRoom) {
           setIsDrawingRoom(false);
           setCurrentRoom(null);
@@ -1414,7 +1479,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
     // Close context menu if clicking elsewhere (but only if it's visible)
     if (contextMenu.visible) {
-      setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, type: null });
+      setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
     }
 
     // In select mode, check if clicking on empty space for panning
@@ -1506,6 +1571,19 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
           setSelectedWallIds([endpoint.wallId]);
         }
 
+        e.cancelBubble = true;
+        return;
+      }
+
+      // Check if clicking on a fixture first (fixtures have priority over walls)
+      // Use Konva's event target to detect if we clicked on a fixture
+      const target = e.target;
+      const clickedOnFixture = target && target.parent && target.parent.attrs &&
+                                (target.parent.attrs.name === 'fixture-group' ||
+                                 target.attrs.name === 'fixture-group');
+
+      // If clicking on a fixture, don't select walls
+      if (clickedOnFixture) {
         e.cancelBubble = true;
         return;
       }
@@ -1659,10 +1737,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
 
         // Add walls to the walls array
-        setWalls(prev => {
-          const newWalls = [...prev, ...roomWalls];
-          return newWalls;
-        });
+        setWallsAndSync(prev => [...prev, ...roomWalls]);
 
         // Create vertices for the room polygon
         const roomVertices: Point[] = [
@@ -1701,7 +1776,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
       };
 
       // Update the wall endpoint
-      setWalls(prevWalls => prevWalls.map(wall => {
+      setWallsAndSync(prevWalls => prevWalls.map(wall => {
         if (wall.id === dragInfo.wallId) {
           return {
             ...wall,
@@ -1817,11 +1892,166 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     return null;
   }, [rooms]);
 
-  // Handle stage click for drawing
+  // Handle stage click for drawing and fixture placement
   const handleStageClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    const pos = getRelativePointerPosition();
+    if (!pos) return;
+
+    // Check if click is on empty area (not on fixture, wall, or room)
+    // If currentTool is 'select' and not placing fixtures, clear selections
+    if (currentTool === 'select' && !selectedFixture) {
+      // Clear all selections when clicking on empty area
+      setSelectedFixtureIds([]);
+      setSelectedRoomIds([]);
+      setSelectedWallIds([]);
+    }
+
+    // Handle fixture placement
+    if (currentTool === 'fixture' && selectedFixture && fixtureDimensions && placementMode) {
+      if (placementMode === 'wall') {
+        // Find the wall that was clicked
+        const clickedWall = walls.find(wall => {
+          // Simple distance calculation to wall line
+          const A = wall.start;
+          const B = wall.end;
+          const P = pos;
+
+          // Calculate distance from point to line segment
+          const lengthSquared = Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2);
+
+          // If the wall has zero length, calculate distance to point
+          if (lengthSquared === 0) {
+            return Math.sqrt(Math.pow(P.x - A.x, 2) + Math.pow(P.y - A.y, 2)) < 20;
+          }
+
+          // Calculate the t parameter for the closest point on the line segment
+          const t = Math.max(0, Math.min(1,
+            ((P.x - A.x) * (B.x - A.x) + (P.y - A.y) * (B.y - A.y)) / lengthSquared
+          ));
+
+          // Calculate the closest point on the line segment
+          const closestPoint = {
+            x: A.x + t * (B.x - A.x),
+            y: A.y + t * (B.y - A.y)
+          };
+
+          // Calculate distance from click point to closest point on line segment
+          const distanceToWall = Math.sqrt(
+            Math.pow(P.x - closestPoint.x, 2) + Math.pow(P.y - closestPoint.y, 2)
+          );
+
+          return distanceToWall < 30; // Increased tolerance to 30 pixels for easier clicking
+        });
+
+        if (clickedWall) {
+          // Calculate position along wall in pixels
+          const wallLength = Math.sqrt(
+            Math.pow(clickedWall.end.x - clickedWall.start.x, 2) +
+            Math.pow(clickedWall.end.y - clickedWall.start.y, 2)
+          );
+          const clickDistance = Math.sqrt(
+            Math.pow(pos.x - clickedWall.start.x, 2) +
+            Math.pow(pos.y - clickedWall.start.y, 2)
+          );
+          // Position in pixels from start of wall (not fractional)
+          const position = Math.max(0, Math.min(wallLength, clickDistance));
+
+          // Add wall fixture
+          const result = addWallFixture(
+            clickedWall.id,
+            selectedFixture.category as any,
+            selectedFixture.type as any,
+            { width: fixtureDimensions.width * 12, height: fixtureDimensions.height * 12 }, // Convert feet to inches
+            position
+          );
+
+          if (result.success) {
+            // Reset fixture placement state
+            setFixturePlacement(null, null, null);
+            setCurrentTool('select');
+          } else {
+            console.error('Failed to place fixture:', result.error);
+          }
+          return;
+        } else {
+          console.warn('No wall found at click position:', pos, 'Available walls:', walls.length);
+
+          // Debug: show distances to all walls
+          const wallDistances = walls.map(wall => {
+            const A = wall.start;
+            const B = wall.end;
+            const P = pos;
+
+            const lengthSquared = Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2);
+            let distance: number;
+
+            if (lengthSquared === 0) {
+              distance = Math.sqrt(Math.pow(P.x - A.x, 2) + Math.pow(P.y - A.y, 2));
+            } else {
+              const t = Math.max(0, Math.min(1,
+                ((P.x - A.x) * (B.x - A.x) + (P.y - A.y) * (B.y - A.y)) / lengthSquared
+              ));
+
+              const closestPoint = {
+                x: A.x + t * (B.x - A.x),
+                y: A.y + t * (B.y - A.y)
+              };
+
+              distance = Math.sqrt(
+                Math.pow(P.x - closestPoint.x, 2) + Math.pow(P.y - closestPoint.y, 2)
+              );
+            }
+
+            return { wallId: wall.id, distance: distance.toFixed(2) };
+          }).sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
+
+        }
+      } else if (placementMode === 'room') {
+        // Find the room that contains the click point
+        const clickedRoom = rooms.find(room => {
+          // Simple point-in-polygon test for room boundary
+          const vertices = room.boundary || [];
+          if (vertices.length < 3) return false;
+
+          let inside = false;
+          for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+            if (
+              vertices[i].y > pos.y !== vertices[j].y > pos.y &&
+              pos.x < ((vertices[j].x - vertices[i].x) * (pos.y - vertices[i].y)) / (vertices[j].y - vertices[i].y) + vertices[i].x
+            ) {
+              inside = !inside;
+            }
+          }
+          return inside;
+        });
+
+        if (clickedRoom) {
+          // Add room fixture
+          const result = addRoomFixture(
+            clickedRoom.id,
+            selectedFixture.category as any,
+            selectedFixture.type as any,
+            { width: fixtureDimensions.width * 12, height: fixtureDimensions.height * 12 }, // Convert feet to inches
+            pos
+          );
+
+          if (result.success) {
+            // Reset fixture placement state
+            setFixturePlacement(null, null, null);
+            setCurrentTool('select');
+          } else {
+            console.error('Failed to place fixture:', result.error);
+          }
+          return;
+        }
+      }
+      return; // Don't proceed with wall drawing if in fixture mode
+    }
+
+    // Handle wall drawing
     if (currentTool !== 'wall') return;
 
-    const pos = getRelativePointerPosition();
+    // pos is already declared above, no need to redeclare
     if (!pos) return;
 
 
@@ -1894,7 +2124,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
           start: currentWall.start,
           end: snappedPos
         };
-        setWalls([...walls, newWall]);
+        setWallsAndSync([...walls, newWall]);
 
         // Check if this wall connects to an existing room
         const startRoom = findRoomWithWallEndpoint(currentWall.start) || findRoomByVertex(currentWall.start);
@@ -1932,7 +2162,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
     // Call the original handler if provided
     onStageClick(e);
-  }, [currentTool, isDrawing, currentWall, walls, gridSize, onStageClick, findClosestEndpoint, findRoomWithWallEndpoint, findRoomByVertex, updateRoomDimensions]);
+  }, [currentTool, isDrawing, currentWall, walls, rooms, gridSize, onStageClick, findClosestEndpoint, findRoomWithWallEndpoint, findRoomByVertex, updateRoomDimensions, selectedFixture, fixtureDimensions, placementMode, setFixturePlacement, addWallFixture, addRoomFixture, setCurrentTool]);
 
   // Handle right-click context menu
   const handleContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>) => {
@@ -1959,6 +2189,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         y: menuPosition.y,
         roomId: null,
         wallId: wallResult.wallId,
+        fixtureId: null,
         type: 'wall'
       });
       return;
@@ -1975,10 +2206,11 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         y: menuPosition.y,
         roomId,
         wallId: null,
+        fixtureId: null,
         type: 'room'
       });
     } else {
-      setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, type: null });
+      setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
     }
   }, [rooms]);
 
@@ -1997,7 +2229,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         roomId
       });
     }
-    setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, type: null });
+    setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
   };
 
   // Handle room property save
@@ -2021,6 +2253,44 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     // Reset form and close modal
     roomEditForm.resetFields();
     setRoomEditModal({ visible: false, roomId: null });
+  };
+
+  // Handle fixture size save
+  const handleSaveFixtureSize = (values: { width: number; height: number }) => {
+    if (!fixtureEditModal.fixtureId) return;
+
+    const newDimensions = {
+      width: values.width * 12, // Convert feet to inches
+      height: values.height * 12
+    };
+
+    if (fixtureEditModal.isWallFixture) {
+      const wallFixture = sketch?.wallFixtures.find(f => f.id === fixtureEditModal.fixtureId);
+      if (wallFixture && removeWallFixture && addWallFixture) {
+        // Remove old fixture and add with new dimensions
+        removeWallFixture(wallFixture.id);
+        addWallFixture(
+          wallFixture.wallId,
+          wallFixture.category,
+          wallFixture.type,
+          newDimensions,
+          wallFixture.position
+        );
+      }
+    } else {
+      const roomFixture = sketch?.roomFixtures.find(f => f.id === fixtureEditModal.fixtureId);
+      if (roomFixture && updateRoomFixtureDimensions) {
+        // Update room fixture dimensions
+        const result = updateRoomFixtureDimensions(roomFixture.id, newDimensions);
+        if (!result.success) {
+          console.error('Failed to update fixture dimensions:', result.error);
+        }
+      }
+    }
+
+    // Reset form and close modal
+    fixtureEditForm.resetFields();
+    setFixtureEditModal({ visible: false, fixtureId: null, isWallFixture: false });
   };
 
   // Handle mouse move for preview and dragging
@@ -2523,6 +2793,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
                     fill={isSelected ? 'rgba(24, 144, 255, 0.1)' : 'rgba(135, 206, 250, 0.15)'}
                     stroke={isSelected ? 'rgba(24, 144, 255, 0.3)' : 'transparent'}
                     strokeWidth={1}
+                    listening={!isDraggingFixture} // Disable room interaction during fixture drag
                   />
                 ) : (
                   <Rect
@@ -2533,6 +2804,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
                     fill={isSelected ? 'rgba(24, 144, 255, 0.1)' : 'rgba(135, 206, 250, 0.15)'}
                     stroke={isSelected ? 'rgba(24, 144, 255, 0.3)' : 'transparent'}
                     strokeWidth={1}
+                    listening={!isDraggingFixture} // Disable room interaction during fixture drag
                   />
                 )}
                 {/* Room name - clickable for dragging */}
@@ -2545,7 +2817,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
                   fontStyle="bold"
                   align="center"
                   width={200}
-                  listening={true}
+                  listening={!isDraggingFixture} // Disable room text interaction during fixture drag
                   onMouseDown={(e) => {
                     e.cancelBubble = true;
 
@@ -2695,12 +2967,13 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
                   lineCap="round"
                   lineJoin="round"
                   opacity={(isDragging && dragInfo?.wallId === wall.id) || (isMovingWalls && wallDragInfo?.wallIds.includes(wall.id)) ? 0.6 : 1}
+                  listening={!isDraggingFixture} // Disable wall interaction during fixture drag
                   onDblClick={(e) => handleWallDoubleClick(wall.id, e)}
                   style={{ cursor: 'pointer' }}
                 />
 
-                {/* Always-visible wall length label */}
-                {(() => {
+                {/* Wall length label - hidden during fixture dragging for performance */}
+                {!isDraggingFixture && (() => {
                   const midpoint = getWallMidpoint(wall);
                   const lengthPixels = calculateWallLength(wall);
                   const { feet, inches } = pixelsToFeetInches(lengthPixels);
@@ -2734,13 +3007,57 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
                       rotation={normalizedAngle}
                       offsetX={lengthText.length * 3} // Center the text horizontally
                       offsetY={6} // Center the text vertically
-                      listening={false} // Don't interfere with wall interactions
+                      listening={true} // Enable interactions for editing
                       opacity={0.9}
+                      onDblClick={(e) => {
+                        e.cancelBubble = true;
+                        handleWallDoubleClick(wall.id, e);
+                      }}
+                      style={{ cursor: 'pointer' }}
                     />
                   );
                 })()}
               </React.Fragment>
             );
+          })}
+
+          {/* Wall segment lengths for fixtures */}
+          {walls.map((wall) => {
+            const sketchWall = sketch?.walls.find(w => w.id === wall.id);
+            if (!sketchWall || !sketchWall.segments || sketchWall.segments.length <= 1) return null;
+
+            // Only show segment lengths if wall has fixtures (more than 1 segment)
+            return sketchWall.segments.map((segment, index) => {
+              if (segment.type === 'fixture_gap') return null; // Skip fixture gaps
+
+              // Calculate segment midpoint
+              const midX = (segment.start.x + segment.end.x) / 2;
+              const midY = (segment.start.y + segment.end.y) / 2;
+
+              // Calculate perpendicular offset for text positioning
+              const wallAngle = Math.atan2(wall.end.y - wall.start.y, wall.end.x - wall.start.x);
+              const offsetDistance = 20; // Distance from wall
+              const offsetX = Math.cos(wallAngle + Math.PI / 2) * offsetDistance;
+              const offsetY = Math.sin(wallAngle + Math.PI / 2) * offsetDistance;
+
+              return (
+                <Text
+                  key={`${wall.id}-segment-${index}`}
+                  x={midX + offsetX}
+                  y={midY + offsetY}
+                  text={segment.length.display}
+                  fontSize={12}
+                  fontFamily="Arial"
+                  fill="#666"
+                  align="center"
+                  verticalAlign="middle"
+                  offsetX={segment.length.display.length * 3}
+                  offsetY={6}
+                  listening={false}
+                  opacity={0.8}
+                />
+              );
+            });
           })}
 
           {/* Draw current wall being drawn */}
@@ -2884,6 +3201,84 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
             </>
           )}
         </Layer>
+
+        {/* Fixtures Layer */}
+        <Layer>
+          <FixtureLayer
+            wallFixtures={sketch?.wallFixtures || []}
+            roomFixtures={sketch?.roomFixtures || []}
+            walls={convertToSketchWalls(walls)} // Convert local walls to sketch walls
+            rooms={convertToSketchRooms(rooms)} // Convert local rooms to sketch rooms
+            selectedFixtureIds={selectedFixtureIds}
+            onDragStartFixture={() => setIsDraggingFixture(true)}
+            onDragEndFixture={() => setIsDraggingFixture(false)}
+            onSelectFixture={(fixtureId) => {
+              // Clear other selections first
+              setSelectedWallIds([]);
+              setSelectedRoomIds([]);
+
+              // Always select the clicked fixture (no toggle)
+              setSelectedFixtureIds([fixtureId]);
+            }}
+            onContextMenu={(fixtureId, x, y) => {
+              const stage = stageRef.current;
+              if (!stage) return;
+
+              const containerRect = stage.container().getBoundingClientRect();
+              setContextMenu({
+                visible: true,
+                x: x - containerRect.left,
+                y: y - containerRect.top,
+                roomId: null,
+                wallId: null,
+                fixtureId,
+                type: 'fixture'
+              });
+            }}
+            onMoveWallFixture={(fixtureId, position) => {
+              // Use the moveWallFixture function from context
+              const result = moveWallFixture(fixtureId, position);
+              if (!result.success) {
+                console.error('Failed to move wall fixture:', result.error);
+              }
+            }}
+            onMoveRoomFixture={(fixtureId, position) => {
+              // Use the moveRoomFixture function from context
+              const result = moveRoomFixture(fixtureId, position);
+              if (!result.success) {
+                console.error('Failed to move room fixture:', result.error);
+              }
+            }}
+            onWallChange={(fixtureId, newWallId, position) => {
+              // Use the changeWallFixtureWall function from context
+              const result = changeWallFixtureWall(fixtureId, newWallId, position);
+              if (!result.success) {
+                console.error('Failed to change fixture wall:', result.error);
+              }
+            }}
+            onRotateWallFixture={(fixtureId, rotation) => {
+              // Use the rotateWallFixture function from context
+              const result = rotateWallFixture(fixtureId, rotation);
+              if (!result.success) {
+                console.error('Failed to rotate wall fixture:', result.error);
+              }
+            }}
+            onRotateRoomFixture={(fixtureId, rotation) => {
+              // Use the rotateRoomFixture function from context
+              const result = rotateRoomFixture(fixtureId, rotation);
+              if (!result.success) {
+                console.error('Failed to rotate room fixture:', result.error);
+              }
+            }}
+            onResizeRoomFixture={(fixtureId, dimensions) => {
+              // Use the updateRoomFixtureDimensions function from context
+              const result = updateRoomFixtureDimensions(fixtureId, dimensions);
+              if (!result.success) {
+                console.error('Failed to resize room fixture:', result.error);
+              }
+            }}
+          />
+        </Layer>
       </Stage>
 
       {/* Context Menu */}
@@ -2901,6 +3296,29 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
             padding: '4px 0',
             minWidth: '150px',
             pointerEvents: 'auto'
+          }}
+          onMouseLeave={(e) => {
+            // Check if mouse is moving to submenu
+            const rect = e.currentTarget.getBoundingClientRect();
+            const mouseX = e.clientX;
+            const mouseY = e.clientY;
+
+            // If submenu is visible and mouse is moving towards it, don't close
+            if (subContextMenu.visible) {
+              const subRect = document.querySelector('[data-submenu="true"]')?.getBoundingClientRect();
+              if (subRect && mouseX >= rect.right - 5 && mouseX <= subRect.right + 5 &&
+                  mouseY >= Math.min(rect.top, subRect.top) - 5 &&
+                  mouseY <= Math.max(rect.bottom, subRect.bottom) + 5) {
+                return;
+              }
+            }
+
+            // Close both menus if mouse leaves and not moving to submenu
+            setTimeout(() => {
+              if (!subContextMenu.visible) {
+                setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
+              }
+            }, 100);
           }}
           onContextMenu={(e) => e.preventDefault()}
         >
@@ -2954,7 +3372,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
                           return room;
                         }));
                         updateRoomDimensions();
-                        setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, type: null });
+                        setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
                       }}
                     >
                       {(() => {
@@ -2977,7 +3395,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                 onClick={() => {
                   // Delete the wall and automatically remove it from any rooms
-                  setWalls(prevWalls => prevWalls.filter(wall => wall.id !== contextMenu.wallId));
+                  setWallsAndSync(prevWalls => prevWalls.filter(wall => wall.id !== contextMenu.wallId));
 
                   // Remove wall from any rooms that contain it
                   setRooms(prevRooms => prevRooms.map(room => {
@@ -2991,15 +3409,246 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
                   }));
 
                   updateRoomDimensions();
-                  setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, type: null });
+                  setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
                 }}
               >
                 Delete Wall
               </div>
             </>
           )}
+
+          {/* Fixture context menu */}
+          {contextMenu.type === 'fixture' && contextMenu.fixtureId && (() => {
+            const wallFixture = sketch?.wallFixtures.find(f => f.id === contextMenu.fixtureId);
+            const roomFixture = sketch?.roomFixtures.find(f => f.id === contextMenu.fixtureId);
+            const fixture = wallFixture || roomFixture;
+
+            if (!fixture) return null;
+
+            // Get available fixture variants based on category
+            let availableVariants: any[] = [];
+            if (fixture.category === 'door') {
+              availableVariants = DOOR_VARIANTS;
+            } else if (fixture.category === 'window') {
+              availableVariants = WINDOW_VARIANTS;
+            } else if (fixture.category === 'cabinet') {
+              availableVariants = CABINET_VARIANTS;
+            } else if (fixture.category === 'vanity') {
+              availableVariants = VANITY_VARIANTS;
+            } else if (fixture.category === 'appliance') {
+              availableVariants = APPLIANCE_VARIANTS;
+            }
+
+            return (
+              <>
+                <div style={{ padding: '8px 12px', fontSize: '12px', color: '#999', fontWeight: 'bold' }}>
+                  {fixture.category.charAt(0).toUpperCase() + fixture.category.slice(1)} Options
+                </div>
+
+                {/* Change fixture type */}
+                {availableVariants.length > 1 && (
+                  <>
+                    <div style={{ borderBottom: '1px solid #f0f0f0', margin: '4px 0' }} />
+                    <div
+                      style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f5f5f5';
+                        // Show submenu
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setSubContextMenu({
+                          visible: true,
+                          x: rect.right,
+                          y: rect.top,
+                          parentId: 'changeType'
+                        });
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'white';
+                      }}
+                    >
+                      <span>Change Type</span>
+                      <span style={{ marginLeft: '20px' }}>▶</span>
+                    </div>
+                  </>
+                )}
+
+                {/* Change size */}
+                <div style={{ borderBottom: '1px solid #f0f0f0', margin: '4px 0' }} />
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    fontSize: '14px'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                  onClick={() => {
+                    // Open fixture edit modal
+                    const isWall = !!wallFixture;
+                    setFixtureEditModal({
+                      visible: true,
+                      fixtureId: fixture.id,
+                      isWallFixture: isWall
+                    });
+
+                    // Set initial form values (convert inches to feet)
+                    fixtureEditForm.setFieldsValue({
+                      width: fixture.dimensions.width / 12,
+                      height: fixture.dimensions.height / 12
+                    });
+
+                    setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
+                  }}
+                >
+                  Change Size
+                </div>
+
+                {/* Delete fixture */}
+                <div style={{ borderBottom: '1px solid #f0f0f0', margin: '4px 0' }} />
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    color: '#ff4d4f'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fff1f0'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                  onClick={() => {
+                    if (wallFixture && removeWallFixture) {
+                      removeWallFixture(wallFixture.id);
+                    } else if (roomFixture && removeRoomFixture) {
+                      removeRoomFixture(roomFixture.id);
+                    }
+                    setSelectedFixtureIds([]);
+                    setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
+                  }}
+                >
+                  Delete Fixture
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
+
+      {/* Sub Context Menu for Change Type */}
+      {subContextMenu.visible && subContextMenu.parentId === 'changeType' && contextMenu.type === 'fixture' && contextMenu.fixtureId && (() => {
+        const wallFixture = sketch?.wallFixtures.find(f => f.id === contextMenu.fixtureId);
+        const roomFixture = sketch?.roomFixtures.find(f => f.id === contextMenu.fixtureId);
+        const fixture = wallFixture || roomFixture;
+
+        if (!fixture) return null;
+
+        // Get available fixture variants based on category
+        let availableVariants: any[] = [];
+        if (fixture.category === 'door') {
+          availableVariants = DOOR_VARIANTS;
+        } else if (fixture.category === 'window') {
+          availableVariants = WINDOW_VARIANTS;
+        } else if (fixture.category === 'cabinet') {
+          availableVariants = CABINET_VARIANTS;
+        } else if (fixture.category === 'vanity') {
+          availableVariants = VANITY_VARIANTS;
+        } else if (fixture.category === 'appliance') {
+          availableVariants = APPLIANCE_VARIANTS;
+        }
+
+        return (
+          <div
+            data-submenu="true"
+            style={{
+              position: 'absolute',
+              left: subContextMenu.x,
+              top: subContextMenu.y,
+              zIndex: 201,
+              backgroundColor: 'white',
+              border: '1px solid #d9d9d9',
+              borderRadius: '4px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              padding: '4px 0',
+              minWidth: '180px',
+              pointerEvents: 'auto'
+            }}
+            onMouseEnter={() => {
+              // Keep submenu open
+              setSubContextMenu(prev => ({ ...prev, visible: true }));
+            }}
+            onMouseLeave={() => {
+              // Close submenu and main menu when mouse leaves
+              setSubContextMenu({ visible: false, x: 0, y: 0, parentId: '' });
+              setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+          >
+            {availableVariants.map(variant => (
+              <div
+                key={variant.id}
+                style={{
+                  padding: '8px 16px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  backgroundColor: variant.type === fixture.type ? '#e6f7ff' : 'white',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}
+                onMouseEnter={(e) => {
+                  if (variant.type !== fixture.type) {
+                    e.currentTarget.style.backgroundColor = '#f5f5f5';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = variant.type === fixture.type ? '#e6f7ff' : 'white';
+                }}
+                onClick={() => {
+                  if (variant.type !== fixture.type) {
+                    // Update fixture type
+                    if (wallFixture && removeWallFixture && addWallFixture) {
+                      const wall = walls.find(w => w.id === wallFixture.wallId);
+                      if (wall) {
+                        // Remove old fixture
+                        removeWallFixture(wallFixture.id);
+                        // Add new fixture with same position and dimensions from variant
+                        addWallFixture(
+                          wallFixture.wallId,
+                          fixture.category as any,
+                          variant.type as any,
+                          { width: variant.defaultDimensions.width * 12, height: variant.defaultDimensions.height * 12 },
+                          wallFixture.position
+                        );
+                      }
+                    } else if (roomFixture && removeRoomFixture && addRoomFixture) {
+                      // Remove old fixture
+                      removeRoomFixture(roomFixture.id);
+                      // Add new fixture with same position and dimensions from variant
+                      addRoomFixture(
+                        roomFixture.roomId,
+                        fixture.category as any,
+                        variant.type as any,
+                        { width: variant.defaultDimensions.width * 12, height: variant.defaultDimensions.height * 12 },
+                        roomFixture.position
+                      );
+                    }
+                  }
+                  setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
+                  setSubContextMenu({ visible: false, x: 0, y: 0, parentId: '' });
+                }}
+              >
+                <span>{variant.icon} {variant.name}</span>
+                {variant.type === fixture.type && <span style={{ marginLeft: '8px', color: '#1890ff' }}>✓</span>}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Room Edit Modal */}
       <Modal
@@ -3065,6 +3714,75 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         </Form>
       </Modal>
 
+      {/* Fixture Edit Modal */}
+      <Modal
+        title="Edit Fixture Size"
+        open={fixtureEditModal.visible}
+        onCancel={() => {
+          // Reset form and close modal
+          fixtureEditForm.resetFields();
+          setFixtureEditModal({ visible: false, fixtureId: null, isWallFixture: false });
+        }}
+        footer={null}
+      >
+        <Form
+          form={fixtureEditForm}
+          layout="vertical"
+          onFinish={handleSaveFixtureSize}
+          preserve={false}
+        >
+          <Form.Item
+            label="Width (feet)"
+            name="width"
+            rules={[
+              { required: true, message: 'Please enter fixture width!' },
+              { type: 'number', min: 0.5, message: 'Width must be at least 0.5 feet!' }
+            ]}
+          >
+            <InputNumber
+              min={0.5}
+              max={50}
+              step={0.5}
+              placeholder="Enter width in feet"
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Height (feet)"
+            name="height"
+            rules={[
+              { required: true, message: 'Please enter fixture height!' },
+              { type: 'number', min: 0.5, message: 'Height must be at least 0.5 feet!' }
+            ]}
+          >
+            <InputNumber
+              min={0.5}
+              max={50}
+              step={0.5}
+              placeholder="Enter height in feet"
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Button
+              style={{ marginRight: 8 }}
+              onClick={() => {
+                // Reset form and close modal
+                fixtureEditForm.resetFields();
+                setFixtureEditModal({ visible: false, fixtureId: null, isWallFixture: false });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="primary" htmlType="submit">
+              Save
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
+
       {/* Wall Length Edit Input */}
       {editingWallId && wallEditPosition && (
         <div
@@ -3096,12 +3814,10 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
               }
             }}
             onPressEnter={(e) => {
-              console.log('Feet input enter pressed');
               updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                console.log('Feet input enter key detected');
                 updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
               }
               if (e.key === 'Escape') {
@@ -3125,12 +3841,10 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
               }
             }}
             onPressEnter={(e) => {
-              console.log('Inches input enter pressed');
               updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
-                console.log('Inches input enter key detected');
                 updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
               }
               if (e.key === 'Escape') {
@@ -3145,7 +3859,6 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
             type="primary"
             size="small"
             onClick={() => {
-              console.log('Confirm button clicked');
               updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
             }}
             style={{ marginLeft: '4px' }}
