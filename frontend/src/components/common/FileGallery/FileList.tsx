@@ -13,6 +13,7 @@ import {
   FileTextOutlined
 } from '@ant-design/icons';
 import { FileItem, FileCategory } from './types';
+import { fileService } from '../../../services/fileService';
 
 const { Text } = Typography;
 
@@ -46,13 +47,20 @@ const FileList: React.FC<FileListProps> = ({
   const [previewImage, setPreviewImage] = useState<string>('');
   const [previewTitle, setPreviewTitle] = useState<string>('');
 
-  const handleFileSelect = (fileId: string, selected: boolean) => {
+  const handleFileSelect = (fileId: string, selected: boolean, ctrlKey?: boolean) => {
     if (!onFileSelect) return;
 
     let newSelection: string[];
 
     if (allowMultiSelect) {
-      if (selected) {
+      if (ctrlKey) {
+        // Ctrl+Click behavior: toggle selection
+        if (selectedFiles.includes(fileId)) {
+          newSelection = selectedFiles.filter(id => id !== fileId);
+        } else {
+          newSelection = [...selectedFiles, fileId];
+        }
+      } else if (selected) {
         newSelection = [...selectedFiles, fileId];
       } else {
         newSelection = selectedFiles.filter(id => id !== fileId);
@@ -66,9 +74,12 @@ const FileList: React.FC<FileListProps> = ({
 
   const handlePreview = (file: FileItem) => {
     if (file.contentType.startsWith('image/') && showImagePreview) {
-      setPreviewImage(file.url);
+      setPreviewImage(fileService.getPreviewUrl(file.id));
       setPreviewTitle(file.originalName);
       setPreviewVisible(true);
+    } else if (file.contentType === 'application/pdf') {
+      // Open PDF in new tab
+      window.open(fileService.getPreviewUrl(file.id), '_blank');
     } else if (onFileClick) {
       onFileClick(file);
     }
@@ -76,7 +87,7 @@ const FileList: React.FC<FileListProps> = ({
 
   const handleDownload = (file: FileItem) => {
     const link = document.createElement('a');
-    link.href = file.url;
+    link.href = fileService.getDownloadUrl(file.id);
     link.download = file.originalName;
     document.body.appendChild(link);
     link.click();
@@ -137,6 +148,26 @@ const FileList: React.FC<FileListProps> = ({
     });
   };
 
+  const handleListItemClick = (file: FileItem, e: React.MouseEvent) => {
+    console.log('List item clicked:', {
+      fileId: file.id,
+      ctrlKey: e.ctrlKey,
+      allowMultiSelect,
+      hasOnFileSelect: !!onFileSelect
+    });
+
+    // Handle Ctrl+Click for multi-select
+    if (allowMultiSelect && e.ctrlKey && onFileSelect) {
+      console.log('Ctrl+Click detected in list, toggling selection');
+      e.preventDefault();
+      e.stopPropagation();
+      handleFileSelect(file.id, true, true);
+    } else if (!e.ctrlKey) {
+      // Normal click without Ctrl - preview
+      handlePreview(file);
+    }
+  };
+
   const renderListItem = (file: FileItem) => {
     const isSelected = selectedFiles.includes(file.id);
     const isImage = file.contentType.startsWith('image/');
@@ -146,7 +177,10 @@ const FileList: React.FC<FileListProps> = ({
         <Button
           type="text"
           icon={<EyeOutlined />}
-          onClick={() => handlePreview(file)}
+          onClick={(e) => {
+            e.stopPropagation();
+            handlePreview(file);
+          }}
           size="small"
         />
       </Tooltip>,
@@ -154,7 +188,10 @@ const FileList: React.FC<FileListProps> = ({
         <Button
           type="text"
           icon={<DownloadOutlined />}
-          onClick={() => handleDownload(file)}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleDownload(file);
+          }}
           size="small"
         />
       </Tooltip>
@@ -167,7 +204,10 @@ const FileList: React.FC<FileListProps> = ({
             type="text"
             danger
             icon={<DeleteOutlined />}
-            onClick={() => handleDelete(file)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDelete(file);
+            }}
             size="small"
           />
         </Tooltip>
@@ -177,7 +217,7 @@ const FileList: React.FC<FileListProps> = ({
     const avatar = isImage ? (
       <Avatar
         size={listLayout === 'detailed' ? 64 : 40}
-        src={file.thumbnailUrl || file.url}
+        src={fileService.getPreviewUrl(file.id)}
         shape="square"
       />
     ) : (
@@ -191,11 +231,16 @@ const FileList: React.FC<FileListProps> = ({
 
     const title = (
       <Space>
-        {onFileSelect && (
-          <Checkbox
-            checked={isSelected}
-            onChange={(e) => handleFileSelect(file.id, e.target.checked)}
-          />
+        {allowMultiSelect && onFileSelect && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <Checkbox
+              checked={isSelected}
+              onChange={(e) => {
+                console.log('FileList Checkbox clicked:', file.id, e.target.checked);
+                handleFileSelect(file.id, e.target.checked);
+              }}
+            />
+          </div>
         )}
         <Tooltip title={file.originalName}>
           <Text
@@ -205,7 +250,10 @@ const FileList: React.FC<FileListProps> = ({
               cursor: 'pointer',
               maxWidth: 300
             }}
-            onClick={() => handlePreview(file)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePreview(file);
+            }}
           >
             {file.originalName}
           </Text>
@@ -252,7 +300,7 @@ const FileList: React.FC<FileListProps> = ({
           padding: listLayout === 'detailed' ? '16px' : '12px',
           cursor: 'pointer'
         }}
-        onClick={() => handlePreview(file)}
+        onClick={(e) => handleListItemClick(file, e as any)}
       >
         <List.Item.Meta
           avatar={avatar}

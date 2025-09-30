@@ -22,6 +22,9 @@ const WorkOrderImagesTab: React.FC<WorkOrderImagesTabProps> = ({ workOrderId }) 
         allowUpload={true}
         allowCategoryCreate={true}
 
+        // Multi-select support
+        allowMultiSelect={true}
+
         // Image gallery specific features
         categories={['before', 'during', 'after', 'reference', 'result', 'general']}
         defaultViewMode="grid"

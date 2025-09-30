@@ -32,6 +32,9 @@ const WorkOrderDocumentsTab: React.FC<WorkOrderDocumentsTabProps> = ({ workOrder
         allowUpload={true}
         allowCategoryCreate={true}
 
+        // Multi-select support
+        allowMultiSelect={true}
+
         // Document-specific categories
         categories={['contracts', 'invoices', 'reports', 'permits', 'insurance', 'estimates', 'receipts', 'other']}
         defaultViewMode="list"

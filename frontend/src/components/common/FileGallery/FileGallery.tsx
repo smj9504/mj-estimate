@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Card, Typography, Space, Button, Empty, Spin, Alert, Modal } from 'antd';
-import { AppstoreOutlined, UnorderedListOutlined, BorderOutlined, UploadOutlined } from '@ant-design/icons';
+import { Card, Typography, Space, Button, Empty, Spin, Alert, Modal, message } from 'antd';
+import { AppstoreOutlined, UnorderedListOutlined, BorderOutlined, UploadOutlined, CheckSquareOutlined, DeleteOutlined } from '@ant-design/icons';
 import { FileGalleryProps, ViewMode, FileItem } from './types';
 import { useFileGallery } from './hooks/useFileGallery';
 import FileUploadZone from './FileUploadZone';
@@ -55,6 +55,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
+  const [internalSelectedFiles, setInternalSelectedFiles] = useState<string[]>([]);
 
   const {
     files,
@@ -70,6 +71,22 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     onUpload,
     onDelete
   });
+
+  // Use controlled or internal selection state
+  // If onFileSelect is provided, use controlled mode (external state via selectedFiles prop)
+  // Otherwise, use uncontrolled mode (internal state)
+  const currentSelectedFiles = onFileSelect ? selectedFiles : internalSelectedFiles;
+
+  const handleFileSelectionChange = (fileIds: string[]) => {
+    console.log('handleFileSelectionChange called with:', fileIds);
+    if (onFileSelect) {
+      console.log('Calling onFileSelect prop');
+      onFileSelect(fileIds);
+    } else {
+      console.log('Using internal state, setting:', fileIds);
+      setInternalSelectedFiles(fileIds);
+    }
+  };
 
   // Filter files based on category and search
   const filteredFiles = useMemo(() => {
@@ -93,6 +110,57 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     return filtered;
   }, [files, selectedCategory, searchQuery]);
 
+  // Select All / Deselect All handler
+  const handleSelectAll = () => {
+    const filteredFileIds = filteredFiles.map(f => f.id);
+    const allFilteredSelected = filteredFileIds.every(id => currentSelectedFiles.includes(id));
+
+    console.log('Select All clicked:', {
+      filteredFileIds,
+      currentSelectedFiles,
+      allFilteredSelected
+    });
+
+    if (allFilteredSelected && filteredFileIds.length > 0) {
+      // Deselect all filtered files (keep selections from other filters)
+      const remainingSelections = currentSelectedFiles.filter(id => !filteredFileIds.includes(id));
+      console.log('Deselecting all, new selection:', remainingSelections);
+      handleFileSelectionChange(remainingSelections);
+    } else {
+      // Select all filtered files (add to existing selections)
+      const newSelection = Array.from(new Set([...currentSelectedFiles, ...filteredFileIds]));
+      console.log('Selecting all, new selection:', newSelection);
+      handleFileSelectionChange(newSelection);
+    }
+  };
+
+  // Bulk delete handler
+  const handleBulkDelete = async () => {
+    if (currentSelectedFiles.length === 0) {
+      message.warning('No files selected');
+      return;
+    }
+
+    Modal.confirm({
+      title: 'Delete Selected Files',
+      content: `Are you sure you want to delete ${currentSelectedFiles.length} file(s)?`,
+      okText: 'Delete',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          for (const fileId of currentSelectedFiles) {
+            await deleteFile(fileId);
+          }
+          handleFileSelectionChange([]);
+          message.success(`${currentSelectedFiles.length} file(s) deleted successfully`);
+        } catch (error) {
+          message.error('Failed to delete some files');
+        }
+      }
+    });
+  };
+
   const renderHeader = () => (
     <div className="file-gallery-header" style={{ marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -102,6 +170,34 @@ const FileGallery: React.FC<FileGalleryProps> = ({
               value={viewMode}
               onChange={setViewMode}
             />
+          )}
+          {allowMultiSelect && filteredFiles.length > 0 && (
+            <Space>
+              <Button
+                icon={<CheckSquareOutlined />}
+                onClick={handleSelectAll}
+              >
+                {(() => {
+                  const filteredFileIds = filteredFiles.map(f => f.id);
+                  const allFilteredSelected = filteredFileIds.every(id => currentSelectedFiles.includes(id));
+                  return allFilteredSelected ? 'Deselect All' : 'Select All';
+                })()}
+              </Button>
+              {currentSelectedFiles.length > 0 && (
+                <>
+                  <span style={{ color: '#1890ff', fontWeight: 500 }}>
+                    {currentSelectedFiles.length} selected
+                  </span>
+                  <Button
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={handleBulkDelete}
+                  >
+                    Delete Selected
+                  </Button>
+                </>
+              )}
+            </Space>
           )}
         </div>
 
@@ -137,7 +233,10 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   );
 
   const handleUploadComplete = () => {
-    setUploadModalVisible(false);
+    // Delay closing modal slightly to show completion state
+    setTimeout(() => {
+      setUploadModalVisible(false);
+    }, 1000);
   };
 
   const renderFileView = () => {
@@ -171,9 +270,9 @@ const FileGallery: React.FC<FileGalleryProps> = ({
 
     const commonProps = {
       files: filteredFiles,
-      selectedFiles,
+      selectedFiles: currentSelectedFiles,
       allowMultiSelect,
-      onFileSelect,
+      onFileSelect: handleFileSelectionChange,
       onFileClick,
       onDelete: deleteFile,
       onCategoryChange: updateFileCategory,

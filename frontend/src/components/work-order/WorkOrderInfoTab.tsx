@@ -588,7 +588,7 @@ const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
           <Card
             title="Work Details"
             style={{ marginBottom: 24 }}
-            bodyStyle={{ padding: '20px 20px 0px 20px' }}
+            styles={{ body: { padding: '20px 20px 0px 20px' } }}
           >
             <div
               style={{

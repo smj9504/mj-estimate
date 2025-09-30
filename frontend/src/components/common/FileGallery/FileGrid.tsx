@@ -8,6 +8,7 @@ import {
   PictureOutlined
 } from '@ant-design/icons';
 import { FileItem, FileCategory } from './types';
+import { fileService } from '../../../services/fileService';
 
 const { Text } = Typography;
 const { Meta } = Card;
@@ -46,13 +47,20 @@ const FileGrid: React.FC<FileGridProps> = ({
   const [previewImage, setPreviewImage] = useState<string>('');
   const [previewTitle, setPreviewTitle] = useState<string>('');
 
-  const handleFileSelect = (fileId: string, selected: boolean) => {
+  const handleFileSelect = (fileId: string, selected: boolean, ctrlKey?: boolean) => {
     if (!onFileSelect) return;
 
     let newSelection: string[];
 
     if (allowMultiSelect) {
-      if (selected) {
+      if (ctrlKey) {
+        // Ctrl+Click behavior: toggle selection
+        if (selectedFiles.includes(fileId)) {
+          newSelection = selectedFiles.filter(id => id !== fileId);
+        } else {
+          newSelection = [...selectedFiles, fileId];
+        }
+      } else if (selected) {
         newSelection = [...selectedFiles, fileId];
       } else {
         newSelection = selectedFiles.filter(id => id !== fileId);
@@ -66,9 +74,12 @@ const FileGrid: React.FC<FileGridProps> = ({
 
   const handlePreview = (file: FileItem) => {
     if (fileCategory === 'image' && showImagePreview) {
-      setPreviewImage(file.url);
+      setPreviewImage(fileService.getPreviewUrl(file.id));
       setPreviewTitle(file.originalName);
       setPreviewVisible(true);
+    } else if (file.contentType === 'application/pdf') {
+      // Open PDF in new tab
+      window.open(fileService.getPreviewUrl(file.id), '_blank');
     } else if (onFileClick) {
       onFileClick(file);
     }
@@ -76,7 +87,7 @@ const FileGrid: React.FC<FileGridProps> = ({
 
   const handleDownload = (file: FileItem) => {
     const link = document.createElement('a');
-    link.href = file.url;
+    link.href = fileService.getDownloadUrl(file.id);
     link.download = file.originalName;
     document.body.appendChild(link);
     link.click();
@@ -170,33 +181,67 @@ const FileGrid: React.FC<FileGridProps> = ({
     `;
   };
 
+  const handleCardClick = (file: FileItem, e: React.MouseEvent) => {
+    console.log('Card clicked:', {
+      fileId: file.id,
+      ctrlKey: e.ctrlKey,
+      allowMultiSelect,
+      hasOnFileSelect: !!onFileSelect
+    });
+
+    // Handle Ctrl+Click for multi-select
+    if (allowMultiSelect && e.ctrlKey && onFileSelect) {
+      console.log('Ctrl+Click detected, toggling selection');
+      e.preventDefault();
+      e.stopPropagation();
+      handleFileSelect(file.id, true, true);
+    } else if (!e.ctrlKey) {
+      // Normal click without Ctrl - preview
+      handlePreview(file);
+    }
+  };
+
   const renderFileCard = (file: FileItem) => {
     const isSelected = selectedFiles.includes(file.id);
     const isImage = file.contentType.startsWith('image/');
+
+    // Debug log
+    if (file === files[0]) {
+      console.log('FileGrid Debug:', {
+        allowMultiSelect,
+        hasOnFileSelect: !!onFileSelect,
+        selectedFilesCount: selectedFiles.length
+      });
+    }
 
     return (
       <Card
         key={file.id}
         className="file-grid-item"
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          // Ignore clicks on buttons and checkboxes
+          if (!target.closest('button') && !target.closest('.ant-checkbox-wrapper')) {
+            handleCardClick(file, e);
+          }
+        }}
         cover={
           <div style={{ position: 'relative' }}>
             {isImage ? (
               <>
                 {enableLazyLoading ? (
                   <Image
-                    src={file.thumbnailUrl || file.url}
+                    src={fileService.getPreviewUrl(file.id)}
                     alt={file.originalName}
                     className="file-image"
                     preview={false}
-                    onClick={() => handlePreview(file)}
                     loading="lazy"
                   />
                 ) : (
                   <img
-                    src={file.thumbnailUrl || file.url}
+                    src={fileService.getPreviewUrl(file.id)}
                     alt={file.originalName}
                     className="file-image"
-                    onClick={() => handlePreview(file)}
                   />
                 )}
                 <div className="file-overlay">
@@ -206,14 +251,20 @@ const FileGrid: React.FC<FileGridProps> = ({
                       shape="circle"
                       icon={<EyeOutlined />}
                       size="small"
-                      onClick={() => handlePreview(file)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePreview(file);
+                      }}
                     />
                     <Button
                       type="primary"
                       shape="circle"
                       icon={<DownloadOutlined />}
                       size="small"
-                      onClick={() => handleDownload(file)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDownload(file);
+                      }}
                     />
                     {onDelete && (
                       <Button
@@ -228,22 +279,32 @@ const FileGrid: React.FC<FileGridProps> = ({
                 </div>
               </>
             ) : (
-              <div className="file-document-icon" onClick={() => handlePreview(file)}>
+              <div className="file-document-icon">
                 <FileOutlined style={{ fontSize: 48, color: '#8c8c8c' }} />
               </div>
             )}
 
-            {(onFileSelect && allowMultiSelect) && (
-              <Checkbox
-                checked={isSelected}
-                onChange={(e) => handleFileSelect(file.id, e.target.checked)}
+            {allowMultiSelect && onFileSelect && (
+              <div
+                onClick={(e) => e.stopPropagation()}
                 style={{
                   position: 'absolute',
                   top: 8,
                   left: 8,
-                  zIndex: 1
+                  zIndex: 10,
+                  backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                  borderRadius: '4px',
+                  padding: '4px'
                 }}
-              />
+              >
+                <Checkbox
+                  checked={isSelected}
+                  onChange={(e) => {
+                    console.log('Checkbox clicked:', file.id, e.target.checked);
+                    handleFileSelect(file.id, e.target.checked);
+                  }}
+                />
+              </div>
             )}
           </div>
         }
@@ -262,7 +323,8 @@ const FileGrid: React.FC<FileGridProps> = ({
         ] : undefined}
         size="small"
         style={{
-          border: isSelected ? '2px solid #1890ff' : '1px solid #f0f0f0'
+          border: isSelected ? '2px solid #1890ff' : '1px solid #f0f0f0',
+          cursor: 'pointer'
         }}
       >
         <Meta
