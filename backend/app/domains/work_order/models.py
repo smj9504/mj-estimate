@@ -51,6 +51,16 @@ class WorkOrder(Base):
     client_zipcode = Column(String(20))
     client_phone = Column(String(50))
     client_email = Column(String(200))
+
+    # Insurance Information
+    insurance_claim_number = Column(String(100))
+    insurance_policy_number = Column(String(100))
+    insurance_company = Column(String(200))
+    insurance_deductible = Column(String(50))
+    insurance_adjuster_name = Column(String(200))
+    insurance_adjuster_email = Column(String(200))
+    insurance_adjuster_phone = Column(String(50))
+    insurance_date_of_loss = Column(DateTime)
     
     # Job Information
     job_site_address = Column(String(500))

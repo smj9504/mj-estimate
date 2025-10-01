@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Stage, Layer, Rect, Line, Circle, Text, Shape } from 'react-konva';
 import { Modal, Input, InputNumber, Form, Button } from 'antd';
 import Konva from 'konva';
@@ -30,14 +31,16 @@ interface Room {
   height: number; // Height in feet
   area: number; // Area in square feet
   wallIds?: string[]; // IDs of walls that belong to this room
-  vertices?: Point[]; // Vertices of the room polygon (corners)
+  vertices?: Point[]; // Vertices of the room polygon (corners) - deprecated, use boundary
   boundary?: Point[]; // Room boundary points for point-in-polygon testing
+  holes?: Point[][]; // Interior holes (walls that create interior spaces)
 }
 
 interface DragInfo {
   wallId: string;
   endpoint: 'start' | 'end';
   offset: Point;
+  connectedEndpoints?: Array<{ wallId: string; endpoint: 'start' | 'end' }>; // Track all connected endpoints
 }
 
 interface WallDragInfo {
@@ -222,7 +225,10 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
   const syncWallsToSketch = useCallback((updatedWalls: Wall[]) => {
     if (updateSketch) {
       const sketchWalls = convertToSketchWalls(updatedWalls);
-      updateSketch({ walls: sketchWalls });
+      // Schedule update in next tick to avoid updating parent during render
+      setTimeout(() => {
+        updateSketch({ walls: sketchWalls });
+      }, 0);
     }
   }, [updateSketch]);
 
@@ -243,7 +249,13 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         start: wall.start,
         end: wall.end
       }));
-      setWalls(localWalls);
+
+      // Remove duplicates by ID (keep the last occurrence in case of updates)
+      const uniqueWalls = Array.from(
+        new Map(localWalls.map(wall => [wall.id, wall])).values()
+      );
+
+      setWalls(uniqueWalls);
     }
   }, [sketch?.walls, walls.length]);
 
@@ -257,6 +269,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragInfo, setDragInfo] = useState<DragInfo | null>(null);
   const [snapIndicator, setSnapIndicator] = useState<Point | null>(null);
+  const [splitIndicator, setSplitIndicator] = useState<Point | null>(null); // For showing wall split preview
   const [wallDragInfo, setWallDragInfo] = useState<WallDragInfo | null>(null);
   const [roomDragInfo, setRoomDragInfo] = useState<RoomDragInfo | null>(null);
   const [dragSelection, setDragSelection] = useState<DragSelection>({ isActive: false, start: { x: 0, y: 0 }, current: { x: 0, y: 0 } });
@@ -266,6 +279,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
   const [isMovingRooms, setIsMovingRooms] = useState(false);
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
   const [actualSize, setActualSize] = useState({ width, height });
 
   // Wall length editing states
@@ -715,79 +729,8 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
   // Get ordered vertices of a room polygon from its walls
   const getOrderedRoomVertices = (wallIds: string[]): Point[] => {
-
-    const roomWalls = walls.filter(wall => wallIds.includes(wall.id));
-
-    if (roomWalls.length === 0) {
-      return [];
-    }
-
-    // Collect all unique points and build adjacency graph
-    const pointSet = new Map<string, Point>();
-    const adjacencyList = new Map<string, Set<string>>();
-
-    roomWalls.forEach(wall => {
-      const startKey = `${wall.start.x},${wall.start.y}`;
-      const endKey = `${wall.end.x},${wall.end.y}`;
-
-      pointSet.set(startKey, wall.start);
-      pointSet.set(endKey, wall.end);
-
-      // Build adjacency for connected points
-      if (!adjacencyList.has(startKey)) {
-        adjacencyList.set(startKey, new Set());
-      }
-      if (!adjacencyList.has(endKey)) {
-        adjacencyList.set(endKey, new Set());
-      }
-
-      adjacencyList.get(startKey)!.add(endKey);
-      adjacencyList.get(endKey)!.add(startKey);
-    });
-
-    const allPoints = Array.from(pointSet.values());
-
-    // If we have fewer than 3 points, we can't form a polygon
-    if (allPoints.length < 3) {
-      return [];
-    }
-
-    // Try to find a connected path through the walls
-    const orderedVertices = findConnectedPath(pointSet, adjacencyList);
-
-    if (orderedVertices.length >= 3) {
-      // Ensure proper winding order (counter-clockwise for positive area)
-      const properlyOrdered = ensureProperWindingOrder(orderedVertices);
-
-      // Validate that the polygon is not self-intersecting
-      if (!isSelfIntersecting(properlyOrdered)) {
-        return properlyOrdered;
-      } else {
-      }
-    } else {
-    }
-
-    // If connected path failed or resulted in self-intersection, fall back to geometric sorting
-    const geometricResult = sortPointsGeometrically(allPoints);
-
-    // If we still have fewer than 3 points after geometric sorting,
-    // try to create a bounding rectangle from available points
-    if (geometricResult.length < 3 && allPoints.length >= 2) {
-      const minX = Math.min(...allPoints.map(p => p.x));
-      const maxX = Math.max(...allPoints.map(p => p.x));
-      const minY = Math.min(...allPoints.map(p => p.y));
-      const maxY = Math.max(...allPoints.map(p => p.y));
-
-      // Create a rectangular boundary that includes all points
-      return [
-        { x: minX, y: minY },
-        { x: maxX, y: minY },
-        { x: maxX, y: maxY },
-        { x: minX, y: maxY }
-      ];
-    }
-
-    return geometricResult;
+    // Delegate to the version that accepts wallsArray parameter
+    return getOrderedRoomVerticesWithWalls(wallIds, walls);
   };
 
   // Helper function to find a connected path through walls
@@ -795,13 +738,15 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     const vertices: Point[] = [];
     const visited = new Set<string>();
 
-    // Find the leftmost point as starting point (most stable for ordering)
+    // Find the leftmost-topmost point as starting point (most stable for ordering)
     let startKey = '';
     let leftmostX = Infinity;
+    let topmostY = Infinity;
 
     Array.from(pointSet.entries()).forEach(([key, point]) => {
-      if (point.x < leftmostX || (point.x === leftmostX && point.y < pointSet.get(startKey)!?.y)) {
+      if (point.x < leftmostX || (point.x === leftmostX && point.y < topmostY)) {
         leftmostX = point.x;
+        topmostY = point.y;
         startKey = key;
       }
     });
@@ -811,26 +756,46 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     let currentKey = startKey;
     let prevKey: string | null = null;
 
+    console.log(`🔍 Starting path traversal from (${leftmostX.toFixed(0)}, ${topmostY.toFixed(0)}) with ${pointSet.size} total points`);
+
     // Traverse the connected path
     while (vertices.length < pointSet.size) {
-      if (visited.has(currentKey)) break;
+      // Check if we've revisited the start (closing the loop)
+      if (visited.has(currentKey) && currentKey !== startKey) {
+        console.warn(`⚠️ Revisited point before completing loop at vertex ${vertices.length}`);
+        break;
+      }
+
+      // Special case: if we're back at start and have visited all points, we're done
+      if (currentKey === startKey && vertices.length > 0) {
+        if (visited.size === pointSet.size) {
+          console.log(`✅ Completed closed loop with all ${vertices.length} vertices`);
+          break;
+        }
+      }
 
       visited.add(currentKey);
       vertices.push(pointSet.get(currentKey)!);
 
       const neighbors = adjacencyList.get(currentKey);
-      if (!neighbors || neighbors.size === 0) break;
+      if (!neighbors || neighbors.size === 0) {
+        console.warn(`⚠️ Dead end at vertex ${vertices.length}, no neighbors`);
+        break;
+      }
 
       // Find the next unvisited neighbor, or close the loop if possible
       let nextKey: string | null = null;
 
-      // If we have more than 2 vertices and can close the loop, do so
+      // If we have visited all points and can return to start, do so
       if (vertices.length >= 3 && neighbors.has(startKey) && visited.size === pointSet.size) {
-        break; // Complete closed loop
+        console.log(`✅ Closing loop back to start`);
+        break;
       }
 
       // Find unvisited neighbor, preferring the one that maintains good geometry
-      const unvisitedNeighbors = Array.from(neighbors).filter(key => !visited.has(key) && key !== prevKey);
+      const unvisitedNeighbors = Array.from(neighbors).filter(key =>
+        !visited.has(key) || (key === startKey && vertices.length >= 3)
+      );
 
       if (unvisitedNeighbors.length > 0) {
         if (unvisitedNeighbors.length === 1) {
@@ -844,11 +809,16 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         }
       }
 
-      if (!nextKey) break;
+      if (!nextKey) {
+        console.warn(`⚠️ No next neighbor found at vertex ${vertices.length}/${pointSet.size}`);
+        break;
+      }
 
       prevKey = currentKey;
       currentKey = nextKey;
     }
+
+    console.log(`📊 Path completed: ${vertices.length} vertices out of ${pointSet.size} points`);
 
     return vertices;
   };
@@ -1059,7 +1029,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     };
   };
 
-  // Get ordered vertices with provided walls array
+  // Get ordered vertices with provided walls array - proper boundary tracing
   const getOrderedRoomVerticesWithWalls = (wallIds: string[], wallsArray: Wall[]): Point[] => {
 
     const roomWalls = wallsArray.filter(wall => wallIds.includes(wall.id));
@@ -1068,54 +1038,124 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
       return [];
     }
 
-    // Collect all unique points and build adjacency graph
-    const pointSet = new Map<string, Point>();
-    const adjacencyList = new Map<string, Set<string>>();
+    // Build adjacency map for wall connectivity
+    const adjacency = new Map<string, Point[]>();
+    const pointMap = new Map<string, Point>();
 
     roomWalls.forEach(wall => {
       const startKey = `${wall.start.x},${wall.start.y}`;
       const endKey = `${wall.end.x},${wall.end.y}`;
 
-      pointSet.set(startKey, wall.start);
-      pointSet.set(endKey, wall.end);
+      pointMap.set(startKey, wall.start);
+      pointMap.set(endKey, wall.end);
 
-      // Build adjacency for connected points
-      if (!adjacencyList.has(startKey)) {
-        adjacencyList.set(startKey, new Set());
-      }
-      if (!adjacencyList.has(endKey)) {
-        adjacencyList.set(endKey, new Set());
-      }
+      if (!adjacency.has(startKey)) adjacency.set(startKey, []);
+      if (!adjacency.has(endKey)) adjacency.set(endKey, []);
 
-      adjacencyList.get(startKey)!.add(endKey);
-      adjacencyList.get(endKey)!.add(startKey);
+      adjacency.get(startKey)!.push(wall.end);
+      adjacency.get(endKey)!.push(wall.start);
     });
 
-    const allPoints = Array.from(pointSet.values());
+    const allPoints = Array.from(pointMap.values());
 
-    // If we have fewer than 3 points, we can't form a polygon
     if (allPoints.length < 3) {
       return [];
     }
 
-    // Try to find a connected path through the walls
-    const orderedVertices = findConnectedPath(pointSet, adjacencyList);
-
-    if (orderedVertices.length >= 3) {
-      // Ensure proper winding order (counter-clockwise for positive area)
-      const properlyOrdered = ensureProperWindingOrder(orderedVertices);
-
-      // Validate that the polygon is not self-intersecting
-      if (!isSelfIntersecting(properlyOrdered)) {
-        return properlyOrdered;
-      } else {
+    // Find leftmost point (guaranteed to be on outer boundary)
+    let startPoint = allPoints[0];
+    for (const point of allPoints) {
+      if (point.x < startPoint.x || (point.x === startPoint.x && point.y < startPoint.y)) {
+        startPoint = point;
       }
-    } else {
     }
 
-    // If connected path failed or resulted in self-intersection, fall back to geometric sorting
-    const geometricResult = sortPointsGeometrically(allPoints);
-    return geometricResult;
+    // Trace boundary using "rightmost turn" rule
+    const vertices: Point[] = [];
+    let current = startPoint;
+    let prevPoint: Point | null = null;
+
+    const maxIterations = allPoints.length * 2;
+    let iterations = 0;
+
+    while (iterations < maxIterations) {
+      vertices.push(current);
+
+      // Check if we've completed the loop
+      if (iterations > 0 &&
+          Math.abs(current.x - startPoint.x) < 0.1 &&
+          Math.abs(current.y - startPoint.y) < 0.1) {
+        break;
+      }
+
+      const currentKey = `${current.x},${current.y}`;
+      const neighbors = adjacency.get(currentKey) || [];
+
+      if (neighbors.length === 0) break;
+
+      // Filter out previous point
+      const validNeighbors = prevPoint
+        ? neighbors.filter(n => {
+            const prev = prevPoint!; // TypeScript: we're inside the truthy branch
+            return !(Math.abs(n.x - prev.x) < 0.1 && Math.abs(n.y - prev.y) < 0.1);
+          })
+        : neighbors;
+
+      if (validNeighbors.length === 0) break;
+
+      let nextPoint: Point;
+
+      if (validNeighbors.length === 1) {
+        nextPoint = validNeighbors[0];
+      } else {
+        // Multiple neighbors - pick rightmost turn for outer boundary
+        // Calculate angle for each neighbor relative to incoming direction
+
+        const baseAngle = prevPoint
+          ? Math.atan2(current.y - prevPoint.y, current.x - prevPoint.x)
+          : -Math.PI / 2; // Start going downward from leftmost point
+
+        let bestAngle = Infinity;
+        let bestNeighbor = validNeighbors[0];
+
+        for (const neighbor of validNeighbors) {
+          const neighborAngle = Math.atan2(neighbor.y - current.y, neighbor.x - current.x);
+
+          // Calculate the turn angle (normalized to [0, 2π])
+          let turnAngle = neighborAngle - baseAngle;
+          while (turnAngle < 0) turnAngle += 2 * Math.PI;
+          while (turnAngle >= 2 * Math.PI) turnAngle -= 2 * Math.PI;
+
+          // We want the smallest turn angle (rightmost turn)
+          if (turnAngle < bestAngle) {
+            bestAngle = turnAngle;
+            bestNeighbor = neighbor;
+          }
+        }
+
+        nextPoint = bestNeighbor;
+      }
+
+      prevPoint = current;
+      current = nextPoint;
+      iterations++;
+    }
+
+    if (vertices.length < 3) {
+      // Fallback to centroid-based sorting
+      const centroid = {
+        x: allPoints.reduce((sum, p) => sum + p.x, 0) / allPoints.length,
+        y: allPoints.reduce((sum, p) => sum + p.y, 0) / allPoints.length
+      };
+
+      return [...allPoints].sort((a, b) => {
+        const angleA = Math.atan2(a.y - centroid.y, a.x - centroid.x);
+        const angleB = Math.atan2(b.y - centroid.y, b.x - centroid.x);
+        return angleA - angleB;
+      });
+    }
+
+    return ensureProperWindingOrder(vertices);
   };
 
   // Update room bounds and area when walls change
@@ -1161,7 +1201,99 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
   };
 
-  // Find closest wall endpoint for snapping
+  // Find closest point to snap to - either wall endpoint or point on wall segment
+  const findClosestSnapPoint = useCallback((pos: Point, excludeWallId?: string): {
+    point: Point;
+    wallId: string;
+    endpoint?: 'start' | 'end';
+    splitWall?: boolean;
+    distance: number;
+  } | null => {
+    interface SnapPoint {
+      point: Point;
+      wallId: string;
+      endpoint?: 'start' | 'end';
+      splitWall?: boolean;
+      distance: number;
+    }
+
+    let closestPoint: SnapPoint | undefined;
+
+    for (const wall of walls) {
+      if (wall.id === excludeWallId) continue;
+
+      // Check wall endpoints
+      const startDist = getDistance(pos, wall.start);
+      const endDist = getDistance(pos, wall.end);
+
+      if (startDist < SNAP_THRESHOLD) {
+        if (!closestPoint || startDist < closestPoint.distance) {
+          closestPoint = {
+            point: wall.start,
+            wallId: wall.id,
+            endpoint: 'start',
+            distance: startDist
+          };
+        }
+      }
+
+      if (endDist < SNAP_THRESHOLD) {
+        if (!closestPoint || endDist < closestPoint.distance) {
+          closestPoint = {
+            point: wall.end,
+            wallId: wall.id,
+            endpoint: 'end',
+            distance: endDist
+          };
+        }
+      }
+
+      // Check if point is close to wall segment (not just endpoints)
+      const A = wall.start;
+      const B = wall.end;
+      const P = pos;
+
+      const lengthSquared = Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2);
+
+      if (lengthSquared > 0) {
+        // Calculate the t parameter for the closest point on the line segment
+        const t = Math.max(0, Math.min(1,
+          ((P.x - A.x) * (B.x - A.x) + (P.y - A.y) * (B.y - A.y)) / lengthSquared
+        ));
+
+        // Calculate the closest point on the line segment
+        const closestPointOnWall = {
+          x: A.x + t * (B.x - A.x),
+          y: A.y + t * (B.y - A.y)
+        };
+
+        // Calculate distance from pos to closest point on wall
+        const distanceToWall = getDistance(P, closestPointOnWall);
+
+        // If close to wall segment (but not too close to endpoints to avoid duplicate snapping)
+        const MIN_ENDPOINT_DISTANCE = 10; // Minimum pixels from endpoint to consider as wall segment
+        const distFromStart = getDistance(closestPointOnWall, A);
+        const distFromEnd = getDistance(closestPointOnWall, B);
+
+        if (distanceToWall < SNAP_THRESHOLD &&
+            distFromStart > MIN_ENDPOINT_DISTANCE &&
+            distFromEnd > MIN_ENDPOINT_DISTANCE) {
+          if (!closestPoint || distanceToWall < closestPoint.distance) {
+            closestPoint = {
+              point: closestPointOnWall,
+              wallId: wall.id,
+              splitWall: true, // This indicates we need to split the wall
+              distance: distanceToWall
+            };
+          }
+        }
+      }
+    }
+
+    return closestPoint || null;
+  }, [walls]);
+
+  // Keep the old function for backward compatibility where needed
   const findClosestEndpoint = useCallback((pos: Point, excludeWallId?: string): {point: Point, wallId: string, endpoint: 'start' | 'end'} | null => {
     interface ClosestPoint {
       point: Point;
@@ -1372,8 +1504,8 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
           // Delete selected fixtures
           selectedFixtureIds.forEach(fixtureId => {
             // Check if it's a wall fixture or room fixture and call appropriate delete function
-            const wallFixture = sketch?.wallFixtures.find(f => f.id === fixtureId);
-            const roomFixture = sketch?.roomFixtures.find(f => f.id === fixtureId);
+            const wallFixture = sketch?.wallFixtures?.find((f: any) => f.id === fixtureId);
+            const roomFixture = sketch?.roomFixtures?.find((f: any) => f.id === fixtureId);
 
             if (wallFixture && removeWallFixture) {
               removeWallFixture(fixtureId);
@@ -1456,6 +1588,104 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     };
   }, [selectedWallIds, selectedRoomIds, isDrawingRoom, isDrawing, setCurrentTool]);
 
+  // Helper function to find all walls connected at a specific point
+  const getWallsConnectedAtPoint = useCallback((point: Point, excludeWallId?: string): Wall[] => {
+    const connectedWalls: Wall[] = [];
+    const threshold = 2; // Pixel threshold for considering points as connected
+
+    walls.forEach(wall => {
+      if (excludeWallId && wall.id === excludeWallId) return;
+
+      const startDist = Math.sqrt(Math.pow(wall.start.x - point.x, 2) + Math.pow(wall.start.y - point.y, 2));
+      const endDist = Math.sqrt(Math.pow(wall.end.x - point.x, 2) + Math.pow(wall.end.y - point.y, 2));
+
+      if (startDist <= threshold || endDist <= threshold) {
+        connectedWalls.push(wall);
+      }
+    });
+
+    return connectedWalls;
+  }, [walls]);
+
+  // Helper function to split a wall at a specific point
+  const splitWallAtPoint = useCallback((wallId: string, splitPoint: Point) => {
+    const wall = walls.find(w => w.id === wallId);
+    if (!wall) return;
+
+    // Find the room that contains this wall
+    const containingRoom = rooms.find(room => room.wallIds?.includes(wallId));
+
+    // Create two new walls from the split
+    const wall1: Wall = {
+      id: `${wallId}-split1-${Date.now()}`,
+      start: wall.start,
+      end: splitPoint
+    };
+
+    const wall2: Wall = {
+      id: `${wallId}-split2-${Date.now()}`,
+      start: splitPoint,
+      end: wall.end
+    };
+
+    // Update walls array: remove original wall and add the two new ones
+    setWallsAndSync(prevWalls => {
+      const filteredWalls = prevWalls.filter(w => w.id !== wallId);
+      return [...filteredWalls, wall1, wall2];
+    });
+
+    // Update room's wall IDs and vertices if it exists
+    if (containingRoom) {
+      setRooms(prevRooms => prevRooms.map(room => {
+        if (room.id === containingRoom.id) {
+          // Replace the old wall ID with the two new ones
+          const newWallIds = room.wallIds?.filter(id => id !== wallId) || [];
+          newWallIds.push(wall1.id, wall2.id);
+
+          // Add the split point to the vertices if not already present
+          const updatedVertices = room.vertices ? [...room.vertices] : [];
+          const pointExists = updatedVertices.some(v =>
+            Math.abs(v.x - splitPoint.x) < 2 && Math.abs(v.y - splitPoint.y) < 2
+          );
+
+          if (!pointExists) {
+            // Find the best position to insert the new vertex
+            // This maintains the polygon ordering
+            let insertIndex = 0;
+            let minDistance = Infinity;
+
+            for (let i = 0; i < updatedVertices.length; i++) {
+              const next = (i + 1) % updatedVertices.length;
+              const edgeStart = updatedVertices[i];
+              const edgeEnd = updatedVertices[next];
+
+              // Check if split point lies between these two vertices
+              const dist1 = Math.sqrt(Math.pow(edgeStart.x - splitPoint.x, 2) + Math.pow(edgeStart.y - splitPoint.y, 2));
+              const dist2 = Math.sqrt(Math.pow(edgeEnd.x - splitPoint.x, 2) + Math.pow(edgeEnd.y - splitPoint.y, 2));
+              const edgeDist = Math.sqrt(Math.pow(edgeEnd.x - edgeStart.x, 2) + Math.pow(edgeEnd.y - edgeStart.y, 2));
+
+              const totalDist = dist1 + dist2;
+
+              if (Math.abs(totalDist - edgeDist) < 5 && totalDist < minDistance) {
+                minDistance = totalDist;
+                insertIndex = next;
+              }
+            }
+
+            updatedVertices.splice(insertIndex, 0, splitPoint);
+          }
+
+          return {
+            ...room,
+            wallIds: newWallIds,
+            vertices: updatedVertices
+          };
+        }
+        return room;
+      }));
+    }
+  }, [walls, rooms]);
+
   // Handle mouse down for selection and dragging
   const handleMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     const pos = getRelativePointerPosition();
@@ -1480,6 +1710,53 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     // Close context menu if clicking elsewhere (but only if it's visible)
     if (contextMenu.visible) {
       setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
+    }
+
+    // Handle wall split mode
+    if (currentTool === 'wall_split') {
+      const wallResult = getWallAtPosition(pos);
+      if (wallResult) {
+        // Find the closest point on the wall to where the user clicked
+        const wall = walls.find(w => w.id === wallResult.wallId);
+        if (wall) {
+          // Project the click position onto the wall line to get the split point
+          const wallVector = {
+            x: wall.end.x - wall.start.x,
+            y: wall.end.y - wall.start.y
+          };
+          const wallLength = Math.sqrt(wallVector.x * wallVector.x + wallVector.y * wallVector.y);
+          const normalizedWallVector = {
+            x: wallVector.x / wallLength,
+            y: wallVector.y / wallLength
+          };
+
+          const toClick = {
+            x: pos.x - wall.start.x,
+            y: pos.y - wall.start.y
+          };
+
+          // Calculate projection length
+          const projectionLength = Math.max(0, Math.min(wallLength,
+            toClick.x * normalizedWallVector.x + toClick.y * normalizedWallVector.y
+          ));
+
+          // Calculate the split point
+          const splitPoint = {
+            x: wall.start.x + normalizedWallVector.x * projectionLength,
+            y: wall.start.y + normalizedWallVector.y * projectionLength
+          };
+
+          // Don't split too close to the endpoints
+          const minSplitDistance = 10; // Minimum distance from endpoints
+          const distToStart = Math.sqrt(Math.pow(splitPoint.x - wall.start.x, 2) + Math.pow(splitPoint.y - wall.start.y, 2));
+          const distToEnd = Math.sqrt(Math.pow(splitPoint.x - wall.end.x, 2) + Math.pow(splitPoint.y - wall.end.y, 2));
+
+          if (distToStart > minSplitDistance && distToEnd > minSplitDistance) {
+            splitWallAtPoint(wallResult.wallId, splitPoint);
+          }
+        }
+      }
+      return;
     }
 
     // In select mode, check if clicking on empty space for panning
@@ -1523,8 +1800,8 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         }
       }
 
-      // If not clicking on any element and Ctrl/Shift is pressed, start panning
-      if (!clickedOnElement && e.evt.button === 0 && (e.evt.ctrlKey || e.evt.shiftKey)) {
+      // If not clicking on any element and Shift is pressed, start panning
+      if (!clickedOnElement && e.evt.button === 0 && e.evt.shiftKey) {
         setIsPanning(true);
         const stage = stageRef.current;
         if (stage) {
@@ -1551,12 +1828,64 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
       // Check if clicking on a wall endpoint
       const endpoint = getEndpointAtPosition(pos);
       if (endpoint) {
-        setIsDragging(true);
-        setDragInfo({
-          wallId: endpoint.wallId,
-          endpoint: endpoint.endpoint,
-          offset: { x: 0, y: 0 }
-        });
+        // Find all walls connected at this endpoint
+        const wall = walls.find(w => w.id === endpoint.wallId);
+        if (wall) {
+          const endpointPosition = endpoint.endpoint === 'start' ? wall.start : wall.end;
+          const connectedWalls = getWallsConnectedAtPoint(endpointPosition);
+
+          // Store information about all connected walls and their endpoints
+          const connectedEndpoints: Array<{ wallId: string; endpoint: 'start' | 'end' }> = [];
+
+          // Always include the clicked wall endpoint
+          connectedEndpoints.push({
+            wallId: endpoint.wallId,
+            endpoint: endpoint.endpoint
+          });
+
+          // Find which endpoint of each connected wall is at this position
+          connectedWalls.forEach(connectedWall => {
+            if (connectedWall.id === endpoint.wallId) return; // Skip the wall we clicked on
+
+            const startDist = Math.sqrt(
+              Math.pow(connectedWall.start.x - endpointPosition.x, 2) +
+              Math.pow(connectedWall.start.y - endpointPosition.y, 2)
+            );
+            const endDist = Math.sqrt(
+              Math.pow(connectedWall.end.x - endpointPosition.x, 2) +
+              Math.pow(connectedWall.end.y - endpointPosition.y, 2)
+            );
+
+            if (startDist < 2) {
+              connectedEndpoints.push({
+                wallId: connectedWall.id,
+                endpoint: 'start'
+              });
+            } else if (endDist < 2) {
+              connectedEndpoints.push({
+                wallId: connectedWall.id,
+                endpoint: 'end'
+              });
+            }
+          });
+
+          // Store all connected endpoints for dragging
+          setIsDragging(true);
+          setDragInfo({
+            wallId: endpoint.wallId,
+            endpoint: endpoint.endpoint,
+            offset: { x: 0, y: 0 },
+            connectedEndpoints // Store all connected endpoints
+          });
+        } else {
+          // Fallback to original behavior if wall not found
+          setIsDragging(true);
+          setDragInfo({
+            wallId: endpoint.wallId,
+            endpoint: endpoint.endpoint,
+            offset: { x: 0, y: 0 }
+          });
+        }
 
         // Handle selection with Ctrl key
         if (isCtrlPressed) {
@@ -1675,7 +2004,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
       });
       setIsDragSelecting(true);
     }
-  }, [currentTool, walls, rooms, selectedWallIds, selectedRoomIds]);
+  }, [currentTool, walls, rooms, selectedWallIds, selectedRoomIds, getWallsConnectedAtPoint, splitWallAtPoint]);
 
   // Handle mouse up to finish dragging
   const handleMouseUp = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -1775,16 +2104,31 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         y: snapToGrid(pos.y)
       };
 
-      // Update the wall endpoint
-      setWallsAndSync(prevWalls => prevWalls.map(wall => {
-        if (wall.id === dragInfo.wallId) {
-          return {
-            ...wall,
-            [dragInfo.endpoint]: finalPos
-          };
-        }
-        return wall;
-      }));
+      // Update all connected wall endpoints
+      if (dragInfo.connectedEndpoints && dragInfo.connectedEndpoints.length > 0) {
+        setWallsAndSync(prevWalls => prevWalls.map(wall => {
+          // Check if this wall has a connected endpoint that needs updating
+          const connectedEndpoint = dragInfo.connectedEndpoints?.find(ce => ce.wallId === wall.id);
+          if (connectedEndpoint) {
+            return {
+              ...wall,
+              [connectedEndpoint.endpoint]: finalPos
+            };
+          }
+          return wall;
+        }));
+      } else {
+        // Fallback to original behavior if no connected endpoints
+        setWallsAndSync(prevWalls => prevWalls.map(wall => {
+          if (wall.id === dragInfo.wallId) {
+            return {
+              ...wall,
+              [dragInfo.endpoint]: finalPos
+            };
+          }
+          return wall;
+        }));
+      }
 
       setIsDragging(false);
 
@@ -1900,10 +2244,15 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     // Check if click is on empty area (not on fixture, wall, or room)
     // If currentTool is 'select' and not placing fixtures, clear selections
     if (currentTool === 'select' && !selectedFixture) {
-      // Clear all selections when clicking on empty area
-      setSelectedFixtureIds([]);
-      setSelectedRoomIds([]);
-      setSelectedWallIds([]);
+      // Only clear selections if clicking on empty area (Stage background)
+      const clickedOnEmptyArea = e.target === e.target.getStage();
+
+      if (clickedOnEmptyArea && !(e.evt.ctrlKey || e.evt.metaKey)) {
+        // Clear all selections when clicking on empty area without Ctrl
+        setSelectedFixtureIds([]);
+        setSelectedRoomIds([]);
+        setSelectedWallIds([]);
+      }
     }
 
     // Handle fixture placement
@@ -1944,17 +2293,23 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         });
 
         if (clickedWall) {
-          // Calculate position along wall in pixels
+          // Calculate position along wall in pixels using projection
+          const A = clickedWall.start;
+          const B = clickedWall.end;
+          const P = pos;
+
           const wallLength = Math.sqrt(
-            Math.pow(clickedWall.end.x - clickedWall.start.x, 2) +
-            Math.pow(clickedWall.end.y - clickedWall.start.y, 2)
+            Math.pow(B.x - A.x, 2) + Math.pow(B.y - A.y, 2)
           );
-          const clickDistance = Math.sqrt(
-            Math.pow(pos.x - clickedWall.start.x, 2) +
-            Math.pow(pos.y - clickedWall.start.y, 2)
-          );
-          // Position in pixels from start of wall (not fractional)
-          const position = Math.max(0, Math.min(wallLength, clickDistance));
+
+          // Calculate the t parameter (0 to 1) representing position along wall
+          const lengthSquared = wallLength * wallLength;
+          const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1,
+            ((P.x - A.x) * (B.x - A.x) + (P.y - A.y) * (B.y - A.y)) / lengthSquared
+          ));
+
+          // Position in pixels from start of wall (projection-based)
+          const position = t * wallLength;
 
           // Add wall fixture
           const result = addWallFixture(
@@ -2055,9 +2410,10 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     if (!pos) return;
 
 
-    // Check for snap points (walls or room vertices)
+    // Check for snap points (walls, wall segments, or room vertices)
     let snappedPos: Point;
     let connectedRoomId: string | null = null;
+    let wallToSplit: { wallId: string; splitPoint: Point } | null = null;
 
     // First check for wall endpoints at the clicked position (prioritize exact positions)
     const endpointAtPosition = getEndpointAtPosition(pos);
@@ -2094,11 +2450,24 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         snappedPos = roomVertex.point;
         connectedRoomId = roomVertex.roomId;
       } else {
-        // Check for nearby wall endpoints using findClosestEndpoint (for broader search)
-        const snapPoint = findClosestEndpoint(pos);
+        // Check for nearby wall endpoints or wall segments using findClosestSnapPoint
+        const snapPoint = findClosestSnapPoint(pos);
         if (snapPoint) {
           snappedPos = snapPoint.point;
-          connectedRoomId = findRoomWithWallEndpoint(snapPoint.point);
+          if (snapPoint.splitWall) {
+            // Mark wall for splitting
+            wallToSplit = {
+              wallId: snapPoint.wallId,
+              splitPoint: snapPoint.point
+            };
+            // Find room that contains this wall
+            const wall = walls.find(w => w.id === snapPoint.wallId);
+            if (wall) {
+              connectedRoomId = findRoomWithWallEndpoint(wall.start) || findRoomWithWallEndpoint(wall.end);
+            }
+          } else {
+            connectedRoomId = findRoomWithWallEndpoint(snapPoint.point);
+          }
         } else {
           // Default to grid snap
           snappedPos = {
@@ -2124,7 +2493,67 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
           start: currentWall.start,
           end: snappedPos
         };
-        setWallsAndSync([...walls, newWall]);
+
+        // If we need to split an existing wall, do it now
+        let updatedWalls = [...walls];
+        let wallsToAdd = [newWall];
+
+        if (wallToSplit) {
+          const wallToSplitId = wallToSplit.wallId;
+          const splitPoint = wallToSplit.splitPoint;
+          const wallToSplitData = walls.find(w => w.id === wallToSplitId);
+
+          if (wallToSplitData) {
+            // Remove the original wall
+            updatedWalls = updatedWalls.filter(w => w.id !== wallToSplitId);
+
+            // Create two new walls from the split
+            const wall1: Wall = {
+              id: `${wallToSplitId}_split1_${Date.now()}`,
+              start: wallToSplitData.start,
+              end: splitPoint
+            };
+            const wall2: Wall = {
+              id: `${wallToSplitId}_split2_${Date.now()}`,
+              start: splitPoint,
+              end: wallToSplitData.end
+            };
+
+            wallsToAdd.push(wall1, wall2);
+
+            // Update rooms that referenced the old wall
+            setRooms(prevRooms => prevRooms.map(room => {
+              if (room.wallIds?.includes(wallToSplitId)) {
+                const newWallIds = room.wallIds.filter(id => id !== wallToSplitId);
+                newWallIds.push(wall1.id, wall2.id, newWall.id);
+
+                // Add the split point to room vertices if not already there
+                const vertices = room.vertices || [];
+                const hasVertex = vertices.some(v =>
+                  Math.abs(v.x - splitPoint.x) < 2 &&
+                  Math.abs(v.y - splitPoint.y) < 2
+                );
+                if (!hasVertex) {
+                  // Insert the new vertex in the correct position
+                  const newVertices = [...vertices, splitPoint];
+                  return {
+                    ...room,
+                    wallIds: newWallIds,
+                    vertices: newVertices
+                  };
+                }
+
+                return {
+                  ...room,
+                  wallIds: newWallIds
+                };
+              }
+              return room;
+            }));
+          }
+        }
+
+        setWallsAndSync([...updatedWalls, ...wallsToAdd]);
 
         // Check if this wall connects to an existing room
         const startRoom = findRoomWithWallEndpoint(currentWall.start) || findRoomByVertex(currentWall.start);
@@ -2162,7 +2591,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
     // Call the original handler if provided
     onStageClick(e);
-  }, [currentTool, isDrawing, currentWall, walls, rooms, gridSize, onStageClick, findClosestEndpoint, findRoomWithWallEndpoint, findRoomByVertex, updateRoomDimensions, selectedFixture, fixtureDimensions, placementMode, setFixturePlacement, addWallFixture, addRoomFixture, setCurrentTool]);
+  }, [currentTool, isDrawing, currentWall, walls, rooms, gridSize, onStageClick, findClosestSnapPoint, findClosestEndpoint, findRoomWithWallEndpoint, findRoomByVertex, updateRoomDimensions, selectedFixture, fixtureDimensions, placementMode, setFixturePlacement, addWallFixture, addRoomFixture, setCurrentTool, hoveredRoomVertex]);
 
   // Handle right-click context menu
   const handleContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>) => {
@@ -2171,13 +2600,10 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
     if (!pos) return;
 
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    const containerRect = stage.container().getBoundingClientRect();
+    // Use absolute viewport coordinates (clientX, clientY) for position: fixed
     const menuPosition = {
-      x: e.evt.clientX - containerRect.left,
-      y: e.evt.clientY - containerRect.top
+      x: e.evt.clientX,
+      y: e.evt.clientY
     };
 
     // Check for wall first
@@ -2265,7 +2691,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     };
 
     if (fixtureEditModal.isWallFixture) {
-      const wallFixture = sketch?.wallFixtures.find(f => f.id === fixtureEditModal.fixtureId);
+      const wallFixture = sketch?.wallFixtures?.find((f: any) => f.id === fixtureEditModal.fixtureId);
       if (wallFixture && removeWallFixture && addWallFixture) {
         // Remove old fixture and add with new dimensions
         removeWallFixture(wallFixture.id);
@@ -2278,7 +2704,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         );
       }
     } else {
-      const roomFixture = sketch?.roomFixtures.find(f => f.id === fixtureEditModal.fixtureId);
+      const roomFixture = sketch?.roomFixtures?.find((f: any) => f.id === fixtureEditModal.fixtureId);
       if (roomFixture && updateRoomFixtureDimensions) {
         // Update room fixture dimensions
         const result = updateRoomFixtureDimensions(roomFixture.id, newDimensions);
@@ -2299,6 +2725,59 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     if (!pos) return;
 
     setMousePos(pos);
+
+    // Show split indicator in wall split mode
+    if (currentTool === 'wall_split' && !isDragging && !isDrawing) {
+      const wallResult = getWallAtPosition(pos);
+      if (wallResult) {
+        const wall = walls.find(w => w.id === wallResult.wallId);
+        if (wall) {
+          // Project the mouse position onto the wall line
+          const wallVector = {
+            x: wall.end.x - wall.start.x,
+            y: wall.end.y - wall.start.y
+          };
+          const wallLength = Math.sqrt(wallVector.x * wallVector.x + wallVector.y * wallVector.y);
+          const normalizedWallVector = {
+            x: wallVector.x / wallLength,
+            y: wallVector.y / wallLength
+          };
+
+          const toMouse = {
+            x: pos.x - wall.start.x,
+            y: pos.y - wall.start.y
+          };
+
+          // Calculate projection length
+          const projectionLength = Math.max(0, Math.min(wallLength,
+            toMouse.x * normalizedWallVector.x + toMouse.y * normalizedWallVector.y
+          ));
+
+          // Calculate the split preview point
+          const splitPoint = {
+            x: wall.start.x + normalizedWallVector.x * projectionLength,
+            y: wall.start.y + normalizedWallVector.y * projectionLength
+          };
+
+          // Only show indicator if not too close to endpoints
+          const minSplitDistance = 10;
+          const distToStart = Math.sqrt(Math.pow(splitPoint.x - wall.start.x, 2) + Math.pow(splitPoint.y - wall.start.y, 2));
+          const distToEnd = Math.sqrt(Math.pow(splitPoint.x - wall.end.x, 2) + Math.pow(splitPoint.y - wall.end.y, 2));
+
+          if (distToStart > minSplitDistance && distToEnd > minSplitDistance) {
+            setSplitIndicator(splitPoint);
+          } else {
+            setSplitIndicator(null);
+          }
+        } else {
+          setSplitIndicator(null);
+        }
+      } else {
+        setSplitIndicator(null);
+      }
+    } else if (currentTool !== 'wall_split') {
+      setSplitIndicator(null);
+    }
 
     // Handle panning with middle mouse button or left click in select mode
     if (isPanning && lastRawPointerPosition) {
@@ -2321,30 +2800,38 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
       // Check for snap points
       const snapPoint = findClosestEndpoint(pos, dragInfo.wallId);
 
+      const targetPos = snapPoint ? snapPoint.point : {
+        x: snapToGrid(pos.x),
+        y: snapToGrid(pos.y)
+      };
+
       if (snapPoint) {
         setSnapIndicator(snapPoint.point);
-        // Update wall preview position to snap point
+      } else {
+        setSnapIndicator(null);
+      }
+
+      // Update all connected walls to move together
+      if (dragInfo.connectedEndpoints && dragInfo.connectedEndpoints.length > 0) {
+        // Update all connected endpoints to the same position
         setWalls(prevWalls => prevWalls.map(wall => {
-          if (wall.id === dragInfo.wallId) {
+          // Check if this wall has a connected endpoint that needs updating
+          const connectedEndpoint = dragInfo.connectedEndpoints?.find(ce => ce.wallId === wall.id);
+          if (connectedEndpoint) {
             return {
               ...wall,
-              [dragInfo.endpoint]: snapPoint.point
+              [connectedEndpoint.endpoint]: targetPos
             };
           }
           return wall;
         }));
       } else {
-        setSnapIndicator(null);
-        const snappedPos = {
-          x: snapToGrid(pos.x),
-          y: snapToGrid(pos.y)
-        };
-        // Update wall preview position
+        // Fallback to original behavior if no connected endpoints
         setWalls(prevWalls => prevWalls.map(wall => {
           if (wall.id === dragInfo.wallId) {
             return {
               ...wall,
-              [dragInfo.endpoint]: snappedPos
+              [dragInfo.endpoint]: targetPos
             };
           }
           return wall;
@@ -2491,15 +2978,19 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     }
     // Handle wall drawing preview
     else if (isDrawing && currentWall) {
-      // Check for snap points while drawing (walls or room vertices)
+      // Check for snap points while drawing (walls, wall segments, or room vertices)
       let endPos: Point;
       let hasSnapPoint = false;
 
-      // First check for wall endpoints
-      const snapPoint = findClosestEndpoint(pos);
+      // Use findClosestSnapPoint instead of findClosestEndpoint to include wall segments
+      const snapPoint = findClosestSnapPoint(pos);
       if (snapPoint) {
         endPos = snapPoint.point;
         hasSnapPoint = true;
+        // Show snap indicator for wall segment snapping
+        if (snapPoint.splitWall) {
+          setSnapIndicator(snapPoint.point);
+        }
       } else {
         // Check for room vertices
         const roomVertex = getRoomVertexAtPosition(pos);
@@ -2529,7 +3020,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
     // Call the original handler if provided
     onStageMouseMove(e);
-  }, [isDragging, dragInfo, isDrawing, currentWall, currentTool, gridSize, walls, onStageMouseMove, findClosestEndpoint, isMovingWalls, wallDragInfo, isDragSelecting, isDrawingRoom, currentRoom, isMovingRooms, roomDragInfo, rooms, isPanning, lastRawPointerPosition]);
+  }, [isDragging, dragInfo, isDrawing, currentWall, currentTool, gridSize, walls, onStageMouseMove, findClosestSnapPoint, findClosestEndpoint, isMovingWalls, wallDragInfo, isDragSelecting, isDrawingRoom, currentRoom, isMovingRooms, roomDragInfo, rooms, isPanning, lastRawPointerPosition, updateRoomDimensions]);
 
   // Update room dimensions when walls change
   useEffect(() => {
@@ -2539,8 +3030,8 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
   // Handle keyboard events for zoom and pan
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Track pan mode activation (Ctrl or Shift)
-      if ((e.key === 'Control' || e.key === 'Shift') && currentTool === 'select') {
+      // Track pan mode activation (Shift only, Ctrl is for multi-select)
+      if (e.key === 'Shift' && currentTool === 'select') {
         setIsPanModeActive(true);
       }
 
@@ -2574,8 +3065,8 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      // Track pan mode deactivation
-      if ((e.key === 'Control' || e.key === 'Shift')) {
+      // Track pan mode deactivation (Shift only)
+      if (e.key === 'Shift') {
         setIsPanModeActive(false);
         // If currently panning, stop panning when key is released
         if (isPanning) {
@@ -2768,8 +3259,14 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
             let centerX = x + width / 2;
             let centerY = y + height / 2;
 
-            // If room has vertices, calculate the actual centroid
-            if (room.vertices && room.vertices.length >= 3) {
+            // If room has boundary, calculate the actual centroid
+            if (room.boundary && room.boundary.length >= 3) {
+              const sumX = room.boundary.reduce((sum, v) => sum + v.x, 0);
+              const sumY = room.boundary.reduce((sum, v) => sum + v.y, 0);
+              centerX = sumX / room.boundary.length;
+              centerY = sumY / room.boundary.length;
+            } else if (room.vertices && room.vertices.length >= 3) {
+              // Fallback to vertices for old format
               const sumX = room.vertices.reduce((sum, v) => sum + v.x, 0);
               const sumY = room.vertices.reduce((sum, v) => sum + v.y, 0);
               centerX = sumX / room.vertices.length;
@@ -2778,8 +3275,41 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
             return (
               <React.Fragment key={room.id}>
-                {/* Semi-transparent room area overlay - polygon or rectangle based on vertices */}
-                {room.vertices && room.vertices.length >= 3 ? (
+                {/* Semi-transparent room area overlay - polygon with holes support */}
+                {room.boundary && room.boundary.length >= 3 ? (
+                  <Shape
+                    sceneFunc={(context, shape) => {
+                      // Draw outer boundary
+                      context.beginPath();
+                      context.moveTo(room.boundary![0].x, room.boundary![0].y);
+                      for (let i = 1; i < room.boundary!.length; i++) {
+                        context.lineTo(room.boundary![i].x, room.boundary![i].y);
+                      }
+                      context.closePath();
+
+                      // Draw holes (interior walls) as cutouts
+                      if (room.holes && room.holes.length > 0) {
+                        for (const hole of room.holes) {
+                          if (hole.length >= 3) {
+                            context.moveTo(hole[0].x, hole[0].y);
+                            // Draw holes in opposite direction for proper cutout
+                            for (let i = hole.length - 1; i >= 0; i--) {
+                              context.lineTo(hole[i].x, hole[i].y);
+                            }
+                            context.closePath();
+                          }
+                        }
+                      }
+
+                      context.fillStrokeShape(shape);
+                    }}
+                    fill={isSelected ? 'rgba(24, 144, 255, 0.1)' : 'rgba(135, 206, 250, 0.15)'}
+                    stroke={isSelected ? 'rgba(24, 144, 255, 0.3)' : 'transparent'}
+                    strokeWidth={1}
+                    listening={!isDraggingFixture} // Disable room interaction during fixture drag
+                  />
+                ) : room.vertices && room.vertices.length >= 3 ? (
+                  // Fallback for old format with vertices
                   <Shape
                     sceneFunc={(context, shape) => {
                       context.beginPath();
@@ -2950,7 +3480,16 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         {/* Walls Layer */}
         <Layer>
           {/* Draw existing walls */}
-          {walls.map((wall) => {
+          {(() => {
+            // Check for duplicate wall IDs
+            const wallIds = walls.map(w => w.id);
+            const duplicates = wallIds.filter((id, index) => wallIds.indexOf(id) !== index);
+            if (duplicates.length > 0) {
+              console.warn('⚠️ Duplicate wall IDs found:', duplicates);
+              console.log('All wall IDs:', wallIds);
+            }
+            return walls;
+          })().map((wall) => {
             // Check if this wall belongs to a selected room
             const belongsToSelectedRoom = rooms.some(room =>
               selectedRoomIds.includes(room.id) && room.wallIds?.includes(wall.id)
@@ -2962,12 +3501,33 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
               <React.Fragment key={wall.id}>
                 <Line
                   points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
-                  stroke={isHighlighted ? '#1890ff' : '#000'}
-                  strokeWidth={isHighlighted ? 5 : 4}
+                  stroke={isHighlighted ? '#1890ff' : '#999999'}
+                  strokeWidth={isHighlighted ? 6 : 5}
                   lineCap="round"
                   lineJoin="round"
-                  opacity={(isDragging && dragInfo?.wallId === wall.id) || (isMovingWalls && wallDragInfo?.wallIds.includes(wall.id)) ? 0.6 : 1}
+                  opacity={(isDragging && dragInfo?.wallId === wall.id) || (isMovingWalls && wallDragInfo?.wallIds.includes(wall.id)) ? 0.4 : 0.5}
                   listening={!isDraggingFixture} // Disable wall interaction during fixture drag
+                  onClick={(e) => {
+                    e.cancelBubble = true;
+                    e.evt.stopPropagation();
+
+                    // Ctrl/Cmd key for multi-select
+                    const isMultiSelect = e.evt.ctrlKey || e.evt.metaKey;
+
+                    if (isMultiSelect) {
+                      // Toggle wall selection
+                      if (selectedWallIds.includes(wall.id)) {
+                        setSelectedWallIds(selectedWallIds.filter(id => id !== wall.id));
+                      } else {
+                        setSelectedWallIds([...selectedWallIds, wall.id]);
+                      }
+                    } else {
+                      // Single select: clear others and select this wall
+                      setSelectedWallIds([wall.id]);
+                      setSelectedFixtureIds([]);
+                      setSelectedRoomIds([]);
+                    }
+                  }}
                   onDblClick={(e) => handleWallDoubleClick(wall.id, e)}
                   style={{ cursor: 'pointer' }}
                 />
@@ -3200,35 +3760,119 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
               />
             </>
           )}
+
+          {/* Draw wall split indicator */}
+          {splitIndicator && (
+            <>
+              <Circle
+                x={splitIndicator.x}
+                y={splitIndicator.y}
+                radius={8}
+                stroke="#ff7875"
+                strokeWidth={2}
+                fill="transparent"
+                dash={[2, 2]}
+              />
+              <Line
+                points={[
+                  splitIndicator.x - 10,
+                  splitIndicator.y,
+                  splitIndicator.x + 10,
+                  splitIndicator.y
+                ]}
+                stroke="#ff7875"
+                strokeWidth={2}
+              />
+              <Line
+                points={[
+                  splitIndicator.x,
+                  splitIndicator.y - 10,
+                  splitIndicator.x,
+                  splitIndicator.y + 10
+                ]}
+                stroke="#ff7875"
+                strokeWidth={2}
+              />
+              <Text
+                x={splitIndicator.x + 15}
+                y={splitIndicator.y - 15}
+                text="Split"
+                fontSize={11}
+                fill="#ff7875"
+                fontStyle="bold"
+              />
+            </>
+          )}
         </Layer>
 
         {/* Fixtures Layer */}
         <Layer>
-          <FixtureLayer
-            wallFixtures={sketch?.wallFixtures || []}
-            roomFixtures={sketch?.roomFixtures || []}
-            walls={convertToSketchWalls(walls)} // Convert local walls to sketch walls
-            rooms={convertToSketchRooms(rooms)} // Convert local rooms to sketch rooms
+          {(() => {
+            const sketchFixtures = sketch?.wallFixtures || [];
+            const sketchWalls = sketch?.walls || [];
+
+            // Debug: Check for mismatch details (updated to handle both original and segment IDs)
+            const mismatchDetails = sketchFixtures.map(f => {
+              const fixtureWallId = f.wallId;
+              const originalWallId = fixtureWallId.includes('_segment_')
+                ? fixtureWallId.split('_segment_')[0]
+                : fixtureWallId;
+
+              return {
+                fixtureId: f.id.slice(0, 8),
+                wallId: f.wallId,
+                found: !!sketchWalls.find(w =>
+                  w.id === fixtureWallId ||
+                  w.id === originalWallId ||
+                  w.id.startsWith(originalWallId + '_segment_')
+                )
+              };
+            });
+
+            if (mismatchDetails.some(d => !d.found)) {
+              console.log('⚠️ Wall mismatch detected:', {
+                sketchWallIds: sketchWalls.map(w => w.id),
+                mismatchDetails: mismatchDetails.filter(d => !d.found)
+              });
+            }
+
+            return (
+              <FixtureLayer
+                wallFixtures={sketchFixtures}
+                roomFixtures={sketch?.roomFixtures || []}
+                walls={sketchWalls} // Using sketch walls which include segments
+                rooms={convertToSketchRooms(rooms)} // Convert local rooms to sketch rooms
             selectedFixtureIds={selectedFixtureIds}
             onDragStartFixture={() => setIsDraggingFixture(true)}
             onDragEndFixture={() => setIsDraggingFixture(false)}
-            onSelectFixture={(fixtureId) => {
-              // Clear other selections first
-              setSelectedWallIds([]);
-              setSelectedRoomIds([]);
-
-              // Always select the clicked fixture (no toggle)
-              setSelectedFixtureIds([fixtureId]);
+            onSelectFixture={(fixtureId, ctrlKey) => {
+              // Ctrl/Cmd key for multi-select
+              if (ctrlKey) {
+                // Toggle fixture selection
+                if (selectedFixtureIds.includes(fixtureId)) {
+                  setSelectedFixtureIds(selectedFixtureIds.filter(id => id !== fixtureId));
+                } else {
+                  setSelectedFixtureIds([...selectedFixtureIds, fixtureId]);
+                }
+              } else {
+                // Single select: clear others and select this fixture
+                setSelectedFixtureIds([fixtureId]);
+                setSelectedWallIds([]);
+                setSelectedRoomIds([]);
+              }
             }}
             onContextMenu={(fixtureId, x, y) => {
-              const stage = stageRef.current;
-              if (!stage) return;
-
-              const containerRect = stage.container().getBoundingClientRect();
+              // Check if this is a signal to close the menu (x=-1, y=-1)
+              if (x === -1 && y === -1) {
+                setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
+                return;
+              }
+              // x, y are already in viewport coordinates (from containerRect)
+              // Since context menu uses position: fixed, use them directly
               setContextMenu({
                 visible: true,
-                x: x - containerRect.left,
-                y: y - containerRect.top,
+                x: x,
+                y: y,
                 roomId: null,
                 wallId: null,
                 fixtureId,
@@ -3278,16 +3922,19 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
               }
             }}
           />
+            );
+          })()}
         </Layer>
       </Stage>
 
-      {/* Context Menu */}
-      {contextMenu.visible && (
+      {/* Context Menu - Use Portal to render directly in document.body to avoid parent transform issues */}
+      {contextMenu.visible && createPortal(
         <div
+          ref={contextMenuRef}
           style={{
-            position: 'absolute',
-            left: contextMenu.x,
-            top: contextMenu.y,
+            position: 'fixed',
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`,
             zIndex: 200,
             backgroundColor: 'white',
             border: '1px solid #d9d9d9',
@@ -3419,8 +4066,8 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
           {/* Fixture context menu */}
           {contextMenu.type === 'fixture' && contextMenu.fixtureId && (() => {
-            const wallFixture = sketch?.wallFixtures.find(f => f.id === contextMenu.fixtureId);
-            const roomFixture = sketch?.roomFixtures.find(f => f.id === contextMenu.fixtureId);
+            const wallFixture = sketch?.wallFixtures?.find((f: any) => f.id === contextMenu.fixtureId);
+            const roomFixture = sketch?.roomFixtures?.find((f: any) => f.id === contextMenu.fixtureId);
             const fixture = wallFixture || roomFixture;
 
             if (!fixture) return null;
@@ -3441,15 +4088,9 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
             return (
               <>
-                <div style={{ padding: '8px 12px', fontSize: '12px', color: '#999', fontWeight: 'bold' }}>
-                  {fixture.category.charAt(0).toUpperCase() + fixture.category.slice(1)} Options
-                </div>
-
                 {/* Change fixture type */}
                 {availableVariants.length > 1 && (
-                  <>
-                    <div style={{ borderBottom: '1px solid #f0f0f0', margin: '4px 0' }} />
-                    <div
+                  <div
                       style={{
                         padding: '8px 12px',
                         cursor: 'pointer',
@@ -3460,27 +4101,45 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.backgroundColor = '#f5f5f5';
-                        // Show submenu
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setSubContextMenu({
-                          visible: true,
-                          x: rect.right,
-                          y: rect.top,
-                          parentId: 'changeType'
-                        });
+                        // Show submenu next to context menu
+                        // Get actual context menu width and position from DOM
+                        const contextMenuEl = contextMenuRef.current;
+                        if (contextMenuEl) {
+                          const contextMenuRect = contextMenuEl.getBoundingClientRect();
+                          const menuItemRect = e.currentTarget.getBoundingClientRect();
+
+                          // Calculate vertical offset relative to context menu's actual position
+                          const verticalOffset = menuItemRect.top - contextMenuRect.top;
+
+                          console.log('📍 Submenu positioning:');
+                          console.log('  Context menu rect:', contextMenuRect);
+                          console.log('  Menu item rect:', menuItemRect);
+                          console.log('  Vertical offset:', verticalOffset);
+                          console.log('  Submenu position:', {
+                            x: contextMenuRect.right,
+                            y: contextMenuRect.top + verticalOffset
+                          });
+
+                          setSubContextMenu({
+                            visible: true,
+                            x: contextMenuRect.right, // Position at right edge of context menu
+                            y: contextMenuRect.top + verticalOffset,
+                            parentId: 'changeType'
+                          });
+                        }
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.backgroundColor = 'white';
                       }}
                     >
                       <span>Change Type</span>
-                      <span style={{ marginLeft: '20px' }}>▶</span>
                     </div>
-                  </>
                 )}
 
                 {/* Change size */}
-                <div style={{ borderBottom: '1px solid #f0f0f0', margin: '4px 0' }} />
+                {availableVariants.length > 1 && (
+                  <div style={{ borderBottom: '1px solid #f0f0f0', margin: '4px 0' }} />
+                )}
                 <div
                   style={{
                     padding: '8px 12px',
@@ -3498,10 +4157,10 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
                       isWallFixture: isWall
                     });
 
-                    // Set initial form values (convert inches to feet)
+                    // Set initial form values (already in feet)
                     fixtureEditForm.setFieldsValue({
-                      width: fixture.dimensions.width / 12,
-                      height: fixture.dimensions.height / 12
+                      width: fixture.dimensions.width,
+                      height: fixture.dimensions.height
                     });
 
                     setContextMenu({ visible: false, x: 0, y: 0, roomId: null, wallId: null, fixtureId: null, type: null });
@@ -3536,16 +4195,19 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
               </>
             );
           })()}
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Sub Context Menu for Change Type */}
       {subContextMenu.visible && subContextMenu.parentId === 'changeType' && contextMenu.type === 'fixture' && contextMenu.fixtureId && (() => {
-        const wallFixture = sketch?.wallFixtures.find(f => f.id === contextMenu.fixtureId);
-        const roomFixture = sketch?.roomFixtures.find(f => f.id === contextMenu.fixtureId);
+        const wallFixture = sketch?.wallFixtures?.find((f: any) => f.id === contextMenu.fixtureId);
+        const roomFixture = sketch?.roomFixtures?.find((f: any) => f.id === contextMenu.fixtureId);
         const fixture = wallFixture || roomFixture;
 
-        if (!fixture) return null;
+        if (!fixture) {
+          return null;
+        }
 
         // Get available fixture variants based on category
         let availableVariants: any[] = [];
@@ -3561,11 +4223,19 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
           availableVariants = APPLIANCE_VARIANTS;
         }
 
-        return (
+        console.log('🎨 Rendering submenu at:', { x: subContextMenu.x, y: subContextMenu.y });
+
+        return createPortal(
           <div
             data-submenu="true"
+            ref={(el) => {
+              if (el) {
+                const rect = el.getBoundingClientRect();
+                console.log('📐 Submenu actual position:', rect);
+              }
+            }}
             style={{
-              position: 'absolute',
+              position: 'fixed',
               left: subContextMenu.x,
               top: subContextMenu.y,
               zIndex: 201,
@@ -3642,11 +4312,12 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
                   setSubContextMenu({ visible: false, x: 0, y: 0, parentId: '' });
                 }}
               >
-                <span>{variant.icon} {variant.name}</span>
+                <span>{variant.name}</span>
                 {variant.type === fixture.type && <span style={{ marginLeft: '8px', color: '#1890ff' }}>✓</span>}
               </div>
             ))}
-          </div>
+          </div>,
+          document.body
         );
       })()}
 

@@ -66,25 +66,10 @@ export const calculateWallSegments = (wall: Wall, fixtures: WallFixture[]): Wall
   const wallLength = calculateDistance(wall.start, wall.end);
 
   // Get fixtures on this wall, sorted by position
-  // Handle both direct wall ID matches and segment matches
+  // Since wall splitting has been removed, we only accept exact wallId matches
+  // (No segment logic - fixtures should reference the original wall ID only)
   const wallFixtures = fixtures
-    .filter(fixture => {
-      // Direct match
-      if (fixture.wallId === wall.id) return true;
-
-      // If fixture's wallId is a segment of this wall
-      if (fixture.wallId.includes('_segment_') && fixture.wallId.startsWith(wall.id + '_segment_')) {
-        return true;
-      }
-
-      // If wall.id is a segment and fixture belongs to the original wall
-      if (wall.id.includes('_segment_')) {
-        const originalWallId = wall.id.split('_segment_')[0];
-        if (fixture.wallId === originalWallId) return true;
-      }
-
-      return false;
-    })
+    .filter(fixture => fixture.wallId === wall.id)
     .sort((a, b) => a.position - b.position);
 
   if (wallFixtures.length === 0) {
@@ -357,40 +342,26 @@ export const calculateFixtureRotation = (wall: Wall, currentRelativeRotation: nu
 // Calculate automatic rotation for wall fixtures (doors/windows)
 export const calculateAutoRotationForWallFixture = (wall: Wall): number => {
   // For wall fixtures (doors/windows), they should automatically align with the wall
-  // The fixture rotation is always 0 for wall fixtures (parallel to wall)
-  // The rendering system will add the wall angle to this
+  // Return the actual wall angle in degrees
+  // The renderer will use this value directly as the absolute rotation
   const wallAngle = calculateWallAngle(wall.start, wall.end);
   const wallAngleDegrees = (wallAngle * 180) / Math.PI;
 
-  console.log(`🔧 Auto-rotation for wall ${wall.id.slice(0,8)}: wall angle = ${wallAngleDegrees.toFixed(1)}°, fixture rotation = 0° (parallel to wall)`);
+  // Normalize to 0-360 range
+  let normalizedAngle = wallAngleDegrees % 360;
+  if (normalizedAngle < 0) normalizedAngle += 360;
 
-  // Always return 0 - doors and windows are always parallel to their wall
-  // The actual visual rotation will be handled in the renderer
-  return 0;
+  // Removed debug logging for production
+  return normalizedAngle;
 };
 
 // Split wall at fixture positions
+// NOTE: Wall splitting has been removed from the system, but this function is kept for legacy compatibility
 export const splitWallAtFixtures = (wall: Wall, fixtures: WallFixture[]): Wall[] => {
   // Get fixtures on this wall, sorted by position
-  // Handle both direct wall ID matches and segment matches
+  // Since wall splitting has been removed, only exact wallId matches are accepted
   const wallFixtures = fixtures
-    .filter(fixture => {
-      // Direct match
-      if (fixture.wallId === wall.id) return true;
-
-      // If fixture's wallId is a segment of this wall
-      if (fixture.wallId.includes('_segment_') && fixture.wallId.startsWith(wall.id + '_segment_')) {
-        return true;
-      }
-
-      // If wall.id is a segment and fixture belongs to the original wall
-      if (wall.id.includes('_segment_')) {
-        const originalWallId = wall.id.split('_segment_')[0];
-        if (fixture.wallId === originalWallId) return true;
-      }
-
-      return false;
-    })
+    .filter(fixture => fixture.wallId === wall.id)
     .sort((a, b) => a.position - b.position);
 
   if (wallFixtures.length === 0) {
@@ -516,89 +487,36 @@ export const getFixtureWorldPosition = (wall: Wall, fixture: WallFixture): Point
   return getPointAlongWall(wall, fixture.position + fixtureWidthPixels / 2);
 };
 
-// Find wall by ID, handling both original walls and wall segments
+// Find wall by ID
+// Note: Wall splitting has been removed, so this now simply finds by exact ID match
+// Legacy segment ID handling kept for backward compatibility with old data
 export const findWallById = (walls: Wall[], wallId: string): Wall | undefined => {
-  // First try direct ID match
+  // Direct ID match
   const directMatch = walls.find(w => w.id === wallId);
   if (directMatch) {
     return directMatch;
   }
 
-  // If no direct match, look for segments that belong to this wall
-  // Wall segments have IDs like "originalWallId_segment_0"
-  const segmentMatch = walls.find(w =>
-    w.id.includes('_segment_') && w.id.startsWith(wallId + '_segment_')
-  );
-  if (segmentMatch) {
-    console.log(`📍 Found wall segment ${segmentMatch.id} for fixture wall ID ${wallId}`);
-    return segmentMatch;
-  }
-
-  // If fixture's wallId is a segment ID, extract the original wall ID
-  // Handle nested segments like "room-xxx-wall-right_segment_0_segment_0"
+  // Backward compatibility: If wallId contains '_segment_', try to find the original wall
   if (wallId.includes('_segment_')) {
-    // Extract base wall ID by removing all segment suffixes
     const originalWallId = wallId.split('_segment_')[0];
-
-    // First try to find a matching segment (maybe with fewer nesting levels)
-    const partialSegmentMatch = walls.find(w =>
-      w.id.includes('_segment_') && w.id.startsWith(originalWallId)
-    );
-    if (partialSegmentMatch) {
-      console.log(`📍 Found partial segment match ${partialSegmentMatch.id} for nested segment ID ${wallId}`);
-      return partialSegmentMatch;
-    }
-
-    // Then try the original wall
     const originalWallMatch = walls.find(w => w.id === originalWallId);
     if (originalWallMatch) {
-      console.log(`📍 Found original wall ${originalWallId} for segment ID ${wallId}`);
       return originalWallMatch;
     }
   }
 
-  console.warn(`❌ Wall not found for ID: ${wallId}`);
   return undefined;
 };
 
-// Find the appropriate wall for a fixture, handling both original walls and segments
+// Find the appropriate wall for a fixture
+// Note: Wall splitting has been removed, so this now simply finds the wall by ID
 export const findWallForFixture = (walls: Wall[], fixture: WallFixture): Wall | undefined => {
   const wall = findWallById(walls, fixture.wallId);
 
   if (!wall) {
-    console.warn(`❌ Wall not found for fixture ${fixture.id.slice(0,8)} with wallId: ${fixture.wallId}`);
+    console.error(`❌ Wall not found for fixture ${fixture.id.slice(0,8)}, wallId: ${fixture.wallId}`);
     return undefined;
-  }
-
-  // If we found a segment, that's fine - fixtures can exist on segments
-  // If we found the original wall, check if it has been split and find the appropriate segment
-  if (!wall.id.includes('_segment_')) {
-    // This is an original wall, check if it contains the fixture's position
-    const wallLength = calculateDistance(wall.start, wall.end);
-    const fixtureWidthPixels = feetToPixels(fixture.dimensions.width);
-
-    // If fixture position + width is within wall bounds, use this wall
-    if (fixture.position >= 0 && fixture.position + fixtureWidthPixels <= wallLength) {
-      return wall;
-    }
-
-    // Otherwise, try to find the correct segment
-    const segments = walls.filter(w =>
-      w.id.includes('_segment_') && w.id.startsWith(fixture.wallId + '_segment_')
-    );
-
-    for (const segment of segments) {
-      // Calculate segment position relative to original wall
-      const segmentStartDistance = calculateDistance(wall.start, segment.start);
-      const segmentEndDistance = calculateDistance(wall.start, segment.end);
-
-      // Check if fixture overlaps with this segment
-      if (fixture.position >= segmentStartDistance - fixtureWidthPixels &&
-          fixture.position <= segmentEndDistance) {
-        console.log(`📍 Found correct segment ${segment.id.slice(0,12)} for fixture ${fixture.id.slice(0,8)}`);
-        return segment;
-      }
-    }
   }
 
   return wall;

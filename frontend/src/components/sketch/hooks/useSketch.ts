@@ -31,9 +31,7 @@ import {
   moveFixtureAlongWall,
   calculateFixtureRotation,
   calculateAutoRotationForWallFixture,
-  splitWallAtFixtures,
   mergeWallSegments,
-  shouldSplitWall,
   shouldMergeWall,
   createMeasurement,
   pixelsToFeet,
@@ -264,7 +262,7 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
       }
 
       // Create new fixture with dimensions in feet and auto-rotation
-      const newFixture: WallFixture = {
+      let newFixture: WallFixture = {
         id: generateId(),
         category,
         type,
@@ -281,36 +279,21 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
 
       resultId = newFixture.id;
 
-      // Update wall segments and handle wall splitting if needed
-      const updatedSegments = calculateWallSegments(wall, [...prev.wallFixtures, newFixture]);
+      // Get only fixtures for this specific wall (filter by exact wallId match)
+      const wallSpecificFixtures = prev.wallFixtures.filter(f => f.wallId === wallId);
 
-      let updatedWalls: Wall[] = prev.walls;
+      // Update wall segments (for visual representation only, no splitting)
+      const updatedSegments = calculateWallSegments(wall, [...wallSpecificFixtures, newFixture]);
 
-      // Check if wall should be split for opening fixtures
-      if (shouldSplitWall(wall, newFixture)) {
-        // console.log(`Splitting wall ${wall.id} for fixture ${newFixture.id}`);
-        const splitWalls = splitWallAtFixtures(wall, [...prev.wallFixtures, newFixture]);
+      // Just update the existing wall with new segments and fixtures array (no splitting)
+      const updatedWall: Wall = {
+        ...wall,
+        segments: updatedSegments,
+        fixtures: [...wall.fixtures, newFixture.id], // Add new fixture to fixtures array
+        updatedAt: new Date().toISOString()
+      };
 
-        // Update each split wall's fixtures array
-        const updatedSplitWalls = splitWalls.map(segment => ({
-          ...segment,
-          fixtures: [...prev.wallFixtures, newFixture]
-            .filter(f => f.wallId === segment.id)
-            .map(f => f.id)
-        }));
-
-        // Replace the original wall with split segments
-        updatedWalls = prev.walls.filter(w => w.id !== wallId).concat(updatedSplitWalls);
-      } else {
-        // Just update the existing wall with new segments and fixtures array
-        const updatedWall: Wall = {
-          ...wall,
-          segments: updatedSegments,
-          fixtures: [...wall.fixtures, newFixture.id], // Add new fixture to fixtures array
-          updatedAt: new Date().toISOString()
-        };
-        updatedWalls = prev.walls.map(w => w.id === wallId ? updatedWall : w);
-      }
+      const updatedWalls = prev.walls.map(w => w.id === wallId ? updatedWall : w);
 
       return {
         ...prev,
@@ -497,14 +480,56 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
     const fixture = sketch.wallFixtures.find(f => f.id === fixtureId);
     if (!fixture) return { success: false, error: 'Fixture not found' };
 
+    console.log(`🔍 changeWallFixtureWall called:`, {
+      fixtureId: fixtureId.slice(0,8),
+      fixtureCategory: fixture.category,
+      oldWallId: fixture.wallId,
+      newWallId: newWallId,
+      newPosition: newPosition.toFixed(2),
+      fixtureWidth: fixture.dimensions.width
+    });
+
     const oldWall = findWallForFixture(sketch.walls, fixture);
     const newWall = findWallById(sketch.walls, newWallId);
+
+    console.log(`   Wall lookup:`, {
+      oldWallFound: !!oldWall,
+      newWallFound: !!newWall,
+      oldWallId: oldWall?.id,
+      newWallId: newWall?.id,
+      oldWallCoords: oldWall ? `start=(${oldWall.start.x.toFixed(1)},${oldWall.start.y.toFixed(1)}) end=(${oldWall.end.x.toFixed(1)},${oldWall.end.y.toFixed(1)})` : 'N/A',
+      newWallCoords: newWall ? `start=(${newWall.start.x.toFixed(1)},${newWall.start.y.toFixed(1)}) end=(${newWall.end.x.toFixed(1)},${newWall.end.y.toFixed(1)})` : 'N/A'
+    });
+
     if (!oldWall || !newWall) return { success: false, error: `Wall not found - old: ${fixture.wallId}, new: ${newWallId}` };
 
     // Check if fixture can be placed at the new position
+    const wallLength = Math.sqrt(
+      Math.pow(newWall.end.x - newWall.start.x, 2) +
+      Math.pow(newWall.end.y - newWall.start.y, 2)
+    );
+    console.log(`   New wall info:`, {
+      wallId: newWall.id.slice(0,12),
+      wallStart: newWall.start,
+      wallEnd: newWall.end,
+      wallLength: wallLength.toFixed(2),
+      fixtureWidthPixels: (fixture.dimensions.width * 20).toFixed(2),
+      position: newPosition.toFixed(2),
+      positionPlusWidth: (newPosition + fixture.dimensions.width * 20).toFixed(2)
+    });
+
     const canPlace = canPlaceFixtureAt(newWall, sketch.wallFixtures.filter(f => f.wallId === newWallId), fixture.dimensions.width, newPosition);
+    console.log(`   canPlaceFixtureAt result:`, canPlace);
+
     if (!canPlace.canPlace) {
-      return { success: false, error: canPlace.reason };
+      // If position is invalid but clampedPosition is provided, use it
+      if (canPlace.clampedPosition !== undefined) {
+        console.log(`⚠️ Position out of bounds, using clamped position: ${newPosition.toFixed(2)} → ${canPlace.clampedPosition.toFixed(2)}`);
+        newPosition = canPlace.clampedPosition;
+      } else {
+        console.error(`❌ Cannot place fixture: ${canPlace.reason}`);
+        return { success: false, error: canPlace.reason };
+      }
     }
 
     // Calculate old and new wall angles for debugging
@@ -532,15 +557,14 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
     };
 
     // Handle wall splitting/merging when fixture moves between walls
-    // Get fixtures that will remain on old wall (excluding moved fixture)
+    // Get fixtures that will remain on old wall (excluding moved fixture) - exact wallId match only
     const oldWallFixtures = sketch.wallFixtures.filter(f =>
-      (f.wallId === oldWall.id || f.wallId.startsWith(oldWall.id.split('_segment_')[0] + '_segment_')) &&
-      f.id !== fixtureId
+      f.wallId === oldWall.id && f.id !== fixtureId
     );
 
-    // Get fixtures that will be on new wall (including moved fixture)
+    // Get fixtures that will be on new wall (including moved fixture) - exact wallId match only
     const newWallFixtures = sketch.wallFixtures.filter(f =>
-      f.wallId === newWall.id || f.wallId.startsWith(newWall.id.split('_segment_')[0] + '_segment_')
+      f.wallId === newWall.id
     );
     newWallFixtures.push(updatedFixture);
 
@@ -580,51 +604,15 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
       updatedWalls = updatedWalls.map(w => w.id === oldWall.id ? updatedOldWall : w);
     }
 
-    // Handle new wall - split if needed and update fixtures array
-    if (shouldSplitWall(newWall, updatedFixture)) {
-      // console.log(`✂️ Splitting new wall ${newWall.id} for moved fixture`);
-      const splitWalls = splitWallAtFixtures(newWall, newWallFixtures);
-
-      // Update fixture wallId to point to the correct split segment
-      // Find which segment contains the fixture position
-      let targetSegmentId = newWallId;
-      for (const segment of splitWalls) {
-        const segmentStartDistance = calculateDistance(newWall.start, segment.start);
-        const segmentEndDistance = calculateDistance(newWall.start, segment.end);
-
-        if (newPosition >= segmentStartDistance && newPosition <= segmentEndDistance) {
-          targetSegmentId = segment.id;
-          // console.log(`📍 Fixture ${fixtureId.slice(0,8)} will be placed on segment ${targetSegmentId.slice(0,12)}`);
-          break;
-        }
-      }
-
-      // Update fixture wallId if it needs to point to a segment
-      if (targetSegmentId !== newWallId) {
-        updatedFixture.wallId = targetSegmentId;
-      }
-
-      // Update each split wall's fixtures array
-      const updatedSplitWalls = splitWalls.map(segment => ({
-        ...segment,
-        fixtures: newWallFixtures
-          .filter(f => f.wallId === segment.id || (f.id === fixtureId && targetSegmentId === segment.id))
-          .map(f => f.id)
-      }));
-
-      // Replace the new wall with split segments
-      updatedWalls = updatedWalls.filter(w => w.id !== newWall.id).concat(updatedSplitWalls);
-    } else {
-      // Just update the existing new wall with new segments and fixtures array
-      const newWallSegments = calculateWallSegments(newWall, newWallFixtures);
-      const updatedNewWall: Wall = {
-        ...newWall,
-        segments: newWallSegments,
-        fixtures: newWallFixtures.map(f => f.id), // Add moved fixture to fixtures array
-        updatedAt: new Date().toISOString()
-      };
-      updatedWalls = updatedWalls.map(w => w.id === newWall.id ? updatedNewWall : w);
-    }
+    // Update new wall with segments and fixtures array (no splitting)
+    const newWallSegments = calculateWallSegments(newWall, newWallFixtures);
+    const updatedNewWall: Wall = {
+      ...newWall,
+      segments: newWallSegments,
+      fixtures: newWallFixtures.map(f => f.id), // Add moved fixture to fixtures array
+      updatedAt: new Date().toISOString()
+    };
+    updatedWalls = updatedWalls.map(w => w.id === newWall.id ? updatedNewWall : w);
 
     // Update sketch
     setSketch(prev => {

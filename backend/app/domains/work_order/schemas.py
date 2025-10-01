@@ -21,6 +21,16 @@ class WorkOrderBase(BaseModel):
     client_zipcode: Optional[str] = None
     client_phone: Optional[str] = None
     client_email: Optional[str] = None
+
+    # Insurance Information
+    insurance_claim_number: Optional[str] = None
+    insurance_policy_number: Optional[str] = None
+    insurance_company: Optional[str] = None
+    insurance_deductible: Optional[str] = None
+    insurance_adjuster_name: Optional[str] = None
+    insurance_adjuster_email: Optional[str] = None
+    insurance_adjuster_phone: Optional[str] = None
+    insurance_date_of_loss: Optional[datetime] = None
     
     # Job Information
     job_site_address: Optional[str] = None
@@ -108,6 +118,16 @@ class WorkOrderUpdate(BaseModel):
     client_zipcode: Optional[str] = None
     client_phone: Optional[str] = None
     client_email: Optional[str] = None
+
+    # Insurance Information
+    insurance_claim_number: Optional[str] = None
+    insurance_policy_number: Optional[str] = None
+    insurance_company: Optional[str] = None
+    insurance_deductible: Optional[str] = None
+    insurance_adjuster_name: Optional[str] = None
+    insurance_adjuster_email: Optional[str] = None
+    insurance_adjuster_phone: Optional[str] = None
+    insurance_date_of_loss: Optional[datetime] = None
     
     # Job Information
     job_site_address: Optional[str] = None

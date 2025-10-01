@@ -235,6 +235,54 @@ export function polygonArea(points: Point[]): number {
 }
 
 /**
+ * Calculate area of polygon with holes
+ * @param outerBoundary - Outer boundary polygon (should be counter-clockwise)
+ * @param holes - Array of hole polygons (should be clockwise)
+ * @returns Net area (outer area minus holes)
+ */
+export function polygonAreaWithHoles(outerBoundary: Point[], holes: Point[][]): number {
+  // Calculate outer boundary area
+  const outerArea = polygonArea(outerBoundary);
+
+  // Calculate total hole areas
+  const holeArea = holes.reduce((total, hole) => {
+    return total + polygonArea(hole);
+  }, 0);
+
+  // Return net area
+  return Math.max(0, outerArea - holeArea);
+}
+
+/**
+ * Check if a polygon is completely inside another polygon
+ */
+export function polygonInsidePolygon(inner: Point[], outer: Point[]): boolean {
+  if (inner.length === 0 || outer.length < 3) return false;
+
+  // Check if all vertices of inner polygon are inside outer polygon
+  for (const point of inner) {
+    if (!pointInPolygon(point, outer)) {
+      return false;
+    }
+  }
+
+  // Also check that inner polygon edges don't intersect outer polygon edges
+  for (let i = 0; i < inner.length; i++) {
+    const j = (i + 1) % inner.length;
+    const innerEdge = { start: inner[i], end: inner[j] };
+
+    for (let k = 0; k < outer.length; k++) {
+      const l = (k + 1) % outer.length;
+      if (segmentsIntersect(innerEdge.start, innerEdge.end, outer[k], outer[l])) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+/**
  * Calculate centroid of polygon
  */
 export function polygonCentroid(points: Point[]): Point {
@@ -583,4 +631,177 @@ export function calculateRoomBoundary(walls: Wall[]): Point[] {
   }
 
   return boundary;
+}
+
+/**
+ * Detect and separate outer boundary walls from interior walls
+ * Uses a more sophisticated approach: trace the largest closed loop as the outer boundary
+ * @param walls - All walls in the room
+ * @returns Object containing outer walls and interior walls
+ */
+export function separateOuterAndInteriorWalls(walls: Wall[]): {
+  outerWalls: Wall[];
+  interiorWalls: Wall[];
+} {
+  if (walls.length === 0) {
+    return { outerWalls: [], interiorWalls: [] };
+  }
+
+  // Strategy: Find all closed loops, the one with the largest area is the outer boundary
+  const loops: Wall[][] = [];
+  const visited = new Set<string>();
+
+  const CONNECTION_TOLERANCE = 5; // pixels - standard connection tolerance
+
+  // Find all closed loops
+  for (const startWall of walls) {
+    if (visited.has(startWall.id)) continue;
+
+    const loop: Wall[] = [];
+    let currentPoint = startWall.start;
+    let currentWall = startWall;
+    const loopVisited = new Set<string>();
+
+    // Try to form a closed loop
+    while (true) {
+      if (loopVisited.has(currentWall.id)) break;
+
+      loopVisited.add(currentWall.id);
+      loop.push(currentWall);
+
+      // Move to the next point
+      currentPoint = currentPoint === currentWall.start ? currentWall.end : currentWall.start;
+
+      // Find next connected wall
+      let found = false;
+      for (const nextWall of walls) {
+        if (loopVisited.has(nextWall.id)) continue;
+
+        const distToStart = distance(currentPoint, nextWall.start);
+        const distToEnd = distance(currentPoint, nextWall.end);
+
+        // Use larger tolerance to allow connecting across fixture gaps
+        if (distToStart < CONNECTION_TOLERANCE || distToEnd < CONNECTION_TOLERANCE) {
+          currentWall = nextWall;
+          currentPoint = distToStart < CONNECTION_TOLERANCE ? nextWall.start : nextWall.end;
+          found = true;
+          break;
+        }
+      }
+
+      if (!found) break;
+
+      // Check if we've closed the loop (also use larger tolerance)
+      if (loop.length > 2 && distance(currentPoint, loop[0].start) < CONNECTION_TOLERANCE) {
+        // Mark all walls in this loop as visited
+        loop.forEach(w => visited.add(w.id));
+        loops.push(loop);
+        break;
+      }
+    }
+  }
+
+  // Find the loop with the largest area (this is the outer boundary)
+  let largestLoop: Wall[] = [];
+  let largestArea = 0;
+
+  for (const loop of loops) {
+    const boundary = loop.map(w => w.start);
+    if (boundary.length >= 3) {
+      const area = Math.abs(polygonArea(boundary));
+      if (area > largestArea) {
+        largestArea = area;
+        largestLoop = loop;
+      }
+    }
+  }
+
+  // Outer walls are the largest loop, all others are interior
+  const outerWallIds = new Set(largestLoop.map(w => w.id));
+  const outerWalls = walls.filter(w => outerWallIds.has(w.id));
+  const interiorWalls = walls.filter(w => !outerWallIds.has(w.id));
+
+  return { outerWalls, interiorWalls };
+}
+
+/**
+ * Calculate room boundary with holes (interior walls)
+ * @param walls - All walls in the room
+ * @returns Object containing outer boundary and interior holes
+ */
+export function calculateRoomBoundaryWithHoles(walls: Wall[]): {
+  outerBoundary: Point[];
+  holes: Point[][];
+} {
+  if (walls.length === 0) {
+    return { outerBoundary: [], holes: [] };
+  }
+
+  // Separate outer and interior walls
+  const { outerWalls, interiorWalls } = separateOuterAndInteriorWalls(walls);
+
+  // Calculate outer boundary
+  const outerBoundary = outerWalls.length > 0
+    ? calculateRoomBoundary(outerWalls)
+    : calculateRoomBoundary(walls); // Fallback to all walls if no outer walls detected
+
+  // Group interior walls into separate polygons (holes)
+  const holes: Point[][] = [];
+
+  if (interiorWalls.length > 0) {
+    // Try to form closed loops from interior walls
+    const visited = new Set<string>();
+
+    for (const startWall of interiorWalls) {
+      if (visited.has(startWall.id)) continue;
+
+      const hole: Point[] = [];
+      const wallsInHole: Wall[] = [];
+      let currentPoint = startWall.start;
+      let currentWall = startWall;
+
+      // Try to form a closed loop
+      while (true) {
+        if (visited.has(currentWall.id)) break;
+
+        visited.add(currentWall.id);
+        wallsInHole.push(currentWall);
+        hole.push(currentPoint);
+
+        // Move to the next point
+        currentPoint = currentPoint === currentWall.start ? currentWall.end : currentWall.start;
+
+        // Find the next connected wall
+        let found = false;
+        for (const nextWall of interiorWalls) {
+          if (visited.has(nextWall.id)) continue;
+
+          const distToStart = distance(currentPoint, nextWall.start);
+          const distToEnd = distance(currentPoint, nextWall.end);
+
+          if (distToStart < 5 || distToEnd < 5) {
+            currentWall = nextWall;
+            currentPoint = distToStart < 5 ? nextWall.start : nextWall.end;
+            found = true;
+            break;
+          }
+        }
+
+        if (!found) break;
+
+        // Check if we've closed the loop
+        if (hole.length > 2 && distance(currentPoint, hole[0]) < 5) {
+          hole.push(hole[0]); // Close the loop
+          break;
+        }
+      }
+
+      // Only add hole if it forms a closed loop (at least 3 vertices)
+      if (hole.length >= 3 && distance(hole[0], hole[hole.length - 1]) < 5) {
+        holes.push(hole);
+      }
+    }
+  }
+
+  return { outerBoundary, holes };
 }

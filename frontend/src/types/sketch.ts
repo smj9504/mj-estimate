@@ -270,6 +270,8 @@ export interface SketchRoom {
   wallIds: string[];
   /** Room boundary points (calculated from walls) */
   boundary: Point[];
+  /** Interior holes (walls that create interior spaces) */
+  holes?: Point[][];
   /** Room dimensions */
   dimensions: Dimensions;
   /** Room area calculations */
@@ -398,7 +400,7 @@ export interface SketchSettings {
 // Interaction System
 // =====================
 
-export type SketchTool = 'select' | 'wall' | 'room' | 'fixture' | 'measure' | 'pan' | 'zoom' | 'fixture_door' | 'fixture_window';
+export type SketchTool = 'select' | 'wall' | 'room' | 'fixture' | 'measure' | 'pan' | 'zoom' | 'fixture_door' | 'fixture_window' | 'wall_split';
 
 export type InteractionMode = 'draw' | 'edit' | 'view';
 

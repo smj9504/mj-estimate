@@ -45,34 +45,13 @@ const FixtureCard: React.FC<FixtureCardProps> = ({ variant, isSelected, onClick 
       }}
     >
       <div style={{ textAlign: 'center' }}>
-        {/* Icon or SVG Preview */}
-        <div style={{ fontSize: 24, marginBottom: 8 }}>
-          {variant.svgPath ? (
-            <svg
-              width="40"
-              height="40"
-              viewBox="0 0 60 60"
-              style={{ border: '1px solid #f0f0f0', borderRadius: 4 }}
-            >
-              <path
-                d={variant.svgPath}
-                fill="none"
-                stroke="#333"
-                strokeWidth="1"
-              />
-            </svg>
-          ) : (
-            <span>{variant.icon}</span>
-          )}
-        </div>
-
         {/* Fixture Name */}
-        <Text strong style={{ fontSize: 12 }}>
+        <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
           {variant.name}
         </Text>
 
         {/* Default Dimensions */}
-        <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
+        <div style={{ fontSize: 11, color: '#666' }}>
           {variant.defaultDimensions.width}' × {variant.defaultDimensions.height}'
         </div>
       </div>

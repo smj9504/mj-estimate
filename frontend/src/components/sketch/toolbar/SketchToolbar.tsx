@@ -1,11 +1,12 @@
 import React from 'react';
-import { Button, Space, Divider } from 'antd';
+import { Button, Space, Divider, Tooltip } from 'antd';
 import {
   SelectOutlined,
   LineOutlined,
   BorderOutlined,
   AppstoreOutlined,
   ColumnHeightOutlined,
+  ScissorOutlined,
 } from '@ant-design/icons';
 import { useSketchContext } from '../context/SketchProvider';
 
@@ -17,6 +18,7 @@ const SketchToolbar: React.FC = () => {
     { key: 'room', icon: <BorderOutlined />, label: 'Room' },
     { key: 'fixture', icon: <AppstoreOutlined />, label: 'Fixture' },
     { key: 'measure', icon: <ColumnHeightOutlined />, label: 'Measure' },
+    { key: 'wall_split', icon: <ScissorOutlined />, label: 'Split Wall', tooltip: 'Click on a wall to split it at that point' },
   ];
 
   return (
@@ -26,17 +28,25 @@ const SketchToolbar: React.FC = () => {
       backgroundColor: '#f5f5f5'
     }}>
       <Space size="small">
-        {tools.map((tool) => (
-          <Button
-            key={tool.key}
-            type={currentTool === tool.key ? 'primary' : 'default'}
-            icon={tool.icon}
-            onClick={() => setCurrentTool(tool.key as any)}
-            size="small"
-          >
-            {tool.label}
-          </Button>
-        ))}
+        {tools.map((tool) => {
+          const button = (
+            <Button
+              key={tool.key}
+              type={currentTool === tool.key ? 'primary' : 'default'}
+              icon={tool.icon}
+              onClick={() => setCurrentTool(tool.key as any)}
+              size="small"
+            >
+              {tool.label}
+            </Button>
+          );
+
+          return tool.tooltip ? (
+            <Tooltip key={tool.key} title={tool.tooltip}>
+              {button}
+            </Tooltip>
+          ) : button;
+        })}
         <Divider type="vertical" />
         <Button size="small">Zoom In</Button>
         <Button size="small">Zoom Out</Button>

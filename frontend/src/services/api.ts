@@ -19,20 +19,29 @@ api.interceptors.request.use(
     const token = localStorage.getItem('auth_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      console.log('[API] Request:', config.method?.toUpperCase(), config.url, 'with auth token');
+    } else {
+      console.warn('[API] Request:', config.method?.toUpperCase(), config.url, 'WITHOUT auth token');
     }
     return config;
   },
   (error) => {
+    console.error('[API] Request interceptor error:', error);
     return Promise.reject(error);
   }
 );
 
 // Response interceptor for error handling
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log('[API] Response:', response.status, response.config.method?.toUpperCase(), response.config.url);
+    return response;
+  },
   (error) => {
+    console.error('[API] Response error:', error.response?.status, error.config?.method?.toUpperCase(), error.config?.url, error.response?.data);
     if (error.response?.status === 401) {
       // Handle unauthorized access
+      console.warn('[API] Unauthorized - redirecting to login');
       localStorage.removeItem('auth_token');
       localStorage.removeItem('auth_user');
       window.location.href = '/login';

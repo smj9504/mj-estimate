@@ -22,8 +22,12 @@ async def get_current_staff(
     db: Any = Depends(get_db)
 ) -> Staff:
     """Get the current authenticated staff member"""
+    import logging
+    logger = logging.getLogger(__name__)
+
     token = credentials.credentials
-    
+    logger.info(f"get_current_staff called with token: {token[:20]}...")
+
     # Development mode: Allow temporary tokens
     if token and token.startswith('dev-temp-token-'):
         from app.core.config import settings
@@ -40,33 +44,40 @@ async def get_current_staff(
                     self.is_active = True
                     self.can_login = True
                     self.company_id = None
-            
-            print(f"Development mode: Using mock staff for token {token[:20]}...")
+
+            logger.info(f"Development mode: Using mock staff for token {token[:20]}...")
             return MockStaff()
-    
+
     token_data = auth_service.decode_token(token)
-    
+    logger.info(f"Token decoded: {token_data}")
+
     if token_data is None:
+        logger.error("Token decode failed - Invalid or expired token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     staff = auth_service.get_staff_by_id(db, UUID(token_data.user_id))
+    logger.info(f"Staff found: {staff is not None}")
+
     if staff is None:
+        logger.error(f"Staff not found for user_id: {token_data.user_id}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Staff member not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     if not staff.is_active or not staff.can_login:
+        logger.error(f"Staff inactive or cannot login - is_active: {staff.is_active}, can_login: {staff.can_login}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Staff member is inactive or not allowed to login"
         )
-    
+
+    logger.info(f"Authentication successful for staff: {staff.username}")
     return staff
 
 

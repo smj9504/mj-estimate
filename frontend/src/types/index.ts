@@ -138,6 +138,16 @@ export interface WorkOrder {
   client_city?: string;
   client_state?: string;
   client_zipcode?: string;
+  // Insurance Information
+  insurance_claim_number?: string;
+  insurance_policy_number?: string;
+  insurance_company?: string;
+  insurance_deductible?: string;
+  insurance_adjuster_name?: string;
+  insurance_adjuster_email?: string;
+  insurance_adjuster_phone?: string;
+  insurance_date_of_loss?: string;
+  // Work Order Details
   trades: string[];
   work_description?: string;
   scope_of_work?: string;
@@ -171,6 +181,16 @@ export interface WorkOrderFormData {
   client_city?: string;
   client_state?: string;
   client_zipcode?: string;
+  // Insurance Information
+  insurance_claim_number?: string;
+  insurance_policy_number?: string;
+  insurance_company?: string;
+  insurance_deductible?: string;
+  insurance_adjuster_name?: string;
+  insurance_adjuster_email?: string;
+  insurance_adjuster_phone?: string;
+  insurance_date_of_loss?: string;
+  // Work Order Details
   trades: string[];
   work_description?: string;
   scope_of_work?: string;

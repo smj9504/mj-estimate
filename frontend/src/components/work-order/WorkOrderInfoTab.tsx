@@ -584,6 +584,71 @@ const WorkOrderInfoTab: React.FC<WorkOrderInfoTabProps> = ({ workOrderId }) => {
             </Descriptions>
           </Card>
 
+          {/* Insurance Information */}
+          {(workOrder.insurance_claim_number ||
+            workOrder.insurance_policy_number ||
+            workOrder.insurance_company ||
+            workOrder.insurance_adjuster_name) && (
+            <Card title="Insurance Information" style={{ marginBottom: 24 }}>
+              <Descriptions column={2} size="small">
+                {workOrder.insurance_claim_number && (
+                  <Descriptions.Item label="Claim Number">
+                    <Text copyable>{workOrder.insurance_claim_number}</Text>
+                  </Descriptions.Item>
+                )}
+                {workOrder.insurance_policy_number && (
+                  <Descriptions.Item label="Policy Number">
+                    <Text copyable>{workOrder.insurance_policy_number}</Text>
+                  </Descriptions.Item>
+                )}
+                {workOrder.insurance_company && (
+                  <Descriptions.Item label="Insurance Company">
+                    <Text>{workOrder.insurance_company}</Text>
+                  </Descriptions.Item>
+                )}
+                {workOrder.insurance_deductible && (
+                  <Descriptions.Item label="Deductible">
+                    <Text>${workOrder.insurance_deductible}</Text>
+                  </Descriptions.Item>
+                )}
+                {workOrder.insurance_date_of_loss && (
+                  <Descriptions.Item label="Date of Loss">
+                    <Space>
+                      <CalendarOutlined />
+                      <Text>{new Date(workOrder.insurance_date_of_loss).toLocaleDateString()}</Text>
+                    </Space>
+                  </Descriptions.Item>
+                )}
+                {(workOrder.insurance_adjuster_name ||
+                  workOrder.insurance_adjuster_email ||
+                  workOrder.insurance_adjuster_phone) && (
+                  <Descriptions.Item label="Adjuster" span={2}>
+                    <Space direction="vertical" size="small">
+                      {workOrder.insurance_adjuster_name && (
+                        <Space>
+                          <UserOutlined />
+                          <Text strong>{workOrder.insurance_adjuster_name}</Text>
+                        </Space>
+                      )}
+                      {workOrder.insurance_adjuster_email && (
+                        <Space>
+                          <MailOutlined />
+                          <Text copyable>{workOrder.insurance_adjuster_email}</Text>
+                        </Space>
+                      )}
+                      {workOrder.insurance_adjuster_phone && (
+                        <Space>
+                          <PhoneOutlined />
+                          <Text copyable>{workOrder.insurance_adjuster_phone}</Text>
+                        </Space>
+                      )}
+                    </Space>
+                  </Descriptions.Item>
+                )}
+              </Descriptions>
+            </Card>
+          )}
+
           {/* Work Details */}
           <Card
             title="Work Details"

@@ -14,9 +14,11 @@ import {
 } from '../../../types/sketch';
 import {
   polygonArea,
+  polygonAreaWithHoles,
   calculatePolygonPerimeter,
   getBoundingBox,
-  getWallGeometry
+  getWallGeometry,
+  calculateRoomBoundaryWithHoles
 } from './geometryUtils';
 import {
   pixelAreaToSquareFeet,
@@ -39,17 +41,28 @@ export function calculateRoomAreas(
   sketch: SketchDocument
 ): AreaCalculation {
   const roomWalls = walls.filter(wall => room.wallIds.includes(wall.id));
-  const boundary = room.boundary;
 
   // Check if room has enough walls to form a closed area
   // A room needs at least 3 walls to form a closed polygon
-  const hasValidArea = roomWalls.length >= 3 && boundary.length >= 3;
+  const hasValidArea = roomWalls.length >= 3;
 
-  // Basic measurements
-  const pixelArea = hasValidArea ? polygonArea(boundary) : 0;
-  const pixelPerimeter = calculatePolygonPerimeter(boundary);
+  let floorArea = 0;
+  let pixelPerimeter = 0;
 
-  const floorArea = hasValidArea ? pixelAreaToSquareFeet(pixelArea, pixelsPerFoot) : 0;
+  if (hasValidArea) {
+    // Calculate room boundary with holes (interior walls)
+    const { outerBoundary, holes } = calculateRoomBoundaryWithHoles(roomWalls);
+
+    // Calculate area using polygon with holes algorithm
+    if (outerBoundary.length >= 3) {
+      const pixelArea = polygonAreaWithHoles(outerBoundary, holes);
+      floorArea = pixelAreaToSquareFeet(pixelArea, pixelsPerFoot);
+
+      // Calculate perimeter (only outer boundary)
+      pixelPerimeter = calculatePolygonPerimeter(outerBoundary);
+    }
+  }
+
   const ceilingArea = floorArea; // Usually same as floor
   const perimeter = pixelsToFeet(pixelPerimeter, pixelsPerFoot);
 
@@ -177,6 +190,15 @@ export function calculateSketchAreas(sketch: SketchDocument): void {
   // Update each room's areas
   rooms.forEach(room => {
     const roomWalls = walls.filter(wall => room.wallIds.includes(wall.id));
+
+    // Calculate room boundary with holes
+    const { outerBoundary, holes } = calculateRoomBoundaryWithHoles(roomWalls);
+
+    // Update room boundary and holes
+    room.boundary = outerBoundary;
+    room.holes = holes;
+
+    // Calculate areas
     const areas = calculateRoomAreas(room, roomWalls, pixelsPerFoot, sketch);
 
     // Update room object

@@ -25,7 +25,7 @@ interface WallFixtureRendererProps {
   wall: Wall;
   allWalls?: Wall[]; // For snapping to nearby walls
   isSelected?: boolean;
-  onSelect?: (fixtureId: string) => void;
+  onSelect?: (fixtureId: string, ctrlKey: boolean) => void;
   onDragStart?: (fixtureId: string) => void;
   onDragMove?: (fixtureId: string, position: number) => void;
   onDragEnd?: (fixtureId: string) => void;
@@ -38,7 +38,7 @@ interface RoomFixtureRendererProps {
   fixture: RoomFixture;
   room?: SketchRoom;
   isSelected?: boolean;
-  onSelect?: (fixtureId: string) => void;
+  onSelect?: (fixtureId: string, ctrlKey: boolean) => void;
   onDragStart?: (fixtureId: string) => void;
   onDragMove?: (fixtureId: string, position: Point) => void;
   onDragEnd?: (fixtureId: string) => void;
@@ -106,38 +106,93 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
   const [nearestWallPoint, setNearestWallPoint] = React.useState<Point | null>(null);
   const [targetWallInfo, setTargetWallInfo] = React.useState<{wallId: string; position: number} | null>(null);
 
-  // Calculate fixture position and rotation
+  // Common function to find closest wall to a point
+  const findClosestWall = useCallback((
+    pointer: Point,
+    snapThreshold: number
+  ): { wall: Wall; distance: number; position: number } | null => {
+    let closestWall = wall;
+    let closestDistance = Infinity;
+    let closestPosition = 0;
+
+    allWalls.forEach(checkWall => {
+      // Skip current wall AND related segments
+      if (checkWall.id === wall.id ||
+          checkWall.id.startsWith(wall.id.split('_segment_')[0]) ||
+          wall.id.startsWith(checkWall.id.split('_segment_')[0])) {
+        return;
+      }
+
+      const wallLength = Math.sqrt(
+        Math.pow(checkWall.end.x - checkWall.start.x, 2) +
+        Math.pow(checkWall.end.y - checkWall.start.y, 2)
+      );
+
+      if (wallLength === 0) return;
+
+      const wallVector = {
+        x: (checkWall.end.x - checkWall.start.x) / wallLength,
+        y: (checkWall.end.y - checkWall.start.y) / wallLength
+      };
+
+      const pointerVector = {
+        x: pointer.x - checkWall.start.x,
+        y: pointer.y - checkWall.start.y
+      };
+
+      const projection = pointerVector.x * wallVector.x + pointerVector.y * wallVector.y;
+
+      // Clamp position to ensure fixture fits on the wall
+      const fixtureWidthPixels = feetToPixels(fixture.dimensions.width);
+      const maxPosition = Math.max(0, wallLength - fixtureWidthPixels);
+      const clampedProjection = Math.max(0, Math.min(maxPosition, projection));
+
+      const closestPoint = {
+        x: checkWall.start.x + wallVector.x * clampedProjection,
+        y: checkWall.start.y + wallVector.y * clampedProjection
+      };
+
+      const distance = Math.sqrt(
+        Math.pow(pointer.x - closestPoint.x, 2) +
+        Math.pow(pointer.y - closestPoint.y, 2)
+      );
+
+      if (distance < closestDistance && distance < snapThreshold) {
+        closestWall = checkWall;
+        closestDistance = distance;
+        closestPosition = clampedProjection;
+      }
+    });
+
+    // Return null if no wall found within threshold or if it's the same wall
+    const targetWallBaseId = closestWall.id.split('_segment_')[0];
+    const currentWallBaseId = wall.id.split('_segment_')[0];
+    const isDifferentWall = targetWallBaseId !== currentWallBaseId;
+
+    if (isDifferentWall && closestDistance < snapThreshold) {
+      return { wall: closestWall, distance: closestDistance, position: closestPosition };
+    }
+
+    return null;
+  }, [wall, allWalls, fixture.dimensions.width]);
+
+  // Calculate fixture position on wall
+  // Note: Wall splitting has been removed, so position is always relative to the wall start
   const position = useMemo(() => {
     return getPointAlongWall(wall, fixture.position);
-  }, [wall.start.x, wall.start.y, wall.end.x, wall.end.y, wall.id, fixture.position, fixture.wallId]);
+  }, [wall.start.x, wall.start.y, wall.end.x, wall.end.y, fixture.position]);
 
   const rotation = useMemo(() => {
     const wallAngle = calculateWallAngle(wall.start, wall.end) * (180 / Math.PI);
 
-    // For doors and windows, they should always be aligned with the wall
-    // The fixture.rotation should already be 0 for auto-aligned fixtures
+    // For doors and windows, they should always align with the current wall angle
+    // For manual fixtures, add the stored relative rotation to the wall angle
     let finalRotation;
 
     if (fixture.category === 'door' || fixture.category === 'window') {
-      // Auto-aligned fixtures: use wall angle directly
       finalRotation = wallAngle;
-
-      // Check if fixture.wallId matches wall.id (for debugging wall change issues)
-      const wallIdMatch = fixture.wallId === wall.id ||
-                         fixture.wallId.startsWith(wall.id + '_segment_') ||
-                         wall.id.startsWith(fixture.wallId.split('_segment_')[0]);
-
-      console.log(`🏠 Rendering ${fixture.category} ${fixture.id.slice(0,8)} on wall ${wall.id.slice(0,8)}: wallAngle=${wallAngle.toFixed(1)}°, fixtureRot=${fixture.rotation}°, final=${finalRotation.toFixed(1)}°`);
-      console.log(`   Fixture wallId=${fixture.wallId.slice(0,12)}, Wall id=${wall.id.slice(0,12)}, Match=${wallIdMatch ? '✅' : '❌'}`);
-      console.log(`   Wall coords: start=(${wall.start.x.toFixed(1)},${wall.start.y.toFixed(1)}) end=(${wall.end.x.toFixed(1)},${wall.end.y.toFixed(1)})`);
-
-      if (!wallIdMatch) {
-        console.warn(`⚠️ WARNING: Fixture wallId (${fixture.wallId}) doesn't match rendered wall id (${wall.id})!`);
-      }
     } else {
-      // Manual fixtures: add fixture rotation to wall angle
       finalRotation = wallAngle + fixture.rotation;
-      console.log(`🔧 Rendering manual fixture ${fixture.id.slice(0,8)}: wallAngle=${wallAngle.toFixed(1)}° + fixtureRot=${fixture.rotation.toFixed(1)}° = ${finalRotation.toFixed(1)}°`);
     }
 
     // Normalize to 0-360 range for proper rendering
@@ -153,12 +208,19 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
     const stage = node.getStage();
     if (!stage) return;
 
-    const pointer = stage.getPointerPosition();
-    if (!pointer) return;
+    const rawPointer = stage.getPointerPosition();
+    if (!rawPointer) return;
 
-    // During drag: free movement on same wall, only snap to different walls when close
-    const magneticSnapThreshold = 20; // Reduced from 35 to allow more free movement
-    const strongSnapThreshold = 12; // Reduced from 20 for less aggressive snapping
+    // Transform pointer to wall coordinate system (account for zoom/pan)
+    const scale = stage.scaleX();
+    const stagePos = stage.position();
+    const pointer = {
+      x: (rawPointer.x - stagePos.x) / scale,
+      y: (rawPointer.y - stagePos.y) / scale
+    };
+
+    const magneticSnapThreshold = 30; // Increased for better detection
+    const strongSnapThreshold = 20; // Distance to lock onto target wall
 
     // First, calculate position on current wall
     const currentWallLength = Math.sqrt(
@@ -182,7 +244,6 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
       pointerVectorFromCurrentWall.x * currentWallVector.x +
       pointerVectorFromCurrentWall.y * currentWallVector.y;
 
-    // Apply soft clamping with tolerance to prevent bouncing at edges
     const fixtureWidthPixels = feetToPixels(fixture.dimensions.width);
     const minPosition = 0;
     const maxPosition = currentWallLength - fixtureWidthPixels;
@@ -199,211 +260,105 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
       Math.pow(pointer.y - closestPointOnCurrentWall.y, 2)
     );
 
-    // If close to current wall, just move along it without snapping
-    const sameWallThreshold = 50; // Increased from 30 to allow more freedom
+    // If close to current wall, just move along it
+    const sameWallThreshold = 50;
 
     if (distanceToCurrentWall <= sameWallThreshold) {
-      // Free movement on current wall - no magnetic snap during drag
       setIsNearWall(false);
       setNearestWallPoint(null);
+      setTargetWallInfo(null);
       onDragMove?.(fixture.id, clampedPositionOnCurrentWall);
       return;
     }
 
-    // Check other walls only when far from current wall
-    let closestWall = wall;
-    let closestDistance = Infinity;
-    let closestPosition = 0;
+    // Check for nearby walls using common function
+    const nearbyWall = findClosestWall(pointer, magneticSnapThreshold);
 
-    allWalls.forEach(checkWall => {
-      // Skip current wall AND related segments
-      if (checkWall.id === wall.id ||
-          checkWall.id.startsWith(wall.id.split('_segment_')[0]) ||
-          wall.id.startsWith(checkWall.id.split('_segment_')[0])) {
-        return;
-      }
+    if (nearbyWall) {
+      // Found a nearby wall - show visual feedback
+      setIsNearWall(true);
 
       const wallLength = Math.sqrt(
-        Math.pow(checkWall.end.x - checkWall.start.x, 2) +
-        Math.pow(checkWall.end.y - checkWall.start.y, 2)
-      );
-
-      if (wallLength === 0) return;
-
-      const wallVector = {
-        x: (checkWall.end.x - checkWall.start.x) / wallLength,
-        y: (checkWall.end.y - checkWall.start.y) / wallLength
-      };
-
-      const pointerVector = {
-        x: pointer.x - checkWall.start.x,
-        y: pointer.y - checkWall.start.y
-      };
-
-      // Project pointer onto wall vector
-      const projection = pointerVector.x * wallVector.x + pointerVector.y * wallVector.y;
-      const clampedProjection = Math.max(0, Math.min(wallLength, projection));
-
-      // Calculate the closest point on this wall
-      const closestPoint = {
-        x: checkWall.start.x + wallVector.x * clampedProjection,
-        y: checkWall.start.y + wallVector.y * clampedProjection
-      };
-
-      // Calculate distance from pointer to closest point on wall
-      const distance = Math.sqrt(
-        Math.pow(pointer.x - closestPoint.x, 2) +
-        Math.pow(pointer.y - closestPoint.y, 2)
-      );
-
-      // Magnetic attraction: favor walls that are closer
-      if (distance < closestDistance && distance < magneticSnapThreshold) {
-        closestWall = checkWall;
-        closestDistance = distance;
-        closestPosition = clampedProjection;
-      }
-    });
-
-    // Check if we should snap to another wall
-    const shouldSnapToOtherWall = closestWall.id !== wall.id &&
-                                   closestDistance < magneticSnapThreshold;
-
-    // Update visual feedback (green border when near other wall)
-    setIsNearWall(shouldSnapToOtherWall);
-
-    if (shouldSnapToOtherWall) {
-      const wallLength = Math.sqrt(
-        Math.pow(closestWall.end.x - closestWall.start.x, 2) +
-        Math.pow(closestWall.end.y - closestWall.start.y, 2)
+        Math.pow(nearbyWall.wall.end.x - nearbyWall.wall.start.x, 2) +
+        Math.pow(nearbyWall.wall.end.y - nearbyWall.wall.start.y, 2)
       );
       const wallVector = {
-        x: (closestWall.end.x - closestWall.start.x) / wallLength,
-        y: (closestWall.end.y - closestWall.start.y) / wallLength
+        x: (nearbyWall.wall.end.x - nearbyWall.wall.start.x) / wallLength,
+        y: (nearbyWall.wall.end.y - nearbyWall.wall.start.y) / wallLength
       };
+
       setNearestWallPoint({
-        x: closestWall.start.x + wallVector.x * closestPosition,
-        y: closestWall.start.y + wallVector.y * closestPosition
+        x: nearbyWall.wall.start.x + wallVector.x * nearbyWall.position,
+        y: nearbyWall.wall.start.y + wallVector.y * nearbyWall.position
       });
 
-      // When very close to another wall, prepare to snap but don't change wall yet
-      // Wall change will happen in handleDragEnd
-      if (closestDistance < strongSnapThreshold) {
-        console.log(`🎯 Ready to snap fixture ${fixture.id.slice(0,8)} to new wall ${closestWall.id.slice(0,8)} at position ${closestPosition.toFixed(1)}`);
-        setTargetWallInfo({ wallId: closestWall.id, position: closestPosition });
+      // Lock onto target wall when very close
+      if (nearbyWall.distance < strongSnapThreshold) {
+        setTargetWallInfo({
+          wallId: nearbyWall.wall.id,
+          position: nearbyWall.position
+        });
       } else {
         setTargetWallInfo(null);
       }
-
-      // Don't update position on current wall when snapping to another wall
-      // This allows free movement toward the target wall
-      console.log(`   Allowing free movement toward target wall (not constraining to current wall)`);
     } else {
-      // Only update position on current wall when NOT near another wall
+      // No nearby wall - move freely on current wall
+      setIsNearWall(false);
       setNearestWallPoint(null);
       setTargetWallInfo(null);
-
-      // Free movement along current wall
-      console.log(`   Moving along current wall at position ${clampedPositionOnCurrentWall.toFixed(1)}`);
       onDragMove?.(fixture.id, clampedPositionOnCurrentWall);
     }
-  }, [wall, fixture.id, onDragMove, onWallChange, allWalls]);
+  }, [wall, fixture.id, fixture.dimensions.width, onDragMove, findClosestWall]);
 
   // Apply throttling to drag move handler
   const handleDragMove = useThrottle(handleDragMoveInternal);
 
   // Snap to wall on drag end
   const handleDragEnd = useCallback((e: any) => {
-    console.log(`🏁 Drag end for fixture ${fixture.id.slice(0,8)}`);
-
     const node = e.target;
     const stage = node.getStage();
 
     if (!stage) {
       setTargetWallInfo(null);
+      setIsNearWall(false);
+      setNearestWallPoint(null);
       onDragEnd?.(fixture.id);
       return;
     }
 
-    const pointer = stage.getPointerPosition();
-    if (!pointer) {
+    const rawPointer = stage.getPointerPosition();
+    if (!rawPointer) {
       setTargetWallInfo(null);
+      setIsNearWall(false);
+      setNearestWallPoint(null);
       onDragEnd?.(fixture.id);
       return;
     }
 
-    // Re-check for nearby walls at drag end position (don't rely on targetWallInfo from drag move)
-    // This ensures we don't miss the snap if user releases mouse slightly away
-    const snapThreshold = 30; // Generous threshold for drag end
-    let closestWall = wall;
-    let closestDistance = Infinity;
-    let closestPosition = 0;
+    // Transform pointer to wall coordinate system (account for zoom/pan)
+    const scale = stage.scaleX();
+    const stagePos = stage.position();
+    const pointer = {
+      x: (rawPointer.x - stagePos.x) / scale,
+      y: (rawPointer.y - stagePos.y) / scale
+    };
 
-    allWalls.forEach(checkWall => {
-      // Skip current wall AND related segments
-      if (checkWall.id === wall.id ||
-          checkWall.id.startsWith(wall.id.split('_segment_')[0]) ||
-          wall.id.startsWith(checkWall.id.split('_segment_')[0])) {
-        return;
-      }
+    // Use slightly larger threshold at drag end to ensure reliable snapping
+    const snapThreshold = 35;
 
-      const wallLength = Math.sqrt(
-        Math.pow(checkWall.end.x - checkWall.start.x, 2) +
-        Math.pow(checkWall.end.y - checkWall.start.y, 2)
-      );
+    // Use common function to find closest wall
+    const nearbyWall = findClosestWall(pointer, snapThreshold);
 
-      if (wallLength === 0) return;
-
-      const wallVector = {
-        x: (checkWall.end.x - checkWall.start.x) / wallLength,
-        y: (checkWall.end.y - checkWall.start.y) / wallLength
-      };
-
-      const pointerVector = {
-        x: pointer.x - checkWall.start.x,
-        y: pointer.y - checkWall.start.y
-      };
-
-      const projection = pointerVector.x * wallVector.x + pointerVector.y * wallVector.y;
-      const clampedProjection = Math.max(0, Math.min(wallLength, projection));
-
-      const closestPoint = {
-        x: checkWall.start.x + wallVector.x * clampedProjection,
-        y: checkWall.start.y + wallVector.y * clampedProjection
-      };
-
-      const distance = Math.sqrt(
-        Math.pow(pointer.x - closestPoint.x, 2) +
-        Math.pow(pointer.y - closestPoint.y, 2)
-      );
-
-      if (distance < closestDistance && distance < snapThreshold) {
-        closestWall = checkWall;
-        closestDistance = distance;
-        closestPosition = clampedProjection;
-      }
-    });
-
-    // Check if we found a different wall to snap to
-    const targetWallBaseId = closestWall.id.split('_segment_')[0];
-    const currentWallBaseId = wall.id.split('_segment_')[0];
-    const isDifferentWall = targetWallBaseId !== currentWallBaseId;
-
-    console.log(`   Pointer at: (${pointer.x.toFixed(1)}, ${pointer.y.toFixed(1)})`);
-    console.log(`   Closest wall: ${closestWall.id.slice(0,12)}, distance: ${closestDistance.toFixed(1)}px`);
-    console.log(`   Current wall: ${wall.id.slice(0,12)}`);
-    console.log(`   Base IDs: target="${targetWallBaseId}" vs current="${currentWallBaseId}" → different=${isDifferentWall}`);
-
-    if (isDifferentWall && closestDistance < snapThreshold && onWallChange) {
-      console.log(`✅ Changing fixture ${fixture.id.slice(0,8)} from wall ${wall.id.slice(0,12)} to wall ${closestWall.id.slice(0,12)} at position ${closestPosition.toFixed(1)}`);
-      onWallChange(fixture.id, closestWall.id, closestPosition);
+    if (nearbyWall && onWallChange) {
+      onWallChange(fixture.id, nearbyWall.wall.id, nearbyWall.position);
       setTargetWallInfo(null);
+      setIsNearWall(false);
+      setNearestWallPoint(null);
       onDragEnd?.(fixture.id);
       return;
     }
 
-    console.log(`   No wall change: isDifferentWall=${isDifferentWall}, distance=${closestDistance.toFixed(1)}, threshold=${snapThreshold}`);
-
-    // Calculate position on current wall for same-wall drag (reuse existing wall length calculation)
+    // No wall change - finalize position on current wall
     const wallLength = Math.sqrt(
       Math.pow(wall.end.x - wall.start.x, 2) +
       Math.pow(wall.end.y - wall.start.y, 2)
@@ -411,6 +366,8 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
 
     if (wallLength === 0) {
       setTargetWallInfo(null);
+      setIsNearWall(false);
+      setNearestWallPoint(null);
       onDragEnd?.(fixture.id);
       return;
     }
@@ -429,15 +386,20 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
     const fixtureWidthPixels = feetToPixels(fixture.dimensions.width);
     const clampedPosition = Math.max(0, Math.min(wallLength - fixtureWidthPixels, projection));
 
-    // Snap to wall by updating position (for same-wall movement)
-    console.log(`   Same-wall drag: updating position to ${clampedPosition.toFixed(1)} on wall ${wall.id.slice(0,12)}`);
+    // Finalize position on current wall
     onDragMove?.(fixture.id, clampedPosition);
     setTargetWallInfo(null);
+    setIsNearWall(false);
+    setNearestWallPoint(null);
     onDragEnd?.(fixture.id);
-  }, [wall, fixture.id, fixture.dimensions.width, onDragMove, onDragEnd, targetWallInfo, onWallChange]);
+  }, [wall, fixture.id, fixture.dimensions.width, fixture.wallId, allWalls, onDragMove, onDragEnd, onWallChange, findClosestWall]);
 
   const widthPixels = feetToPixels(fixture.dimensions.width);
   const heightPixels = feetToPixels(fixture.dimensions.height);
+
+  // Minimum clickable area for better user interaction
+  const minClickableHeight = 20; // pixels
+  const clickableHeight = Math.max(wall.thickness, minClickableHeight);
 
   // Render based on fixture type
   const renderFixture = () => {
@@ -445,6 +407,16 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
       case 'door':
         return (
           <Group>
+            {/* Invisible larger hitbox for easier clicking */}
+            <Rect
+              x={-widthPixels / 2}
+              y={-clickableHeight / 2}
+              width={widthPixels}
+              height={clickableHeight}
+              fill="transparent"
+              listening={true}
+            />
+
             {/* Door frame/opening */}
             <Rect
               x={-widthPixels / 2}
@@ -454,6 +426,7 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
               fill="white"
               stroke={isSelected ? '#1890ff' : fixture.style.strokeColor}
               strokeWidth={isSelected ? 2 : 1}
+              listening={false}
             />
 
             {/* Door panel */}
@@ -487,6 +460,16 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
       case 'window':
         return (
           <Group>
+            {/* Invisible larger hitbox for easier clicking */}
+            <Rect
+              x={-widthPixels / 2}
+              y={-clickableHeight / 2}
+              width={widthPixels}
+              height={clickableHeight}
+              fill="transparent"
+              listening={true}
+            />
+
             {/* Window frame */}
             <Rect
               x={-widthPixels / 2}
@@ -496,6 +479,7 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
               fill="rgba(135, 206, 235, 0.3)"
               stroke={isSelected ? '#1890ff' : fixture.style.strokeColor}
               strokeWidth={isSelected ? 2 : 1}
+              listening={false}
             />
 
             {/* Window panes (cross pattern) */}
@@ -534,57 +518,19 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
     }
   };
 
-  // Constrain fixture to stay on wall during drag (unless moving to another wall)
+  // Allow free movement during drag - wall snapping happens in handleDragEnd
   const dragBoundFunc = useCallback((pos: any) => {
-    // Calculate distance to current wall
-    const wallLength = Math.sqrt(
-      Math.pow(wall.end.x - wall.start.x, 2) +
-      Math.pow(wall.end.y - wall.start.y, 2)
-    );
+    // Allow completely free dragging
+    // The fixture will snap to walls in handleDragEnd based on proximity
+    return pos;
+  }, []);
 
-    if (wallLength === 0) return pos;
-
-    const wallVector = {
-      x: (wall.end.x - wall.start.x) / wallLength,
-      y: (wall.end.y - wall.start.y) / wallLength
-    };
-
-    // Project the dragged position onto the wall
-    const pointerVector = {
-      x: pos.x - wall.start.x,
-      y: pos.y - wall.start.y
-    };
-
-    const projection = pointerVector.x * wallVector.x + pointerVector.y * wallVector.y;
-
-    // Calculate closest point on wall
-    const closestPoint = {
-      x: wall.start.x + wallVector.x * projection,
-      y: wall.start.y + wallVector.y * projection
-    };
-
-    // Calculate distance from dragged position to wall
-    const distanceToWall = Math.sqrt(
-      Math.pow(pos.x - closestPoint.x, 2) +
-      Math.pow(pos.y - closestPoint.y, 2)
-    );
-
-    // If dragging far from current wall (trying to move to another wall), allow free movement
-    const freeDragThreshold = 50;
-    if (distanceToWall > freeDragThreshold) {
-      return pos; // Allow free dragging
-    }
-
-    // Otherwise, constrain to current wall
-    const fixtureWidthPixels = feetToPixels(fixture.dimensions.width);
-    const clampedProjection = Math.max(0, Math.min(wallLength - fixtureWidthPixels, projection));
-
-    // Return the point on the wall
-    return {
-      x: wall.start.x + wallVector.x * clampedProjection,
-      y: wall.start.y + wallVector.y * clampedProjection
-    };
-  }, [wall, fixture.dimensions.width]);
+  // Drag move handler - rotation is handled by Group rotation prop, not during drag
+  const handleDragMoveOnly = useCallback((e: any) => {
+    // Don't manipulate rotation during drag - it causes jitter
+    // The Group's rotation prop will handle rotation automatically
+    handleDragMove(e);
+  }, [handleDragMove]);
 
   return (
     <Group
@@ -607,7 +553,11 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
       onDragMove={(e) => {
         e.cancelBubble = true;
         e.evt?.stopPropagation();
-        handleDragMove(e);
+        handleDragMoveOnly(e);
+        // Close context menu while dragging
+        if (onContextMenu) {
+          onContextMenu(fixture.id, -1, -1); // Signal to close menu
+        }
       }}
       onDragEnd={(e) => {
         e.cancelBubble = true;
@@ -616,18 +566,31 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
         setIsNearWall(false);
         setNearestWallPoint(null);
         handleDragEnd(e);
+        // Close context menu on drag end
+        if (onContextMenu) {
+          onContextMenu(fixture.id, -1, -1); // Signal to close menu
+        }
       }}
       onClick={(e) => {
         e.cancelBubble = true;
         e.evt.stopPropagation();
-        onSelect?.(fixture.id);
+        const isMultiSelect = e.evt.ctrlKey || e.evt.metaKey;
+        onSelect?.(fixture.id, isMultiSelect);
+        // Close context menu on click
+        if (onContextMenu) {
+          onContextMenu(fixture.id, -1, -1); // Signal to close menu
+        }
       }}
       onContextMenu={(e) => {
         e.evt.preventDefault();
         e.cancelBubble = true;
         e.evt?.stopPropagation();
-        if (onContextMenu) {
-          onContextMenu(fixture.id, e.evt.clientX, e.evt.clientY);
+        if (onContextMenu && e.evt) {
+          // Use the actual mouse click position from the browser event
+          const menuX = e.evt.clientX;
+          const menuY = e.evt.clientY;
+
+          onContextMenu(fixture.id, menuX, menuY);
         }
       }}
     >
@@ -646,6 +609,53 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
           fill="transparent"
         />
       )}
+
+      {/* Dimension line showing fixture width */}
+      <Group>
+        {/* Dimension line */}
+        <Line
+          points={[
+            -widthPixels / 2,
+            wall.thickness / 2 + 15,
+            widthPixels / 2,
+            wall.thickness / 2 + 15
+          ]}
+          stroke="#666"
+          strokeWidth={1}
+        />
+        {/* Left end mark */}
+        <Line
+          points={[
+            -widthPixels / 2,
+            wall.thickness / 2 + 10,
+            -widthPixels / 2,
+            wall.thickness / 2 + 20
+          ]}
+          stroke="#666"
+          strokeWidth={1}
+        />
+        {/* Right end mark */}
+        <Line
+          points={[
+            widthPixels / 2,
+            wall.thickness / 2 + 10,
+            widthPixels / 2,
+            wall.thickness / 2 + 20
+          ]}
+          stroke="#666"
+          strokeWidth={1}
+        />
+        {/* Width text */}
+        <Text
+          x={0}
+          y={wall.thickness / 2 + 20}
+          text={`${fixture.dimensions.width.toFixed(1)}'`}
+          fontSize={12}
+          fill="#333"
+          align="center"
+          offsetX={20}
+        />
+      </Group>
     </Group>
   );
 };
@@ -678,107 +688,38 @@ export const RoomFixtureRenderer: React.FC<RoomFixtureRendererProps> = ({
   // Apply throttling to drag move handler
   const handleDragMove = useThrottle(handleDragMoveInternal);
 
-  // Render industry standard 2D symbols
+  // Render fixtures as text labels only
   const renderFixture = () => {
-    // Use SVG path if available
-    if (fixture.svgPath) {
-      return (
-        <Group>
-          <Path
-            data={fixture.svgPath}
-            fill={fixture.style.fillColor}
-            stroke={fixture.style.strokeColor}
-            strokeWidth={fixture.style.strokeWidth}
-            scaleX={widthPixels / 60} // SVG viewBox is 60x60
-            scaleY={heightPixels / 60}
-            offsetX={30} // Center the SVG
-            offsetY={30}
-          />
-        </Group>
-      );
-    }
+    // Get fixture label from type
+    const label = fixture.type.replace(/_/g, ' ').toUpperCase();
 
-    // Fallback to basic shapes
-    switch (fixture.category) {
-      case 'cabinet':
-        return (
-          <Group>
-            <Rect
-              x={-widthPixels / 2}
-              y={-heightPixels / 2}
-              width={widthPixels}
-              height={heightPixels}
-              fill={fixture.style.fillColor}
-              stroke={fixture.style.strokeColor}
-              strokeWidth={fixture.style.strokeWidth}
-            />
-            {/* Cabinet door lines */}
-            <Line
-              points={[-widthPixels / 4, -heightPixels / 2, -widthPixels / 4, heightPixels / 2]}
-              stroke={fixture.style.strokeColor}
-              strokeWidth={1}
-            />
-            <Line
-              points={[widthPixels / 4, -heightPixels / 2, widthPixels / 4, heightPixels / 2]}
-              stroke={fixture.style.strokeColor}
-              strokeWidth={1}
-            />
-          </Group>
-        );
-
-      case 'vanity':
-        return (
-          <Group>
-            <Rect
-              x={-widthPixels / 2}
-              y={-heightPixels / 2}
-              width={widthPixels}
-              height={heightPixels}
-              fill={fixture.style.fillColor}
-              stroke={fixture.style.strokeColor}
-              strokeWidth={fixture.style.strokeWidth}
-            />
-            {/* Sink basin */}
-            <Shape
-              sceneFunc={(context, shape) => {
-                context.beginPath();
-                context.ellipse(0, 0, widthPixels / 3, heightPixels / 3, 0, 0, Math.PI * 2);
-                context.closePath();
-                context.fillStrokeShape(shape);
-              }}
-              fill="white"
-              stroke={fixture.style.strokeColor}
-              strokeWidth={1}
-            />
-          </Group>
-        );
-
-      case 'appliance':
-        return (
-          <Group>
-            <Rect
-              x={-widthPixels / 2}
-              y={-heightPixels / 2}
-              width={widthPixels}
-              height={heightPixels}
-              fill={fixture.style.fillColor}
-              stroke={fixture.style.strokeColor}
-              strokeWidth={fixture.style.strokeWidth}
-            />
-            {/* Appliance-specific details based on type */}
-            {fixture.type === 'refrigerator' && (
-              <Line
-                points={[0, -heightPixels / 2, 0, heightPixels / 2]}
-                stroke={fixture.style.strokeColor}
-                strokeWidth={2}
-              />
-            )}
-          </Group>
-        );
-
-      default:
-        return null;
-    }
+    return (
+      <Group>
+        {/* Background rectangle */}
+        <Rect
+          x={-widthPixels / 2}
+          y={-heightPixels / 2}
+          width={widthPixels}
+          height={heightPixels}
+          fill={fixture.style.fillColor}
+          stroke={fixture.style.strokeColor}
+          strokeWidth={fixture.style.strokeWidth}
+        />
+        {/* Text label */}
+        <Text
+          text={label}
+          fontSize={14}
+          fontFamily="Arial"
+          fill={fixture.style.strokeColor}
+          align="center"
+          verticalAlign="middle"
+          width={widthPixels}
+          height={heightPixels}
+          x={-widthPixels / 2}
+          y={-heightPixels / 2}
+        />
+      </Group>
+    );
   };
 
   return (
@@ -798,23 +739,40 @@ export const RoomFixtureRenderer: React.FC<RoomFixtureRendererProps> = ({
         e.cancelBubble = true;
         e.evt?.stopPropagation();
         handleDragMove(e);
+        // Close context menu while dragging
+        if (onContextMenu) {
+          onContextMenu(fixture.id, -1, -1); // Signal to close menu
+        }
       }}
       onDragEnd={(e) => {
         e.cancelBubble = true;
         e.evt?.stopPropagation();
         onDragEnd?.(fixture.id);
+        // Close context menu on drag end
+        if (onContextMenu) {
+          onContextMenu(fixture.id, -1, -1); // Signal to close menu
+        }
       }}
       onClick={(e) => {
         e.cancelBubble = true;
         e.evt.stopPropagation();
-        onSelect?.(fixture.id);
+        const isMultiSelect = e.evt.ctrlKey || e.evt.metaKey;
+        onSelect?.(fixture.id, isMultiSelect);
+        // Close context menu on click
+        if (onContextMenu) {
+          onContextMenu(fixture.id, -1, -1); // Signal to close menu
+        }
       }}
       onContextMenu={(e) => {
         e.evt.preventDefault();
         e.cancelBubble = true;
         e.evt?.stopPropagation();
-        if (onContextMenu) {
-          onContextMenu(fixture.id, e.evt.clientX, e.evt.clientY);
+        if (onContextMenu && e.evt) {
+          // Use the actual mouse click position from the browser event
+          const menuX = e.evt.clientX;
+          const menuY = e.evt.clientY;
+
+          onContextMenu(fixture.id, menuX, menuY);
         }
       }}
     >
@@ -1088,7 +1046,7 @@ interface FixtureLayerProps {
   walls: Wall[];
   rooms: SketchRoom[];
   selectedFixtureIds: string[];
-  onSelectFixture: (fixtureId: string) => void;
+  onSelectFixture: (fixtureId: string, ctrlKey: boolean) => void;
   onMoveWallFixture: (fixtureId: string, newPosition: number) => void;
   onMoveRoomFixture: (fixtureId: string, newPosition: Point) => void;
   onWallChange?: (fixtureId: string, newWallId: string, position: number) => void;
@@ -1117,13 +1075,20 @@ export const FixtureLayer: React.FC<FixtureLayerProps> = ({
   onDragEndFixture,
   onContextMenu
 }) => {
+  // Track fixtures with missing walls to avoid repeated warnings
+  const [reportedMissingFixtures] = React.useState(new Set<string>());
+
   return (
     <Group>
       {/* Render wall fixtures */}
       {wallFixtures.map((fixture) => {
         const wall = findWallForFixture(walls, fixture);
         if (!wall) {
-          console.warn(`❌ Cannot render fixture ${fixture.id.slice(0,8)} - wall ${fixture.wallId} not found`);
+          // Only warn once per fixture to avoid console spam
+          if (!reportedMissingFixtures.has(fixture.id)) {
+            console.warn(`❌ Fixture ${fixture.id.slice(0,8)}: wall ${fixture.wallId} not found`);
+            reportedMissingFixtures.add(fixture.id);
+          }
           return null;
         }
 

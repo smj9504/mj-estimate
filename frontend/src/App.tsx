@@ -199,6 +199,26 @@ const router = createBrowserRouter([
       </ProtectedRoute>
     )
   },
+  {
+    path: "/work-orders/new",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <WorkOrderCreation />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/work-orders/:id/edit",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <WorkOrderCreation />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
   // Sketch Test Route
   {
     path: "/sketch-test",
