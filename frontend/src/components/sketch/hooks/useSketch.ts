@@ -37,7 +37,9 @@ import {
   pixelsToFeet,
   findWallById,
   findWallForFixture,
-  calculateDistance
+  calculateDistance,
+  adjustWallSegmentLength,
+  getSegmentsForFixture
 } from '../../../utils/wallUtils';
 import { DEFAULT_FIXTURE_STYLES } from '../../../constants/fixtures';
 
@@ -261,6 +263,18 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
         return prev;
       }
 
+      // Prepare default properties based on fixture category
+      const defaultProperties: any = {};
+      if (category === 'window') {
+        // Default sill height of 3 feet for windows
+        defaultProperties.sillHeight = {
+          feet: 3,
+          inches: 0,
+          totalInches: 36,
+          display: "3' 0\""
+        };
+      }
+
       // Create new fixture with dimensions in feet and auto-rotation
       let newFixture: WallFixture = {
         id: generateId(),
@@ -270,7 +284,7 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
         dimensions: { width: fixtureWidthFeet, height: fixtureHeightFeet },
         rotation: calculateAutoRotationForWallFixture(wall), // Auto-align with wall (always 0 for wall fixtures)
         wallId,
-        properties: {},
+        properties: defaultProperties,
         style: DEFAULT_FIXTURE_STYLES[category] || DEFAULT_FIXTURE_STYLES.door,
         isOpening: category === 'door' || category === 'window',
         createdAt: new Date().toISOString(),
@@ -716,6 +730,63 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
     });
   }, [sketch, rotateWallFixture]);
 
+  // Adjust wall segment length (before or after a fixture)
+  const adjustWallFixtureSegmentLength = useCallback((
+    fixtureId: string,
+    side: 'before' | 'after',
+    newLengthFeet: number
+  ): { success: boolean; error?: string } => {
+    console.log(`📏 adjustWallFixtureSegmentLength called: fixtureId=${fixtureId}, side=${side}, newLengthFeet=${newLengthFeet}`);
+
+    if (!sketch) return { success: false, error: 'No sketch available' };
+
+    const fixture = sketch.wallFixtures.find(f => f.id === fixtureId);
+    if (!fixture) {
+      console.log('❌ Fixture not found');
+      return { success: false, error: 'Fixture not found' };
+    }
+
+    const wall = findWallForFixture(sketch.walls, fixture);
+    if (!wall) {
+      console.log('❌ Wall not found for fixture');
+      return { success: false, error: 'Wall not found for fixture' };
+    }
+
+    console.log(`📐 Original wall: start=(${wall.start.x}, ${wall.start.y}), end=(${wall.end.x}, ${wall.end.y})`);
+
+    // Convert feet to pixels (20 pixels = 1 foot)
+    const newLengthPixels = newLengthFeet * 20;
+
+    // Adjust the wall segment length
+    const result = adjustWallSegmentLength(
+      wall,
+      fixtureId,
+      side,
+      newLengthPixels,
+      sketch.wallFixtures
+    );
+
+    if (!result.success) {
+      console.log(`❌ adjustWallSegmentLength failed: ${result.error}`);
+      return { success: false, error: result.error };
+    }
+
+    console.log(`📐 Updated wall: start=(${result.updatedWall.start.x}, ${result.updatedWall.start.y}), end=(${result.updatedWall.end.x}, ${result.updatedWall.end.y})`);
+
+    // Update sketch with new wall
+    setSketch(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        walls: prev.walls.map(w => w.id === wall.id ? result.updatedWall : w),
+        updatedAt: new Date().toISOString()
+      };
+    });
+
+    console.log('✅ Sketch updated with new wall');
+    return { success: true };
+  }, [sketch]);
+
   // ===================
   // Room Fixture Management
   // ===================
@@ -925,6 +996,7 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
     moveWallFixture,
     changeWallFixtureWall,
     rotateWallFixture,
+    adjustWallFixtureSegmentLength,
     getWallFixtureById,
     getWallFixturesByWall,
 

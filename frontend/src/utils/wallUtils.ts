@@ -37,8 +37,14 @@ export const feetToPixels = (feet: number): number => {
 // Helper function to create Measurement object
 export const createMeasurement = (feet: number): Measurement => {
   const totalInches = feet * 12;
-  const wholeFeet = Math.floor(feet);
-  const remainingInches = Math.round((feet - wholeFeet) * 12);
+  let wholeFeet = Math.floor(feet);
+  let remainingInches = Math.round((feet - wholeFeet) * 12);
+
+  // Handle case where rounding causes inches to be 12
+  if (remainingInches >= 12) {
+    wholeFeet += 1;
+    remainingInches = 0;
+  }
 
   return {
     feet: wholeFeet,
@@ -520,4 +526,118 @@ export const findWallForFixture = (walls: Wall[], fixture: WallFixture): Wall | 
   }
 
   return wall;
+};
+
+// Get segments before and after a specific fixture
+export const getSegmentsForFixture = (
+  wall: Wall,
+  fixtureId: string
+): { beforeSegment: WallSegment | null; afterSegment: WallSegment | null } => {
+  const segments = wall.segments;
+  let beforeSegment: WallSegment | null = null;
+  let afterSegment: WallSegment | null = null;
+
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+
+    // Found the fixture gap segment
+    if (segment.type === 'fixture_gap' && segment.fixtureId === fixtureId) {
+      // Get segment before (if exists and is a wall segment)
+      if (i > 0 && segments[i - 1].type === 'wall') {
+        beforeSegment = segments[i - 1];
+      }
+
+      // Get segment after (if exists and is a wall segment)
+      if (i < segments.length - 1 && segments[i + 1].type === 'wall') {
+        afterSegment = segments[i + 1];
+      }
+
+      break;
+    }
+  }
+
+  return { beforeSegment, afterSegment };
+};
+
+// Adjust wall segment length (before or after a fixture)
+// This changes the wall length without moving the fixture
+export const adjustWallSegmentLength = (
+  wall: Wall,
+  fixtureId: string,
+  side: 'before' | 'after',
+  newLengthPixels: number,
+  fixtures: WallFixture[]
+): { updatedWall: Wall; success: boolean; error?: string } => {
+  // Find the fixture on this wall
+  const fixture = fixtures.find(f => f.id === fixtureId && f.wallId === wall.id);
+  if (!fixture) {
+    return { updatedWall: wall, success: false, error: 'Fixture not found on wall' };
+  }
+
+  // Validate minimum length (0.5 feet = 10 pixels)
+  const minLengthPixels = 10;
+  if (newLengthPixels < minLengthPixels) {
+    return { updatedWall: wall, success: false, error: 'Segment length too small (minimum 0.5 feet)' };
+  }
+
+  // Get current segments
+  const { beforeSegment, afterSegment } = getSegmentsForFixture(wall, fixtureId);
+
+  // Calculate wall angle
+  const wallAngle = calculateWallAngle(wall.start, wall.end);
+  const wallLength = calculateDistance(wall.start, wall.end);
+  const fixtureWidthPixels = feetToPixels(fixture.dimensions.width);
+
+  let updatedWall: Wall;
+
+  if (side === 'before') {
+    if (!beforeSegment) {
+      return { updatedWall: wall, success: false, error: 'No segment before fixture' };
+    }
+
+    // Calculate current before segment length
+    const currentBeforeLength = calculateDistance(beforeSegment.start, beforeSegment.end);
+    const lengthDelta = newLengthPixels - currentBeforeLength;
+
+    // Calculate new wall start point (move backward/forward along wall direction)
+    // Moving start point opposite to wall direction
+    const newStart: Point = {
+      x: wall.start.x - Math.cos(wallAngle) * lengthDelta,
+      y: wall.start.y - Math.sin(wallAngle) * lengthDelta
+    };
+
+    updatedWall = {
+      ...wall,
+      start: newStart,
+      length: createMeasurement(pixelsToFeet(wallLength + lengthDelta)),
+      updatedAt: new Date().toISOString()
+    };
+
+  } else { // side === 'after'
+    if (!afterSegment) {
+      return { updatedWall: wall, success: false, error: 'No segment after fixture' };
+    }
+
+    // Calculate current after segment length
+    const currentAfterLength = calculateDistance(afterSegment.start, afterSegment.end);
+    const lengthDelta = newLengthPixels - currentAfterLength;
+
+    // Calculate new wall end point (move forward/backward along wall direction)
+    const newEnd: Point = {
+      x: wall.end.x + Math.cos(wallAngle) * lengthDelta,
+      y: wall.end.y + Math.sin(wallAngle) * lengthDelta
+    };
+
+    updatedWall = {
+      ...wall,
+      end: newEnd,
+      length: createMeasurement(pixelsToFeet(wallLength + lengthDelta)),
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  // Recalculate segments with new wall geometry
+  updatedWall.segments = calculateWallSegments(updatedWall, fixtures);
+
+  return { updatedWall, success: true };
 };

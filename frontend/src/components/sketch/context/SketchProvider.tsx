@@ -76,6 +76,13 @@ interface SketchContextValue {
   ) => { success: boolean; error?: string };
   getRoomFixtureById: (fixtureId: string) => RoomFixture | undefined;
   getRoomFixturesByRoom: (roomId: string) => RoomFixture[];
+
+  // Wall segment adjustment
+  adjustWallFixtureSegmentLength: (
+    fixtureId: string,
+    side: 'before' | 'after',
+    newLengthFeet: number
+  ) => { success: boolean; error?: string };
 }
 
 const SketchContext = createContext<SketchContextValue | undefined>(undefined);
