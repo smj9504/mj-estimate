@@ -10,6 +10,7 @@
 
 .company-info {
   flex: 1;
+  font-size: 13px;
 }
 
 .company-logo {
@@ -40,6 +41,22 @@
   text-align: right;
   flex: 1;
   max-width: 300px;
+  position: relative;
+  font-size: 13px;
+}
+
+.company-logo-right {
+  position: absolute;
+  top: -40px;
+  right: 0;
+  max-width: 120px;
+  margin-bottom: 12px;
+}
+
+.company-logo-right img {
+  max-width: 100%;
+  height: auto;
+  max-height: 60px;
 }
 
 .document-details {

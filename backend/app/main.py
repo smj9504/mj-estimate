@@ -35,6 +35,7 @@ from app.domains.line_items.api import router as line_items_router
 from app.domains.xactimate.api import router as xactimate_router
 from app.domains.file.api import router as file_router
 from app.domains.sketch.api import router as sketch_router
+from app.domains.receipt.api import router as receipt_router
 from app.core.config import settings
 from app.core.database_factory import get_database, db_factory
 # Service factory removed - using direct service instantiation
@@ -278,6 +279,9 @@ app.include_router(file_router, prefix="/api/files", tags=["File Management"])
 
 # Interior Sketch System endpoints
 app.include_router(sketch_router, prefix="/api/sketches", tags=["Interior Sketches"])
+
+# Receipt System endpoints
+app.include_router(receipt_router, prefix="/api/receipts", tags=["Receipts & Templates"])
 
 
 # System information endpoints

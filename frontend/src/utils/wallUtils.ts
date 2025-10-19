@@ -24,14 +24,14 @@ export const calculateWallAngle = (start: Point, end: Point): number => {
   return Math.atan2(end.y - start.y, end.x - start.x);
 };
 
-// Helper function to convert pixels to feet (20 pixels = 1 foot)
+// Helper function to convert pixels to feet (50 pixels = 1 foot)
 export const pixelsToFeet = (pixels: number): number => {
-  return pixels / 20;
+  return pixels / 50;
 };
 
-// Helper function to convert feet to pixels (20 pixels = 1 foot)
+// Helper function to convert feet to pixels (50 pixels = 1 foot)
 export const feetToPixels = (feet: number): number => {
-  return feet * 20;
+  return feet * 50;
 };
 
 // Helper function to create Measurement object

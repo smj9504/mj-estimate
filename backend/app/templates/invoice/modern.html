@@ -34,11 +34,11 @@
           </div>
           <div class="detail-row">
             <span class="detail-label">Date:</span>
-            <span class="detail-value">{{ date_of_issue }}</span>
+            <span class="detail-value">{{ date_of_issue|format_date }}</span>
           </div>
           <div class="detail-row">
             <span class="detail-label">Due Date:</span>
-            <span class="detail-value">{{ date_due }}</span>
+            <span class="detail-value">{{ date_due|format_date }}</span>
           </div>
         </div>
       </div>
@@ -84,7 +84,7 @@
         {% if total <= 0 %}
           PAID IN FULL
         {% else %}
-          {{ total|format_currency }} USD due {{ date_due }}
+          {{ total|format_currency }} USD due {{ date_due|format_date }}
         {% endif %}
       </p>
     </div>
@@ -110,9 +110,9 @@
             {% for item in section.line_items %}
               <tr class="{% if item.hide_price %}hidden-price-item{% endif %}">
                 <td>
-                  <div class="item-name">{{ item.name }}</div>
-                  {% if item.dec %}
-                    <div class="item-description">{{ item.dec|replace('\n', '<br>')|safe }}</div>
+                  <div class="item-name">{{ item.dec if item.dec else item.name }}</div>
+                  {% if item.note %}
+                    <div class="item-description">{{ item.note|replace('\n', '<br>')|safe }}</div>
                   {% endif %}
                   {% if item.hide_price %}
                     <span class="hidden-price-badge">Price Hidden</span>
@@ -160,13 +160,13 @@
               <tr>
                 <td>
                   {% if payment.date %}
-                    {{ payment.date }}
+                    {{ payment.date|format_date }}
                   {% else %}
                     <span class="no-date">No date specified</span>
                   {% endif %}
                 </td>
                 <td class="payment-amount">-{{ payment.amount|format_currency }}</td>
-                <td>{{ payment.notes or '—' }}</td>
+                <td>{{ payment.reference or payment.notes or '—' }}</td>
               </tr>
             {% endfor %}
           </tbody>

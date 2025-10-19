@@ -523,11 +523,8 @@
                             <td>
                                 <div class="item-content">
                                     <div class="item-name">{{ item.name }}</div>
-                                    {% if item.description %}
-                                        <div class="item-description">{{ item.description|replace('\n', '<br>')|safe }}</div>
-                                    {% endif %}
                                     {% if item.note %}
-                                        <div class="item-note">Note: {{ item.note|replace('\n', '<br>')|safe }}</div>
+                                        <div class="item-description">{{ item.note|replace('\n', '<br>')|safe }}</div>
                                     {% endif %}
                                 </div>
                             </td>
@@ -567,11 +564,8 @@
                             <td>
                                 <div class="item-content">
                                     <div class="item-name">{{ item.name }}</div>
-                                    {% if item.description %}
-                                        <div class="item-description">{{ item.description|replace('\n', '<br>')|safe }}</div>
-                                    {% endif %}
                                     {% if item.note %}
-                                        <div class="item-note">Note: {{ item.note|replace('\n', '<br>')|safe }}</div>
+                                        <div class="item-description">{{ item.note|replace('\n', '<br>')|safe }}</div>
                                     {% endif %}
                                 </div>
                             </td>

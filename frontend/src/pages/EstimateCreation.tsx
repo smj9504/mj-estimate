@@ -791,7 +791,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       } else {
         const created = await estimateService.createEstimate(estimateData);
         message.success('Estimate created successfully');
-        navigate(`/estimates/${created.id}/edit`);
+        navigate(`/edit/estimate/${created.id}`);
       }
     } catch (error) {
       console.error('Failed to save estimate:', error);

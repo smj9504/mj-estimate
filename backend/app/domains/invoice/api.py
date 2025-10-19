@@ -590,6 +590,7 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
             {
                 "name": item.get('name', ''),
                 "description": item.get('description'),
+                "note": item.get('note'),
                 "quantity": item.get('quantity', 0),
                 "unit": item.get('unit', ''),
                 "rate": item.get('rate', 0)
@@ -677,6 +678,7 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
             {
                 "name": item.get('name', ''),
                 "description": item.get('description'),
+                "note": item.get('note'),
                 "quantity": item.get('quantity', 0),
                 "unit": item.get('unit', ''),
                 "rate": item.get('rate', 0)
@@ -1111,6 +1113,7 @@ async def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_inv
                     invoice_id=item.get('invoice_id'),
                     name=item.get('name', ''),
                     description=item.get('description'),
+                    note=item.get('note'),
                     quantity=item.get('quantity', 0),
                     unit=item.get('unit', ''),
                     rate=item.get('rate', 0),
@@ -1133,3 +1136,207 @@ async def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_inv
 
 # TEMPORARY EXPLANATION: The generic {invoice_id} route has been temporarily
 # disabled to test if it's causing route conflicts with the list invoices endpoint.
+
+
+# Receipt Generation Endpoints
+
+@router.get("/{invoice_id}/receipt-html")
+async def generate_receipt_html(invoice_id: str, db=Depends(get_db)):
+    """Generate HTML receipt for a paid invoice"""
+    from app.core.database_factory import get_database
+    database = get_database()
+    service = InvoiceService(database)
+
+    # Get invoice from database
+    invoice = service.get_by_id(invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # Prepare data for HTML generation
+    html_data = {
+        "invoice_number": invoice.get('invoice_number', ''),
+        "date": invoice.get('date', invoice.get('created_at', '')),
+        "due_date": invoice.get('due_date', ''),
+        "company": {
+            "name": invoice.get('company_name', ''),
+            "address": invoice.get('company_address'),
+            "city": invoice.get('company_city'),
+            "state": invoice.get('company_state'),
+            "zip": invoice.get('company_zip'),
+            "phone": invoice.get('company_phone'),
+            "email": invoice.get('company_email'),
+            "logo": invoice.get('company_logo')
+        },
+        "client": {
+            "name": invoice.get('client_name', ''),
+            "address": invoice.get('client_address'),
+            "city": invoice.get('client_city'),
+            "state": invoice.get('client_state'),
+            "zip": invoice.get('client_zip'),
+            "phone": invoice.get('client_phone'),
+            "email": invoice.get('client_email')
+        },
+        "items": [
+            {
+                "name": item.get('name', ''),
+                "description": item.get('description'),
+                "note": item.get('note'),
+                "quantity": item.get('quantity', 0),
+                "unit": item.get('unit', ''),
+                "rate": item.get('rate', 0)
+            }
+            for item in invoice.get('items', [])
+        ],
+        "subtotal": invoice.get('subtotal', 0),
+        "tax_rate": invoice.get('tax_rate', 0),
+        "tax_amount": invoice.get('tax_amount', 0),
+        "discount": invoice.get('discount', 0),
+        "total": invoice.get('total', 0),
+        "payments": invoice.get('payments', []),
+        "paid_amount": invoice.get('paid_amount', 0),
+        "payment_terms": invoice.get('payment_terms'),
+        "notes": invoice.get('notes')
+    }
+
+    # Add insurance info if present
+    if invoice.get('insurance_company'):
+        html_data["insurance"] = {
+            "company": invoice.get('insurance_company'),
+            "policy_number": invoice.get('insurance_policy_number'),
+            "claim_number": invoice.get('insurance_claim_number'),
+            "deductible": invoice.get('insurance_deductible')
+        }
+
+    # Generate HTML receipt
+    if not pdf_service:
+        raise HTTPException(status_code=500, detail="PDF service not available")
+
+    try:
+        # Generate HTML receipt
+        html_content = pdf_service.generate_receipt_html(html_data)
+
+        # Update invoice with receipt generation timestamp
+        service.update(invoice_id, {
+            'has_receipt': True,
+            'receipt_generated_at': datetime.now()
+        })
+
+        # Return HTML as response
+        return Response(
+            content=html_content,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f"inline; filename=receipt_{invoice['invoice_number']}.html"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Receipt HTML generation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{invoice_id}/receipt-pdf")
+async def generate_receipt_pdf(invoice_id: str, db=Depends(get_db)):
+    """Generate PDF receipt for a paid invoice"""
+    from app.core.database_factory import get_database
+    database = get_database()
+    service = InvoiceService(database)
+
+    # Get invoice from database
+    invoice = service.get_by_id(invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    # Prepare data for PDF generation
+    pdf_data = {
+        "invoice_number": invoice.get('invoice_number', ''),
+        "date": invoice.get('date', invoice.get('created_at', '')),
+        "due_date": invoice.get('due_date', ''),
+        "company": {
+            "name": invoice.get('company_name', ''),
+            "address": invoice.get('company_address'),
+            "city": invoice.get('company_city'),
+            "state": invoice.get('company_state'),
+            "zip": invoice.get('company_zip'),
+            "phone": invoice.get('company_phone'),
+            "email": invoice.get('company_email'),
+            "logo": invoice.get('company_logo')
+        },
+        "client": {
+            "name": invoice.get('client_name', ''),
+            "address": invoice.get('client_address'),
+            "city": invoice.get('client_city'),
+            "state": invoice.get('client_state'),
+            "zip": invoice.get('client_zip'),
+            "phone": invoice.get('client_phone'),
+            "email": invoice.get('client_email')
+        },
+        "items": [
+            {
+                "name": item.get('name', ''),
+                "description": item.get('description'),
+                "note": item.get('note'),
+                "quantity": item.get('quantity', 0),
+                "unit": item.get('unit', ''),
+                "rate": item.get('rate', 0)
+            }
+            for item in invoice.get('items', [])
+        ],
+        "subtotal": invoice.get('subtotal', 0),
+        "tax_rate": invoice.get('tax_rate', 0),
+        "tax_amount": invoice.get('tax_amount', 0),
+        "discount": invoice.get('discount', 0),
+        "total": invoice.get('total', 0),
+        "payments": invoice.get('payments', []),
+        "paid_amount": invoice.get('paid_amount', 0),
+        "payment_terms": invoice.get('payment_terms'),
+        "notes": invoice.get('notes')
+    }
+
+    # Add insurance info if present
+    if invoice.get('insurance_company'):
+        pdf_data["insurance"] = {
+            "company": invoice.get('insurance_company'),
+            "policy_number": invoice.get('insurance_policy_number'),
+            "claim_number": invoice.get('insurance_claim_number'),
+            "deductible": invoice.get('insurance_deductible')
+        }
+
+    # Generate PDF receipt
+    if not pdf_service:
+        raise HTTPException(status_code=500, detail="PDF service not available")
+
+    # Create temporary file for PDF
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        output_path = tmp_file.name
+
+    try:
+        # Generate PDF receipt
+        pdf_path = pdf_service.generate_receipt_pdf(pdf_data, output_path)
+
+        # Update invoice with receipt generation timestamp
+        service.update(invoice_id, {
+            'has_receipt': True,
+            'receipt_generated_at': datetime.now()
+        })
+
+        # Read PDF file
+        with open(pdf_path, "rb") as pdf_file:
+            pdf_content = pdf_file.read()
+
+        # Clean up temp file
+        os.unlink(pdf_path)
+
+        # Return PDF as response
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=receipt_{invoice['invoice_number']}.pdf"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Receipt PDF generation error: {str(e)}")
+        # Clean up on error
+        if os.path.exists(output_path):
+            os.unlink(output_path)
+        raise HTTPException(status_code=500, detail=str(e))

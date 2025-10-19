@@ -14,6 +14,9 @@ export interface InvoiceItem {
   primary_group?: string;  // Section name
   secondary_group?: string;  // Sub-category
   sort_order?: number;  // Sort order within group
+
+  // Rich text note field
+  note?: string;  // HTML content for rich text notes (displayed as Item Name in PDF)
 }
 
 export interface CompanyInfo {
@@ -70,9 +73,20 @@ export interface InvoiceData {
   discount?: number;
   shipping?: number;
   paid_amount?: number;
+  payments?: PaymentRecord[];  // Payment records
   payment_terms?: string;
   notes?: string;
   op_percent?: number;  // O&P percentage
+}
+
+export interface PaymentRecord {
+  amount: number;
+  date?: string | null;
+  method?: string;
+  reference?: string;
+  top_note?: string;
+  bottom_note?: string;
+  receipt_number?: string;
 }
 
 export interface InvoiceResponse {
@@ -88,6 +102,13 @@ export interface InvoiceResponse {
   client_city?: string;
   total: number;
   paid_amount: number;
+  balance_due?: number;
+
+  // Receipt tracking
+  has_receipt?: boolean;
+  receipt_number?: string;
+  receipt_generated_at?: string;
+
   created_at: string;
   updated_at: string;
 }
@@ -123,6 +144,10 @@ export interface InvoiceDetailResponse extends InvoiceResponse {
 
   payment_terms?: string;
   notes?: string;
+
+  // Payment tracking
+  payments?: PaymentRecord[];
+  show_payment_dates?: boolean;
 
   items: InvoiceItem[];
   sections?: InvoiceSection[];  // Section-based data
@@ -230,6 +255,27 @@ class InvoiceService {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  }
+
+  // Receipt generation methods
+  async generateReceiptHTML(id: string): Promise<string> {
+    const response = await apiClient.get(
+      `/api/invoices/${id}/receipt-html`,
+      {
+        responseType: 'text',
+      }
+    );
+    return response.data;
+  }
+
+  async generateReceiptPDF(id: string): Promise<Blob> {
+    const response = await apiClient.get(
+      `/api/invoices/${id}/receipt-pdf`,
+      {
+        responseType: 'blob',
+      }
+    );
+    return response.data;
   }
 }
 

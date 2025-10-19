@@ -293,12 +293,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         }}
         trigger={null} // Disable default trigger to use custom buttons
       >
-        <div className="sidebar-logo" style={{ 
+        <div className="sidebar-logo" style={{
           justifyContent: collapsed ? 'center' : 'space-between',
           padding: collapsed ? '0' : '0 16px',
           fontSize: collapsed ? '16px' : '20px',
         }}>
-          {collapsed ? 'MJ' : 'MJ Estimate'}
+          {collapsed ? 'BW' : 'BuildWorks'}
           {!collapsed && (
             <Button
               type="text"

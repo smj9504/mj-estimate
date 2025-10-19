@@ -92,15 +92,14 @@ class PDFService:
             return value.strftime(format)
         return str(value)
     
-    @staticmethod
-    def _markdown_to_html(text: str) -> str:
+    def _markdown_to_html(self, text: str) -> str:
         """Convert basic markdown to HTML for notes section"""
         if not text:
             return ""
-        
+
         # Preserve line breaks
         text = text.replace('\n', '<br>\n')
-        
+
         # Convert bold text (**text** or __text__)
         text = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', text)
         text = re.sub(r'__([^_]+)__', r'<strong>\1</strong>', text)
@@ -378,8 +377,8 @@ class PDFService:
         context.setdefault('invoice_number', self._generate_invoice_number())
         context.setdefault('date', datetime.now().strftime("%Y-%m-%d"))
         context.setdefault('due_date', datetime.now().strftime("%Y-%m-%d"))
-        
-        # Map to template variable names
+
+        # Map to template variable names (keep in YYYY-MM-DD format, filter will format for display)
         context['date_of_issue'] = context.get('date', datetime.now().strftime("%Y-%m-%d"))
         context['date_due'] = context.get('due_date', datetime.now().strftime("%Y-%m-%d"))
         
@@ -459,7 +458,8 @@ class PDFService:
                     'line_items': [
                         {
                             'name': str(item.get('name', '')),
-                            'dec': str(item.get('description', '')),
+                            'dec': str(item.get('description', '')) if item.get('description') else None,
+                            'note': str(item.get('note', '')) if item.get('note') else None,
                             'qty': float(item.get('quantity', 0)),
                             'unit': str(item.get('unit', 'ea')),
                             'price': float(item.get('rate', 0)),
@@ -491,7 +491,8 @@ class PDFService:
                     'line_items': [
                         {
                             'name': str(item.get('name', '')),
-                            'dec': str(item.get('description', '')),
+                            'dec': str(item.get('description', '')) if item.get('description') else None,
+                            'note': str(item.get('note', '')) if item.get('note') else None,
                             'qty': float(item.get('quantity', 0)),
                             'unit': str(item.get('unit', 'ea')),
                             'price': float(item.get('rate', 0)),
@@ -512,7 +513,8 @@ class PDFService:
         context['items'] = [
             {
                 'name': str(item.get('name', '')),
-                'description': str(item.get('description', '')),
+                'description': str(item.get('description', '')) if item.get('description') else None,
+                'note': str(item.get('note', '')) if item.get('note') else None,
                 'quantity': float(item.get('quantity', 0)),
                 'unit': str(item.get('unit', 'ea')),
                 'rate': float(item.get('rate', 0))
@@ -829,8 +831,134 @@ class PDFService:
         
         # Generate PDF
         pdf_document = HTML(string=html_content).write_pdf(stylesheets=stylesheets)
-        
+
         return pdf_document
+
+    def generate_receipt_html(self, data: Dict[str, Any]) -> str:
+        """
+        Generate receipt HTML from data (without converting to PDF)
+
+        Args:
+            data: Receipt data dictionary (same structure as invoice)
+
+        Returns:
+            HTML content as string
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info("Starting receipt HTML generation...")
+        logger.info(f"Input data keys: {list(data.keys())}")
+
+        # Validate and prepare data (use same context preparation as invoice)
+        try:
+            context = self._prepare_invoice_context(data)
+            logger.info(f"Context prepared with keys: {list(context.keys())}")
+        except Exception as e:
+            logger.error(f"Error preparing context: {e}")
+            raise
+
+        # Load receipt template
+        try:
+            template_path = "receipt/general_receipt.html"
+            template = self.env.get_template(template_path)
+            logger.info(f"Using {template_path} template")
+        except Exception as e:
+            logger.error(f"Could not load template: {e}")
+            raise
+
+        try:
+            html_content = template.render(**context)
+            logger.info(f"HTML content rendered, length: {len(html_content)}")
+            return html_content
+        except Exception as e:
+            logger.error(f"Error rendering template: {e}")
+            raise
+
+    def generate_receipt_pdf(self, data: Dict[str, Any], output_path: str) -> str:
+        """
+        Generate receipt PDF from data
+
+        Args:
+            data: Receipt data dictionary
+            output_path: Path to save the PDF
+
+        Returns:
+            Path to the generated PDF
+        """
+        # Validate and prepare data
+        context = self._prepare_invoice_context(data)
+
+        # Use provided receipt_number from data, or generate from invoice number as fallback
+        if 'receipt_number' in data and data['receipt_number']:
+            context['receipt_number'] = data['receipt_number']
+        else:
+            # Fallback: Generate receipt number from invoice number (INV → RCT)
+            invoice_number = context.get('invoice_number', '')
+            if invoice_number.startswith('INV-'):
+                context['receipt_number'] = invoice_number.replace('INV-', 'RCT-', 1)
+            else:
+                context['receipt_number'] = 'RCT-' + invoice_number
+
+        # Format dates for receipt display (e.g., "Oct 12, 2025")
+        context['date_of_issue_formatted'] = self._format_date_readable(context.get('date_of_issue', ''))
+        context['date_due_formatted'] = self._format_date_readable(context.get('date_due', ''))
+
+        # Format payment dates
+        if context.get('payments'):
+            for payment in context['payments']:
+                if payment.get('date'):
+                    payment['date_formatted'] = self._format_date_readable(payment['date'])
+
+        # Load receipt template
+        template_path = "receipt/general_receipt.html"
+        template = self.env.get_template(template_path)
+
+        html_content = template.render(**context)
+
+        # general_receipt.html has inline CSS, so no external stylesheets needed
+        stylesheets = []
+
+        # Add header/footer CSS
+        header_footer_css = self._generate_header_footer_css(context)
+        stylesheets.append(CSS(string=header_footer_css))
+
+        # Generate PDF
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        HTML(string=html_content).write_pdf(
+            output_path,
+            stylesheets=stylesheets
+        )
+
+        return str(output_path)
+
+    def _format_date_readable(self, date_str: str) -> str:
+        """
+        Format date string to readable format (e.g., "Oct 12, 2025")
+
+        Args:
+            date_str: Date string in ISO format
+
+        Returns:
+            Formatted date string
+        """
+        if not date_str:
+            return ''
+
+        try:
+            # Parse ISO datetime string
+            if 'T' in str(date_str):
+                dt = datetime.fromisoformat(str(date_str).replace('Z', '+00:00'))
+            else:
+                dt = datetime.strptime(str(date_str), '%Y-%m-%d')
+
+            # Format as "Oct 12, 2025"
+            return dt.strftime('%b %d, %Y')
+        except Exception as e:
+            # Return original if parsing fails
+            return str(date_str)
 
 
 # Singleton instance

@@ -30,11 +30,62 @@ export const WallSegmentEditor: React.FC<WallSegmentEditorProps> = ({
 
   // Get current segment lengths
   useEffect(() => {
-    const { beforeSegment, afterSegment } = getSegmentsForFixture(wall, fixture.id);
+    // If wall.segments is empty or undefined, calculate segments manually
+    // This can happen when wall is first created before fixtures are added
+    let { beforeSegment, afterSegment } = getSegmentsForFixture(wall, fixture.id);
 
-    console.log('🔍 WallSegmentEditor - wall:', wall.id);
-    console.log('🔍 Wall coordinates:', { start: wall.start, end: wall.end });
-    console.log('🔍 Fixture:', fixture.id, 'position:', fixture.position);
+    if (!beforeSegment && !afterSegment && (!wall.segments || wall.segments.length === 0)) {
+      console.warn('⚠️ Wall segments not calculated yet, computing manually');
+
+      // Calculate fixture width in pixels
+      const fixtureWidthPixels = fixture.dimensions.width * 20; // feet to pixels
+
+      // Before segment: from wall start to fixture start
+      if (fixture.position > 0) {
+        const beforeLengthFeet = fixture.position / 20;
+        beforeSegment = {
+          id: `${wall.id}_before_${fixture.id}`,
+          start: wall.start,
+          end: { x: 0, y: 0 }, // Will be calculated if needed
+          length: {
+            feet: Math.floor(beforeLengthFeet),
+            inches: Math.round((beforeLengthFeet % 1) * 12),
+            totalInches: beforeLengthFeet * 12,
+            display: `${Math.floor(beforeLengthFeet)}' ${Math.round((beforeLengthFeet % 1) * 12)}"`
+          },
+          type: 'wall'
+        };
+      }
+
+      // After segment: from fixture end to wall end
+      const wallLength = Math.sqrt(
+        Math.pow(wall.end.x - wall.start.x, 2) +
+        Math.pow(wall.end.y - wall.start.y, 2)
+      );
+      const fixtureEndPosition = fixture.position + fixtureWidthPixels;
+
+      if (fixtureEndPosition < wallLength) {
+        const afterLengthPixels = wallLength - fixtureEndPosition;
+        const afterLengthFeet = afterLengthPixels / 20;
+        afterSegment = {
+          id: `${wall.id}_after_${fixture.id}`,
+          start: { x: 0, y: 0 }, // Will be calculated if needed
+          end: wall.end,
+          length: {
+            feet: Math.floor(afterLengthFeet),
+            inches: Math.round((afterLengthFeet % 1) * 12),
+            totalInches: afterLengthFeet * 12,
+            display: `${Math.floor(afterLengthFeet)}' ${Math.round((afterLengthFeet % 1) * 12)}"`
+          },
+          type: 'wall'
+        };
+      }
+    }
+
+    if (!beforeSegment && !afterSegment) {
+      console.error('❌ Unable to calculate segments for fixture');
+      return;
+    }
 
     if (beforeSegment) {
       // Calculate actual pixel distance between segment start and end

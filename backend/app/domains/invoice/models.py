@@ -22,6 +22,7 @@ class Invoice(Base, BaseModel):
     is_latest = Column(Boolean, default=True, nullable=False)
     company_id = Column(UUIDType(), ForeignKey("companies.id"))  # String → UUIDType으로 수정
     client_name = Column(String(255), nullable=False)
+    client_company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=True)  # Optional reference to registered company
     client_address = Column(Text)
     client_city = Column(String(100))
     client_state = Column(String(50))
@@ -45,6 +46,11 @@ class Invoice(Base, BaseModel):
     payments = Column(JSON, default=list)  # Array of payment records
     show_payment_dates = Column(Boolean, default=True)
     balance_due = Column(DECIMAL(15, 2), default=0)
+
+    # Receipt tracking
+    has_receipt = Column(Boolean, default=False)  # Indicates if receipt has been generated
+    receipt_number = Column(String(50))  # Optional separate receipt number
+    receipt_generated_at = Column(DateTime(timezone=True))  # When receipt was generated
     
     # Insurance information
     insurance_company = Column(String(255))
@@ -60,8 +66,9 @@ class Invoice(Base, BaseModel):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    company = relationship("Company", back_populates="invoices")
+    company = relationship("Company", foreign_keys=[company_id], back_populates="invoices")
     items = relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
+    receipts = relationship("Receipt", back_populates="invoice", cascade="all, delete-orphan")
 
 
 class InvoiceItem(Base, BaseModel):
@@ -88,7 +95,10 @@ class InvoiceItem(Base, BaseModel):
     line_item_id = Column(UUIDType(), nullable=True)  # References line_items.id - String → UUIDType으로 수정
     is_custom_override = Column(Boolean, default=False)
     override_values = Column(Text)  # JSON string for override values
-    
+
+    # Rich text note field for item-specific notes
+    note = Column(Text)  # HTML content for rich text notes
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

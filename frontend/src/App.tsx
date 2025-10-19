@@ -150,6 +150,16 @@ const router = createBrowserRouter([
     )
   },
   {
+    path: "/insurance-estimate/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <InsuranceEstimateCreation />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
     path: "/create/plumber-report",
     element: (
       <ProtectedRoute>
@@ -161,6 +171,16 @@ const router = createBrowserRouter([
   },
   {
     path: "/create/invoice",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <InvoiceCreation />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/invoices/:id/edit",
     element: (
       <ProtectedRoute>
         <Layout>

@@ -162,8 +162,8 @@ export function calculateOpeningAreas(fixtures: WallFixture[]): number {
     if (!fixture.isOpening) return total;
 
     const dimensions = fixture.openingDimensions || fixture.dimensions;
-    const width = dimensions.width / 12; // Convert inches to feet
-    const height = dimensions.height / 12; // Convert inches to feet
+    const width = dimensions.width; // Dimensions are already in feet
+    const height = dimensions.height; // Dimensions are already in feet
 
     return total + (width * height);
   }, 0);
@@ -325,8 +325,8 @@ export function calculateMaterials(
       wall.fixtures.forEach(fixtureId => {
         const fixture = sketch.wallFixtures.find(f => f.id === fixtureId);
         if (fixture && fixture.isOpening) {
-          const width = fixture.dimensions.width / 12;
-          const height = fixture.dimensions.height / 12;
+          const width = fixture.dimensions.width; // Dimensions are already in feet
+          const height = fixture.dimensions.height; // Dimensions are already in feet
           // Approximate casing: 2 sides + top
           caseLinearFeet += (height * 2) + width;
         }

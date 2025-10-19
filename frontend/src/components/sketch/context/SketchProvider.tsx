@@ -1,6 +1,6 @@
 import React, { createContext, useContext, ReactNode, useState, useMemo, useCallback } from 'react';
 import { useSketch } from '../hooks/useSketch';
-import { SketchDocument, SketchTool, WallFixtureCategory, RoomFixtureCategory, DoorType, WindowType, CabinetType, VanityType, ApplianceType, WallFixture, RoomFixture, Point, FixtureVariant, Dimensions } from '../../../types/sketch';
+import { SketchDocument, SketchTool, WallFixtureCategory, RoomFixtureCategory, DoorType, WindowType, CabinetType, BathroomType, WallFixture, RoomFixture, Point, FixtureVariant, Dimensions } from '../../../types/sketch';
 
 interface SketchContextValue {
   // Sketch data
@@ -57,7 +57,7 @@ interface SketchContextValue {
   addRoomFixture: (
     roomId: string,
     category: RoomFixtureCategory,
-    type: CabinetType | VanityType | ApplianceType,
+    type: CabinetType | BathroomType | string,
     dimensions: { width: number; height: number },
     position: Point
   ) => { success: boolean; fixtureId?: string; error?: string };
@@ -65,6 +65,10 @@ interface SketchContextValue {
   updateRoomFixtureDimensions: (
     fixtureId: string,
     newDimensions: { width: number; height: number }
+  ) => { success: boolean; error?: string };
+  updateRoomFixture: (
+    fixtureId: string,
+    updates: Partial<RoomFixture>
   ) => { success: boolean; error?: string };
   moveRoomFixture: (
     fixtureId: string,

@@ -134,26 +134,45 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
             raise Exception(f"Failed to get overdue invoices: {e}")
     
     def get_with_items(self, invoice_id: str) -> Optional[Dict[str, Any]]:
-        """Get invoice with its items"""
+        """Get invoice with its items and company info"""
         try:
-            invoice = self.db_session.query(Invoice).filter(
+            from sqlalchemy.orm import joinedload
+
+            invoice = self.db_session.query(Invoice).options(
+                joinedload(Invoice.company)
+            ).filter(
                 Invoice.id == invoice_id
             ).first()
-            
+
             if not invoice:
                 return None
-            
+
             invoice_dict = self._convert_to_dict(invoice)
-            
+
+            # Add company info if available
+            if invoice.company:
+                invoice_dict['company_name'] = invoice.company.name or ''
+                invoice_dict['company_address'] = invoice.company.address or ''
+                invoice_dict['company_city'] = invoice.company.city or ''
+                invoice_dict['company_state'] = invoice.company.state or ''
+                invoice_dict['company_zip'] = invoice.company.zipcode or ''
+                invoice_dict['company_phone'] = invoice.company.phone or ''
+                invoice_dict['company_email'] = invoice.company.email or ''
+                invoice_dict['company_logo'] = invoice.company.logo or None
+
             # Get items
             items = self.db_session.query(InvoiceItem).filter(
                 InvoiceItem.invoice_id == invoice_id
             ).order_by(InvoiceItem.order_index).all()
-            
+
+            # Debug: Check if note field is loaded
+            for item in items:
+                logger.info(f"Item {item.id} - name: {item.name}, note: {repr(item.note)}")
+
             invoice_dict['items'] = [self._convert_to_dict(item) for item in items]
-            
+
             return invoice_dict
-            
+
         except Exception as e:
             logger.error(f"Error getting invoice with items: {e}")
             raise Exception(f"Failed to get invoice with items: {e}")
@@ -190,6 +209,7 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                     'order_index': idx,
                     'name': item_data.get('name', item_data.get('description', '')),
                     'description': item_data.get('description'),
+                    'note': item_data.get('note'),
                     'quantity': quantity,
                     'unit': item_data.get('unit', 'ea'),
                     'rate': rate,
@@ -206,8 +226,9 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                     'sort_order': item_data.get('sort_order', 0)
                 }
 
-                # Remove None values
-                filtered_fields = {k: v for k, v in valid_fields.items() if v is not None}
+                # Remove None values except for nullable fields (note, description, etc.)
+                nullable_fields = {'note', 'description', 'line_item_id', 'override_values', 'secondary_group'}
+                filtered_fields = {k: v for k, v in valid_fields.items() if v is not None or k in nullable_fields}
 
                 item_entity = InvoiceItem(**filtered_fields)
                 self.db_session.add(item_entity)
@@ -242,6 +263,8 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
             # Update invoice fields
             for key, value in update_data.items():
                 if hasattr(invoice, key):
+                    if key == 'payments':
+                        logger.info(f"Updating invoice {invoice_id} payments: {value}")
                     setattr(invoice, key, value)
             
             # Update timestamp
@@ -273,6 +296,7 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                         'order_index': idx,
                         'name': item_data.get('name', item_data.get('description', '')),
                         'description': item_data.get('description'),
+                        'note': item_data.get('note'),
                         'quantity': quantity,
                         'unit': item_data.get('unit', 'ea'),
                         'rate': rate,
@@ -288,15 +312,17 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                         'secondary_group': item_data.get('secondary_group'),
                         'sort_order': item_data.get('sort_order', 0)
                     }
-                    
-                    # Remove None values
-                    filtered_fields = {k: v for k, v in valid_fields.items() if v is not None}
+
+                    # Remove None values except for nullable fields (note, description, etc.)
+                    nullable_fields = {'note', 'description', 'line_item_id', 'override_values', 'secondary_group'}
+                    filtered_fields = {k: v for k, v in valid_fields.items() if v is not None or k in nullable_fields}
                     
                     item_entity = InvoiceItem(**filtered_fields)
                     self.db_session.add(item_entity)
-            
+
             self.db_session.flush()
-            
+            self.db_session.commit()
+
             # Return updated invoice with items
             return self.get_with_items(invoice_id)
             

@@ -52,7 +52,7 @@ const FixtureCard: React.FC<FixtureCardProps> = ({ variant, isSelected, onClick 
 
         {/* Default Dimensions */}
         <div style={{ fontSize: 11, color: '#666' }}>
-          {variant.defaultDimensions.width}' × {variant.defaultDimensions.height}'
+          {(variant.defaultDimensions.width / 12).toFixed(1)}' × {(variant.defaultDimensions.height / 12).toFixed(1)}'
         </div>
       </div>
     </Card>
@@ -71,16 +71,23 @@ const FixtureSelector: React.FC<FixtureSelectorProps> = ({
   });
 
   const handleFixtureSelect = (variant: FixtureVariant) => {
-    // Use custom dimensions if they're different from default
-    const dimensions = {
-      width: customDimensions.width || variant.defaultDimensions.width,
-      height: customDimensions.height || variant.defaultDimensions.height
+    // Convert default dimensions from inches to feet
+    const defaultDimensionsFeet = {
+      width: variant.defaultDimensions.width / 12,
+      height: variant.defaultDimensions.height / 12
     };
 
+    // Use custom dimensions if they're set, otherwise use defaults (converted to feet)
+    const dimensions = {
+      width: customDimensions.width || defaultDimensionsFeet.width,
+      height: customDimensions.height || defaultDimensionsFeet.height
+    };
+
+    // Pass dimensions in FEET to onSelectFixture
     onSelectFixture(variant, dimensions);
 
-    // Update custom dimensions to match selected fixture defaults
-    setCustomDimensions(variant.defaultDimensions);
+    // Update custom dimensions to match selected fixture defaults (in feet)
+    setCustomDimensions(defaultDimensionsFeet);
   };
 
   const handleDimensionChange = () => {
@@ -95,8 +102,7 @@ const FixtureSelector: React.FC<FixtureSelectorProps> = ({
 
   // Group room fixtures by category
   const cabinetVariants = getFixtureVariantsByCategory('cabinet');
-  const vanityVariants = getFixtureVariantsByCategory('vanity');
-  const applianceVariants = getFixtureVariantsByCategory('appliance');
+  const bathroomVariants = getFixtureVariantsByCategory('bathroom');
 
   const tabItems = [
     {
@@ -165,31 +171,13 @@ const FixtureSelector: React.FC<FixtureSelectorProps> = ({
             </Row>
           </div>
 
-          {/* Vanities Section */}
+          {/* Bathroom Fixtures Section */}
           <div>
             <Title level={5} style={{ margin: '8px 0', fontSize: 14 }}>
-              Vanities
+              Bathroom Fixtures
             </Title>
             <Row gutter={[8, 8]}>
-              {vanityVariants.map((variant) => (
-                <Col span={12} key={variant.id}>
-                  <FixtureCard
-                    variant={variant}
-                    isSelected={selectedFixture?.id === variant.id}
-                    onClick={() => handleFixtureSelect(variant)}
-                  />
-                </Col>
-              ))}
-            </Row>
-          </div>
-
-          {/* Appliances Section */}
-          <div>
-            <Title level={5} style={{ margin: '8px 0', fontSize: 14 }}>
-              Appliances
-            </Title>
-            <Row gutter={[8, 8]}>
-              {applianceVariants.map((variant) => (
+              {bathroomVariants.map((variant) => (
                 <Col span={12} key={variant.id}>
                   <FixtureCard
                     variant={variant}

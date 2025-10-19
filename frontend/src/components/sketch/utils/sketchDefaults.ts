@@ -15,8 +15,7 @@ import {
   DoorType,
   WindowType,
   CabinetType,
-  VanityType,
-  ApplianceType
+  BathroomType
 } from '../../../types/sketch';
 import { generateId } from './idUtils';
 
@@ -115,17 +114,11 @@ export const createDefaultSketchSettings = (): SketchSettings => {
           strokeWidth: 1,
           opacity: 1
         },
-        vanity: {
-          fillColor: '#D2691E',
-          strokeColor: '#8B4513',
-          strokeWidth: 1,
-          opacity: 1
-        },
-        appliance: {
-          fillColor: '#C0C0C0',
-          strokeColor: '#808080',
-          strokeWidth: 1,
-          opacity: 1
+        bathroom: {
+          fillColor: '#E0F7FA',
+          strokeColor: '#00838F',
+          strokeWidth: 2,
+          opacity: 0.8
         },
         electrical: {
           fillColor: '#FFD700',
@@ -272,8 +265,8 @@ export const createDefaultWallFixture = (
  * Create a default room fixture
  */
 export const createDefaultRoomFixture = (
-  fixtureType: 'cabinet' | 'vanity' | 'appliance' | 'electrical' | 'plumbing',
-  specificType: CabinetType | VanityType | ApplianceType | string
+  fixtureType: 'cabinet' | 'bathroom' | 'electrical' | 'plumbing',
+  specificType: CabinetType | BathroomType | string
 ): RoomFixture => {
   const dimensions = getDefaultFixtureDimensions(fixtureType);
 

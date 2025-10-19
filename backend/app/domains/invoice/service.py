@@ -539,36 +539,43 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             amount = payment.get('amount')
             if amount is None or float(amount) <= 0:
                 raise ValueError("Payment amount must be positive")
-            
-            # Validate date format
+
+            # Validate date format (date is optional)
             date_str = payment.get('date')
-            if not date_str:
-                raise ValueError("Payment date is required")
-            
-            # Validate and normalize date format (accept ISO datetime and convert to YYYY-MM-DD)
-            try:
-                # Try ISO datetime format first (2025-09-10T07:38:26.292Z)
-                if 'T' in date_str:
-                    from datetime import datetime as dt
-                    parsed_dt = dt.fromisoformat(date_str.replace('Z', '+00:00'))
-                    # Convert to YYYY-MM-DD format for database storage
-                    payment['date'] = parsed_dt.strftime('%Y-%m-%d')
-                # Try YYYY-MM-DD format (already correct)
-                elif '-' in date_str and len(date_str.split('-')[0]) == 4:
-                    datetime.strptime(date_str, '%Y-%m-%d')
-                # Try MM/DD/YYYY format and convert to YYYY-MM-DD
-                elif '/' in date_str:
-                    dt = datetime.strptime(date_str, '%m/%d/%Y')
-                    payment['date'] = dt.strftime('%Y-%m-%d')
-                else:
-                    raise ValueError("Unrecognized date format")
-            except ValueError:
-                raise ValueError(f"Invalid payment date format: {date_str}. Use YYYY-MM-DD, MM/DD/YYYY, or ISO datetime format")
-            
+            if date_str:  # Only validate if date is provided
+                # Validate and normalize date format (accept ISO datetime and convert to YYYY-MM-DD)
+                try:
+                    # Try ISO datetime format first (2025-09-10T07:38:26.292Z)
+                    if 'T' in date_str:
+                        from datetime import datetime as dt
+                        parsed_dt = dt.fromisoformat(date_str.replace('Z', '+00:00'))
+                        # Convert to YYYY-MM-DD format for database storage
+                        payment['date'] = parsed_dt.strftime('%Y-%m-%d')
+                    # Try YYYY-MM-DD format (already correct)
+                    elif '-' in date_str and len(date_str.split('-')[0]) == 4:
+                        datetime.strptime(date_str, '%Y-%m-%d')
+                    # Try MM/DD/YYYY format and convert to YYYY-MM-DD
+                    elif '/' in date_str:
+                        dt = datetime.strptime(date_str, '%m/%d/%Y')
+                        payment['date'] = dt.strftime('%Y-%m-%d')
+                    else:
+                        raise ValueError("Unrecognized date format")
+                except ValueError:
+                    raise ValueError(f"Invalid payment date format: {date_str}. Use YYYY-MM-DD, MM/DD/YYYY, or ISO datetime format")
+            else:
+                # Set to None if not provided
+                payment['date'] = None
+
             # Validate payment method (optional, but if provided should be max 2 chars)
             method = payment.get('method')
-            if method and len(str(method)) > 2:
+            if method and str(method).strip() and len(str(method)) > 2:
                 raise ValueError("Payment method code should be maximum 2 characters")
+
+            # Convert empty strings to None for cleaner data
+            if not payment.get('method') or not str(payment.get('method')).strip():
+                payment['method'] = None
+            if not payment.get('reference') or not str(payment.get('reference')).strip():
+                payment['reference'] = None
     
     def add_payment(self, invoice_id: str, payment_record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """

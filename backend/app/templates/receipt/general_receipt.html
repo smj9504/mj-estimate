@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Invoice</title>
+  <title>Receipt</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -55,6 +55,7 @@
     .amount-due {
       margin: 30px 0px 20px 0px;
       font-weight: bold;
+      font-size: 18px;
     }
     .amount-due h3 {
       font-weight: bold;
@@ -164,16 +165,52 @@
       color: #555;
       margin-top: 10px;
     }
+    .payment-history-section {
+      margin-top: 30px;
+      margin-bottom: 30px;
+    }
+    .payment-history-title {
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 15px;
+    }
+    .payment-history-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    .payment-history-table th {
+      padding: 8px 6px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 12px;
+      color: #666;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .payment-history-table td {
+      padding: 6px 6px;
+      font-size: 12px;
+      border-bottom: 1px solid #f5f5f5;
+    }
+    .payment-history-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+    .payment-history-table .no-records {
+      text-align: center;
+      color: #999;
+      font-style: italic;
+      padding: 20px;
+    }
   </style>
 </head>
 <body>
 
 <div class="header-top">
     <div class="invoice-meta">
-        <h1>Invoice</h1>
-        <p><strong>Invoice number</strong> {{ invoice_number }}</p>
-        <p>Date of issue: {{ date|format_date }}</p>
-        <p>Date due: {{ due_date|format_date }}</p>
+        <h1>Receipt</h1>
+        <p><strong>Receipt Number:</strong> {{ receipt_number }}</p>
+        <p><strong>Invoice Number:</strong> {{ invoice_number }}</p>
+        <p><strong>Date Paid:</strong> {% if receipt_date %}{{ receipt_date|format_date }}{% elif payment_date %}{{ payment_date|format_date }}{% endif %}</p>
     </div>
 
     <div class="company-logo">
@@ -206,11 +243,13 @@
 </div>
 
 <div class="amount-due">
-  <h3>${{ '{:,.2f}'.format(total) }} USD due {{ due_date|format_date }}</h3>
+  <h3>${{ '{:,.2f}'.format(amount if amount else paid_amount_to_date) }} paid on {% if receipt_date %}{{ receipt_date|format_date }}{% elif payment_date %}{{ payment_date|format_date }}{% endif %}</h3>
 </div>
 
-{% if notes %}
-<p>{{ notes }}</p>
+{% if top_note %}
+<div class="note">
+  {{ top_note }}
+</div>
 {% endif %}
 
 {% if serviceSections %}
@@ -265,6 +304,37 @@
   {% endfor %}
 {% endif %}
 
+<!-- Payment History Section -->
+<div class="payment-history-section">
+  <div class="payment-history-title">Payment History</div>
+  <table class="payment-history-table">
+    <thead>
+      <tr>
+        <th style="width: 25%;">Payment Method</th>
+        <th style="width: 25%;">Date</th>
+        <th style="width: 25%;">Amount Paid</th>
+        <th style="width: 25%;">Receipt Number</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if payments and payments|length > 0 %}
+        {% for payment in payments %}
+        <tr>
+          <td>{{ payment.method or '—' }}</td>
+          <td>{% if payment.date %}{{ payment.date|format_date }}{% else %}<span style="color: #999;">—</span>{% endif %}</td>
+          <td>${{ '{:,.2f}'.format(payment.amount) }}</td>
+          <td>{{ payment.receipt_number or '—' }}</td>
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr>
+          <td colspan="4" class="no-records">No payment records</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
 <div class="footer-total">
   <div class="totals-container">
     <div class="total-row">
@@ -310,17 +380,10 @@
     </div>
 
     {% if payments and payments|length > 0 %}
-      {% for payment in payments %}
-      <div class="total-row">
-        <span class="total-label">Payment{% if payment.date %} ({{ payment.date|format_date }}){% endif %}</span>
-        <span class="total-value">-${{ '{:,.2f}'.format(payment.amount) }}</span>
-      </div>
-      {% endfor %}
-
       {% set total_paid = payments | sum(attribute='amount') %}
       <div class="total-row">
         <span class="total-label">Total Paid</span>
-        <span class="total-value">${{ '{:,.2f}'.format(total_paid) }}</span>
+        <span class="total-value">-${{ '{:,.2f}'.format(total_paid) }}</span>
       </div>
 
       <div class="total-row grand-total balance-due">
@@ -336,6 +399,12 @@
   </div>
 </div>
 </div>
+
+{% if bottom_note %}
+<div class="note" style="margin-top: 20px;">
+  {{ bottom_note }}
+</div>
+{% endif %}
 
 {% if payment_terms %}
   <p class="note">{{ payment_terms | safe }}</p>

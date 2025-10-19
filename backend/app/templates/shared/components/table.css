@@ -28,6 +28,7 @@
   font-weight: 600;
   color: #374151;
   border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 3px;
 }
 
 .items-table th.text-right,
@@ -44,10 +45,15 @@
   padding: 6px 16px;
   border-bottom: 1px solid #f3f4f6;
   vertical-align: top;
+  font-size: 13px;
 }
 
 .items-table tbody tr:hover {
   background: #f9fafb;
+}
+
+.items-table tbody tr:first-child td {
+  padding-top: 6px;
 }
 
 .item-name {
@@ -58,7 +64,7 @@
 
 .item-description {
   color: #6b7280;
-  font-size: 12px;
+  font-size: 13px;
   font-style: italic;
   line-height: 1.4;
   white-space: normal;

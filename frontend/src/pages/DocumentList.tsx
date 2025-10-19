@@ -97,19 +97,23 @@ const DocumentList: React.FC = () => {
         };
       } else if (type === 'estimate' || type === 'insurance_estimate') {
         // Determine the estimate_type to filter by
-        let requestEstimateType = filter.estimate_type;
+        let requestEstimateType: string | undefined = undefined;
+
         if (type === 'insurance_estimate') {
           // Insurance estimate page - always show only insurance estimates
           requestEstimateType = EstimateType.INSURANCE;
+        } else if (type === 'estimate') {
+          // General estimate page - use filter selection if provided, otherwise show all
+          requestEstimateType = filter.estimate_type;
         }
-        
+
         // Use estimate service for both estimate types
         const estimates = await estimateService.getEstimates({
           skip: (currentPage - 1) * pageSize,
           limit: pageSize,
           client_name: filter.search,
           status: filter.status,
-          estimate_type: requestEstimateType, // Add estimate_type to API request
+          estimate_type: requestEstimateType, // undefined = show all types
         });
         
         // Backend handles all filtering now
@@ -348,7 +352,7 @@ const DocumentList: React.FC = () => {
             if (record.type === 'invoice') {
               navigate(`/invoices/${record.id}/edit`);
             } else if (record.type === 'estimate') {
-              navigate(`/estimates/${record.id}/edit`);
+              navigate(`/edit/estimate/${record.id}`);
             } else if (record.type === 'insurance_estimate') {
               navigate(`/insurance-estimate/${record.id}`);
             } else if (record.type === 'plumber_report') {
@@ -461,7 +465,7 @@ const DocumentList: React.FC = () => {
               if (record.type === 'invoice') {
                 navigate(`/invoices/${record.id}/edit`);
               } else if (record.type === 'estimate') {
-                navigate(`/estimates/${record.id}/edit`);
+                navigate(`/edit/estimate/${record.id}`);
               } else if (record.type === 'insurance_estimate') {
                 navigate(`/insurance-estimate/${record.id}`);
               } else if (record.type === 'plumber_report') {

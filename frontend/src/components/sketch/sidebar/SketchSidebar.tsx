@@ -3,7 +3,7 @@ import { Card, List, Button, Space, Typography, Divider, Collapse, message } fro
 import { PlusOutlined, EditOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons';
 import { useSketchContext } from '../context/SketchProvider';
 import FixtureSelector from '../ui/FixtureSelector';
-import { FixtureVariant, Dimensions, WallFixtureCategory, RoomFixtureCategory, DoorType, WindowType, CabinetType, VanityType, ApplianceType } from '../../../types/sketch';
+import { FixtureVariant, Dimensions, WallFixtureCategory, RoomFixtureCategory, DoorType, WindowType, CabinetType, BathroomType } from '../../../types/sketch';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
@@ -42,12 +42,21 @@ const SketchSidebar: React.FC<SketchSidebarProps> = ({
   }, []);
 
   const handleFixtureSelect = useCallback((variant: FixtureVariant, dimensions: Dimensions) => {
+    console.log('🎨 FixtureSelector - Fixture selected:', {
+      name: variant.name,
+      category: variant.category,
+      type: variant.type,
+      dimensions
+    });
+
     // Determine placement mode based on fixture category
     if (variant.category === 'door' || variant.category === 'window') {
+      console.log('   → Setting Wall placement mode');
       setFixturePlacement(variant, dimensions, 'wall');
       setCurrentTool('fixture');
       message.info('Click on a wall to place the ' + variant.name);
     } else {
+      console.log('   → Setting Room placement mode');
       setFixturePlacement(variant, dimensions, 'room');
       setCurrentTool('fixture');
       message.info('Click in a room to place the ' + variant.name);
@@ -185,7 +194,7 @@ const SketchSidebar: React.FC<SketchSidebarProps> = ({
                     >
                       <List.Item.Meta
                         title={fixture.category || 'Unknown'}
-                        description={`${fixture.dimensions.width}' × ${fixture.dimensions.height}'`}
+                        description={`${Math.floor(fixture.dimensions.width)}' ${Math.round((fixture.dimensions.width % 1) * 12)}" × ${Math.floor(fixture.dimensions.height)}' ${Math.round((fixture.dimensions.height % 1) * 12)}"`}
                       />
                     </List.Item>
                   )}
@@ -207,7 +216,7 @@ const SketchSidebar: React.FC<SketchSidebarProps> = ({
                 }
               </Text>
               <Text type="secondary">
-                Size: {fixtureDimensions?.width}' × {fixtureDimensions?.height}'
+                Size: {fixtureDimensions && `${Math.floor(fixtureDimensions.width / 12)}' ${fixtureDimensions.width % 12}" × ${Math.floor(fixtureDimensions.height / 12)}' ${fixtureDimensions.height % 12}"`}
               </Text>
               <Button size="small" block onClick={cancelFixturePlacement}>
                 Cancel Placement

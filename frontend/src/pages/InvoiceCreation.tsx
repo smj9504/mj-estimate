@@ -26,6 +26,7 @@ import {
   EyeOutlined,
   EditOutlined,
   HolderOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -62,9 +63,19 @@ import {
   Tag,
   Badge,
 } from 'antd';
+import { receiptService } from '../services/receiptService';
+import type { ReceiptTemplate } from '../types/receipt';
 
 const { Title } = Typography;
 const { TextArea } = Input;
+
+// Format number with thousand separators
+const formatCurrency = (value: number): string => {
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
 
 interface InvoiceItem {
   id?: string;
@@ -78,6 +89,7 @@ interface InvoiceItem {
   primary_group?: string;
   secondary_group?: string;
   sort_order?: number;
+  note?: string;  // Rich text note for item-specific notes
 }
 
 interface PaymentRecord {
@@ -85,6 +97,9 @@ interface PaymentRecord {
   date?: dayjs.Dayjs | null;
   method?: string;
   reference?: string;
+  top_note?: string;
+  bottom_note?: string;
+  receipt_number?: string;  // Track if receipt was generated for this payment
 }
 
 const InvoiceCreation: React.FC = () => {
@@ -119,8 +134,17 @@ const InvoiceCreation: React.FC = () => {
   const [paymentForm] = Form.useForm();
   const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null);
   const [editingPaymentIndex, setEditingPaymentIndex] = useState<number | null>(null);
-  const [useCustomCompany, setUseCustomCompany] = useState(false);
+  const [useCustomClient, setUseCustomClient] = useState(true); // Default to manual input
+  const [selectedClient, setSelectedClient] = useState<Company | null>(null);
   const [opPercent, setOpPercent] = useState(0);
+
+  // Receipt generation state
+  const [receiptTemplates, setReceiptTemplates] = useState<ReceiptTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();
+  const [receiptDate, setReceiptDate] = useState<dayjs.Dayjs | null>(null);
+  const [receiptTopNote, setReceiptTopNote] = useState<string>('');
+  const [receiptBottomNote, setReceiptBottomNote] = useState<string>('');
+  const [generatingReceipt, setGeneratingReceipt] = useState(false);
 
   // Section editing state
   const [sectionEditModalVisible, setSectionEditModalVisible] = useState(false);
@@ -243,6 +267,22 @@ const InvoiceCreation: React.FC = () => {
     }
   }, [isEditMode]);
 
+  const loadReceiptTemplates = useCallback(async (companyId: string) => {
+    try {
+      const templates = await receiptService.getTemplates(companyId);
+      setReceiptTemplates(templates);
+      // Set default template if available
+      const defaultTemplate = templates.find(t => t.is_default);
+      if (defaultTemplate) {
+        setSelectedTemplateId(defaultTemplate.id);
+        setReceiptTopNote(defaultTemplate.top_note || '');
+        setReceiptBottomNote(defaultTemplate.bottom_note || '');
+      }
+    } catch (error) {
+      console.error('Failed to load receipt templates:', error);
+    }
+  }, []);
+
   const [invoiceData, setInvoiceData] = useState<any>(null);
 
   const loadInvoice = useCallback(async () => {
@@ -277,6 +317,7 @@ const InvoiceCreation: React.FC = () => {
           primary_group: item.primary_group,
           secondary_group: item.secondary_group,
           sort_order: item.sort_order,
+          note: item.note,
         }));
         console.log('Processed items:', processedItems);
 
@@ -338,6 +379,15 @@ const InvoiceCreation: React.FC = () => {
       if (data.insurance_company || data.insurance_policy_number || data.insurance_claim_number || data.insurance_deductible) {
         setShowInsurance(true);
       }
+
+      // Check if client is a registered company
+      if (data.client_company_id) {
+        const clientCompany = companies.find(c => c.id === data.client_company_id);
+        if (clientCompany) {
+          setSelectedClient(clientCompany);
+          setUseCustomClient(false);
+        }
+      }
       
       // Set payments
       if (data.payments && data.payments.length > 0) {
@@ -345,7 +395,10 @@ const InvoiceCreation: React.FC = () => {
           amount: payment.amount || 0,
           date: payment.date ? dayjs(payment.date) : null,
           method: payment.method || '',
-          reference: payment.reference || ''
+          reference: payment.reference || '',
+          top_note: payment.top_note || '',
+          bottom_note: payment.bottom_note || '',
+          receipt_number: payment.receipt_number || undefined
         }));
         setPayments(processedPayments);
       }
@@ -360,22 +413,7 @@ const InvoiceCreation: React.FC = () => {
         setOpPercent(data.op_percent || 0);
       }
       
-      // Set up company info - will be handled separately when companies load
-      if (data.company_id && !data.company_name) {
-        // Will set company when companies are loaded
-      } else if (data.company_name) {
-        setUseCustomCompany(true);
-        // Set custom company form values
-        form.setFieldsValue({
-          company_name: data.company_name,
-          company_address: data.company_address,
-          company_city: data.company_city,
-          company_state: data.company_state,
-          company_zipcode: data.company_zipcode,
-          company_phone: data.company_phone,
-          company_email: data.company_email,
-        });
-      }
+      // Company info will be set when companies are loaded (see useEffect below)
     } catch (error: any) {
       console.error('Failed to load invoice:', error);
       console.error('Error details:', error.response?.data || error.message);
@@ -569,7 +607,6 @@ const InvoiceCreation: React.FC = () => {
     setSpecificTaxAmount(0);
     setOpPercent(0);
     setSelectedCompany(null);
-    setUseCustomCompany(false);
     setLoading(false);
 
     // Reset form
@@ -614,16 +651,12 @@ const InvoiceCreation: React.FC = () => {
           company_email: company.email,
         });
       }
-    } else if (isEditMode && invoiceData && invoiceData.company_name && !invoiceData.company_id) {
-      // Handle case where custom company data exists in edit mode
-      setUseCustomCompany(true);
-      form.setFieldValue('company_selection', 'custom');
     }
   }, [isEditMode, invoiceData, companies, form]);
 
   // Set default company form values after Form is rendered and companies are loaded
   useEffect(() => {
-    if (companies.length > 0 && selectedCompany && !isEditMode && !useCustomCompany) {
+    if (companies.length > 0 && selectedCompany && !isEditMode) {
       form.setFieldsValue({
         company_name: selectedCompany.name,
         company_address: selectedCompany.address,
@@ -634,7 +667,7 @@ const InvoiceCreation: React.FC = () => {
         company_email: selectedCompany.email,
       });
     }
-  }, [form, companies, selectedCompany, isEditMode, useCustomCompany]);
+  }, [form, companies, selectedCompany, isEditMode]);
 
   // Set invoice form values after Form is rendered and invoice data is loaded
   useEffect(() => {
@@ -670,7 +703,7 @@ const InvoiceCreation: React.FC = () => {
 
   // Set company form values when company selection changes
   useEffect(() => {
-    if (selectedCompany && !useCustomCompany) {
+    if (selectedCompany) {
       form.setFieldsValue({
         company_name: selectedCompany.name,
         company_address: selectedCompany.address,
@@ -680,64 +713,39 @@ const InvoiceCreation: React.FC = () => {
         company_phone: selectedCompany.phone,
         company_email: selectedCompany.email,
       });
-    } else if (useCustomCompany) {
-      form.setFieldsValue({
-        company_name: '',
-        company_address: '',
-        company_city: '',
-        company_state: '',
-        company_zipcode: '',
-        company_phone: '',
-        company_email: '',
-      });
     }
-  }, [form, selectedCompany, useCustomCompany]);
+  }, [form, selectedCompany]);
 
   // Set formMounted to true after component mounts
   useEffect(() => {
     setFormMounted(true);
   }, []);
 
-  const handleCompanyChange = async (companyId: string) => {
-    if (companyId === 'custom') {
-      setUseCustomCompany(true);
-      setSelectedCompany(null);
-      // Set form value to indicate custom company is selected
-      form.setFieldValue('company_selection', 'custom');
+  // Load receipt templates when company is selected
+  useEffect(() => {
+    if (selectedCompany?.id) {
+      loadReceiptTemplates(selectedCompany.id);
+    }
+  }, [selectedCompany, loadReceiptTemplates]);
 
-      // Generate invoice number for custom company too (only in create mode)
+  const handleCompanyChange = async (companyId: string) => {
+    const company = companies.find(c => c.id === companyId);
+    if (company) {
+      setSelectedCompany(company);
+      // Set form value to the selected company ID
+      form.setFieldValue('company_selection', companyId);
+
+      // Generate new invoice number based on selected company (only in create mode)
       if (!isEditMode) {
         try {
-          const newInvoiceNumber = await invoiceService.generateInvoiceNumber();
+          const newInvoiceNumber = await invoiceService.generateInvoiceNumber(company.id);
           form.setFieldsValue({ invoice_number: newInvoiceNumber });
-          console.log('Generated new invoice number for custom company:', newInvoiceNumber);
+          console.log('Generated new invoice number:', newInvoiceNumber);
         } catch (error) {
           console.error('Failed to generate invoice number:', error);
           // Fallback to default number if API fails
           const fallbackNumber = `INV-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
           form.setFieldsValue({ invoice_number: fallbackNumber });
-        }
-      }
-    } else {
-      setUseCustomCompany(false);
-      const company = companies.find(c => c.id === companyId);
-      if (company) {
-        setSelectedCompany(company);
-        // Set form value to the selected company ID
-        form.setFieldValue('company_selection', companyId);
-
-        // Generate new invoice number based on selected company (only in create mode)
-        if (!isEditMode) {
-          try {
-            const newInvoiceNumber = await invoiceService.generateInvoiceNumber(company.id);
-            form.setFieldsValue({ invoice_number: newInvoiceNumber });
-            console.log('Generated new invoice number:', newInvoiceNumber);
-          } catch (error) {
-            console.error('Failed to generate invoice number:', error);
-            // Fallback to default number if API fails
-            const fallbackNumber = `INV-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
-            form.setFieldsValue({ invoice_number: fallbackNumber });
-          }
         }
       }
     }
@@ -798,6 +806,7 @@ const InvoiceCreation: React.FC = () => {
         ...values,
         name: values.name.toString().trim(),
         description: values.description ? values.description.toString().trim() : '',
+        note: values.note || '',
         quantity: Number(values.quantity),
         rate: Number(values.rate),
         amount: Number(values.quantity) * Number(values.rate),
@@ -887,6 +896,9 @@ const InvoiceCreation: React.FC = () => {
         date: values.date || null,
         method: values.method || '',
         reference: values.reference || '',
+        top_note: values.top_note || '',
+        bottom_note: values.bottom_note || '',
+        receipt_number: editingPayment?.receipt_number,  // Preserve existing receipt number
       };
 
       if (editingPaymentIndex !== null) {
@@ -967,52 +979,24 @@ const InvoiceCreation: React.FC = () => {
       setLoading(true);
 
       // Validate company information
-      if (!selectedCompany && !useCustomCompany) {
-        message.error('Please select a company or choose to enter custom company information');
-        setLoading(false);
-        return;
-      }
-      
-      let companyName = values.company_name;
-      if (!useCustomCompany && selectedCompany) {
-        companyName = selectedCompany.name;
-      }
-      
-      if (!companyName && useCustomCompany) {
-        message.error('Please enter company name for custom company');
+      if (!selectedCompany) {
+        message.error('Please select a company');
         setLoading(false);
         return;
       }
 
       const totals = calculateTotals();
-      
-      // Prepare invoice data based on company type
+
+      // Prepare invoice data
       const invoiceData: any = {
         invoice_number: values.invoice_number,
         date: values.date ? values.date.format('MM-DD-YYYY') : dayjs().format('MM-DD-YYYY'),
         due_date: values.due_date ? values.due_date.format('MM-DD-YYYY') : dayjs().add(30, 'days').format('MM-DD-YYYY'),
         status,
+        company_id: selectedCompany.id, // Always use company_id from selected company
       };
       
-      // Add company info based on type
-      if (!useCustomCompany && selectedCompany) {
-        // Using saved company - send company_id
-        invoiceData.company_id = selectedCompany.id;
-      } else {
-        // Using custom company - send full company info
-        invoiceData.company = {
-          name: values.company_name || '',
-          address: values.company_address || '',
-          city: values.company_city || '',
-          state: values.company_state || '',
-          zipcode: values.company_zipcode || '',
-          phone: values.company_phone || '',
-          email: values.company_email || '',
-          logo: '',
-        };
-      }
-      
-      // Add rest of the data
+      // Add client info (always from form fields, which are auto-filled if company selected)
       invoiceData.client = {
         name: values.client_name,
         address: values.client_address,
@@ -1022,6 +1006,11 @@ const InvoiceCreation: React.FC = () => {
         phone: values.client_phone,
         email: values.client_email,
       };
+
+      // Optionally store client_company_id if client was selected from registered companies
+      if (!useCustomClient && selectedClient) {
+        invoiceData.client_company_id = selectedClient.id;
+      }
       
       invoiceData.insurance = showInsurance ? {
         company: values.insurance_company,
@@ -1048,7 +1037,10 @@ const InvoiceCreation: React.FC = () => {
         amount: payment.amount,
         date: payment.date ? payment.date.format('MM-DD-YYYY') : null,
         method: payment.method,
-        reference: payment.reference
+        reference: payment.reference,
+        top_note: payment.top_note,
+        bottom_note: payment.bottom_note,
+        receipt_number: payment.receipt_number
       }));
       invoiceData.show_payment_dates = showPaymentDates;
       invoiceData.balance_due = totals.balanceDue;
@@ -1083,19 +1075,8 @@ const InvoiceCreation: React.FC = () => {
       const values = await form.validateFields();
 
       // Validate company information
-      if (!selectedCompany && !useCustomCompany) {
-        message.error('Please select a company or choose to enter custom company information');
-        setLoading(false);
-        return;
-      }
-
-      let companyName = values.company_name;
-      if (!useCustomCompany && selectedCompany) {
-        companyName = selectedCompany.name;
-      }
-
-      if (!companyName && useCustomCompany) {
-        message.error('Please enter company name for custom company');
+      if (!selectedCompany) {
+        message.error('Please select a company');
         setLoading(false);
         return;
       }
@@ -1107,14 +1088,14 @@ const InvoiceCreation: React.FC = () => {
         date: values.date ? values.date.format('MM-DD-YYYY') : dayjs().format('MM-DD-YYYY'),
         due_date: values.due_date ? values.due_date.format('MM-DD-YYYY') : dayjs().add(30, 'days').format('MM-DD-YYYY'),
         company: {
-          name: companyName || '',
-          address: values.company_address || selectedCompany?.address || '',
-          city: values.company_city || selectedCompany?.city || '',
-          state: values.company_state || selectedCompany?.state || '',
-          zipcode: values.company_zipcode || selectedCompany?.zipcode || '',
-          phone: values.company_phone || selectedCompany?.phone || '',
-          email: values.company_email || selectedCompany?.email || '',
-          logo: selectedCompany?.logo || '',
+          name: selectedCompany.name,
+          address: selectedCompany.address || '',
+          city: selectedCompany.city || '',
+          state: selectedCompany.state || '',
+          zipcode: selectedCompany.zipcode || '',
+          phone: selectedCompany.phone || '',
+          email: selectedCompany.email || '',
+          logo: selectedCompany.logo || '',
         },
         client: {
           name: values.client_name,
@@ -1144,7 +1125,10 @@ const InvoiceCreation: React.FC = () => {
           amount: payment.amount,
           date: payment.date ? payment.date.format('MM-DD-YYYY') : null,
           method: payment.method,
-          reference: payment.reference
+          reference: payment.reference,
+          top_note: payment.top_note,
+          bottom_note: payment.bottom_note,
+          receipt_number: payment.receipt_number
         })),
         show_payment_dates: showPaymentDates,
         balance_due: totals.balanceDue,
@@ -1161,6 +1145,246 @@ const InvoiceCreation: React.FC = () => {
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGenerateReceiptPDF = async () => {
+    if (!isEditMode || !id) {
+      message.error('Please save the invoice first before generating a receipt');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const blob = await invoiceService.generateReceiptPDF(id);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `receipt_${invoiceData?.invoice_number || id}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      message.success('Receipt PDF generated successfully');
+
+      // Reload invoice data to update receipt indicator
+      if (id) {
+        const updatedInvoice = await invoiceService.getInvoice(id);
+        setInvoiceData(updatedInvoice);
+      }
+    } catch (error) {
+      message.error('Failed to generate receipt PDF');
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Generate receipt for a specific payment
+  const handleGeneratePaymentReceipt = async (paymentIndex: number) => {
+    if (!isEditMode || !id) {
+      message.error('Please save the invoice first before generating a receipt');
+      return;
+    }
+
+    const payment = payments[paymentIndex];
+    if (!payment || payment.amount <= 0) {
+      message.error('Invalid payment amount');
+      return;
+    }
+
+    try {
+      setGeneratingReceipt(true);
+
+      let receipt;
+
+      // Check if receipt already exists for this payment (Regenerate case)
+      if (payment.receipt_number) {
+        console.log('Regenerating receipt with receipt_number:', payment.receipt_number);
+
+        // Get receipts for this invoice and find the one with matching receipt_number
+        const receipts = await receiptService.getReceiptsByInvoice(id);
+        const existingReceipt = receipts.find(r => r.receipt_number === payment.receipt_number);
+
+        if (existingReceipt) {
+          // Update existing receipt with latest payment data
+          const updateData = {
+            receipt_date: payment.date ? payment.date.format('YYYY-MM-DD') : undefined,
+            payment_amount: payment.amount,
+            payment_method: payment.method || undefined,
+            payment_reference: payment.reference || undefined,
+            top_note: payment.top_note || undefined,
+            bottom_note: payment.bottom_note || undefined,
+          };
+
+          receipt = await receiptService.updateReceipt(existingReceipt.id, updateData);
+          message.success('Receipt updated successfully!');
+        }
+      }
+
+      // If no existing receipt found, generate new receipt
+      if (!receipt) {
+        const receiptData = {
+          invoice_id: id,
+          template_id: selectedTemplateId || undefined,
+          receipt_date: payment.date ? payment.date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+          payment_amount: payment.amount,
+          payment_method: payment.method || undefined,
+          payment_reference: payment.reference || undefined,
+          receipt_number: payment.receipt_number || undefined,  // Use existing receipt_number if available
+          top_note: payment.top_note || undefined,
+          bottom_note: payment.bottom_note || undefined,
+        };
+
+        receipt = await receiptService.generateReceipt(receiptData);
+        message.success('Receipt generated successfully!');
+
+        // Update payment with receipt number
+        const updatedPayments = [...payments];
+        updatedPayments[paymentIndex] = {
+          ...payment,
+          receipt_number: receipt.receipt_number
+        };
+        setPayments(updatedPayments);
+
+        // Save the updated payments to invoice
+        if (id) {
+          try {
+            const paymentsToSave = updatedPayments.map(p => ({
+              amount: p.amount,
+              date: p.date?.format('YYYY-MM-DD') || null,
+              method: p.method,
+              reference: p.reference,
+              top_note: p.top_note,
+              bottom_note: p.bottom_note,
+              receipt_number: p.receipt_number
+            }));
+
+            console.log('Saving payments to invoice:', paymentsToSave);
+
+            await invoiceService.updateInvoice(id, {
+              payments: paymentsToSave
+            });
+
+            console.log('Successfully saved receipt number to invoice');
+          } catch (updateError: any) {
+            console.error('Failed to save receipt number to invoice:', updateError);
+            console.error('Error details:', updateError.response?.data || updateError.message);
+            message.warning('Receipt generated but failed to update invoice. Please refresh the page.');
+          }
+        }
+      }
+
+      // Generate and open PDF
+      const pdfBlob = await receiptService.generateReceiptPDF(receipt.id);
+      const url = window.URL.createObjectURL(pdfBlob);
+      window.open(url, '_blank');
+
+    } catch (error: any) {
+      message.error(`Failed to generate receipt: ${error.response?.data?.detail || error.message}`);
+      console.error('Receipt generation error:', error);
+    } finally {
+      setGeneratingReceipt(false);
+    }
+  };
+
+  // Preview receipt for a specific payment (without saving)
+  const handlePreviewPaymentReceipt = async (paymentIndex: number) => {
+    if (!isEditMode || !id) {
+      message.error('Please save the invoice first before previewing a receipt');
+      return;
+    }
+
+    const payment = payments[paymentIndex];
+    if (!payment || payment.amount <= 0) {
+      message.error('Invalid payment amount');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Get invoice data
+      const invoiceData = await invoiceService.getInvoice(id);
+
+      // Create preview data structure similar to invoice preview
+      // Keep all payments from invoiceData for payment history table
+      const receiptPreviewData = {
+        ...invoiceData,
+        receipt_number: payment.receipt_number || `PREVIEW-${Date.now()}`,
+        receipt_date: payment.date ? payment.date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+        payment_amount: payment.amount,
+        payment_method: payment.method,
+        payment_reference: payment.reference,
+        top_note: payment.top_note,
+        bottom_note: payment.bottom_note,
+        // Keep all payments from invoice for payment history display
+      };
+
+      // Use receipt HTML preview service
+      const htmlContent = await receiptService.previewHTML(receiptPreviewData);
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+
+    } catch (error: any) {
+      message.error(`Failed to preview receipt: ${error.response?.data?.detail || error.message}`);
+      console.error('Receipt preview error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerateReceipt = async () => {
+    if (!isEditMode || !id) {
+      message.error('Please save the invoice first before generating a receipt');
+      return;
+    }
+
+    if (!receiptDate) {
+      message.error('Please select a receipt date');
+      return;
+    }
+
+    if (totals.totalPaid <= 0) {
+      message.error('Payment amount must be greater than 0');
+      return;
+    }
+
+    const receiptData = {
+      invoice_id: id,
+      template_id: selectedTemplateId || undefined,
+      receipt_date: receiptDate.format('YYYY-MM-DD'),
+      payment_amount: totals.totalPaid,
+      top_note: receiptTopNote || undefined,
+      bottom_note: receiptBottomNote || undefined,
+    };
+
+    try {
+      setGeneratingReceipt(true);
+
+      const receipt = await receiptService.generateReceipt(receiptData);
+      message.success('Receipt generated successfully!');
+
+      // Open receipt PDF in new tab
+      const pdfUrl = receiptService.getReceiptPdfUrl(receipt.id);
+      window.open(pdfUrl, '_blank');
+
+      // Reload invoice data
+      if (id) {
+        const updatedInvoice = await invoiceService.getInvoice(id);
+        setInvoiceData(updatedInvoice);
+      }
+    } catch (error: any) {
+      console.error('Failed to generate receipt:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Receipt data sent:', receiptData);
+      const errorDetail = error.response?.data?.detail;
+      const errorMsg = typeof errorDetail === 'string'
+        ? errorDetail
+        : JSON.stringify(errorDetail) || error.message;
+      message.error(`Failed to generate receipt: ${errorMsg}`);
+    } finally {
+      setGeneratingReceipt(false);
     }
   };
 
@@ -1183,6 +1407,18 @@ const InvoiceCreation: React.FC = () => {
       ellipsis: true,
     },
     {
+      title: 'Note',
+      dataIndex: 'note',
+      key: 'note',
+      ellipsis: true,
+      render: (text: string) => {
+        if (!text) return '-';
+        // Strip HTML tags for table display
+        const stripped = text.replace(/<[^>]*>/g, '');
+        return <Tooltip title={stripped}>{stripped}</Tooltip>;
+      },
+    },
+    {
       title: 'Qty',
       dataIndex: 'quantity',
       key: 'quantity',
@@ -1202,14 +1438,14 @@ const InvoiceCreation: React.FC = () => {
       key: 'rate',
       width: 100,
       align: 'right' as const,
-      render: (value: number) => `$${value.toFixed(2)}`,
+      render: (value: number) => `$${formatCurrency(value)}`,
     },
     {
       title: 'Amount',
       key: 'amount',
       width: 120,
       align: 'right' as const,
-      render: (_: any, record: InvoiceItem) => `$${(record.quantity * record.rate).toFixed(2)}`,
+      render: (_: any, record: InvoiceItem) => `$${formatCurrency(record.quantity * record.rate)}`,
     },
     ...(taxMethod === 'percentage' ? [{
       title: (
@@ -1266,13 +1502,35 @@ const InvoiceCreation: React.FC = () => {
   ];
 
   const totals = useMemo(() => calculateTotals(), [calculateTotals]);
-  
+
+  // Set default receipt date to most recent payment date or today when receipt section is visible
+  useEffect(() => {
+    // Only set if receipt date is not already set and balance is paid (within rounding tolerance)
+    if (Math.abs(totals.balanceDue) < 0.01 && !receiptDate) {
+      // Find the most recent payment date
+      const sortedPayments = [...payments]
+        .filter(p => p.date)
+        .sort((a, b) => {
+          if (!a.date || !b.date) return 0;
+          return b.date.valueOf() - a.date.valueOf();
+        });
+
+      if (sortedPayments.length > 0 && sortedPayments[0].date) {
+        // Use most recent payment date
+        setReceiptDate(sortedPayments[0].date);
+      } else {
+        // Use today's date if no payment dates
+        setReceiptDate(dayjs());
+      }
+    }
+  }, [totals.balanceDue, payments, receiptDate]);
+
   // Safe form values for rendering
   const safeFormValues = useMemo(() => {
     if (!formMounted) {
       return { discount: 0, taxRate: 0 };
     }
-    
+
     try {
       const values = form.getFieldsValue(['discount', 'tax_rate']);
       return {
@@ -1322,35 +1580,21 @@ const InvoiceCreation: React.FC = () => {
           {/* Invoice Details */}
           <Col xs={24}>
             <Card title="Invoice Details" style={{ marginBottom: 24 }}>
-              <Form.Item 
-                label="Select Company" 
+              <Form.Item
+                label="Select Company"
                 style={{ marginBottom: 16 }}
                 name="company_selection"
-                rules={[{ required: true, message: 'Please select a company or choose custom company' }]}
+                rules={[{ required: true, message: 'Please select a company' }]}
               >
                 <Select
-                  value={useCustomCompany ? 'custom' : selectedCompany?.id || undefined}
+                  value={selectedCompany?.id || undefined}
                   onChange={handleCompanyChange}
                   placeholder="Select company"
-                  options={[
-                    ...companies.map(company => ({
-                      key: company.id,
-                      value: company.id,
-                      label: company.name
-                    })),
-                    {
-                      value: 'custom',
-                      label: (
-                        <>
-                          <Divider style={{ margin: '4px 0' }} />
-                          <Space>
-                            <EditOutlined />
-                            <span>Enter Custom Company</span>
-                          </Space>
-                        </>
-                      )
-                    }
-                  ]}
+                  options={companies.map(company => ({
+                    key: company.id,
+                    value: company.id,
+                    label: company.name
+                  }))}
                 />
               </Form.Item>
               
@@ -1364,7 +1608,7 @@ const InvoiceCreation: React.FC = () => {
                     <Input
                       prefix="#"
                       placeholder={isEditMode ? "Invoice number" : "Select company to generate number"}
-                      readOnly={!isEditMode && !selectedCompany && !useCustomCompany}
+                      readOnly={!isEditMode && !selectedCompany}
                     />
                   </Form.Item>
                 </Col>
@@ -1387,100 +1631,174 @@ const InvoiceCreation: React.FC = () => {
                   </Form.Item>
                 </Col>
               </Row>
-              
-              {useCustomCompany && (
-                <>
-                  <Divider orientation="left" style={{ margin: '16px 0' }}>Custom Company Information</Divider>
-                  <Row gutter={16}>
-                    <Col xs={24} md={12}>
-                      <Form.Item name="company_name" label="Company Name" rules={[{ required: true }]}>
-                        <Input placeholder="Enter company name" />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={12}>
-                      <Form.Item name="company_email" label="Company Email">
-                        <Input type="email" placeholder="Enter email" />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={12}>
-                      <Form.Item name="company_phone" label="Company Phone">
-                        <Input placeholder="Enter phone" />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={12}>
-                      <Form.Item name="company_address" label="Company Address">
-                        <Input placeholder="Enter address" />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item name="company_city" label="City">
-                        <Input placeholder="City" />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item name="company_state" label="State">
-                        <Input placeholder="State" />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item name="company_zipcode" label="ZIP">
-                        <Input placeholder="ZIP" />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                </>
-              )}
             </Card>
           </Col>
 
 
           {/* Client Information */}
           <Col xs={24}>
-            <Card title="Client Information" style={{ marginBottom: 24 }}>
-              <Row gutter={16}>
-                {/* Client Name, Email, Phone in one row */}
-                <Col xs={24} md={8}>
-                  <Form.Item
-                    name="client_name"
-                    label="Client Name"
-                    rules={[{ required: true, message: 'Please enter client name' }]}
-                  >
-                    <Input />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={8}>
-                  <Form.Item name="client_email" label="Email">
-                    <Input type="email" />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={8}>
-                  <Form.Item name="client_phone" label="Phone">
-                    <Input />
-                  </Form.Item>
-                </Col>
+            <Card
+              title={
+                <Space>
+                  <span>Client Information</span>
+                  <Switch
+                    size="small"
+                    checked={useCustomClient}
+                    onChange={(checked) => {
+                      setUseCustomClient(checked);
+                      if (!checked) {
+                        // Clear manual input fields when switching to company selection
+                        form.setFieldsValue({
+                          client_name: '',
+                          client_email: '',
+                          client_phone: '',
+                          client_address: '',
+                          client_city: '',
+                          client_state: '',
+                          client_zipcode: '',
+                        });
+                      } else {
+                        // Clear selected client
+                        setSelectedClient(null);
+                      }
+                    }}
+                    checkedChildren="Manual Input"
+                    unCheckedChildren="Select Company"
+                  />
+                </Space>
+              }
+              style={{ marginBottom: 24 }}
+            >
+              {!useCustomClient ? (
+                // Company Selection Mode
+                <Row gutter={16}>
+                  <Col xs={24}>
+                    <Form.Item
+                      label="Select Client Company"
+                      rules={[{ required: true, message: 'Please select a client company' }]}
+                    >
+                      <Select
+                        showSearch
+                        placeholder="Select a registered company"
+                        optionFilterProp="children"
+                        value={selectedClient?.id}
+                        onChange={(value) => {
+                          const company = companies.find(c => c.id === value);
+                          if (company) {
+                            setSelectedClient(company);
+                            // Auto-fill client fields
+                            form.setFieldsValue({
+                              client_name: company.name,
+                              client_email: company.email || '',
+                              client_phone: company.phone || '',
+                              client_address: company.address || '',
+                              client_city: company.city || '',
+                              client_state: company.state || '',
+                              client_zipcode: company.zipcode || '',
+                            });
+                          }
+                        }}
+                        filterOption={(input, option) => {
+                          const children = option?.children as unknown;
+                          if (typeof children === 'string') {
+                            return (children as string).toLowerCase().includes(input.toLowerCase());
+                          }
+                          return false;
+                        }}
+                      >
+                        {companies.map(company => (
+                          <Select.Option key={company.id} value={company.id}>
+                            {company.name}
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                  </Col>
+                  {/* Display selected company info */}
+                  {selectedClient && (
+                    <Col xs={24}>
+                      <div style={{
+                        padding: '16px',
+                        background: '#f5f5f5',
+                        borderRadius: '4px',
+                        marginBottom: '16px'
+                      }}>
+                        <Row gutter={[16, 8]}>
+                          <Col xs={24}>
+                            <strong>{selectedClient.name}</strong>
+                          </Col>
+                          {selectedClient.email && (
+                            <Col xs={24} md={12}>
+                              <span style={{ color: '#666' }}>Email: {selectedClient.email}</span>
+                            </Col>
+                          )}
+                          {selectedClient.phone && (
+                            <Col xs={24} md={12}>
+                              <span style={{ color: '#666' }}>Phone: {selectedClient.phone}</span>
+                            </Col>
+                          )}
+                          {selectedClient.address && (
+                            <Col xs={24}>
+                              <span style={{ color: '#666' }}>
+                                {selectedClient.address}
+                                {selectedClient.city && `, ${selectedClient.city}`}
+                                {selectedClient.state && `, ${selectedClient.state}`}
+                                {selectedClient.zipcode && ` ${selectedClient.zipcode}`}
+                              </span>
+                            </Col>
+                          )}
+                        </Row>
+                      </div>
+                    </Col>
+                  )}
+                </Row>
+              ) : (
+                // Manual Input Mode
+                <Row gutter={16}>
+                  {/* Client Name, Email, Phone in one row */}
+                  <Col xs={24} md={8}>
+                    <Form.Item
+                      name="client_name"
+                      label="Client Name"
+                      rules={[{ required: true, message: 'Please enter client name' }]}
+                    >
+                      <Input />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item name="client_email" label="Email">
+                      <Input type="email" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Form.Item name="client_phone" label="Phone">
+                      <Input />
+                    </Form.Item>
+                  </Col>
 
-                {/* Address, City, State, Zip in one row */}
-                <Col xs={24} md={12}>
-                  <Form.Item name="client_address" label="Address">
-                    <Input />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={6}>
-                  <Form.Item name="client_city" label="City">
-                    <Input />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={3}>
-                  <Form.Item name="client_state" label="State">
-                    <Input />
-                  </Form.Item>
-                </Col>
-                <Col xs={24} md={3}>
-                  <Form.Item name="client_zipcode" label="ZIP">
-                    <Input />
-                  </Form.Item>
-                </Col>
-              </Row>
+                  {/* Address, City, State, Zip in one row */}
+                  <Col xs={24} md={12}>
+                    <Form.Item name="client_address" label="Address">
+                      <Input />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={6}>
+                    <Form.Item name="client_city" label="City">
+                      <Input />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={3}>
+                    <Form.Item name="client_state" label="State">
+                      <Input />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={3}>
+                    <Form.Item name="client_zipcode" label="ZIP">
+                      <Input />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              )}
             </Card>
           </Col>
 
@@ -1575,7 +1893,7 @@ const InvoiceCreation: React.FC = () => {
                         <span style={{ fontWeight: 'bold' }}>{section.title}</span>
                         <Badge count={section.items.length} showZero color="#108ee9" />
                         {section.showSubtotal && (
-                          <Tag color="blue">${section.subtotal.toFixed(2)}</Tag>
+                          <Tag color="blue">${formatCurrency(section.subtotal)}</Tag>
                         )}
                       </Space>
                       <Space onClick={(e) => e.stopPropagation()}>
@@ -1680,14 +1998,14 @@ const InvoiceCreation: React.FC = () => {
                               key: 'rate',
                               width: 100,
                               align: 'right' as const,
-                              render: (value) => `$${value?.toFixed(2) || '0.00'}`,
+                              render: (value) => `$${formatCurrency(value || 0)}`,
                             },
                             {
                               title: 'Amount',
                               key: 'amount',
                               width: 100,
                               align: 'right' as const,
-                              render: (_: any, record: InvoiceItem) => `$${((record.quantity || 0) * (record.rate || 0)).toFixed(2)}`,
+                              render: (_: any, record: InvoiceItem) => `$${formatCurrency((record.quantity || 0) * (record.rate || 0))}`,
                             },
                             ...(taxMethod === 'percentage' ? [{
                               title: (
@@ -1750,6 +2068,7 @@ const InvoiceCreation: React.FC = () => {
                                         itemForm.setFieldsValue({
                                           name: record.name,
                                           description: record.description,
+                                          note: record.note || '',
                                           quantity: record.quantity,
                                           unit: record.unit,
                                           rate: record.rate,
@@ -1820,7 +2139,7 @@ const InvoiceCreation: React.FC = () => {
                           <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
                           <span style={{ fontWeight: '600' }}>{section.title}</span>
                           <Badge count={section.items.length} showZero color="#108ee9" />
-                          <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${section.subtotal.toFixed(2)}</span>
+                          <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${formatCurrency(section.subtotal)}</span>
                         </div>
                       );
                     }
@@ -1850,7 +2169,7 @@ const InvoiceCreation: React.FC = () => {
                             <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
                             <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
                             <span style={{ color: '#999' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
-                            <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${(item.amount || (item.quantity * item.rate) || 0).toFixed(2)}</span>
+                            <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${formatCurrency(item.amount || (item.quantity * item.rate) || 0)}</span>
                           </div>
                         );
                       }
@@ -1866,7 +2185,7 @@ const InvoiceCreation: React.FC = () => {
           <div style={{ marginTop: 16, padding: 16, background: '#f5f5f5', borderRadius: 4 }}>
             <Row justify="space-between" style={{ fontWeight: 'bold', fontSize: '16px' }}>
               <Col>Grand Total:</Col>
-              <Col>${totals.itemsSubtotal.toFixed(2)}</Col>
+              <Col>${formatCurrency(totals.itemsSubtotal)}</Col>
             </Row>
           </div>
         </Card>
@@ -2004,29 +2323,76 @@ const InvoiceCreation: React.FC = () => {
 
               <Space direction="vertical" style={{ width: '100%' }}>
                 {payments.map((payment, index) => (
-                  <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Space>
-                      {payment.date && (
-                        <span style={{ color: '#666' }}>{payment.date.format('MM/DD/YYYY')}</span>
-                      )}
-                      <span>${payment.amount.toFixed(2)}</span>
-                      {payment.method && <span>({payment.method})</span>}
-                    </Space>
-                    <Space>
-                      <Tooltip title="Edit">
+                  <div key={index} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', border: '1px solid #f0f0f0', borderRadius: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Space>
+                        {payment.date && (
+                          <span style={{ color: '#666' }}>{payment.date.format('MM/DD/YYYY')}</span>
+                        )}
+                        <span style={{ fontWeight: 'bold' }}>${formatCurrency(payment.amount)}</span>
+                        {payment.method && <span>({payment.method})</span>}
+                        {payment.receipt_number && (
+                          <span style={{ color: '#52c41a', fontSize: '12px' }}>
+                            <FileTextOutlined /> {payment.receipt_number}
+                          </span>
+                        )}
+                      </Space>
+                      <Space>
+                        <Tooltip title="Edit Payment">
+                          <Button
+                            size="small"
+                            icon={<EditOutlined />}
+                            onClick={() => handleEditPayment(payment, index)}
+                          />
+                        </Tooltip>
                         <Button
                           size="small"
-                          icon={<EditOutlined />}
-                          onClick={() => handleEditPayment(payment, index)}
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={() => handleDeletePayment(index)}
                         />
-                      </Tooltip>
-                      <Button
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={() => handleDeletePayment(index)}
-                      />
-                    </Space>
+                      </Space>
+                    </div>
+                    {isEditMode && (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <Tooltip title="Preview receipt before generating">
+                          <Button
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={() => handlePreviewPaymentReceipt(index)}
+                            disabled={loading || generatingReceipt}
+                          >
+                            Preview Receipt
+                          </Button>
+                        </Tooltip>
+                        {!payment.receipt_number ? (
+                          <Tooltip title="Generate and save receipt for this payment">
+                            <Button
+                              size="small"
+                              type="primary"
+                              icon={<FileTextOutlined />}
+                              onClick={() => handleGeneratePaymentReceipt(index)}
+                              disabled={loading || generatingReceipt}
+                              style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
+                            >
+                              Generate Receipt
+                            </Button>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip title="Receipt already generated">
+                            <Button
+                              size="small"
+                              type="default"
+                              icon={<FileTextOutlined />}
+                              onClick={() => handleGeneratePaymentReceipt(index)}
+                              disabled={loading || generatingReceipt}
+                            >
+                              Regenerate Receipt
+                            </Button>
+                          </Tooltip>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
                 <Button
@@ -2039,17 +2405,18 @@ const InvoiceCreation: React.FC = () => {
                 </Button>
               </Space>
 
+
               <Divider />
 
               <div style={{ fontSize: '16px' }}>
                 <Row justify="space-between" style={{ marginBottom: 8 }}>
                   <Col>Items Subtotal:</Col>
-                  <Col>${totals.itemsSubtotal.toFixed(2)}</Col>
+                  <Col>${formatCurrency(totals.itemsSubtotal)}</Col>
                 </Row>
                 {opPercent > 0 && (
                   <Row justify="space-between" style={{ marginBottom: 8 }}>
                     <Col>O&P ({opPercent}%):</Col>
-                    <Col>${totals.opAmount.toFixed(2)}</Col>
+                    <Col>${formatCurrency(totals.opAmount)}</Col>
                   </Row>
                 )}
                 {totals.taxAmount > 0 && (
@@ -2057,33 +2424,33 @@ const InvoiceCreation: React.FC = () => {
                     <Col>
                       Tax {taxMethod === 'percentage' ? `(${taxRate}%)` : ''}:
                     </Col>
-                    <Col>${totals.taxAmount.toFixed(2)}</Col>
+                    <Col>${formatCurrency(totals.taxAmount)}</Col>
                   </Row>
                 )}
                 <Row justify="space-between" style={{ marginBottom: 8 }}>
                   <Col>Subtotal:</Col>
-                  <Col>${totals.subtotal.toFixed(2)}</Col>
+                  <Col>${formatCurrency(totals.subtotal)}</Col>
                 </Row>
                 {totals.discount > 0 && (
                   <Row justify="space-between" style={{ marginBottom: 8 }}>
                     <Col>Discount:</Col>
-                    <Col>-${totals.discount.toFixed(2)}</Col>
+                    <Col>-${formatCurrency(totals.discount)}</Col>
                   </Row>
                 )}
                 <Divider />
                 <Row justify="space-between" style={{ fontWeight: 'bold', fontSize: '18px' }}>
                   <Col>Total:</Col>
-                  <Col>${totals.total.toFixed(2)}</Col>
+                  <Col>${formatCurrency(totals.total)}</Col>
                 </Row>
                 {totals.totalPaid > 0 && (
                   <>
                     <Row justify="space-between" style={{ marginTop: 8 }}>
                       <Col>Total Paid:</Col>
-                      <Col>${totals.totalPaid.toFixed(2)}</Col>
+                      <Col>${formatCurrency(totals.totalPaid)}</Col>
                     </Row>
                     <Row justify="space-between" style={{ fontWeight: 'bold', color: totals.balanceDue > 0 ? '#ff4d4f' : '#52c41a' }}>
                       <Col>Balance Due:</Col>
-                      <Col>${totals.balanceDue.toFixed(2)}</Col>
+                      <Col>${formatCurrency(totals.balanceDue)}</Col>
                     </Row>
                   </>
                 )}
@@ -2110,6 +2477,15 @@ const InvoiceCreation: React.FC = () => {
             >
               Preview PDF
             </Button>
+            {isEditMode && (
+              <Button
+                icon={<FileTextOutlined />}
+                onClick={handleGenerateReceiptPDF}
+                loading={loading}
+              >
+                Generate Receipt
+              </Button>
+            )}
             <Button
               onClick={() => navigate('/invoices')}
             >
@@ -2248,13 +2624,23 @@ const InvoiceCreation: React.FC = () => {
               minHeight={120}
             />
           </Form.Item>
+          <Form.Item
+            name="note"
+            label="Note"
+            tooltip="Additional notes or detailed description for this line item"
+          >
+            <RichTextEditor
+              placeholder="Add additional notes or detailed description for this item"
+              minHeight={120}
+            />
+          </Form.Item>
           <Form.Item dependencies={['quantity', 'rate']} noStyle>
             {({ getFieldValue }) => {
               const quantity = getFieldValue('quantity');
               const rate = getFieldValue('rate');
               return quantity && rate ? (
                 <div style={{ textAlign: 'right', fontSize: '16px', fontWeight: 'bold' }}>
-                  Total: ${(quantity * rate).toFixed(2)}
+                  Total: ${formatCurrency(quantity * rate)}
                 </div>
               ) : null;
             }}
@@ -2282,6 +2668,8 @@ const InvoiceCreation: React.FC = () => {
                 date: editingPayment.date,
                 method: editingPayment.method,
                 reference: editingPayment.reference,
+                top_note: editingPayment.top_note || '',
+                bottom_note: editingPayment.bottom_note || '',
               });
             } else {
               paymentForm.resetFields();
@@ -2290,6 +2678,8 @@ const InvoiceCreation: React.FC = () => {
                 date: null,
                 method: '',
                 reference: '',
+                top_note: '',
+                bottom_note: '',
               });
             }
           }
@@ -2304,6 +2694,8 @@ const InvoiceCreation: React.FC = () => {
             date: null,
             method: '',
             reference: '',
+            top_note: '',
+            bottom_note: '',
           }}
         >
           <Row gutter={16}>
@@ -2370,6 +2762,33 @@ const InvoiceCreation: React.FC = () => {
                 label="Reference/Check #"
               >
                 <Input placeholder="Optional" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Divider style={{ margin: '16px 0' }}>Receipt Notes (Optional)</Divider>
+
+          <Row gutter={16}>
+            <Col span={24}>
+              <Form.Item
+                name="top_note"
+                label="Top Note"
+              >
+                <Input.TextArea
+                  rows={2}
+                  placeholder="Optional note to appear at the top of receipt (if generated)"
+                />
+              </Form.Item>
+            </Col>
+            <Col span={24}>
+              <Form.Item
+                name="bottom_note"
+                label="Bottom Note"
+              >
+                <Input.TextArea
+                  rows={2}
+                  placeholder="Optional note to appear at the bottom of receipt (if generated)"
+                />
               </Form.Item>
             </Col>
           </Row>

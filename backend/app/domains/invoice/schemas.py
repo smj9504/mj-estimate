@@ -41,19 +41,26 @@ class InsuranceInfo(BaseModel):
 class PaymentRecord(BaseModel):
     """Payment record schema"""
     amount: float = Field(..., description="Payment amount")
-    date: str = Field(..., description="Payment date (YYYY-MM-DD)")
+    date: Optional[str] = Field(None, description="Payment date (YYYY-MM-DD, optional)")
     method: Optional[str] = Field(None, max_length=2, description="Payment method code (2 chars)")
     reference: Optional[str] = Field(None, description="Payment reference/memo")
-    
+    top_note: Optional[str] = Field(None, description="Top note for receipt")
+    bottom_note: Optional[str] = Field(None, description="Bottom note for receipt")
+    receipt_number: Optional[str] = Field(None, description="Generated receipt number")
+
     @validator('amount')
     def validate_amount(cls, v):
         if v <= 0:
             raise ValueError('Payment amount must be positive')
         return v
-    
+
     @validator('date', pre=True)
     def validate_date_format(cls, v):
         """Validate and convert date to YYYY-MM-DD format"""
+        # Allow None/empty values
+        if v is None or v == '':
+            return None
+
         if isinstance(v, str):
             # Try to parse various date formats
             try:
@@ -84,6 +91,9 @@ class InvoiceItemBase(BaseModel):
     primary_group: Optional[str] = None  # Section name
     secondary_group: Optional[str] = None  # Sub-category (optional)
     sort_order: Optional[int] = 0  # Sort order within section
+
+    # Rich text note field for item-specific notes
+    note: Optional[str] = None  # HTML content for rich text notes
 
 
 class InvoiceItemCreate(InvoiceItemBase):
@@ -120,6 +130,7 @@ class InvoiceBase(BaseModel):
     company_id: Optional[UUID] = None  # For saved companies
     company: Optional[CompanyInfo] = None  # For custom companies
     client: ClientInfo
+    client_company_id: Optional[UUID] = None  # Optional reference to registered company as client
     insurance: Optional[InsuranceInfo] = None
     
     # Tax configuration
@@ -136,7 +147,19 @@ class InvoiceBase(BaseModel):
     payments: Optional[List[PaymentRecord]] = Field(default_factory=list, description="List of payment records")
     show_payment_dates: Optional[bool] = Field(True, description="Whether to show payment dates on invoice")
     balance_due: Optional[float] = 0
-    
+
+    # Receipt tracking
+    has_receipt: Optional[bool] = Field(False, description="Whether receipt has been generated")
+    receipt_number: Optional[str] = Field(None, description="Optional separate receipt number")
+    receipt_generated_at: Optional[datetime] = Field(None, description="When receipt was generated")
+
+    @validator('payments')
+    def sort_payments_by_date(cls, v):
+        """Sort payments by date (oldest to newest), None dates go to end"""
+        if v:
+            return sorted(v, key=lambda p: (p.date is None, p.date or ''))
+        return v
+
     @validator('tax_method')
     def validate_tax_method(cls, v):
         if v not in ['percentage', 'specific']:
@@ -225,7 +248,14 @@ class InvoiceUpdate(BaseModel):
     payments: Optional[List[PaymentRecord]] = None
     show_payment_dates: Optional[bool] = None
     balance_due: Optional[float] = None
-    
+
+    @validator('payments')
+    def sort_payments_by_date(cls, v):
+        """Sort payments by date (oldest to newest), None dates go to end"""
+        if v:
+            return sorted(v, key=lambda p: (p.date is None, p.date or ''))
+        return v
+
     @validator('tax_method')
     def validate_tax_method(cls, v):
         if v is not None and v not in ['percentage', 'specific']:
@@ -275,6 +305,7 @@ class InvoiceResponse(BaseModel):
     
     # Client info
     client_name: str
+    client_company_id: Optional[UUID] = None  # Optional reference to registered company
     client_address: Optional[str]
     client_city: Optional[str]
     client_state: Optional[str]
@@ -304,7 +335,12 @@ class InvoiceResponse(BaseModel):
     payments: Optional[List[PaymentRecord]] = Field(default_factory=list)
     show_payment_dates: Optional[bool] = True
     balance_due: Optional[float] = 0
-    
+
+    # Receipt tracking
+    has_receipt: Optional[bool] = False
+    receipt_number: Optional[str] = None
+    receipt_generated_at: Optional[datetime] = None
+
     # Additional
     payment_terms: Optional[str]
     notes: Optional[str]

@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo, useRef, useCallback } from 'react';
-import { Group, Path, Rect, Text, Line, Shape } from 'react-konva';
+import { Group, Path, Rect, Text, Line, Shape, Image as KonvaImage } from 'react-konva';
 import {
   WallFixture,
   RoomFixture,
@@ -19,6 +19,44 @@ import {
   findWallForFixture
 } from '../../../utils/wallUtils';
 import { useThrottle } from '../utils/performanceUtils';
+import { ROOM_FIXTURE_VARIANTS } from '../../../constants/fixtures';
+
+// Import SVG files
+import VanitySvg from '../../../assets/fixtures/vanity.svg';
+import ToiletSvg from '../../../assets/fixtures/toilet.svg';
+import BathtubSvg from '../../../assets/fixtures/bathtub.svg';
+import ShowerSvg from '../../../assets/fixtures/shower.svg';
+
+// SVG to Image helper hook
+const useSvgImage = (svgUrl: string) => {
+  const [image, setImage] = React.useState<HTMLImageElement | null>(null);
+
+  React.useEffect(() => {
+    const img = new window.Image();
+    img.src = svgUrl;
+    img.onload = () => {
+      setImage(img);
+    };
+  }, [svgUrl]);
+
+  return image;
+};
+
+// Get SVG URL by fixture type
+const getSvgUrlByType = (type: string): string | null => {
+  switch (type) {
+    case 'vanity':
+      return VanitySvg;
+    case 'toilet':
+      return ToiletSvg;
+    case 'bathtub':
+      return BathtubSvg;
+    case 'shower':
+      return ShowerSvg;
+    default:
+      return null;
+  }
+};
 
 interface WallFixtureRendererProps {
   fixture: WallFixture;
@@ -394,6 +432,7 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
     onDragEnd?.(fixture.id);
   }, [wall, fixture.id, fixture.dimensions.width, fixture.wallId, allWalls, onDragMove, onDragEnd, onWallChange, findClosestWall]);
 
+  // Convert feet to pixels (fixture.dimensions are stored in feet)
   const widthPixels = feetToPixels(fixture.dimensions.width);
   const heightPixels = feetToPixels(fixture.dimensions.height);
 
@@ -649,7 +688,7 @@ export const WallFixtureRenderer: React.FC<WallFixtureRendererProps> = ({
         <Text
           x={0}
           y={wall.thickness / 2 + 20}
-          text={`${fixture.dimensions.width.toFixed(1)}'`}
+          text={`${Math.floor(fixture.dimensions.width)}' ${Math.round((fixture.dimensions.width % 1) * 12)}"`}
           fontSize={12}
           fill="#333"
           align="center"
@@ -672,6 +711,7 @@ export const RoomFixtureRenderer: React.FC<RoomFixtureRendererProps> = ({
   onResize,
   onContextMenu
 }) => {
+  // Convert feet to pixels (fixture.dimensions are stored in feet)
   const widthPixels = feetToPixels(fixture.dimensions.width);
   const heightPixels = feetToPixels(fixture.dimensions.height);
 
@@ -688,10 +728,44 @@ export const RoomFixtureRenderer: React.FC<RoomFixtureRendererProps> = ({
   // Apply throttling to drag move handler
   const handleDragMove = useThrottle(handleDragMoveInternal);
 
-  // Render fixtures as text labels only
+  // Load SVG image for bathroom fixtures
+  const svgUrl = fixture.category === 'bathroom' ? getSvgUrlByType(fixture.type) : null;
+  const svgImage = useSvgImage(svgUrl || '');
+
+  // Render fixtures based on category and type
   const renderFixture = () => {
-    // Get fixture label from type
-    const label = fixture.type.replace(/_/g, ' ').toUpperCase();
+    // For bathroom fixtures, render the SVG image
+    if (fixture.category === 'bathroom' && svgImage) {
+      return (
+        <Group>
+          {/* SVG Image */}
+          <KonvaImage
+            x={-widthPixels / 2}
+            y={-heightPixels / 2}
+            width={widthPixels}
+            height={heightPixels}
+            image={svgImage}
+          />
+
+          {/* Optional label */}
+          {fixture.label && (
+            <Text
+              text={fixture.label}
+              fontSize={10}
+              fontFamily="Arial"
+              fill={fixture.style.strokeColor}
+              align="center"
+              width={widthPixels}
+              x={-widthPixels / 2}
+              y={heightPixels / 2 + 5}
+            />
+          )}
+        </Group>
+      );
+    }
+
+    // For generic cabinets and other fixtures, render as simple rectangle with label
+    const label = fixture.label || fixture.type.replace(/_/g, ' ').toUpperCase();
 
     return (
       <Group>
@@ -708,7 +782,7 @@ export const RoomFixtureRenderer: React.FC<RoomFixtureRendererProps> = ({
         {/* Text label */}
         <Text
           text={label}
-          fontSize={14}
+          fontSize={12}
           fontFamily="Arial"
           fill={fixture.style.strokeColor}
           align="center"
@@ -728,7 +802,7 @@ export const RoomFixtureRenderer: React.FC<RoomFixtureRendererProps> = ({
       x={fixture.position.x}
       y={fixture.position.y}
       rotation={fixture.rotation}
-      draggable={isSelected} // Only allow drag when selected
+      draggable={isSelected} // Draggable when selected, just like room elements
       listening={true} // Always listen for events to ensure fixtures are clickable
       onDragStart={(e) => {
         e.cancelBubble = true;
@@ -792,86 +866,93 @@ export const RoomFixtureRenderer: React.FC<RoomFixtureRendererProps> = ({
         />
       )}
 
-      {/* Rotation handle removed - not needed */}
-      {false && isSelected && (
+      {/* Rotation handle - Figma style */}
+      {isSelected && (
         <Group>
           <Line
-            points={[0, 0, 0, -heightPixels / 2 - 15]}
+            points={[0, -heightPixels / 2, 0, -heightPixels / 2 - 30]}
             stroke="#1890ff"
             strokeWidth={1}
           />
           <Shape
             x={0}
-            y={-heightPixels / 2 - 15}
+            y={-heightPixels / 2 - 30}
             sceneFunc={(context, shape) => {
               context.beginPath();
-              context.arc(0, 0, 8, 0, Math.PI * 2); // Increased radius from 5 to 8
+              context.arc(0, 0, 8, 0, Math.PI * 2);
               context.closePath();
               context.fillStrokeShape(shape);
             }}
             fill="#1890ff"
             stroke="#ffffff"
             strokeWidth={2}
-            draggable
-            onDragStart={(e) => {
+            onMouseDown={(e) => {
               e.cancelBubble = true;
               e.evt?.stopPropagation();
-            }}
-            onDragMove={(e) => {
-              e.cancelBubble = true;
-              e.evt?.stopPropagation();
-              // console.log('Room fixture rotation handle dragged');
+
               const node = e.target;
               const stage = node.getStage();
               if (!stage) return;
 
-              const pointer = stage.getPointerPosition();
-              if (!pointer) return;
+              // Get stage scale and position for zoom/pan
+              const scale = stage.scaleX();
+              const stagePos = stage.position();
 
-              // Calculate angle from fixture center to pointer
-              const fixtureCenter = {
-                x: fixture.position.x,
-                y: fixture.position.y
+              // Global mouse move handler
+              const handleGlobalMouseMove = (evt: MouseEvent) => {
+                const stageContainer = stage.container().getBoundingClientRect();
+                const pointer = {
+                  x: evt.clientX - stageContainer.left,
+                  y: evt.clientY - stageContainer.top
+                };
+
+                // Transform pointer to canvas coordinates
+                const canvasPointer = {
+                  x: (pointer.x - stagePos.x) / scale,
+                  y: (pointer.y - stagePos.y) / scale
+                };
+
+                // Calculate angle from fixture center to pointer
+                const angle = Math.atan2(
+                  canvasPointer.y - fixture.position.y,
+                  canvasPointer.x - fixture.position.x
+                );
+
+                // Convert to degrees (0-360)
+                let degrees = (angle * 180 / Math.PI + 90) % 360;
+                if (degrees < 0) degrees += 360;
+
+                // Smart snapping: 90-degree increments first, then 45, then 15
+                const snap90 = Math.round(degrees / 90) * 90;
+                const snap45 = Math.round(degrees / 45) * 45;
+                const snap15 = Math.round(degrees / 15) * 15;
+
+                const dist90 = Math.abs(degrees - snap90);
+                const dist45 = Math.abs(degrees - snap45);
+
+                if (dist90 <= 7.5) {
+                  degrees = snap90;
+                } else if (dist45 <= 7.5) {
+                  degrees = snap45;
+                } else {
+                  degrees = snap15;
+                }
+
+                // Call rotation handler
+                if (onRotate) {
+                  onRotate(fixture.id, degrees);
+                }
               };
 
-              const angle = Math.atan2(
-                pointer.y - fixtureCenter.y,
-                pointer.x - fixtureCenter.x
-              );
+              // Global mouse up handler
+              const handleGlobalMouseUp = () => {
+                window.removeEventListener('mousemove', handleGlobalMouseMove);
+                window.removeEventListener('mouseup', handleGlobalMouseUp);
+              };
 
-              // Convert to degrees and snap to major increments
-              let degrees = (angle * 180 / Math.PI + 90) % 360;
-              if (degrees < 0) degrees += 360;
-
-              // Smart snapping: 90-degree increments first, then 45, then 15
-              const snap90 = Math.round(degrees / 90) * 90;
-              const snap45 = Math.round(degrees / 45) * 45;
-              const snap15 = Math.round(degrees / 15) * 15;
-
-              // Use the closest snap point, prioritizing major angles
-              const dist90 = Math.abs(degrees - snap90);
-              const dist45 = Math.abs(degrees - snap45);
-              const dist15 = Math.abs(degrees - snap15);
-
-              if (dist90 <= 7.5) {
-                degrees = snap90; // Snap to 90-degree increments within 7.5 degrees
-              } else if (dist45 <= 7.5) {
-                degrees = snap45; // Snap to 45-degree increments within 7.5 degrees
-              } else {
-                degrees = snap15; // Default to 15-degree increments
-              }
-
-              // Call rotation handler if provided
-              // console.log('Calling room fixture rotation:', degrees);
-              if (onRotate) {
-                onRotate(fixture.id, degrees);
-              } else {
-                console.error('onRotate not provided for room fixture');
-              }
-            }}
-            onDragEnd={(e) => {
-              e.cancelBubble = true;
-              e.evt?.stopPropagation();
+              // Add global listeners
+              window.addEventListener('mousemove', handleGlobalMouseMove);
+              window.addEventListener('mouseup', handleGlobalMouseUp);
             }}
           />
         </Group>

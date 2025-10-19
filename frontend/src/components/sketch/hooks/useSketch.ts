@@ -15,8 +15,7 @@ import {
   DoorType,
   WindowType,
   CabinetType,
-  VanityType,
-  ApplianceType,
+  BathroomType,
   BoundingBox,
   AreaCalculation
 } from '../../../types/sketch';
@@ -63,7 +62,7 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
         metadata: {
           version: '1.0.0',
           scale: {
-            pixelsPerFoot: 20,
+            pixelsPerFoot: 50,
             gridSize: 1
           },
           bounds: { minX: 0, minY: 0, maxX: 800, maxY: 600 },
@@ -127,7 +126,7 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
           metadata: {
             version: '1.0',
             scale: {
-              pixelsPerFoot: 20,
+              pixelsPerFoot: 50,
               gridSize: 1
             },
             bounds: { minX: 0, minY: 0, maxX: 1000, maxY: 1000 },
@@ -186,17 +185,11 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
                   strokeWidth: 2,
                   opacity: 1
                 },
-                vanity: {
-                  fillColor: '#DDA0DD',
-                  strokeColor: '#9370DB',
+                bathroom: {
+                  fillColor: '#E0F7FA',
+                  strokeColor: '#00838F',
                   strokeWidth: 2,
-                  opacity: 1
-                },
-                appliance: {
-                  fillColor: '#C0C0C0',
-                  strokeColor: '#808080',
-                  strokeWidth: 2,
-                  opacity: 1
+                  opacity: 0.8
                 },
                 electrical: {
                   fillColor: '#FFD700',
@@ -794,7 +787,7 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
   const addRoomFixture = useCallback((
     roomId: string,
     category: RoomFixtureCategory,
-    type: CabinetType | VanityType | ApplianceType,
+    type: CabinetType | BathroomType | string,
     dimensions: { width: number; height: number },
     position: Point
   ): { success: boolean; fixtureId?: string; error?: string } => {
@@ -803,13 +796,19 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
     const room = sketch.rooms.find(r => r.id === roomId);
     if (!room) return { success: false, error: 'Room not found' };
 
+    // Convert dimensions from inches to feet for storage
+    const dimensionsFeet = {
+      width: dimensions.width / 12,
+      height: dimensions.height / 12
+    };
+
     // Create new room fixture
     const newFixture: RoomFixture = {
       id: generateId(),
       category,
       type,
       position,
-      dimensions,
+      dimensions: dimensionsFeet,
       rotation: 0, // Default rotation
       roomId,
       properties: {},
@@ -862,6 +861,34 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
     const updatedFixture: RoomFixture = {
       ...fixture,
       dimensions: newDimensions,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Update sketch
+    setSketch(prev => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        roomFixtures: prev.roomFixtures.map(f => f.id === fixtureId ? updatedFixture : f),
+        updatedAt: new Date().toISOString()
+      };
+    });
+
+    return { success: true };
+  }, [sketch]);
+
+  const updateRoomFixture = useCallback((
+    fixtureId: string,
+    updates: Partial<RoomFixture>
+  ): { success: boolean; error?: string } => {
+    if (!sketch) return { success: false, error: 'No sketch available' };
+
+    const fixture = sketch.roomFixtures.find(f => f.id === fixtureId);
+    if (!fixture) return { success: false, error: 'Room fixture not found' };
+
+    const updatedFixture: RoomFixture = {
+      ...fixture,
+      ...updates,
       updatedAt: new Date().toISOString()
     };
 
@@ -1004,6 +1031,7 @@ export const useSketch = (instanceId: string, initialSketch?: SketchDocument) =>
     addRoomFixture,
     removeRoomFixture,
     updateRoomFixtureDimensions,
+    updateRoomFixture,
     moveRoomFixture,
     rotateRoomFixture,
     getRoomFixtureById,

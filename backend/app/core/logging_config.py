@@ -103,6 +103,14 @@ def setup_logging():
     # INFO 레벨의 타입 체크 로그들을 숨깁니다
     db_logger.setLevel(logging.WARNING)
 
+    # Suppress verbose PDF generation library logs
+    # fontTools와 PIL의 DEBUG/INFO 로그 숨김 (PDF 생성 시 노이즈 제거)
+    logging.getLogger('fontTools').setLevel(logging.WARNING)
+    logging.getLogger('fontTools.subset').setLevel(logging.WARNING)
+    logging.getLogger('fontTools.ttLib').setLevel(logging.WARNING)
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+    logging.getLogger('PIL.PngImagePlugin').setLevel(logging.WARNING)
+
     if log_level == logging.DEBUG:
         # 디버그 모드에서만 데이터베이스 로그 파일 생성
         db_file_handler = logging.handlers.RotatingFileHandler(

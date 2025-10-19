@@ -130,7 +130,7 @@ export interface WallStyle {
 // =====================
 
 export type WallFixtureCategory = 'door' | 'window';
-export type RoomFixtureCategory = 'cabinet' | 'vanity' | 'appliance' | 'electrical' | 'plumbing';
+export type RoomFixtureCategory = 'cabinet' | 'bathroom' | 'electrical' | 'plumbing';
 export type FixtureCategory = WallFixtureCategory | RoomFixtureCategory;
 
 export type DoorType =
@@ -149,32 +149,19 @@ export type WindowType =
   | 'casement_window'
   | 'sliding_window';
 
-export type CabinetType =
-  | 'base_cabinet'
-  | 'wall_cabinet'
-  | 'tall_cabinet'
-  | 'island'
-  | 'peninsula';
+export type CabinetType = 'cabinet';
 
-export type VanityType =
-  | 'single_vanity'
-  | 'double_vanity'
-  | 'floating_vanity';
-
-export type ApplianceType =
-  | 'refrigerator'
-  | 'stove'
-  | 'oven'
-  | 'dishwasher'
-  | 'washer'
-  | 'dryer'
-  | 'microwave';
+export type BathroomType =
+  | 'vanity'
+  | 'toilet'
+  | 'bathtub'
+  | 'shower';
 
 export interface FixtureVariant {
   id: string;
   name: string;
   category: FixtureCategory;
-  type: DoorType | WindowType | CabinetType | VanityType | ApplianceType | string;
+  type: DoorType | WindowType | CabinetType | BathroomType | string;
   defaultDimensions: Dimensions;
   icon?: string;
   svgPath?: string; // SVG path for industry standard icons
@@ -209,7 +196,9 @@ export interface WallFixture {
 export interface RoomFixture {
   id: string;
   category: RoomFixtureCategory;
-  type: CabinetType | VanityType | ApplianceType | string;
+  type: CabinetType | BathroomType | string;
+  /** Custom label/name for the fixture */
+  label?: string;
   /** Position in room coordinates (pixels from room origin) */
   position: Point;
   /** Fixture dimensions in feet (absolute size) */

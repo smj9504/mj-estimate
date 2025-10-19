@@ -52,6 +52,10 @@ class BaseRepository(Repository[T, ID]):
                 result = {}
                 for key, value in entity.__dict__.items():
                     if not key.startswith('_'):
+                        # Debug log for note field
+                        if key == 'note':
+                            logger.info(f"_convert_to_dict: note field - key: {key}, value: {repr(value)}, type: {type(value)}")
+
                         # Handle special types
                         if isinstance(value, UUID):
                             result[key] = str(value)
@@ -72,6 +76,10 @@ class BaseRepository(Repository[T, ID]):
                                 result[key] = 0.0
                         else:
                             result[key] = value
+
+                        # Debug log after assignment
+                        if key == 'note':
+                            logger.info(f"_convert_to_dict: note assigned - result[note]: {repr(result.get('note'))}")
 
                 # Handle relationships (like invoice items) with circular reference protection
                 # Check for common relationship names
@@ -99,12 +107,18 @@ class BaseRepository(Repository[T, ID]):
     def _prepare_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare data for database insertion/update"""
         from uuid import UUID
+        from datetime import date, datetime
         prepared = {}
         for key, value in data.items():
             if value is not None:
                 # Handle UUID types
                 if isinstance(value, UUID):
                     prepared[key] = str(value)
+                # Handle date/datetime types - convert to YYYY-MM-DD string
+                elif isinstance(value, datetime):
+                    prepared[key] = value.strftime('%Y-%m-%d')
+                elif isinstance(value, date):
+                    prepared[key] = value.strftime('%Y-%m-%d')
                 # Handle lists that might contain UUIDs
                 elif isinstance(value, list):
                     prepared[key] = [str(item) if isinstance(item, UUID) else item for item in value]

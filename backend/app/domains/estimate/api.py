@@ -105,9 +105,8 @@ async def list_estimates(
     
     # Filter by estimate_type if provided
     if estimate_type:
-        estimates = [est for est in estimates if est.get('estimate_type') == estimate_type or 
-                    (estimate_type == 'insurance' and (est.get('claim_number') or est.get('policy_number') or est.get('deductible'))) or
-                    (estimate_type == 'standard' and not (est.get('claim_number') or est.get('policy_number') or est.get('deductible')))]
+        # Use estimate_type field as the primary source of truth
+        estimates = [est for est in estimates if est.get('estimate_type') == estimate_type]
     
     # Convert to response format
     return [
