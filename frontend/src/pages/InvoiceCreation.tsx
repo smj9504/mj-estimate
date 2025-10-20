@@ -27,6 +27,9 @@ import {
   EditOutlined,
   HolderOutlined,
   FileTextOutlined,
+  AppstoreAddOutlined,
+  FolderAddOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -56,15 +59,25 @@ import RichTextEditor from '../components/editor/RichTextEditor';
 import UnitSelect from '../components/common/UnitSelect';
 import { DEFAULT_UNIT } from '../constants/units';
 import ItemCodeSelector from '../components/estimate/ItemCodeSelector';
-import { EstimateLineItem } from '../services/EstimateService';
+import { EstimateLineItem } from '../services/estimateService';
 import SortableSection from '../components/common/SortableSection';
+import LineItemTemplateSelector from '../components/line-items/LineItemTemplateSelector';
+import LineItemTemplateManager from '../components/line-items/LineItemTemplateManager';
+import TemplateBuilderBar from '../components/line-items/TemplateBuilderBar';
+import TemplateBuilderModal from '../components/line-items/TemplateBuilderModal';
+import lineItemService from '../services/lineItemService';
+import { useTemplateBuilder } from '../contexts/TemplateBuilderContext';
 import {
   Collapse,
   Tag,
   Badge,
+  Checkbox,
 } from 'antd';
 import { receiptService } from '../services/receiptService';
 import type { ReceiptTemplate } from '../types/receipt';
+import { useCompanies } from '../hooks/useCompanyQueries';
+import { useInvoice, useCreateInvoice, useUpdateInvoice } from '../hooks/useInvoiceQueries';
+import { useReceiptTemplates, useReceiptByNumber } from '../hooks/useReceiptQueries';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -79,6 +92,7 @@ const formatCurrency = (value: number): string => {
 
 interface InvoiceItem {
   id?: string;
+  line_item_id?: string;  // Reference to line_items library
   name: string;
   description?: string;
   quantity: number;
@@ -109,6 +123,16 @@ const InvoiceCreation: React.FC = () => {
   const isEditMode = !!id;
   const [loading, setLoading] = useState(false);
   const [formMounted, setFormMounted] = useState(false);
+
+  // Template Builder Context
+  const {
+    toggleItemSelection,
+    selectedItemIds,
+    addSectionToBuilder,
+    saveSectionAsNewTemplate,
+    addSelectedItemsToBuilder,
+    setCompanyId,
+  } = useTemplateBuilder();
   const [formFieldsChanged, setFormFieldsChanged] = useState(0);
   // Section-based state
   const [sections, setSections] = useState<InvoiceSection[]>([]);
@@ -117,7 +141,10 @@ const InvoiceCreation: React.FC = () => {
   // Legacy items array for backward compatibility
   const [items, setItems] = useState<InvoiceItem[]>([]);
   const [showInsurance, setShowInsurance] = useState(false);
-  const [companies, setCompanies] = useState<Company[]>([]);
+
+  // React Query: Load companies
+  const { data: companies = [], isLoading: companiesLoading } = useCompanies();
+
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [itemModalVisible, setItemModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<InvoiceItem | null>(null);
@@ -139,7 +166,9 @@ const InvoiceCreation: React.FC = () => {
   const [opPercent, setOpPercent] = useState(0);
 
   // Receipt generation state
-  const [receiptTemplates, setReceiptTemplates] = useState<ReceiptTemplate[]>([]);
+  // React Query: Load receipt templates when company is selected
+  const { data: receiptTemplates = [] } = useReceiptTemplates(selectedCompany?.id);
+
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>();
   const [receiptDate, setReceiptDate] = useState<dayjs.Dayjs | null>(null);
   const [receiptTopNote, setReceiptTopNote] = useState<string>('');
@@ -150,6 +179,11 @@ const InvoiceCreation: React.FC = () => {
   const [sectionEditModalVisible, setSectionEditModalVisible] = useState(false);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [editingSectionTitle, setEditingSectionTitle] = useState('');
+
+  // Template selector state
+  const [templateSelectorVisible, setTemplateSelectorVisible] = useState(false);
+  const [templateManagerVisible, setTemplateManagerVisible] = useState(false);
+  const [templateTargetSectionIndex, setTemplateTargetSectionIndex] = useState<number | null>(null);
 
   // Drag and drop states
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -257,171 +291,16 @@ const InvoiceCreation: React.FC = () => {
     setActiveSectionIndex(null);
   };
 
-  const loadCompanies = useCallback(async () => {
-    try {
-      const data = await companyService.getCompanies();
-      setCompanies(data);
-      // Don't auto-select any company - let user choose explicitly
-    } catch (error) {
-      console.error('Failed to load companies:', error);
-    }
-  }, [isEditMode]);
+  // Removed loadCompanies - now using React Query useCompanies hook
+  // Removed loadReceiptTemplates - now using React Query useReceiptTemplates hook
 
-  const loadReceiptTemplates = useCallback(async (companyId: string) => {
-    try {
-      const templates = await receiptService.getTemplates(companyId);
-      setReceiptTemplates(templates);
-      // Set default template if available
-      const defaultTemplate = templates.find(t => t.is_default);
-      if (defaultTemplate) {
-        setSelectedTemplateId(defaultTemplate.id);
-        setReceiptTopNote(defaultTemplate.top_note || '');
-        setReceiptBottomNote(defaultTemplate.bottom_note || '');
-      }
-    } catch (error) {
-      console.error('Failed to load receipt templates:', error);
-    }
-  }, []);
+  // React Query: Load invoice when in edit mode
+  const { data: fetchedInvoice, isLoading: invoiceLoading } = useInvoice(id, isEditMode);
 
   const [invoiceData, setInvoiceData] = useState<any>(null);
 
-  const loadInvoice = useCallback(async () => {
-    if (!id) return;
-    
-    setLoading(true);
-    try {
-      console.log('Loading invoice with ID:', id);
-      const invoice = await invoiceService.getInvoice(id);
-      console.log('Invoice loaded:', invoice);
-      console.log('Invoice items:', JSON.stringify(invoice.items, null, 2));
-      
-      const data = invoice as any;
-      setInvoiceData(data);
-      
-      // Convert items to sections or use existing sections
-      if (data.sections && data.sections.length > 0) {
-        setSections(data.sections);
-        // Expand all sections when loading an existing invoice
-        setActiveKeys(data.sections.map((s: any) => s.id));
-      } else if (data.items && data.items.length > 0) {
-        console.log('Processing loaded items:', JSON.stringify(data.items, null, 2));
-        const processedItems = data.items.map((item: any) => ({
-          id: item.id,
-          name: item.name || item.description,
-          description: item.description,
-          quantity: item.quantity,
-          unit: item.unit || 'EA',
-          rate: item.rate || item.unit_price,
-          amount: item.amount || item.total,
-          taxable: item.taxable !== false,
-          primary_group: item.primary_group,
-          secondary_group: item.secondary_group,
-          sort_order: item.sort_order,
-          note: item.note,
-        }));
-        console.log('Processed items:', processedItems);
-
-        // Convert items to sections
-        const sectionsFromItems = convertItemsToSections(processedItems);
-        setSections(sectionsFromItems);
-        // Expand all sections when loading converted items
-        setActiveKeys(sectionsFromItems.map(s => s.id));
-
-        // Keep legacy items for backward compatibility
-        setItems(processedItems);
-      }
-      
-      // Set form values immediately
-      const formValues = {
-        invoice_number: data.invoice_number,
-        date: data.date ? dayjs(data.date) : dayjs(),
-        due_date: data.due_date ? dayjs(data.due_date) : dayjs().add(30, 'day'),
-        status: data.status || 'pending',
-        client_name: data.client_name,
-        client_address: data.client_address,
-        client_city: data.client_city,
-        client_state: data.client_state,
-        client_zipcode: data.client_zipcode,
-        client_phone: data.client_phone,
-        client_email: data.client_email,
-        notes: data.notes,
-        payment_terms: data.payment_terms,
-        tax_rate: data.tax_rate || 0,
-        tax_amount: data.tax_amount || 0,
-        discount: data.discount || data.discount_amount || 0,
-        op_percent: data.op_percent || 0,
-        // Insurance information
-        insurance_company: data.insurance_company || '',
-        insurance_policy_number: data.insurance_policy_number || '',
-        insurance_claim_number: data.insurance_claim_number || '',
-        insurance_deductible: data.insurance_deductible || 0,
-      };
-      // console.log('Setting form values:', formValues);
-      form.setFieldsValue(formValues);
-      
-      // Set tax method and amount
-      if (data.tax_method) {
-        setTaxMethod(data.tax_method);
-        // Set tax rate for percentage method
-        if (data.tax_method === 'percentage') {
-          setTaxRate(data.tax_rate || 0);
-        }
-        // Set specific tax amount regardless of whether it's 0 or not
-        if (data.tax_method === 'specific') {
-          setSpecificTaxAmount(data.tax_amount || 0);
-        }
-      }
-
-      // Set discount state
-      setDiscount(data.discount || data.discount_amount || 0);
-
-      // Set insurance visibility if insurance data exists
-      if (data.insurance_company || data.insurance_policy_number || data.insurance_claim_number || data.insurance_deductible) {
-        setShowInsurance(true);
-      }
-
-      // Check if client is a registered company
-      if (data.client_company_id) {
-        const clientCompany = companies.find(c => c.id === data.client_company_id);
-        if (clientCompany) {
-          setSelectedClient(clientCompany);
-          setUseCustomClient(false);
-        }
-      }
-      
-      // Set payments
-      if (data.payments && data.payments.length > 0) {
-        const processedPayments = data.payments.map((payment: any) => ({
-          amount: payment.amount || 0,
-          date: payment.date ? dayjs(payment.date) : null,
-          method: payment.method || '',
-          reference: payment.reference || '',
-          top_note: payment.top_note || '',
-          bottom_note: payment.bottom_note || '',
-          receipt_number: payment.receipt_number || undefined
-        }));
-        setPayments(processedPayments);
-      }
-      
-      // Set payment display option
-      if (data.show_payment_dates !== undefined) {
-        setShowPaymentDates(data.show_payment_dates);
-      }
-
-      // Set O&P percent
-      if (data.op_percent !== undefined) {
-        setOpPercent(data.op_percent || 0);
-      }
-      
-      // Company info will be set when companies are loaded (see useEffect below)
-    } catch (error: any) {
-      console.error('Failed to load invoice:', error);
-      console.error('Error details:', error.response?.data || error.message);
-      message.error(`Failed to load invoice: ${error.response?.data?.detail || error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [id, form]); // Remove companies dependency
+  // Removed loadInvoice - now using React Query useInvoice hook
+  // Invoice data processing happens in useEffect when fetchedInvoice changes
 
   const convertItemsToSections = (items: InvoiceItem[]): InvoiceSection[] => {
     const groupedItems: { [key: string]: InvoiceItem[] } = {};
@@ -537,9 +416,22 @@ const InvoiceCreation: React.FC = () => {
     const newSections = [...sections];
     const currentSection = sections[sectionIndex];
 
+    // Debug: Log incoming items
+    console.log('=== DEBUG: addItemsToSection ===');
+    console.log('Items to add:', itemsToAdd);
+    itemsToAdd.forEach((item, idx) => {
+      console.log(`Source item ${idx}:`, {
+        id: item.id,
+        line_item_id: item.line_item_id,
+        name: item.name,
+        hasLineItemId: !!item.line_item_id
+      });
+    });
+
     // Convert EstimateLineItem to InvoiceItem and update with section title
     const convertedItems: InvoiceItem[] = itemsToAdd.map(item => ({
       id: item.id,
+      line_item_id: item.line_item_id,  // Preserve line_item_id for template creation
       name: item.name,
       description: item.description,
       quantity: item.quantity,
@@ -551,6 +443,16 @@ const InvoiceCreation: React.FC = () => {
       secondary_group: item.secondary_group,
       sort_order: item.sort_order,
     }));
+
+    console.log('Converted items:', convertedItems);
+    convertedItems.forEach((item, idx) => {
+      console.log(`Converted item ${idx}:`, {
+        id: item.id,
+        line_item_id: item.line_item_id,
+        name: item.name,
+        hasLineItemId: !!item.line_item_id
+      });
+    });
 
     newSections[sectionIndex].items.push(...convertedItems);
     newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
@@ -573,6 +475,47 @@ const InvoiceCreation: React.FC = () => {
     }
   };
 
+  // Handle template application
+  const handleTemplateApply = async (template: any) => {
+    if (templateTargetSectionIndex === null) {
+      message.error('No target section selected');
+      return;
+    }
+
+    try {
+      // Fetch full template details with line items
+      const fullTemplate = await lineItemService.getTemplate(template.id);
+
+      // Convert template items to InvoiceItems
+      const templateItems: EstimateLineItem[] = fullTemplate.template_items.map((templateItem, index) => {
+        const lineItem = templateItem.line_item;
+        // Use cat field if available, otherwise use name
+        const itemName = lineItem?.cat || lineItem?.name || lineItem?.description || '';
+        return {
+          id: undefined, // This is the invoice_line_item id (not created yet)
+          line_item_id: lineItem?.id || '', // Reference to master line_item
+          name: itemName,
+          description: lineItem?.description || '',
+          unit: lineItem?.unit || 'EA',
+          unit_price: lineItem?.untaxed_unit_price || 0,
+          quantity: templateItem.quantity_multiplier || 1,
+          total: (templateItem.quantity_multiplier || 1) * (lineItem?.untaxed_unit_price || 0),
+          taxable: true,
+          sort_order: index
+        };
+      });
+
+      // Add items to the target section
+      const itemsAdded = addItemsToSection(templateTargetSectionIndex, templateItems);
+
+      message.success(`Template applied: ${itemsAdded} item(s) added to section`);
+      setTemplateSelectorVisible(false);
+      setTemplateTargetSectionIndex(null);
+    } catch (error: any) {
+      message.error(error.message || 'Failed to apply template');
+    }
+  };
+
   // Section expansion utility
   const expandSection = (sectionId: string) => {
     if (!activeKeys.includes(sectionId)) {
@@ -588,11 +531,126 @@ const InvoiceCreation: React.FC = () => {
     setEditingSectionIndex(null);
   };
 
+  // Consolidated initialization effect
   useEffect(() => {
-    loadCompanies();
-  }, [loadCompanies]);
+    // Companies are loaded via React Query useCompanies hook
+    setFormMounted(true);
+  }, []);
 
-  // Reset form when switching between edit/create modes
+  // Process fetched invoice data from React Query
+  useEffect(() => {
+    if (!fetchedInvoice || !isEditMode) return;
+
+    console.log('Processing fetched invoice:', fetchedInvoice);
+    const data = fetchedInvoice as any;
+    setInvoiceData(data);
+
+    // Convert items to sections or use existing sections
+    if (data.sections && data.sections.length > 0) {
+      setSections(data.sections);
+      setActiveKeys(data.sections.map((s: any) => s.id));
+    } else if (data.items && data.items.length > 0) {
+      const processedItems = data.items.map((item: any) => ({
+        id: item.id,
+        name: item.name || item.description,
+        description: item.description,
+        quantity: item.quantity,
+        unit: item.unit || 'EA',
+        rate: item.rate || item.unit_price,
+        amount: item.amount || item.total,
+        taxable: item.taxable !== false,
+        primary_group: item.primary_group,
+        secondary_group: item.secondary_group,
+        sort_order: item.sort_order,
+        note: item.note,
+      }));
+
+      const sectionsFromItems = convertItemsToSections(processedItems);
+      setSections(sectionsFromItems);
+      setActiveKeys(sectionsFromItems.map(s => s.id));
+      setItems(processedItems);
+    }
+
+    // Set form values
+    const formValues = {
+      invoice_number: data.invoice_number,
+      date: data.date ? dayjs(data.date) : dayjs(),
+      due_date: data.due_date ? dayjs(data.due_date) : dayjs().add(30, 'day'),
+      status: data.status || 'pending',
+      client_name: data.client_name,
+      client_address: data.client_address,
+      client_city: data.client_city,
+      client_state: data.client_state,
+      client_zipcode: data.client_zipcode,
+      client_phone: data.client_phone,
+      client_email: data.client_email,
+      notes: data.notes,
+      payment_terms: data.payment_terms,
+      tax_rate: data.tax_rate || 0,
+      tax_amount: data.tax_amount || 0,
+      discount: data.discount || data.discount_amount || 0,
+      op_percent: data.op_percent || 0,
+      insurance_company: data.insurance_company || '',
+      insurance_policy_number: data.insurance_policy_number || '',
+      insurance_claim_number: data.insurance_claim_number || '',
+      insurance_deductible: data.insurance_deductible || 0,
+    };
+    form.setFieldsValue(formValues);
+
+    // Set tax method and amount
+    if (data.tax_method) {
+      setTaxMethod(data.tax_method);
+      if (data.tax_method === 'percentage') {
+        setTaxRate(data.tax_rate || 0);
+      }
+      if (data.tax_method === 'specific') {
+        setSpecificTaxAmount(data.tax_amount || 0);
+      }
+    }
+
+    // Set discount state
+    setDiscount(data.discount || data.discount_amount || 0);
+
+    // Set insurance visibility
+    if (data.insurance_company || data.insurance_policy_number || data.insurance_claim_number || data.insurance_deductible) {
+      setShowInsurance(true);
+    }
+
+    // Check if client is a registered company
+    if (data.client_company_id && companies.length > 0) {
+      const clientCompany = companies.find(c => c.id === data.client_company_id);
+      if (clientCompany) {
+        setSelectedClient(clientCompany);
+        setUseCustomClient(false);
+      }
+    }
+
+    // Set payments
+    if (data.payments && data.payments.length > 0) {
+      const processedPayments = data.payments.map((payment: any) => ({
+        amount: payment.amount || 0,
+        date: payment.date ? dayjs(payment.date) : null,
+        method: payment.method || '',
+        reference: payment.reference || '',
+        top_note: payment.top_note || '',
+        bottom_note: payment.bottom_note || '',
+        receipt_number: payment.receipt_number || undefined
+      }));
+      setPayments(processedPayments);
+    }
+
+    // Set payment display option
+    if (data.show_payment_dates !== undefined) {
+      setShowPaymentDates(data.show_payment_dates);
+    }
+
+    // Set O&P percent
+    if (data.op_percent !== undefined) {
+      setOpPercent(data.op_percent || 0);
+    }
+  }, [fetchedInvoice, isEditMode, companies, form]);
+
+  // Consolidated reset and mode switching effect
   useEffect(() => {
     // Reset all state when mode changes
     setInvoiceData(null);
@@ -611,7 +669,7 @@ const InvoiceCreation: React.FC = () => {
 
     // Reset form
     form.resetFields();
-    
+
     // Set default form values for create mode
     if (!isEditMode) {
       form.setFieldsValue({
@@ -624,87 +682,13 @@ const InvoiceCreation: React.FC = () => {
         op_percent: 0,
       });
     }
-  }, [isEditMode, id, form]); // Reset when isEditMode or id changes
+    // Invoice loading handled by React Query useInvoice hook
+  }, [isEditMode, id, form]);
 
-  useEffect(() => {
-    // Load invoice data when in edit mode
-    if (isEditMode && id) {
-      loadInvoice();
-    }
-  }, [isEditMode, id, loadInvoice]); // Keep loadInvoice but now it won't change due to companies
-
-  // Set company after both invoice and companies are loaded
-  useEffect(() => {
-    if (isEditMode && invoiceData && companies.length > 0 && invoiceData.company_id) {
-      const company = companies.find(c => c.id === invoiceData.company_id);
-      if (company) {
-        setSelectedCompany(company);
-        // Update form with company data and selection
-        form.setFieldsValue({
-          company_selection: company.id,
-          company_name: company.name,
-          company_address: company.address,
-          company_city: company.city,
-          company_state: company.state,
-          company_zipcode: company.zipcode,
-          company_phone: company.phone,
-          company_email: company.email,
-        });
-      }
-    }
-  }, [isEditMode, invoiceData, companies, form]);
-
-  // Set default company form values after Form is rendered and companies are loaded
-  useEffect(() => {
-    if (companies.length > 0 && selectedCompany && !isEditMode) {
-      form.setFieldsValue({
-        company_name: selectedCompany.name,
-        company_address: selectedCompany.address,
-        company_city: selectedCompany.city,
-        company_state: selectedCompany.state,
-        company_zipcode: selectedCompany.zipcode,
-        company_phone: selectedCompany.phone,
-        company_email: selectedCompany.email,
-      });
-    }
-  }, [form, companies, selectedCompany, isEditMode]);
-
-  // Set invoice form values after Form is rendered and invoice data is loaded
-  useEffect(() => {
-    if (invoiceData && isEditMode) {
-      form.setFieldsValue({
-        invoice_number: invoiceData.invoice_number,
-        date: invoiceData.invoice_date ? dayjs(invoiceData.invoice_date) : invoiceData.date ? dayjs(invoiceData.date) : dayjs(),
-        due_date: invoiceData.due_date ? dayjs(invoiceData.due_date) : undefined,
-        status: invoiceData.status,
-        company_id: invoiceData.company_id,
-        company_name: invoiceData.company_name,
-        company_address: invoiceData.company_address,
-        company_city: invoiceData.company_city,
-        company_state: invoiceData.company_state,
-        company_zipcode: invoiceData.company_zipcode,
-        company_phone: invoiceData.company_phone,
-        company_email: invoiceData.company_email,
-        client_name: invoiceData.client_name,
-        client_address: invoiceData.client_address,
-        client_city: invoiceData.client_city,
-        client_state: invoiceData.client_state,
-        client_zipcode: invoiceData.client_zipcode,
-        client_phone: invoiceData.client_phone,
-        client_email: invoiceData.client_email,
-        tax_rate: invoiceData.tax_rate || 0,
-        discount: invoiceData.discount_amount || invoiceData.discount || 0,
-        notes: invoiceData.notes,
-        terms: invoiceData.terms,
-        payment_terms: invoiceData.payment_terms,
-      });
-    }
-  }, [form, invoiceData, isEditMode]);
-
-  // Set company form values when company selection changes
+  // Consolidated company and form population effect
   useEffect(() => {
     if (selectedCompany) {
-      form.setFieldsValue({
+      const companyFields = {
         company_name: selectedCompany.name,
         company_address: selectedCompany.address,
         company_city: selectedCompany.city,
@@ -712,21 +696,62 @@ const InvoiceCreation: React.FC = () => {
         company_zipcode: selectedCompany.zipcode,
         company_phone: selectedCompany.phone,
         company_email: selectedCompany.email,
-      });
-    }
-  }, [form, selectedCompany]);
+      };
 
-  // Set formMounted to true after component mounts
-  useEffect(() => {
-    setFormMounted(true);
-  }, []);
+      // In edit mode, also set company_selection
+      if (isEditMode && invoiceData?.company_id === selectedCompany.id) {
+        form.setFieldsValue({
+          company_selection: selectedCompany.id,
+          ...companyFields,
+        });
+      } else {
+        form.setFieldsValue(companyFields);
+      }
 
-  // Load receipt templates when company is selected
-  useEffect(() => {
-    if (selectedCompany?.id) {
-      loadReceiptTemplates(selectedCompany.id);
+      // Receipt templates are loaded via React Query useReceiptTemplates hook
     }
-  }, [selectedCompany, loadReceiptTemplates]);
+  }, [selectedCompany, isEditMode, invoiceData?.company_id, form]);
+
+  // Consolidated invoice data population effect
+  useEffect(() => {
+    if (!invoiceData || !isEditMode) return;
+
+    // Set company if available
+    if (companies.length > 0 && invoiceData.company_id) {
+      const company = companies.find(c => c.id === invoiceData.company_id);
+      if (company && company !== selectedCompany) {
+        setSelectedCompany(company);
+      }
+    }
+
+    // Set all invoice form values in a single operation
+    form.setFieldsValue({
+      invoice_number: invoiceData.invoice_number,
+      date: invoiceData.invoice_date ? dayjs(invoiceData.invoice_date) : invoiceData.date ? dayjs(invoiceData.date) : dayjs(),
+      due_date: invoiceData.due_date ? dayjs(invoiceData.due_date) : undefined,
+      status: invoiceData.status,
+      company_id: invoiceData.company_id,
+      company_name: invoiceData.company_name,
+      company_address: invoiceData.company_address,
+      company_city: invoiceData.company_city,
+      company_state: invoiceData.company_state,
+      company_zipcode: invoiceData.company_zipcode,
+      company_phone: invoiceData.company_phone,
+      company_email: invoiceData.company_email,
+      client_name: invoiceData.client_name,
+      client_address: invoiceData.client_address,
+      client_city: invoiceData.client_city,
+      client_state: invoiceData.client_state,
+      client_zipcode: invoiceData.client_zipcode,
+      client_phone: invoiceData.client_phone,
+      client_email: invoiceData.client_email,
+      tax_rate: invoiceData.tax_rate || 0,
+      discount: invoiceData.discount_amount || invoiceData.discount || 0,
+      notes: invoiceData.notes,
+      terms: invoiceData.terms,
+      payment_terms: invoiceData.payment_terms,
+    });
+  }, [invoiceData, isEditMode, companies, form, selectedCompany]);
 
   const handleCompanyChange = async (companyId: string) => {
     const company = companies.find(c => c.id === companyId);
@@ -763,13 +788,15 @@ const InvoiceCreation: React.FC = () => {
     setItemModalVisible(true);
   };
 
-  const handleItemSubmit = () => {
+  const handleItemSubmit = async () => {
     if (editingSectionIndex === null) {
       message.error('Please select a section to add the item to');
       return;
     }
 
-    itemForm.validateFields().then(values => {
+    try {
+      const values = await itemForm.validateFields();
+
       // Comprehensive validation with user-friendly error messages
 
       // Validate item name/description
@@ -802,8 +829,40 @@ const InvoiceCreation: React.FC = () => {
         return;
       }
 
+      let lineItemId: string | undefined = undefined;
+
+      // Save to database if checkbox is checked or if we need it for templates
+      // Always save to library so it can be used in templates
+      if (values.saveToDatabase || !editingIndex) {
+        const lineItemData = {
+          cat: '', // Category code - empty for custom items
+          description: values.name.toString().trim(),
+          includes: values.description ? values.description.toString().trim() : '',
+          unit: values.unit,
+          untaxed_unit_price: Number(values.rate),
+          company_id: selectedCompany?.id,
+          is_active: true,
+          note_ids: [],
+        };
+
+        try {
+          const createdLineItem = await lineItemService.createLineItem(lineItemData);
+          lineItemId = createdLineItem.id;
+          console.log('Created line item with ID:', lineItemId);
+          if (values.saveToDatabase) {
+            message.success('Item saved to library successfully');
+          }
+        } catch (error) {
+          console.error('Failed to save line item to library:', error);
+          if (values.saveToDatabase) {
+            message.warning('Item will be added to invoice but not saved to library');
+          }
+        }
+      }
+
       const newItem: InvoiceItem = {
         ...values,
+        line_item_id: lineItemId, // Set line_item_id from created library item
         name: values.name.toString().trim(),
         description: values.description ? values.description.toString().trim() : '',
         note: values.note || '',
@@ -813,6 +872,8 @@ const InvoiceCreation: React.FC = () => {
         taxable: values.taxable !== false, // Default to taxable if not specified
         primary_group: sections[editingSectionIndex]?.title,
       };
+
+      console.log('Created invoice item with line_item_id:', newItem.line_item_id);
 
       const newSections = [...sections];
 
@@ -835,7 +896,7 @@ const InvoiceCreation: React.FC = () => {
       expandSection(sectionId);
 
       resetItemModal();
-    }).catch(error => {
+    } catch (error: any) {
       console.error('Item validation failed:', error);
 
       // Handle specific validation errors
@@ -864,7 +925,7 @@ const InvoiceCreation: React.FC = () => {
       } else {
         message.error('Please fill in all required item information');
       }
-    });
+    }
   };
 
 
@@ -1148,36 +1209,7 @@ const InvoiceCreation: React.FC = () => {
     }
   };
 
-  const handleGenerateReceiptPDF = async () => {
-    if (!isEditMode || !id) {
-      message.error('Please save the invoice first before generating a receipt');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const blob = await invoiceService.generateReceiptPDF(id);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `receipt_${invoiceData?.invoice_number || id}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-
-      message.success('Receipt PDF generated successfully');
-
-      // Reload invoice data to update receipt indicator
-      if (id) {
-        const updatedInvoice = await invoiceService.getInvoice(id);
-        setInvoiceData(updatedInvoice);
-      }
-    } catch (error) {
-      message.error('Failed to generate receipt PDF');
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Removed handleGenerateReceiptPDF - use payment-specific receipt generation instead
 
   // Generate receipt for a specific payment
   const handleGeneratePaymentReceipt = async (paymentIndex: number) => {
@@ -1201,23 +1233,27 @@ const InvoiceCreation: React.FC = () => {
       if (payment.receipt_number) {
         console.log('Regenerating receipt with receipt_number:', payment.receipt_number);
 
-        // Get receipts for this invoice and find the one with matching receipt_number
-        const receipts = await receiptService.getReceiptsByInvoice(id);
-        const existingReceipt = receipts.find(r => r.receipt_number === payment.receipt_number);
+        // Get the specific receipt by number - more efficient than fetching all receipts
+        try {
+          const existingReceipt = await receiptService.getReceiptByNumber(id, payment.receipt_number);
 
-        if (existingReceipt) {
-          // Update existing receipt with latest payment data
-          const updateData = {
-            receipt_date: payment.date ? payment.date.format('YYYY-MM-DD') : undefined,
-            payment_amount: payment.amount,
-            payment_method: payment.method || undefined,
-            payment_reference: payment.reference || undefined,
-            top_note: payment.top_note || undefined,
-            bottom_note: payment.bottom_note || undefined,
-          };
+          if (existingReceipt) {
+            // Update existing receipt with latest payment data
+            const updateData = {
+              receipt_date: payment.date ? payment.date.format('YYYY-MM-DD') : undefined,
+              payment_amount: payment.amount,
+              payment_method: payment.method || undefined,
+              payment_reference: payment.reference || undefined,
+              top_note: payment.top_note || undefined,
+              bottom_note: payment.bottom_note || undefined,
+            };
 
-          receipt = await receiptService.updateReceipt(existingReceipt.id, updateData);
-          message.success('Receipt updated successfully!');
+            receipt = await receiptService.updateReceipt(existingReceipt.id, updateData);
+            message.success('Receipt updated successfully!');
+          }
+        } catch (error) {
+          // Receipt not found, will generate new one below
+          console.log('Receipt not found, will generate new one');
         }
       }
 
@@ -1303,13 +1339,16 @@ const InvoiceCreation: React.FC = () => {
     try {
       setLoading(true);
 
-      // Get invoice data
-      const invoiceData = await invoiceService.getInvoice(id);
+      // Use existing invoiceData if available, only fetch if null
+      let currentInvoiceData = invoiceData;
+      if (!currentInvoiceData) {
+        currentInvoiceData = await invoiceService.getInvoice(id);
+      }
 
       // Create preview data structure similar to invoice preview
       // Keep all payments from invoiceData for payment history table
       const receiptPreviewData = {
-        ...invoiceData,
+        ...currentInvoiceData,
         receipt_number: payment.receipt_number || `PREVIEW-${Date.now()}`,
         receipt_date: payment.date ? payment.date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
         payment_amount: payment.amount,
@@ -1918,6 +1957,71 @@ const InvoiceCreation: React.FC = () => {
                         >
                           Add Item
                         </Button>
+                        <Button
+                          size="small"
+                          icon={<AppstoreAddOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTemplateTargetSectionIndex(sectionIndex);
+                            setTemplateSelectorVisible(true);
+                          }}
+                        >
+                          Apply Template
+                        </Button>
+                        <Tooltip title="Save section as template">
+                          <Button
+                            size="small"
+                            icon={<FolderAddOutlined />}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+
+                              // Debug: Log section items to see what fields they have
+                              console.log('=== DEBUG: Section Items ===');
+                              console.log('Section:', section.title);
+                              console.log('Items:', section.items);
+                              section.items.forEach((item, idx) => {
+                                console.log(`Item ${idx}:`, {
+                                  id: item.id,
+                                  line_item_id: item.line_item_id,
+                                  name: item.name,
+                                  hasLineItemId: !!item.line_item_id
+                                });
+                              });
+
+                              // Check if all items have line_item_id
+                              const itemsWithoutLibraryRef = section.items.filter(item => !item.line_item_id);
+
+                              if (itemsWithoutLibraryRef.length > 0) {
+                                // Show warning and guidance
+                                Modal.confirm({
+                                  title: 'Items need to be saved to library',
+                                  content: `${itemsWithoutLibraryRef.length} item(s) in this section are not saved to the line item library yet. Please save this invoice first, then the items will be automatically added to the library and available for templates.`,
+                                  okText: 'Understood',
+                                  cancelText: 'Cancel',
+                                });
+                                return;
+                              }
+
+                              // All items have line_item_id - proceed with template creation
+                              const templateItems = section.items.map(item => ({
+                                line_item_id: item.line_item_id!,
+                                source_item_id: item.id,
+                                name: item.name,
+                                description: item.description,
+                                unit: item.unit,
+                                rate: item.rate,
+                                quantity_multiplier: item.quantity,
+                                order_index: 0,
+                              }));
+
+                              console.log('Template items:', templateItems);
+                              message.success(`${templateItems.length} items prepared for template`);
+                              addSectionToBuilder(section.title, templateItems);
+                            }}
+                          >
+                            Save as Template
+                          </Button>
+                        </Tooltip>
                         <Tooltip title="Edit section name">
                           <Button
                             size="small"
@@ -2461,7 +2565,7 @@ const InvoiceCreation: React.FC = () => {
 
         {/* Action Buttons */}
         <Card>
-          <Space size="middle">
+          <Space size="middle" wrap>
             <Button
               type="primary"
               icon={<SaveOutlined />}
@@ -2477,15 +2581,13 @@ const InvoiceCreation: React.FC = () => {
             >
               Preview PDF
             </Button>
-            {isEditMode && (
-              <Button
-                icon={<FileTextOutlined />}
-                onClick={handleGenerateReceiptPDF}
-                loading={loading}
-              >
-                Generate Receipt
-              </Button>
-            )}
+            <Divider type="vertical" />
+            <Button
+              icon={<FolderOpenOutlined />}
+              onClick={() => setTemplateManagerVisible(true)}
+            >
+              Manage Templates
+            </Button>
             <Button
               onClick={() => navigate('/invoices')}
             >
@@ -2633,6 +2735,15 @@ const InvoiceCreation: React.FC = () => {
               placeholder="Add additional notes or detailed description for this item"
               minHeight={120}
             />
+          </Form.Item>
+          <Form.Item
+            name="saveToDatabase"
+            valuePropName="checked"
+            tooltip="Save this line item with description and note to database for future use"
+          >
+            <Checkbox>
+              Save to database (with description and note)
+            </Checkbox>
           </Form.Item>
           <Form.Item dependencies={['quantity', 'rate']} noStyle>
             {({ getFieldValue }) => {
@@ -2820,6 +2931,31 @@ const InvoiceCreation: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* Line Item Template Selector Modal */}
+      <LineItemTemplateSelector
+        open={templateSelectorVisible}
+        onClose={() => {
+          setTemplateSelectorVisible(false);
+          setTemplateTargetSectionIndex(null);
+        }}
+        onApply={handleTemplateApply}
+        companyId={selectedCompany?.id}
+        documentType="invoice"
+      />
+
+      {/* Line Item Template Manager Modal */}
+      <LineItemTemplateManager
+        open={templateManagerVisible}
+        onClose={() => setTemplateManagerVisible(false)}
+        companyId={selectedCompany?.id}
+      />
+
+      {/* Template Builder Modal */}
+      <TemplateBuilderModal />
+
+      {/* Template Builder Bar (Bottom floating bar) */}
+      <TemplateBuilderBar />
     </div>
   );
 };

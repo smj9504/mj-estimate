@@ -282,13 +282,13 @@ class EstimatePDFRequest(BaseModel):
     estimate_number: str = Field(default_factory=lambda: f"EST-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
     estimate_date: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
     valid_until: Optional[str] = None
-    
+
     company: Dict[str, Any]  # Company info
     client: Dict[str, Any]  # Client info
-    
+
     items: List[Dict[str, Any]] = []
     room_data: Optional[Dict[str, Any]] = None
-    
+
     # Financial
     subtotal: float = 0
     op_percent: float = 0  # O&P percentage
@@ -297,14 +297,19 @@ class EstimatePDFRequest(BaseModel):
     tax_amount: float = 0
     discount_amount: float = 0
     total_amount: float = 0
-    
-    # Insurance
+
+    # Insurance - can be either nested dict or flat fields
+    insurance: Optional[Dict[str, Any]] = None
+    insurance_company: Optional[str] = None
     claim_number: Optional[str] = None
     policy_number: Optional[str] = None
     deductible: Optional[float] = None
     depreciation_amount: Optional[float] = 0
     acv_amount: Optional[float] = 0
     rcv_amount: Optional[float] = 0
-    
+
     notes: Optional[str] = None
     terms: Optional[str] = None
+
+    # Template selection
+    template_type: Optional[str] = "estimate"  # "estimate" or "invoice"

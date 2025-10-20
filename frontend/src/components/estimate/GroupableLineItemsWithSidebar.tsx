@@ -3,7 +3,7 @@ import { message, Modal, Form, Input, AutoComplete, Button, Typography } from 'a
 import { AppstoreOutlined, PlusOutlined } from '@ant-design/icons';
 import GroupNavigationSidebar from './GroupNavigationSidebar';
 import LineItemManager from './LineItemManager';
-import { EstimateLineItem } from '../../services/EstimateService';
+import { EstimateLineItem } from '../../services/estimateService';
 
 
 // 제안된 그룹명

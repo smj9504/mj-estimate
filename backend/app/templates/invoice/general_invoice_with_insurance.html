@@ -48,25 +48,14 @@
     .address-section p {
       margin: 2px 0;
     }
-    .company-info {
+    .company-info, .client-info {
       width: 45%;
       font-size: 13px;
-    }
-    .client-insurance-container {
-      width: 45%;
-      text-align: left;
-      display: flex;
-      gap: 30px;
-    }
-    .client-info {
-      font-size: 13px;
-      flex: 1;
-      min-width: 0;
     }
     .insurance-info {
+      width: 45%;
       font-size: 13px;
-      flex: 1;
-      min-width: 0;
+      margin-top: 15px;
     }
     .amount-due {
       margin: 30px 0px 20px 0px;
@@ -209,7 +198,7 @@
       {% if company.phone %}<p>{{ company.phone }}</p>{% endif %}
       {% if company.email %}<p>{{ company.email }}</p>{% endif %}
     </div>
-    <div class="client-insurance-container">
+    <div>
       <div class="client-info">
         <p><strong>Bill to</strong></p>
         <p>{{ client.name }}</p>

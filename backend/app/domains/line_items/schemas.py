@@ -129,6 +129,7 @@ class LineItemCreate(LineItemBase):
     company_id: Optional[UUID] = None
     is_active: bool = True
     note_ids: Optional[List[UUID]] = []  # Attach existing notes
+    save_to_library: bool = True  # If False, create temporary item for one-time use
 
 
 class LineItemUpdate(BaseModel):
@@ -186,8 +187,10 @@ class LineItemResponse(LineItemBase):
 
 class LineItemSearch(BaseModel):
     """Schema for searching line items"""
-    cat: Optional[str] = None
-    search_term: Optional[str] = None  # Search in description and includes
+    cat: Optional[str] = None  # Filter by category code
+    item: Optional[str] = None  # Filter by item code
+    search_term: Optional[str] = None  # Search in description and includes (ILIKE)
+    description: Optional[str] = None  # Specific description search
     company_id: Optional[UUID] = None
     is_active: Optional[bool] = True
     page: int = Field(1, ge=1)

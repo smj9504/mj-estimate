@@ -68,6 +68,7 @@
   },
   "devDependencies": {
     "@craco/craco": "^7.1.0",
+    "@tanstack/react-query-devtools": "^5.90.2",
     "@types/file-saver": "^2.0.7",
     "@types/lodash": "^4.17.20",
     "@types/react-router-dom": "^5.3.3",

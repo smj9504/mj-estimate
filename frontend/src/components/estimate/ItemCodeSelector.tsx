@@ -5,7 +5,7 @@ import debounce from 'lodash/debounce';
 import lineItemService from '../../services/lineItemService';
 import SelectionModal from './SelectionModal';
 import { LineItemModalItem, LineItem } from '../../types/lineItem';
-import { EstimateLineItem } from '../../services/EstimateService';
+import { EstimateLineItem } from '../../services/estimateService';
 
 interface ItemCodeSelectorProps {
   value?: string;
@@ -112,6 +112,7 @@ const ItemCodeSelector: React.FC<ItemCodeSelectorProps> = ({
 
       const estimateItem: EstimateLineItem = {
         id: undefined,
+        line_item_id: String(option.item.id), // Add line_item_id for template creation
         name: itemCode,
         description: itemDescription,
         quantity: 1,
@@ -149,6 +150,7 @@ const ItemCodeSelector: React.FC<ItemCodeSelectorProps> = ({
 
           return {
             id: undefined,
+            line_item_id: String(item.id), // Add line_item_id for template creation
             name: itemCode,
             description: itemDescription,
             quantity: 1,

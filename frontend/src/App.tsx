@@ -1,9 +1,10 @@
 import React from 'react';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider } from 'antd';
 import enUS from 'antd/locale/en_US';
+import { QueryProvider } from './contexts/QueryProvider';
 import { AuthProvider } from './contexts/AuthContext';
+import { TemplateBuilderProvider } from './contexts/TemplateBuilderContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Layout from './components/common/Layout';
 import Login from './pages/Login';
@@ -24,19 +25,6 @@ import AdminConfig from './pages/AdminConfig';
 import SketchTest from './pages/SketchTest';
 import NotFound from './pages/NotFound';
 import 'antd/dist/reset.css';
-
-// Create a client with optimized cache strategy
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      retry: 1,
-      staleTime: 30 * 1000, // 30 seconds for lists (will be overridden per query)
-      gcTime: 10 * 60 * 1000, // 10 minutes in memory (formerly cacheTime in v4)
-      refetchOnMount: 'always', // Always check for fresh data on mount
-    },
-  },
-});
 
 // Create router with future flags to eliminate warnings
 const router = createBrowserRouter([
@@ -259,13 +247,15 @@ const router = createBrowserRouter([
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
+    <QueryProvider>
       <ConfigProvider locale={enUS}>
         <AuthProvider>
-          <RouterProvider router={router} />
+          <TemplateBuilderProvider>
+            <RouterProvider router={router} />
+          </TemplateBuilderProvider>
         </AuthProvider>
       </ConfigProvider>
-    </QueryClientProvider>
+    </QueryProvider>
   );
 }
 

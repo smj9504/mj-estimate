@@ -11,18 +11,11 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons';
 import type { DataNode, TreeProps } from 'antd/es/tree';
-import { EstimateLineItem } from '../../services/EstimateService';
+import { EstimateLineItem } from '../../services/estimateService';
+import { formatNumber, formatCurrency } from '../../utils/formatUtils';
 
 const { Text } = Typography;
 
-// Utility function to format number with thousand separators
-const formatNumber = (num: number | undefined | null): string => {
-  if (num === undefined || num === null) return '0.00';
-  return num.toLocaleString('en-US', { 
-    minimumFractionDigits: 2, 
-    maximumFractionDigits: 2 
-  });
-};
 
 interface GroupData {
   name: string;
@@ -318,7 +311,7 @@ const GroupNavigationSidebar: React.FC<GroupNavigationSidebarProps> = ({
                   </Tooltip>
                   {!isNarrow && (
                     <Text type="secondary" style={{ fontSize: 11, marginLeft: 'auto' }}>
-                      ${subTotal.toFixed(2)}
+                      {formatCurrency(subTotal)}
                     </Text>
                   )}
                 </>

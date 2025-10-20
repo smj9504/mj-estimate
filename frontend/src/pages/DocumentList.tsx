@@ -30,7 +30,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { documentService } from '../services/documentService';
 import { invoiceService, InvoiceResponse } from '../services/invoiceService';
-import { estimateService } from '../services/EstimateService';
+import { estimateService } from '../services/estimateService';
 import { Document, DocumentFilter, DocumentType, DocumentStatus, InvoiceStatus, EstimateStatus, EstimateType, EstimateTypeLabels } from '../types';
 import dayjs from 'dayjs';
 

@@ -1247,14 +1247,14 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                       dataIndex: 'unit_price',
                                       key: 'unit_price',
                                       width: 100,
-                                      render: (value) => formatCurrency(value || 0),
+                                      render: (value) => `$${value?.toFixed(2) || '0.00'}`,
                                     },
                                     {
                                       title: 'Total',
                                       dataIndex: 'total',
                                       key: 'total',
                                       width: 100,
-                                      render: (value) => formatCurrency(value || 0),
+                                      render: (value) => `$${value?.toFixed(2) || '0.00'}`,
                                     },
                                     {
                                       title: (
@@ -1398,7 +1398,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                 <HolderOutlined style={{ color: '#999', fontSize: '12px' }} />
                                 <span style={{ fontWeight: '500' }}>{item.name || 'Item'}</span>
                                 <span style={{ color: '#999' }}>- {item.description?.replace(/<[^>]*>/g, '').substring(0, 30)}...</span>
-                                <span style={{ color: '#1890ff', marginLeft: 'auto' }}>{formatCurrency(item.total || 0)}</span>
+                                <span style={{ color: '#1890ff', marginLeft: 'auto' }}>${(item.total || 0).toFixed(2)}</span>
                               </div>
                             );
                           }
@@ -1513,19 +1513,19 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
                 <Col xs={24} md={12}>
                   <div style={{ textAlign: 'right', fontSize: '16px' }}>
-                    <div>Subtotal: <strong>{formatCurrency(calculateGrandTotal.subtotal)}</strong></div>
+                    <div>Subtotal: <strong>${calculateGrandTotal.subtotal.toFixed(2)}</strong></div>
                     {opPercent > 0 && (
-                      <div>O&P ({opPercent}%): <strong>{formatCurrency(calculateGrandTotal.opAmount)}</strong></div>
+                      <div>O&P ({opPercent}%): <strong>${calculateGrandTotal.opAmount.toFixed(2)}</strong></div>
                     )}
                     {calculateGrandTotal.taxAmount > 0 && (
                       <div>
                         Tax {taxMethod === 'percentage' ? `(${taxRate}%)` : ''}:
-                        <strong> {formatCurrency(calculateGrandTotal.taxAmount)}</strong>
+                        <strong> ${calculateGrandTotal.taxAmount.toFixed(2)}</strong>
                       </div>
                     )}
                     <Divider style={{ margin: '8px 0' }} />
                     <div style={{ fontSize: '20px', color: '#1890ff' }}>
-                      <strong>Total: {formatCurrency(calculateGrandTotal.total)}</strong>
+                      <strong>Total: ${calculateGrandTotal.total.toFixed(2)}</strong>
                     </div>
                   </div>
                 </Col>

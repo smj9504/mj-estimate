@@ -926,11 +926,15 @@ async def preview_estimate_html(data: EstimatePDFRequest):
     """Generate HTML preview from estimate data without saving"""
     import logging
     logger = logging.getLogger(__name__)
-    
+
     try:
         # Prepare data for HTML generation
         html_data = data.dict()
         logger.info(f"Generating HTML preview with data keys: {html_data.keys()}")
+
+        # Extract template_type from data
+        template_type = html_data.get('template_type', 'estimate')
+        logger.info(f"Using template type: {template_type}")
 
         # Generate sections from items before passing to PDF service
         if 'items' in html_data:
@@ -941,10 +945,10 @@ async def preview_estimate_html(data: EstimatePDFRequest):
         # Use the same PDF service but get HTML instead of PDF
         if not pdf_service:
             raise HTTPException(status_code=500, detail="PDF service not available")
-        html_content = pdf_service.generate_estimate_html(html_data)
-        
+        html_content = pdf_service.generate_estimate_html(html_data, template_type=template_type)
+
         logger.info(f"HTML content length: {len(html_content)} characters")
-        
+
         # Return HTML as response
         return Response(
             content=html_content,
@@ -955,7 +959,7 @@ async def preview_estimate_html(data: EstimatePDFRequest):
                 "Expires": "0"
             }
         )
-        
+
     except Exception as e:
         logger.error(f"HTML generation error: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -967,18 +971,22 @@ async def preview_estimate_pdf(data: EstimatePDFRequest):
     import logging
     import traceback
     logger = logging.getLogger(__name__)
-    
+
     if not pdf_service:
         raise HTTPException(status_code=500, detail="PDF service not available")
-    
+
     # Create temporary file for PDF
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
         output_path = tmp_file.name
-    
+
     try:
         # Prepare data for PDF generation
         pdf_data = data.dict()
         logger.info(f"Generating PDF preview with data keys: {pdf_data.keys()}")
+
+        # Extract template_type from data
+        template_type = pdf_data.get('template_type', 'estimate')
+        logger.info(f"Using template type: {template_type}")
 
         # Generate sections from items before passing to PDF service
         if 'items' in pdf_data:
@@ -987,28 +995,28 @@ async def preview_estimate_pdf(data: EstimatePDFRequest):
             logger.info(f"Generated {len(sections_data)} sections for PDF preview")
 
         # Generate PDF
-        pdf_path = pdf_service.generate_estimate_pdf(pdf_data, output_path)
+        pdf_path = pdf_service.generate_estimate_pdf(pdf_data, output_path, template_type=template_type)
         logger.info(f"PDF generated successfully at: {pdf_path}")
-        
+
         # Check if PDF file was actually created and has content
         if not os.path.exists(pdf_path):
             raise HTTPException(status_code=500, detail="PDF file was not created")
-            
+
         file_size = os.path.getsize(pdf_path)
         if file_size == 0:
             raise HTTPException(status_code=500, detail="PDF file is empty")
-            
+
         logger.info(f"PDF file size: {file_size} bytes")
-        
+
         # Read PDF file
         with open(pdf_path, "rb") as pdf_file:
             pdf_content = pdf_file.read()
-        
+
         logger.info(f"PDF content length: {len(pdf_content)} bytes")
-        
+
         # Clean up temp file
         os.unlink(pdf_path)
-        
+
         # Return PDF as response with improved headers
         return Response(
             content=pdf_content,

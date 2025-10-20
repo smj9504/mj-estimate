@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Spin, message } from 'antd';
-import { estimateService, EstimateResponse } from '../services/EstimateService';
+import { estimateService, EstimateResponse } from '../services/estimateService';
 import EstimateCreation from './EstimateCreation';
 import InsuranceEstimateCreation from './InsuranceEstimateCreation';
 

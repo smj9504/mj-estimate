@@ -10,6 +10,11 @@ export interface InvoiceItem {
   amount?: number;
   taxable?: boolean;
 
+  // Line item library integration
+  line_item_id?: string;  // Reference to line_items library
+  is_custom_override?: boolean;
+  override_values?: string;  // JSON string for override values
+
   // Flexible grouping
   primary_group?: string;  // Section name
   secondary_group?: string;  // Sub-category

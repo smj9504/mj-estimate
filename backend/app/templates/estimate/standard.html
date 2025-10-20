@@ -15,8 +15,8 @@
         
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            font-size: 14px;
-            line-height: 1.6;
+            font-size: 13px;
+            line-height: 1.2;
             color: #111827;
             background: white;
         }
@@ -69,7 +69,7 @@
         }
         
         .estimate-meta-value {
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
             color: #111827;
         }
@@ -92,30 +92,39 @@
         /* Company and Client Sections */
         .info-section {
             display: flex;
-            gap: 80px;
             margin-bottom: 40px;
         }
-        
-        .company-section, .client-section {
+
+        .company-section {
+            flex: 1;
+            margin-right: 80px;
+        }
+
+        .client-section {
+            flex: 1;
+            margin-right: 20px;
+        }
+
+        .insurance-section {
             flex: 1;
         }
         
         .company-name {
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 600;
             margin-bottom: 8px;
         }
         
         .info-line {
-            font-size: 14px;
+            font-size: 13px;
             color: #374151;
-            line-height: 1.5;
+            line-height: 1.2;
         }
         
         /* Amount Banner */
         .amount-banner {
             padding: 6px 0;
-            margin-bottom: 32px;
+            margin-bottom: 20px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -130,7 +139,7 @@
         
         /* Items Table */
         .items-section {
-            margin-bottom: 40px;
+            margin-bottom: 18px;
         }
 
         .items-table {
@@ -139,7 +148,7 @@
         }
 
         .items-table thead {
-            border-bottom: 2px solid #E5E7EB;
+            border-bottom: 1.8px solid #E5E7EB;
         }
 
         .items-table th {
@@ -164,7 +173,7 @@
 
         .items-table td {
             padding: 8px 4px;
-            font-size: 14px;
+            font-size: 13px;
             color: #000000;
             vertical-align: top;  /* Align content to top */
             border-bottom: 1px solid #F3F4F6;  /* Light border between items */
@@ -181,16 +190,17 @@
         .item-name {
             font-weight: 500;
             color: #111827;
-            font-size: 14px;
-            line-height: 1.5;  /* Match line height with table cells */
+            font-size: 13px;
+            line-height: 1.3;  /* Match line height with table cells */
             margin: 0;  /* Remove margin to align with other cells */
         }
 
         .item-description {
-            font-size: 13px;
+            font-size: 12px;
             color: #374151;
-            line-height: 1.4;
-            margin-top: 4px;  /* Small gap between name and description */
+            line-height: 1.2;
+            margin-top: 4px; 
+            padding-left: 14px; /* Small gap between name and description */
         }
 
         .item-note {
@@ -203,16 +213,18 @@
         }
 
         .section-header {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
-            color: #ffffff;
-            margin-top: 32px;
-            margin-bottom: 16px;
-            padding: 12px 16px;
-            background-color: #059669;
+            color: #059669;
+            margin-top: 18px;
+            margin-bottom: 8px;
+            padding: 10px 12px;
+            background-color: #F0FDF4;
             border-radius: 4px;
             text-transform: uppercase;
             letter-spacing: 0.05em;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
 
         /* First section doesn't need top margin */
@@ -224,13 +236,14 @@
             text-align: right;
             font-size: 14px;
             font-weight: 600;
-            color: #059669;
-            margin-top: 16px;
-            margin-bottom: 24px;
-            padding: 10px 16px;
-            background-color: #F0FDF4;
-            border-top: 2px solid #059669;
+            color: #000000;
+            margin-top: 5px;
+            margin-bottom: 20px;
+            padding: 10px 4px;
+            border-top: 1.5px solid #000000;
             border-radius: 0 0 4px 4px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
         }
 
         /* Style for section without header (default section) */
@@ -245,10 +258,9 @@
             visibility: visible !important;
         }
 
-        /* Add page break avoidance for sections */
+        /* Allow sections to break across pages naturally */
         .items-section {
-            page-break-inside: avoid;
-            break-inside: avoid;
+            /* Removed page-break-inside: avoid; to allow natural page breaks */
         }
 
         .room-header {
@@ -271,8 +283,8 @@
         .total-row {
             display: flex;
             justify-content: space-between;
-            padding: 4px 0;
-            font-size: 14px;
+            padding: 4px 4px;
+            font-size: 13px;
         }
         
         .total-row.subtotal {
@@ -302,33 +314,22 @@
             font-weight: 600;
         }
         
-        /* Insurance Section */
-        .insurance-section {
-            padding: 20px 0;
-            margin-bottom: 32px;
-            border-bottom: 1px solid #E5E7EB;
-        }
-        
+        /* Insurance Section - aligned with company and client */
         .insurance-title {
             font-size: 14px;
             font-weight: 600;
             color: #111827;
             margin-bottom: 12px;
         }
-        
-        .insurance-details {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-        }
-        
+
         .insurance-item {
-            display: flex;
-            gap: 8px;
-        }
-        
-        .insurance-label {
             font-size: 13px;
+            color: #374151;
+            line-height: 1.2;
+        }
+
+        .insurance-label {
+            font-weight: 500;
             color: #6B7280;
         }
         
@@ -341,7 +342,7 @@
         /* Notes and Terms */
         .notes-section, .terms-section {
             margin-bottom: 32px;
-            page-break-inside: avoid;
+            /* Removed page-break-inside: avoid; to allow natural page breaks */
         }
         
         .section-heading {
@@ -354,9 +355,9 @@
         }
         
         .section-content {
-            font-size: 14px;
+            font-size: 12.5px;
             color: #374151;
-            line-height: 1.8;
+            line-height: 1.25;
             white-space: pre-wrap;
         }
         
@@ -463,6 +464,25 @@
                 <div class="info-line">{{ client.email }}</div>
                 {% endif %}
             </div>
+
+            <!-- Insurance Information (Optional) -->
+            {% if insurance.insurance_company or insurance.insurance_claim_number or insurance.insurance_policy_number or insurance.insurance_deductible or insurance_company_name or claim_number or policy_number or deductible %}
+            <div class="insurance-section">
+                <div class="insurance-title">Insurance Information</div>
+                {% if insurance.insurance_company or insurance_company_name %}
+                <div class="insurance-item">Insurer:</span> {{ insurance.insurance_company or insurance_company_name }}</div>
+                {% endif %}
+                {% if insurance.insurance_claim_number or claim_number %}
+                <div class="insurance-item"><span class="insurance-label">Claim #:</span> {{ insurance.insurance_claim_number or claim_number }}</div>
+                {% endif %}
+                {% if insurance.insurance_policy_number or policy_number %}
+                <div class="insurance-item"><span class="insurance-label">Policy #:</span> {{ insurance.insurance_policy_number or policy_number }}</div>
+                {% endif %}
+                {% if insurance.insurance_deductible or deductible %}
+                <div class="insurance-item"><span class="insurance-label">Deductible:</span> ${{ '{:,.2f}'.format(insurance.insurance_deductible or deductible) }}</div>
+                {% endif %}
+            </div>
+            {% endif %}
         </div>
 
         <!-- Amount Banner -->
@@ -472,35 +492,16 @@
             </span>
         </div>
 
-        <!-- Insurance Information (Optional) -->
-        {% if claim_number or policy_number or deductible %}
-        <div class="insurance-section">
-            <div class="insurance-title">Insurance Claim Information</div>
-            <div class="insurance-details">
-                {% if claim_number %}
-                <div class="insurance-item">
-                    <span class="insurance-label">Claim #:</span>
-                    <span class="insurance-value">{{ claim_number }}</span>
-                </div>
-                {% endif %}
-                {% if policy_number %}
-                <div class="insurance-item">
-                    <span class="insurance-label">Policy #:</span>
-                    <span class="insurance-value">{{ policy_number }}</span>
-                </div>
-                {% endif %}
-                {% if deductible %}
-                <div class="insurance-item">
-                    <span class="insurance-label">Deductible:</span>
-                    <span class="insurance-value">${{ '{:,.2f}'.format(deductible) }}</span>
-                </div>
-                {% endif %}
-            </div>
+        <!-- Notes -->
+        {% if notes %}
+        <div class="notes-section">
+            <div class="section-content">{{ notes | safe }}</div>
         </div>
         {% endif %}
 
         <!-- Estimate Items by Section -->
         {% if sections and sections|length > 0 %}
+            {% set item_counter = namespace(value=0) %}
             {% for section in sections %}
             <div class="items-section">
                 <!-- Always show section header for debugging -->
@@ -519,10 +520,11 @@
                     <tbody>
                         {% if section['items'] %}
                         {% for item in section['items'] %}
+                        {% set item_counter.value = item_counter.value + 1 %}
                         <tr>
                             <td>
                                 <div class="item-content">
-                                    <div class="item-name">{{ item.name }}</div>
+                                    <div class="item-name">{{ item_counter.value }}. {{ item.name }}</div>
                                     {% if item.note %}
                                         <div class="item-description">{{ item.note|replace('\n', '<br>')|safe }}</div>
                                     {% endif %}
@@ -563,7 +565,7 @@
                         <tr>
                             <td>
                                 <div class="item-content">
-                                    <div class="item-name">{{ item.name }}</div>
+                                    <div class="item-name">{{ loop.index }}. {{ item.name }}</div>
                                     {% if item.note %}
                                         <div class="item-description">{{ item.note|replace('\n', '<br>')|safe }}</div>
                                     {% endif %}
@@ -616,19 +618,10 @@
             </div>
         </div>
 
-        <!-- Terms -->
+        <!-- Terms & Conditions -->
         {% if terms %}
         <div class="terms-section">
-            <div class="section-heading">Terms & Conditions</div>
             <div class="section-content">{{ terms | safe }}</div>
-        </div>
-        {% endif %}
-
-        <!-- Notes -->
-        {% if notes %}
-        <div class="notes-section">
-            <div class="section-heading">Notes</div>
-            <div class="section-content">{{ notes | safe }}</div>
         </div>
         {% endif %}
 

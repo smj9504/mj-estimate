@@ -225,39 +225,57 @@ class PDFService:
             logger.error(f"Error rendering template: {e}")
             raise
 
-    def generate_estimate_html(self, data: Dict[str, Any]) -> str:
+    def generate_estimate_html(self, data: Dict[str, Any], template_type: str = "estimate") -> str:
         """
         Generate estimate HTML from data (without converting to PDF)
-        
+
         Args:
             data: Estimate data dictionary
-            
+            template_type: Template type to use ("estimate" or "invoice")
+
         Returns:
             HTML content as string
         """
         import logging
         logger = logging.getLogger(__name__)
-        
+
         logger.info("Starting HTML generation...")
         logger.info(f"Input data keys: {list(data.keys())}")
-        
+        logger.info(f"Template type: {template_type}")
+
         # Validate and prepare data
         try:
-            context = self._prepare_estimate_context(data)
+            if template_type == "invoice":
+                # Use invoice context preparation for Invoice-style Estimate template
+                context = self._prepare_invoice_context(data)
+            else:
+                context = self._prepare_estimate_context(data)
+
+            # All estimates use estimate document type
+            context['document_type'] = 'estimate'
+            context['document_title'] = 'Estimate'
             logger.info(f"Context prepared with keys: {list(context.keys())}")
         except Exception as e:
             logger.error(f"Error preparing context: {e}")
             raise
-        
-        # Load template - try standard first, fallback to estimate.html
+
+        # Load template based on template_type
         try:
-            template = self.env.get_template("estimate/standard.html")
-            logger.info("Using estimate/standard.html template")
+            if template_type == "invoice":
+                template = self.env.get_template("estimate/invoice_style.html")
+                logger.info("Using estimate/invoice_style.html template")
+            else:
+                template = self.env.get_template("estimate/standard.html")
+                logger.info("Using estimate/standard.html template")
         except Exception as e:
-            logger.warning(f"Could not load standard template: {e}, trying fallback")
+            logger.warning(f"Could not load template: {e}, trying fallback")
             try:
-                template = self.env.get_template("estimate.html")
-                logger.info("Using estimate.html template")
+                if template_type == "invoice":
+                    template = self.env.get_template("invoice/general_invoice.html")
+                    logger.info("Using invoice/general_invoice.html fallback template")
+                else:
+                    template = self.env.get_template("estimate.html")
+                    logger.info("Using estimate.html fallback template")
             except Exception as e2:
                 logger.error(f"Could not load any template: {e2}")
                 raise
@@ -280,67 +298,91 @@ class PDFService:
             logger.error(f"Error rendering template: {e}")
             raise
     
-    def generate_estimate_pdf(self, data: Dict[str, Any], output_path: str) -> str:
+    def generate_estimate_pdf(self, data: Dict[str, Any], output_path: str, template_type: str = "estimate") -> str:
         """
         Generate estimate PDF from data
-        
+
         Args:
             data: Estimate data dictionary
             output_path: Path to save the PDF
-            
+            template_type: Template type to use ("estimate" or "invoice")
+
         Returns:
             Path to the generated PDF
         """
         import logging
         logger = logging.getLogger(__name__)
-        
+
         logger.info("Starting PDF generation...")
         logger.info(f"Input data keys: {list(data.keys())}")
-        
+        logger.info(f"Template type: {template_type}")
+
         # Validate and prepare data
         try:
-            context = self._prepare_estimate_context(data)
+            if template_type == "invoice":
+                # Use invoice context preparation for Invoice-style Estimate template
+                context = self._prepare_invoice_context(data)
+            else:
+                context = self._prepare_estimate_context(data)
+
+            # All estimates use estimate document type
+            context['document_type'] = 'estimate'
+            context['document_title'] = 'Estimate'
             logger.info(f"Context prepared with keys: {list(context.keys())}")
         except Exception as e:
             logger.error(f"Error preparing context: {e}")
             raise
-        
-        # Load template - try standard first, fallback to estimate.html
+
+        # Load template based on template_type
         try:
-            template = self.env.get_template("estimate/standard.html")
-            logger.info("Using estimate/standard.html template")
+            if template_type == "invoice":
+                template = self.env.get_template("estimate/invoice_style.html")
+                logger.info("Using estimate/invoice_style.html template")
+            else:
+                template = self.env.get_template("estimate/standard.html")
+                logger.info("Using estimate/standard.html template")
         except Exception as e:
-            logger.warning(f"Could not load standard template: {e}, trying fallback")
+            logger.warning(f"Could not load template: {e}, trying fallback")
             try:
-                template = self.env.get_template("estimate.html")
-                logger.info("Using estimate.html template")
+                if template_type == "invoice":
+                    template = self.env.get_template("invoice/general_invoice.html")
+                    logger.info("Using invoice/general_invoice.html fallback template")
+                else:
+                    template = self.env.get_template("estimate.html")
+                    logger.info("Using estimate.html fallback template")
             except Exception as e2:
                 logger.error(f"Could not load any template: {e2}")
                 raise
-        
+
         try:
             html_content = template.render(**context)
             logger.info(f"HTML content rendered, length: {len(html_content)}")
         except Exception as e:
             logger.error(f"Error rendering template: {e}")
             raise
-        
-        # Load CSS - try estimate directory first
-        css_path = self.template_dir / "estimate" / "estimate.css"
-        if not css_path.exists():
-            css_path = self.template_dir / "estimate.css"
+
+        # Load CSS based on template type
         stylesheets = []
-        
-        if css_path.exists():
-            logger.info(f"Loading CSS from: {css_path}")
-            try:
-                with open(css_path, 'r', encoding='utf-8') as f:
-                    stylesheets.append(CSS(string=f.read()))
-            except Exception as e:
-                logger.warning(f"Error loading CSS: {e}")
+
+        if template_type == "invoice":
+            # Invoice templates have inline CSS, so no external stylesheets needed
+            logger.info("Invoice template uses inline CSS")
         else:
-            logger.warning(f"No CSS file found at: {css_path}")
-        
+            # Load CSS for estimate template
+            css_path = self.template_dir / "estimate" / "estimate.css"
+            if not css_path.exists():
+                css_path = self.template_dir / "estimate.css"
+
+            if css_path.exists():
+                logger.info(f"Loading CSS from: {css_path}")
+                try:
+                    with open(css_path, 'r', encoding='utf-8') as f:
+                        stylesheets.append(CSS(string=f.read()))
+                except Exception as e:
+                    logger.warning(f"Error loading CSS: {e}")
+            else:
+                logger.warning(f"No CSS file found at: {css_path}")
+
         # Add header/footer CSS
         try:
             header_footer_css = self._generate_header_footer_css(context)
@@ -348,11 +390,11 @@ class PDFService:
             logger.info("Header/footer CSS added")
         except Exception as e:
             logger.warning(f"Error generating header/footer CSS: {e}")
-        
+
         # Generate PDF
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         try:
             logger.info(f"Generating PDF at: {output_path}")
             HTML(string=html_content).write_pdf(
@@ -372,8 +414,8 @@ class PDFService:
         print(f"Input data: {json.dumps(data, indent=2, default=str)}")
         
         context = data.copy()
-        
-        # Set defaults and map to template-expected variable names
+
+        # Set invoice defaults
         context.setdefault('invoice_number', self._generate_invoice_number())
         context.setdefault('date', datetime.now().strftime("%Y-%m-%d"))
         context.setdefault('due_date', datetime.now().strftime("%Y-%m-%d"))
@@ -386,7 +428,60 @@ class PDFService:
         context.setdefault('company', {'name': 'Unknown Company'})
         context.setdefault('client', {'name': 'Unknown Client'})
         context.setdefault('items', [])
-        context.setdefault('insurance', {})
+
+        # Handle insurance data - map fields to template variables
+        # Check if we have insurance data in nested dict OR as direct fields
+        if 'insurance' in context and isinstance(context['insurance'], dict) and context['insurance']:
+            insurance_data = context['insurance']
+            # Map insurance fields to both nested and flat variables for template compatibility
+            context['insurance'] = {
+                'insurance_company': insurance_data.get('company') or insurance_data.get('insurance_company'),
+                'insurance_policy_number': insurance_data.get('policy_number') or insurance_data.get('insurance_policy_number'),
+                'insurance_claim_number': insurance_data.get('claim_number') or insurance_data.get('insurance_claim_number'),
+                'insurance_deductible': insurance_data.get('deductible') or insurance_data.get('insurance_deductible')
+            }
+            # Also set flat variables for direct access (both prefixed and simple names)
+            context['insurance_company'] = context['insurance']['insurance_company']
+            context['insurance_policy_number'] = context['insurance']['insurance_policy_number']
+            context['insurance_claim_number'] = context['insurance']['insurance_claim_number']
+            context['insurance_deductible'] = context['insurance']['insurance_deductible']
+
+            # Simple field names for Estimate templates (avoiding conflict with company info)
+            context['insurance_company_name'] = context['insurance']['insurance_company']
+            context['claim_number'] = context['insurance']['insurance_claim_number']
+            context['policy_number'] = context['insurance']['insurance_policy_number']
+            context['deductible'] = context['insurance']['insurance_deductible']
+        else:
+            # Check for direct insurance fields (Estimate data format)
+            print(f"DEBUG: Checking direct insurance fields...")
+            print(f"DEBUG: insurance_company = {context.get('insurance_company')}")
+            print(f"DEBUG: claim_number = {context.get('claim_number')}")
+            print(f"DEBUG: policy_number = {context.get('policy_number')}")
+            print(f"DEBUG: deductible = {context.get('deductible')}")
+
+            context['insurance'] = {
+                'insurance_company': context.get('insurance_company'),
+                'insurance_policy_number': context.get('policy_number') or context.get('insurance_policy_number'),
+                'insurance_claim_number': context.get('claim_number') or context.get('insurance_claim_number'),
+                'insurance_deductible': context.get('deductible') or context.get('insurance_deductible')
+            }
+            # Set all variable name variations for maximum template compatibility
+            context['insurance_company'] = context['insurance']['insurance_company']
+            context['insurance_policy_number'] = context['insurance']['insurance_policy_number']
+            context['insurance_claim_number'] = context['insurance']['insurance_claim_number']
+            context['insurance_deductible'] = context['insurance']['insurance_deductible']
+
+            context['insurance_company_name'] = context['insurance']['insurance_company']
+            context['claim_number'] = context['insurance']['insurance_claim_number']
+            context['policy_number'] = context['insurance']['insurance_policy_number']
+            context['deductible'] = context['insurance']['insurance_deductible']
+
+            print(f"DEBUG: Final context insurance values:")
+            print(f"  insurance_company_name = {context.get('insurance_company_name')}")
+            print(f"  claim_number = {context.get('claim_number')}")
+            print(f"  policy_number = {context.get('policy_number')}")
+            print(f"  deductible = {context.get('deductible')}")
+
         
         # Ensure company and client have safe name values
         if not context['company'].get('name'):
@@ -577,6 +672,51 @@ class PDFService:
         context['client'] = cleaned_client
         context.setdefault('items', [])
         context.setdefault('sections', [])
+
+        # Handle insurance data - same as invoice context
+        if 'insurance' in context and isinstance(context['insurance'], dict) and context['insurance']:
+            insurance_data = context['insurance']
+            # Map insurance fields to both nested and flat variables for template compatibility
+            context['insurance'] = {
+                'insurance_company': insurance_data.get('company') or insurance_data.get('insurance_company'),
+                'insurance_policy_number': insurance_data.get('policy_number') or insurance_data.get('insurance_policy_number'),
+                'insurance_claim_number': insurance_data.get('claim_number') or insurance_data.get('insurance_claim_number'),
+                'insurance_deductible': insurance_data.get('deductible') or insurance_data.get('insurance_deductible')
+            }
+            # Also set flat variables for direct access (both prefixed and simple names)
+            context['insurance_company'] = context['insurance']['insurance_company']
+            context['insurance_policy_number'] = context['insurance']['insurance_policy_number']
+            context['insurance_claim_number'] = context['insurance']['insurance_claim_number']
+            context['insurance_deductible'] = context['insurance']['insurance_deductible']
+
+            # Simple field names for Estimate templates
+            context['insurance_company_name'] = context['insurance']['insurance_company']
+            context['claim_number'] = context['insurance']['insurance_claim_number']
+            context['policy_number'] = context['insurance']['insurance_policy_number']
+            context['deductible'] = context['insurance']['insurance_deductible']
+
+            logger.info(f"Insurance data processed: company={context.get('insurance_company_name')}, claim={context.get('claim_number')}")
+        else:
+            # Check for direct insurance fields (Estimate data format)
+            logger.info(f"No nested insurance dict, checking direct fields...")
+            context['insurance'] = {
+                'insurance_company': context.get('insurance_company'),
+                'insurance_policy_number': context.get('policy_number') or context.get('insurance_policy_number'),
+                'insurance_claim_number': context.get('claim_number') or context.get('insurance_claim_number'),
+                'insurance_deductible': context.get('deductible') or context.get('insurance_deductible')
+            }
+            # Set all variable name variations for maximum template compatibility
+            context['insurance_company'] = context['insurance']['insurance_company']
+            context['insurance_policy_number'] = context['insurance']['insurance_policy_number']
+            context['insurance_claim_number'] = context['insurance']['insurance_claim_number']
+            context['insurance_deductible'] = context['insurance']['insurance_deductible']
+
+            context['insurance_company_name'] = context['insurance']['insurance_company']
+            context['claim_number'] = context['insurance']['insurance_claim_number']
+            context['policy_number'] = context['insurance']['insurance_policy_number']
+            context['deductible'] = context['insurance']['insurance_deductible']
+
+            logger.info(f"Direct insurance fields: company={context.get('insurance_company_name')}, claim={context.get('claim_number')}")
 
         # Log sections data for debugging
         logger.info(f"PDF Service - Processing sections: {len(context.get('sections', []))} sections")

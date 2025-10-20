@@ -26,11 +26,11 @@ class EstimateRepositoryMixin:
     
     def get_estimates_by_status(self, status: str) -> List[Dict[str, Any]]:
         """Get estimates by status"""
-        return self.get_all(filters={'status': status}, order_by='-estimate_date')
+        return self.get_all(filters={'status': status}, order_by='-updated_at')
     
     def get_estimates_by_company(self, company_id: str) -> List[Dict[str, Any]]:
         """Get estimates for a specific company"""
-        return self.get_all(filters={'company_id': company_id}, order_by='-estimate_date')
+        return self.get_all(filters={'company_id': company_id}, order_by='-updated_at')
     
     def get_estimates_by_date_range(self, 
                                    start_date: date, 
@@ -118,7 +118,7 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
             entities = self.db_session.query(Estimate).filter(
                 Estimate.estimate_date >= start_date,
                 Estimate.estimate_date <= end_date
-            ).order_by(Estimate.estimate_date.desc()).all()
+            ).order_by(Estimate.updated_at.desc()).all()
             
             return [self._convert_to_dict(entity) for entity in entities]
             
@@ -153,7 +153,7 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
                 (Estimate.client_email.ilike(search_pattern)) |
                 (Estimate.claim_number.ilike(search_pattern)) |
                 (Estimate.policy_number.ilike(search_pattern))
-            ).order_by(Estimate.estimate_date.desc()).all()
+            ).order_by(Estimate.updated_at.desc()).all()
             
             return [self._convert_to_dict(entity) for entity in entities]
             
@@ -242,7 +242,7 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
             entities = self.db_session.query(Estimate).filter(
                 (Estimate.claim_number.isnot(None)) |
                 (Estimate.policy_number.isnot(None))
-            ).order_by(Estimate.estimate_date.desc()).all()
+            ).order_by(Estimate.updated_at.desc()).all()
             
             return [self._convert_to_dict(entity) for entity in entities]
             
@@ -266,7 +266,7 @@ class EstimateSupabaseRepository(SupabaseRepository, EstimateRepositoryMixin):
                 'estimate_date', start_date.isoformat()
             ).lte(
                 'estimate_date', end_date.isoformat()
-            ).order('estimate_date', desc=True).execute()
+            ).order('updated_at', desc=True).execute()
             
             return response.data if response.data else []
             
@@ -308,8 +308,8 @@ class EstimateSupabaseRepository(SupabaseRepository, EstimateRepositoryMixin):
                 )
             ]
             
-            # Sort by estimate date
-            filtered_estimates.sort(key=lambda x: x.get('estimate_date', ''), reverse=True)
+            # Sort by updated_at date
+            filtered_estimates.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
             
             return filtered_estimates
             
@@ -403,8 +403,8 @@ class EstimateSupabaseRepository(SupabaseRepository, EstimateRepositoryMixin):
                 if estimate.get('claim_number') or estimate.get('policy_number')
             ]
             
-            # Sort by estimate date
-            insurance_estimates.sort(key=lambda x: x.get('estimate_date', ''), reverse=True)
+            # Sort by updated_at date
+            insurance_estimates.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
             
             return insurance_estimates
             

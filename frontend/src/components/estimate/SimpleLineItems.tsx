@@ -19,7 +19,7 @@ import {
   FileTextOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { EstimateLineItem } from '../../services/EstimateService';
+import { EstimateLineItem } from '../../services/estimateService';
 
 const { Text } = Typography;
 

@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { message } from 'antd';
-import { EstimateLineItem } from '../services/EstimateService';
+import { EstimateLineItem } from '../services/estimateService';
 import { AutoSaveState, AutoSaveOptions, AutoSaveError } from '../types/lineItemManager';
 
 interface UseAutoSaveOptions extends Partial<AutoSaveOptions> {

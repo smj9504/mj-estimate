@@ -37,7 +37,7 @@ import {
   RightOutlined,
   FileTextOutlined,
 } from '@ant-design/icons';
-import { EstimateLineItem } from '../../services/EstimateService';
+import { EstimateLineItem } from '../../services/estimateService';
 import debounce from 'lodash/debounce';
 
 const { Text, Title } = Typography;

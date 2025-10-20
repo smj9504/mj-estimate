@@ -40,7 +40,7 @@ import {
   BookOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import { EstimateLineItem } from '../../services/EstimateService';
+import { EstimateLineItem } from '../../services/estimateService';
 import lineItemService from '../../services/lineItemService';
 import { LineItem, LineItemCategory, LineItemNote, CategoryModalItem, LineItemModalItem } from '../../types/lineItem';
 import Calculator from '../common/Calculator';
@@ -49,20 +49,12 @@ import SelectionModal from './SelectionModal';
 import XactimateInputMode from './XactimateInputMode';
 import { XactimateLineItemData } from '../../utils/xactimateTransform';
 import debounce from 'lodash/debounce';
+import { formatNumber, formatCurrency } from '../../utils/formatUtils';
 import { evaluate } from 'mathjs';
 
 const { Option } = Select;
 const { TextArea } = Input;
 const { Text, Title } = Typography;
-
-// Utility function to format number with thousand separators
-const formatNumber = (num: number | undefined | null): string => {
-  if (num === undefined || num === null) return '0.00';
-  return num.toLocaleString('en-US', { 
-    minimumFractionDigits: 2, 
-    maximumFractionDigits: 2 
-  });
-};
 
 // Action types (to be moved to backend later)
 export const LINE_ITEM_ACTIONS = {

@@ -411,7 +411,7 @@ class EstimateService {
     return response.data;
   }
 
-  async previewPDF(estimate: EstimateResponse): Promise<Blob> {
+  async previewPDF(estimate: EstimateResponse, templateType: string = 'estimate'): Promise<Blob> {
     // Transform the estimate data to the format expected by the PDF endpoint
     const pdfData = {
       estimate_number: estimate.estimate_number || this.generateEstimateNumberFallback(),
@@ -469,11 +469,15 @@ class EstimateService {
       tax_amount: estimate.tax_amount || 0,
       discount_amount: estimate.discount_amount || 0,
       total_amount: estimate.total_amount || 0,
-      claim_number: estimate.claim_number,
-      policy_number: estimate.policy_number,
-      deductible: estimate.deductible,
+      insurance: {
+        company: estimate.insurance_company,
+        claim_number: estimate.claim_number,
+        policy_number: estimate.policy_number,
+        deductible: estimate.deductible
+      },
       notes: estimate.notes,
-      terms: estimate.terms
+      terms: estimate.terms,
+      template_type: templateType // Add template type selection
     };
 
     console.log('Sending PDF preview data:', pdfData);
@@ -522,7 +526,7 @@ class EstimateService {
     }
   }
 
-  async previewHTML(estimate: EstimateResponse): Promise<string> {
+  async previewHTML(estimate: EstimateResponse, templateType: string = 'estimate'): Promise<string> {
     // Check for items without primary_group and show warning
     const itemsWithoutGroup = estimate.items.filter(item => !item.primary_group);
     if (itemsWithoutGroup.length > 0) {
@@ -571,11 +575,15 @@ class EstimateService {
       tax_amount: estimate.tax_amount || 0,
       discount_amount: estimate.discount_amount || 0,
       total_amount: estimate.total_amount || 0,
-      claim_number: estimate.claim_number,
-      policy_number: estimate.policy_number,
-      deductible: estimate.deductible,
+      insurance: {
+        company: estimate.insurance_company,
+        claim_number: estimate.claim_number,
+        policy_number: estimate.policy_number,
+        deductible: estimate.deductible
+      },
       notes: estimate.notes,
-      terms: estimate.terms
+      terms: estimate.terms,
+      template_type: templateType // Add template type selection
     };
 
     console.log('Sending HTML preview data:', htmlData);

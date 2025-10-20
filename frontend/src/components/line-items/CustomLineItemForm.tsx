@@ -99,15 +99,23 @@ const CustomLineItemForm: React.FC<CustomLineItemFormProps> = ({
         newItem = await lineItemService.createLineItem(lineItemData);
         message.success('Custom item created and saved to library');
       } else {
-        // Create temporary item (not saved to library)
-        // For inline use only
+        // Don't save to library - return item data without ID
+        // Invoice/Estimate will save description directly without line_item_id reference
         newItem = {
-          id: `temp-${Date.now()}`,
-          ...lineItemData,
+          id: '', // No ID - signals to parent that this is not saved to library
+          cat: lineItemData.cat,
+          item: lineItemData.name,
+          description: lineItemData.description,
+          includes: lineItemData.includes,
+          unit: lineItemData.unit,
+          untaxed_unit_price: lineItemData.untaxed_unit_price,
+          type: LineItemType.CUSTOM,
+          is_active: true,
           version: 1,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          notes: []
         } as LineItem;
-        message.success('Custom item created for this document');
+        message.success('Item created for this document only (not saved to library)');
       }
 
       onSuccess(newItem);

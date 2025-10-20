@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 import tempfile
 import os
 import logging
+import threading
+from functools import lru_cache
 
 from app.core.database_factory import get_db_session as get_db
 from app.domains.receipt.schemas import (
@@ -25,6 +27,14 @@ from app.common.services.pdf_service import pdf_service
 from app.domains.receipt.service import ReceiptService, ReceiptTemplateService
 
 logger = logging.getLogger(__name__)
+
+# Thread-safe cache for payment method mapping with TTL
+_payment_method_cache = {
+    'data': None,
+    'timestamp': None,
+    'lock': threading.Lock()
+}
+_CACHE_TTL_SECONDS = 3600  # 1 hour
 
 
 def get_receipt_service():
@@ -60,40 +70,77 @@ router = APIRouter()
 
 
 def _get_payment_method_mapping():
-    """Get payment method code to name mapping from database"""
-    try:
-        from app.core.database_factory import get_database
-        from sqlalchemy import text
+    """
+    Get payment method code to name mapping from database with caching.
+    Cache is thread-safe and expires after 1 hour.
+    """
+    global _payment_method_cache
 
-        database = get_database()
-        db = database.get_db()
+    current_time = datetime.utcnow()
 
-        # Query payment_methods table
-        query = text("SELECT code, name FROM payment_methods WHERE is_active = true")
-        result = db.execute(query)
+    # Check cache first (outside lock for read performance)
+    if _payment_method_cache['data'] is not None and _payment_method_cache['timestamp'] is not None:
+        cache_age = (current_time - _payment_method_cache['timestamp']).total_seconds()
+        if cache_age < _CACHE_TTL_SECONDS:
+            logger.debug("Payment method mapping cache hit")
+            return _payment_method_cache['data']
 
-        # Create mapping dictionary
-        mapping = {}
-        for row in result:
-            mapping[row.code] = row.name
+    # Cache miss or expired - acquire lock for update
+    with _payment_method_cache['lock']:
+        # Double-check after acquiring lock (another thread might have updated)
+        if _payment_method_cache['data'] is not None and _payment_method_cache['timestamp'] is not None:
+            cache_age = (current_time - _payment_method_cache['timestamp']).total_seconds()
+            if cache_age < _CACHE_TTL_SECONDS:
+                logger.debug("Payment method mapping cache hit (after lock)")
+                return _payment_method_cache['data']
 
-        db.close()
-        return mapping
-    except Exception as e:
-        logger.error(f"Error fetching payment method mapping: {e}")
-        # Return default mapping if database query fails
-        return {
-            'ZELLE': 'Zelle',
-            'ZL': 'Zelle',
-            'CHECK': 'Check',
-            'CK': 'Check',
-            'CASH': 'Cash',
-            'CS': 'Cash',
-            'CREDIT_CARD': 'Credit Card',
-            'CC': 'Credit Card',
-            'WIRE': 'Wire Transfer',
-            'WT': 'Wire Transfer'
-        }
+        # Fetch from database
+        logger.info("Payment method mapping cache miss - fetching from database")
+        try:
+            from app.core.database_factory import get_database
+            from sqlalchemy import text
+
+            database = get_database()
+            db = database.get_db()
+
+            # Query payment_methods table
+            query = text("SELECT code, name FROM payment_methods WHERE is_active = true")
+            result = db.execute(query)
+
+            # Create mapping dictionary
+            mapping = {}
+            for row in result:
+                mapping[row.code] = row.name
+
+            db.close()
+
+            # Update cache
+            _payment_method_cache['data'] = mapping
+            _payment_method_cache['timestamp'] = current_time
+            logger.info(f"Payment method mapping cached with {len(mapping)} entries")
+
+            return mapping
+        except Exception as e:
+            logger.error(f"Error fetching payment method mapping: {e}")
+            # Return default mapping if database query fails
+            default_mapping = {
+                'ZELLE': 'Zelle',
+                'ZL': 'Zelle',
+                'CHECK': 'Check',
+                'CK': 'Check',
+                'CASH': 'Cash',
+                'CS': 'Cash',
+                'CREDIT_CARD': 'Credit Card',
+                'CC': 'Credit Card',
+                'WIRE': 'Wire Transfer',
+                'WT': 'Wire Transfer'
+            }
+
+            # Cache the fallback mapping too (but with shorter TTL in case DB recovers)
+            _payment_method_cache['data'] = default_mapping
+            _payment_method_cache['timestamp'] = current_time
+
+            return default_mapping
 
 
 def _map_payment_methods(payments, method_mapping):
@@ -267,6 +314,48 @@ async def get_receipts_by_invoice(
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get receipts: {str(e)}")
+
+
+@router.get("/by-invoice/{invoice_id}/number/{receipt_number}", response_model=ReceiptResponse)
+async def get_receipt_by_number(
+    invoice_id: str,
+    receipt_number: str,
+    service: ReceiptService = Depends(get_receipt_service)
+):
+    """
+    Get a specific receipt by invoice ID and receipt number.
+    This is more efficient than fetching all receipts when you only need one.
+    """
+
+    try:
+        logger.info(f"=== Getting receipt {receipt_number} for invoice: {invoice_id} ===")
+
+        # Get all receipts for the invoice and filter by receipt_number
+        receipts = service.get_receipts_by_invoice(invoice_id)
+
+        # Find the matching receipt
+        matching_receipt = None
+        for receipt in receipts:
+            if receipt.get('receipt_number') == receipt_number:
+                matching_receipt = receipt
+                break
+
+        if not matching_receipt:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Receipt {receipt_number} not found for invoice {invoice_id}"
+            )
+
+        logger.info(f"Found receipt {receipt_number}")
+        return _convert_to_receipt_response(matching_receipt)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting receipt {receipt_number} for invoice {invoice_id}: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to get receipt: {str(e)}")
 
 
 @router.get("/{receipt_id}", response_model=ReceiptResponse)
@@ -490,6 +579,16 @@ async def generate_receipt_html(
                 "phone": invoice.get('client_phone'),
                 "email": invoice.get('client_email')
             },
+            "insurance": {
+                "insurance_company": invoice.get('insurance_company'),
+                "insurance_policy_number": invoice.get('insurance_policy_number'),
+                "insurance_claim_number": invoice.get('insurance_claim_number'),
+                "insurance_deductible": invoice.get('insurance_deductible')
+            },
+            "insurance_company": invoice.get('insurance_company'),
+            "insurance_policy_number": invoice.get('insurance_policy_number'),
+            "insurance_claim_number": invoice.get('insurance_claim_number'),
+            "insurance_deductible": invoice.get('insurance_deductible'),
             "amount": receipt.get('payment_amount', 0),
             "payment_method": receipt.get('payment_method', ''),
             "payment_date": receipt.get('receipt_date', ''),
@@ -660,6 +759,16 @@ async def generate_receipt_pdf(
                 "phone": invoice.get('client_phone'),
                 "email": invoice.get('client_email')
             },
+            "insurance": {
+                "insurance_company": invoice.get('insurance_company'),
+                "insurance_policy_number": invoice.get('insurance_policy_number'),
+                "insurance_claim_number": invoice.get('insurance_claim_number'),
+                "insurance_deductible": invoice.get('insurance_deductible')
+            },
+            "insurance_company": invoice.get('insurance_company'),
+            "insurance_policy_number": invoice.get('insurance_policy_number'),
+            "insurance_claim_number": invoice.get('insurance_claim_number'),
+            "insurance_deductible": invoice.get('insurance_deductible'),
             "amount": receipt.get('payment_amount', 0),
             "payment_method": receipt.get('payment_method', ''),
             "payment_date": receipt_date_str,
@@ -832,6 +941,16 @@ async def preview_receipt_html(
                 "phone": invoice.get('client_phone'),
                 "email": invoice.get('client_email')
             }),
+            "insurance": {
+                "insurance_company": invoice.get('insurance_company'),
+                "insurance_policy_number": invoice.get('insurance_policy_number'),
+                "insurance_claim_number": invoice.get('insurance_claim_number'),
+                "insurance_deductible": invoice.get('insurance_deductible')
+            },
+            "insurance_company": invoice.get('insurance_company'),
+            "insurance_policy_number": invoice.get('insurance_policy_number'),
+            "insurance_claim_number": invoice.get('insurance_claim_number'),
+            "insurance_deductible": invoice.get('insurance_deductible'),
             "amount": data.get('payment_amount', 0),
             "paid_amount_to_date": data.get('payment_amount', 0),
             "payment_method": data.get('payment_method', ''),

@@ -84,7 +84,7 @@ class EstimateItem(Base, BaseModel):
     room = Column(String(100))  # Deprecated - use primary_group/secondary_group instead
 
     # Item name field - aligned with invoice_items table for consistency
-    name = Column(String(255))  # Item name or identifier (renamed from item_code)
+    name = Column(String(255), nullable=True)  # Optional - prefer using line_item.description via line_item_id
 
     description = Column(Text, nullable=True)
     quantity = Column(DECIMAL(10, 2), default=1)

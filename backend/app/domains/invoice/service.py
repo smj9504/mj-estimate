@@ -65,9 +65,9 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             if status:
                 all_filters['status'] = status
 
-            # Default order by created_at descending if not specified
+            # Default order by updated_at descending if not specified
             if not order_by:
-                order_by = '-created_at'
+                order_by = '-updated_at'
 
             # Use read-only repository for SELECT operations
             repository = self.get_readonly_repository()

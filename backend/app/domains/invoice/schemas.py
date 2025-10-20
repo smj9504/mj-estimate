@@ -107,6 +107,11 @@ class InvoiceItemResponse(InvoiceItemBase):
     taxable: Optional[bool] = True
     order_index: Optional[int] = None
 
+    # Line item integration
+    line_item_id: Optional[UUID] = None  # Reference to line_items library
+    is_custom_override: Optional[bool] = False
+    override_values: Optional[str] = None  # JSON string for override values
+
     # Section/Group fields (inherited from base but explicitly included for clarity)
     primary_group: Optional[str] = None
     secondary_group: Optional[str] = None

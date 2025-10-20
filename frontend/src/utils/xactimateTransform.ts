@@ -4,7 +4,7 @@
  */
 
 import { XactimateItem, XactimateComponent } from '../types/xactimate';
-import { EstimateLineItem } from '../services/EstimateService';
+import { EstimateLineItem } from '../services/estimateService';
 
 export interface XactimateLineItemData extends EstimateLineItem {
   // Additional Xactimate-specific data

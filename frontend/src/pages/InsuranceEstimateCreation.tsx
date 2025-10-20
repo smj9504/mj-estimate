@@ -29,7 +29,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
-import { estimateService, EstimateLineItem, EstimateResponse } from '../services/EstimateService';
+import { estimateService, EstimateLineItem, EstimateResponse } from '../services/estimateService';
 import { companyService } from '../services/companyService';
 import GroupableLineItemsWithSidebar from '../components/estimate/GroupableLineItemsWithSidebar';
 import RichTextEditor from '../components/editor/RichTextEditor';

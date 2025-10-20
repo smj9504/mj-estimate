@@ -75,7 +75,7 @@ class InvoiceItem(Base, BaseModel):
     __tablename__ = "invoice_items"
 
     invoice_id = Column(UUIDType(), ForeignKey("invoices.id"))  # String → UUIDType으로 수정
-    name = Column(String(255), nullable=False)
+    name = Column(String(255), nullable=True)  # Optional - prefer using line_item.description via line_item_id
     description = Column(Text)
     quantity = Column(DECIMAL(10, 2), default=1)
     unit = Column(String(50))
@@ -90,9 +90,9 @@ class InvoiceItem(Base, BaseModel):
     primary_group = Column(String(255))  # Section name
     secondary_group = Column(String(255))  # Sub-category (optional)
     sort_order = Column(Integer, default=0)  # Sort order within section
-    
-    # Line item integration
-    line_item_id = Column(UUIDType(), nullable=True)  # References line_items.id - String → UUIDType으로 수정
+
+    # Line item integration - use this to reference cat/item codes
+    line_item_id = Column(UUIDType(), nullable=True)  # References line_items.id - use for cat/item lookup
     is_custom_override = Column(Boolean, default=False)
     override_values = Column(Text)  # JSON string for override values
 

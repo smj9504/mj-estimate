@@ -48,25 +48,9 @@
     .address-section p {
       margin: 2px 0;
     }
-    .company-info {
+    .company-info, .client-info {
       width: 45%;
       font-size: 13px;
-    }
-    .client-insurance-container {
-      width: 45%;
-      text-align: left;
-      display: flex;
-      gap: 30px;
-    }
-    .client-info {
-      font-size: 13px;
-      flex: 1;
-      min-width: 0;
-    }
-    .insurance-info {
-      font-size: 13px;
-      flex: 1;
-      min-width: 0;
     }
     .amount-due {
       margin: 30px 0px 20px 0px;
@@ -209,35 +193,15 @@
       {% if company.phone %}<p>{{ company.phone }}</p>{% endif %}
       {% if company.email %}<p>{{ company.email }}</p>{% endif %}
     </div>
-    <div class="client-insurance-container">
-      <div class="client-info">
-        <p><strong>Bill to</strong></p>
-        <p>{{ client.name }}</p>
-        {% if client.address %}<p>{{ client.address }}</p>{% endif %}
-        {% if client.city or client.state or client.zip %}
-        <p>{{ client.city }}{% if client.city and client.state %}, {% endif %}{{ client.state }} {{ client.zip }}</p>
-        {% endif %}
-        {% if client.phone %}<p>{{ client.phone }}</p>{% endif %}
-        {% if client.email %}<p>{{ client.email }}</p>{% endif %}
-      </div>
-
-      {% if insurance and (insurance.insurance_company or insurance.insurance_policy_number or insurance.insurance_claim_number or insurance.insurance_deductible) %}
-      <div class="insurance-info">
-        <p><strong>Insurance Information</strong></p>
-        {% if insurance.insurance_company %}<p>Company: {{ insurance.insurance_company }}</p>{% endif %}
-        {% if insurance.insurance_policy_number %}<p>Policy #: {{ insurance.insurance_policy_number }}</p>{% endif %}
-        {% if insurance.insurance_claim_number %}<p>Claim #: {{ insurance.insurance_claim_number }}</p>{% endif %}
-        {% if insurance.insurance_deductible %}<p>Deductible: ${{ '{:,.2f}'.format(insurance.insurance_deductible) }}</p>{% endif %}
-      </div>
-      {% elif insurance_company or insurance_policy_number or insurance_claim_number or insurance_deductible %}
-      <div class="insurance-info">
-        <p><strong>Insurance Information</strong></p>
-        {% if insurance_company %}<p>Company: {{ insurance_company }}</p>{% endif %}
-        {% if insurance_policy_number %}<p>Policy #: {{ insurance_policy_number }}</p>{% endif %}
-        {% if insurance_claim_number %}<p>Claim #: {{ insurance_claim_number }}</p>{% endif %}
-        {% if insurance_deductible %}<p>Deductible: ${{ '{:,.2f}'.format(insurance_deductible) }}</p>{% endif %}
-      </div>
+    <div class="client-info">
+      <p><strong>Bill to</strong></p>
+      <p>{{ client.name }}</p>
+      {% if client.address %}<p>{{ client.address }}</p>{% endif %}
+      {% if client.city or client.state or client.zip %}
+      <p>{{ client.city }}{% if client.city and client.state %}, {% endif %}{{ client.state }} {{ client.zip }}</p>
       {% endif %}
+      {% if client.phone %}<p>{{ client.phone }}</p>{% endif %}
+      {% if client.email %}<p>{{ client.email }}</p>{% endif %}
     </div>
 </div>
 

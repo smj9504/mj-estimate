@@ -266,6 +266,140 @@ async def update_category(
 
 
 # =====================================================
+# Template Endpoints (Must be before /{line_item_id} to avoid routing conflicts)
+# =====================================================
+
+@router.post("/templates", response_model=LineItemTemplateResponse, status_code=status.HTTP_201_CREATED)
+async def create_template(
+    template: LineItemTemplateCreate,
+    db: Session = Depends(get_db),
+    cache: CacheService = Depends(get_cache),
+    current_user: Staff = Depends(get_current_user)
+):
+    """Create a new template"""
+    service = LineItemService(db, cache)
+    return await service.create_template(template, UUID(current_user.id))
+
+
+@router.get("/templates/{template_id}", response_model=LineItemTemplateResponse)
+async def get_template(
+    template_id: UUID,
+    db: Session = Depends(get_db),
+    cache: CacheService = Depends(get_cache),
+    current_user: Staff = Depends(get_current_user)
+):
+    """Get a template by ID"""
+    service = LineItemService(db, cache)
+    template = await service.get_template(template_id)
+
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Template not found"
+        )
+
+    return template
+
+
+@router.get("/templates", response_model=List[LineItemTemplateResponse])
+async def get_templates(
+    company_id: Optional[UUID] = None,
+    category: Optional[str] = None,
+    is_active: bool = True,
+    db: Session = Depends(get_db),
+    cache: CacheService = Depends(get_cache),
+    current_user: Staff = Depends(get_current_user)
+):
+    """Get templates with filters"""
+    service = LineItemService(db, cache)
+
+    # Use user's company if not specified
+    if not company_id and current_user.company_id:
+        company_id = UUID(str(current_user.company_id))
+
+    return await service.get_templates(company_id, category, is_active)
+
+
+@router.put("/templates/{template_id}", response_model=LineItemTemplateResponse)
+async def update_template(
+    template_id: UUID,
+    update: LineItemTemplateUpdate,
+    db: Session = Depends(get_db),
+    cache: CacheService = Depends(get_cache),
+    current_user: Staff = Depends(get_current_user)
+):
+    """Update a template"""
+    service = LineItemService(db, cache)
+    template = await service.update_template(template_id, update)
+
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Template not found"
+        )
+
+    return template
+
+
+@router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_template(
+    template_id: UUID,
+    db: Session = Depends(get_db),
+    cache: CacheService = Depends(get_cache),
+    current_user: Staff = Depends(get_current_user)
+):
+    """Soft delete a template"""
+    service = LineItemService(db, cache)
+    success = await service.delete_template(template_id)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Template not found"
+        )
+
+    return None
+
+
+@router.post("/templates/apply", response_model=Dict[str, Any])
+async def apply_template(
+    apply_request: BulkTemplateApply,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    cache: CacheService = Depends(get_cache),
+    current_user: Staff = Depends(get_current_user)
+):
+    """Apply a template to an invoice or estimate"""
+    service = LineItemService(db, cache)
+
+    if apply_request.target_type == "invoice":
+        # Apply to invoice
+        items = await service.apply_template_to_invoice(
+            apply_request.template_id,
+            apply_request.target_id,
+            apply_request.quantity_multiplier
+        )
+
+        return {
+            "success": True,
+            "message": f"Template applied to invoice",
+            "items_created": len(items)
+        }
+    elif apply_request.target_type == "estimate":
+        # Apply to estimate (similar logic)
+        # TODO: Implement estimate template application
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Estimate template application not yet implemented"
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid target type"
+        )
+
+
+# =====================================================
 # Line Item Endpoints
 # =====================================================
 
@@ -717,141 +851,6 @@ async def delete_note(
         )
     
     return None
-
-
-# =====================================================
-# Template Endpoints
-# =====================================================
-
-@router.post("/templates", response_model=LineItemTemplateResponse, status_code=status.HTTP_201_CREATED)
-async def create_template(
-    template: LineItemTemplateCreate,
-    db: Session = Depends(get_db),
-    cache: CacheService = Depends(get_cache),
-    current_user: Staff = Depends(get_current_user)
-):
-    """Create a new template"""
-    service = LineItemService(db, cache)
-    return await service.create_template(template, UUID(current_user.id))
-
-
-@router.get("/templates/{template_id}", response_model=LineItemTemplateResponse)
-async def get_template(
-    template_id: UUID,
-    db: Session = Depends(get_db),
-    cache: CacheService = Depends(get_cache),
-    current_user: Staff = Depends(get_current_user)
-):
-    """Get a template by ID"""
-    service = LineItemService(db, cache)
-    template = await service.get_template(template_id)
-    
-    if not template:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Template not found"
-        )
-    
-    return template
-
-
-@router.get("/templates", response_model=List[LineItemTemplateResponse])
-async def get_templates(
-    company_id: Optional[UUID] = None,
-    category: Optional[str] = None,
-    is_active: bool = True,
-    db: Session = Depends(get_db),
-    cache: CacheService = Depends(get_cache),
-    current_user: Staff = Depends(get_current_user)
-):
-    """Get templates with filters"""
-    service = LineItemService(db, cache)
-    
-    # Use user's company if not specified
-    if not company_id and current_user.company_id:
-        company_id = UUID(str(current_user.company_id))
-    
-    return await service.get_templates(company_id, category, is_active)
-
-
-@router.put("/templates/{template_id}", response_model=LineItemTemplateResponse)
-async def update_template(
-    template_id: UUID,
-    update: LineItemTemplateUpdate,
-    db: Session = Depends(get_db),
-    cache: CacheService = Depends(get_cache),
-    current_user: Staff = Depends(get_current_user)
-):
-    """Update a template"""
-    service = LineItemService(db, cache)
-    template = await service.update_template(template_id, update)
-    
-    if not template:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Template not found"
-        )
-    
-    return template
-
-
-@router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_template(
-    template_id: UUID,
-    db: Session = Depends(get_db),
-    cache: CacheService = Depends(get_cache),
-    current_user: Staff = Depends(get_current_user)
-):
-    """Soft delete a template"""
-    service = LineItemService(db, cache)
-    success = await service.delete_template(template_id)
-    
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Template not found"
-        )
-    
-    return None
-
-
-@router.post("/templates/apply", response_model=Dict[str, Any])
-async def apply_template(
-    apply_request: BulkTemplateApply,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    cache: CacheService = Depends(get_cache),
-    current_user: Staff = Depends(get_current_user)
-):
-    """Apply a template to an invoice or estimate"""
-    service = LineItemService(db, cache)
-    
-    if apply_request.target_type == "invoice":
-        # Apply to invoice
-        items = await service.apply_template_to_invoice(
-            apply_request.template_id,
-            apply_request.target_id,
-            apply_request.quantity_multiplier
-        )
-        
-        return {
-            "success": True,
-            "message": f"Template applied to invoice",
-            "items_created": len(items)
-        }
-    elif apply_request.target_type == "estimate":
-        # Apply to estimate (similar logic)
-        # TODO: Implement estimate template application
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Estimate template application not yet implemented"
-        )
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid target type"
-        )
-
 
 # =====================================================
 # Tax Calculation Endpoints

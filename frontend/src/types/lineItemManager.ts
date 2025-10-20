@@ -3,7 +3,7 @@
  * 키보드 단축키, 다중 선택, 실행취소 등의 고급 기능을 위한 타입들
  */
 
-import { EstimateLineItem } from '../services/EstimateService';
+import { EstimateLineItem } from '../services/estimateService';
 import { LineItem, LineItemCategory } from './lineItem';
 
 // =====================================================

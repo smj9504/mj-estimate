@@ -54,6 +54,17 @@ export const receiptService = {
   },
 
   /**
+   * Get a specific receipt by invoice ID and receipt number
+   * More efficient than getReceiptsByInvoice when you only need one receipt
+   */
+  getReceiptByNumber: async (invoiceId: string, receiptNumber: string): Promise<Receipt> => {
+    const response = await axios.get(
+      `${RECEIPTS_API}/by-invoice/${invoiceId}/number/${receiptNumber}`
+    );
+    return response.data;
+  },
+
+  /**
    * Update a receipt
    */
   updateReceipt: async (

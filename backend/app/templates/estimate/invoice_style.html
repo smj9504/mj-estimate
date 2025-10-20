@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Invoice</title>
+  <title>Estimate</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -26,18 +26,18 @@
       height: auto;
       object-fit: contain;
     }
-    .invoice-meta {
+    .estimate-meta {
       line-height: 1.3;
       margin-top: 0;
       margin-bottom: 0;
       font-size: 13px;
     }
-    .invoice-meta h1 {
+    .estimate-meta h1 {
       margin-top: 0;
       margin-bottom: 5px;
       font-size: 24px;
     }
-    .invoice-meta p {
+    .estimate-meta p {
       margin: 2px 0;
     }
     .address-section {
@@ -68,11 +68,11 @@
       flex: 1;
       min-width: 0;
     }
-    .amount-due {
+    .total-estimate {
       margin: 30px 0px 20px 0px;
       font-weight: bold;
     }
-    .amount-due h3 {
+    .total-estimate h3 {
       font-weight: bold;
       font-size: 18px;
       margin: 0;
@@ -97,16 +97,15 @@
     .col-unit  { width: 5%; text-align: right; }
     .col-price { width: 15%; text-align: right; }
     .col-total { width: 15%; text-align: right; }
-    .col-desc { width: 80%; }
     .col-desc {
       font-style: italic;
-      font-size: 13px;
+      font-size: 12.5px;
       color: #555;
-      margin-left: 30px;
+      margin-left: 15px;
       margin-top: 2px;
     }
     .section-title {
-      margin-top: 20px;
+      margin-top: 12px;
       margin-bottom: 4px;
       font-weight: bold;
       font-size: 14px;
@@ -120,6 +119,7 @@
       padding-top: 7px;
       border-top: 1px solid #ccc;
       margin-bottom: 10px;
+      margin-top: 7px;
     }
     .footer-total {
       display: flex;
@@ -155,26 +155,6 @@
       color: #000;
       font-weight: bold;
     }
-    .balance-due {
-      margin-top: 15px;
-      font-size: 14px;
-    }
-    .payments {
-      margin-top: 10px;
-    }
-    .payment-item {
-      display: flex;
-      justify-content: space-between;
-      padding: 4px 0;
-      font-size: 13px;
-    }
-    .payment-label {
-      color: #555;
-    }
-    .payment-value {
-      color: #000;
-      font-weight: 500;
-    }
     .note, .disclaimer {
       font-size: 12px;
       color: #555;
@@ -185,11 +165,13 @@
 <body>
 
 <div class="header-top">
-    <div class="invoice-meta">
-        <h1>Invoice</h1>
-        <p><strong>Invoice number</strong> {{ invoice_number }}</p>
-        <p>Date of issue: {{ date|format_date }}</p>
-        <p>Date due: {{ due_date|format_date }}</p>
+    <div class="estimate-meta">
+        <h1>Estimate</h1>
+        <p><strong>Estimate number:</strong> {{ estimate_number }}</p>
+        <p><strong>Estimate date:</strong> {{ date|format_date("%B %d, %Y") }}</p>
+        {% if valid_until %}
+        <p><strong>Valid until:</strong> {{ valid_until|format_date("%B %d, %Y") }}</p>
+        {% endif %}
     </div>
 
     <div class="company-logo">
@@ -211,7 +193,7 @@
     </div>
     <div class="client-insurance-container">
       <div class="client-info">
-        <p><strong>Bill to</strong></p>
+        <p><strong>Prepared for</strong></p>
         <p>{{ client.name }}</p>
         {% if client.address %}<p>{{ client.address }}</p>{% endif %}
         {% if client.city or client.state or client.zip %}
@@ -224,32 +206,85 @@
       {% if insurance and (insurance.insurance_company or insurance.insurance_policy_number or insurance.insurance_claim_number or insurance.insurance_deductible) %}
       <div class="insurance-info">
         <p><strong>Insurance Information</strong></p>
-        {% if insurance.insurance_company %}<p>Company: {{ insurance.insurance_company }}</p>{% endif %}
+        {% if insurance.insurance_company %}<p>Insurer: {{ insurance.insurance_company }}</p>{% endif %}
         {% if insurance.insurance_policy_number %}<p>Policy #: {{ insurance.insurance_policy_number }}</p>{% endif %}
         {% if insurance.insurance_claim_number %}<p>Claim #: {{ insurance.insurance_claim_number }}</p>{% endif %}
         {% if insurance.insurance_deductible %}<p>Deductible: ${{ '{:,.2f}'.format(insurance.insurance_deductible) }}</p>{% endif %}
       </div>
-      {% elif insurance_company or insurance_policy_number or insurance_claim_number or insurance_deductible %}
+      {% elif insurance_company or insurance_policy_number or insurance_claim_number or insurance_deductible or claim_number or policy_number or deductible or insurance_company_name %}
       <div class="insurance-info">
         <p><strong>Insurance Information</strong></p>
-        {% if insurance_company %}<p>Company: {{ insurance_company }}</p>{% endif %}
-        {% if insurance_policy_number %}<p>Policy #: {{ insurance_policy_number }}</p>{% endif %}
-        {% if insurance_claim_number %}<p>Claim #: {{ insurance_claim_number }}</p>{% endif %}
-        {% if insurance_deductible %}<p>Deductible: ${{ '{:,.2f}'.format(insurance_deductible) }}</p>{% endif %}
+        {% if insurance_company_name or insurance_company %}<p>Company: {{ insurance_company_name or insurance_company }}</p>{% endif %}
+        {% if claim_number or insurance_claim_number %}<p>Claim #: {{ claim_number or insurance_claim_number }}</p>{% endif %}
+        {% if policy_number or insurance_policy_number %}<p>Policy #: {{ policy_number or insurance_policy_number }}</p>{% endif %}
+        {% if deductible or insurance_deductible %}<p>Deductible: ${{ '{:,.2f}'.format(deductible or insurance_deductible) }}</p>{% endif %}
       </div>
       {% endif %}
     </div>
 </div>
 
-<div class="amount-due">
-  <h3>${{ '{:,.2f}'.format(total) }} USD due {{ due_date|format_date }}</h3>
+<div class="total-estimate">
+  <h3>Total Estimate: ${{ '{:,.2f}'.format(total) }}</h3>
 </div>
 
 {% if notes %}
-<p>{{ notes }}</p>
+<div style="margin: 20px 0;">
+  <div class="notes-content">{{ notes | safe }}</div>
+</div>
+<style>
+.notes-content {
+  font-size: 12px;
+  line-height: 1.2;
+}
+.notes-content br {
+  line-height: 0.5;
+}
+.notes-content p {
+  margin: 4px 0;
+}
+</style>
 {% endif %}
 
-{% if serviceSections %}
+{% if sections is defined and sections is iterable and sections %}
+  {% set item_counter = namespace(value=0) %}
+  {% for section in sections %}
+    <div class="section-title">{{ section.title }}</div>
+
+    <div class="line-header">
+        <div class="col-item">Item</div>
+        <div class="col-qty">Qty</div>
+        <div class="col-unit">Unit</div>
+        <div class="col-price">Price</div>
+        <div class="col-total">Total</div>
+    </div>
+
+    {% if section['items'] %}
+    {% for item in section['items'] %}
+    {% set item_counter.value = item_counter.value + 1 %}
+    <div class="line-row">
+      <div class="col-item">{{ item_counter.value }}. {{ item.name or '' }}</div>
+      <div class="col-qty">{{ item.quantity or 0 }}</div>
+      <div class="col-unit">{{ item.unit or 'EA' }}</div>
+      <div class="col-price">${{ '{:,.2f}'.format(item.rate or 0) }}</div>
+      <div class="col-total">${{ '{:,.2f}'.format((item.quantity or 0) * (item.rate or 0)) }}</div>
+    </div>
+
+    {% if item.description %}
+      <div class="col-desc">{{ item.description.replace('\n', '<br>') | safe }}</div>
+    {% endif %}
+    {% if item.note %}
+      <div class="col-desc">{{ item.note.replace('\n', '<br>') | safe }}</div>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+
+    {% if section.showSubtotal and section['items'] %}
+    <div class="subtotal">
+      Subtotal: ${{ '{:,.2f}'.format(section.subtotal) }}
+    </div>
+    {% endif %}
+  {% endfor %}
+{% elif serviceSections %}
   {% for section in serviceSections %}
     {% if serviceSections|length > 1 %}
       <div class="section-title">{{ section.title }}</div>
@@ -288,7 +323,7 @@
 
   {% for item in items %}
   <div class="line-row">
-    <div class="col-item">{{ item.description if item.description else item.name }}</div>
+    <div class="col-item">{{ loop.index }}. {{ item.description if item.description else item.name }}</div>
     <div class="col-qty">{{ item.quantity }}</div>
     <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
     <div class="col-price">${{ '{:,.2f}'.format(item.rate) }}</div>
@@ -341,40 +376,16 @@
     {% endif %}
 
     <div class="total-row grand-total">
-      <span class="total-label">Total</span>
+      <span class="total-label">Total Estimate</span>
       <span class="total-value">${{ '{:,.2f}'.format(total) }}</span>
     </div>
-
-    {% if payments and payments|length > 0 %}
-      {% for payment in payments %}
-      <div class="total-row">
-        <span class="total-label">Payment{% if payment.date %} ({{ payment.date|format_date }}){% endif %}</span>
-        <span class="total-value">-${{ '{:,.2f}'.format(payment.amount) }}</span>
-      </div>
-      {% endfor %}
-
-      {% set total_paid = payments | sum(attribute='amount') %}
-      <div class="total-row">
-        <span class="total-label">Total Paid</span>
-        <span class="total-value">${{ '{:,.2f}'.format(total_paid) }}</span>
-      </div>
-
-      <div class="total-row grand-total balance-due">
-        <span class="total-label">Balance Due</span>
-        <span class="total-value">${{ '{:,.2f}'.format(total - total_paid) }}</span>
-      </div>
-    {% else %}
-      <div class="total-row grand-total balance-due">
-        <span class="total-label">Amount Due</span>
-        <span class="total-value">${{ '{:,.2f}'.format(total) }}</span>
-      </div>
-    {% endif %}
   </div>
 </div>
-</div>
 
-{% if payment_terms %}
-  <p class="note">{{ payment_terms | safe }}</p>
+{% if terms %}
+<div style="margin: 30px 0 20px 0; padding: 4px; border-top: 1px solid #e5e7eb;">
+  <div>{{ terms | safe }}</div>
+</div>
 {% endif %}
 
 </body>
