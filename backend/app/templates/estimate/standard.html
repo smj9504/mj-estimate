@@ -6,13 +6,46 @@
     <title>Estimate #{{ estimate_number }}</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        
+
+        @page {
+            margin: 95px 25px 75px 25px;
+
+            @top-right {
+                content: "{{ client_address_line1 }}" "\A" "{{ client_address_line2 }}";
+                font-size: 10px;
+                color: #333;
+                text-align: right;
+                white-space: pre-line;
+            }
+
+            @bottom-left {
+                content: "Page " counter(page) " of " counter(pages);
+                font-size: 10px;
+                color: #666;
+            }
+
+            @bottom-right {
+                content: "Estimate #{{ estimate_number }}";
+                font-size: 10px;
+                color: #666;
+                text-align: right;
+            }
+        }
+
+        @page :first {
+            margin-top: 25px;
+
+            @top-right {
+                content: none;
+            }
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             font-size: 13px;
@@ -24,7 +57,7 @@
         .estimate-container {
             max-width: 800px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 30px;
             background: white;
         }
         
@@ -92,7 +125,7 @@
         /* Company and Client Sections */
         .info-section {
             display: flex;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
         }
 
         .company-section {
@@ -153,8 +186,8 @@
 
         .items-table th {
             text-align: left;
-            padding: 6px 4px;
-            font-size: 12px;
+            padding: 4px;
+            font-size: 11px;
             font-weight: 600;
             color: #111827;
             text-transform: uppercase;
@@ -199,7 +232,7 @@
             font-size: 12px;
             color: #374151;
             line-height: 1.2;
-            margin-top: 4px; 
+            margin-top: 1px; 
             padding-left: 14px; /* Small gap between name and description */
         }
 
@@ -239,7 +272,7 @@
             color: #000000;
             margin-top: 5px;
             margin-bottom: 20px;
-            padding: 10px 4px;
+            padding: 8px 4px;
             border-top: 1.5px solid #000000;
             border-radius: 0 0 4px 4px;
             -webkit-print-color-adjust: exact;
@@ -355,9 +388,9 @@
         }
         
         .section-content {
-            font-size: 12.5px;
+            font-size: 12px;
             color: #374151;
-            line-height: 1.25;
+            line-height: 1.2;
             white-space: pre-wrap;
         }
         
@@ -403,11 +436,11 @@
                 
                 <div class="estimate-meta">
                     <div class="estimate-meta-item">
-                        <span class="estimate-meta-label">Estimate number</span>
+                        <span class="estimate-meta-label">Estimate No.</span>
                         <span class="estimate-meta-value">{{ estimate_number }}</span>
                     </div>
                     <div class="estimate-meta-item">
-                        <span class="estimate-meta-label">Date</span>
+                        <span class="estimate-meta-label">Estimate Date</span>
                         <span class="estimate-meta-value">{{ date | format_date }}</span>
                     </div>
                     {% if valid_until %}
@@ -510,11 +543,11 @@
                 <table class="items-table">
                     <thead>
                         <tr>
-                            <th style="width: 50%;">Item</th>
-                            <th class="text-center" style="width: 8%;">Qty</th>
-                            <th class="text-center" style="width: 12%;">Unit</th>
+                            <th style="width: 58%;">Item</th>
+                            <th class="text-center" style="width: 7%;">Qty</th>
+                            <th class="text-center" style="width: 5%;">Unit</th>
                             <th class="text-right" style="width: 15%;">Price</th>
-                            <th class="text-right" style="width: 15%;">Total</th>
+                            <th class="text-right" style="width: 25%;">Total</th>
                         </tr>
                     </thead>
                     <tbody>

@@ -74,6 +74,7 @@ export interface EstimateResponse {
   company_zipcode?: string;
   company_phone?: string;
   company_email?: string;
+  company_logo?: string;
   
   // Client Information
   client_name: string;
@@ -424,7 +425,8 @@ class EstimateService {
         state: estimate.company_state || '',
         zip: estimate.company_zipcode || '',
         phone: estimate.company_phone || '',
-        email: estimate.company_email || ''
+        email: estimate.company_email || '',
+        logo: estimate.company_logo || ''
       },
       client: {
         name: estimate.client_name || 'Client Name Not Provided',
@@ -546,7 +548,8 @@ class EstimateService {
         state: estimate.company_state || '',
         zip: estimate.company_zipcode || '',
         phone: estimate.company_phone || '',
-        email: estimate.company_email || ''
+        email: estimate.company_email || '',
+        logo: estimate.company_logo || ''
       },
       client: {
         name: estimate.client_name || 'Client Name Not Provided',
@@ -587,7 +590,9 @@ class EstimateService {
     };
 
     console.log('Sending HTML preview data:', htmlData);
-    
+    console.log('Company object:', htmlData.company);
+    console.log('Company logo:', htmlData.company?.logo);
+
     try {
       const response = await apiClient.post('/api/estimates/preview-html', htmlData, {
         timeout: 30000, // 30 second timeout

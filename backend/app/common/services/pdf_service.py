@@ -13,16 +13,18 @@ import json
 import re
 import logging
 
-# Add GTK+ path for WeasyPrint on Windows
-gtk_path = r"C:\Program Files\GTK3-Runtime Win64\bin"
-if os.path.exists(gtk_path):
-    current_path = os.environ.get('PATH', '')
-    os.environ['PATH'] = f"{gtk_path};{current_path}"
-    if hasattr(os, 'add_dll_directory'):
-        try:
-            os.add_dll_directory(gtk_path)
-        except Exception:
-            pass
+# Add GTK+ path for WeasyPrint on Windows (development only)
+# In production/Docker, GTK dependencies are installed system-wide
+if sys.platform == 'win32' and os.environ.get('ENVIRONMENT', 'development') == 'development':
+    gtk_path = r"C:\Program Files\GTK3-Runtime Win64\bin"
+    if os.path.exists(gtk_path):
+        current_path = os.environ.get('PATH', '')
+        os.environ['PATH'] = f"{gtk_path};{current_path}"
+        if hasattr(os, 'add_dll_directory'):
+            try:
+                os.add_dll_directory(gtk_path)
+            except Exception:
+                pass
 
 try:
     from weasyprint import HTML, CSS
@@ -429,6 +431,19 @@ class PDFService:
         context.setdefault('client', {'name': 'Unknown Client'})
         context.setdefault('items', [])
 
+        # Add flat client address fields for page header (two lines)
+        # Support both field name variations: street_address/address and zip_code/zip
+        client = context.get('client', {})
+        company = context.get('company', {})
+
+        client_street = client.get('street_address') or client.get('address', '')
+        client_zip = client.get('zip_code') or client.get('zip', '')
+
+        context['client_address_line1'] = client_street
+        context['client_address_line2'] = f"{client.get('city', '')}, {client.get('state', '')} {client_zip}".strip(', ')
+        context['company_name'] = company.get('name', '')
+        context['estimate_number'] = context.get('estimate_number', '')
+
         # Handle insurance data - map fields to template variables
         # Check if we have insurance data in nested dict OR as direct fields
         if 'insurance' in context and isinstance(context['insurance'], dict) and context['insurance']:
@@ -656,22 +671,41 @@ class PDFService:
         context.setdefault('date', datetime.now().strftime("%Y-%m-%d"))
         context.setdefault('valid_until', datetime.now().strftime("%Y-%m-%d"))
         
-        # Ensure required sections exist and clean empty values
+        # Ensure required sections exist
         company = context.get('company', {})
         client = context.get('client', {})
-        
-        # Clean empty string values from company and client
-        cleaned_company = {k: v for k, v in company.items() if v and str(v).strip()}
-        cleaned_client = {k: v for k, v in client.items() if v and str(v).strip()}
 
-        # Set defaults for missing required fields
-        cleaned_company.setdefault('name', 'Company Name Not Provided')
+        # Log company logo before and after processing
+        logger.info(f"=== _prepare_estimate_context - company dict received: {company}")
+        logger.info(f"=== _prepare_estimate_context - company logo: {company.get('logo')}")
+
+        # Set defaults for missing required fields but preserve all fields (including logo)
+        # Don't clean empty values as templates need to check for their existence
+        company.setdefault('name', 'Company Name Not Provided')
         # Don't set default for client name - let template handle it
-        
-        context['company'] = cleaned_company
-        context['client'] = cleaned_client
+
+        context['company'] = company
+        context['client'] = client
+
+        logger.info(f"=== _prepare_estimate_context - context['company'] logo: {context['company'].get('logo')}")
         context.setdefault('items', [])
         context.setdefault('sections', [])
+
+        # Add flat client address fields for page header (two lines)
+        # Support both field name variations: street_address/address and zip_code/zip
+        client_street = client.get('street_address') or client.get('address', '')
+        client_zip = client.get('zip_code') or client.get('zip', '')
+
+        context['client_address_line1'] = client_street
+        context['client_address_line2'] = f"{client.get('city', '')}, {client.get('state', '')} {client_zip}".strip(', ')
+
+        # Add flat company name for page header
+        context['company_name'] = company.get('name', '')
+
+        # Debug logging
+        logger.info(f"Header data - Company: {context.get('company_name')}")
+        logger.info(f"Header data - Address Line 1: {context.get('client_address_line1')}")
+        logger.info(f"Header data - Address Line 2: {context.get('client_address_line2')}")
 
         # Handle insurance data - same as invoice context
         if 'insurance' in context and isinstance(context['insurance'], dict) and context['insurance']:

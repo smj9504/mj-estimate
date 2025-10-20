@@ -283,8 +283,18 @@ class EstimatePDFRequest(BaseModel):
     estimate_date: str = Field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
     valid_until: Optional[str] = None
 
-    company: Dict[str, Any]  # Company info
+    company: Optional[Dict[str, Any]] = None  # Company info (can be dict or flat fields)
     client: Dict[str, Any]  # Client info
+
+    # Company flat fields (alternative to company dict)
+    company_name: Optional[str] = None
+    company_address: Optional[str] = None
+    company_city: Optional[str] = None
+    company_state: Optional[str] = None
+    company_zipcode: Optional[str] = None
+    company_phone: Optional[str] = None
+    company_email: Optional[str] = None
+    company_logo: Optional[str] = None
 
     items: List[Dict[str, Any]] = []
     room_data: Optional[Dict[str, Any]] = None

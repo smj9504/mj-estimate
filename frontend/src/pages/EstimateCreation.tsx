@@ -127,6 +127,9 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   const loadCompanies = useCallback(async () => {
     try {
       const data = await companyService.getCompanies();
+      console.log('=== Loaded Companies ===');
+      console.log('Companies:', data);
+      console.log('First company logo:', data[0]?.logo);
       setCompanies(data);
       // Don't auto-select any company - let user choose explicitly
     } catch (error) {
@@ -695,6 +698,10 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   const selectExistingCompany = async (companyId: string) => {
     setUseCustomCompany(false);
     const company = companies.find(c => c.id === companyId);
+    console.log('=== Company Selected ===');
+    console.log('Company ID:', companyId);
+    console.log('Found company:', company);
+    console.log('Company logo:', company?.logo);
     setSelectedCompany(company || null);
     form.setFieldValue('company_selection', companyId);
 
@@ -810,20 +817,17 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     const allItems = convertSectionsToItems();
     const grandTotal = calculateGrandTotal;
 
-    return {
+    // Debug logging for company logo
+    console.log('=== PDF Preview Data Creation ===');
+    console.log('selectedCompany:', selectedCompany);
+    console.log('selectedCompany.logo:', selectedCompany?.logo);
+    console.log('useCustomCompany:', useCustomCompany);
+
+    const previewData = {
       ...values,
-      company_id: useCustomCompany ? undefined : selectedCompany?.id,
       estimate_date: values.estimate_date?.format('YYYY-MM-DD'),
       items: allItems,
       sections: sections,
-      // Add company fields that EstimateService expects
-      company_name: selectedCompany?.name || '',
-      company_address: selectedCompany?.address || '',
-      company_city: selectedCompany?.city || '',
-      company_state: selectedCompany?.state || '',
-      company_zipcode: selectedCompany?.zipcode || '',
-      company_phone: selectedCompany?.phone || '',
-      company_email: selectedCompany?.email || '',
       op_percent: opPercent,
       op_amount: grandTotal.opAmount,
       subtotal: grandTotal.subtotal,
@@ -831,7 +835,22 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       tax_rate: taxMethod === 'percentage' ? taxRate : 0,
       tax_amount: grandTotal.taxAmount,
       total_amount: grandTotal.total,
+      // Add company fields AFTER spreading values to prevent override
+      company_id: useCustomCompany ? undefined : selectedCompany?.id,
+      company_name: selectedCompany?.name || '',
+      company_address: selectedCompany?.address || '',
+      company_city: selectedCompany?.city || '',
+      company_state: selectedCompany?.state || '',
+      company_zipcode: selectedCompany?.zipcode || '',
+      company_phone: selectedCompany?.phone || '',
+      company_email: selectedCompany?.email || '',
+      company_logo: selectedCompany?.logo || '',
     };
+
+    console.log('=== Created preview data company_logo:', previewData.company_logo);
+    console.log('=== Preview data keys:', Object.keys(previewData));
+
+    return previewData;
   };
 
   // Open PDF preview in new window
