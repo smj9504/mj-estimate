@@ -329,35 +329,15 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
     
     created_invoice = invoice_repo.create_with_items(invoice_dict)
     
-    # Get company information if company_id was provided
-    company_name = ''
-    company_address = None
-    company_city = None  
-    company_state = None
-    company_zipcode = None
-    company_phone = None
-    company_email = None
-    company_logo = None
-    
-    if invoice_data.company_id and created_invoice.get('company'):
-        company = created_invoice['company']
-        company_name = company.get('name', '')
-        company_address = company.get('address')
-        company_city = company.get('city')
-        company_state = company.get('state')
-        company_zipcode = company.get('zipcode')
-        company_phone = company.get('phone')
-        company_email = company.get('email')
-        company_logo = company.get('logo')
-    elif invoice_data.company:
-        company_name = invoice_data.company.name
-        company_address = invoice_data.company.address
-        company_city = invoice_data.company.city
-        company_state = invoice_data.company.state
-        company_zipcode = invoice_data.company.zipcode
-        company_phone = invoice_data.company.phone
-        company_email = invoice_data.company.email
-        company_logo = invoice_data.company.logo
+    # Get company information from created_invoice (already flattened by get_with_items)
+    company_name = created_invoice.get('company_name', '')
+    company_address = created_invoice.get('company_address')
+    company_city = created_invoice.get('company_city')
+    company_state = created_invoice.get('company_state')
+    company_zipcode = created_invoice.get('company_zip')
+    company_phone = created_invoice.get('company_phone')
+    company_email = created_invoice.get('company_email')
+    company_logo = created_invoice.get('company_logo')
     
     # Convert date back to string for response
     date_str = created_invoice.get('invoice_date', '')

@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import and_, or_, func
 from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy.exc import IntegrityError
+from decimal import Decimal
 import logging
 
 # from app.common.base_repository import SQLAlchemyRepository  # 제거 - 더 이상 필요하지 않음
@@ -23,6 +24,17 @@ from app.domains.line_items.schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _convert_decimal_to_float(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert Decimal values to float for JSON serialization"""
+    result = {}
+    for key, value in data.items():
+        if isinstance(value, Decimal):
+            result[key] = float(value)
+        else:
+            result[key] = value
+    return result
 
 
 class LineItemRepository:
@@ -254,7 +266,12 @@ class LineItemRepository:
     # =====================================================
     
     def create_template(self, template: LineItemTemplateCreate, created_by: UUID) -> LineItemTemplate:
-        """Create a new template"""
+        """Create a new template
+
+        Supports both reference-based and embedded item data:
+        - Reference mode: item.line_item_id points to existing LineItem
+        - Embedded mode: item.embedded_data contains complete item info
+        """
         db_template = LineItemTemplate(
             name=template.name,
             description=template.description,
@@ -262,24 +279,30 @@ class LineItemRepository:
             company_id=template.company_id,
             created_by=created_by
         )
-        
+
         self.db.add(db_template)
         self.db.flush()
-        
+
         # Add line items to template
         if template.line_item_ids:
             for item in template.line_item_ids:
+                # Prepare embedded_data if provided
+                embedded_dict = None
+                if item.embedded_data:
+                    embedded_dict = _convert_decimal_to_float(item.embedded_data.dict())
+
                 template_item = TemplateLineItem(
                     template_id=db_template.id,
-                    line_item_id=item.line_item_id,
+                    line_item_id=item.line_item_id,  # Can be None for embedded mode
+                    embedded_data=embedded_dict,  # Can be None for reference mode
                     quantity_multiplier=item.quantity_multiplier,
                     order_index=item.order_index
                 )
                 self.db.add(template_item)
-        
+
         self.db.commit()
         self.db.refresh(db_template)
-        
+
         return db_template
     
     def get_template(self, template_id: UUID) -> Optional[LineItemTemplate]:
@@ -321,36 +344,45 @@ class LineItemRepository:
         return query.all()
     
     def update_template(self, template_id: UUID, update: LineItemTemplateUpdate) -> Optional[LineItemTemplate]:
-        """Update a template"""
+        """Update a template
+
+        Supports both reference-based and embedded item data when updating.
+        """
         db_template = self.get_template(template_id)
         if not db_template:
             return None
-        
+
         # Update basic fields
         update_data = update.dict(exclude_unset=True, exclude={'line_item_ids'})
         for field, value in update_data.items():
             setattr(db_template, field, value)
-        
+
         # Update line items if provided
         if update.line_item_ids is not None:
             # Remove existing items
             self.db.query(TemplateLineItem)\
                 .filter(TemplateLineItem.template_id == template_id)\
                 .delete()
-            
+
             # Add new items
             for item in update.line_item_ids:
+                # Prepare embedded_data if provided
+                embedded_dict = None
+                if item.embedded_data:
+                    embedded_dict = _convert_decimal_to_float(item.embedded_data.dict())
+
                 template_item = TemplateLineItem(
                     template_id=template_id,
-                    line_item_id=item.line_item_id,
+                    line_item_id=item.line_item_id,  # Can be None for embedded mode
+                    embedded_data=embedded_dict,  # Can be None for reference mode
                     quantity_multiplier=item.quantity_multiplier,
                     order_index=item.order_index
                 )
                 self.db.add(template_item)
-        
+
         self.db.commit()
         self.db.refresh(db_template)
-        
+
         return db_template
     
     def delete_template(self, template_id: UUID) -> bool:

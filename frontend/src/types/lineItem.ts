@@ -133,12 +133,22 @@ export interface LineItemNote {
 // =====================================================
 // Template Types
 // =====================================================
+
+// Embedded item data for templates (when no library reference exists)
+export interface EmbeddedItemData {
+  item_code: string;
+  description: string;
+  unit: string;
+  rate: number;
+}
+
 export interface TemplateLineItem {
   id: string;
-  line_item_id: string;
+  line_item_id?: string; // Optional - may be null for embedded items
   quantity_multiplier: number;
   order_index: number;
   line_item?: LineItem;
+  embedded_data?: EmbeddedItemData; // Contains item info when line_item_id is null
 }
 
 export interface LineItemTemplate {

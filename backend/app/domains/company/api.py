@@ -89,18 +89,6 @@ async def get_companies(
 
         logger.info(f"Found {len(companies)} companies, total: {total}")
 
-        # Log first company with logo info
-        if companies:
-            first_company = companies[0]
-            logger.info(f"First company: {first_company.get('name')}")
-            logger.info(f"First company has logo: {'logo' in first_company}")
-            if 'logo' in first_company:
-                logo_value = first_company['logo']
-                if logo_value:
-                    logger.info(f"First company logo length: {len(logo_value)}")
-                else:
-                    logger.info(f"First company logo is None or empty")
-
         return {
             "items": companies,
             "total": total,

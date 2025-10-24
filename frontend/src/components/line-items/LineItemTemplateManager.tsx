@@ -86,7 +86,7 @@ const LineItemTemplateManager: React.FC<LineItemTemplateManagerProps> = ({
       const fetchedTemplates = await lineItemService.getTemplates(
         companyId,
         undefined, // all categories
-        undefined  // both active and inactive
+        true       // only active templates
       );
       setTemplates(fetchedTemplates);
     } catch (error: any) {

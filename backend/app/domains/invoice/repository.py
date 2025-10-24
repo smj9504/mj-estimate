@@ -109,11 +109,12 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
 
         # Create line item in library
         try:
-            from app.domains.line_items.models import LineItem
+            from app.domains.line_items.models import LineItem, LineItemType
 
             # Prepare line item data
             line_item_data = {
-                'cat': '',  # Empty for custom items
+                'type': LineItemType.CUSTOM,
+                'cat': None,  # NULL for custom items (FK constraint)
                 'description': item_data.get('name', item_data.get('description', '')),
                 'includes': item_data.get('description', ''),
                 'unit': item_data.get('unit', 'EA'),
@@ -203,9 +204,31 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                 InvoiceItem.invoice_id == invoice_id
             ).order_by(InvoiceItem.order_index).all()
 
+            # Auto-create line_item_id for items that don't have one (for legacy invoices)
+            items_updated = False
+            for item in items:
+                if not item.line_item_id:
+                    # Create line item in library for this invoice item
+                    item_data = {
+                        'name': item.name,
+                        'description': item.description,
+                        'unit': item.unit,
+                        'rate': item.rate,
+                    }
+                    line_item_id = self._ensure_line_item_id(item_data, invoice.company_id)
+                    if line_item_id:
+                        item.line_item_id = line_item_id
+                        items_updated = True
+                        logger.info(f"Auto-created line_item_id for invoice item {item.id}: {line_item_id}")
+
+            # Commit if any items were updated
+            if items_updated:
+                self.db_session.commit()
+                logger.info(f"Auto-updated {sum(1 for item in items if item.line_item_id)} items with line_item_id")
+
             # Debug: Check if note field is loaded
             for item in items:
-                logger.info(f"Item {item.id} - name: {item.name}, note: {repr(item.note)}")
+                logger.info(f"Item {item.id} - name: {item.name}, note: {repr(item.note)}, line_item_id: {item.line_item_id}")
 
             invoice_dict['items'] = [self._convert_to_dict(item) for item in items]
 
@@ -448,19 +471,26 @@ class InvoiceSupabaseRepository(SupabaseRepository, InvoiceRepositoryMixin):
             # Calculate totals
             totals = self.calculate_totals(invoice_data)
             invoice_data.update(totals)
-            
-            # Extract items
+
+            # Extract items and company_id
             items_data = invoice_data.pop('items', [])
-            
+            company_id = invoice_data.get('company_id')
+
             # Create invoice
             invoice = self.create(invoice_data)
             invoice_id = invoice['id']
-            
+
             # Create items
             for idx, item_data in enumerate(items_data):
+                # Ensure item has line_item_id if not present
+                if not item_data.get('line_item_id'):
+                    line_item_id = self._ensure_line_item_id_supabase(item_data, company_id)
+                    if line_item_id:
+                        item_data['line_item_id'] = line_item_id
+
                 item_data['invoice_id'] = invoice_id
                 item_data['order_index'] = idx
-                
+
                 try:
                     self.client.table('invoice_items').insert(item_data).execute()
                 except Exception as item_error:
@@ -468,13 +498,46 @@ class InvoiceSupabaseRepository(SupabaseRepository, InvoiceRepositoryMixin):
                     # If item creation fails, we should ideally delete the invoice
                     # For now, we'll continue and let the invoice exist without all items
                     continue
-            
+
             # Return invoice with items
             return self.get_with_items(invoice_id)
-            
+
         except Exception as e:
             logger.error(f"Error creating invoice with items in Supabase: {e}")
             raise Exception(f"Failed to create invoice with items: {e}")
+
+    def _ensure_line_item_id_supabase(self, item_data: Dict[str, Any], company_id: Optional[str] = None) -> Optional[str]:
+        """
+        Ensure that an invoice item has a line_item_id by creating one in the library if needed.
+        Supabase-specific implementation.
+        """
+        try:
+            # Prepare line item data
+            line_item_data = {
+                'cat': '',  # Empty for custom items
+                'item': item_data.get('name', item_data.get('description', ''))[:50],  # Truncate to 50 chars
+                'description': item_data.get('name', item_data.get('description', '')),
+                'includes': item_data.get('description', ''),
+                'unit': item_data.get('unit', 'EA'),
+                'untaxed_unit_price': float(item_data.get('rate', 0)),
+                'company_id': company_id,
+                'is_active': True,
+                'type': 'custom'  # Mark as custom item
+            }
+
+            # Create line item in Supabase
+            result = self.client.table('line_items').insert(line_item_data).execute()
+
+            if result.data and len(result.data) > 0:
+                logger.info(f"Created line item in library with ID: {result.data[0]['id']}")
+                return result.data[0]['id']
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"Failed to create line item in library: {e}")
+            # Don't fail the invoice creation if library save fails
+            return None
     
     def create(self, entity_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create invoice with Supabase-specific handling"""

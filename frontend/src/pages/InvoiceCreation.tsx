@@ -488,18 +488,25 @@ const InvoiceCreation: React.FC = () => {
 
       // Convert template items to InvoiceItems
       const templateItems: EstimateLineItem[] = fullTemplate.template_items.map((templateItem, index) => {
+        // Handle both library references (line_item) and embedded data
         const lineItem = templateItem.line_item;
-        // Use cat field if available, otherwise use name
-        const itemName = lineItem?.cat || lineItem?.name || lineItem?.description || '';
+        const embeddedData = templateItem.embedded_data;
+
+        // Get item data from either source
+        const itemName = lineItem?.cat || lineItem?.name || embeddedData?.item_code || '';
+        const description = lineItem?.description || embeddedData?.description || '';
+        const unit = lineItem?.unit || embeddedData?.unit || 'EA';
+        const unitPrice = lineItem?.untaxed_unit_price || embeddedData?.rate || 0;
+
         return {
           id: undefined, // This is the invoice_line_item id (not created yet)
-          line_item_id: lineItem?.id || '', // Reference to master line_item
+          line_item_id: lineItem?.id || '', // Reference to master line_item (empty for embedded items)
           name: itemName,
-          description: lineItem?.description || '',
-          unit: lineItem?.unit || 'EA',
-          unit_price: lineItem?.untaxed_unit_price || 0,
+          description: description,
+          unit: unit,
+          unit_price: unitPrice,
           quantity: templateItem.quantity_multiplier || 1,
-          total: (templateItem.quantity_multiplier || 1) * (lineItem?.untaxed_unit_price || 0),
+          total: (templateItem.quantity_multiplier || 1) * unitPrice,
           taxable: true,
           sort_order: index
         };
@@ -545,6 +552,19 @@ const InvoiceCreation: React.FC = () => {
     const data = fetchedInvoice as any;
     setInvoiceData(data);
 
+    // DEBUG: Check raw items data from backend
+    if (data.items && data.items.length > 0) {
+      console.log('=== RAW ITEMS FROM BACKEND ===');
+      data.items.forEach((item: any, idx: number) => {
+        console.log(`Raw item ${idx}:`, {
+          id: item.id,
+          line_item_id: item.line_item_id,
+          name: item.name,
+          hasLineItemId: !!item.line_item_id
+        });
+      });
+    }
+
     // Convert items to sections or use existing sections
     if (data.sections && data.sections.length > 0) {
       setSections(data.sections);
@@ -552,6 +572,7 @@ const InvoiceCreation: React.FC = () => {
     } else if (data.items && data.items.length > 0) {
       const processedItems = data.items.map((item: any) => ({
         id: item.id,
+        line_item_id: item.line_item_id, // IMPORTANT: Preserve line_item_id for template creation
         name: item.name || item.description,
         description: item.description,
         quantity: item.quantity,
@@ -708,9 +729,12 @@ const InvoiceCreation: React.FC = () => {
         form.setFieldsValue(companyFields);
       }
 
+      // Set company ID for template builder context
+      setCompanyId(selectedCompany.id);
+
       // Receipt templates are loaded via React Query useReceiptTemplates hook
     }
-  }, [selectedCompany, isEditMode, invoiceData?.company_id, form]);
+  }, [selectedCompany, isEditMode, invoiceData?.company_id, form, setCompanyId]);
 
   // Consolidated invoice data population effect
   useEffect(() => {
@@ -831,9 +855,14 @@ const InvoiceCreation: React.FC = () => {
 
       let lineItemId: string | undefined = undefined;
 
+      // Preserve existing line_item_id when editing
+      if (editingIndex !== null && editingItem?.line_item_id) {
+        lineItemId = editingItem.line_item_id;
+      }
+
       // Save to database if checkbox is checked or if we need it for templates
       // Always save to library so it can be used in templates
-      if (values.saveToDatabase || !editingIndex) {
+      if (values.saveToDatabase || (!editingIndex && !lineItemId)) {
         const lineItemData = {
           cat: '', // Category code - empty for custom items
           description: values.name.toString().trim(),
@@ -862,7 +891,7 @@ const InvoiceCreation: React.FC = () => {
 
       const newItem: InvoiceItem = {
         ...values,
-        line_item_id: lineItemId, // Set line_item_id from created library item
+        line_item_id: lineItemId, // Set line_item_id from created library item or preserved from editing
         name: values.name.toString().trim(),
         description: values.description ? values.description.toString().trim() : '',
         note: values.note || '',
@@ -1034,7 +1063,7 @@ const InvoiceCreation: React.FC = () => {
     };
   }, [sections, taxMethod, taxRate, specificTaxAmount, discount, payments, form, formMounted, opPercent]);
 
-  const handleSave = async (status: string = 'pending') => {
+  const handleSave = async (status: string = 'pending', skipNavigation: boolean = false) => {
     try {
       const values = await form.validateFields();
       setLoading(true);
@@ -1043,7 +1072,7 @@ const InvoiceCreation: React.FC = () => {
       if (!selectedCompany) {
         message.error('Please select a company');
         setLoading(false);
-        return;
+        return null;
       }
 
       const totals = calculateTotals();
@@ -1056,7 +1085,7 @@ const InvoiceCreation: React.FC = () => {
         status,
         company_id: selectedCompany.id, // Always use company_id from selected company
       };
-      
+
       // Add client info (always from form fields, which are auto-filled if company selected)
       invoiceData.client = {
         name: values.client_name,
@@ -1072,14 +1101,14 @@ const InvoiceCreation: React.FC = () => {
       if (!useCustomClient && selectedClient) {
         invoiceData.client_company_id = selectedClient.id;
       }
-      
+
       invoiceData.insurance = showInsurance ? {
         company: values.insurance_company,
         policy_number: values.insurance_policy_number,
         claim_number: values.insurance_claim_number,
         deductible: values.insurance_deductible,
       } : null;
-      
+
       console.log('Current sections state:', JSON.stringify(sections, null, 2));
 
       // Send both items (converted from sections) and sections
@@ -1109,7 +1138,7 @@ const InvoiceCreation: React.FC = () => {
       invoiceData.notes = values.notes;
 
       console.log('Sending invoice data:', JSON.stringify(invoiceData, null, 2));
-      
+
       let response;
       if (isEditMode && id) {
         // Update existing invoice
@@ -1120,11 +1149,16 @@ const InvoiceCreation: React.FC = () => {
         response = await invoiceService.createInvoice(invoiceData);
         message.success('Invoice saved successfully!');
       }
-      
-      navigate(`/documents/invoice`);
+
+      if (!skipNavigation) {
+        navigate(`/documents/invoice`);
+      }
+
+      return response;
     } catch (error) {
       message.error('Failed to save invoice');
       console.error(error);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -1434,11 +1468,12 @@ const InvoiceCreation: React.FC = () => {
       width: 50,
       render: (_: any, __: any, index: number) => index + 1,
     },
-    {
-      title: 'Item',
-      dataIndex: 'name',
-      key: 'name',
-    },
+    // Item code column hidden - description is the primary identifier
+    // {
+    //   title: 'Item',
+    //   dataIndex: 'name',
+    //   key: 'name',
+    // },
     {
       title: 'Description',
       dataIndex: 'description',
@@ -1975,48 +2010,28 @@ const InvoiceCreation: React.FC = () => {
                             onClick={async (e) => {
                               e.stopPropagation();
 
-                              // Debug: Log section items to see what fields they have
-                              console.log('=== DEBUG: Section Items ===');
-                              console.log('Section:', section.title);
-                              console.log('Items:', section.items);
-                              section.items.forEach((item, idx) => {
-                                console.log(`Item ${idx}:`, {
-                                  id: item.id,
-                                  line_item_id: item.line_item_id,
-                                  name: item.name,
-                                  hasLineItemId: !!item.line_item_id
-                                });
-                              });
-
-                              // Check if all items have line_item_id
-                              const itemsWithoutLibraryRef = section.items.filter(item => !item.line_item_id);
-
-                              if (itemsWithoutLibraryRef.length > 0) {
-                                // Show warning and guidance
-                                Modal.confirm({
-                                  title: 'Items need to be saved to library',
-                                  content: `${itemsWithoutLibraryRef.length} item(s) in this section are not saved to the line item library yet. Please save this invoice first, then the items will be automatically added to the library and available for templates.`,
-                                  okText: 'Understood',
-                                  cancelText: 'Cancel',
-                                });
-                                return;
-                              }
-
-                              // All items have line_item_id - proceed with template creation
-                              const templateItems = section.items.map(item => ({
-                                line_item_id: item.line_item_id!,
+                              // Prepare template items with embedded data support
+                              const templateItems = section.items.map((item, index) => ({
+                                line_item_id: item.line_item_id,
                                 source_item_id: item.id,
                                 name: item.name,
                                 description: item.description,
                                 unit: item.unit,
-                                rate: item.rate,
-                                quantity_multiplier: item.quantity,
-                                order_index: 0,
+                                rate: Number(item.rate) || 0,
+                                quantity_multiplier: Number(item.quantity) || 1,
+                                order_index: index,
                               }));
 
-                              console.log('Template items:', templateItems);
-                              message.success(`${templateItems.length} items prepared for template`);
-                              addSectionToBuilder(section.title, templateItems);
+                              console.log('Creating template from section:', {
+                                title: section.title,
+                                items: templateItems,
+                                withLibraryRef: templateItems.filter(i => i.line_item_id).length,
+                                withoutLibraryRef: templateItems.filter(i => !i.line_item_id).length
+                              });
+
+                              // Save template directly - backend will handle embedded vs reference mode
+                              const companyIdForTemplate = invoiceData?.company_id || selectedCompany?.id;
+                              saveSectionAsNewTemplate(section.title, templateItems, companyIdForTemplate);
                             }}
                           >
                             Save as Template
@@ -2067,12 +2082,13 @@ const InvoiceCreation: React.FC = () => {
                           dragType="item"
                           activeId={activeId}
                           columns={[
-                            {
-                              title: 'Item Code',
-                              dataIndex: 'name',
-                              key: 'name',
-                              width: 120,
-                            },
+                            // Item code column hidden - description is the primary identifier
+                            // {
+                            //   title: 'Item Code',
+                            //   dataIndex: 'name',
+                            //   key: 'name',
+                            //   width: 120,
+                            // },
                             {
                               title: 'Description',
                               dataIndex: 'description',
@@ -2638,8 +2654,6 @@ const InvoiceCreation: React.FC = () => {
             ]}
           >
             <ItemCodeSelector
-              value={itemForm.getFieldValue('name')}
-              onChange={(value) => itemForm.setFieldValue('name', value)}
               onLineItemAdd={handleLineItemsAdd}
               placeholder="Enter item code or search line items"
             />

@@ -12,13 +12,12 @@ import {
   Button,
   Space,
   Typography,
-  List,
   InputNumber,
   Popconfirm,
   message,
   Divider,
   Tag,
-  Empty
+  Empty,
 } from 'antd';
 import {
   SaveOutlined,
@@ -45,6 +44,8 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTemplateBuilder } from '../../contexts/TemplateBuilderContext';
+import LineItemSelectorModal from './LineItemSelectorModal';
+import { LineItemModalItem } from '../../types/lineItem';
 
 const { TextArea } = Input;
 const { Title, Text } = Typography;
@@ -74,49 +75,51 @@ const SortableItem: React.FC<SortableItemProps> = ({ id, index, item, onRemove, 
   };
 
   return (
-    <div ref={setNodeRef} style={style}>
-      <List.Item
-        style={{
-          background: 'white',
-          border: '1px solid #f0f0f0',
-          borderRadius: '4px',
-          marginBottom: '8px',
-          padding: '12px',
-        }}
-      >
-        <Space style={{ width: '100%' }} direction="vertical" size="small">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Space>
-              <HolderOutlined
-                {...attributes}
-                {...listeners}
-                style={{ cursor: 'grab', color: '#999', fontSize: 16 }}
-              />
-              <div>
-                <Text strong>{item.description || item.name}</Text>
-                {item.source_section && (
-                  <Tag color="blue" style={{ marginLeft: 8 }}>
-                    {item.source_section}
-                  </Tag>
-                )}
-              </div>
-            </Space>
-            <Popconfirm
-              title="Remove this item?"
-              onConfirm={() => onRemove(index)}
-            >
-              <Button
-                type="text"
-                danger
-                size="small"
-                icon={<DeleteOutlined />}
-              />
-            </Popconfirm>
-          </div>
+    <div
+      ref={setNodeRef}
+      style={{
+        ...style,
+        background: 'white',
+        border: '1px solid #f0f0f0',
+        borderRadius: '4px',
+        marginBottom: '8px',
+        padding: '12px',
+      }}
+    >
+      <Space style={{ width: '100%' }} direction="vertical" size="small">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Space>
+            <HolderOutlined
+              {...attributes}
+              {...listeners}
+              style={{ cursor: 'grab', color: '#999', fontSize: 16 }}
+            />
+            <div>
+              <Text strong>{item.description || item.name}</Text>
+              {item.source_section && (
+                <Tag color="blue" style={{ marginLeft: 8 }}>
+                  {item.source_section}
+                </Tag>
+              )}
+            </div>
+          </Space>
+          <Popconfirm
+            title="Remove this item?"
+            onConfirm={() => onRemove(index)}
+          >
+            <Button
+              type="text"
+              danger
+              size="small"
+              icon={<DeleteOutlined />}
+            />
+          </Popconfirm>
+        </div>
 
-          <Space style={{ width: '100%' }}>
+        <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+          <Space size="small">
             <Text type="secondary" style={{ fontSize: 12 }}>
-              Quantity:
+              Qty:
             </Text>
             <InputNumber
               min={0.01}
@@ -125,20 +128,32 @@ const SortableItem: React.FC<SortableItemProps> = ({ id, index, item, onRemove, 
               value={item.quantity_multiplier}
               onChange={(value) => onUpdate(index, { quantity_multiplier: value || 1 })}
               size="small"
-              style={{ width: 100 }}
+              style={{ width: 80 }}
             />
             <Text type="secondary" style={{ fontSize: 12 }}>
               {item.unit}
             </Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              @ ${item.rate.toFixed(2)}
-            </Text>
-            <Text strong style={{ marginLeft: 'auto' }}>
-              ${((item.quantity_multiplier || 1) * item.rate).toFixed(2)}
-            </Text>
           </Space>
+          <Space size="small">
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Rate:
+            </Text>
+            <InputNumber
+              min={0}
+              step={0.01}
+              precision={2}
+              value={item.rate}
+              onChange={(value) => onUpdate(index, { rate: value || 0 })}
+              size="small"
+              style={{ width: 100 }}
+              prefix="$"
+            />
+          </Space>
+          <Text strong>
+            ${((item.quantity_multiplier || 1) * Number(item.rate || 0)).toFixed(2)}
+          </Text>
         </Space>
-      </List.Item>
+      </Space>
     </div>
   );
 };
@@ -160,9 +175,11 @@ const TemplateBuilderModal: React.FC = () => {
     setTemplateName,
     setTemplateDescription,
     setTemplateCategory,
+    addItemsToTemplate,
   } = useTemplateBuilder();
 
   const [saving, setSaving] = useState(false);
+  const [selectorOpen, setSelectorOpen] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -217,11 +234,32 @@ const TemplateBuilderModal: React.FC = () => {
   };
 
   const totalValue = builderItems.reduce(
-    (sum, item) => sum + (item.quantity_multiplier || 1) * item.rate,
+    (sum, item) => sum + (item.quantity_multiplier || 1) * Number(item.rate || 0),
     0
   );
 
+  const handleAddItems = (selectedItems: LineItemModalItem[]) => {
+    const newItems = selectedItems.map((item) => ({
+      line_item_id: String(item.id),
+      name: item.component_code || item.item_code || '',
+      description: item.description,
+      unit: item.unit,
+      rate: item.unit_price,
+      quantity_multiplier: 1,
+      order_index: 0, // Will be set by context
+    }));
+
+    addItemsToTemplate(newItems);
+    message.success(`${selectedItems.length} item(s) added to template`);
+  };
+
   return (
+    <>
+      <LineItemSelectorModal
+        open={selectorOpen}
+        onClose={() => setSelectorOpen(false)}
+        onSelect={handleAddItems}
+      />
     <Modal
       title={
         <Space>
@@ -283,13 +321,25 @@ const TemplateBuilderModal: React.FC = () => {
       </Form>
 
       <Divider orientation="left">
-        Template Items ({builderItems.length})
-        {builderItems.length > 0 && (
-          <Tag color="green" style={{ marginLeft: 8 }}>
-            Total: ${totalValue.toFixed(2)}
-          </Tag>
-        )}
+        <Space>
+          Template Items ({builderItems.length})
+          {builderItems.length > 0 && (
+            <Tag color="green">
+              Total: ${totalValue.toFixed(2)}
+            </Tag>
+          )}
+        </Space>
       </Divider>
+
+      <Space style={{ width: '100%', marginBottom: 16 }}>
+        <Button
+          type="dashed"
+          icon={<PlusOutlined />}
+          onClick={() => setSelectorOpen(true)}
+        >
+          Add Items from Library
+        </Button>
+      </Space>
 
       {builderItems.length === 0 ? (
         <Empty
@@ -297,7 +347,7 @@ const TemplateBuilderModal: React.FC = () => {
           style={{ margin: '40px 0' }}
         >
           <Text type="secondary">
-            Add items from your invoice sections or select individual items
+            Click "Add Items from Library" to add line items to this template
           </Text>
         </Empty>
       ) : (
@@ -326,6 +376,7 @@ const TemplateBuilderModal: React.FC = () => {
         </div>
       )}
     </Modal>
+    </>
   );
 };
 

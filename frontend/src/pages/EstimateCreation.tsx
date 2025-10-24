@@ -127,9 +127,6 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   const loadCompanies = useCallback(async () => {
     try {
       const data = await companyService.getCompanies();
-      console.log('=== Loaded Companies ===');
-      console.log('Companies:', data);
-      console.log('First company logo:', data[0]?.logo);
       setCompanies(data);
       // Don't auto-select any company - let user choose explicitly
     } catch (error) {
@@ -698,10 +695,6 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   const selectExistingCompany = async (companyId: string) => {
     setUseCustomCompany(false);
     const company = companies.find(c => c.id === companyId);
-    console.log('=== Company Selected ===');
-    console.log('Company ID:', companyId);
-    console.log('Found company:', company);
-    console.log('Company logo:', company?.logo);
     setSelectedCompany(company || null);
     form.setFieldValue('company_selection', companyId);
 
@@ -817,12 +810,6 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     const allItems = convertSectionsToItems();
     const grandTotal = calculateGrandTotal;
 
-    // Debug logging for company logo
-    console.log('=== PDF Preview Data Creation ===');
-    console.log('selectedCompany:', selectedCompany);
-    console.log('selectedCompany.logo:', selectedCompany?.logo);
-    console.log('useCustomCompany:', useCustomCompany);
-
     const previewData = {
       ...values,
       estimate_date: values.estimate_date?.format('YYYY-MM-DD'),
@@ -846,9 +833,6 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       company_email: selectedCompany?.email || '',
       company_logo: selectedCompany?.logo || '',
     };
-
-    console.log('=== Created preview data company_logo:', previewData.company_logo);
-    console.log('=== Preview data keys:', Object.keys(previewData));
 
     return previewData;
   };
@@ -1234,12 +1218,13 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                     }
                                   })}
                                   columns={[
-                                    {
-                                      title: 'Item',
-                                      dataIndex: 'name',
-                                      key: 'name',
-                                      width: 120,
-                                    },
+                                    // Item code column hidden - description is the primary identifier
+                                    // {
+                                    //   title: 'Item',
+                                    //   dataIndex: 'name',
+                                    //   key: 'name',
+                                    //   width: 120,
+                                    // },
                                     {
                                       title: 'Description',
                                       dataIndex: 'description',

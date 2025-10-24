@@ -209,30 +209,42 @@ const LineItemTemplateSelector: React.FC<LineItemTemplateSelectorProps> = ({
             <List
               size="small"
               dataSource={selectedTemplate.template_items || []}
-              renderItem={(item, index) => (
-                <List.Item>
-                  <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                    <Space>
-                      <Text strong>{index + 1}.</Text>
-                      <Text>{item.line_item?.description || 'Loading...'}</Text>
+              renderItem={(item, index) => {
+                // Get item data from either line_item (library reference) or embedded_data
+                const description = item.line_item?.description || item.embedded_data?.description || 'No description';
+                const itemCode = item.line_item?.name || item.embedded_data?.item_code || '';
+                const category = item.line_item?.cat || '';
+                const unit = item.line_item?.unit || item.embedded_data?.unit || 'EA';
+                const price = Number(item.line_item?.untaxed_unit_price || item.embedded_data?.rate || 0);
+
+                return (
+                  <List.Item>
+                    <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                      <Space>
+                        <Text strong>{index + 1}.</Text>
+                        <Text>{description}</Text>
+                      </Space>
+                      <Space size={16}>
+                        {category && (
+                          <Tag color="blue">{category}</Tag>
+                        )}
+                        {itemCode && (
+                          <Tag>{itemCode}</Tag>
+                        )}
+                        {item.embedded_data && !item.line_item && (
+                          <Tag color="orange">Custom</Tag>
+                        )}
+                        <Text type="secondary">
+                          Qty: {Number(item.quantity_multiplier) || 1} × {unit}
+                        </Text>
+                        <Text type="secondary">
+                          ${price.toFixed(2)}
+                        </Text>
+                      </Space>
                     </Space>
-                    <Space size={16}>
-                      {item.line_item?.cat && (
-                        <Tag color="blue">{item.line_item.cat}</Tag>
-                      )}
-                      {item.line_item?.name && (
-                        <Tag>{item.line_item.name}</Tag>
-                      )}
-                      <Text type="secondary">
-                        Qty: {item.quantity_multiplier || 1} × {item.line_item?.unit || 'EA'}
-                      </Text>
-                      <Text type="secondary">
-                        ${(item.line_item?.untaxed_unit_price || 0).toFixed(2)}
-                      </Text>
-                    </Space>
-                  </Space>
-                </List.Item>
-              )}
+                  </List.Item>
+                );
+              }}
             />
           </div>
         </>

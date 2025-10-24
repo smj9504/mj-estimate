@@ -675,10 +675,6 @@ class PDFService:
         company = context.get('company', {})
         client = context.get('client', {})
 
-        # Log company logo before and after processing
-        logger.info(f"=== _prepare_estimate_context - company dict received: {company}")
-        logger.info(f"=== _prepare_estimate_context - company logo: {company.get('logo')}")
-
         # Set defaults for missing required fields but preserve all fields (including logo)
         # Don't clean empty values as templates need to check for their existence
         company.setdefault('name', 'Company Name Not Provided')
@@ -686,8 +682,6 @@ class PDFService:
 
         context['company'] = company
         context['client'] = client
-
-        logger.info(f"=== _prepare_estimate_context - context['company'] logo: {context['company'].get('logo')}")
         context.setdefault('items', [])
         context.setdefault('sections', [])
 
@@ -701,11 +695,6 @@ class PDFService:
 
         # Add flat company name for page header
         context['company_name'] = company.get('name', '')
-
-        # Debug logging
-        logger.info(f"Header data - Company: {context.get('company_name')}")
-        logger.info(f"Header data - Address Line 1: {context.get('client_address_line1')}")
-        logger.info(f"Header data - Address Line 2: {context.get('client_address_line2')}")
 
         # Handle insurance data - same as invoice context
         if 'insurance' in context and isinstance(context['insurance'], dict) and context['insurance']:

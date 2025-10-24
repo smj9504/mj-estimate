@@ -36,7 +36,8 @@ class LineItem(Base):
     )
     
     id = Column(UUIDType(), primary_key=True, default=generate_uuid, index=True)
-    
+    type = Column(SQLEnum(LineItemType), nullable=False, default=LineItemType.CUSTOM)
+
     # Common fields
     cat = Column(String(50))  # Category code
     item = Column(String(50))  # Item code
@@ -222,23 +223,77 @@ class LineItemTemplate(Base):
 
 
 class TemplateLineItem(Base):
-    """Line items within a template"""
+    """Line items within a template
+
+    Supports two modes:
+    1. Reference mode: line_item_id points to existing LineItem in library
+    2. Embedded mode: embedded_data contains complete item information (no line_item_id)
+
+    Embedded data structure:
+    {
+        "item_code": "RDG",           # Item name/code for identification
+        "description": "Item name",    # Display name
+        "includes": "Work details",    # Optional work description
+        "unit": "EA",                  # Measurement unit
+        "rate": 100.0,                 # Unit price
+        "type": "CUSTOM"               # Optional: CUSTOM or XACTIMATE
+    }
+    """
     __tablename__ = "template_line_items"
     __table_args__ = {'extend_existing': True}
-    
+
     id = Column(UUIDType(), primary_key=True, default=generate_uuid)
     template_id = Column(UUIDType(), ForeignKey("line_item_templates.id", ondelete="CASCADE"), nullable=False)
-    line_item_id = Column(UUIDType(), ForeignKey("line_items.id", ondelete="CASCADE"), nullable=False)
+
+    # Reference-based: points to existing LineItem (nullable for embedded mode)
+    line_item_id = Column(UUIDType(), ForeignKey("line_items.id", ondelete="CASCADE"), nullable=True)
+
+    # Embedded mode: stores complete item data (nullable for reference mode)
+    embedded_data = Column(JSON, nullable=True)
+
     quantity_multiplier = Column(DECIMAL(10, 2), default=1)
     order_index = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     # Relationships
     template = relationship("LineItemTemplate", back_populates="template_items")
     line_item = relationship("LineItem", back_populates="templates")
-    
+
+    # Note: Validation is handled by:
+    # 1. Pydantic schema validation (TemplateLineItemBase.validate_item_reference)
+    # 2. Database CHECK constraint (template_line_items_data_check)
+    # SQLAlchemy @validates is removed to avoid premature validation during object construction
+
+    def get_item_code(self) -> str:
+        """Get item code from embedded data or related line_item"""
+        if self.embedded_data:
+            return self.embedded_data.get('item_code', 'UNKNOWN')
+        elif self.line_item:
+            return self.line_item.item or 'UNKNOWN'
+        return 'UNKNOWN'
+
+    def get_description(self) -> str:
+        """Get description from embedded data or related line_item"""
+        if self.embedded_data:
+            return self.embedded_data.get('description', '')
+        elif self.line_item:
+            return self.line_item.description
+        return ''
+
+    def get_rate(self) -> Decimal:
+        """Get rate from embedded data or related line_item"""
+        if self.embedded_data:
+            return Decimal(str(self.embedded_data.get('rate', 0)))
+        elif self.line_item:
+            return self.line_item.untaxed_unit_price or Decimal('0')
+        return Decimal('0')
+
     def __repr__(self):
-        return f"<TemplateLineItem(template_id={self.template_id}, line_item_id={self.line_item_id})>"
+        if self.line_item_id:
+            return f"<TemplateLineItem(template_id={self.template_id}, line_item_id={self.line_item_id})>"
+        else:
+            item_code = self.embedded_data.get('item_code', 'UNKNOWN') if self.embedded_data else 'UNKNOWN'
+            return f"<TemplateLineItem(template_id={self.template_id}, embedded={item_code})>"
 
 
 class LineItemAudit(Base):

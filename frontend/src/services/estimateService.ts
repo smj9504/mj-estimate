@@ -589,10 +589,6 @@ class EstimateService {
       template_type: templateType // Add template type selection
     };
 
-    console.log('Sending HTML preview data:', htmlData);
-    console.log('Company object:', htmlData.company);
-    console.log('Company logo:', htmlData.company?.logo);
-
     try {
       const response = await apiClient.post('/api/estimates/preview-html', htmlData, {
         timeout: 30000, // 30 second timeout

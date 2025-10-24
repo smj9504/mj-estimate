@@ -710,9 +710,15 @@ class LineItemService {
     category?: string;
     company_id?: string;
     line_item_ids: Array<{
-      line_item_id: string;
+      line_item_id?: string;
       quantity_multiplier?: number;
       order_index?: number;
+      embedded_data?: {
+        item_code: string;
+        description: string;
+        unit: string;
+        rate: number;
+      };
     }>;
   }): Promise<LineItemTemplate> {
     try {

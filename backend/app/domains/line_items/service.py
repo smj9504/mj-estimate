@@ -46,15 +46,19 @@ class LineItemService:
     # =====================================================
     
     async def create_line_item(
-        self, 
-        line_item: LineItemCreate, 
+        self,
+        line_item: LineItemCreate,
         user_id: UUID
     ) -> LineItemResponse:
         """Create a new line item with validation"""
         try:
             # Validate Xactimate vs Custom requirements
             self._validate_line_item_type(line_item)
-            
+
+            # Auto-generate item code if not provided
+            if not line_item.item or not line_item.item.strip():
+                line_item.item = self._generate_item_code(line_item.description)
+
             # Create line item
             db_item = self.repository.create_line_item(line_item, user_id)
             
@@ -68,8 +72,8 @@ class LineItemService:
                 new_values=db_item.to_dict(),
                 changed_by=user_id
             )
-            
-            return LineItemResponse.from_orm(db_item)
+
+            return LineItemResponse.model_validate(db_item)
             
         except IntegrityError as e:
             logger.error(f"Database error creating line item: {e}")
@@ -90,10 +94,7 @@ class LineItemService:
         
         # Handle Pydantic v2
         try:
-            if hasattr(LineItemResponse, 'model_validate'):
-                response = LineItemResponse.model_validate(db_item)
-            else:
-                response = LineItemResponse.from_orm(db_item)
+            response = LineItemResponse.model_validate(db_item)
         except Exception as e:
             print(f"Error converting single item {db_item.id}: {e}")
             # Create manual conversion as fallback
@@ -144,12 +145,7 @@ class LineItemService:
         converted_items = []
         for item in result['items']:
             try:
-                # Use model_validate for Pydantic v2
-                if hasattr(LineItemResponse, 'model_validate'):
-                    converted_items.append(LineItemResponse.model_validate(item))
-                else:
-                    # Fallback for Pydantic v1
-                    converted_items.append(LineItemResponse.from_orm(item))
+                converted_items.append(LineItemResponse.model_validate(item))
             except Exception as e:
                 print(f"Error converting item {item.id}: {e}")
                 # Create manual conversion as fallback
@@ -211,8 +207,8 @@ class LineItemService:
             new_values=db_item.to_dict(),
             changed_by=user_id
         )
-        
-        return LineItemResponse.from_orm(db_item)
+
+        return LineItemResponse.model_validate(db_item)
     
     async def delete_line_item(self, line_item_id: UUID, user_id: UUID) -> bool:
         """Soft delete a line item"""
@@ -246,8 +242,8 @@ class LineItemService:
         
         # Clear cache
         self._invalidate_line_item_cache()
-        
-        return [LineItemResponse.from_orm(item) for item in db_items]
+
+        return [LineItemResponse.model_validate(item) for item in db_items]
     
     # =====================================================
     # Note Operations
@@ -260,7 +256,7 @@ class LineItemService:
     ) -> LineItemNoteResponse:
         """Create a new note"""
         db_note = self.repository.create_note(note, user_id)
-        return LineItemNoteResponse.from_orm(db_note)
+        return LineItemNoteResponse.model_validate(db_note)
     
     async def get_notes(
         self, 
@@ -269,14 +265,14 @@ class LineItemService:
     ) -> List[LineItemNoteResponse]:
         """Get notes with filters"""
         db_notes = self.repository.get_notes(company_id, category)
-        return [LineItemNoteResponse.from_orm(note) for note in db_notes]
+        return [LineItemNoteResponse.model_validate(note) for note in db_notes]
     
     async def get_note(self, note_id: UUID) -> Optional[LineItemNoteResponse]:
         """Get a single note by ID"""
         db_note = self.repository.get_note(note_id)
         if not db_note:
             return None
-        return LineItemNoteResponse.from_orm(db_note)
+        return LineItemNoteResponse.model_validate(db_note)
     
     async def update_note(
         self, 
@@ -287,7 +283,7 @@ class LineItemService:
         db_note = self.repository.update_note(note_id, update)
         if not db_note:
             return None
-        return LineItemNoteResponse.from_orm(db_note)
+        return LineItemNoteResponse.model_validate(db_note)
     
     async def delete_note(self, note_id: UUID) -> bool:
         """Delete a note"""
@@ -304,7 +300,7 @@ class LineItemService:
     ) -> LineItemTemplateResponse:
         """Create a new template"""
         db_template = self.repository.create_template(template, user_id)
-        return LineItemTemplateResponse.from_orm(db_template)
+        return LineItemTemplateResponse.model_validate(db_template)
     
     async def get_template(self, template_id: UUID) -> Optional[LineItemTemplateResponse]:
         """Get a template by ID"""
@@ -317,9 +313,9 @@ class LineItemService:
         db_template = self.repository.get_template(template_id)
         if not db_template:
             return None
-        
-        response = LineItemTemplateResponse.from_orm(db_template)
-        
+
+        response = LineItemTemplateResponse.model_validate(db_template)
+
         # Cache for 1 hour
         await self.cache.set(cache_key, response.json(), ttl=3600)
         
@@ -333,7 +329,7 @@ class LineItemService:
     ) -> List[LineItemTemplateResponse]:
         """Get templates with filters"""
         db_templates = self.repository.get_templates(company_id, category, is_active)
-        return [LineItemTemplateResponse.from_orm(t) for t in db_templates]
+        return [LineItemTemplateResponse.model_validate(t) for t in db_templates]
     
     async def update_template(
         self, 
@@ -348,8 +344,8 @@ class LineItemService:
         # Clear cache
         cache_key = f"template:{template_id}"
         await self.cache.delete(cache_key)
-        
-        return LineItemTemplateResponse.from_orm(db_template)
+
+        return LineItemTemplateResponse.model_validate(db_template)
     
     async def delete_template(self, template_id: UUID) -> bool:
         """Soft delete a template"""
@@ -368,38 +364,66 @@ class LineItemService:
         invoice_id: UUID,
         quantity_multiplier: Decimal = Decimal('1')
     ) -> List[Dict]:
-        """Apply a template to an invoice"""
+        """Apply a template to an invoice
+
+        Handles both reference-based and embedded template items:
+        - Reference mode: Uses line_item_id to get existing LineItem
+        - Embedded mode: Uses embedded_data to create invoice item directly
+        """
         from app.domains.invoice.models import InvoiceItem
-        
+
         # Get template
         template = self.repository.get_template(template_id)
         if not template:
             raise BusinessError("Template not found")
-        
+
         # Create invoice items from template
         created_items = []
         for template_item in template.template_items:
-            line_item = template_item.line_item
-            
-            # Create invoice item
-            invoice_item = InvoiceItem(
-                invoice_id=invoice_id,
-                line_item_id=line_item.id,
-                description=line_item.description,
-                quantity=template_item.quantity_multiplier * quantity_multiplier,
-                unit=line_item.unit,
-                rate=float(line_item.untaxed_unit_price or 0),
-                order_index=template_item.order_index
-            )
-            
+            # Determine item data source (reference vs embedded)
+            if template_item.line_item_id:
+                # Reference mode: use existing LineItem
+                line_item = template_item.line_item
+                if not line_item:
+                    logger.warning(f"Template item references non-existent line_item_id: {template_item.line_item_id}")
+                    continue
+
+                invoice_item = InvoiceItem(
+                    invoice_id=invoice_id,
+                    line_item_id=line_item.id,
+                    description=line_item.description,
+                    quantity=template_item.quantity_multiplier * quantity_multiplier,
+                    unit=line_item.unit,
+                    rate=float(line_item.untaxed_unit_price or 0),
+                    order_index=template_item.order_index
+                )
+
+            elif template_item.embedded_data:
+                # Embedded mode: use embedded data directly
+                embedded = template_item.embedded_data
+
+                invoice_item = InvoiceItem(
+                    invoice_id=invoice_id,
+                    line_item_id=None,  # No reference to line item library
+                    description=embedded.get('description', ''),
+                    quantity=template_item.quantity_multiplier * quantity_multiplier,
+                    unit=embedded.get('unit', ''),
+                    rate=float(embedded.get('rate', 0)),
+                    order_index=template_item.order_index
+                )
+
+            else:
+                logger.warning(f"Template item {template_item.id} has neither line_item_id nor embedded_data")
+                continue
+
             self.db.add(invoice_item)
             created_items.append({
                 'invoice_item': invoice_item,
-                'line_item': line_item
+                'template_item': template_item
             })
-        
+
         self.db.commit()
-        
+
         return created_items
     
     # =====================================================
@@ -545,7 +569,52 @@ class LineItemService:
     # =====================================================
     # Helper Methods
     # =====================================================
-    
+
+    def _generate_item_code(self, description: str) -> str:
+        """
+        Generate item code from description.
+        Algorithm matches frontend implementation in LineItemManager.tsx
+        - Extract meaningful words (alphanumeric only)
+        - Single word: take first 7 chars
+        - Two words: 4 chars from first + 3 chars from second
+        - Multiple words: 3+2+2 chars from first 3 words
+        - Max length: 7 characters
+        - Pad with timestamp if < 3 chars
+        """
+        import re
+        from datetime import datetime
+
+        # Extract alphanumeric words
+        words = re.findall(r'[a-zA-Z0-9]+', description)
+
+        if not words:
+            # Fallback: use timestamp
+            return datetime.now().strftime('%H%M%S')[:7]
+
+        # Filter out very short words (< 2 chars) unless it's the only word
+        meaningful_words = [w for w in words if len(w) >= 2] or words[:1]
+
+        code = ''
+        if len(meaningful_words) == 1:
+            # Single word: take first 7 chars
+            code = meaningful_words[0][:7]
+        elif len(meaningful_words) == 2:
+            # Two words: 4 chars from first + 3 chars from second
+            code = meaningful_words[0][:4] + meaningful_words[1][:3]
+        else:
+            # Multiple words: 3+2+2 chars from first 3 words
+            code = (meaningful_words[0][:3] +
+                   meaningful_words[1][:2] +
+                   meaningful_words[2][:2])
+
+        # Ensure minimum length of 3
+        if len(code) < 3:
+            timestamp = datetime.now().strftime('%H%M%S')
+            code = (code + timestamp)[:7]
+
+        # Truncate to max 7 chars and uppercase
+        return code[:7].upper()
+
     def _validate_line_item_type(self, line_item: LineItemCreate):
         """Validate line item based on type"""
         if line_item.type == LineItemType.xactimate:

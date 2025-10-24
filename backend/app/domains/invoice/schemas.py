@@ -81,7 +81,7 @@ class PaymentRecord(BaseModel):
 
 class InvoiceItemBase(BaseModel):
     name: str
-    description: Optional[str] = None
+    description: str  # Required - this is the actual line item name
     quantity: float = 1
     unit: str = "ea"
     rate: float = 0
@@ -97,7 +97,8 @@ class InvoiceItemBase(BaseModel):
 
 
 class InvoiceItemCreate(InvoiceItemBase):
-    pass
+    # Line item integration - reference to line_items library
+    line_item_id: Optional[UUID] = None
 
 
 class InvoiceItemResponse(InvoiceItemBase):

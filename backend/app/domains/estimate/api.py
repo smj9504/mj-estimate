@@ -803,13 +803,11 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
         raise HTTPException(status_code=404, detail="Estimate not found")
 
     # Get company info if company_id exists
-    logger.info(f"=== PDF Generation: Checking company_id: {estimate.get('company_id')}")
     if estimate.get('company_id'):
         try:
             from app.domains.company.repository import get_company_repository
             company_repo = get_company_repository(db)
             company_info = company_repo.get_by_id(str(estimate['company_id']))
-            logger.info(f"=== Company info fetched: {company_info}")
             if company_info:
                 # Merge company info
                 estimate['company_name'] = company_info.get('name')
@@ -820,9 +818,6 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
                 estimate['company_phone'] = company_info.get('phone')
                 estimate['company_email'] = company_info.get('email')
                 estimate['company_logo'] = company_info.get('logo')
-                logger.info(f"=== Company logo: {estimate.get('company_logo')}")
-            else:
-                logger.warning(f"=== No company found for ID: {estimate.get('company_id')}")
         except Exception as e:
             logger.error(f"Error fetching company info: {e}")
             import traceback
@@ -841,9 +836,6 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
     # Log each section details
     for i, section in enumerate(sections_data):
         logger.info(f"  Section {i+1}: '{section.get('title')}' with {len(section.get('items', []))} items")
-
-    # Log company logo before building pdf_data
-    logger.info(f"=== Before building pdf_data - company_logo: {estimate.get('company_logo')}")
 
     pdf_data = {
         "estimate_number": estimate.get('estimate_number', ''),
@@ -897,9 +889,6 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
         "terms": estimate.get('terms')
     }
 
-    # Log pdf_data company logo
-    logger.info(f"=== pdf_data company logo: {pdf_data['company'].get('logo')}")
-
     # Generate PDF
     if not pdf_service:
         raise HTTPException(status_code=500, detail="PDF service not available")
@@ -941,15 +930,8 @@ async def preview_estimate_html(data: EstimatePDFRequest):
     logger = logging.getLogger(__name__)
 
     try:
-        # Log received data before converting to dict
-        logger.info(f"=== Received preview request ===")
-        logger.info(f"data.company_logo type: {type(data.company_logo)}")
-        logger.info(f"data.company_logo value (first 100 chars): {str(data.company_logo)[:100] if data.company_logo else 'None'}")
-
         # Prepare data for HTML generation
         html_data = data.dict()
-        logger.info(f"Generating HTML preview with data keys: {html_data.keys()}")
-        logger.info(f"html_data['company_logo'] (first 100 chars): {str(html_data.get('company_logo'))[:100] if html_data.get('company_logo') else 'None'}")
 
         # Build company dict from flat fields OR use existing company dict
         if 'company' not in html_data or html_data['company'] is None:
@@ -964,10 +946,6 @@ async def preview_estimate_html(data: EstimatePDFRequest):
                 'email': html_data.get('company_email', ''),
                 'logo': html_data.get('company_logo', '')
             }
-            logger.info(f"Built company dict from flat fields with logo: {html_data['company'].get('logo')}")
-        else:
-            # Company dict already exists, just log it
-            logger.info(f"Using existing company dict with logo: {html_data['company'].get('logo')}")
 
         # Extract template_type from data
         template_type = html_data.get('template_type', 'estimate')

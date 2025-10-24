@@ -22,7 +22,7 @@ class EstimateItemBase(BaseModel):
     # Item name field - aligned with invoice_items table for consistency
     name: Optional[str] = None  # Item name or identifier (aligned with invoice_items)
 
-    description: Optional[str] = None
+    description: str  # Required - this is the actual line item name
     quantity: float = 1.0
     unit: Optional[str] = "ea"
     rate: float = 0.0

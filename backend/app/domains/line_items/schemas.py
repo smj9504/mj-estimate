@@ -2,7 +2,7 @@
 Line Items domain Pydantic schemas
 """
 
-from pydantic import BaseModel, Field, field_validator, computed_field
+from pydantic import BaseModel, Field, field_validator, model_validator, computed_field
 from typing import List, Optional, Dict, Any, Annotated
 from datetime import datetime
 from uuid import UUID
@@ -200,11 +200,51 @@ class LineItemSearch(BaseModel):
 # =====================================================
 # Template Schemas
 # =====================================================
+class EmbeddedItemData(BaseModel):
+    """Schema for embedded item data in templates
+
+    This allows templates to store item information directly
+    instead of requiring a line_item_id reference.
+    """
+    item_code: str = Field(..., max_length=50, description="Item name/code (e.g., 'RDG', 'ITEM001')")
+    description: Optional[str] = Field(None, description="Item display name")
+    includes: Optional[str] = Field(None, description="Work description/details")
+    unit: Optional[str] = Field("EA", max_length=50, description="Measurement unit")
+    rate: Decimal = Field(..., gt=0, description="Unit price")
+    type: Optional[str] = Field("CUSTOM", description="Item type: CUSTOM or XACTIMATE")
+
+    # Optional Xactimate breakdown
+    lab: Optional[Decimal] = Field(None, ge=0)
+    mat: Optional[Decimal] = Field(None, ge=0)
+    equ: Optional[Decimal] = Field(None, ge=0)
+    labor_burden: Optional[Decimal] = Field(None, ge=0)
+    market_condition: Optional[Decimal] = Field(None, ge=0)
+
+
 class TemplateLineItemBase(BaseModel):
-    """Base schema for template line items"""
-    line_item_id: UUID
+    """Base schema for template line items
+
+    Supports two modes:
+    1. Reference mode: provide line_item_id
+    2. Embedded mode: provide embedded_data
+
+    One and only one must be provided.
+    """
+    line_item_id: Optional[UUID] = Field(None, description="Reference to existing line item (reference mode)")
+    embedded_data: Optional[EmbeddedItemData] = Field(None, description="Embedded item data (embedded mode)")
     quantity_multiplier: Decimal = Field(Decimal('1'), ge=0)
     order_index: int = 0
+
+    @model_validator(mode='after')
+    def validate_item_reference(self):
+        """Ensure either line_item_id OR embedded_data is provided"""
+        if self.line_item_id is None and self.embedded_data is None:
+            raise ValueError("Either line_item_id or embedded_data must be provided")
+
+        if self.line_item_id is not None and self.embedded_data is not None:
+            raise ValueError("Cannot provide both line_item_id and embedded_data")
+
+        return self
 
 
 class TemplateLineItemCreate(TemplateLineItemBase):
@@ -212,11 +252,22 @@ class TemplateLineItemCreate(TemplateLineItemBase):
     pass
 
 
-class TemplateLineItemResponse(TemplateLineItemBase):
-    """Schema for template line item response"""
+class TemplateLineItemResponse(BaseModel):
+    """Schema for template line item response
+
+    Returns the template item with either:
+    - line_item: full LineItem object (reference mode)
+    - embedded_data: embedded item data (embedded mode)
+    """
     id: UUID
+    line_item_id: Optional[UUID] = None
+    embedded_data: Optional[EmbeddedItemData] = None
+    quantity_multiplier: Decimal
+    order_index: int
+
+    # Full line item object if reference mode
     line_item: Optional[LineItemResponse] = None
-    
+
     model_config = {"from_attributes": True}
 
 
