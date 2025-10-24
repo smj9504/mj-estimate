@@ -44,6 +44,7 @@ from app.domains.file.api import router as file_router
 from app.domains.sketch.api import router as sketch_router
 from app.domains.receipt.api import router as receipt_router
 from app.domains.water_mitigation.api import router as water_mitigation_router
+from app.domains.integrations.api import router as integrations_router
 from app.core.config import settings
 from app.core.database_factory import get_database, db_factory
 # Service factory removed - using direct service instantiation
@@ -293,6 +294,9 @@ app.include_router(receipt_router, prefix="/api/receipts", tags=["Receipts & Tem
 
 # Water Mitigation System endpoints
 app.include_router(water_mitigation_router, prefix="/api")
+
+# External Integrations endpoints (CompanyCam, Slack, Google Sheets)
+app.include_router(integrations_router, prefix="/api/integrations", tags=["External Integrations"])
 
 
 # System information endpoints

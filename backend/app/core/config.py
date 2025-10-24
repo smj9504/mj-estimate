@@ -87,7 +87,23 @@ class Settings(BaseSettings):
     # PDF Generation
     PDF_OUTPUT_DIR: Path = BASE_DIR / "data" / "pdfs"
     TEMPLATE_DIR: Path = BASE_DIR / "templates"
-    
+
+    # External Integrations
+    # CompanyCam Integration
+    COMPANYCAM_API_KEY: str = os.getenv("COMPANYCAM_API_KEY", "")
+    COMPANYCAM_WEBHOOK_TOKEN: str = os.getenv("COMPANYCAM_WEBHOOK_TOKEN", "")
+
+    # Slack Integration
+    SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
+    SLACK_CHANNEL: str = os.getenv("SLACK_CHANNEL", "#work-orders")
+
+    # Frontend URL (for generating links in notifications)
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+    # Google Sheets Integration (future)
+    GOOGLE_SHEETS_CREDENTIALS: Optional[str] = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+    GOOGLE_SHEETS_SPREADSHEET_ID: Optional[str] = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
+
     class Config:
         env_file = f".env.{os.getenv('ENVIRONMENT', 'development')}"
         case_sensitive = True

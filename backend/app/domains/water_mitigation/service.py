@@ -404,3 +404,25 @@ class WaterMitigationService:
     def delete_report_config(self, job_id: UUID) -> bool:
         """Delete report config"""
         return self.report_config_repo.delete_by_job_id(job_id)
+
+    # CompanyCam integration methods
+    def get_by_companycam_project(self, companycam_project_id: str) -> Optional[WaterMitigationJob]:
+        """Get job by CompanyCam project ID"""
+        return self.job_repo.find_by_companycam_project_id(companycam_project_id)
+
+    def get_all(self, filters: Optional[Dict[str, Any]] = None) -> List[WaterMitigationJob]:
+        """Get all jobs with optional filters"""
+        return self.job_repo.find_all(filters=filters)
+
+    def get_by_id(self, job_id: UUID) -> Optional[WaterMitigationJob]:
+        """Get job model by ID (not dict)"""
+        return self.job_repo.get_by_id(job_id)
+
+    def create(self, data: Any) -> WaterMitigationJob:
+        """Create job from schema (for CompanyCam integration)"""
+        job_data = data.dict() if hasattr(data, 'dict') else data
+        created = self.job_repo.create(job_data)
+        # Return model object
+        if isinstance(created, dict):
+            return self.job_repo.get_by_id(created['id'])
+        return created

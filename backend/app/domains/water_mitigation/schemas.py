@@ -402,3 +402,8 @@ class GenerateDocumentRequest(BaseModel):
         if document_type == 'EWA' and not v:
             raise ValueError('date_of_loss is required for EWA document')
         return v
+
+
+# Alias for CompanyCam integration
+WaterMitigationJobCreate = JobCreate
+WMPhotoCreate = PhotoCreate
