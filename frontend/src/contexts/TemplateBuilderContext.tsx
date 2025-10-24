@@ -120,7 +120,7 @@ export const TemplateBuilderProvider: React.FC<{ children: React.ReactNode }> = 
             // Library reference item
             return {
               line_item_id: ti.line_item_id,
-              name: ti.line_item?.name || '',
+              name: ti.line_item?.item || '',
               description: ti.line_item?.description || '',
               unit: ti.line_item?.unit || 'EA',
               rate: Number(ti.line_item?.untaxed_unit_price) || 0,
@@ -297,7 +297,7 @@ export const TemplateBuilderProvider: React.FC<{ children: React.ReactNode }> = 
           // Library reference item
           return {
             line_item_id: ti.line_item_id,
-            name: ti.line_item?.name || '',
+            name: ti.line_item?.item || '',
             description: ti.line_item?.description || '',
             unit: ti.line_item?.unit || 'EA',
             rate: Number(ti.line_item?.untaxed_unit_price) || 0,

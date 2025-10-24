@@ -212,7 +212,7 @@ const LineItemTemplateSelector: React.FC<LineItemTemplateSelectorProps> = ({
               renderItem={(item, index) => {
                 // Get item data from either line_item (library reference) or embedded_data
                 const description = item.line_item?.description || item.embedded_data?.description || 'No description';
-                const itemCode = item.line_item?.name || item.embedded_data?.item_code || '';
+                const itemCode = item.line_item?.item || item.embedded_data?.item_code || '';
                 const category = item.line_item?.cat || '';
                 const unit = item.line_item?.unit || item.embedded_data?.unit || 'EA';
                 const price = Number(item.line_item?.untaxed_unit_price || item.embedded_data?.rate || 0);

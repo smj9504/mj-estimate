@@ -16,6 +16,7 @@ import {
   MenuUnfoldOutlined,
   MenuFoldOutlined,
   SketchOutlined,
+  DropboxOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -96,6 +97,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         key: '/work-orders',
         icon: <ProjectOutlined />,
         label: 'Work Orders',
+      },
+      {
+        key: '/line-items',
+        icon: <DatabaseOutlined />,
+        label: 'Line Items',
+      },
+      {
+        key: '/water-mitigation',
+        icon: <DropboxOutlined />,
+        label: 'Water Mitigation',
       },
       {
         key: '/sketch-test',

@@ -200,7 +200,30 @@ class LineItemService {
   // =====================================================
   // Line Item CRUD
   // =====================================================
-  
+
+  /**
+   * Get line items with filters (pagination support)
+   */
+  async getLineItems(params?: {
+    search?: string;
+    category?: string;
+    type?: string;
+    is_active?: boolean;
+    page?: number;
+    page_size?: number;
+  }): Promise<PaginatedResponse<LineItem>> {
+    try {
+      const response = await apiClient.get('/api/line-items/', { params });
+      return response.data;
+    } catch (error: any) {
+      throw new LineItemServiceError(
+        `Failed to get line items: ${error.message}`,
+        error.response?.status,
+        error
+      );
+    }
+  }
+
   /**
    * Search line items with basic filters
    */
@@ -245,8 +268,8 @@ class LineItemService {
         // Transform unified format to modal format
         const modalItem: LineItemModalItem = {
           id: item.id,
-          component_code: item.name, // Use 'name' field as component_code
-          item_code: item.name, // Also provide item_code for backward compatibility
+          component_code: item.item, // Use 'item' field as component_code
+          item_code: item.item, // Also provide item_code for backward compatibility
           description: item.description || 'No description',
           unit: item.unit || 'EA',
           act: item.type === 'XACTIMATE' ? '&' : '+', // "&" for Xactimate, "+" for custom
@@ -338,8 +361,8 @@ class LineItemService {
       const modalItems = unifiedItems.map((item: any) => {
         const modalItem: LineItemModalItem = {
           id: item.id,
-          component_code: item.name,
-          item_code: item.name,
+          component_code: item.item,
+          item_code: item.item,
           description: item.description || 'No description',
           unit: item.unit || 'EA',
           act: item.type === 'XACTIMATE' ? '&' : '+',
@@ -458,6 +481,21 @@ class LineItemService {
   }
 
   /**
+   * Bulk delete line items (soft delete)
+   */
+  async deleteLineItems(ids: string[]): Promise<void> {
+    try {
+      await apiClient.delete('/api/line-items/bulk', { data: ids });
+    } catch (error: any) {
+      throw new LineItemServiceError(
+        `Failed to bulk delete line items: ${error.message}`,
+        error.response?.status,
+        error
+      );
+    }
+  }
+
+  /**
    * Bulk create line items
    */
   async bulkCreateLineItems(items: LineItemCreate[]): Promise<LineItem[]> {
@@ -494,7 +532,7 @@ class LineItemService {
    */
   async bulkDeleteLineItems(ids: string[]): Promise<void> {
     try {
-      await apiClient.delete('/api/line-items/bulk', { data: { ids } });
+      await apiClient.delete('/api/line-items/bulk', { data: ids });
     } catch (error: any) {
       throw new LineItemServiceError(
         `Failed to bulk delete line items: ${error.message}`,
@@ -599,10 +637,77 @@ class LineItemService {
   async getLineItemNotes(lineItemId: string): Promise<LineItemNote[]> {
     try {
       const response = await apiClient.get(`/api/line-items/${lineItemId}/notes`);
-      return response.data.items || response.data;
+      // Backend returns empty array if no notes exist (not an error)
+      return response.data.items || response.data || [];
     } catch (error: any) {
+      // If 404, return empty array (line item has no notes - this is normal)
+      if (error.response?.status === 404) {
+        return [];
+      }
       throw new LineItemServiceError(
         `Failed to fetch line item notes: ${error.message}`,
+        error.response?.status,
+        error
+      );
+    }
+  }
+
+  /**
+   * Create note for a specific line item
+   */
+  async createLineItemNote(lineItemId: string, noteData: Omit<LineItemNote, 'id' | 'created_at' | 'updated_at'>): Promise<LineItemNote> {
+    try {
+      const response = await apiClient.post(`/api/line-items/${lineItemId}/notes`, noteData);
+      return response.data;
+    } catch (error: any) {
+      throw new LineItemServiceError(
+        `Failed to create line item note: ${error.message}`,
+        error.response?.status,
+        error
+      );
+    }
+  }
+
+  /**
+   * Update note for a specific line item
+   */
+  async updateLineItemNote(lineItemId: string, noteId: string, noteData: Partial<LineItemNote>): Promise<LineItemNote> {
+    try {
+      const response = await apiClient.put(`/api/line-items/${lineItemId}/notes/${noteId}`, noteData);
+      return response.data;
+    } catch (error: any) {
+      throw new LineItemServiceError(
+        `Failed to update line item note: ${error.message}`,
+        error.response?.status,
+        error
+      );
+    }
+  }
+
+  /**
+   * Delete note from a specific line item
+   */
+  async deleteLineItemNote(lineItemId: string, noteId: string): Promise<void> {
+    try {
+      await apiClient.delete(`/api/line-items/${lineItemId}/notes/${noteId}`);
+    } catch (error: any) {
+      throw new LineItemServiceError(
+        `Failed to delete line item note: ${error.message}`,
+        error.response?.status,
+        error
+      );
+    }
+  }
+
+  /**
+   * Reorder notes for a specific line item
+   */
+  async reorderLineItemNotes(lineItemId: string, noteOrders: Array<{ id: string; order_index: number }>): Promise<void> {
+    try {
+      await apiClient.put(`/api/line-items/${lineItemId}/notes/reorder`, { note_orders: noteOrders });
+    } catch (error: any) {
+      throw new LineItemServiceError(
+        `Failed to reorder line item notes: ${error.message}`,
         error.response?.status,
         error
       );

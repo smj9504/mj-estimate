@@ -133,10 +133,12 @@ export const fileService = {
   },
 
   // Delete file
-  async deleteFile(fileId: string, hardDelete: boolean = false): Promise<void> {
-    await api.delete(`/api/files/${fileId}`, {
-      params: { hard_delete: hardDelete }
-    });
+  async deleteFile(fileId: string, hardDelete: boolean = false, context?: string): Promise<void> {
+    const params: any = { hard_delete: hardDelete };
+    if (context) {
+      params.context = context;
+    }
+    await api.delete(`/api/files/${fileId}`, { params });
   },
 
   // Download file

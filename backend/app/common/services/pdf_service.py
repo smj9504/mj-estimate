@@ -8,7 +8,7 @@ from jinja2 import Environment, FileSystemLoader
 from datetime import datetime
 import os
 import sys
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import json
 import re
 import logging
@@ -35,9 +35,42 @@ except Exception as e:
     HTML = None
     CSS = None
 
+try:
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import RectangleObject
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import letter
+    import io
+    PYPDF_AVAILABLE = True
+except Exception as e:
+    print(f"pypdf/reportlab not available: {e}")
+    PYPDF_AVAILABLE = False
+    PdfReader = None
+    PdfWriter = None
+    canvas = None
+
 # Template directory for React backend - correct path to backend/app/templates
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates"
 TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+
+# EWA Template Configuration
+# Coordinates are in points (1/72 inch) from bottom-left corner
+# Letter size: 612 x 792 points
+# Project root is backend/app/common/services -> ../../../../.. -> mj-react-app
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+EWA_TEMPLATE_CONFIG = {
+    "template_path": PROJECT_ROOT / "reference" / "EWA - Enter Construction Inc.pdf",
+    # Address field: top section "property located at ___________"
+    "address_x": 270,
+    "address_y": 635,
+    # Date fields: "on or about _____________, 20____"
+    "date_month_day_x": 278,   # "October 25" part
+    "date_month_day_y": 625,
+    "date_year_x": 375,         # "25" (year) part after "20"
+    "date_year_y": 625,
+    "font_size": 8.5,
+    "font_name": "Helvetica"
+}
 
 
 class PDFService:
@@ -151,39 +184,61 @@ class PDFService:
     def generate_invoice_pdf(self, data: Dict[str, Any], output_path: str, template_variant: str = "modern") -> str:
         """
         Generate invoice PDF from data
-        
+
         Args:
             data: Invoice data dictionary
             output_path: Path to save the PDF
             template_variant: Template variant to use (default: "modern")
-            
+
         Returns:
             Path to the generated PDF
         """
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+
+        logger.info("=== INVOICE PDF GENERATION START ===")
+        logger.info(f"Input data keys: {list(data.keys())}")
+
         # Validate and prepare data
-        context = self._prepare_invoice_context(data)
-        
+        try:
+            logger.info("Preparing invoice context...")
+            context = self._prepare_invoice_context(data)
+            logger.info(f"Context prepared successfully with {len(context)} keys")
+        except Exception as e:
+            logger.error(f"Error preparing invoice context: {e}")
+            logger.error(traceback.format_exc())
+            raise
+
         # Load template - default to modern template
         template_path = f"invoice/general_invoice.html"
+        logger.info(f"Loading template: {template_path}")
         template = self.env.get_template(template_path)
         html_content = template.render(**context)
-        
+        logger.info(f"Template rendered, HTML length: {len(html_content)}")
+
         # general_invoice.html has inline CSS, so no external stylesheets needed
         stylesheets = []
-        
-        # Add header/footer CSS
-        header_footer_css = self._generate_header_footer_css(context)
-        stylesheets.append(CSS(string=header_footer_css))
-        
+
+        # Add header/footer CSS - same as estimate PDF generation
+        logger.info("Attempting to generate header/footer CSS...")
+        try:
+            header_footer_css = self._generate_header_footer_css(context)
+            stylesheets.append(CSS(string=header_footer_css))
+            logger.info("Header/footer CSS added to invoice PDF")
+        except Exception as e:
+            logger.error(f"Error generating header/footer CSS for invoice: {e}")
+            logger.error(traceback.format_exc())
+
         # Generate PDF
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         HTML(string=html_content).write_pdf(
             output_path,
             stylesheets=stylesheets
         )
-        
+
         return str(output_path)
 
     def generate_invoice_html(self, data: Dict[str, Any]) -> str:
@@ -412,9 +467,6 @@ class PDFService:
     
     def _prepare_invoice_context(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare and validate invoice context for template"""
-        print("=== DEBUG: Starting _prepare_invoice_context ===")
-        print(f"Input data: {json.dumps(data, indent=2, default=str)}")
-        
         context = data.copy()
 
         # Set invoice defaults
@@ -468,12 +520,6 @@ class PDFService:
             context['deductible'] = context['insurance']['insurance_deductible']
         else:
             # Check for direct insurance fields (Estimate data format)
-            print(f"DEBUG: Checking direct insurance fields...")
-            print(f"DEBUG: insurance_company = {context.get('insurance_company')}")
-            print(f"DEBUG: claim_number = {context.get('claim_number')}")
-            print(f"DEBUG: policy_number = {context.get('policy_number')}")
-            print(f"DEBUG: deductible = {context.get('deductible')}")
-
             context['insurance'] = {
                 'insurance_company': context.get('insurance_company'),
                 'insurance_policy_number': context.get('policy_number') or context.get('insurance_policy_number'),
@@ -491,13 +537,6 @@ class PDFService:
             context['policy_number'] = context['insurance']['insurance_policy_number']
             context['deductible'] = context['insurance']['insurance_deductible']
 
-            print(f"DEBUG: Final context insurance values:")
-            print(f"  insurance_company_name = {context.get('insurance_company_name')}")
-            print(f"  claim_number = {context.get('claim_number')}")
-            print(f"  policy_number = {context.get('policy_number')}")
-            print(f"  deductible = {context.get('deductible')}")
-
-        
         # Ensure company and client have safe name values
         if not context['company'].get('name'):
             context['company']['name'] = 'Unknown Company'
@@ -652,13 +691,7 @@ class PDFService:
             context['notes'] = self._markdown_to_html(context['notes'])
         if context.get('payment_terms'):
             context['payment_terms'] = self._markdown_to_html(context['payment_terms'])
-        
-        print(f"=== DEBUG: Final context keys: {list(context.keys())} ===")
-        print(f"=== DEBUG: Company: {context.get('company')} ===")
-        print(f"=== DEBUG: Client: {context.get('client')} ===")
-        print(f"=== DEBUG: Total: {context.get('total')} ===")
-        print("=== DEBUG: End _prepare_invoice_context ===")
-        
+
         return context
     
     def _prepare_estimate_context(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -843,9 +876,16 @@ class PDFService:
     
     def _generate_header_footer_css(self, context: Dict[str, Any]) -> str:
         """Generate CSS for PDF headers and footers"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         company = context.get('company', {})
         client = context.get('client', {})
-        
+
+        logger.info(f"=== Header/Footer CSS Generation ===")
+        logger.info(f"Company data: {company}")
+        logger.info(f"Client data: {client}")
+
         # Build company info text
         company_lines = []
         if company.get('name'):
@@ -856,9 +896,9 @@ class PDFService:
             company_lines.append(f"Tel: {company['phone']}")
         if company.get('email'):
             company_lines.append(company['email'])
-        
+
         company_text = '\\A '.join(company_lines)
-        
+
         # Build client info text
         client_lines = []
         if client.get('name'):
@@ -867,21 +907,24 @@ class PDFService:
             client_lines.append(client['address'])
         if client.get('phone'):
             client_lines.append(f"Tel: {client['phone']}")
-        
+
         client_text = '\\A '.join(client_lines)
-        
-        return f"""
+
+        logger.info(f"Company text for header: {company_text}")
+        logger.info(f"Client text for header: {client_text}")
+
+        css = f"""
         @page {{
             size: A4;
             margin: 2.5cm 2cm 2cm 2cm;
-            
+
             @top-left {{
                 content: "{company_text}";
                 font-size: 9pt;
                 white-space: pre;
                 padding-top: 10px;
             }}
-            
+
             @top-right {{
                 content: "{client_text}";
                 font-size: 9pt;
@@ -889,19 +932,19 @@ class PDFService:
                 text-align: right;
                 padding-top: 10px;
             }}
-            
+
             @bottom-center {{
                 content: "Page " counter(page) " of " counter(pages);
                 font-size: 9pt;
             }}
-            
+
             @bottom-right {{
                 content: "Generated on {datetime.now().strftime('%Y-%m-%d')}";
                 font-size: 8pt;
                 color: #666;
             }}
         }}
-        
+
         @page :first {{
             margin: 1.2cm 2cm 2cm 2cm;
             @top-left {{
@@ -912,6 +955,9 @@ class PDFService:
             }}
         }}
         """
+
+        logger.info(f"Generated header/footer CSS length: {len(css)}")
+        return css
     
     def _generate_invoice_number(self) -> str:
         """Generate unique invoice number"""
@@ -1122,6 +1168,449 @@ class PDFService:
         except Exception as e:
             # Return original if parsing fails
             return str(date_str)
+
+
+def generate_images_pdf(image_paths: list[str], output_path: str) -> str:
+    """
+    Generate PDF from images with each image taking up one full page.
+    No margins - images fill the entire page.
+
+    Args:
+        image_paths: List of paths to image files
+        output_path: Path to save the generated PDF
+
+    Returns:
+        Path to the generated PDF
+    """
+    if not WEASYPRINT_AVAILABLE:
+        raise RuntimeError("WeasyPrint is not available")
+
+    from PIL import Image
+
+    # HTML template for each image - fill entire page with no margins
+    html_template = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            @page {{
+                size: letter;
+                margin: 0;
+            }}
+            body {{
+                margin: 0;
+                padding: 0;
+            }}
+            .page {{
+                width: 100%;
+                height: 100vh;
+                page-break-after: always;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+            }}
+            .page:last-child {{
+                page-break-after: auto;
+            }}
+            .page img {{
+                width: 100%;
+                height: 100%;
+                object-fit: contain;
+            }}
+        </style>
+    </head>
+    <body>
+    {pages}
+    </body>
+    </html>
+    """
+
+    # Generate HTML for each image
+    pages_html = []
+    for img_path in image_paths:
+        # Convert image to base64 for embedding
+        import base64
+        with open(img_path, 'rb') as img_file:
+            img_data = base64.b64encode(img_file.read()).decode('utf-8')
+
+        # Determine image mime type
+        img_ext = Path(img_path).suffix.lower()
+        mime_types = {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp'
+        }
+        mime_type = mime_types.get(img_ext, 'image/jpeg')
+
+        # Create page HTML
+        page_html = f'''
+        <div class="page">
+            <img src="data:{mime_type};base64,{img_data}" />
+        </div>
+        '''
+        pages_html.append(page_html)
+
+    # Combine all pages
+    html_content = html_template.format(pages='\n'.join(pages_html))
+
+    # Generate PDF
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    HTML(string=html_content).write_pdf(output_path)
+
+    return str(output_path)
+
+
+def generate_water_mitigation_report_pdf(
+    job_data: Dict[str, Any],
+    config: Dict[str, Any],
+    photos: List[Dict[str, Any]],
+    output_path: str,
+    company_data: Optional[Dict[str, Any]] = None
+) -> str:
+    """
+    Generate professional Water Mitigation photo report PDF
+
+    Args:
+        job_data: Water mitigation job data
+        config: Report configuration (cover page, sections)
+        photos: List of all photos for the job
+        output_path: Path to save the PDF
+        company_data: Company information (name, logo, etc.)
+
+    Returns:
+        Path to the generated PDF
+    """
+    if not WEASYPRINT_AVAILABLE:
+        raise RuntimeError("WeasyPrint is not available")
+
+    from datetime import datetime
+    import logging
+    import base64
+
+    logger = logging.getLogger(__name__)
+
+    # Setup template environment
+    template_dir = TEMPLATE_DIR / "water-mitigation"
+    env = Environment(loader=FileSystemLoader(str(template_dir)))
+
+    # Register filters
+    def format_date_filter(value, format="%B %d, %Y"):
+        """Format date string"""
+        if not value:
+            return ""
+        if isinstance(value, str):
+            try:
+                dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                return dt.strftime(format)
+            except:
+                return value
+        elif isinstance(value, datetime):
+            return value.strftime(format)
+        return str(value)
+
+    env.filters['format_date'] = format_date_filter
+
+    # Prepare context
+    context = {
+        # Cover page
+        'cover_title': config.get('cover_title', 'Water Mitigation Report'),
+        'cover_description': config.get('cover_description', ''),
+        'property_address': job_data.get('property_address', ''),
+        'client_name': job_data.get('homeowner_name', ''),
+        'date_of_loss': job_data.get('date_of_loss'),
+        'report_date': datetime.now().isoformat(),
+
+        # Company info
+        'company_name': company_data.get('name', '') if company_data else '',
+        'company_logo': None,  # Will be set below if available
+
+        # Sections
+        'sections': []
+    }
+
+    # Process company logo
+    if company_data and company_data.get('logo'):
+        logo_path = company_data['logo']
+        if Path(logo_path).exists():
+            try:
+                with open(logo_path, 'rb') as f:
+                    logo_data = base64.b64encode(f.read()).decode('utf-8')
+                    logo_ext = Path(logo_path).suffix.lower()
+                    mime_types = {
+                        '.jpg': 'image/jpeg',
+                        '.jpeg': 'image/jpeg',
+                        '.png': 'image/png',
+                        '.gif': 'image/gif'
+                    }
+                    mime_type = mime_types.get(logo_ext, 'image/png')
+                    context['company_logo'] = f"data:{mime_type};base64,{logo_data}"
+            except Exception as e:
+                logger.warning(f"Failed to load company logo: {e}")
+
+    # Create photo lookup dictionary
+    photo_dict = {photo['id']: photo for photo in photos}
+
+    # Define photos per page for each layout
+    photos_per_page = {
+        'single': 1,
+        'two': 2,
+        'three': 3,
+        'four': 4,
+        'six': 6
+    }
+
+    # Process sections
+    for section_data in config.get('sections', []):
+        section_title = section_data.get('title', 'Section')
+        section_summary = section_data.get('summary', '')
+        layout = section_data.get('layout', 'four')
+        max_photos = photos_per_page.get(layout, 4)
+
+        # Collect all photos for this section
+        all_photos = []
+        for photo_meta in section_data.get('photos', []):
+            photo_id = photo_meta.get('photo_id')
+            if photo_id not in photo_dict:
+                continue
+
+            photo = photo_dict[photo_id]
+            photo_file_path = Path(photo['file_path'])
+
+            if not photo_file_path.exists():
+                logger.warning(f"Photo file not found: {photo_file_path}")
+                continue
+
+            # Embed photo as base64
+            try:
+                with open(photo_file_path, 'rb') as f:
+                    img_data = base64.b64encode(f.read()).decode('utf-8')
+
+                mime_type = photo.get('mime_type', 'image/jpeg')
+                embedded_path = f"data:{mime_type};base64,{img_data}"
+
+                all_photos.append({
+                    'file_path': embedded_path,
+                    'caption': photo_meta.get('caption', ''),
+                    'title': photo.get('title', ''),
+                    'description': photo.get('description', ''),
+                    'captured_date': photo.get('captured_date'),
+                    'show_date': photo_meta.get('show_date', True),
+                    'show_description': photo_meta.get('show_description', True)
+                })
+            except Exception as e:
+                logger.error(f"Failed to process photo {photo_id}: {e}")
+
+        # Split photos into multiple pages if needed
+        if all_photos:
+            for page_num, i in enumerate(range(0, len(all_photos), max_photos), start=1):
+                page_photos = all_photos[i:i + max_photos]
+                page_title = section_title
+                if len(all_photos) > max_photos:
+                    page_title = f"{section_title} (Page {page_num})"
+
+                context['sections'].append({
+                    'title': page_title,
+                    'summary': section_summary if page_num == 1 else '',  # Only show summary on first page
+                    'layout': layout,
+                    'photos': page_photos
+                })
+
+    logger.info(f"Generating report with {len(context['sections'])} sections")
+
+    # Load template
+    template = env.get_template('photo_report.html')
+    html_content = template.render(**context)
+
+    # Load CSS
+    css_path = template_dir / 'photo_report.css'
+    stylesheets = []
+    if css_path.exists():
+        with open(css_path, 'r', encoding='utf-8') as f:
+            stylesheets.append(CSS(string=f.read()))
+
+    # Generate PDF
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    HTML(string=html_content).write_pdf(
+        output_path,
+        stylesheets=stylesheets
+    )
+
+    logger.info(f"Report PDF generated: {output_path}")
+    return str(output_path)
+
+
+def generate_ewa_pdf(
+    job_address: str,
+    date_of_loss: str,
+    photo_path: str,
+    output_path: str
+) -> str:
+    """
+    Generate EWA (Emergency Work Agreement & Authorization) PDF
+
+    Creates a PDF with:
+    1. First page: EWA template with overlaid job address and date of loss
+    2. Second page: Selected photo (full page)
+
+    Args:
+        job_address: Property address to overlay on template
+        date_of_loss: Date of loss in ISO format (will be formatted as "January 23, 2025")
+        photo_path: Path to photo file to append as second page
+        output_path: Path to save the generated PDF
+
+    Returns:
+        Path to the generated PDF
+
+    Raises:
+        RuntimeError: If pypdf or reportlab is not available
+        FileNotFoundError: If template or photo file not found
+    """
+    if not PYPDF_AVAILABLE:
+        raise RuntimeError("pypdf and reportlab are required for EWA PDF generation")
+
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Validate template exists
+    template_path = EWA_TEMPLATE_CONFIG["template_path"]
+    if not template_path.exists():
+        raise FileNotFoundError(f"EWA template not found: {template_path}")
+
+    # Validate photo exists
+    photo_path = Path(photo_path)
+    if not photo_path.exists():
+        raise FileNotFoundError(f"Photo not found: {photo_path}")
+
+    logger.info(f"Generating EWA PDF: {output_path}")
+    logger.info(f"  Address: {job_address}")
+    logger.info(f"  Date of Loss: {date_of_loss}")
+    logger.info(f"  Photo: {photo_path}")
+
+    # Format date_of_loss - split into "Month Day" and "YY" parts
+    try:
+        if isinstance(date_of_loss, str):
+            dt = datetime.fromisoformat(date_of_loss.replace('Z', '+00:00'))
+        else:
+            dt = date_of_loss
+        # "October 25" format for first blank
+        date_month_day = dt.strftime("%B %d")
+        # "25" format for year (last 2 digits) for second blank after "20"
+        date_year = dt.strftime("%y")
+    except Exception as e:
+        logger.warning(f"Failed to format date: {e}, using as-is")
+        date_month_day = str(date_of_loss)
+        date_year = ""
+
+    # Step 1: Create overlay PDF with text fields
+    overlay_buffer = io.BytesIO()
+    c = canvas.Canvas(overlay_buffer, pagesize=letter)
+
+    # Set font and text color
+    c.setFont(EWA_TEMPLATE_CONFIG["font_name"], EWA_TEMPLATE_CONFIG["font_size"])
+    c.setFillColorRGB(0, 0, 0)  # Black color
+    c.setStrokeColorRGB(0, 0, 0)
+
+    # Log what we're drawing
+    logger.info(f"Drawing address at ({EWA_TEMPLATE_CONFIG['address_x']}, {EWA_TEMPLATE_CONFIG['address_y']}): '{job_address}'")
+    logger.info(f"Drawing date (month/day) at ({EWA_TEMPLATE_CONFIG['date_month_day_x']}, {EWA_TEMPLATE_CONFIG['date_month_day_y']}): '{date_month_day}'")
+    logger.info(f"Drawing date (year) at ({EWA_TEMPLATE_CONFIG['date_year_x']}, {EWA_TEMPLATE_CONFIG['date_year_y']}): '{date_year}'")
+
+    # Draw address
+    c.drawString(
+        EWA_TEMPLATE_CONFIG["address_x"],
+        EWA_TEMPLATE_CONFIG["address_y"],
+        job_address
+    )
+
+    # Draw date - month and day part (e.g., "October 25")
+    c.drawString(
+        EWA_TEMPLATE_CONFIG["date_month_day_x"],
+        EWA_TEMPLATE_CONFIG["date_month_day_y"],
+        date_month_day
+    )
+
+    # Draw date - year part (e.g., "25" for 2025)
+    c.drawString(
+        EWA_TEMPLATE_CONFIG["date_year_x"],
+        EWA_TEMPLATE_CONFIG["date_year_y"],
+        date_year
+    )
+
+    c.save()
+    overlay_buffer.seek(0)
+
+    # Step 2: Read template PDF and overlay
+    template_reader = PdfReader(str(template_path))
+    overlay_reader = PdfReader(overlay_buffer)
+
+    # Create writer and add first page with overlay
+    writer = PdfWriter()
+
+    # Get overlay page first
+    overlay_page = overlay_reader.pages[0]
+
+    # Get template page and merge it UNDER the overlay
+    # This ensures text is on top of the template
+    template_page = template_reader.pages[0]
+    overlay_page.merge_page(template_page)
+
+    writer.add_page(overlay_page)
+
+    # Step 3: Convert photo to PDF page and append
+    # Create a temporary PDF with the photo
+    photo_pdf_buffer = io.BytesIO()
+    photo_canvas = canvas.Canvas(photo_pdf_buffer, pagesize=letter)
+
+    # Get image dimensions
+    from PIL import Image
+    img = Image.open(photo_path)
+    img_width, img_height = img.size
+
+    # Calculate scaling to fit letter size (612 x 792 points) while maintaining aspect ratio
+    page_width, page_height = letter
+
+    # Calculate scale factors
+    width_scale = page_width / img_width
+    height_scale = page_height / img_height
+    scale = min(width_scale, height_scale)
+
+    # Calculate centered position
+    scaled_width = img_width * scale
+    scaled_height = img_height * scale
+    x = (page_width - scaled_width) / 2
+    y = (page_height - scaled_height) / 2
+
+    # Draw image centered on page
+    photo_canvas.drawImage(
+        str(photo_path),
+        x, y,
+        width=scaled_width,
+        height=scaled_height,
+        preserveAspectRatio=True
+    )
+    photo_canvas.save()
+    photo_pdf_buffer.seek(0)
+
+    # Add photo page to writer
+    photo_reader = PdfReader(photo_pdf_buffer)
+    writer.add_page(photo_reader.pages[0])
+
+    # Step 4: Write final PDF
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, 'wb') as output_file:
+        writer.write(output_file)
+
+    logger.info(f"EWA PDF generated successfully: {output_path}")
+    return str(output_path)
 
 
 # Singleton instance

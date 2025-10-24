@@ -106,14 +106,22 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
   const beforeUpload = (file: File, fileList: File[]) => {
     // Ant Design calls beforeUpload for each file in the selection
     // We need to process the batch only once to avoid duplicates
+
+    // If already processing, prevent duplicate uploads
+    if (processingBatchRef.current) {
+      return false;
+    }
+
     if (allowBulkUpload && fileList.length > 1) {
-      // Only process the batch on the first file
-      if (!processingBatchRef.current) {
+      // Only process on the last file to ensure we have the complete list
+      const isLastFile = fileList.indexOf(file) === fileList.length - 1;
+      if (isLastFile) {
         processingBatchRef.current = true;
         handleUpload(fileList);
       }
     } else {
       // Single file upload
+      processingBatchRef.current = true;
       handleUpload([file]);
     }
     return false; // Prevent default upload

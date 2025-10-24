@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Card, Typography, Space, Button, Empty, Spin, Alert, Modal, message } from 'antd';
-import { AppstoreOutlined, UnorderedListOutlined, BorderOutlined, UploadOutlined, CheckSquareOutlined, DeleteOutlined } from '@ant-design/icons';
-import { FileGalleryProps, ViewMode, FileItem } from './types';
+import { Card, Typography, Space, Button, Empty, Spin, Alert, Modal, message, Select, Checkbox, DatePicker } from 'antd';
+import { AppstoreOutlined, UnorderedListOutlined, BorderOutlined, UploadOutlined, CheckSquareOutlined, DeleteOutlined, TagOutlined, CalendarOutlined } from '@ant-design/icons';
+import dayjs, { Dayjs } from 'dayjs';
+import { FileGalleryProps, ViewMode, FileItem, DateGroup } from './types';
 import { useFileGallery } from './hooks/useFileGallery';
 import FileUploadZone from './FileUploadZone';
 import ViewModeSelector from './ViewModeSelector';
@@ -30,6 +31,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   defaultViewMode = 'grid',
   allowViewModeChange = true,
   showCategories = true,
+  enableDateGrouping = false,
   allowUpload = false,
   allowBulkUpload = true,
   uploadConfig,
@@ -39,6 +41,8 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   gridColumns = { xs: 2, sm: 3, md: 4, lg: 5, xl: 6 },
   showThumbnails = true,
   enableLazyLoading = true,
+  enableInfiniteScroll = false,
+  pageSize = 50,
   showDocumentPreview = true,
   enableDocumentSearch = false,
   showDocumentDetails = true,
@@ -52,10 +56,13 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   onFileClick
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>(defaultViewMode);
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string | string[]>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
-  const [internalSelectedFiles, setInternalSelectedFiles] = useState<string[]>([]);
+  const [dateChangeModalVisible, setDateChangeModalVisible] = useState(false);
+  const [newDate, setNewDate] = useState<Dayjs | null>(null);
+  // Use Set for O(1) lookup performance
+  const [internalSelectedFiles, setInternalSelectedFiles] = useState<Set<string>>(new Set());
 
   const {
     files,
@@ -63,28 +70,86 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     error,
     uploadFiles,
     deleteFile,
-    updateFileCategory
+    updateFileCategory,
+    refetch,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage
   } = useFileGallery({
     context,
     contextId,
     fileCategory,
     onUpload,
-    onDelete
+    onDelete,
+    enableInfiniteScroll,
+    pageSize
   });
+
+  // Intersection Observer for infinite scroll
+  const observerRef = React.useRef<IntersectionObserver | null>(null);
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  const fetchNextPageRef = React.useRef(fetchNextPage);
+
+  // Keep fetchNextPage ref up to date
+  React.useEffect(() => {
+    fetchNextPageRef.current = fetchNextPage;
+  }, [fetchNextPage]);
+
+  React.useEffect(() => {
+    if (!enableInfiniteScroll || !hasNextPage || isFetchingNextPage) return;
+
+    // Cleanup previous observer
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
+    // Create new observer
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (first.isIntersecting && fetchNextPageRef.current) {
+          fetchNextPageRef.current();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    // Observe sentinel element
+    const currentSentinel = sentinelRef.current;
+    if (currentSentinel) {
+      observerRef.current.observe(currentSentinel);
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [enableInfiniteScroll, hasNextPage, isFetchingNextPage]);
+
+  // Convert selectedFiles prop to Set for O(1) lookup (only when controlled)
+  const selectedFilesSet = useMemo(
+    () => new Set(selectedFiles),
+    [selectedFiles]
+  );
 
   // Use controlled or internal selection state
   // If onFileSelect is provided, use controlled mode (external state via selectedFiles prop)
   // Otherwise, use uncontrolled mode (internal state)
-  const currentSelectedFiles = onFileSelect ? selectedFiles : internalSelectedFiles;
+  const currentSelectedSet = onFileSelect ? selectedFilesSet : internalSelectedFiles;
+  const currentSelectedFiles = Array.from(currentSelectedSet);
 
-  const handleFileSelectionChange = (fileIds: string[]) => {
-    console.log('handleFileSelectionChange called with:', fileIds);
+  const handleFileSelectionChange = (fileIds: string[] | Set<string>) => {
+    const idsSet = fileIds instanceof Set ? fileIds : new Set(fileIds);
+
     if (onFileSelect) {
-      console.log('Calling onFileSelect prop');
-      onFileSelect(fileIds);
+      // External control: convert to array for compatibility
+      onFileSelect(Array.from(idsSet));
     } else {
-      console.log('Using internal state, setting:', fileIds);
-      setInternalSelectedFiles(fileIds);
+      // Internal control: use Set directly for O(1) operations
+      // IMPORTANT: Don't use startTransition for checkbox selection - it causes delays
+      // Checkbox state changes should be immediate for good UX
+      setInternalSelectedFiles(idsSet);
     }
   };
 
@@ -92,9 +157,25 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   const filteredFiles = useMemo(() => {
     let filtered = files;
 
-    // Category filter
+    // Category filter - handle both single and multi-select
     if (selectedCategory !== 'all') {
-      filtered = filtered.filter(file => file.category === selectedCategory);
+      const categoriesArray = Array.isArray(selectedCategory)
+        ? selectedCategory
+        : [selectedCategory];
+
+      if (categoriesArray.length > 0 && !categoriesArray.includes('all')) {
+        // Handle 'uncategorized' filter
+        if (categoriesArray.includes('uncategorized') || categoriesArray.includes('')) {
+          filtered = filtered.filter(file =>
+            !file.category ||
+            file.category === '' ||
+            categoriesArray.includes(file.category)
+          );
+        } else {
+          // Normal category filtering
+          filtered = filtered.filter(file => categoriesArray.includes(file.category || ''));
+        }
+      }
     }
 
     // Search filter
@@ -110,31 +191,102 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     return filtered;
   }, [files, selectedCategory, searchQuery]);
 
-  // Select All / Deselect All handler
-  const handleSelectAll = () => {
-    const filteredFileIds = filteredFiles.map(f => f.id);
-    const allFilteredSelected = filteredFileIds.every(id => currentSelectedFiles.includes(id));
+  // Group files by date
+  const dateGroups = useMemo<DateGroup[]>(() => {
+    if (!enableDateGrouping) {
+      return [];
+    }
 
-    console.log('Select All clicked:', {
-      filteredFileIds,
-      currentSelectedFiles,
-      allFilteredSelected
+    // Create a map to group files by date
+    const groupMap = new Map<string, FileItem[]>();
+
+    filteredFiles.forEach(file => {
+      // Use uploadDate or createdAt, whichever is available
+      const dateStr = file.uploadDate || file.createdAt;
+      if (!dateStr) return;
+
+      // Extract just the date part (YYYY-MM-DD)
+      const date = dateStr.split('T')[0];
+
+      if (!groupMap.has(date)) {
+        groupMap.set(date, []);
+      }
+      groupMap.get(date)!.push(file);
     });
 
-    if (allFilteredSelected && filteredFileIds.length > 0) {
-      // Deselect all filtered files (keep selections from other filters)
-      const remainingSelections = currentSelectedFiles.filter(id => !filteredFileIds.includes(id));
-      console.log('Deselecting all, new selection:', remainingSelections);
-      handleFileSelectionChange(remainingSelections);
+    // Convert map to array and sort by date (newest first)
+    const groups: DateGroup[] = Array.from(groupMap.entries())
+      .map(([date, files]) => {
+        // Format date as "Monday, October 20th, 2025"
+        const dateObj = new Date(date + 'T00:00:00');
+        const displayDate = dateObj.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+
+        return {
+          date,
+          displayDate,
+          files,
+          count: files.length
+        };
+      })
+      .sort((a, b) => b.date.localeCompare(a.date)); // Sort newest first
+
+    return groups;
+  }, [filteredFiles, enableDateGrouping]);
+
+  // Handle date group selection - optimized with Set operations
+  const handleDateGroupSelect = (dateGroup: DateGroup, checked: boolean) => {
+    // Use Set for O(1) add/delete operations
+    const newSelection = new Set(currentSelectedSet);
+    const groupFileIds = dateGroup.files.map(f => f.id);
+
+    if (checked) {
+      // Add all files from this group (O(m) where m = group size)
+      groupFileIds.forEach(id => newSelection.add(id));
     } else {
-      // Select all filtered files (add to existing selections)
-      const newSelection = Array.from(new Set([...currentSelectedFiles, ...filteredFileIds]));
-      console.log('Selecting all, new selection:', newSelection);
-      handleFileSelectionChange(newSelection);
+      // Remove all files from this group (O(m) where m = group size)
+      groupFileIds.forEach(id => newSelection.delete(id));
     }
+
+    handleFileSelectionChange(newSelection);
   };
 
-  // Bulk delete handler
+  // Check if all files in a date group are selected
+  const isDateGroupSelected = (dateGroup: DateGroup): boolean => {
+    const groupFileIds = dateGroup.files.map(f => f.id);
+    return groupFileIds.every(id => currentSelectedSet.has(id));  // O(1) lookup
+  };
+
+  // Check if some (but not all) files in a date group are selected
+  const isDateGroupIndeterminate = (dateGroup: DateGroup): boolean => {
+    const groupFileIds = dateGroup.files.map(f => f.id);
+    const selectedCount = groupFileIds.filter(id => currentSelectedSet.has(id)).length;  // O(1) lookup
+    return selectedCount > 0 && selectedCount < groupFileIds.length;
+  };
+
+  // Select All / Deselect All handler - optimized with Set operations
+  const handleSelectAll = () => {
+    const filteredFileIds = filteredFiles.map(f => f.id);
+    const allFilteredSelected = filteredFileIds.every(id => currentSelectedSet.has(id));  // O(1) lookup
+
+    const newSelection = new Set(currentSelectedSet);
+
+    if (allFilteredSelected && filteredFileIds.length > 0) {
+      // Deselect all filtered files (O(m) where m = filtered count)
+      filteredFileIds.forEach(id => newSelection.delete(id));
+    } else {
+      // Select all filtered files (O(m) where m = filtered count)
+      filteredFileIds.forEach(id => newSelection.add(id));
+    }
+
+    handleFileSelectionChange(newSelection);
+  };
+
+  // Bulk delete handler - optimized with batch processing
   const handleBulkDelete = async () => {
     if (currentSelectedFiles.length === 0) {
       message.warning('No files selected');
@@ -148,17 +300,121 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       okType: 'danger',
       cancelText: 'Cancel',
       onOk: async () => {
+        const totalFiles = currentSelectedFiles.length;
+        const BATCH_SIZE = 5; // Process 5 files at a time
+        let deletedCount = 0;
+
+        // Create batches for parallel processing
+        const batches: string[][] = [];
+        for (let i = 0; i < totalFiles; i += BATCH_SIZE) {
+          batches.push(currentSelectedFiles.slice(i, i + BATCH_SIZE));
+        }
+
+        const hideProgress = message.loading(`Deleting files 0/${totalFiles}...`, 0);
+
         try {
-          for (const fileId of currentSelectedFiles) {
-            await deleteFile(fileId);
+          for (const batch of batches) {
+            await Promise.all(batch.map(fileId => deleteFile(fileId)));
+            deletedCount += batch.length;
+            hideProgress();
+            message.loading(`Deleting files ${deletedCount}/${totalFiles}...`, 0);
           }
-          handleFileSelectionChange([]);
-          message.success(`${currentSelectedFiles.length} file(s) deleted successfully`);
+
+          hideProgress();
+          handleFileSelectionChange(new Set());
+          message.success(`${totalFiles} file(s) deleted successfully`);
         } catch (error) {
-          message.error('Failed to delete some files');
+          hideProgress();
+          message.error(`Failed to delete some files (${deletedCount}/${totalFiles} completed)`);
         }
       }
     });
+  };
+
+  // Bulk category update handler
+  const handleBulkCategoryUpdate = (category: string) => {
+    if (currentSelectedFiles.length === 0) {
+      message.warning('No files selected');
+      return;
+    }
+
+    const displayCategory = category || 'Uncategorized';
+
+    Modal.confirm({
+      title: 'Update Category',
+      content: `Set category "${displayCategory}" for ${currentSelectedFiles.length} file(s)?`,
+      okText: 'Update',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          // Use bulk update if available, otherwise update individually
+          if (context === 'water-mitigation') {
+            const { default: waterMitigationService } = await import('../../../services/waterMitigationService');
+            await waterMitigationService.photos.bulkUpdateCategory(currentSelectedFiles, category);
+          } else {
+            for (const fileId of currentSelectedFiles) {
+              await updateFileCategory(fileId, category);
+            }
+          }
+
+          // Force refetch to update UI
+          await refetch();
+
+          handleFileSelectionChange(new Set());
+          message.success(`Category updated for ${currentSelectedFiles.length} file(s)`);
+        } catch (error) {
+          console.error('Failed to update categories:', error);
+          message.error('Failed to update categories');
+        }
+      }
+    });
+  };
+
+  // Bulk date update handler
+  const handleBulkDateUpdate = async () => {
+    if (!newDate) {
+      message.warning('Please select a date');
+      return;
+    }
+
+    try {
+      const { default: waterMitigationService } = await import('../../../services/waterMitigationService');
+      await waterMitigationService.photos.bulkUpdateDate(
+        currentSelectedFiles,
+        newDate.format('YYYY-MM-DD')
+      );
+
+      // Force refetch to update UI
+      await refetch();
+
+      handleFileSelectionChange(new Set());
+      setDateChangeModalVisible(false);
+      setNewDate(null);
+      message.success(`Date updated for ${currentSelectedFiles.length} photo(s)`);
+    } catch (error) {
+      console.error('Failed to update dates:', error);
+      message.error('Failed to update dates');
+    }
+  };
+
+  // Get example date change preview
+  const getDateChangePreview = () => {
+    if (!newDate || currentSelectedFiles.length === 0) return null;
+
+    // Find first selected file to use as example
+    const exampleFile = files.find(f => currentSelectedFiles.includes(f.id));
+    if (!exampleFile || !exampleFile.uploadDate) return null;
+
+    const currentDateTime = dayjs(exampleFile.uploadDate);
+    const newDateTime = newDate
+      .hour(currentDateTime.hour())
+      .minute(currentDateTime.minute())
+      .second(currentDateTime.second());
+
+    return {
+      before: currentDateTime.format('YYYY-MM-DD HH:mm:ss'),
+      after: newDateTime.format('YYYY-MM-DD HH:mm:ss')
+    };
   };
 
   const renderHeader = () => (
@@ -188,6 +444,30 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                   <span style={{ color: '#1890ff', fontWeight: 500 }}>
                     {currentSelectedFiles.length} selected
                   </span>
+                  <Select
+                    placeholder="Set Category"
+                    style={{ width: 180 }}
+                    onChange={handleBulkCategoryUpdate}
+                    value={undefined}
+                    suffixIcon={<TagOutlined />}
+                  >
+                    <Select.Option key="uncategorized" value="">
+                      Clear Category
+                    </Select.Option>
+                    {categories.filter(cat => cat !== 'uncategorized').map(cat => (
+                      <Select.Option key={cat} value={cat}>
+                        {cat}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                  {context === 'water-mitigation' && (
+                    <Button
+                      icon={<CalendarOutlined />}
+                      onClick={() => setDateChangeModalVisible(true)}
+                    >
+                      Change Date ({currentSelectedFiles.length})
+                    </Button>
+                  )}
                   <Button
                     danger
                     icon={<DeleteOutlined />}
@@ -222,11 +502,12 @@ const FileGallery: React.FC<FileGalleryProps> = ({
 
       {showCategories && (
         <CategoryManager
-          categories={['all', ...categories]}
+          categories={['all', 'uncategorized', ...categories.filter(c => c !== 'uncategorized')]}
           selectedCategory={selectedCategory}
           onCategorySelect={setSelectedCategory}
           allowCreate={allowCategoryCreate}
           onCategoryCreate={onCategoryCreate}
+          multiSelect={context === 'water-mitigation'}  // Enable multi-select for water mitigation
         />
       )}
     </div>
@@ -237,6 +518,81 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     setTimeout(() => {
       setUploadModalVisible(false);
     }, 1000);
+  };
+
+  const renderDateGroupedView = () => {
+    if (dateGroups.length === 0) {
+      return (
+        <Empty
+          description={allowUpload ? "No files found. Upload files to get started." : "No files found"}
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+        />
+      );
+    }
+
+    const commonProps = {
+      selectedFiles: currentSelectedFiles,  // Still pass array for compatibility
+      selectedFilesSet: currentSelectedSet,  // Also pass Set for O(1) lookup
+      allowMultiSelect,
+      onFileSelect: handleFileSelectionChange,
+      onFileClick,
+      onDelete: deleteFile,
+      onCategoryChange: updateFileCategory,
+      fileCategory,
+      showImagePreview,
+      enableImageZoom,
+      showImageInfo,
+      showDocumentPreview,
+      showDocumentDetails,
+      showPreviewPanel,
+      gridColumns,
+      enableLazyLoading
+    };
+
+    return (
+      <>
+        <div className="date-grouped-files">
+          {dateGroups.map((group) => (
+            <div key={group.date} className="date-group" style={{ marginBottom: 32 }}>
+              <div className="date-group-header" style={{
+                display: 'flex',
+                alignItems: 'center',
+                marginBottom: 16,
+                paddingBottom: 8,
+                borderBottom: '2px solid #f0f0f0'
+              }}>
+                {allowMultiSelect && (
+                  <Checkbox
+                    checked={isDateGroupSelected(group)}
+                    indeterminate={isDateGroupIndeterminate(group)}
+                    onChange={(e) => handleDateGroupSelect(group, e.target.checked)}
+                    style={{ marginRight: 12 }}
+                  />
+                )}
+                <Typography.Title level={5} style={{ margin: 0, flex: 1 }}>
+                  {group.displayDate}
+                </Typography.Title>
+                <Typography.Text type="secondary" style={{ fontSize: 14 }}>
+                  {group.count} {group.count === 1 ? 'photo' : 'photos'}
+                </Typography.Text>
+              </div>
+              <FileGrid {...commonProps} files={group.files} />
+            </div>
+          ))}
+        </div>
+        {/* Infinite scroll sentinel for date-grouped view */}
+        {enableInfiniteScroll && (
+          <div ref={sentinelRef} style={{ height: '20px', margin: '20px 0' }}>
+            {isFetchingNextPage && (
+              <div style={{ textAlign: 'center' }}>
+                <Spin size="small" />
+                <p style={{ marginTop: 8, color: '#999' }}>Loading more photos...</p>
+              </div>
+            )}
+          </div>
+        )}
+      </>
+    );
   };
 
   const renderFileView = () => {
@@ -268,9 +624,15 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       );
     }
 
+    // If date grouping is enabled, use the date grouped view
+    if (enableDateGrouping) {
+      return renderDateGroupedView();
+    }
+
     const commonProps = {
       files: filteredFiles,
-      selectedFiles: currentSelectedFiles,
+      selectedFiles: currentSelectedFiles,  // Still pass array for compatibility
+      selectedFilesSet: currentSelectedSet,  // Also pass Set for O(1) lookup
       allowMultiSelect,
       onFileSelect: handleFileSelectionChange,
       onFileClick,
@@ -285,14 +647,34 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       showPreviewPanel
     };
 
+    let content;
     switch (viewMode) {
       case 'list':
-        return <FileList {...commonProps} listLayout={listLayout} />;
+        content = <FileList {...commonProps} listLayout={listLayout} />;
+        break;
       case 'card':
-        return <FileCard {...commonProps} />;
+        content = <FileCard {...commonProps} />;
+        break;
       default:
-        return <FileGrid {...commonProps} gridColumns={gridColumns} enableLazyLoading={enableLazyLoading} />;
+        content = <FileGrid {...commonProps} gridColumns={gridColumns} enableLazyLoading={enableLazyLoading} />;
+        break;
     }
+
+    return (
+      <>
+        {content}
+        {/* Infinite scroll sentinel */}
+        {enableInfiniteScroll && (
+          <div ref={sentinelRef} style={{ height: '20px', margin: '20px 0' }}>
+            {isFetchingNextPage && (
+              <div style={{ textAlign: 'center' }}>
+                <Spin size="small" />
+              </div>
+            )}
+          </div>
+        )}
+      </>
+    );
   };
 
   return (
@@ -317,7 +699,13 @@ const FileGallery: React.FC<FileGalleryProps> = ({
           maxFileSize={maxFileSize}
           maxFiles={maxFiles}
           fileCategory={fileCategory}
-          selectedCategory={selectedCategory === 'all' ? undefined : selectedCategory}
+          selectedCategory={
+            selectedCategory === 'all'
+              ? undefined
+              : Array.isArray(selectedCategory)
+              ? selectedCategory[0]
+              : selectedCategory
+          }
           onUpload={async (files, category) => {
             await uploadFiles(files, category);
             handleUploadComplete();
@@ -325,6 +713,62 @@ const FileGallery: React.FC<FileGalleryProps> = ({
           uploadConfig={uploadConfig}
           allowBulkUpload={allowBulkUpload}
         />
+      </Modal>
+
+      {/* Date Change Modal */}
+      <Modal
+        title="Change Photo Date"
+        open={dateChangeModalVisible}
+        onCancel={() => {
+          setDateChangeModalVisible(false);
+          setNewDate(null);
+        }}
+        onOk={handleBulkDateUpdate}
+        okText="Update Date"
+        cancelText="Cancel"
+        width={500}
+      >
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <Alert
+            message="Time will be preserved, only date will change"
+            type="info"
+            showIcon
+          />
+
+          <div>
+            <Typography.Text strong>Select New Date:</Typography.Text>
+            <DatePicker
+              value={newDate}
+              onChange={setNewDate}
+              format="YYYY-MM-DD"
+              style={{ width: '100%', marginTop: 8 }}
+              placeholder="Select date"
+            />
+          </div>
+
+          <div>
+            <Typography.Text type="secondary">
+              Changing date for {currentSelectedFiles.length} photo{currentSelectedFiles.length !== 1 ? 's' : ''}
+            </Typography.Text>
+          </div>
+
+          {getDateChangePreview() && (
+            <div style={{
+              padding: 12,
+              background: '#f5f5f5',
+              borderRadius: 4,
+              fontSize: 13
+            }}>
+              <Typography.Text strong>Preview Example:</Typography.Text>
+              <div style={{ marginTop: 8 }}>
+                <Typography.Text>Before: {getDateChangePreview()!.before}</Typography.Text>
+              </div>
+              <div>
+                <Typography.Text>After: {getDateChangePreview()!.after}</Typography.Text>
+              </div>
+            </div>
+          )}
+        </Space>
       </Modal>
     </div>
   );

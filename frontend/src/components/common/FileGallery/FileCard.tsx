@@ -67,13 +67,14 @@ const FileCard: React.FC<FileCardProps> = ({
   };
 
   const handlePreview = (file: FileItem) => {
-    if (file.contentType.startsWith('image/') && showImagePreview) {
-      setPreviewImage(fileService.getPreviewUrl(file.id));
+    const contentType = file.contentType || file.mimeType || '';
+    if (contentType.startsWith('image/') && showImagePreview) {
+      setPreviewImage(file.url);
       setPreviewTitle(file.originalName);
       setPreviewVisible(true);
-    } else if (file.contentType === 'application/pdf') {
+    } else if (contentType === 'application/pdf') {
       // Open PDF in new tab
-      window.open(fileService.getPreviewUrl(file.id), '_blank');
+      window.open(file.url, '_blank');
     } else if (onFileClick) {
       onFileClick(file);
     }
@@ -97,7 +98,7 @@ const FileCard: React.FC<FileCardProps> = ({
   };
 
   const getFileIcon = (file: FileItem) => {
-    const { contentType } = file;
+    const contentType = file.contentType || file.mimeType || '';
 
     if (contentType.startsWith('image/')) {
       return <PictureOutlined style={{ fontSize: 32, color: '#52c41a' }} />;
@@ -144,7 +145,8 @@ const FileCard: React.FC<FileCardProps> = ({
 
   const renderFileCard = (file: FileItem) => {
     const isSelected = selectedFiles.includes(file.id);
-    const isImage = file.contentType.startsWith('image/');
+    const contentType = file.contentType || file.mimeType || '';
+    const isImage = contentType.startsWith('image/');
 
     const actions = [
       <Tooltip title="Preview">
@@ -166,7 +168,7 @@ const FileCard: React.FC<FileCardProps> = ({
     const cover = isImage ? (
       <div style={{ position: 'relative', height: 200, overflow: 'hidden' }}>
         <img
-          src={fileService.getPreviewUrl(file.id)}
+          src={file.url}
           alt={file.originalName}
           style={{
             width: '100%',

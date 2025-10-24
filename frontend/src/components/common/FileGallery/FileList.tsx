@@ -20,8 +20,9 @@ const { Text } = Typography;
 interface FileListProps {
   files: FileItem[];
   selectedFiles?: string[];
+  selectedFilesSet?: Set<string>;  // O(1) lookup Set
   allowMultiSelect?: boolean;
-  onFileSelect?: (fileIds: string[]) => void;
+  onFileSelect?: (fileIds: string[] | Set<string>) => void;
   onFileClick?: (file: FileItem) => void;
   onDelete?: (fileId: string) => Promise<void>;
   onCategoryChange?: (fileId: string, category: string) => Promise<void>;
@@ -34,6 +35,7 @@ interface FileListProps {
 const FileList: React.FC<FileListProps> = ({
   files,
   selectedFiles = [],
+  selectedFilesSet,
   allowMultiSelect = false,
   onFileSelect,
   onFileClick,
@@ -47,39 +49,48 @@ const FileList: React.FC<FileListProps> = ({
   const [previewImage, setPreviewImage] = useState<string>('');
   const [previewTitle, setPreviewTitle] = useState<string>('');
 
-  const handleFileSelect = (fileId: string, selected: boolean, ctrlKey?: boolean) => {
+  // Use Set if provided, otherwise fallback to array
+  const currentSelectedSet = React.useMemo(
+    () => selectedFilesSet || new Set(selectedFiles),
+    [selectedFilesSet, selectedFiles]
+  );
+
+  // Optimized file selection handler using Set operations (O(1))
+  const handleFileSelect = React.useCallback((fileId: string, selected: boolean, ctrlKey?: boolean) => {
     if (!onFileSelect) return;
 
-    let newSelection: string[];
+    // Use Set for O(1) operations
+    const newSelection = new Set(currentSelectedSet);
 
-    if (allowMultiSelect) {
-      if (ctrlKey) {
-        // Ctrl+Click behavior: toggle selection
-        if (selectedFiles.includes(fileId)) {
-          newSelection = selectedFiles.filter(id => id !== fileId);
-        } else {
-          newSelection = [...selectedFiles, fileId];
-        }
-      } else if (selected) {
-        newSelection = [...selectedFiles, fileId];
+    if (!allowMultiSelect) {
+      // Single selection mode
+      newSelection.clear();
+      if (selected) newSelection.add(fileId);
+    } else if (ctrlKey || selected) {
+      // Ctrl+Click or checkbox click: toggle
+      if (newSelection.has(fileId)) {
+        newSelection.delete(fileId);  // O(1) delete
       } else {
-        newSelection = selectedFiles.filter(id => id !== fileId);
+        newSelection.add(fileId);     // O(1) add
       }
     } else {
-      newSelection = selected ? [fileId] : [];
+      // Uncheck: remove from selection
+      newSelection.delete(fileId);    // O(1) delete
     }
 
+    // Pass Set to parent (parent will convert to array if needed)
     onFileSelect(newSelection);
-  };
+  }, [allowMultiSelect, currentSelectedSet, onFileSelect]);
 
   const handlePreview = (file: FileItem) => {
-    if (file.contentType.startsWith('image/') && showImagePreview) {
-      setPreviewImage(fileService.getPreviewUrl(file.id));
+    const contentType = file.contentType || file.mimeType || '';
+    if (contentType.startsWith('image/') && showImagePreview) {
+      setPreviewImage(file.url);
       setPreviewTitle(file.originalName);
       setPreviewVisible(true);
-    } else if (file.contentType === 'application/pdf') {
+    } else if (contentType === 'application/pdf') {
       // Open PDF in new tab
-      window.open(fileService.getPreviewUrl(file.id), '_blank');
+      window.open(file.url, '_blank');
     } else if (onFileClick) {
       onFileClick(file);
     }
@@ -101,7 +112,7 @@ const FileList: React.FC<FileListProps> = ({
   };
 
   const getFileIcon = (file: FileItem) => {
-    const { contentType } = file;
+    const contentType = file.contentType || file.mimeType || '';
 
     if (contentType.startsWith('image/')) {
       return <PictureOutlined style={{ fontSize: 24, color: '#52c41a' }} />;
@@ -169,8 +180,10 @@ const FileList: React.FC<FileListProps> = ({
   };
 
   const renderListItem = (file: FileItem) => {
-    const isSelected = selectedFiles.includes(file.id);
-    const isImage = file.contentType.startsWith('image/');
+    // Use Set for O(1) lookup instead of array includes (O(n))
+    const isSelected = currentSelectedSet.has(file.id);
+    const contentType = file.contentType || file.mimeType || '';
+    const isImage = contentType.startsWith('image/');
 
     const actions = [
       <Tooltip title="Preview">
@@ -217,7 +230,7 @@ const FileList: React.FC<FileListProps> = ({
     const avatar = isImage ? (
       <Avatar
         size={listLayout === 'detailed' ? 64 : 40}
-        src={fileService.getPreviewUrl(file.id)}
+        src={file.url}
         shape="square"
       />
     ) : (
@@ -298,7 +311,8 @@ const FileList: React.FC<FileListProps> = ({
           backgroundColor: isSelected ? '#e6f7ff' : 'transparent',
           borderLeft: isSelected ? '3px solid #1890ff' : 'none',
           padding: listLayout === 'detailed' ? '16px' : '12px',
-          cursor: 'pointer'
+          cursor: 'pointer',
+          transition: 'background-color 0.15s ease, border-left 0.15s ease' // Smooth visual feedback
         }}
         onClick={(e) => handleListItemClick(file, e as any)}
       >

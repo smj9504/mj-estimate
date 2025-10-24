@@ -42,6 +42,52 @@
   background: #f0f9ff;
 }
 
+/* Date Grouping Styles */
+.date-grouped-files {
+  padding: 8px;
+}
+
+.date-group {
+  margin-bottom: 32px;
+}
+
+.date-group:last-child {
+  margin-bottom: 0;
+}
+
+.date-group-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #f0f0f0;
+  background: #fafafa;
+  padding: 12px 16px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.date-group-header:hover {
+  background: #f5f5f5;
+}
+
+.date-group-header .ant-checkbox-wrapper {
+  margin-right: 12px;
+}
+
+.date-group-header h5 {
+  margin: 0;
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  color: #262626;
+}
+
+.date-group-header .ant-typography {
+  font-size: 14px;
+  color: #8c8c8c;
+}
+
 /* Category Manager Styles */
 .category-manager {
   padding: 12px 0;
@@ -338,6 +384,22 @@
   .file-grid {
     gap: 12px;
     grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .date-group-header {
+    padding: 8px 12px;
+  }
+
+  .date-group-header h5 {
+    font-size: 14px;
+  }
+
+  .date-group-header .ant-typography {
+    font-size: 12px;
+  }
+
+  .date-group {
+    margin-bottom: 24px;
   }
 
   .file-image {

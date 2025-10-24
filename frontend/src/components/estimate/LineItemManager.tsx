@@ -365,11 +365,11 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
 
   // Handle line item selection
   const handleLineItemSelect = (itemCode: string) => {
-    const selectedItem = (lineItems || []).find(item => item.name === itemCode);
+    const selectedItem = (lineItems || []).find(item => item.item === itemCode);
     if (selectedItem) {
       setFormData(prev => ({
         ...prev,
-        itemCode: selectedItem.name,
+        itemCode: selectedItem.item,
         description: selectedItem.description,
         unit: selectedItem.unit,
         unitPrice: selectedItem.untaxed_unit_price,
@@ -642,7 +642,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
     try {
       await lineItemService.createLineItem({
         cat: formData.category || '',
-        name: item.name,
+        item: item.name,
         description: item.description || '',
         unit: item.unit || '',
         untaxed_unit_price: item.unit_price || 0,

@@ -79,7 +79,7 @@ async def upload_files(
                 context_id=context_id,
                 category=category,
                 description=description,
-                uploaded_by=current_staff.username if hasattr(current_staff, 'username') else str(current_staff.id)
+                uploaded_by=str(current_staff.id)
             )
 
             uploaded_files.append(uploaded_file)
@@ -186,6 +186,43 @@ async def preview_file(
         raise
     except Exception as e:
         logger.error(f"Error previewing file {file_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Preview failed: {str(e)}")
+
+
+@router.get("/wm-photo/{photo_id}/preview")
+async def preview_wm_photo(
+    photo_id: str,
+    service: FileService = Depends(get_file_service)
+):
+    """Get water mitigation photo preview"""
+    try:
+        from app.domains.water_mitigation.repository import WMPhotoRepository
+
+        wm_photo_repo = WMPhotoRepository(service.repository.session)
+        photo = wm_photo_repo.get_by_id(photo_id)
+
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+
+        # Get file path
+        file_path = Path(photo.get('file_path') if isinstance(photo, dict) else photo.file_path)
+
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Photo file not found on disk")
+
+        mime_type = photo.get('mime_type') if isinstance(photo, dict) else photo.mime_type
+        media_type = mime_type or 'image/jpeg'
+
+        return FastAPIFileResponse(
+            path=str(file_path),
+            media_type=media_type,
+            headers={"Content-Disposition": "inline"}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error previewing WM photo {photo_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Preview failed: {str(e)}")
 
 
@@ -326,6 +363,7 @@ async def update_file_metadata(
 async def delete_file(
     file_id: str,
     hard_delete: bool = Query(False, description="Permanently delete file"),
+    context: Optional[str] = Query(None, description="File context (for special handling)"),
     service: FileService = Depends(get_file_service),
     current_staff: Staff = Depends(get_current_staff)
 ):
@@ -334,7 +372,7 @@ async def delete_file(
         if hard_delete:
             success = service.hard_delete_file(file_id)
         else:
-            success = service.delete_file(file_id)
+            success = service.delete_file(file_id, context)
 
         if not success:
             raise HTTPException(status_code=404, detail="File not found")

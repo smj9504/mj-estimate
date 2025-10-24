@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { Card, Image, Button, Typography, Space, Tooltip, Modal, Checkbox } from 'antd';
 import {
   EyeOutlined,
@@ -13,11 +13,199 @@ import { fileService } from '../../../services/fileService';
 const { Text } = Typography;
 const { Meta } = Card;
 
+// Memoized individual file card component to prevent unnecessary re-renders
+interface FileCardItemProps {
+  file: FileItem;
+  isSelected: boolean;
+  allowMultiSelect: boolean;
+  fileCategory?: FileCategory;
+  showImagePreview: boolean;
+  showImageInfo: boolean;
+  enableLazyLoading: boolean;
+  onSelect: (fileId: string, selected: boolean) => void;
+  onPreview: (file: FileItem) => void;
+  onDownload: (file: FileItem) => void;
+  onDelete?: (file: FileItem, e: React.MouseEvent) => void;
+  onCardClick: (file: FileItem, e: React.MouseEvent) => void;
+}
+
+const FileCardItem = memo<FileCardItemProps>(({
+  file,
+  isSelected,
+  allowMultiSelect,
+  fileCategory,
+  showImagePreview,
+  showImageInfo,
+  enableLazyLoading,
+  onSelect,
+  onPreview,
+  onDownload,
+  onDelete,
+  onCardClick
+}) => {
+  const contentType = file.contentType || file.mimeType || '';
+  const isImage = contentType.startsWith('image/');
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  return (
+    <Card
+      key={file.id}
+      className="file-grid-item"
+      bodyStyle={{ padding: 0 }}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        // Ignore clicks on buttons and checkboxes
+        if (!target.closest('button') && !target.closest('.ant-checkbox-wrapper')) {
+          onCardClick(file, e);
+        }
+      }}
+      cover={
+        <div style={{ position: 'relative', width: '100%', aspectRatio: '1', overflow: 'hidden', background: '#f5f5f5' }}>
+          {isImage ? (
+            <>
+              <img
+                src={file.thumbnailUrl || file.url}
+                alt={file.originalName}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                loading={enableLazyLoading ? "lazy" : undefined}
+                onError={(e) => {
+                  // Fallback to full image if thumbnail fails
+                  const img = e.target as HTMLImageElement;
+                  if (img.src !== file.url) {
+                    img.src = file.url;
+                  }
+                }}
+              />
+              <div className="file-overlay">
+                <Space direction="vertical" align="center" style={{ width: '100%' }}>
+                  {showImageInfo && (
+                    <div style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                      padding: '8px 12px',
+                      borderRadius: '4px',
+                      textAlign: 'center',
+                      marginBottom: '8px'
+                    }}>
+                      <Text style={{ color: '#fff', fontSize: '12px', display: 'block' }}>
+                        {file.originalName}
+                      </Text>
+                      {file.size && (
+                        <Text style={{ color: '#bbb', fontSize: '11px', display: 'block' }}>
+                          {formatFileSize(file.size)}
+                        </Text>
+                      )}
+                    </div>
+                  )}
+                  <Space>
+                    <Button
+                      type="primary"
+                      shape="circle"
+                      icon={<EyeOutlined />}
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPreview(file);
+                      }}
+                    />
+                    <Button
+                      type="primary"
+                      shape="circle"
+                      icon={<DownloadOutlined />}
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDownload(file);
+                      }}
+                    />
+                    {onDelete && (
+                      <Button
+                        danger
+                        shape="circle"
+                        icon={<DeleteOutlined />}
+                        size="small"
+                        onClick={(e) => onDelete(file, e)}
+                      />
+                    )}
+                  </Space>
+                </Space>
+              </div>
+            </>
+          ) : (
+            <div className="file-document-icon">
+              <FileOutlined style={{ fontSize: 48, color: '#8c8c8c' }} />
+            </div>
+          )}
+
+          {allowMultiSelect && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute',
+                top: 8,
+                left: 8,
+                zIndex: 10,
+                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                borderRadius: '4px',
+                padding: '4px'
+              }}
+            >
+              <Checkbox
+                checked={isSelected}
+                onChange={(e) => {
+                  onSelect(file.id, e.target.checked);
+                }}
+              />
+            </div>
+          )}
+        </div>
+      }
+      actions={!isImage ? [
+        <Tooltip title="Preview">
+          <EyeOutlined onClick={() => onPreview(file)} />
+        </Tooltip>,
+        <Tooltip title="Download">
+          <DownloadOutlined onClick={() => onDownload(file)} />
+        </Tooltip>,
+        ...(onDelete ? [
+          <Tooltip title="Delete">
+            <DeleteOutlined onClick={(e) => onDelete(file, e as any)} />
+          </Tooltip>
+        ] : [])
+      ] : undefined}
+      size="small"
+      style={{
+        border: isSelected ? '2px solid #1890ff' : '1px solid #f0f0f0',
+        cursor: 'pointer',
+        transition: 'border-color 0.15s ease' // Smooth visual feedback
+      }}
+    >
+    </Card>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison function for memo
+  // Only re-render if these props change
+  return (
+    prevProps.file.id === nextProps.file.id &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.allowMultiSelect === nextProps.allowMultiSelect
+  );
+});
+
+FileCardItem.displayName = 'FileCardItem';
+
 interface FileGridProps {
   files: FileItem[];
   selectedFiles?: string[];
+  selectedFilesSet?: Set<string>;  // O(1) lookup Set
   allowMultiSelect?: boolean;
-  onFileSelect?: (fileIds: string[]) => void;
+  onFileSelect?: (fileIds: string[] | Set<string>) => void;
   onFileClick?: (file: FileItem) => void;
   onDelete?: (fileId: string) => Promise<void>;
   onCategoryChange?: (fileId: string, category: string) => Promise<void>;
@@ -32,6 +220,7 @@ interface FileGridProps {
 const FileGrid: React.FC<FileGridProps> = ({
   files,
   selectedFiles = [],
+  selectedFilesSet,
   allowMultiSelect = false,
   onFileSelect,
   onFileClick,
@@ -40,46 +229,60 @@ const FileGrid: React.FC<FileGridProps> = ({
   showImagePreview = true,
   enableImageZoom = true,
   showImageInfo = true,
-  gridColumns = { xs: 2, sm: 3, md: 4, lg: 5, xl: 6 },
+  gridColumns = { xs: 3, sm: 4, md: 5, lg: 6, xl: 8 },
   enableLazyLoading = true
 }) => {
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
   const [previewTitle, setPreviewTitle] = useState<string>('');
 
-  const handleFileSelect = (fileId: string, selected: boolean, ctrlKey?: boolean) => {
+  // Use Set if provided, otherwise fallback to array
+  const currentSelectedSet = React.useMemo(
+    () => selectedFilesSet || new Set(selectedFiles),
+    [selectedFilesSet, selectedFiles]
+  );
+
+  // Use ref to avoid recreating callback on every selection change
+  const currentSelectedSetRef = React.useRef(currentSelectedSet);
+  React.useEffect(() => {
+    currentSelectedSetRef.current = currentSelectedSet;
+  }, [currentSelectedSet]);
+
+  // Optimized file selection handler using Set operations (O(1))
+  const handleFileSelect = React.useCallback((fileId: string, selected: boolean, ctrlKey?: boolean) => {
     if (!onFileSelect) return;
 
-    let newSelection: string[];
+    // Use Set for O(1) operations - use ref for current value
+    const newSelection = new Set(currentSelectedSetRef.current);
 
-    if (allowMultiSelect) {
-      if (ctrlKey) {
-        // Ctrl+Click behavior: toggle selection
-        if (selectedFiles.includes(fileId)) {
-          newSelection = selectedFiles.filter(id => id !== fileId);
-        } else {
-          newSelection = [...selectedFiles, fileId];
-        }
-      } else if (selected) {
-        newSelection = [...selectedFiles, fileId];
+    if (!allowMultiSelect) {
+      // Single selection mode
+      newSelection.clear();
+      if (selected) newSelection.add(fileId);
+    } else if (ctrlKey || selected) {
+      // Ctrl+Click or checkbox click: toggle
+      if (newSelection.has(fileId)) {
+        newSelection.delete(fileId);  // O(1) delete
       } else {
-        newSelection = selectedFiles.filter(id => id !== fileId);
+        newSelection.add(fileId);     // O(1) add
       }
     } else {
-      newSelection = selected ? [fileId] : [];
+      // Uncheck: remove from selection
+      newSelection.delete(fileId);    // O(1) delete
     }
 
+    // Pass Set to parent (parent will convert to array if needed)
     onFileSelect(newSelection);
-  };
+  }, [allowMultiSelect, onFileSelect]);
 
   const handlePreview = (file: FileItem) => {
     if (fileCategory === 'image' && showImagePreview) {
-      setPreviewImage(fileService.getPreviewUrl(file.id));
+      setPreviewImage(file.url);
       setPreviewTitle(file.originalName);
       setPreviewVisible(true);
     } else if (file.contentType === 'application/pdf') {
       // Open PDF in new tab
-      window.open(fileService.getPreviewUrl(file.id), '_blank');
+      window.open(file.url, '_blank');
     } else if (onFileClick) {
       onFileClick(file);
     }
@@ -110,29 +313,12 @@ const FileGrid: React.FC<FileGridProps> = ({
   };
 
   const getGridStyle = () => {
-    const breakpoints = Object.entries(gridColumns)
-      .map(([breakpoint, columns]) => {
-        const minWidth = breakpoint === 'xs' ? '0px' :
-          breakpoint === 'sm' ? '576px' :
-            breakpoint === 'md' ? '768px' :
-              breakpoint === 'lg' ? '992px' :
-                '1200px';
-
-        return `@media (min-width: ${minWidth}) {
-          .file-grid {
-            grid-template-columns: repeat(${columns}, 1fr);
-          }
-        }`;
-      })
-      .join('\n');
-
     return `
       .file-grid {
         display: grid;
-        gap: 16px;
-        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
       }
-      ${breakpoints}
 
       .file-grid-item {
         transition: transform 0.2s ease, box-shadow 0.2s ease;
@@ -145,7 +331,7 @@ const FileGrid: React.FC<FileGridProps> = ({
 
       .file-image {
         width: 100%;
-        height: 200px;
+        aspect-ratio: 1;
         object-fit: cover;
         cursor: pointer;
       }
@@ -170,7 +356,7 @@ const FileGrid: React.FC<FileGridProps> = ({
 
       .file-document-icon {
         width: 100%;
-        height: 200px;
+        aspect-ratio: 1;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -182,16 +368,8 @@ const FileGrid: React.FC<FileGridProps> = ({
   };
 
   const handleCardClick = (file: FileItem, e: React.MouseEvent) => {
-    console.log('Card clicked:', {
-      fileId: file.id,
-      ctrlKey: e.ctrlKey,
-      allowMultiSelect,
-      hasOnFileSelect: !!onFileSelect
-    });
-
     // Handle Ctrl+Click for multi-select
     if (allowMultiSelect && e.ctrlKey && onFileSelect) {
-      console.log('Ctrl+Click detected, toggling selection');
       e.preventDefault();
       e.stopPropagation();
       handleFileSelect(file.id, true, true);
@@ -201,167 +379,32 @@ const FileGrid: React.FC<FileGridProps> = ({
     }
   };
 
-  const renderFileCard = (file: FileItem) => {
-    const isSelected = selectedFiles.includes(file.id);
-    const isImage = file.contentType.startsWith('image/');
-
-    // Debug log
-    if (file === files[0]) {
-      console.log('FileGrid Debug:', {
-        allowMultiSelect,
-        hasOnFileSelect: !!onFileSelect,
-        selectedFilesCount: selectedFiles.length
-      });
-    }
-
-    return (
-      <Card
-        key={file.id}
-        className="file-grid-item"
-        onClick={(e) => {
-          const target = e.target as HTMLElement;
-          // Ignore clicks on buttons and checkboxes
-          if (!target.closest('button') && !target.closest('.ant-checkbox-wrapper')) {
-            handleCardClick(file, e);
-          }
-        }}
-        cover={
-          <div style={{ position: 'relative' }}>
-            {isImage ? (
-              <>
-                {enableLazyLoading ? (
-                  <Image
-                    src={fileService.getPreviewUrl(file.id)}
-                    alt={file.originalName}
-                    className="file-image"
-                    preview={false}
-                    loading="lazy"
-                  />
-                ) : (
-                  <img
-                    src={fileService.getPreviewUrl(file.id)}
-                    alt={file.originalName}
-                    className="file-image"
-                  />
-                )}
-                <div className="file-overlay">
-                  <Space>
-                    <Button
-                      type="primary"
-                      shape="circle"
-                      icon={<EyeOutlined />}
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handlePreview(file);
-                      }}
-                    />
-                    <Button
-                      type="primary"
-                      shape="circle"
-                      icon={<DownloadOutlined />}
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDownload(file);
-                      }}
-                    />
-                    {onDelete && (
-                      <Button
-                        danger
-                        shape="circle"
-                        icon={<DeleteOutlined />}
-                        size="small"
-                        onClick={(e) => handleDelete(file, e)}
-                      />
-                    )}
-                  </Space>
-                </div>
-              </>
-            ) : (
-              <div className="file-document-icon">
-                <FileOutlined style={{ fontSize: 48, color: '#8c8c8c' }} />
-              </div>
-            )}
-
-            {allowMultiSelect && onFileSelect && (
-              <div
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  position: 'absolute',
-                  top: 8,
-                  left: 8,
-                  zIndex: 10,
-                  backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                  borderRadius: '4px',
-                  padding: '4px'
-                }}
-              >
-                <Checkbox
-                  checked={isSelected}
-                  onChange={(e) => {
-                    console.log('Checkbox clicked:', file.id, e.target.checked);
-                    handleFileSelect(file.id, e.target.checked);
-                  }}
-                />
-              </div>
-            )}
-          </div>
-        }
-        actions={!isImage ? [
-          <Tooltip title="Preview">
-            <EyeOutlined onClick={() => handlePreview(file)} />
-          </Tooltip>,
-          <Tooltip title="Download">
-            <DownloadOutlined onClick={() => handleDownload(file)} />
-          </Tooltip>,
-          ...(onDelete ? [
-            <Tooltip title="Delete">
-              <DeleteOutlined onClick={(e) => handleDelete(file, e as any)} />
-            </Tooltip>
-          ] : [])
-        ] : undefined}
-        size="small"
-        style={{
-          border: isSelected ? '2px solid #1890ff' : '1px solid #f0f0f0',
-          cursor: 'pointer'
-        }}
-      >
-        <Meta
-          title={
-            <Tooltip title={file.originalName}>
-              <Text ellipsis style={{ fontSize: '12px' }}>
-                {file.originalName}
-              </Text>
-            </Tooltip>
-          }
-          description={
-            showImageInfo && (
-              <Space direction="vertical" size={2}>
-                <Text type="secondary" style={{ fontSize: '11px' }}>
-                  {formatFileSize(file.size)}
-                </Text>
-                {file.category && (
-                  <Text type="secondary" style={{ fontSize: '11px' }}>
-                    {file.category}
-                  </Text>
-                )}
-                <Text type="secondary" style={{ fontSize: '11px' }}>
-                  {new Date(file.uploadDate).toLocaleDateString()}
-                </Text>
-              </Space>
-            )
-          }
-        />
-      </Card>
-    );
-  };
+  // Memoized handler to prevent recreation
+  const handleFileSelectMemo = React.useCallback((fileId: string, selected: boolean) => {
+    handleFileSelect(fileId, selected);
+  }, [handleFileSelect]);
 
   return (
     <>
       <style>{getGridStyle()}</style>
       <div className="file-grid">
-        {files.map(renderFileCard)}
+        {files.map((file) => (
+          <FileCardItem
+            key={file.id}
+            file={file}
+            isSelected={currentSelectedSet.has(file.id)}
+            allowMultiSelect={allowMultiSelect}
+            fileCategory={fileCategory}
+            showImagePreview={showImagePreview}
+            showImageInfo={showImageInfo}
+            enableLazyLoading={enableLazyLoading}
+            onSelect={handleFileSelectMemo}
+            onPreview={handlePreview}
+            onDownload={handleDownload}
+            onDelete={onDelete ? handleDelete : undefined}
+            onCardClick={handleCardClick}
+          />
+        ))}
       </div>
 
       {/* Image Preview Modal */}

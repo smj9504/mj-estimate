@@ -64,7 +64,7 @@ cd backend && pytest
 ```
 backend/app/
 ├── core/                    # 핵심 인프라
-│   ├── database.py          # Supabase 연결
+│   ├── database_factory.py  # 데이터베이스 팩토리 (PostgreSQL/SQLite/Supabase)
 │   ├── config.py            # 환경 설정
 │   └── interfaces.py        # 추상화 인터페이스
 ├── common/                  # 공통 컴포넌트
@@ -112,7 +112,8 @@ frontend/src/
 ### 백엔드
 - **FastAPI** - 현대적 Python 웹 프레임워크
 - **Pydantic** - 데이터 검증 및 스키마
-- **Supabase** - 데이터베이스 (PostgreSQL)
+- **PostgreSQL** - 데이터베이스 (Docker 또는 Supabase)
+- **SQLAlchemy** - ORM 및 데이터베이스 추상화
 - **JWT** - 인증/인가
 - **Uvicorn** - ASGI 서버
 
@@ -159,15 +160,35 @@ Frontend development server proxies `/api/*` requests to `localhost:8000` automa
 
 ### Backend Environment Files
 Backend uses environment-specific `.env` files in `backend/` directory:
-- `.env.development` - Development settings
-- `.env.production` - Production settings  
+- `.env.development` - Development settings (Docker PostgreSQL)
+- `.env.production` - Production settings (Supabase)
 - `.env.example` - Template with required variables
 
-Required variables include Supabase credentials, JWT secrets, and database URLs.
+### Database Configuration
 
-### Development Database Options
-1. **Supabase (Cloud)** - Default for development
-2. **Docker Compose** - Local PostgreSQL + Redis + PgAdmin via `docker-compose.dev.yml`
+#### Development (Default: Docker PostgreSQL)
+```bash
+# Start Docker PostgreSQL
+docker-compose -f docker-compose.dev.yml up -d
+
+# Database automatically configured via .env.development:
+# DATABASE_TYPE=postgresql
+# DATABASE_URL=postgresql://mjestimate:dev_password_2024@localhost:5433/mjestimate_dev
+```
+
+#### Database Options
+1. **Docker PostgreSQL (Default)** - Local development with `docker-compose.dev.yml`
+   - PostgreSQL 15 on port 5433
+   - PgAdmin on port 8080
+   - Redis on port 6379
+
+2. **SQLite (Optional)** - Lightweight development option
+   - Set `USE_SQLITE=true` in `.env.development`
+   - Set `DATABASE_TYPE=sqlite`
+
+3. **Supabase (Production)** - Cloud PostgreSQL for production
+   - Configured in `.env.production`
+   - Requires `SUPABASE_URL` and `SUPABASE_KEY`
 
 ## Key Architecture Patterns
 
@@ -190,6 +211,9 @@ Each domain follows a consistent 5-file pattern:
 
 ### Key Technologies
 - **Frontend**: React 18 + TypeScript + Ant Design + Zustand + React Query
-- **Backend**: FastAPI + Pydantic + SQLAlchemy + Supabase
+- **Backend**: FastAPI + Pydantic + SQLAlchemy + PostgreSQL
 - **Development**: CRACO (frontend) + Uvicorn hot reload (backend)
-- **Database**: Supabase (PostgreSQL) with optional Docker Compose for local development
+- **Database**:
+  - Development: Docker PostgreSQL (default)
+  - Production: Supabase (PostgreSQL)
+  - Optional: SQLite for lightweight development

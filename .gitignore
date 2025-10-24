@@ -128,3 +128,6 @@ temp/
 
 # Reference files
 reference/
+docs/
+backend/tests
+backend/stroage/water-mitigation/documents

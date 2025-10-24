@@ -640,31 +640,32 @@ class DatabaseFactory:
             db_type = settings.DATABASE_TYPE.lower()
             logger.info(f"Using explicit DATABASE_TYPE: {db_type}")
             return db_type
-        
+
         if settings.DATABASE_URL:
             if "postgresql" in settings.DATABASE_URL.lower() or "postgres" in settings.DATABASE_URL.lower():
                 logger.info("Detected PostgreSQL from DATABASE_URL")
                 return "postgresql"
             elif "sqlite" in settings.DATABASE_URL.lower():
-                logger.info("Detected SQLite from DATABASE_URL")  
+                logger.info("Detected SQLite from DATABASE_URL")
                 return "sqlite"
             else:
                 logger.warning(f"Unknown database URL format: {settings.DATABASE_URL}")
-        
-        # Environment-based logic with PostgreSQL preference for development
+
+        # Environment-based logic - PostgreSQL is now default for development
         if settings.ENVIRONMENT == "development":
-            # Check if USE_SQLITE is explicitly set to False (prefer PostgreSQL)
-            if hasattr(settings, 'USE_SQLITE') and not settings.USE_SQLITE:
-                logger.info("USE_SQLITE=false in development, using PostgreSQL")
-                return "postgresql"
-            logger.info("Development environment: defaulting to SQLite (legacy)")
-            return "sqlite"
+            # Default to PostgreSQL for development (Docker PostgreSQL)
+            # Only use SQLite if explicitly enabled
+            if hasattr(settings, 'USE_SQLITE') and settings.USE_SQLITE:
+                logger.info("USE_SQLITE=true in development, using SQLite")
+                return "sqlite"
+            logger.info("Development environment: defaulting to PostgreSQL (Docker)")
+            return "postgresql"
         elif settings.SUPABASE_URL and settings.SUPABASE_KEY:
             logger.info("Production environment: using Supabase")
             return "supabase"
         else:
-            logger.warning("No database configuration found, defaulting to SQLite")
-            return "sqlite"
+            logger.warning("No database configuration found, defaulting to PostgreSQL")
+            return "postgresql"
     
     @classmethod
     def _validate_configuration(cls, db_type: str):

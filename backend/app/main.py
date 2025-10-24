@@ -16,6 +16,13 @@ import os
 from pathlib import Path
 from contextlib import asynccontextmanager
 
+# Import all models first to ensure SQLAlchemy relationships are properly set up
+# This prevents circular dependency issues
+from app.domains.sketch.models import *
+from app.domains.company.models import *
+from app.domains.staff.models import *
+from app.domains.water_mitigation.models import *
+
 # API and core imports
 from app.domains.company.api import router as company_router
 from app.domains.invoice.api import router as invoice_router
@@ -36,6 +43,7 @@ from app.domains.xactimate.api import router as xactimate_router
 from app.domains.file.api import router as file_router
 from app.domains.sketch.api import router as sketch_router
 from app.domains.receipt.api import router as receipt_router
+from app.domains.water_mitigation.api import router as water_mitigation_router
 from app.core.config import settings
 from app.core.database_factory import get_database, db_factory
 # Service factory removed - using direct service instantiation
@@ -282,6 +290,9 @@ app.include_router(sketch_router, prefix="/api/sketches", tags=["Interior Sketch
 
 # Receipt System endpoints
 app.include_router(receipt_router, prefix="/api/receipts", tags=["Receipts & Templates"])
+
+# Water Mitigation System endpoints
+app.include_router(water_mitigation_router, prefix="/api")
 
 
 # System information endpoints

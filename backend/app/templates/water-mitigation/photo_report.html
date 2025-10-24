@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ cover_title }}</title>
+</head>
+<body>
+    <!-- Cover Page -->
+    <div class="cover-page">
+        {% if company_logo %}
+        <div class="logo-container">
+            <img src="{{ company_logo }}" alt="Company Logo" class="company-logo">
+        </div>
+        {% endif %}
+
+        <div class="cover-content">
+            <h1 class="cover-title">{{ cover_title }}</h1>
+            <div class="cover-divider"></div>
+
+            <div class="cover-info">
+                <div class="info-row">
+                    <span class="info-label">Property:</span>
+                    <span class="info-value">{{ property_address }}</span>
+                </div>
+                {% if client_name %}
+                <div class="info-row">
+                    <span class="info-label">Client:</span>
+                    <span class="info-value">{{ client_name }}</span>
+                </div>
+                {% endif %}
+                {% if date_of_loss %}
+                <div class="info-row">
+                    <span class="info-label">Date of Loss:</span>
+                    <span class="info-value">{{ date_of_loss|format_date }}</span>
+                </div>
+                {% endif %}
+                <div class="info-row">
+                    <span class="info-label">Report Date:</span>
+                    <span class="info-value">{{ report_date|format_date }}</span>
+                </div>
+            </div>
+
+            {% if cover_description %}
+            <div class="cover-description">
+                <p>{{ cover_description }}</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="cover-footer">
+            <p>Prepared by: {{ company_name }}</p>
+        </div>
+    </div>
+
+    <!-- Photo Sections -->
+    {% for section in sections %}
+    <div class="section-page">
+        <div class="section-header">
+            <h2 class="section-title">{{ section.title }}</h2>
+            {% if section.summary %}
+            <p class="section-summary">{{ section.summary }}</p>
+            {% endif %}
+        </div>
+
+        <div class="photo-grid layout-{{ section.layout }}">
+            {% for photo in section.photos %}
+            <div class="photo-item">
+                <div class="photo-container">
+                    <img src="{{ photo.file_path }}" alt="{{ photo.caption or photo.title or 'Photo' }}" class="photo-image">
+                </div>
+                <div class="photo-metadata">
+                    {% if photo.show_date and photo.captured_date %}
+                    <div class="photo-date">{{ photo.captured_date|format_date('%Y-%m-%d') }}</div>
+                    {% endif %}
+                    {% if photo.caption %}
+                    <div class="photo-caption">{{ photo.caption }}</div>
+                    {% elif photo.show_description and photo.description %}
+                    <div class="photo-caption">{{ photo.description }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="page-footer">
+            <span class="page-number">Page {{ loop.index + 1 }} of {{ sections|length + 1 }}</span>
+            <span class="generated-date">Generated: {{ report_date|format_date }}</span>
+        </div>
+    </div>
+    {% endfor %}
+</body>
+</html>

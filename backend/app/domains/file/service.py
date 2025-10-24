@@ -14,6 +14,7 @@ from app.common.base_service import BaseService
 from .repository import FileRepository
 from .models import File
 from .schemas import FileCreate, FileUpdate
+from .wm_photo_adapter import WMPhotoAdapter
 
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,18 @@ class FileService(BaseService[File, str]):
             if content_type.startswith('image/'):
                 thumbnail_url = await self._generate_thumbnail(file_path, context_dir)
 
+            # Handle water-mitigation context specially
+            if context == 'water-mitigation':
+                return await self._upload_wm_photo(
+                    file_path=str(file_path),
+                    original_filename=original_filename,
+                    content_type=content_type,
+                    file_size=file_size,
+                    job_id=context_id,
+                    description=description,
+                    uploaded_by=uploaded_by
+                )
+
             # Create file record
             file_record = FileCreate(
                 filename=unique_filename,
@@ -94,6 +107,47 @@ class FileService(BaseService[File, str]):
 
         except Exception as e:
             logger.error(f"Error uploading file {original_filename}: {e}")
+            raise
+
+    async def _upload_wm_photo(
+        self,
+        file_path: str,
+        original_filename: str,
+        content_type: str,
+        file_size: int,
+        job_id: str,
+        description: Optional[str] = None,
+        uploaded_by: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Upload water mitigation photo"""
+        try:
+            from app.domains.water_mitigation.repository import WMPhotoRepository
+            from datetime import datetime
+
+            wm_photo_repo = WMPhotoRepository(self.repository.session)
+
+            photo_data = {
+                'job_id': job_id,
+                'source': 'manual_upload',
+                'file_name': original_filename,
+                'file_path': file_path,
+                'file_size': file_size,
+                'mime_type': content_type,
+                'file_type': 'photo' if content_type.startswith('image/') else 'video',
+                'title': description,
+                'description': description,
+                'captured_date': datetime.utcnow(),
+                'upload_status': 'completed',
+                'uploaded_by_id': uploaded_by
+            }
+
+            created_photo = wm_photo_repo.create(photo_data)
+
+            # Convert to FileItem format
+            return WMPhotoAdapter.to_file_item(created_photo)
+
+        except Exception as e:
+            logger.error(f"Error uploading WM photo: {e}")
             raise
 
     async def upload_multiple_files(
@@ -167,7 +221,24 @@ class FileService(BaseService[File, str]):
         is_active: bool = True
     ) -> List[Dict[str, Any]]:
         """Get files by context and context_id"""
+        # Handle water-mitigation context specially
+        if context == 'water-mitigation':
+            return self._get_wm_photos(context_id)
+
         return self.repository.get_by_context(context, context_id, category, is_active)
+
+    def _get_wm_photos(self, job_id: str) -> List[Dict[str, Any]]:
+        """Get water mitigation photos for a job"""
+        try:
+            from app.domains.water_mitigation.repository import WMPhotoRepository
+
+            wm_photo_repo = WMPhotoRepository(self.repository.session)
+            photos = wm_photo_repo.find_by_job(job_id)
+
+            return WMPhotoAdapter.to_file_items(photos)
+        except Exception as e:
+            logger.error(f"Error retrieving WM photos for job {job_id}: {e}")
+            return []
 
     def get_files_by_type(
         self,
@@ -177,6 +248,21 @@ class FileService(BaseService[File, str]):
         is_active: bool = True
     ) -> List[Dict[str, Any]]:
         """Get files by type (image/document)"""
+        # Handle water-mitigation context specially
+        if context == 'water-mitigation':
+            if file_type == 'image':
+                # Get images from wm_photos table
+                photos = self._get_wm_photos(context_id)
+                return photos
+            elif file_type == 'document':
+                # Get documents from files table
+                return self.repository.get_by_file_type(context, context_id, file_type, is_active)
+            else:
+                # Get all files
+                photos = self._get_wm_photos(context_id)
+                documents = self.repository.get_by_file_type(context, context_id, 'document', is_active)
+                return photos + documents
+
         return self.repository.get_by_file_type(context, context_id, file_type, is_active)
 
     def get_file_count(
@@ -187,6 +273,17 @@ class FileService(BaseService[File, str]):
         is_active: bool = True
     ) -> int:
         """Get file count by context"""
+        # Handle water-mitigation context specially
+        if context == 'water-mitigation':
+            try:
+                from app.domains.water_mitigation.repository import WMPhotoRepository
+
+                wm_photo_repo = WMPhotoRepository(self.repository.session)
+                return wm_photo_repo.count_by_job(context_id)
+            except Exception as e:
+                logger.error(f"Error counting WM photos for job {context_id}: {e}")
+                return 0
+
         return self.repository.get_count_by_context(context, context_id, category, is_active)
 
     def get_file_count_by_type(
@@ -197,6 +294,20 @@ class FileService(BaseService[File, str]):
         is_active: bool = True
     ) -> int:
         """Get file count by type"""
+        # Handle water-mitigation context specially
+        if context == 'water-mitigation':
+            if file_type == 'image':
+                try:
+                    from app.domains.water_mitigation.repository import WMPhotoRepository
+
+                    wm_photo_repo = WMPhotoRepository(self.repository.session)
+                    return wm_photo_repo.count_by_job(context_id)
+                except Exception as e:
+                    logger.error(f"Error counting WM photos for job {context_id}: {e}")
+                    return 0
+            else:
+                return 0  # WM only has images
+
         return self.repository.get_count_by_file_type(context, context_id, file_type, is_active)
 
     def get_categories(
@@ -227,9 +338,44 @@ class FileService(BaseService[File, str]):
         """Update file metadata"""
         return self.repository.update(file_id, update_data.dict(exclude_none=True))
 
-    def delete_file(self, file_id: str) -> bool:
+    def delete_file(self, file_id: str, context: Optional[str] = None) -> bool:
         """Soft delete a file"""
+        # Handle water-mitigation context specially
+        if context == 'water-mitigation':
+            return self._delete_wm_photo(file_id)
+
         return self.repository.soft_delete(file_id)
+
+    def _delete_wm_photo(self, photo_id: str) -> bool:
+        """Delete water mitigation photo"""
+        try:
+            from app.domains.water_mitigation.repository import WMPhotoRepository
+            from app.domains.water_mitigation.models import WMPhoto
+
+            wm_photo_repo = WMPhotoRepository(self.repository.session)
+
+            # Query the photo directly from session
+            photo = self.repository.session.query(WMPhoto).filter(
+                WMPhoto.id == photo_id
+            ).first()
+
+            if not photo:
+                return False
+
+            # Remove file from filesystem
+            file_path = Path(photo.file_path)
+            if file_path.exists():
+                file_path.unlink()
+
+            # Delete from database
+            self.repository.session.delete(photo)
+            self.repository.session.commit()
+
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting WM photo {photo_id}: {e}")
+            self.repository.session.rollback()
+            return False
 
     def hard_delete_file(self, file_id: str) -> bool:
         """Hard delete a file (remove from database and filesystem)"""

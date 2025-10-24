@@ -84,7 +84,7 @@ const CustomLineItemForm: React.FC<CustomLineItemFormProps> = ({
 
       const lineItemData: LineItemCreate = {
         cat: values.category,
-        name: values.item_code || undefined,
+        item: values.item_code || undefined,
         description: values.description,
         includes: values.includes || undefined,
         unit: values.unit || 'EA',
@@ -104,7 +104,7 @@ const CustomLineItemForm: React.FC<CustomLineItemFormProps> = ({
         newItem = {
           id: '', // No ID - signals to parent that this is not saved to library
           cat: lineItemData.cat,
-          item: lineItemData.name,
+          item: lineItemData.item,
           description: lineItemData.description,
           includes: lineItemData.includes,
           unit: lineItemData.unit,

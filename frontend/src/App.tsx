@@ -23,6 +23,9 @@ import WorkOrderList from './pages/WorkOrderList';
 import WorkOrderDetail from './pages/WorkOrderDetail';
 import AdminConfig from './pages/AdminConfig';
 import SketchTest from './pages/SketchTest';
+import LineItemManagement from './pages/LineItemManagement';
+import WaterMitigationList from './pages/WaterMitigationList';
+import WaterMitigationDetail from './pages/WaterMitigationDetail';
 import NotFound from './pages/NotFound';
 import 'antd/dist/reset.css';
 
@@ -223,6 +226,48 @@ const router = createBrowserRouter([
       <ProtectedRoute>
         <Layout>
           <WorkOrderCreation />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Line Item Management
+  {
+    path: "/line-items",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <LineItemManagement />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Water Mitigation routes
+  {
+    path: "/water-mitigation",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <WaterMitigationList />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/water-mitigation/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <WaterMitigationDetail />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/water-mitigation/:id/edit",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <WaterMitigationDetail />
         </Layout>
       </ProtectedRoute>
     )

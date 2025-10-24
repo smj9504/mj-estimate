@@ -493,7 +493,7 @@ const InvoiceCreation: React.FC = () => {
         const embeddedData = templateItem.embedded_data;
 
         // Get item data from either source
-        const itemName = lineItem?.cat || lineItem?.name || embeddedData?.item_code || '';
+        const itemName = lineItem?.cat || lineItem?.item || embeddedData?.item_code || '';
         const description = lineItem?.description || embeddedData?.description || '';
         const unit = lineItem?.unit || embeddedData?.unit || 'EA';
         const unitPrice = lineItem?.untaxed_unit_price || embeddedData?.rate || 0;

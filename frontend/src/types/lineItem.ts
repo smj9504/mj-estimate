@@ -57,19 +57,19 @@ export interface LineItemModalItem {
 export interface LineItem {
   id: string;
   cat?: string;
-  name?: string; // Aligned with invoice_items for consistency
+  item?: string; // Item code (e.g., "CUS001")
   description: string;
   includes?: string;
   unit?: string;
   untaxed_unit_price?: number;
-  
+
   // Xactimate specific fields
   lab?: number;
   mat?: number;
   equ?: number;
   labor_burden?: number;
   market_condition?: number;
-  
+
   // Metadata
   is_active: boolean;
   version: number;
@@ -77,7 +77,7 @@ export interface LineItem {
   created_by?: string;
   created_at: string;
   updated_at?: string;
-  
+
   // Relations
   notes?: LineItemNote[];
   calculated_price?: number;
@@ -89,7 +89,7 @@ export interface LineItemCreate extends Omit<LineItem, 'id' | 'created_at' | 'up
 
 export interface LineItemUpdate {
   cat?: string;
-  name?: string; // Aligned with invoice_items for consistency
+  item?: string; // Item code (e.g., "CUS001")
   description?: string;
   includes?: string;
   unit?: string;

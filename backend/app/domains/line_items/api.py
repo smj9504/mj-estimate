@@ -427,23 +427,60 @@ async def bulk_create_line_items(
     return await service.bulk_create_line_items(bulk_create.items, UUID(current_user.id))
 
 
+@router.get("/{line_item_id}/notes", response_model=List[LineItemNoteResponse])
+async def get_line_item_notes(
+    line_item_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Get all notes attached to a specific line item
+
+    Returns an empty array if the line item has no notes (not a 404).
+    Note: Authentication is optional for this endpoint to allow browsing.
+    """
+    from app.domains.line_items.models import LineItemNoteMapping, LineItemNote
+
+    # Get note mappings for this line item, ordered by order_index
+    mappings = db.query(LineItemNoteMapping).filter(
+        LineItemNoteMapping.line_item_id == line_item_id
+    ).order_by(LineItemNoteMapping.order_index).all()
+
+    # If no mappings found, return empty array (not an error)
+    if not mappings:
+        return []
+
+    # Get the actual notes
+    note_ids = [mapping.note_id for mapping in mappings]
+    notes = db.query(LineItemNote).filter(LineItemNote.id.in_(note_ids)).all()
+
+    # Order notes based on the mapping order_index
+    note_dict = {note.id: note for note in notes}
+    ordered_notes = []
+    for mapping in mappings:
+        if mapping.note_id in note_dict:
+            ordered_notes.append(note_dict[mapping.note_id])
+
+    return ordered_notes
+
+
 @router.get("/{line_item_id}", response_model=LineItemResponse)
 async def get_line_item(
     line_item_id: UUID,
     db: Session = Depends(get_db),
-    cache: CacheService = Depends(get_cache),
-    current_user: Staff = Depends(get_current_user)
+    cache: CacheService = Depends(get_cache)
 ):
-    """Get a line item by ID"""
+    """Get a line item by ID
+
+    Note: Authentication is optional for this endpoint to allow library browsing.
+    """
     service = LineItemService(db, cache)
     item = await service.get_line_item(line_item_id)
-    
+
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Line item not found"
         )
-    
+
     return item
 
 
@@ -644,20 +681,23 @@ async def search_line_items(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    cache: CacheService = Depends(get_cache),
-    current_user: Staff = Depends(get_current_user)
+    cache: CacheService = Depends(get_cache)
 ):
-    """Search line items with filters and pagination"""
+    """Search line items with filters and pagination
+
+    Note: Authentication is optional for this endpoint to allow library browsing.
+    Company-specific filtering is disabled when not authenticated.
+    """
     search = LineItemSearch(
         type=type,
         cat=cat,
         search_term=search_term,
-        company_id=company_id or (UUID(current_user.company_id) if hasattr(current_user, 'company_id') and current_user.company_id else None),
+        company_id=company_id,
         is_active=is_active,
         page=page,
         page_size=page_size
     )
-    
+
     service = LineItemService(db, cache)
     return await service.search_line_items(search)
 
@@ -683,6 +723,38 @@ async def update_line_item(
     return item
 
 
+@router.delete("/bulk", status_code=status.HTTP_204_NO_CONTENT)
+async def bulk_delete_line_items(
+    line_item_ids: List[UUID],
+    db: Session = Depends(get_db),
+    cache: CacheService = Depends(get_cache),
+    current_user: Staff = Depends(get_current_user)
+):
+    """Bulk delete line items (soft delete)"""
+    service = LineItemService(db, cache)
+
+    deleted_count = 0
+    failed_ids = []
+
+    for line_item_id in line_item_ids:
+        try:
+            success = await service.delete_line_item(line_item_id, UUID(current_user.id))
+            if success:
+                deleted_count += 1
+            else:
+                failed_ids.append(str(line_item_id))
+        except Exception as e:
+            failed_ids.append(str(line_item_id))
+
+    if failed_ids:
+        raise HTTPException(
+            status_code=status.HTTP_207_MULTI_STATUS,
+            detail=f"Deleted {deleted_count} items. Failed to delete {len(failed_ids)} items: {', '.join(failed_ids[:5])}"
+        )
+
+    return None
+
+
 @router.delete("/{line_item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_line_item(
     line_item_id: UUID,
@@ -693,13 +765,13 @@ async def delete_line_item(
     """Soft delete a line item"""
     service = LineItemService(db, cache)
     success = await service.delete_line_item(line_item_id, UUID(current_user.id))
-    
+
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Line item not found"
         )
-    
+
     return None
 
 
@@ -724,16 +796,13 @@ async def get_notes(
     company_id: Optional[UUID] = None,
     category: Optional[str] = None,
     db: Session = Depends(get_db),
-    cache: CacheService = Depends(get_cache),
-    current_user: Staff = Depends(get_current_user)
+    cache: CacheService = Depends(get_cache)
 ):
-    """Get notes with optional filters"""
+    """Get notes with optional filters
+
+    Note: Authentication is optional for this endpoint to allow note browsing.
+    """
     service = LineItemService(db, cache)
-    
-    # Use user's company if not specified
-    if not company_id and current_user.company_id:
-        company_id = UUID(str(current_user.company_id))
-    
     return await service.get_notes(company_id, category)
 
 
@@ -796,19 +865,21 @@ async def get_note_templates(
 async def get_note(
     note_id: UUID,
     db: Session = Depends(get_db),
-    cache: CacheService = Depends(get_cache),
-    current_user: Staff = Depends(get_current_user)
+    cache: CacheService = Depends(get_cache)
 ):
-    """Get a single note by ID"""
+    """Get a single note by ID
+
+    Note: Authentication is optional for this endpoint to allow note browsing.
+    """
     service = LineItemService(db, cache)
     note = await service.get_note(note_id)
-    
+
     if not note:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Note not found"
         )
-    
+
     return note
 
 

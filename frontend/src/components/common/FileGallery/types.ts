@@ -1,5 +1,5 @@
 export type ViewMode = 'grid' | 'list' | 'card';
-export type FileContext = 'work-order' | 'daily-log' | 'hauling-estimate' | 'general';
+export type FileContext = 'work-order' | 'daily-log' | 'hauling-estimate' | 'water-mitigation' | 'general';
 export type FileCategory = 'image' | 'document';
 
 export interface FileItem {
@@ -7,16 +7,18 @@ export interface FileItem {
   filename: string;
   originalName: string;
   url: string;
+  fileUrl?: string;
   thumbnailUrl?: string;
-  contentType: string;
+  contentType?: string;
+  mimeType?: string;
   size: number;
   uploadDate: string;
   category?: string;
   description?: string;
   uploadedBy?: string;
-  context: string;
-  contextId: string;
-  isActive: boolean;
+  context?: string;
+  contextId?: string;
+  isActive?: boolean;
   createdAt: string;
   updatedAt?: string;
 }
@@ -47,6 +49,7 @@ export interface FileGalleryProps {
   defaultViewMode?: ViewMode;
   allowViewModeChange?: boolean;
   showCategories?: boolean;
+  enableDateGrouping?: boolean;
 
   // Upload Configuration
   allowUpload?: boolean;
@@ -65,6 +68,10 @@ export interface FileGalleryProps {
   gridColumns?: Record<string, number>;
   showThumbnails?: boolean;
   enableLazyLoading?: boolean;
+
+  // Performance optimization
+  enableInfiniteScroll?: boolean;
+  pageSize?: number;
 
   // Document-specific features
   showDocumentPreview?: boolean;
@@ -88,4 +95,11 @@ export interface UploadProgress {
   fileId: string;
   progress: number;
   status: 'uploading' | 'completed' | 'error';
+}
+
+export interface DateGroup {
+  date: string; // ISO date string (YYYY-MM-DD)
+  displayDate: string; // Formatted display string
+  files: FileItem[];
+  count: number;
 }

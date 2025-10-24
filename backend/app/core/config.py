@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     
     # SQLite Database Settings
     SQLITE_DB_PATH: str = "mjestimate_dev.db"
-    USE_SQLITE: bool = ENVIRONMENT == "development"
+    USE_SQLITE: bool = False  # Default to PostgreSQL for development
     
     # PostgreSQL Settings
     POSTGRES_HOST: Optional[str] = None

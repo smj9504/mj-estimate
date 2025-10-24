@@ -30,7 +30,7 @@ const getItemCode = (item: LineItemModalItem | LineItem): string => {
     return item.component_code || item.item_code || '';
   }
   // This is a LineItem
-  return (item as LineItem).name || '';
+  return (item as LineItem).item || '';
 };
 
 const getItemDescription = (item: LineItemModalItem | LineItem): string => {
