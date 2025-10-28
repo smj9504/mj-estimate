@@ -27,7 +27,11 @@ class WaterMitigationJob(Base, BaseModel):
     status = Column(String(50), default='Lead', nullable=False)
 
     # Google Sheets fields (A-P columns)
-    property_address = Column(String(500), nullable=False, index=True)
+    property_address = Column(String(500), nullable=False, index=True)  # Full address (for search & compatibility)
+    property_street = Column(String(255))  # Street address
+    property_city = Column(String(100))  # City
+    property_state = Column(String(50))  # State/Province
+    property_zipcode = Column(String(20))  # Zipcode/Postal code
     homeowner_name = Column(String(255))
     homeowner_phone = Column(String(50))
     homeowner_email = Column(String(255))

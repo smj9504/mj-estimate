@@ -32,13 +32,29 @@ def parse_companycam_address(project: CompanyCamProject) -> AddressInfo:
     if not project.address:
         return address_info
 
-    # CompanyCam address structure: {street, city, state, zip}
+    # CompanyCam address structure from webhook:
+    # {
+    #   "street_address_1": "123 Main St",
+    #   "street_address_2": null,
+    #   "city": "Gangnam",
+    #   "state": "Seoul",
+    #   "postal_code": "06134",
+    #   "country": "US"
+    # }
     address_data = project.address
 
-    address_info.street = address_data.get("street", "").strip()
-    address_info.city = address_data.get("city", "").strip()
-    address_info.state = address_data.get("state", "").strip()
-    address_info.zipcode = address_data.get("zip", "").strip()
+    # Handle None values from CompanyCam API
+    # Combine street_address_1 and street_address_2 if both exist
+    street_parts = []
+    if address_data.get("street_address_1"):
+        street_parts.append(address_data.get("street_address_1"))
+    if address_data.get("street_address_2"):
+        street_parts.append(address_data.get("street_address_2"))
+
+    address_info.street = " ".join(street_parts).strip() if street_parts else ""
+    address_info.city = (address_data.get("city") or "").strip()
+    address_info.state = (address_data.get("state") or "").strip()
+    address_info.zipcode = (address_data.get("postal_code") or address_data.get("zip") or "").strip()
 
     return address_info
 

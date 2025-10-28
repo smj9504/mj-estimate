@@ -25,11 +25,20 @@ aiofiles==23.2.1
 openpyxl==3.1.2
 Pillow==10.1.0
 
+# Google Drive Integration
+google-auth==2.23.4
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+google-api-python-client==2.108.0
+
+# Google Cloud Storage (RECOMMENDED for production)
+google-cloud-storage==2.14.0
+
 # PDF Generation
 playwright==1.40.0
 weasyprint==62.3
 jinja2==3.1.2
-pypdf==3.17.0
+pypdf>=5.0.0  # Updated to avoid ARC4 deprecation warning (was 3.17.0)
 reportlab==4.0.7
 
 # Email (optional, for sending documents)
@@ -39,3 +48,19 @@ reportlab==4.0.7
 pytest==7.4.3
 pytest-asyncio==0.21.1
 httpx==0.24.1
+
+# Scheduling
+apscheduler==3.10.4
+
+# Database Migration
+alembic==1.13.1
+
+# Material Detection APIs
+roboflow==1.1.11
+google-cloud-vision==3.5.0
+
+# Image Processing
+opencv-python==4.9.0.80
+
+# Redis Caching (async)
+aioredis==2.0.1

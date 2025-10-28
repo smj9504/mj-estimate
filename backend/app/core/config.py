@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     TEMPLATE_DIR: Path = BASE_DIR / "templates"
 
     # External Integrations
+    # Integration Feature Toggle
+    ENABLE_INTEGRATIONS: bool = os.getenv("ENABLE_INTEGRATIONS", "true").lower() == "true"
+
     # CompanyCam Integration
     COMPANYCAM_API_KEY: str = os.getenv("COMPANYCAM_API_KEY", "")
     COMPANYCAM_WEBHOOK_TOKEN: str = os.getenv("COMPANYCAM_WEBHOOK_TOKEN", "")
@@ -96,13 +99,53 @@ class Settings(BaseSettings):
     # Slack Integration
     SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
     SLACK_CHANNEL: str = os.getenv("SLACK_CHANNEL", "#work-orders")
+    SLACK_BOT_TOKEN: str = os.getenv("SLACK_BOT_TOKEN", "")  # OAuth Bot Token (xoxb-...)
+    SLACK_APP_TOKEN: str = os.getenv("SLACK_APP_TOKEN", "")  # App-level token (xapp-...)
 
     # Frontend URL (for generating links in notifications)
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
-    # Google Sheets Integration (future)
+    # Google Sheets Integration
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+
+    # Multiple Google Sheets support
+    GOOGLE_SHEETS_WATER_MITIGATION_ID: Optional[str] = os.getenv("GOOGLE_SHEETS_WATER_MITIGATION_ID")
+    GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAME: str = os.getenv("GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAME", "Sheet1")
+
+    GOOGLE_SHEETS_WORK_ORDER_ID: Optional[str] = os.getenv("GOOGLE_SHEETS_WORK_ORDER_ID")
+    GOOGLE_SHEETS_WORK_ORDER_SHEET_NAME: str = os.getenv("GOOGLE_SHEETS_WORK_ORDER_SHEET_NAME", "Sheet1")
+
+    GOOGLE_SHEETS_INVOICE_ID: Optional[str] = os.getenv("GOOGLE_SHEETS_INVOICE_ID")
+    GOOGLE_SHEETS_INVOICE_SHEET_NAME: str = os.getenv("GOOGLE_SHEETS_INVOICE_SHEET_NAME", "Sheet1")
+
+    # Legacy support
     GOOGLE_SHEETS_CREDENTIALS: Optional[str] = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
     GOOGLE_SHEETS_SPREADSHEET_ID: Optional[str] = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
+
+    # Material Detection Feature Toggle
+    ENABLE_MATERIAL_DETECTION: bool = os.getenv("ENABLE_MATERIAL_DETECTION", "true").lower() == "true"
+
+    # Roboflow API
+    ROBOFLOW_API_KEY: str = os.getenv("ROBOFLOW_API_KEY", "")
+    ROBOFLOW_WORKSPACE: str = os.getenv("ROBOFLOW_WORKSPACE", "")
+    ROBOFLOW_MODEL_ID: str = os.getenv("ROBOFLOW_MODEL_ID", "construction-materials")
+    ROBOFLOW_MODEL_VERSION: str = os.getenv("ROBOFLOW_MODEL_VERSION", "1")
+
+    # Google Cloud Vision API
+    GOOGLE_CLOUD_VISION_KEY: Optional[str] = os.getenv("GOOGLE_CLOUD_VISION_KEY")
+    GOOGLE_VISION_ENABLED: bool = os.getenv("GOOGLE_VISION_ENABLED", "false").lower() == "true"
+
+    # Material Detection Settings
+    MATERIAL_DETECTION_CONFIDENCE_THRESHOLD: float = float(os.getenv("MATERIAL_DETECTION_CONFIDENCE_THRESHOLD", "0.70"))
+    MATERIAL_DETECTION_MAX_IMAGES_PER_JOB: int = int(os.getenv("MATERIAL_DETECTION_MAX_IMAGES_PER_JOB", "50"))
+
+    # Storage Configuration
+    STORAGE_PROVIDER: str = os.getenv("STORAGE_PROVIDER", "local")  # local, gdrive, s3, azure
+    STORAGE_BASE_DIR: str = os.getenv("STORAGE_BASE_DIR", "uploads")
+
+    # Google Drive Storage Settings
+    GDRIVE_SERVICE_ACCOUNT_FILE: Optional[str] = os.getenv("GDRIVE_SERVICE_ACCOUNT_FILE")
+    GDRIVE_ROOT_FOLDER_ID: Optional[str] = os.getenv("GDRIVE_ROOT_FOLDER_ID")
 
     class Config:
         env_file = f".env.{os.getenv('ENVIRONMENT', 'development')}"

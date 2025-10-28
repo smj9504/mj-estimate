@@ -35,6 +35,7 @@ import type {
 } from '../types/waterMitigation';
 import { JOB_STATUS_OPTIONS } from '../types/waterMitigation';
 import JobFormModal from '../components/water-mitigation/JobFormModal';
+import GoogleSheetsSyncButton from '../components/water-mitigation/GoogleSheetsSyncButton';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -250,13 +251,21 @@ const WaterMitigationList: React.FC = () => {
       <Card
         title="Water Mitigation Jobs"
         extra={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={handleOpenCreateModal}
-          >
-            New Job
-          </Button>
+          <Space>
+            <GoogleSheetsSyncButton
+              onSyncComplete={loadJobs}
+              type="default"
+              size="middle"
+              showStats={true}
+            />
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleOpenCreateModal}
+            >
+              New Job
+            </Button>
+          </Space>
         }
       >
         {/* Filters */}

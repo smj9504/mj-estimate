@@ -1,8 +1,22 @@
 """
-Google Sheets Integration Module (Future Implementation)
+Google Sheets integration module
 
-Will handle Google Sheets synchronization for:
-- Water Mitigation data export/import
-- Work Order data sync
-- Real-time updates via Google Sheets API
+This module handles:
+- Reading data from Google Sheets
+- Syncing Google Sheets data with Water Mitigation jobs
+- Webhook handling for real-time updates
 """
+
+from .api import router
+from .client import GoogleSheetsClient, WM_HEADER_MAPPING
+from .sync_service import GoogleSheetsSyncService
+from .utils import addresses_match, normalize_address
+
+__all__ = [
+    "router",
+    "GoogleSheetsClient",
+    "GoogleSheetsSyncService",
+    "WM_HEADER_MAPPING",
+    "addresses_match",
+    "normalize_address"
+]

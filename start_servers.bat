@@ -52,7 +52,7 @@ if %errorlevel% equ 0 (
 )
 
 echo   ^> Starting new backend server...
-start "MJ Backend Server" cmd /c "cd backend && python -m uvicorn app.main:app --reload --port 8000 --host 127.0.0.1 && pause"
+start "MJ Backend Server" cmd /c "cd backend && venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000 --host 127.0.0.1 && pause"
 echo   ^> Backend started in new window
 timeout /t 3 /nobreak >nul
 

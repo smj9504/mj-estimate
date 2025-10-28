@@ -3,7 +3,7 @@ Sketch domain Pydantic schemas
 """
 
 from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, ConfigDict
 from datetime import datetime
 from uuid import UUID
 from decimal import Decimal
@@ -104,6 +104,8 @@ class MeasurementResponse(MeasurementBase):
 
 class FixtureBase(BaseModel):
     """Base schema for fixtures"""
+    model_config = ConfigDict(protected_namespaces=())
+
     name: str = Field(min_length=1, max_length=255)
     fixture_type: str = Field(min_length=1, max_length=100)
 
@@ -174,6 +176,8 @@ class FixtureCreate(FixtureBase):
 
 class FixtureUpdate(BaseModel):
     """Schema for updating fixtures"""
+    model_config = ConfigDict(protected_namespaces=())
+
     wall_id: Optional[UUID] = None
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     fixture_type: Optional[str] = Field(None, min_length=1, max_length=100)
@@ -220,14 +224,13 @@ class FixtureUpdate(BaseModel):
 
 class FixtureResponse(FixtureBase):
     """Response schema for fixtures"""
+    model_config = ConfigDict(protected_namespaces=(), from_attributes=True)
+
     id: UUID
     room_id: UUID
     wall_id: Optional[UUID] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 
 # ===== WALL SCHEMAS =====

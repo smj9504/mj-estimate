@@ -321,6 +321,96 @@ class WaterMitigationService:
 
         return created_photo
 
+    async def save_companycam_photo(
+        self,
+        job_id: UUID,
+        photo_bytes: bytes,
+        filename: str,
+        companycam_photo_id: str,
+        mime_type: str = 'image/jpeg',
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        captured_date: Optional[datetime] = None
+    ) -> WMPhoto:
+        """
+        Save CompanyCam photo to Water Mitigation job
+
+        Args:
+            job_id: Water mitigation job ID
+            photo_bytes: Photo file bytes
+            filename: Original filename
+            companycam_photo_id: CompanyCam photo ID
+            mime_type: MIME type of the photo
+            title: Photo title
+            description: Photo description
+            captured_date: When the photo was captured
+
+        Returns:
+            Created WMPhoto record
+        """
+        # Verify job exists
+        job = self.job_repo.get_by_id(job_id)
+        if not job:
+            raise ValueError(f"Job {job_id} not found")
+
+        # Create upload directory
+        job_upload_dir = UPLOAD_DIR / str(job_id)
+        job_upload_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate unique filename
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        file_ext = Path(filename).suffix or '.jpg'
+        unique_filename = f"companycam_{timestamp}_{filename}"
+        file_path = job_upload_dir / unique_filename
+
+        # Save photo bytes to file
+        try:
+            with file_path.open("wb") as f:
+                f.write(photo_bytes)
+            logger.info(f"Saved CompanyCam photo to {file_path}")
+        except Exception as e:
+            logger.error(f"Failed to save photo file: {e}")
+            raise
+
+        # Get file size
+        file_size = len(photo_bytes)
+
+        # Extract capture date from EXIF if not provided
+        if not captured_date:
+            is_image = mime_type and mime_type.startswith('image/')
+            if is_image:
+                try:
+                    captured_date = self._extract_photo_capture_date(file_path)
+                except Exception as e:
+                    logger.warning(f"Failed to extract EXIF date: {e}")
+                    captured_date = datetime.utcnow()
+            else:
+                captured_date = datetime.utcnow()
+
+        # Determine file type
+        file_type = 'photo' if mime_type and mime_type.startswith('image/') else 'video'
+
+        # Create photo record
+        photo_data = {
+            'job_id': job_id,
+            'source': 'companycam',
+            'external_id': companycam_photo_id,
+            'file_name': filename,
+            'file_path': str(file_path),
+            'file_size': file_size,
+            'mime_type': mime_type,
+            'file_type': file_type,
+            'title': title,
+            'description': description,
+            'captured_date': captured_date,
+            'upload_status': 'completed'
+        }
+
+        created_photo = self.photo_repo.create(photo_data)
+        logger.info(f"Created WMPhoto record for CompanyCam photo {companycam_photo_id}")
+
+        return created_photo
+
     def get_job_photos(self, job_id: UUID) -> List[WMPhoto]:
         """Get all photos for a job"""
         return self.photo_repo.find_by_job(job_id)
@@ -412,7 +502,18 @@ class WaterMitigationService:
 
     def get_all(self, filters: Optional[Dict[str, Any]] = None) -> List[WaterMitigationJob]:
         """Get all jobs with optional filters"""
-        return self.job_repo.find_all(filters=filters)
+        # Use find_by_filters for active jobs
+        if filters and 'active' in filters:
+            jobs, _ = self.job_repo.find_by_filters(
+                active=filters.get('active'),
+                page=1,
+                page_size=1000  # Get all active jobs
+            )
+            return jobs
+
+        # If no filters, get all (use find_by_filters with no filters)
+        jobs, _ = self.job_repo.find_by_filters(page=1, page_size=1000)
+        return jobs
 
     def get_by_id(self, job_id: UUID) -> Optional[WaterMitigationJob]:
         """Get job model by ID (not dict)"""

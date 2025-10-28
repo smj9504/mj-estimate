@@ -4,6 +4,41 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 React + TypeScript + FastAPI 기반 현대적 견적서/송장 관리 시스템
 
+## ⚠️ 프로젝트 구조 규칙 (MUST FOLLOW)
+
+### 환경변수 파일 (.env)
+```
+✅ CORRECT Structure:
+mj-react-app/
+├── backend/
+│   ├── .env.development         # Backend 개발 환경
+│   ├── .env.production          # Backend 프로덕션 환경
+│   └── .env.production.example  # Backend 프로덕션 템플릿
+└── frontend/
+    ├── .env                     # Frontend 개발 환경
+    └── .env.production          # Frontend 프로덕션 환경
+
+❌ NEVER create .env files in project root
+❌ NEVER duplicate .env files across directories
+```
+
+### 가상환경 (Virtual Environment)
+```
+✅ CORRECT Structure:
+mj-react-app/
+└── backend/
+    └── .venv/                   # Backend Python 가상환경 (ONLY HERE)
+
+❌ NEVER create venv/ or .venv/ in project root
+❌ NEVER create multiple venv directories (backend/venv, backend/.venv)
+❌ Backend uses .venv/ (with dot prefix) ONLY
+```
+
+### 규칙 요약
+1. **환경변수**: 각 서브프로젝트(backend, frontend) 폴더 안에만 위치
+2. **가상환경**: backend/.venv/ 단일 위치만 사용
+3. **절대 금지**: Root 레벨에 venv 또는 .env 파일 생성
+
 ## 프로젝트 개요
 
 MJ React App은 React 18 + TypeScript 프론트엔드와 FastAPI 백엔드를 사용하는 현대적인 견적서/송장 관리 시스템입니다. Domain-Driven Design 아키텍처를 기반으로 하며, Ant Design UI 라이브러리를 사용합니다.
@@ -18,7 +53,7 @@ start_servers.bat
 # Manual start - Backend (Terminal 1)
 cd backend && python -m uvicorn app.main:app --reload --port 8000
 
-# Manual start - Frontend (Terminal 2)  
+# Manual start - Frontend (Terminal 2)
 cd frontend && npm start
 ```
 
@@ -58,6 +93,35 @@ cd backend && pytest
 
 ## 아키텍처
 
+### 시스템 아키텍처 개요
+
+```
+┌─────────────────┐     ┌─────────────────────────────────────┐
+│   Frontend      │────▶│   Backend (FastAPI)                 │
+│   (React)       │     │   - Business Logic                  │
+│   Port 3000     │     │   - Data Management                 │
+└─────────────────┘     │   - External Integrations (선택적)  │
+                        │     ├─ CompanyCam                   │
+                        │     ├─ Google Sheets                │
+                        │     └─ Slack                        │
+                        └─────────────────────────────────────┘
+                                        │
+                        ┌───────────────┼───────────────┐
+                        ▼               ▼               ▼
+                   CompanyCam     Google Sheets     Slack
+                      API             API            API
+```
+
+**통합 아키텍처 (Integrated Architecture):**
+- **Frontend**: React 기반 사용자 인터페이스 (port 3000)
+- **Backend**: 비즈니스 로직 + 외부 통합 관리 (port 8000)
+
+**통합 모듈 설계:**
+- **논리적 분리**: `domains/integrations/` 디렉토리로 격리
+- **선택적 활성화**: `ENABLE_INTEGRATIONS` 환경 변수로 제어
+- **독립적 에러 핸들링**: 통합 실패가 메인 앱에 영향 없음
+- **향후 확장 가능**: 필요시 별도 서비스로 쉽게 분리 가능
+
 ### 백엔드 (FastAPI) - `backend/app/`
 
 #### Domain-Driven Design 구조
@@ -65,7 +129,7 @@ cd backend && pytest
 backend/app/
 ├── core/                    # 핵심 인프라
 │   ├── database_factory.py  # 데이터베이스 팩토리 (PostgreSQL/SQLite/Supabase)
-│   ├── config.py            # 환경 설정
+│   ├── config.py            # 환경 설정 (ENABLE_INTEGRATIONS 포함)
 │   └── interfaces.py        # 추상화 인터페이스
 ├── common/                  # 공통 컴포넌트
 │   └── base_repository.py   # 기본 저장소 패턴
@@ -75,9 +139,45 @@ backend/app/
 │   ├── invoice/            # 송장 관리
 │   ├── estimate/           # 견적서 관리
 │   ├── work_order/         # 작업 지시서
+│   ├── water_mitigation/   # 수해복구 작업
+│   ├── integrations/       # 외부 서비스 통합 (선택적)
+│   │   ├── companycam/    # CompanyCam 통합
+│   │   ├── google_sheets/ # Google Sheets 통합
+│   │   └── slack/         # Slack 통합
 │   └── staff/              # 직원 관리
 └── main.py                 # FastAPI 앱 진입점
 ```
+
+### External Integrations (선택적 기능)
+
+#### 통합 모듈 구조
+```
+backend/app/domains/integrations/
+├── companycam/              # CompanyCam 통합
+│   ├── client.py           # CompanyCam API 클라이언트
+│   ├── webhook_handler_wm.py  # Water Mitigation 웹훅 처리
+│   ├── schemas.py          # 데이터 스키마
+│   └── utils.py            # 유틸리티 함수
+├── google_sheets/          # Google Sheets 통합
+│   ├── client.py           # Google Sheets API
+│   ├── sync_service.py     # 동기화 서비스
+│   ├── scheduler.py        # 자동 동기화 스케줄러
+│   └── api.py              # API 엔드포인트
+├── slack/                  # Slack 통합
+│   ├── client.py           # Slack API 클라이언트
+│   └── templates.py        # 메시지 템플릿
+├── api.py                  # 통합 API 라우터
+├── models.py               # 웹훅 이벤트 모델
+└── schemas.py              # 공통 스키마
+```
+
+#### 통합 기능 관리
+- **Feature Toggle**: `ENABLE_INTEGRATIONS=true/false` 환경 변수로 제어
+- **조건부 로딩**: 통합 비활성화 시 관련 라우터와 서비스 로드 안 함
+- **독립적 에러**: 통합 실패가 메인 앱 동작에 영향 없음
+- **Webhook 처리**: CompanyCam, Slack 등 외부 서비스 webhook 수신
+- **자동 동기화**: Google Sheets 양방향 동기화
+- **알림 전송**: Slack 알림 발송
 
 #### 도메인 패턴 (각 도메인별 동일 구조)
 - `api.py` - REST API 엔드포인트
@@ -146,12 +246,21 @@ frontend/src/
 
 ## Important URLs & Services
 
+### Application Servers
 - **프론트엔드**: http://localhost:3000
-- **백엔드 API**: http://localhost:8000  
-- **API 문서 (Swagger)**: http://localhost:8000/docs
-- **API 문서 (ReDoc)**: http://localhost:8000/redoc
+- **백엔드 API**: http://localhost:8000
+- **백엔드 API 문서 (Swagger)**: http://localhost:8000/docs
+- **백엔드 API 문서 (ReDoc)**: http://localhost:8000/redoc
+
+### Infrastructure Services
 - **PgAdmin (when using Docker)**: http://localhost:8080
 - **PostgreSQL (Docker)**: localhost:5433
+- **Redis (Docker)**: localhost:6379
+
+### Integration Endpoints (if ENABLE_INTEGRATIONS=true)
+- **CompanyCam Webhooks**: http://localhost:8000/api/integrations/companycam/webhook
+- **Google Sheets Sync**: http://localhost:8000/api/integrations/google-sheets/sync
+- **Integration Health**: http://localhost:8000/api/integrations/health
 
 ## Configuration & Environment
 
@@ -160,9 +269,10 @@ Frontend development server proxies `/api/*` requests to `localhost:8000` automa
 
 ### Backend Environment Files
 Backend uses environment-specific `.env` files in `backend/` directory:
-- `.env.development` - Development settings (Docker PostgreSQL)
-- `.env.production` - Production settings (Supabase)
+- `.env.development` - Development settings (Docker PostgreSQL, Local Storage)
+- `.env.production` - Production settings (Supabase, Google Drive Storage)
 - `.env.example` - Template with required variables
+- `.env.storage.example` - Storage configuration examples
 
 ### Database Configuration
 
@@ -177,7 +287,7 @@ docker-compose -f docker-compose.dev.yml up -d
 ```
 
 #### Database Options
-1. **Docker PostgreSQL (Default)** - Local development with `docker-compose.dev.yml`
+1. **Docker PostgreSQL (Development)** - Local development with `docker-compose.dev.yml`
    - PostgreSQL 15 on port 5433
    - PgAdmin on port 8080
    - Redis on port 6379
@@ -186,9 +296,11 @@ docker-compose -f docker-compose.dev.yml up -d
    - Set `USE_SQLITE=true` in `.env.development`
    - Set `DATABASE_TYPE=sqlite`
 
-3. **Supabase (Production)** - Cloud PostgreSQL for production
+3. **NeonDB (Production)** - Serverless PostgreSQL for production deployment
+   - Free tier: 0.5GB storage, 100 CU-hours/month
    - Configured in `.env.production`
-   - Requires `SUPABASE_URL` and `SUPABASE_KEY`
+   - Auto scale-to-zero when idle
+   - See [DEPLOYMENT.md](./DEPLOYMENT.md) for setup guide
 
 ## Key Architecture Patterns
 
@@ -215,5 +327,93 @@ Each domain follows a consistent 5-file pattern:
 - **Development**: CRACO (frontend) + Uvicorn hot reload (backend)
 - **Database**:
   - Development: Docker PostgreSQL (default)
-  - Production: Supabase (PostgreSQL)
+  - Production: NeonDB (Serverless PostgreSQL)
   - Optional: SQLite for lightweight development
+- **File Storage**:
+  - Development: Local filesystem (default)
+  - Production: Google Drive (30GB free, recommended)
+  - Future: AWS S3, Azure Blob (extensible architecture)
+
+## 🚀 Deployment
+
+### Production Deployment (Recommended)
+```
+Frontend: Vercel (Free)
+Backend:  Render ($7/month for always-on with scheduler)
+Database: NeonDB (Free tier)
+```
+
+**Total Cost**: $7/month for stable production with auto-sync features
+
+### Quick Deploy Guide
+1. **Database**: Create NeonDB project at [neon.com](https://neon.com)
+2. **Backend**: Deploy to Render using `render.yaml`
+3. **Frontend**: Deploy to Vercel with GitHub integration
+4. **Configure**: Set environment variables in platform dashboards
+
+📖 **Full deployment guide**: See [DEPLOYMENT.md](./DEPLOYMENT.md)
+
+### Deployment Architecture
+```
+┌─────────────┐      ┌──────────────┐      ┌──────────────┐
+│   Vercel    │ ───> │    Render    │ ───> │   NeonDB     │
+│  (Frontend) │      │  (Backend)   │      │ (PostgreSQL) │
+│    무료      │      │    $7/월     │      │     무료      │
+└─────────────┘      └──────────────┘      └──────────────┘
+        │                    │                      │
+        │                    ├──> Google Drive ────┘
+        │                    │    (File Storage, 30GB free)
+        │                    │
+        │                    ├──> Google Sheets (Scheduler: 5min)
+        │                    ├──> CompanyCam (Webhook)
+        │                    └──> Slack (Notifications)
+```
+
+### Why This Stack?
+- ✅ **Low Cost**: $7/month for full production
+- ✅ **Scheduler Support**: Backend always-on for Google Sheets auto-sync
+- ✅ **File Storage**: Google Drive 30GB free, automatic backup
+- ✅ **Auto HTTPS**: Both platforms provide free SSL
+- ✅ **Auto Deploy**: Git push triggers automatic deployment
+- ✅ **Scalable**: Easy to upgrade as traffic grows
+
+## 📦 File Storage System
+
+### Flexible Storage Architecture
+The system supports multiple storage providers through a flexible abstraction layer:
+
+**Supported Providers**:
+- **Local Storage**: Development (default)
+- **Google Drive**: Production (recommended, 30GB free)
+- **AWS S3**: Future support (extensible)
+- **Azure Blob**: Future support (extensible)
+
+**Key Features**:
+- Switch providers via environment variable (no code changes)
+- Job-based folder organization
+- Automatic thumbnail generation
+- Metadata management
+- Easy migration between providers
+
+### Quick Setup
+
+**Development (Local Storage)**:
+```bash
+# .env.development (default)
+STORAGE_PROVIDER=local
+STORAGE_BASE_DIR=uploads
+```
+
+**Production (Google Drive)**:
+```bash
+# .env.production
+STORAGE_PROVIDER=gdrive
+GDRIVE_SERVICE_ACCOUNT_FILE=./secrets/service-account-key.json
+GDRIVE_ROOT_FOLDER_ID=your_folder_id
+```
+
+### Documentation
+- **Quick Start**: [backend/docs/STORAGE_QUICK_START.md](./backend/docs/STORAGE_QUICK_START.md) (5 minutes)
+- **Complete Setup**: [backend/docs/GOOGLE_CLOUD_SETUP.md](./backend/docs/GOOGLE_CLOUD_SETUP.md)
+- **Integration Guide**: [STORAGE_INTEGRATION.md](./STORAGE_INTEGRATION.md)
+- **Storage Module**: [backend/app/domains/storage/README.md](./backend/app/domains/storage/README.md)

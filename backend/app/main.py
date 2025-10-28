@@ -44,11 +44,16 @@ from app.domains.file.api import router as file_router
 from app.domains.sketch.api import router as sketch_router
 from app.domains.receipt.api import router as receipt_router
 from app.domains.water_mitigation.api import router as water_mitigation_router
-from app.domains.integrations.api import router as integrations_router
 from app.core.config import settings
 from app.core.database_factory import get_database, db_factory
 # Service factory removed - using direct service instantiation
 from app.core.interfaces import DatabaseException, ConnectionError, ConfigurationError
+
+# Conditional integration imports (only if enabled)
+if settings.ENABLE_INTEGRATIONS:
+    from app.domains.integrations.api import router as integrations_router
+    from app.domains.integrations.google_sheets.api import router as google_sheets_router
+    from app.domains.integrations.google_sheets.scheduler import start_scheduler, stop_scheduler
 
 # Configure logging system
 from app.core.logging_config import setup_logging, get_access_logger, get_error_logger
@@ -85,7 +90,12 @@ async def lifespan(app: FastAPI):
         if hasattr(database, 'init_database'):
             database.init_database()
             logger.info("Database tables initialized")
-        
+
+        # Start integration services if enabled
+        if settings.ENABLE_INTEGRATIONS:
+            start_scheduler()
+            logger.info("Integration services started (Google Sheets scheduler)")
+
         logger.info("Application startup completed successfully")
         yield
         
@@ -102,6 +112,11 @@ async def lifespan(app: FastAPI):
         # Cleanup on shutdown
         logger.info("Shutting down application...")
         try:
+            # Stop integration services if enabled
+            if settings.ENABLE_INTEGRATIONS:
+                stop_scheduler()
+                logger.info("Integration services stopped")
+
             db_factory.reset()
             # Services cleanup handled individually
             logger.info("Application shutdown completed")
@@ -295,8 +310,11 @@ app.include_router(receipt_router, prefix="/api/receipts", tags=["Receipts & Tem
 # Water Mitigation System endpoints
 app.include_router(water_mitigation_router, prefix="/api")
 
-# External Integrations endpoints (CompanyCam, Slack, Google Sheets)
-app.include_router(integrations_router, prefix="/api/integrations", tags=["External Integrations"])
+# External Integrations endpoints (conditionally loaded)
+if settings.ENABLE_INTEGRATIONS:
+    app.include_router(integrations_router, prefix="/api/integrations", tags=["External Integrations"])
+    app.include_router(google_sheets_router, prefix="/api/integrations/google-sheets", tags=["Google Sheets Integration"])
+    logger.info("Integration routes registered (CompanyCam, Google Sheets, Slack)")
 
 
 # System information endpoints

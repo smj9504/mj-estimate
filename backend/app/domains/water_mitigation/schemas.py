@@ -35,6 +35,10 @@ class JobStatus:
 class JobBase(BaseModel):
     """Base job schema"""
     property_address: str = Field(..., max_length=500)
+    property_street: Optional[str] = Field(None, max_length=255)
+    property_city: Optional[str] = Field(None, max_length=100)
+    property_state: Optional[str] = Field(None, max_length=50)
+    property_zipcode: Optional[str] = Field(None, max_length=20)
     homeowner_name: Optional[str] = Field(None, max_length=255)
     homeowner_phone: Optional[str] = Field(None, max_length=50)
     homeowner_email: Optional[str] = Field(None, max_length=255)
@@ -89,6 +93,10 @@ class JobCreate(JobBase):
 class JobUpdate(BaseModel):
     """Update job request (all fields optional)"""
     property_address: Optional[str] = Field(None, max_length=500)
+    property_street: Optional[str] = Field(None, max_length=255)
+    property_city: Optional[str] = Field(None, max_length=100)
+    property_state: Optional[str] = Field(None, max_length=50)
+    property_zipcode: Optional[str] = Field(None, max_length=20)
     homeowner_name: Optional[str] = Field(None, max_length=255)
     homeowner_phone: Optional[str] = Field(None, max_length=50)
     homeowner_email: Optional[str] = Field(None, max_length=255)
@@ -147,6 +155,12 @@ class JobResponse(JobBase):
     client_id: Optional[UUID] = None
     active: bool
     status: str
+
+    # Separated address fields (inherited from JobBase)
+    property_street: Optional[str] = None
+    property_city: Optional[str] = None
+    property_state: Optional[str] = None
+    property_zipcode: Optional[str] = None
 
     companycam_project_id: Optional[str] = None
     google_sheet_row_number: Optional[int] = None
@@ -406,4 +420,3 @@ class GenerateDocumentRequest(BaseModel):
 
 # Alias for CompanyCam integration
 WaterMitigationJobCreate = JobCreate
-WMPhotoCreate = PhotoCreate

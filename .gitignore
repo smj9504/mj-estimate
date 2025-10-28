@@ -8,10 +8,15 @@ claude-*
 
 # Dependencies
 node_modules/
-venv/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Virtual Environments (ONLY backend/.venv/ is allowed)
+venv/
+.venv/
+backend/.venv/
+!backend/.venv/.gitkeep
 
 # Build outputs
 /frontend/build/
@@ -19,13 +24,22 @@ __pycache__/
 *.tsbuildinfo
 
 # Environment files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+# Root level .env files (should NOT exist per project structure)
+/.env
+/.env.local
+/.env.*
+
+# Backend environment files (keep examples, ignore actual configs)
 backend/.env
 backend/.env.local
+backend/.env.development
+backend/.env.production
+!backend/.env.*.example
+
+# Frontend environment files (keep examples, ignore actual configs)
+frontend/.env.local
+!frontend/.env
+!frontend/.env.production
 
 # Database
 *.db
@@ -35,6 +49,12 @@ mjestimate_dev.db
 /backend/logs/
 /backend/scripts/
 /backend/migrations/
+/backend/storage/water-mitigation/
+
+# Secrets directory - only allow README.md and .gitkeep
+backend/secrets/*
+!backend/secrets/README.md
+!backend/secrets/.gitkeep
 
 
 # IDE files
@@ -128,6 +148,9 @@ temp/
 
 # Reference files
 reference/
-docs/
 backend/tests
 backend/stroage/water-mitigation/documents
+
+# Documentation (keep deployment docs)
+!docs/DEPLOYMENT.md
+/docs/

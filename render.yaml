@@ -1,0 +1,51 @@
+# Render Blueprint for MJ Estimate Application
+# https://render.com/docs/blueprint-spec
+
+services:
+  # Backend API Service
+  - type: web
+    name: mjestimate-backend
+    runtime: python
+    plan: starter  # Change to 'free' for testing, 'starter' ($7/mo) for production with always-on
+    region: oregon  # Change to your preferred region
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt && playwright install chromium
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: false
+      - key: DATABASE_TYPE
+        value: postgresql
+      - key: USE_SQLITE
+        value: false
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 8000
+      - key: LOG_LEVEL
+        value: INFO
+      - key: ENABLE_INTEGRATIONS
+        value: true
+      # IMPORTANT: Set these in Render Dashboard (not here for security)
+      # - DATABASE_URL (from NeonDB)
+      # - SECRET_KEY (generate random string)
+      # - COMPANYCAM_API_KEY
+      # - COMPANYCAM_WEBHOOK_TOKEN
+      # - SLACK_WEBHOOK_URL
+      # - SLACK_CHANNEL
+      # - GOOGLE_API_KEY
+      # - GOOGLE_SHEETS_WATER_MITIGATION_ID
+      # - FRONTEND_URL (Vercel URL)
+      # - CORS_ORIGINS (JSON array with Vercel URL)
+    healthCheckPath: /health
+    autoDeploy: true
+
+# Notes:
+# 1. This blueprint deploys only the backend to Render
+# 2. Frontend should be deployed to Vercel separately
+# 3. Set sensitive environment variables in Render Dashboard
+# 4. Free plan: Good for testing, sleeps after 15 minutes
+# 5. Starter plan ($7/mo): Always-on, required for scheduler to work
+# 6. Database: Use NeonDB free tier (set DATABASE_URL in dashboard)

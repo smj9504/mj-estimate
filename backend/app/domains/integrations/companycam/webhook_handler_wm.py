@@ -9,13 +9,15 @@ Processes incoming webhook events from CompanyCam:
 """
 
 import logging
-from typing import Optional
-from datetime import datetime
+import asyncio
+from typing import Optional, Dict
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from uuid import UUID
 
 from .schemas import (
     PhotoCreatedWebhook,
+    ProjectCreatedWebhook,
     WorkOrderMatch,
     PhotoProcessingResult,
     AddressInfo
@@ -33,7 +35,18 @@ logger = logging.getLogger(__name__)
 class CompanyCamWaterMitigationHandler:
     """
     Handler for CompanyCam webhook events for Water Mitigation
+
+    Implements smart batch notification:
+    - Tracks photos uploaded to each job
+    - Sends notification once per 5-minute window
+    - Includes count of all photos uploaded during that window
     """
+
+    # Class-level tracking for photo batch notifications
+    # Format: {job_id: {'last_notification': datetime, 'pending_photos': list}}
+    _photo_batches: Dict[str, Dict] = {}
+    _notification_cooldown_minutes = 5
+    _batch_window_seconds = 3  # Wait 3 seconds to collect batch uploads
 
     def __init__(self, db: Session):
         """
@@ -46,6 +59,507 @@ class CompanyCamWaterMitigationHandler:
         self.companycam_client = CompanyCamClient()
         self.wm_service = WaterMitigationService(db)
         self.slack_client = SlackClient()
+
+    def _should_send_photo_notification(self, job_id: UUID) -> tuple[bool, int]:
+        """
+        Check if we should send a Slack notification for this photo upload.
+        Implements smart batching with delayed aggregation:
+        - First photo: schedule delayed notification (3 seconds)
+        - Subsequent photos: add to pending, delayed task will send all
+        - Cooldown: wait N minutes before next batch
+
+        Strategy:
+        - First photo in batch: start async delay, return False (don't send now)
+        - Subsequent photos within batch window: accumulate, return False
+        - Delayed task: send notification with all accumulated photos
+
+        Args:
+            job_id: Water mitigation job ID
+
+        Returns:
+            Tuple of (should_send_immediately, photo_count) - always (False, 0) now
+        """
+        job_id_str = str(job_id)
+        now = datetime.utcnow()
+
+        # Get or create batch tracking for this job
+        if job_id_str not in self._photo_batches:
+            self._photo_batches[job_id_str] = {
+                'last_notification': None,
+                'pending_photos': [],
+                'last_photo_time': None,
+                'delayed_task': None  # Track async task
+            }
+
+        batch = self._photo_batches[job_id_str]
+
+        # Check main cooldown first
+        last_notif = batch.get('last_notification')
+        if last_notif:
+            cooldown_elapsed = now - last_notif
+            if cooldown_elapsed < timedelta(minutes=self._notification_cooldown_minutes):
+                # Still in main cooldown period - don't schedule anything
+                logger.info(f"Photo added to job {job_id}, in cooldown period")
+                return False, 0
+
+        # Add current photo to pending list
+        batch['pending_photos'].append(now)
+        batch['last_photo_time'] = now
+
+        # Cancel existing task if any (we'll restart the timer)
+        existing_task = batch.get('delayed_task')
+        if existing_task and not existing_task.done():
+            existing_task.cancel()
+            logger.info(f"Cancelled previous notification task for job {job_id} - restarting timer")
+
+        # Always start a new delayed notification task
+        # This ensures we wait 3 seconds after the LAST photo, not the first
+        task = asyncio.create_task(
+            self._send_delayed_batch_notification(job_id, delay_seconds=self._batch_window_seconds)
+        )
+        batch['delayed_task'] = task
+        logger.info(f"Started delayed notification task for job {job_id} ({self._batch_window_seconds}s delay, {len(batch['pending_photos'])} photo(s) pending)")
+
+        # Never send immediately - always wait for delayed task
+        return False, 0
+
+    def _cleanup_old_batches(self):
+        """Clean up old batch tracking data to prevent memory leaks"""
+        now = datetime.utcnow()
+        cutoff = now - timedelta(hours=1)  # Keep last 1 hour of data
+
+        to_remove = []
+        for job_id, batch in self._photo_batches.items():
+            last_notif = batch.get('last_notification')
+            if last_notif and last_notif < cutoff and not batch['pending_photos']:
+                to_remove.append(job_id)
+
+        for job_id in to_remove:
+            del self._photo_batches[job_id]
+
+    async def _send_delayed_batch_notification(self, job_id: UUID, delay_seconds: int = 3):
+        """
+        Send batched photo notification after a delay.
+        This allows collecting multiple photos uploaded in quick succession.
+
+        Args:
+            job_id: Water mitigation job ID
+            delay_seconds: Seconds to wait before sending notification
+        """
+        db_session = None
+        try:
+            # Wait for the batch window to collect photos
+            await asyncio.sleep(delay_seconds)
+
+            job_id_str = str(job_id)
+
+            # Check if there are pending photos to notify
+            if job_id_str not in self._photo_batches:
+                return
+
+            batch = self._photo_batches[job_id_str]
+            pending_photos = batch.get('pending_photos', [])
+
+            if not pending_photos:
+                return
+
+            # Check cooldown
+            last_notif = batch.get('last_notification')
+            now = datetime.utcnow()
+            if last_notif:
+                cooldown_elapsed = now - last_notif
+                if cooldown_elapsed < timedelta(minutes=self._notification_cooldown_minutes):
+                    logger.info(f"Delayed notification skipped for job {job_id} - in cooldown period")
+                    return
+
+            # Create new DB session for this async task (original session is closed)
+            from ....core.database_factory import get_database
+            db = get_database()
+            db_session = db.get_session()
+
+            # Create new service instance with new session
+            wm_service = WaterMitigationService(db_session)
+
+            # Send notification with all accumulated photos
+            photo_count = len(pending_photos)
+            job = wm_service.get_by_id(job_id)
+
+            if job:
+                from ..slack.schemas import SlackMessage, SlackBlock
+
+                # Handle both dict and model object
+                property_address = job.get('property_address') if isinstance(job, dict) else job.property_address
+                status = job.get('status') if isinstance(job, dict) else job.status
+                created_at = job.get('created_at') if isinstance(job, dict) else job.created_at
+
+                # Parse string to datetime if needed
+                from datetime import timezone
+                if isinstance(created_at, str):
+                    from dateutil import parser
+                    created_at = parser.parse(created_at)
+
+                # Make sure both datetimes are timezone-aware for comparison
+                now_tz = datetime.now(timezone.utc)
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+
+                # Check if this is a newly created job (within last 2 minutes)
+                is_new_job = (now_tz - created_at) < timedelta(minutes=2)
+
+                if is_new_job:
+                    # New lead created message
+                    photo_text = f"with {photo_count} photo{'s' if photo_count > 1 else ''}" if photo_count > 1 else "with 1 photo"
+                    slack_message = SlackMessage(
+                        text=f"🆕 New Water Mitigation Lead Created",
+                        blocks=[
+                            SlackBlock(
+                                type="section",
+                                text={
+                                    "type": "mrkdwn",
+                                    "text": f"*New Lead from CompanyCam*\n"
+                                           f"• Address: {property_address}\n"
+                                           f"• Status: {status}\n"
+                                           f"• Photos: {photo_text}"
+                                }
+                            )
+                        ]
+                    )
+                else:
+                    # Photo uploaded to existing job
+                    photo_text = f"{photo_count} new photo{'s' if photo_count > 1 else ''}" if photo_count > 1 else "New photo"
+                    slack_message = SlackMessage(
+                        text=f"📸 {photo_text} added to Water Mitigation Job",
+                        blocks=[
+                            SlackBlock(
+                                type="section",
+                                text={
+                                    "type": "mrkdwn",
+                                    "text": f"*{photo_text} uploaded*\n"
+                                           f"• Job Address: {property_address}\n"
+                                           f"• Status: {status}\n"
+                                           f"• Total Photos: {photo_count}"
+                                }
+                            )
+                        ]
+                    )
+
+                success = await self.slack_client.send_message(slack_message)
+
+                if success:
+                    msg_type = "new lead" if is_new_job else f"{photo_count} photo(s)"
+                    logger.info(f"✅ Sent delayed batched Slack notification for {msg_type} to job {job_id}")
+
+                    # Update batch tracking
+                    batch['last_notification'] = now
+                    batch['pending_photos'] = []
+                    batch['last_photo_time'] = None
+                else:
+                    logger.warning(f"⚠️ Failed to send delayed Slack notification for job {job_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to send delayed batch notification: {e}", exc_info=True)
+        finally:
+            # Clean up DB session
+            if db_session:
+                db_session.close()
+                logger.debug(f"Closed DB session for delayed batch notification task (job {job_id})")
+
+    async def handle_project_created(
+        self,
+        webhook_data: ProjectCreatedWebhook,
+        webhook_event_id: Optional[UUID] = None
+    ) -> dict:
+        """
+        Handle project.created webhook event for Water Mitigation
+
+        When a new project is created in CompanyCam, create a Water Mitigation Lead.
+
+        Args:
+            webhook_data: Parsed webhook payload
+            webhook_event_id: ID of webhook event record
+
+        Returns:
+            Processing result with status
+        """
+        logger.info(f"Processing project.created event: project {webhook_data.project.id}")
+
+        result = {
+            "success": False,
+            "job_id": None,
+            "job_created": False,
+            "error_message": None
+        }
+
+        try:
+            # Check if job already exists for this project
+            companycam_project_id = str(webhook_data.project.id)
+            existing_job = self.wm_service.get_by_companycam_project(companycam_project_id)
+
+            if existing_job:
+                logger.info(f"Job already exists for project {companycam_project_id}: {existing_job.id}")
+                result["success"] = True
+                result["job_id"] = str(existing_job.id)
+                result["job_created"] = False
+                return result
+
+            # Parse address from payload.project.address
+            address_info = parse_companycam_address(webhook_data.project)
+
+            # Use address from project.address field (NOT project.name)
+            # project.name is a custom name, not the address
+            if address_info.full_address:
+                property_address = address_info.full_address
+            else:
+                # Fallback if no address provided
+                property_address = f"Project {companycam_project_id}"
+
+            # Create Water Mitigation Lead with separated address fields
+            # homeowner_name gets the project.name (which is NOT the address)
+            job_data = WaterMitigationJobCreate(
+                property_address=property_address,
+                property_street=address_info.street if address_info.street else None,
+                property_city=address_info.city if address_info.city else None,
+                property_state=address_info.state if address_info.state else None,
+                property_zipcode=address_info.zipcode if address_info.zipcode else None,
+                homeowner_name=webhook_data.project.name,  # This is the project name, not address
+                status="Lead",  # Default status for new projects
+                active=True,
+                companycam_project_id=companycam_project_id,
+            )
+
+            job = self.wm_service.create(job_data)
+
+            # Handle both dict and model object
+            job_id = job.get('id') if isinstance(job, dict) else job.id
+            logger.info(f"Created Water Mitigation Lead: {job_id} for project {companycam_project_id}")
+
+            result["success"] = True
+            result["job_id"] = str(job_id)
+            result["job_created"] = True
+
+            # Fetch and process photos from the newly created project
+            photos_processed = 0
+            try:
+                logger.info(f"Fetching photos for project {companycam_project_id}")
+                photos = await self.companycam_client.get_project_photos(int(companycam_project_id))
+
+                if photos:
+                    logger.info(f"Found {len(photos)} photos in project {companycam_project_id}")
+
+                    for photo in photos:
+                        try:
+                            # Convert raw photo data to PhotoCreatedWebhook format
+                            photo_webhook = self._convert_to_photo_webhook(
+                                photo,
+                                webhook_data.project.dict(),
+                                {"user": {"id": webhook_data.project.creator_id, "name": webhook_data.project.creator_name or "Unknown"}}
+                            )
+
+                            # Process the photo
+                            await self.handle_photo_created(photo_webhook, None)
+                            photos_processed += 1
+
+                        except Exception as e:
+                            logger.error(f"Failed to process photo {photo.get('id')}: {e}")
+
+                    logger.info(f"Successfully processed {photos_processed} photos for project {companycam_project_id}")
+                    result["photos_processed"] = photos_processed
+                else:
+                    logger.info(f"No photos found in project {companycam_project_id}")
+                    result["photos_processed"] = 0
+
+            except Exception as e:
+                logger.error(f"Failed to fetch/process photos for project {companycam_project_id}: {e}")
+                result["photos_processed"] = 0
+
+            # Update webhook event status
+            if webhook_event_id:
+                self._update_webhook_event(
+                    webhook_event_id,
+                    status="completed",
+                    error_message=None
+                )
+
+            # Send Slack notification only if no photos were processed
+            # (If photos exist, delayed batch notification will send combined message)
+            if photos_processed == 0:
+                try:
+                    from ..slack.schemas import SlackMessage, SlackBlock
+
+                    slack_message = SlackMessage(
+                        text=f"🆕 New Water Mitigation Lead Created",
+                        blocks=[
+                            SlackBlock(
+                                type="section",
+                                text={
+                                    "type": "mrkdwn",
+                                    "text": f"*New Lead from CompanyCam*\n"
+                                           f"• Project: {webhook_data.project.name or 'Unnamed'}\n"
+                                           f"• Address: {property_address}\n"
+                                           f"• Status: Lead\n"
+                                           f"• CompanyCam Project ID: {companycam_project_id}"
+                                }
+                            )
+                        ]
+                    )
+
+                    success = await self.slack_client.send_message(slack_message)
+                    if success:
+                        logger.info("✅ Sent Slack notification for new lead (no photos)")
+                    else:
+                        logger.warning("⚠️ Failed to send Slack notification for new lead")
+
+                except Exception as e:
+                    logger.error(f"Failed to send Slack notification: {e}", exc_info=True)
+            else:
+                logger.info(f"⏭️ Skipping project.created Slack notification - {photos_processed} photo(s) processed, delayed batch notification will handle it")
+
+        except Exception as e:
+            logger.error(f"Error processing project.created webhook: {e}", exc_info=True)
+            result["error_message"] = str(e)
+
+            if webhook_event_id:
+                self._update_webhook_event(
+                    webhook_event_id,
+                    status="failed",
+                    error_message=str(e)
+                )
+
+        return result
+
+    async def handle_project_updated(
+        self,
+        webhook_data: dict,
+        webhook_event_id: Optional[UUID] = None
+    ) -> PhotoProcessingResult:
+        """
+        Handle project.updated webhook event for Water Mitigation
+
+        This event fires when a project is updated, including when photos are saved.
+        We fetch the latest photos from the project to process them.
+
+        Workflow:
+        1. Extract project info from webhook
+        2. Fetch latest photos from CompanyCam API
+        3. Process only new photos (not already in our database)
+        4. Create/update water mitigation job
+        5. Send Slack notifications
+
+        Args:
+            webhook_data: Raw webhook payload dict
+            webhook_event_id: ID of webhook event record
+
+        Returns:
+            Processing result with status
+        """
+        logger.info(f"Processing project.updated event for Water Mitigation")
+
+        result = PhotoProcessingResult(
+            success=False,
+            work_order_match=WorkOrderMatch(matched=False, confidence=0.0)
+        )
+
+        try:
+            # Extract project info
+            project_data = webhook_data.get("payload", {}).get("project", {})
+            project_id = project_data.get("id")
+
+            if not project_id:
+                logger.warning("No project ID in webhook payload")
+                result.error_message = "No project ID in webhook"
+                return result
+
+            logger.info(f"Project updated: {project_id}")
+
+            # Fetch latest photos from CompanyCam API (convert to int)
+            photos = await self.companycam_client.get_project_photos(int(project_id))
+
+            if not photos:
+                logger.info(f"No photos found for project {project_id}")
+                result.success = True
+                return result
+
+            # Process only new photos (not already synced)
+            new_photos = []
+            for photo in photos:
+                photo_id = str(photo.get("id"))
+                existing = self.db.query(CompanyCamPhoto).filter(
+                    CompanyCamPhoto.companycam_photo_id == photo_id
+                ).first()
+
+                if not existing:
+                    new_photos.append(photo)
+
+            logger.info(f"Found {len(new_photos)} new photos out of {len(photos)} total")
+
+            # Process each new photo
+            for photo in new_photos:
+                try:
+                    # Convert raw photo data to PhotoCreatedWebhook format
+                    photo_webhook = self._convert_to_photo_webhook(photo, project_data, webhook_data)
+                    await self.handle_photo_created(photo_webhook, webhook_event_id)
+                except Exception as e:
+                    logger.error(f"Error processing photo {photo.get('id')}: {e}")
+
+            result.success = True
+
+        except Exception as e:
+            logger.error(f"Error processing project.updated webhook: {e}", exc_info=True)
+            result.error_message = str(e)
+
+            if webhook_event_id:
+                self._update_webhook_event(
+                    webhook_event_id,
+                    status="failed",
+                    error_message=str(e)
+                )
+
+        return result
+
+    def _convert_to_photo_webhook(self, photo: dict, project: dict, webhook_data: dict) -> PhotoCreatedWebhook:
+        """
+        Convert raw API photo data to PhotoCreatedWebhook format
+
+        Args:
+            photo: Photo data from API
+            project: Project data
+            webhook_data: Original webhook data for user info
+
+        Returns:
+            PhotoCreatedWebhook object
+        """
+        from .schemas import (
+            PhotoData, ProjectData, UserData,
+            PhotoCoordinates, PhotoURIs
+        )
+
+        # Build PhotoCreatedWebhook structure
+        return PhotoCreatedWebhook(
+            photo=PhotoData(
+                id=photo.get("id"),
+                uris=PhotoURIs(
+                    original=photo.get("uris", {}).get("original"),
+                    large=photo.get("uris", {}).get("large"),
+                    thumbnail=photo.get("uris", {}).get("thumbnail")
+                ),
+                photo_description=photo.get("photo_description"),
+                tags=photo.get("tags", []),
+                coordinates=PhotoCoordinates(**photo["coordinates"]) if photo.get("coordinates") else None,
+                created_at=photo.get("created_at"),
+                captured_at=photo.get("captured_at")
+            ),
+            project=ProjectData(
+                id=project.get("id"),
+                name=project.get("name"),
+                address=project.get("address", {}),
+                coordinates=project.get("coordinates")
+            ),
+            user=UserData(
+                id=webhook_data.get("user", {}).get("id"),
+                name=webhook_data.get("user", {}).get("name", "Unknown"),
+                email_address=webhook_data.get("user", {}).get("email_address")
+            )
+        )
 
     async def handle_photo_created(
         self,
@@ -83,32 +597,47 @@ class CompanyCamWaterMitigationHandler:
             address_info = parse_companycam_address(webhook_data.project)
             logger.info(f"Parsed address: {address_info.full_address}")
 
-            if not address_info.is_complete:
-                logger.warning(f"Incomplete address from project {webhook_data.project.id}")
-                result.error_message = "Incomplete address information"
-                return result
+            # Step 2: Try to find existing job by CompanyCam project ID first
+            companycam_project_id = str(webhook_data.project.id)
+            job_by_project = self.wm_service.get_by_companycam_project(companycam_project_id)
 
-            # Step 2: Search for matching water mitigation job
-            job_match = await self._find_matching_job(address_info, str(webhook_data.project.id))
-            result.work_order_match = job_match  # Reusing work_order_match for consistency
-
-            # Step 3 & 4: Create or attach to job
-            if job_match.matched and job_match.work_order_id:
-                # Attach photo to existing job
-                logger.info(f"Found matching water mitigation job: {job_match.work_order_number}")
-                job_id = job_match.work_order_id
-
-            else:
-                # Create new water mitigation job for unmatched address
-                logger.info(f"No matching job found. Creating new water mitigation job.")
-                job = await self._create_job_from_photo(
-                    webhook_data,
-                    address_info
+            if job_by_project:
+                # Found existing job by project ID
+                logger.info(f"Found existing job by CompanyCam project ID: {companycam_project_id}")
+                job_id = job_by_project.id
+                result.work_order_match = WorkOrderMatch(
+                    matched=True,
+                    work_order_id=job_id,
+                    work_order_number=None,
+                    confidence=1.0,
+                    match_type="exact_project_id"
                 )
-                job_id = job.id
-                result.work_order_created = True
-                result.work_order_match.work_order_id = job_id
-                # Water mitigation jobs don't have job numbers by default
+            else:
+                # No existing job found by project ID
+                if not address_info.is_complete:
+                    logger.warning(f"Incomplete address from project {companycam_project_id} and no existing job found")
+                    result.error_message = "Incomplete address information and no existing job"
+                    return result
+
+                # Try to find by address matching
+                job_match = await self._find_matching_job(address_info, companycam_project_id)
+                result.work_order_match = job_match
+
+                if job_match.matched and job_match.work_order_id:
+                    # Found job by address matching
+                    logger.info(f"Found matching water mitigation job by address")
+                    job_id = job_match.work_order_id
+                else:
+                    # Create new water mitigation job
+                    logger.info(f"No matching job found. Creating new water mitigation job.")
+                    job = await self._create_job_from_photo(
+                        webhook_data,
+                        address_info
+                    )
+                    # Handle both dict and model object
+                    job_id = job.get('id') if isinstance(job, dict) else job.id
+                    result.work_order_created = True
+                    result.work_order_match.work_order_id = job_id
 
             # Step 5: Save photo metadata
             companycam_photo = await self._save_photo_metadata(
@@ -129,17 +658,89 @@ class CompanyCamWaterMitigationHandler:
                 logger.error(f"Failed to download photo: {e}")
                 # Continue even if download fails - we have the metadata
 
-            # Step 7: Send Slack notification
+            # Step 7: Smart batch notification (send once per 5-minute window)
             try:
-                await self._send_slack_notification(
-                    job_id,
-                    webhook_data,
-                    is_new_job=result.work_order_created
-                )
-                result.slack_notified = True
+                should_send, photo_count = self._should_send_photo_notification(job_id)
+
+                if should_send:
+                    # Send batched notification with photo count
+                    job = self.wm_service.get_by_id(job_id)
+                    if job:
+                        from ..slack.schemas import SlackMessage, SlackBlock
+
+                        # Handle both dict and model object
+                        property_address = job.get('property_address') if isinstance(job, dict) else job.property_address
+                        status = job.get('status') if isinstance(job, dict) else job.status
+                        created_at = job.get('created_at') if isinstance(job, dict) else job.created_at
+
+                        # Parse string to datetime if needed
+                        from datetime import datetime, timedelta, timezone
+                        if isinstance(created_at, str):
+                            from dateutil import parser
+                            created_at = parser.parse(created_at)
+
+                        # Make sure both datetimes are timezone-aware for comparison
+                        now = datetime.now(timezone.utc)
+                        if created_at.tzinfo is None:
+                            # If created_at is naive, assume it's UTC
+                            created_at = created_at.replace(tzinfo=timezone.utc)
+
+                        # Check if this is a newly created job (within last 2 minutes)
+                        is_new_job = (now - created_at) < timedelta(minutes=2)
+
+                        if is_new_job:
+                            # New lead created message
+                            photo_text = f"with {photo_count} photo{'s' if photo_count > 1 else ''}" if photo_count > 1 else "with 1 photo"
+                            slack_message = SlackMessage(
+                                text=f"🆕 New Water Mitigation Lead Created",
+                                blocks=[
+                                    SlackBlock(
+                                        type="section",
+                                        text={
+                                            "type": "mrkdwn",
+                                            "text": f"*New Lead from CompanyCam*\n"
+                                                   f"• Address: {property_address}\n"
+                                                   f"• Status: {status}\n"
+                                                   f"• Photos: {photo_text}"
+                                        }
+                                    )
+                                ]
+                            )
+                        else:
+                            # Photo uploaded to existing job
+                            photo_text = f"{photo_count} new photo{'s' if photo_count > 1 else ''}" if photo_count > 1 else "New photo"
+                            slack_message = SlackMessage(
+                                text=f"📸 {photo_text} added to Water Mitigation Job",
+                                blocks=[
+                                    SlackBlock(
+                                        type="section",
+                                        text={
+                                            "type": "mrkdwn",
+                                            "text": f"*{photo_text} uploaded*\n"
+                                                   f"• Job Address: {property_address}\n"
+                                                   f"• Status: {status}\n"
+                                                   f"• Total Photos: {photo_count}"
+                                        }
+                                    )
+                                ]
+                            )
+
+                        success = await self.slack_client.send_message(slack_message)
+                        result.slack_notified = success
+
+                        if success:
+                            msg_type = "new lead" if is_new_job else f"{photo_count} photo(s)"
+                            logger.info(f"✅ Sent batched Slack notification for {msg_type} to job {job_id}")
+                        else:
+                            logger.warning(f"⚠️ Failed to send Slack notification for job {job_id}")
+                else:
+                    logger.info(f"Photo added to job {job_id}, notification in cooldown period")
+
+                # Cleanup old batch data periodically
+                self._cleanup_old_batches()
+
             except Exception as e:
-                logger.error(f"Failed to send Slack notification: {e}")
-                # Continue even if Slack fails
+                logger.error(f"Failed to send batched Slack notification: {e}", exc_info=True)
 
             # Step 8: Update webhook event status
             if webhook_event_id:
@@ -251,7 +852,10 @@ class CompanyCamWaterMitigationHandler:
         )
 
         job = self.wm_service.create(job_data)
-        logger.info(f"Created new water mitigation job: {job.id}")
+
+        # Handle both dict and model object
+        job_id = job.get('id') if isinstance(job, dict) else job.id
+        logger.info(f"Created new water mitigation job: {job_id}")
 
         return job
 
@@ -317,47 +921,54 @@ class CompanyCamWaterMitigationHandler:
             job_id: Water mitigation job ID
             companycam_photo_id: CompanyCamPhoto record ID
         """
-        # Download photo from CompanyCam
-        photo_bytes = await self.companycam_client.download_photo(
-            webhook_data.photo.uris.original
-        )
+        try:
+            # Download photo from CompanyCam
+            photo_bytes = await self.companycam_client.download_photo(
+                webhook_data.photo.uris.original
+            )
 
-        # Generate filename
-        filename = extract_photo_filename(
-            webhook_data.photo.uris.original,
-            webhook_data.photo.id
-        )
+            # Generate filename
+            filename = extract_photo_filename(
+                webhook_data.photo.uris.original,
+                webhook_data.photo.id
+            )
 
-        # Save photo to water mitigation job
-        # Use WaterMitigationService to create WMPhoto entry
-        from ...water_mitigation.schemas import WMPhotoCreate
+            # Parse captured date
+            captured_date = None
+            if webhook_data.photo.captured_at:
+                try:
+                    from dateutil import parser
+                    captured_date = parser.parse(webhook_data.photo.captured_at)
+                except Exception as e:
+                    logger.warning(f"Failed to parse captured_at date: {e}")
 
-        photo_create = WMPhotoCreate(
-            job_id=job_id,
-            source="companycam",
-            external_id=str(webhook_data.photo.id),
-            file_name=filename,
-            file_path=f"uploads/water_mitigation/{job_id}/{filename}",  # Adjust based on your storage
-            title=webhook_data.photo.photo_description or "CompanyCam Photo",
-            description=webhook_data.photo.photo_description,
-            captured_date=webhook_data.photo.captured_at or webhook_data.photo.created_at,
-            file_type="photo",
-            mime_type="image/jpeg"
-        )
+            # Save photo to water mitigation job
+            wm_photo = await self.wm_service.save_companycam_photo(
+                job_id=job_id,
+                photo_bytes=photo_bytes,
+                filename=filename,
+                companycam_photo_id=str(webhook_data.photo.id),
+                mime_type='image/jpeg',  # CompanyCam photos are typically JPEG
+                title=webhook_data.photo.photo_description,
+                description=webhook_data.photo.photo_description,
+                captured_date=captured_date
+            )
 
-        # Save photo bytes to file system or cloud storage
-        # TODO: Implement actual file storage based on your file service
-        logger.info(f"Downloaded photo {filename}, creating WMPhoto entry for job {job_id}")
+            logger.info(f"Successfully saved CompanyCam photo {webhook_data.photo.id} to WM job {job_id}")
 
-        # Update CompanyCamPhoto sync status
-        companycam_photo = self.db.query(CompanyCamPhoto).filter(
-            CompanyCamPhoto.id == companycam_photo_id
-        ).first()
+            # Update CompanyCamPhoto sync status
+            companycam_photo = self.db.query(CompanyCamPhoto).filter(
+                CompanyCamPhoto.id == companycam_photo_id
+            ).first()
 
-        if companycam_photo:
-            companycam_photo.is_synced = True
-            companycam_photo.synced_at = datetime.utcnow()
-            self.db.commit()
+            if companycam_photo:
+                companycam_photo.is_synced = True
+                companycam_photo.synced_at = datetime.utcnow()
+                self.db.commit()
+
+        except Exception as e:
+            logger.error(f"Failed to download and attach photo: {e}", exc_info=True)
+            raise
 
     async def _send_slack_notification(
         self,

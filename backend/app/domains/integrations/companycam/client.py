@@ -123,6 +123,27 @@ class CompanyCamClient:
             logger.error(f"Failed to download photo from {photo_url}: {e}")
             raise
 
+    async def get_project_photos(self, project_id: int, limit: int = 10) -> list:
+        """
+        Get recent photos from a project (non-paginated helper)
+
+        Args:
+            project_id: CompanyCam project ID
+            limit: Maximum number of photos to return
+
+        Returns:
+            List of photo dictionaries
+
+        Raises:
+            httpx.HTTPError: If API request fails
+        """
+        try:
+            result = await self.list_project_photos(project_id, page=1, per_page=limit)
+            return result.get("data", [])
+        except Exception as e:
+            logger.error(f"Failed to get photos for project {project_id}: {e}")
+            return []
+
     async def list_project_photos(
         self,
         project_id: int,

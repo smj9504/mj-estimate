@@ -122,7 +122,7 @@ class SQLAlchemySession(DatabaseSession):
         """Execute a SQL statement"""
         if self._closed:
             raise DatabaseException("Session is closed")
-        return self._session.execute(statement, parameters, execution_options)
+        return self._session.execute(statement, params=parameters, execution_options=execution_options)
 
     @property
     def is_closed(self) -> bool:

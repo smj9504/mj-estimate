@@ -36,7 +36,7 @@ class CompanyCamPhotoUris(BaseModel):
 class CompanyCamProject(BaseModel):
     """CompanyCam project information"""
     id: int
-    name: str
+    name: Optional[str] = None
     address: Optional[Dict[str, Any]] = None  # {street, city, state, zip}
     coordinates: Optional[CompanyCamCoordinates] = None
 
@@ -57,9 +57,48 @@ class CompanyCamPhoto(BaseModel):
 
 # Webhook Event Models
 
+class WebhookPhotoData(BaseModel):
+    """Photo data from CompanyCam webhook (actual structure)"""
+    id: str
+    company_id: str
+    creator_id: str
+    creator_type: str
+    creator_name: str
+    project_id: str
+    coordinates: Optional[Dict[str, Any]] = None
+    status: str
+    uris: List[Dict[str, str]]  # List of {type, uri, url}
+    hash: str
+    internal: bool
+    photo_url: str
+    captured_at: int  # Unix timestamp
+    created_at: int   # Unix timestamp
+    updated_at: int   # Unix timestamp
+    processing_status: str  # "processed" means photo is finalized
+    description: Optional[str] = None
+
+class PhotoCreatedWebhookPayload(BaseModel):
+    """
+    CompanyCam photo.created webhook payload (actual structure from webhook)
+
+    Actual payload structure:
+    {
+        "event_type": "photo.created",
+        "created_at": 1761331741,
+        "payload": {
+            "photo": {...}
+        },
+        "webhook_id": 145041
+    }
+    """
+    event_type: str
+    created_at: int  # Unix timestamp
+    payload: Dict[str, Any]  # Contains {"photo": {...}}
+    webhook_id: int
+
 class PhotoCreatedWebhook(BaseModel):
     """
-    CompanyCam photo.created webhook payload
+    CompanyCam photo.created webhook payload (LEGACY - for old webhook format)
 
     Example payload:
     {
@@ -71,6 +110,22 @@ class PhotoCreatedWebhook(BaseModel):
     """
     type: str = Field(..., description="Event type: photo.created")
     photo: CompanyCamPhoto
+    project: CompanyCamProject
+    user: CompanyCamUser
+
+
+class ProjectCreatedWebhook(BaseModel):
+    """
+    CompanyCam project.created webhook payload
+
+    Example payload:
+    {
+        "type": "project.created",
+        "project": {...},
+        "user": {...}
+    }
+    """
+    type: str = Field(..., description="Event type: project.created")
     project: CompanyCamProject
     user: CompanyCamUser
 
