@@ -6,6 +6,7 @@ services:
   - type: web
     name: mjestimate-backend
     runtime: python
+    pythonVersion: 3.12.0  # Specify Python 3.12 for compatibility
     plan: starter  # Change to 'free' for testing, 'starter' ($7/mo) for production with always-on
     region: oregon  # Change to your preferred region
     rootDir: backend
