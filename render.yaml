@@ -6,7 +6,8 @@ services:
   - type: web
     name: mjestimate-backend
     runtime: python
-    pythonVersion: "3.12"  # Specify Python 3.12 for Pillow compatibility
+    # Python version is specified in backend/runtime.txt (python-3.12.0)
+    # This is required for Pillow and pydantic-core compatibility
     plan: starter  # Change to 'free' for testing, 'starter' ($7/mo) for production with always-on
     region: oregon  # Change to your preferred region
     rootDir: backend
