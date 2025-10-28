@@ -36,10 +36,12 @@ backend/.env.development
 backend/.env.production
 !backend/.env.*.example
 
-# Frontend environment files (keep examples, ignore actual configs)
+# Frontend environment files (keep examples only)
+frontend/.env
 frontend/.env.local
-!frontend/.env
-!frontend/.env.production
+frontend/.env.production
+!frontend/.env.example
+!frontend/.env.production.example
 
 # Database
 *.db
