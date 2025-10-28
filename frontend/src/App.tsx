@@ -26,6 +26,9 @@ import SketchTest from './pages/SketchTest';
 import LineItemManagement from './pages/LineItemManagement';
 import WaterMitigationList from './pages/WaterMitigationList';
 import WaterMitigationDetail from './pages/WaterMitigationDetail';
+import DebrisCalculator from './pages/DebrisCalculator';
+import MaterialManagement from './pages/MaterialManagement';
+import MaterialDetectionPage from './pages/MaterialDetectionPage';
 import NotFound from './pages/NotFound';
 import 'antd/dist/reset.css';
 
@@ -268,6 +271,37 @@ const router = createBrowserRouter([
       <ProtectedRoute>
         <Layout>
           <WaterMitigationDetail />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Reconstruction Estimate routes
+  {
+    path: "/reconstruction-estimate/debris",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <DebrisCalculator />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/reconstruction-estimate/material-detection",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <MaterialDetectionPage />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/admin/materials",
+    element: (
+      <ProtectedRoute requiredRole="admin">
+        <Layout>
+          <MaterialManagement />
         </Layout>
       </ProtectedRoute>
     )

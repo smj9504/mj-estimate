@@ -9,8 +9,10 @@ from typing import List, Optional, Dict, Any, BinaryIO
 from pathlib import Path
 from PIL import Image
 import logging
+import io
 
 from app.common.base_service import BaseService
+from app.domains.storage import StorageFactory, StorageProvider
 from .repository import FileRepository
 from .models import File
 from .schemas import FileCreate, FileUpdate
@@ -26,6 +28,8 @@ class FileService(BaseService[File, str]):
     def __init__(self, database):
         super().__init__(database)
         self.repository = FileRepository(database.get_session())
+        # Get storage provider (singleton)
+        self.storage: StorageProvider = StorageFactory.get_instance()
 
     def get_repository(self) -> FileRepository:
         """Get the repository used by this service"""
@@ -46,52 +50,50 @@ class FileService(BaseService[File, str]):
         category: str = 'general',
         description: Optional[str] = None,
         uploaded_by: Optional[str] = None,
-        upload_dir: str = "uploads"
+        upload_dir: str = "uploads"  # Kept for backward compatibility
     ) -> Dict[str, Any]:
-        """Upload and store a file"""
+        """Upload and store a file using configured storage provider"""
         try:
-            # Generate unique filename
-            file_extension = Path(original_filename).suffix.lower()
-            unique_filename = f"{uuid.uuid4()}{file_extension}"
+            # Get job metadata for folder naming (if water-mitigation)
+            metadata = {}
+            if context == 'water-mitigation':
+                metadata = await self._get_job_metadata(context_id)
 
-            # Create directory structure: uploads/context/context_id/
-            context_dir = Path(upload_dir) / context / context_id
-            context_dir.mkdir(parents=True, exist_ok=True)
-
-            file_path = context_dir / unique_filename
-
-            # Save file
-            with open(file_path, 'wb') as f:
-                f.write(file_data.read())
-
-            # Get file size
-            file_size = file_path.stat().st_size
-
-            # Generate thumbnail for images
-            thumbnail_url = None
-            if content_type.startswith('image/'):
-                thumbnail_url = await self._generate_thumbnail(file_path, context_dir)
+            # Upload to storage provider
+            result = self.storage.upload(
+                file_data=file_data,
+                filename=original_filename,
+                context=context,
+                context_id=context_id,
+                category=category,
+                content_type=content_type,
+                metadata=metadata
+            )
 
             # Handle water-mitigation context specially
             if context == 'water-mitigation':
                 return await self._upload_wm_photo(
-                    file_path=str(file_path),
+                    storage_file_id=result.file_id,
+                    file_url=result.file_url,
+                    thumbnail_url=result.thumbnail_url,
+                    folder_path=result.folder_path,
                     original_filename=original_filename,
                     content_type=content_type,
-                    file_size=file_size,
+                    file_size=result.storage_metadata.get('size', 0),
                     job_id=context_id,
+                    category=category,
                     description=description,
                     uploaded_by=uploaded_by
                 )
 
-            # Create file record
+            # For other contexts, create generic file record
             file_record = FileCreate(
-                filename=unique_filename,
+                filename=result.file_id,  # Use storage provider's file ID
                 original_name=original_filename,
                 content_type=content_type,
-                size=file_size,
-                url=str(file_path),
-                thumbnail_url=thumbnail_url,
+                size=result.storage_metadata.get('size', 0) if result.storage_metadata else 0,
+                url=result.file_url,
+                thumbnail_url=result.thumbnail_url,
                 context=context,
                 context_id=context_id,
                 category=category,
@@ -102,24 +104,49 @@ class FileService(BaseService[File, str]):
             # Save to database
             created_file = self.repository.create(file_record.dict())
 
-            logger.info(f"File uploaded successfully: {unique_filename}")
+            logger.info(f"File uploaded successfully: {original_filename} (Provider: {self.storage.provider_name})")
             return created_file
 
         except Exception as e:
             logger.error(f"Error uploading file {original_filename}: {e}")
             raise
 
+    async def _get_job_metadata(self, job_id: str) -> Dict[str, Any]:
+        """Get job metadata for folder naming"""
+        try:
+            from app.domains.water_mitigation.repository import WaterMitigationRepository
+
+            wm_repo = WaterMitigationRepository(self.repository.session)
+            job = wm_repo.get_by_id(job_id)
+
+            if job:
+                return {
+                    'property_address': job.get('property_address', ''),
+                    'homeowner_name': job.get('homeowner_name', ''),
+                    'claim_number': job.get('claim_number', '')
+                }
+
+            return {}
+
+        except Exception as e:
+            logger.warning(f"Could not get job metadata for {job_id}: {e}")
+            return {}
+
     async def _upload_wm_photo(
         self,
-        file_path: str,
+        storage_file_id: str,
+        file_url: str,
+        thumbnail_url: Optional[str],
+        folder_path: Optional[str],
         original_filename: str,
         content_type: str,
         file_size: int,
         job_id: str,
+        category: str,
         description: Optional[str] = None,
         uploaded_by: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Upload water mitigation photo"""
+        """Upload water mitigation photo with storage provider"""
         try:
             from app.domains.water_mitigation.repository import WMPhotoRepository
             from datetime import datetime
@@ -130,15 +157,21 @@ class FileService(BaseService[File, str]):
                 'job_id': job_id,
                 'source': 'manual_upload',
                 'file_name': original_filename,
-                'file_path': file_path,
+                'file_path': file_url,  # Store URL from storage provider
                 'file_size': file_size,
                 'mime_type': content_type,
                 'file_type': 'photo' if content_type.startswith('image/') else 'video',
+                'category': category,
                 'title': description,
                 'description': description,
                 'captured_date': datetime.utcnow(),
                 'upload_status': 'completed',
-                'uploaded_by_id': uploaded_by
+                'uploaded_by_id': uploaded_by,
+                # Storage provider info
+                'storage_provider': self.storage.provider_name,
+                'storage_file_id': storage_file_id,
+                'storage_thumbnail_url': thumbnail_url,
+                'storage_folder_path': folder_path
             }
 
             created_photo = wm_photo_repo.create(photo_data)

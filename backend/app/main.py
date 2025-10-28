@@ -22,6 +22,8 @@ from app.domains.sketch.models import *
 from app.domains.company.models import *
 from app.domains.staff.models import *
 from app.domains.water_mitigation.models import *
+from app.domains.reconstruction_estimate.models import *
+from app.domains.material_detection.models import *
 
 # API and core imports
 from app.domains.company.api import router as company_router
@@ -44,6 +46,8 @@ from app.domains.file.api import router as file_router
 from app.domains.sketch.api import router as sketch_router
 from app.domains.receipt.api import router as receipt_router
 from app.domains.water_mitigation.api import router as water_mitigation_router
+from app.domains.reconstruction_estimate.api import router as reconstruction_estimate_router
+from app.domains.material_detection.api import router as material_detection_router
 from app.core.config import settings
 from app.core.database_factory import get_database, db_factory
 # Service factory removed - using direct service instantiation
@@ -309,6 +313,14 @@ app.include_router(receipt_router, prefix="/api/receipts", tags=["Receipts & Tem
 
 # Water Mitigation System endpoints
 app.include_router(water_mitigation_router, prefix="/api")
+
+# Reconstruction Estimate System endpoints
+app.include_router(reconstruction_estimate_router)
+
+# Material Detection endpoints (conditionally loaded)
+if getattr(settings, 'ENABLE_MATERIAL_DETECTION', True):
+    app.include_router(material_detection_router, prefix="/api/material-detection", tags=["Material Detection"])
+    logger.info("Material Detection routes registered")
 
 # External Integrations endpoints (conditionally loaded)
 if settings.ENABLE_INTEGRATIONS:

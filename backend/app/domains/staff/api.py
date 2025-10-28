@@ -16,6 +16,8 @@ from .schemas import (
 from .service import StaffService
 from .models import StaffRole
 from app.core.database_factory import get_database
+from app.core.cache import get_cache, CacheService
+from app.domains.auth.dependencies import invalidate_staff_cache
 
 router = APIRouter()
 
@@ -139,16 +141,20 @@ async def create_staff_member(
 async def update_staff_member(
     staff_id: UUID,
     staff: StaffUpdate,
-    service: StaffService = Depends(get_staff_service)
+    service: StaffService = Depends(get_staff_service),
+    cache: CacheService = Depends(get_cache)
 ):
     """Update staff member"""
     try:
         update_data = staff.dict(exclude_none=True)
         updated_staff = service.update(staff_id, update_data)
-        
+
         if not updated_staff:
             raise HTTPException(status_code=404, detail="Staff member not found")
-            
+
+        # Invalidate cache after successful update
+        invalidate_staff_cache(str(staff_id), cache)
+
         return StaffResponse(
             data=updated_staff,
             message="Staff member updated successfully"
@@ -196,16 +202,21 @@ async def get_staff_permissions(
 async def update_staff_permissions(
     staff_id: UUID,
     permissions: StaffPermissionUpdate,
-    service: StaffService = Depends(get_staff_service)
+    service: StaffService = Depends(get_staff_service),
+    cache: CacheService = Depends(get_cache)
 ):
     """Update staff member permissions"""
     try:
         updated_permissions = service.update_staff_permissions(staff_id, permissions)
+
+        # Invalidate cache after permission changes
+        invalidate_staff_cache(str(staff_id), cache)
+
         return StaffPermissionResponse(
             data=updated_permissions,
             message="Permissions updated successfully"
         )
-        
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error updating permissions: {str(e)}")
 

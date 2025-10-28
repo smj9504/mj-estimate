@@ -17,6 +17,8 @@ import {
   MenuFoldOutlined,
   SketchOutlined,
   DropboxOutlined,
+  CalculatorOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -109,6 +111,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         label: 'Water Mitigation',
       },
       {
+        key: '/reconstruction-estimate',
+        icon: <CalculatorOutlined />,
+        label: 'Reconstruction Estimate',
+        children: [
+          {
+            key: '/reconstruction-estimate/debris',
+            label: 'Debris Calculator',
+          },
+          {
+            key: '/reconstruction-estimate/material-detection',
+            icon: <RobotOutlined />,
+            label: 'AI Material Detection',
+          },
+        ],
+      },
+      {
         key: '/sketch-test',
         icon: <SketchOutlined />,
         label: 'Sketch Test',
@@ -164,6 +182,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           {
             key: '/companies',
             label: 'Company Management',
+          },
+          {
+            key: '/admin/materials',
+            label: 'Material Management',
           },
         ],
       });

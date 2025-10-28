@@ -8,7 +8,14 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.pool import QueuePool, NullPool
-from supabase import create_client, Client
+
+# Conditional import for Supabase (only needed when DATABASE_TYPE=supabase)
+try:
+    from supabase import create_client, Client
+except ImportError:
+    create_client = None
+    Client = None
+
 from app.core.config import settings
 from app.core.interfaces import (
     DatabaseProvider, DatabaseSession, ConnectionError, DatabaseException,
