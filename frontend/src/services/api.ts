@@ -1,4 +1,5 @@
 import axios from 'axios';
+import authServiceInstance from './authService';
 
 // Create axios instance with base configuration
 // Use empty string to use relative URLs (for proxy to work)
@@ -49,5 +50,8 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// Export authService for convenience
+export const authService = authServiceInstance;
 
 export default api;

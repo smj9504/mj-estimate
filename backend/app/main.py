@@ -348,15 +348,19 @@ async def root():
 
 
 @app.get("/health")
-async def health_check():
-    """Comprehensive health check endpoint"""
+async def health_check(request: Request):
+    """
+    Lightweight health check endpoint for monitoring systems.
+    Does not log to reduce noise from frequent health checks.
+    """
     try:
         database = get_database()
         db_healthy = database.health_check()
-        
+
         # Services are domain-based now
         service_info = {"status": "domain-based", "healthy": True}
-        
+
+        # Simple response for Render health checks
         return {
             "status": "healthy" if db_healthy else "degraded",
             "timestamp": datetime.utcnow().isoformat(),
@@ -376,6 +380,7 @@ async def health_check():
             }
         }
     except Exception as e:
+        # Only log errors, not successful health checks
         logger.error(f"Health check failed: {e}")
         return JSONResponse(
             status_code=503,

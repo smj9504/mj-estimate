@@ -10,6 +10,8 @@ export interface User {
   full_name?: string;
   first_name?: string;
   last_name?: string;
+  phone?: string;
+  mobile_phone?: string;
   role: 'super_admin' | 'admin' | 'manager' | 'supervisor' | 'technician' | 'staff' | 'sales' | 'customer_service' | 'accountant' | 'viewer';
   staff_number?: string;
   is_active: boolean;
@@ -35,7 +37,11 @@ interface RegisterData {
   username: string;
   email: string;
   password: string;
-  full_name?: string;
+  first_name: string;
+  last_name: string;
+  staff_number: string;
+  role?: string;
+  hire_date?: string;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);

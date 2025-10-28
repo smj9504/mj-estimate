@@ -51,16 +51,19 @@ httpx==0.24.1
 
 # Scheduling
 apscheduler==3.10.4
+pytz==2024.1  # Timezone support for business hours scheduling
 
 # Database Migration
 alembic==1.13.1
 
 # Material Detection APIs
 roboflow==1.1.11
+inference-sdk==0.59.0
 google-cloud-vision==3.5.0
 
 # Image Processing
-opencv-python==4.9.0.80
+opencv-python==4.10.0.84
+numpy>=2.0.0,<2.3.0  # NumPy 2.x required for inference-sdk
 
 # Redis Caching (async)
 aioredis==2.0.1

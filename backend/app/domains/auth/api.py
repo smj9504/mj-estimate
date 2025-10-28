@@ -6,7 +6,10 @@ from typing import Any
 from typing import List
 
 from app.core.database_factory import get_db_session as get_db
-from .schemas import LoginRequest, StaffCreate, StaffResponse, Token, StaffUpdate, ChangePasswordRequest
+from .schemas import (
+    LoginRequest, StaffCreate, StaffResponse, Token, StaffUpdate,
+    ChangePasswordRequest, PasswordResetRequest, PasswordResetConfirm
+)
 from .service import AuthService
 from .dependencies import get_current_staff, require_admin
 from app.domains.staff.models import Staff
@@ -22,21 +25,29 @@ async def register(
     db: Any = Depends(get_db)
 ):
     """Register a new staff member"""
+    from app.core.email_service import email_service
+    from app.core.config import settings
+
     # Check if staff exists
     if auth_service.get_staff_by_username(db, staff_create.username):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already registered"
         )
-    
+
     if auth_service.get_staff_by_email(db, staff_create.email):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
-    
+
     try:
         staff = auth_service.create_staff(db, staff_create)
+
+        # Send welcome email if enabled
+        if settings.EMAIL_ENABLED:
+            email_service.send_welcome_email(staff.email, staff.username)
+
         return staff
     except ValueError as e:
         raise HTTPException(
@@ -113,9 +124,12 @@ async def update_current_staff(
     db: Any = Depends(get_db)
 ):
     """Update current staff member information"""
-    # Staff cannot change their own role
-    staff_update.role = None
-    
+    # Staff cannot change their own role - exclude it from the update
+    update_data = staff_update.dict(exclude_unset=True)
+    if 'role' in update_data:
+        del update_data['role']
+    staff_update = StaffUpdate(**update_data)
+
     updated_staff = auth_service.update_staff(db, current_staff.id, staff_update)
     if not updated_staff:
         raise HTTPException(
@@ -198,6 +212,84 @@ async def initialize_admin(
         return {"message": "Admin staff member created successfully"}
     else:
         return {"message": "Admin staff member already exists"}
+
+
+@router.post("/password-reset/request", response_model=dict)
+async def request_password_reset(
+    request: PasswordResetRequest,
+    db: Any = Depends(get_db)
+):
+    """Request a password reset token"""
+    from app.core.email_service import email_service
+    from app.core.config import settings
+
+    token = auth_service.create_password_reset_token(db, request.email)
+
+    if not token:
+        # Return success message even if email not found (security best practice)
+        return {
+            "message": "If the email exists, a password reset link has been sent",
+            "success": True
+        }
+
+    # Send email with reset link
+    if settings.EMAIL_ENABLED:
+        email_sent = email_service.send_password_reset_email(request.email, token)
+        if not email_sent:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send password reset email"
+            )
+
+    response = {
+        "message": "If the email exists, a password reset link has been sent",
+        "success": True
+    }
+
+    # In development mode, include the token
+    if settings.DEBUG and not settings.EMAIL_ENABLED:
+        response["token"] = token
+        response["message"] = "Password reset token created (development mode)"
+
+    return response
+
+
+@router.post("/password-reset/confirm", response_model=dict)
+async def confirm_password_reset(
+    request: PasswordResetConfirm,
+    db: Any = Depends(get_db)
+):
+    """Reset password using a valid token"""
+    success = auth_service.reset_password_with_token(
+        db,
+        request.token,
+        request.new_password
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token"
+        )
+
+    return {"message": "Password has been reset successfully", "success": True}
+
+
+@router.post("/password-reset/verify", response_model=dict)
+async def verify_reset_token(
+    token: str,
+    db: Any = Depends(get_db)
+):
+    """Verify if a password reset token is valid"""
+    email = auth_service.verify_password_reset_token(db, token)
+
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token"
+        )
+
+    return {"message": "Token is valid", "success": True, "email": email}
 
 
 # Backwards compatibility endpoints

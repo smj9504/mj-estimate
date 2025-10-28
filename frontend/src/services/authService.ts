@@ -28,12 +28,13 @@ class AuthService {
     username: string;
     email: string;
     password: string;
-    full_name?: string;
+    first_name: string;
+    last_name: string;
+    staff_number: string;
+    role?: string;
+    hire_date?: string;
   }) {
-    const response = await axios.post(`${API_BASE_URL}/register`, {
-      ...data,
-      role: 'user', // Default role for new registrations
-    });
+    const response = await axios.post(`${API_BASE_URL}/register`, data);
     return response.data;
   }
 
@@ -44,7 +45,10 @@ class AuthService {
 
   async updateCurrentUser(data: {
     email?: string;
-    full_name?: string;
+    first_name?: string;
+    last_name?: string;
+    phone?: string;
+    mobile_phone?: string;
   }) {
     const response = await axios.put(`${API_BASE_URL}/me`, data);
     return response.data;
@@ -58,19 +62,41 @@ class AuthService {
     return response.data;
   }
 
-  // Admin only endpoints
-  async getAllUsers() {
-    const response = await axios.get(`${API_BASE_URL}/users`);
+  // Password reset endpoints
+  async requestPasswordReset(email: string) {
+    const response = await axios.post(`${API_BASE_URL}/password-reset/request`, { email });
     return response.data;
+  }
+
+  async verifyResetToken(token: string) {
+    const response = await axios.post(`${API_BASE_URL}/password-reset/verify?token=${token}`);
+    return response.data;
+  }
+
+  async confirmPasswordReset(data: { token: string; new_password: string }) {
+    const response = await axios.post(`${API_BASE_URL}/password-reset/confirm`, data);
+    return response.data;
+  }
+
+  // Admin only endpoints
+  async getUsers() {
+    const response = await axios.get(`${API_BASE_URL}/staff`);
+    return response.data;
+  }
+
+  async getAllUsers() {
+    return this.getUsers();
   }
 
   async updateUser(userId: string, data: {
     email?: string;
-    full_name?: string;
-    role?: 'admin' | 'manager' | 'user';
+    first_name?: string;
+    last_name?: string;
+    role?: string;
     is_active?: boolean;
+    can_login?: boolean;
   }) {
-    const response = await axios.put(`${API_BASE_URL}/users/${userId}`, data);
+    const response = await axios.put(`${API_BASE_URL}/staff/${userId}`, data);
     return response.data;
   }
 

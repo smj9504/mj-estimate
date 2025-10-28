@@ -105,6 +105,15 @@ class Settings(BaseSettings):
     # Frontend URL (for generating links in notifications)
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
+    # Email Settings (for password reset, notifications, etc.)
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USER: str = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_FROM_EMAIL: str = os.getenv("SMTP_FROM_EMAIL", "noreply@mjestimate.com")
+    SMTP_FROM_NAME: str = os.getenv("SMTP_FROM_NAME", "MJ Estimate")
+    EMAIL_ENABLED: bool = os.getenv("EMAIL_ENABLED", "false").lower() == "true"
+
     # Google Sheets Integration
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
 
@@ -140,8 +149,13 @@ class Settings(BaseSettings):
     MATERIAL_DETECTION_MAX_IMAGES_PER_JOB: int = int(os.getenv("MATERIAL_DETECTION_MAX_IMAGES_PER_JOB", "50"))
 
     # Storage Configuration
-    STORAGE_PROVIDER: str = os.getenv("STORAGE_PROVIDER", "local")  # local, gdrive, s3, azure
+    STORAGE_PROVIDER: str = os.getenv("STORAGE_PROVIDER", "local")  # local, gdrive, gcs, s3, azure
     STORAGE_BASE_DIR: str = os.getenv("STORAGE_BASE_DIR", "uploads")
+
+    # Google Cloud Storage (GCS) Settings
+    GCS_SERVICE_ACCOUNT_FILE: Optional[str] = os.getenv("GCS_SERVICE_ACCOUNT_FILE")
+    GCS_BUCKET_NAME: Optional[str] = os.getenv("GCS_BUCKET_NAME")
+    GCS_PROJECT_ID: Optional[str] = os.getenv("GCS_PROJECT_ID")
 
     # Google Drive Storage Settings
     GDRIVE_SERVICE_ACCOUNT_FILE: Optional[str] = os.getenv("GDRIVE_SERVICE_ACCOUNT_FILE")

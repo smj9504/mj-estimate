@@ -8,6 +8,11 @@ import { TemplateBuilderProvider } from './contexts/TemplateBuilderContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Layout from './components/common/Layout';
 import Login from './pages/Login';
+import SignUp from './pages/SignUp';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+import UserManagement from './pages/UserManagement';
+import Profile from './pages/Profile';
 import Dashboard from './pages/Dashboard';
 import RoleBasedDashboard from './pages/RoleBasedDashboard';
 import AdminDashboard from './pages/AdminDashboard';
@@ -39,6 +44,18 @@ const router = createBrowserRouter([
     path: "/login",
     element: <Login />
   },
+  {
+    path: "/register",
+    element: <SignUp />
+  },
+  {
+    path: "/forgot-password",
+    element: <ForgotPassword />
+  },
+  {
+    path: "/reset-password",
+    element: <ResetPassword />
+  },
   // Protected routes
   {
     path: "/",
@@ -60,6 +77,16 @@ const router = createBrowserRouter([
       </ProtectedRoute>
     )
   },
+  {
+    path: "/profile",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Profile />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
   // Admin only routes
   {
     path: "/admin/dashboard",
@@ -77,6 +104,16 @@ const router = createBrowserRouter([
       <ProtectedRoute requiredRole="admin">
         <Layout>
           <AdminConfig />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/admin/users",
+    element: (
+      <ProtectedRoute requiredRole="admin">
+        <Layout>
+          <UserManagement />
         </Layout>
       </ProtectedRoute>
     )

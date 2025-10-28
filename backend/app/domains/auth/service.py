@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 from app.core.database_factory import DatabaseSession
 from sqlalchemy.exc import IntegrityError
 import uuid
+import secrets
 
 from app.domains.staff.models import Staff, StaffRole
 from . import schemas
+from .password_reset_models import PasswordResetToken
 from app.core.config import settings
 
 
@@ -281,11 +283,11 @@ class AuthService:
             session = db
         else:
             return None
-            
+
         admin_exists = session.query(Staff).filter(Staff.role == StaffRole.admin).first()
         if admin_exists:
             return None
-        
+
         admin_staff = schemas.StaffCreate(
             username="admin",
             email="admin@mjestimate.com",
@@ -295,5 +297,118 @@ class AuthService:
             role=StaffRole.admin,
             staff_number="ADMIN001"
         )
-        
+
         return self.create_staff(db, admin_staff)
+
+    def create_password_reset_token(self, db, email: str) -> Optional[str]:
+        """Create a password reset token for the given email"""
+        # Handle both raw Session and DatabaseSession wrapper
+        if hasattr(db, '_session'):
+            session = db._session
+        elif hasattr(db, 'query'):
+            session = db
+        else:
+            return None
+
+        # Check if staff exists
+        staff = self.get_staff_by_email(db, email)
+        if not staff:
+            return None
+
+        # Generate secure token
+        token = secrets.token_urlsafe(32)
+
+        # Create token record (expires in 1 hour)
+        reset_token = PasswordResetToken(
+            email=email,
+            token=token,
+            expires_at=datetime.utcnow() + timedelta(hours=1),
+            is_used="false"
+        )
+
+        try:
+            session.add(reset_token)
+            if hasattr(db, 'commit'):
+                db.commit()
+            else:
+                session.commit()
+            return token
+        except Exception as e:
+            print(f"Error creating password reset token: {e}")
+            if hasattr(db, 'rollback'):
+                db.rollback()
+            elif hasattr(session, 'rollback'):
+                session.rollback()
+            return None
+
+    def verify_password_reset_token(self, db, token: str) -> Optional[str]:
+        """Verify password reset token and return email if valid"""
+        # Handle both raw Session and DatabaseSession wrapper
+        if hasattr(db, '_session'):
+            session = db._session
+        elif hasattr(db, 'query'):
+            session = db
+        else:
+            return None
+
+        # Find token
+        reset_token = session.query(PasswordResetToken).filter(
+            PasswordResetToken.token == token,
+            PasswordResetToken.is_used == "false"
+        ).first()
+
+        if not reset_token:
+            return None
+
+        # Check if expired
+        if datetime.utcnow() > reset_token.expires_at:
+            return None
+
+        return reset_token.email
+
+    def reset_password_with_token(self, db, token: str, new_password: str) -> bool:
+        """Reset password using a valid token"""
+        # Handle both raw Session and DatabaseSession wrapper
+        if hasattr(db, '_session'):
+            session = db._session
+        elif hasattr(db, 'query'):
+            session = db
+        else:
+            return False
+
+        # Verify token
+        email = self.verify_password_reset_token(db, token)
+        if not email:
+            return False
+
+        # Get staff
+        staff = self.get_staff_by_email(db, email)
+        if not staff:
+            return False
+
+        # Update password
+        staff.password_hash = self.hash_password(new_password)
+        staff.updated_at = datetime.utcnow()
+        staff.must_change_password = False
+
+        # Mark token as used
+        reset_token = session.query(PasswordResetToken).filter(
+            PasswordResetToken.token == token
+        ).first()
+        if reset_token:
+            reset_token.is_used = "true"
+            reset_token.used_at = datetime.utcnow()
+
+        try:
+            if hasattr(db, 'commit'):
+                db.commit()
+            else:
+                session.commit()
+            return True
+        except Exception as e:
+            print(f"Error resetting password: {e}")
+            if hasattr(db, 'rollback'):
+                db.rollback()
+            elif hasattr(session, 'rollback'):
+                session.rollback()
+            return False

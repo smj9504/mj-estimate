@@ -10,6 +10,17 @@ import os
 
 from app.core.config import settings
 
+
+class HealthCheckFilter(logging.Filter):
+    """
+    Filter out health check endpoint logs to reduce noise
+    from monitoring systems (e.g., Render health checks)
+    """
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Filter out /health endpoint access logs
+        message = record.getMessage()
+        return '/health' not in message and 'GET /health' not in message
+
 def setup_logging():
     """
     Setup logging system with date-based rotation
@@ -41,6 +52,7 @@ def setup_logging():
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     console_handler.setLevel(log_level)
+    console_handler.addFilter(HealthCheckFilter())  # Filter health check logs
     root_logger.addHandler(console_handler)
     
     # File handlers (organized by type)
@@ -110,6 +122,10 @@ def setup_logging():
     logging.getLogger('fontTools.ttLib').setLevel(logging.WARNING)
     logging.getLogger('PIL').setLevel(logging.WARNING)
     logging.getLogger('PIL.PngImagePlugin').setLevel(logging.WARNING)
+
+    # Suppress Uvicorn access logs for health checks
+    uvicorn_access = logging.getLogger('uvicorn.access')
+    uvicorn_access.addFilter(HealthCheckFilter())
 
     if log_level == logging.DEBUG:
         # 디버그 모드에서만 데이터베이스 로그 파일 생성

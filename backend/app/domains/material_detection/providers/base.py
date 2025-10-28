@@ -94,8 +94,9 @@ class MaterialDetectionProvider(ABC):
         Returns:
             True if valid, False otherwise
         """
-        if image_path.startswith(('http://', 'https://')):
+        if image_path.startswith(('http://', 'https://', 'gs://')):
             # URL validation - assume valid if properly formatted
+            # GCS URLs (gs://) and HTTP(S) URLs are accepted
             return True
 
         # Local file validation

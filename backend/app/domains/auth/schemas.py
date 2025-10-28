@@ -89,6 +89,24 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+
+class PasswordResetToken(BaseModel):
+    email: EmailStr
+    token: str
+    expires_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # Backwards compatibility aliases
 UserCreate = StaffCreate
 UserUpdate = StaffUpdate

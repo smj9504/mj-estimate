@@ -10,6 +10,9 @@ import logging
 import time
 from typing import Dict, Any, Optional
 import httpx
+import tempfile
+import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -22,19 +25,24 @@ class RoboflowProvider(MaterialDetectionProvider):
     """
 
     def __init__(self):
-        """Initialize Roboflow provider with API credentials."""
+        """Initialize Roboflow provider with Inference SDK."""
         if not settings.ROBOFLOW_API_KEY:
             raise ValueError("ROBOFLOW_API_KEY not configured in environment")
 
         self.api_key = settings.ROBOFLOW_API_KEY
-        self.workspace = settings.ROBOFLOW_WORKSPACE
-        self.model_id = settings.ROBOFLOW_MODEL_ID
-        self.model_version = getattr(settings, 'ROBOFLOW_MODEL_VERSION', '1')
 
-        # Roboflow API endpoint
-        self.api_url = f"https://detect.roboflow.com/{self.workspace}/{self.model_id}/{self.model_version}"
+        # Use a public pre-trained model from Roboflow Universe
+        # Format: project-id/version (no workspace prefix)
+        self.model_id = "construction-detection/1"
 
-        logger.info(f"Roboflow provider initialized: {self.workspace}/{self.model_id}/v{self.model_version}")
+        # Initialize Inference client
+        from inference_sdk import InferenceHTTPClient
+        self.client = InferenceHTTPClient(
+            api_url="https://detect.roboflow.com",
+            api_key=self.api_key
+        )
+
+        logger.info(f"Roboflow Inference provider initialized with model: {self.model_id}")
 
     async def detect(
         self,
@@ -60,35 +68,39 @@ class RoboflowProvider(MaterialDetectionProvider):
             raise ValueError(f"Invalid confidence threshold: {confidence_threshold}")
 
         start_time = time.time()
+        temp_file = None
 
         try:
-            # Prepare request parameters
-            params = {
-                "api_key": self.api_key,
-                "confidence": int(confidence_threshold * 100),  # Roboflow uses 0-100
-            }
+            # Download image if needed
+            if image_path.startswith('gs://'):
+                logger.info(f"Downloading from GCS: {image_path}")
+                temp_file = await self._download_from_gcs(image_path)
+                file_to_use = temp_file
+            elif image_path.startswith(('http://', 'https://')):
+                logger.info(f"Downloading from URL: {image_path}")
+                import httpx
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    temp_file = await self._download_from_url(client, image_path)
+                file_to_use = temp_file
+            else:
+                file_to_use = image_path
 
-            # Add optional parameters
-            if options:
-                if "overlap_threshold" in options:
-                    params["overlap"] = int(options["overlap_threshold"] * 100)
-                if "max_predictions" in options:
-                    params["max_objects"] = options["max_predictions"]
+            # Use Inference SDK to infer
+            logger.info(f"Running Roboflow inference on: {file_to_use}")
 
-            # Make API request
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                if image_path.startswith(('http://', 'https://')):
-                    # Image URL
-                    params["image"] = image_path
-                    response = await client.post(self.api_url, params=params)
-                else:
-                    # Local file upload
-                    with open(image_path, 'rb') as image_file:
-                        files = {'file': image_file}
-                        response = await client.post(self.api_url, params=params, files=files)
+            # Convert async to sync for Inference SDK (SDK is synchronous)
+            import asyncio
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.client.infer(
+                    file_to_use,
+                    model_id=self.model_id
+                )
+            )
 
-            response.raise_for_status()
-            result = response.json()
+            logger.info(f"Roboflow inference completed: {len(result.get('predictions', []))} detections")
+            logger.debug(f"Roboflow raw response: {result}")
 
             # Parse Roboflow response
             materials = self._parse_roboflow_response(result, confidence_threshold)
@@ -101,12 +113,17 @@ class RoboflowProvider(MaterialDetectionProvider):
                 "raw_response": result
             }
 
-        except httpx.HTTPError as e:
-            logger.error(f"Roboflow API request failed: {e}")
-            raise ConnectionError(f"Roboflow API error: {e}")
         except Exception as e:
-            logger.error(f"Roboflow detection failed: {e}")
+            logger.error(f"Roboflow detection failed: {e}", exc_info=True)
             raise
+        finally:
+            # Clean up temporary file if we created one
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.unlink(temp_file)
+                    logger.debug(f"Cleaned up temporary file: {temp_file}")
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to clean up temp file {temp_file}: {cleanup_error}")
 
     def _parse_roboflow_response(
         self,
@@ -221,3 +238,97 @@ class RoboflowProvider(MaterialDetectionProvider):
                 "concrete", "brick", "drywall", "wood", "metal"
             ]
         }
+
+    async def _download_from_gcs(self, gcs_url: str) -> str:
+        """
+        Download image from Google Cloud Storage to temporary file.
+
+        Args:
+            gcs_url: GCS URL (gs://bucket-name/path/to/file)
+
+        Returns:
+            Path to temporary file
+        """
+        try:
+            from google.cloud import storage
+            from google.oauth2 import service_account
+
+            # Parse GCS URL: gs://bucket-name/path/to/file
+            url_parts = gcs_url.replace('gs://', '').split('/', 1)
+            bucket_name = url_parts[0]
+            blob_path = url_parts[1] if len(url_parts) > 1 else ''
+
+            # Initialize GCS client with authentication
+            service_account_file = settings.GCS_SERVICE_ACCOUNT_FILE
+            if service_account_file and os.path.exists(service_account_file):
+                credentials = service_account.Credentials.from_service_account_file(
+                    service_account_file
+                )
+                storage_client = storage.Client(
+                    credentials=credentials,
+                    project=credentials.project_id
+                )
+                logger.debug(f"Using service account from {service_account_file}")
+            else:
+                # Fallback to default credentials
+                storage_client = storage.Client()
+                logger.debug("Using default GCS credentials")
+
+            bucket = storage_client.bucket(bucket_name)
+            blob = bucket.blob(blob_path)
+
+            # Get file extension
+            file_ext = Path(blob_path).suffix or '.jpg'
+
+            # Create temporary file
+            temp_fd, temp_path = tempfile.mkstemp(suffix=file_ext)
+            os.close(temp_fd)
+
+            # Download to temporary file
+            blob.download_to_filename(temp_path)
+            logger.info(f"Downloaded from GCS: {gcs_url} -> {temp_path}")
+
+            return temp_path
+
+        except Exception as e:
+            logger.error(f"Failed to download from GCS {gcs_url}: {e}")
+            raise ConnectionError(f"GCS download failed: {e}")
+
+    async def _download_from_url(self, client: httpx.AsyncClient, url: str) -> str:
+        """
+        Download image from HTTP(S) URL to temporary file.
+
+        Args:
+            client: HTTPX client
+            url: HTTP(S) URL
+
+        Returns:
+            Path to temporary file
+        """
+        try:
+            # Download image
+            response = await client.get(url)
+            response.raise_for_status()
+
+            # Get file extension from URL or content-type
+            file_ext = Path(url).suffix or '.jpg'
+            content_type = response.headers.get('content-type', '')
+            if 'image/png' in content_type:
+                file_ext = '.png'
+            elif 'image/webp' in content_type:
+                file_ext = '.webp'
+
+            # Create temporary file
+            temp_fd, temp_path = tempfile.mkstemp(suffix=file_ext)
+
+            # Write content to temporary file
+            with os.fdopen(temp_fd, 'wb') as f:
+                f.write(response.content)
+
+            logger.info(f"Downloaded from URL: {url} -> {temp_path}")
+
+            return temp_path
+
+        except Exception as e:
+            logger.error(f"Failed to download from URL {url}: {e}")
+            raise ConnectionError(f"URL download failed: {e}")
