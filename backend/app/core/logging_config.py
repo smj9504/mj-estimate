@@ -108,12 +108,11 @@ def setup_logging():
             specialized_logger.propagate = False
     
     # Database query logger (separate from general app logs)
-    # SQLAlchemy 로그 레벨 설정
-    db_logger = logging.getLogger('sqlalchemy.engine')
-
-    # 개발 환경에서도 SQLAlchemy의 타입 체크 로그는 WARNING 레벨로 설정
-    # INFO 레벨의 타입 체크 로그들을 숨깁니다
-    db_logger.setLevel(logging.WARNING)
+    # SQLAlchemy 로그 레벨 설정 - 헬스체크 등 불필요한 INFO 로그 제거
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.orm').setLevel(logging.WARNING)
 
     # Suppress verbose PDF generation library logs
     # fontTools와 PIL의 DEBUG/INFO 로그 숨김 (PDF 생성 시 노이즈 제거)
@@ -128,7 +127,8 @@ def setup_logging():
     uvicorn_access.addFilter(HealthCheckFilter())
 
     if log_level == logging.DEBUG:
-        # 디버그 모드에서만 데이터베이스 로그 파일 생성
+        # 디버그 모드에서만 데이터베이스 로그 활성화 및 파일 생성
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
         db_file_handler = logging.handlers.RotatingFileHandler(
             filename=f'logs/database_{current_date}.log',
             maxBytes=20 * 1024 * 1024,
@@ -136,8 +136,7 @@ def setup_logging():
             encoding='utf-8'
         )
         db_file_handler.setFormatter(formatter)
-        db_logger.addHandler(db_file_handler)
-        db_logger.propagate = False
+        logging.getLogger('sqlalchemy.engine').addHandler(db_file_handler)
     
     # Application-specific loggers
     app_loggers = [
