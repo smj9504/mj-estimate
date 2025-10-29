@@ -35,7 +35,7 @@ google-api-python-client==2.108.0
 google-cloud-storage==2.14.0
 
 # PDF Generation
-playwright==1.40.0
+# playwright==1.40.0  # Optional - only for browser-based PDF (commented out for faster deployment)
 weasyprint==62.3
 jinja2==3.1.2
 pypdf>=5.0.0  # Updated to avoid ARC4 deprecation warning (was 3.17.0)
@@ -60,6 +60,11 @@ alembic==1.13.1
 roboflow==1.1.11
 inference-sdk==0.59.0
 google-cloud-vision==3.5.0
+
+# AI/ML Models for Material Detection (Optional - very large, install separately if needed)
+# transformers>=4.30.0  # Hugging Face Transformers for Custom ViT (300MB+)
+# torch>=2.0.0  # PyTorch for deep learning models (500MB+)
+# pillow>=11.0.0  # Already included above
 
 # Image Processing
 opencv-python==4.10.0.84

@@ -11,8 +11,8 @@ services:
     plan: starter  # Change to 'free' for testing, 'starter' ($7/mo) for production with always-on
     region: oregon  # Change to your preferred region
     rootDir: backend
-    buildCommand: pip install -r requirements.txt && playwright install chromium
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info --timeout-keep-alive 90
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.0"

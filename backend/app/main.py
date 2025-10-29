@@ -75,12 +75,16 @@ async def lifespan(app: FastAPI):
     Application lifespan manager for startup and shutdown events.
     Handles database initialization and cleanup.
     """
+    # Log immediately to show startup progress
+    print(f"[STARTUP] Starting MJ Estimate API in {settings.ENVIRONMENT} environment")
     logger.info(f"Starting MJ Estimate API in {settings.ENVIRONMENT} environment")
     
     try:
         # Initialize database system (lazy initialization - connection created on first use)
+        print("[STARTUP] Initializing database system...")
         database = get_database()
         logger.info(f"Database system ready: {database.provider_name}")
+        print(f"[STARTUP] Database system ready: {database.provider_name}")
 
         # Skip health check at startup for faster deployment
         # Health check will be performed by Render via /health endpoint
@@ -88,19 +92,26 @@ async def lifespan(app: FastAPI):
         # Initialize database tables (only creates if not exists)
         if hasattr(database, 'init_database'):
             try:
+                print("[STARTUP] Initializing database tables...")
                 database.init_database()
                 logger.info("Database tables initialized")
+                print("[STARTUP] Database tables initialized")
             except Exception as e:
                 logger.warning(f"Database table initialization skipped: {e}")
+                print(f"[STARTUP] Database init skipped: {e}")
 
         # Start integration services if enabled
         if settings.ENABLE_INTEGRATIONS:
             try:
+                print("[STARTUP] Starting integration services...")
                 start_scheduler()
                 logger.info("Integration services started (Google Sheets scheduler)")
+                print("[STARTUP] Integration services started")
             except Exception as e:
                 logger.warning(f"Integration services failed to start: {e}")
+                print(f"[STARTUP] Integration services skipped: {e}")
 
+        print("[STARTUP] ✓ Application startup completed - ready to accept requests")
         logger.info("Application startup completed - ready to accept requests")
         yield
         
