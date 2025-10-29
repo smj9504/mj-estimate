@@ -2,9 +2,13 @@ import axios from 'axios';
 import authServiceInstance from './authService';
 
 // Create axios instance with base configuration
-// Use empty string to use relative URLs (for proxy to work)
-const baseURL = process.env.REACT_APP_API_URL || '';
-console.log('API Base URL:', baseURL || 'Using relative URLs (proxy mode)'); // Debug log
+// For production: use backend URL directly (Vercel env vars not working)
+// For development: use proxy (empty string)
+const baseURL = window.location.hostname === 'localhost'
+  ? '' // Development: use proxy
+  : 'https://mjestimate-backend.onrender.com'; // Production: direct backend URL
+
+console.log('API Base URL:', baseURL || 'Using proxy mode');
 
 const api = axios.create({
   baseURL: baseURL,
