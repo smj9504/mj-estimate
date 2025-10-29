@@ -143,7 +143,11 @@ class WaterMitigationService:
         page: int = 1,
         page_size: int = 50
     ) -> tuple[List[WaterMitigationJob], int]:
-        """List jobs with filters"""
+        """List jobs with filters
+
+        Note: photo_count is already attached to each job object by repository
+        using optimized subquery JOIN to avoid N+1 queries.
+        """
         jobs, total = self.job_repo.find_by_filters(
             client_id=client_id,
             search=search,
@@ -153,9 +157,7 @@ class WaterMitigationService:
             page_size=page_size
         )
 
-        # Enrich with photo counts
-        for job in jobs:
-            job.photo_count = self.photo_repo.count_by_job(job.id)
+        # photo_count already attached by repository - no need for additional queries
 
         return jobs, total
 

@@ -175,22 +175,27 @@ def update_job_status(
     return job_dict
 
 
+class ToggleActiveRequest(BaseModel):
+    """Toggle active status request schema"""
+    active: bool
+
+
 @router.patch("/jobs/{job_id}/active")
 def toggle_job_active(
     job_id: UUID,
-    active: bool,
+    request: ToggleActiveRequest,
     service: WaterMitigationService = Depends(get_wm_service),
     db: DatabaseSession = Depends(get_db_session)
 ):
     """Toggle job active status"""
-    updated_job = service.toggle_job_active(job_id, active)
+    updated_job = service.toggle_job_active(job_id, request.active)
     if not updated_job:
         raise HTTPException(status_code=404, detail="Job not found")
 
     # Commit the transaction
     db.commit()
 
-    return {"id": str(job_id), "active": active}
+    return {"id": str(job_id), "active": request.active}
 
 
 @router.delete("/jobs/{job_id}")

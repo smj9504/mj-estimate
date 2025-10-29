@@ -48,7 +48,7 @@ const WaterMitigationList: React.FC = () => {
   const [filters, setFilters] = useState<JobFilters>({
     page: 1,
     page_size: 20,
-    active: undefined,
+    active: true,  // Default: show active jobs only
     status: undefined,
     search: ''
   });
@@ -297,7 +297,7 @@ const WaterMitigationList: React.FC = () => {
               placeholder="Active status"
               style={{ width: 150 }}
               onChange={handleActiveChange}
-              defaultValue="all"
+              defaultValue="active"
             >
               <Option value="all">All</Option>
               <Option value="active">Active Only</Option>

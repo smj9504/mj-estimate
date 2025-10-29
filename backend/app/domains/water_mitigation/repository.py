@@ -45,8 +45,31 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
         page: int = 1,
         page_size: int = 50
     ) -> tuple[List[WaterMitigationJob], int]:
-        """Find jobs with filters and pagination"""
-        query = self.db_session.query(WaterMitigationJob)
+        """Find jobs with filters and pagination
+
+        Optimized to fetch photo_count in a single query using subquery
+        to avoid N+1 query problem.
+        """
+        from sqlalchemy.orm import aliased
+
+        # Subquery to count photos per job
+        photo_count_subquery = (
+            self.db_session.query(
+                WMPhoto.job_id,
+                func.count(WMPhoto.id).label('photo_count')
+            )
+            .group_by(WMPhoto.job_id)
+            .subquery()
+        )
+
+        # Main query with photo count joined
+        query = self.db_session.query(
+            WaterMitigationJob,
+            func.coalesce(photo_count_subquery.c.photo_count, 0).label('photo_count')
+        ).outerjoin(
+            photo_count_subquery,
+            WaterMitigationJob.id == photo_count_subquery.c.job_id
+        )
 
         # Apply filters
         conditions = []
@@ -73,15 +96,31 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
         if conditions:
             query = query.filter(and_(*conditions))
 
-        # Get total count
-        total = query.count()
+        # Get total count (count only jobs, not the join result)
+        total = self.db_session.query(WaterMitigationJob).filter(
+            and_(*conditions) if conditions else True
+        ).count()
+
+        # Apply sorting: active jobs first, then by created_at
+        query = query.order_by(
+            desc(WaterMitigationJob.active),
+            desc(WaterMitigationJob.created_at)
+        )
 
         # Apply pagination
         offset = (page - 1) * page_size
-        query = query.order_by(desc(WaterMitigationJob.created_at))
         query = query.offset(offset).limit(page_size)
 
-        results = query.all()
+        # Execute and extract results with photo_count
+        results_with_counts = query.all()
+
+        # Attach photo_count to each job object
+        results = []
+        for job, photo_count in results_with_counts:
+            # Add photo_count as an attribute for easy access
+            job.photo_count = photo_count
+            results.append(job)
+
         return results, total
 
     def find_by_address(self, address: str) -> Optional[WaterMitigationJob]:
