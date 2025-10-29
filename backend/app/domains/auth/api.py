@@ -4,6 +4,7 @@ Authentication API endpoints
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Any
 from typing import List
+import logging
 
 from app.core.database_factory import get_db_session as get_db
 from .schemas import (
@@ -14,6 +15,7 @@ from .service import AuthService
 from .dependencies import get_current_staff, require_admin
 from app.domains.staff.models import Staff
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 auth_service = AuthService()
@@ -62,20 +64,28 @@ async def login(
     db: Any = Depends(get_db)
 ):
     """Login with username/email and password"""
-    staff = auth_service.authenticate_staff(
-        db, 
-        login_request.username, 
-        login_request.password
-    )
-    
-    if not staff:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-            headers={"WWW-Authenticate": "Bearer"},
+    logger.info(f"Login attempt for username: {login_request.username}")
+
+    try:
+        staff = auth_service.authenticate_staff(
+            db,
+            login_request.username,
+            login_request.password
         )
+
+        if not staff:
+            logger.warning(f"Failed login attempt for username: {login_request.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except Exception as e:
+        logger.error(f"Login error for username {login_request.username}: {str(e)}")
+        raise
     
     # Create access token
+    logger.info(f"Successful login for username: {login_request.username}, staff_id: {staff.id}")
     access_token = auth_service.create_access_token(
         data={
             "sub": str(staff.id),

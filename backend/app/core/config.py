@@ -61,13 +61,26 @@ class Settings(BaseSettings):
     PORT: int = int(os.getenv("PORT", "8000"))
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
     
-    # CORS Settings - use default list, override with env variable if provided
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:3001", 
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-    ]
+    # CORS Settings - parse from env or use default list
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        cors_env = os.getenv("CORS_ORIGINS")
+        if cors_env:
+            # Parse JSON array from env variable
+            import json
+            try:
+                return json.loads(cors_env)
+            except json.JSONDecodeError:
+                # Fallback: split by comma
+                return [origin.strip() for origin in cors_env.split(",")]
+
+        # Default CORS origins for development
+        return [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001",
+        ]
     
     # Supabase Settings
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
