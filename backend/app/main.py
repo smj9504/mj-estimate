@@ -95,60 +95,19 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting MJ Estimate API in {settings.ENVIRONMENT} environment")
     
     try:
-        # Initialize database system (lazy initialization - connection created on first use)
-        print("[STARTUP] Initializing database system...")
-        database = get_database()
-        logger.info(f"Database system ready: {database.provider_name}")
-        print(f"[STARTUP] Database system ready: {database.provider_name}")
+        # ULTRA-FAST STARTUP: Skip all heavy initialization
+        # Everything lazy-loads on first API request
+        print("[STARTUP] Ultra-fast startup - services initialize on demand")
 
-        # Skip health check at startup for faster deployment
-        # Health check will be performed by Render via /health endpoint
-
-        # Initialize database tables (only creates if not exists)
-        if hasattr(database, 'init_database'):
-            try:
-                print("[STARTUP] Initializing database tables...")
-                database.init_database()
-                logger.info("Database tables initialized")
-                print("[STARTUP] Database tables initialized")
-            except Exception as e:
-                logger.warning(f"Database table initialization skipped: {e}")
-                print(f"[STARTUP] Database init skipped: {e}")
-
-        # Initialize storage provider
-        try:
-            print("[STARTUP] Initializing storage provider...")
-            initialize_storage()
-            logger.info("Storage provider initialized")
-            print("[STARTUP] Storage provider initialized")
-        except Exception as e:
-            logger.warning(f"Storage provider initialization failed: {e}")
-            print(f"[STARTUP] Storage provider initialization failed: {e}")
-
-        # Initialize material detection providers
-        if settings.ENABLE_MATERIAL_DETECTION:
-            try:
-                print("[STARTUP] Initializing material detection providers...")
-                initialize_material_detection()
-                logger.info("Material detection providers initialized")
-                print("[STARTUP] Material detection providers initialized")
-            except Exception as e:
-                logger.warning(f"Material detection initialization failed: {e}")
-                print(f"[STARTUP] Material detection skipped: {e}")
-
-        # Start integration services if enabled
+        # Only start scheduler (lightweight, non-blocking)
         if settings.ENABLE_INTEGRATIONS:
             try:
-                print("[STARTUP] Starting integration services...")
                 start_scheduler()
-                logger.info("Integration services started (Google Sheets scheduler)")
-                print("[STARTUP] Integration services started")
+                print("[STARTUP] Background scheduler started")
             except Exception as e:
-                logger.warning(f"Integration services failed to start: {e}")
-                print(f"[STARTUP] Integration services skipped: {e}")
+                print(f"[STARTUP] Scheduler skipped: {e}")
 
-        print("[STARTUP] ✓ Application startup completed - ready to accept requests")
-        logger.info("Application startup completed - ready to accept requests")
+        print("[STARTUP] ✓ Ready - database/storage initialize on first use")
         yield
         
     except ConfigurationError as e:

@@ -64,6 +64,7 @@ async def create_detection_job(
         from sqlalchemy import select
 
         image_paths = []
+        image_ids_mapping = []  # Store (image_id, image_path) tuples
         logger.info(f"Processing {len(job_data.image_ids)} image IDs for job {result['job_id']}")
 
         for image_id in job_data.image_ids:
@@ -83,6 +84,7 @@ async def create_detection_job(
                 if file and file.url:
                     # File model uses 'url' attribute, not 'file_path'
                     image_paths.append(file.url)
+                    image_ids_mapping.append((str(image_id), file.url))
                     logger.info(f"Found file URL for {image_id}: {file.url}")
                 else:
                     logger.warning(f"File not found or no URL for image_id: {image_id}")
@@ -94,7 +96,7 @@ async def create_detection_job(
             background_tasks.add_task(
                 service.process_detection_job,
                 UUID(result["job_id"]),
-                image_paths
+                image_ids_mapping  # Pass (id, path) tuples instead of just paths
             )
             logger.info(f"Started background processing for job {result['job_id']} with {len(image_paths)} images")
         else:
@@ -127,6 +129,11 @@ async def get_detection_job(
     # Check authorization (user can only view their own jobs)
     if job.created_by_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to view this job")
+
+    # Debug logging
+    logger.info(f"Returning job {job_id}: detected_materials count = {len(job.detected_materials)}")
+    if job.detected_materials:
+        logger.info(f"First material: {job.detected_materials[0].material_category}, confidence={job.detected_materials[0].confidence_score}")
 
     return job
 

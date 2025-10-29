@@ -123,6 +123,9 @@ class DetectedMaterialResponse(BaseModel):
     # Performance
     detection_time_ms: Optional[int] = None
 
+    # Debug info (Google Vision raw response)
+    raw_response: Optional[Dict[str, Any]] = Field(None, description="Raw provider response for debugging")
+
     # Quality flags
     needs_review: bool = False
     reviewed_by_id: Optional[UUID] = None
@@ -156,6 +159,9 @@ class MaterialDetectionJobResponse(BaseModel):
 
     # Error handling
     error_message: Optional[str] = None
+
+    # Debug info
+    debug_info: Optional[Dict[str, Any]] = Field(None, description="Debug information for troubleshooting")
 
     # Audit
     created_by_id: UUID

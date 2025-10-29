@@ -175,13 +175,13 @@ class MaterialDetectionService:
             "message": f"Job created successfully with {image_count} images"
         }
 
-    async def process_detection_job(self, job_id: UUID, image_paths: List[str]):
+    async def process_detection_job(self, job_id: UUID, image_data: List[tuple]):
         """
         Process a detection job (background task).
 
         Args:
             job_id: Job ID to process
-            image_paths: List of image file paths to process
+            image_data: List of (image_id, image_path) tuples to process
         """
         try:
             # Get job details
@@ -202,7 +202,7 @@ class MaterialDetectionService:
             total_confidence = 0.0
             total_processing_time = 0
 
-            for idx, image_path in enumerate(image_paths):
+            for idx, (image_id, image_path) in enumerate(image_data):
                 try:
                     # Detect materials in image
                     result = await provider.detect(
@@ -212,15 +212,23 @@ class MaterialDetectionService:
 
                     materials = result.get("materials", [])
                     processing_time = result.get("processing_time_ms", 0)
+                    raw_response = result.get("raw_response", {})
+
+                    # Log detection results for debugging
+                    logger.info(
+                        f"Detection result for image {idx + 1} (ID: {image_id}): "
+                        f"{len(materials)} materials found, "
+                        f"raw_response keys: {list(raw_response.keys())}"
+                    )
 
                     # Save detected materials
                     for material_data in materials:
-                        # Get image_id from path (placeholder - needs proper mapping)
-                        image_id = job.id  # TODO: Get actual image_id
+                        # Include raw_response in material data
+                        material_data["raw_response"] = raw_response
 
                         self.repository.create_detected_material(
                             job_id=job_id,
-                            image_id=image_id,
+                            image_id=image_id,  # Use actual image_id from tuple
                             material_data=material_data,
                             provider_used=job.provider,
                             detection_time_ms=processing_time
@@ -235,12 +243,12 @@ class MaterialDetectionService:
                     self.repository.update_job_progress(job_id, idx + 1)
 
                     logger.info(
-                        f"Processed image {idx + 1}/{len(image_paths)} "
+                        f"Processed image {idx + 1}/{len(image_data)} "
                         f"for job {job_id}: {len(materials)} materials detected"
                     )
 
                 except Exception as e:
-                    logger.error(f"Failed to process image {image_path} for job {job_id}: {e}")
+                    logger.error(f"Failed to process image {image_path} (ID: {image_id}) for job {job_id}: {e}")
                     # Continue with next image
 
             # Calculate statistics
