@@ -68,6 +68,7 @@ google-cloud-vision==3.5.0
 
 # Image Processing
 opencv-python==4.10.0.84
+opencv-python-headless==4.8.0.76  # Fix yanked version warning
 numpy>=2.0.0,<2.3.0  # NumPy 2.x required for inference-sdk
 
 # Redis Caching (async)
