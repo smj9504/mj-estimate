@@ -23,7 +23,14 @@ from app.domains.company.models import *
 from app.domains.staff.models import *
 from app.domains.water_mitigation.models import *
 from app.domains.reconstruction_estimate.models import *
-from app.domains.material_detection.models import *
+
+# Conditional model imports (only if Material Detection enabled)
+from app.core.config import settings as _early_settings
+if getattr(_early_settings, 'ENABLE_MATERIAL_DETECTION', False):
+    try:
+        from app.domains.material_detection.models import *
+    except ImportError:
+        pass  # Material Detection dependencies not installed
 
 # API and core imports
 from app.domains.company.api import router as company_router
@@ -47,9 +54,16 @@ from app.domains.sketch.api import router as sketch_router
 from app.domains.receipt.api import router as receipt_router
 from app.domains.water_mitigation.api import router as water_mitigation_router
 from app.domains.reconstruction_estimate.api import router as reconstruction_estimate_router
-from app.domains.material_detection.api import router as material_detection_router
-from app.domains.material_detection.service import initialize_material_detection
+from app.domains.file.service import initialize_storage
 from app.core.config import settings
+
+# Conditional Material Detection imports (only if enabled)
+if settings.ENABLE_MATERIAL_DETECTION:
+    try:
+        from app.domains.material_detection.api import router as material_detection_router
+        from app.domains.material_detection.service import initialize_material_detection
+    except ImportError:
+        settings.ENABLE_MATERIAL_DETECTION = False  # Disable if dependencies missing
 from app.core.database_factory import get_database, db_factory
 # Service factory removed - using direct service instantiation
 from app.core.interfaces import DatabaseException, ConnectionError, ConfigurationError
@@ -101,13 +115,23 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Database table initialization skipped: {e}")
                 print(f"[STARTUP] Database init skipped: {e}")
 
-        # Initialize material detection providers (lazy loading for faster startup)
+        # Initialize storage provider
+        try:
+            print("[STARTUP] Initializing storage provider...")
+            initialize_storage()
+            logger.info("Storage provider initialized")
+            print("[STARTUP] Storage provider initialized")
+        except Exception as e:
+            logger.warning(f"Storage provider initialization failed: {e}")
+            print(f"[STARTUP] Storage provider initialization failed: {e}")
+
+        # Initialize material detection providers
         if settings.ENABLE_MATERIAL_DETECTION:
             try:
-                print("[STARTUP] Material detection enabled (will initialize on first use)")
-                # Lazy initialization - providers loaded on first API call
-                # initialize_material_detection()  # Deferred for faster deployment
-                logger.info("Material detection enabled (lazy initialization)")
+                print("[STARTUP] Initializing material detection providers...")
+                initialize_material_detection()
+                logger.info("Material detection providers initialized")
+                print("[STARTUP] Material detection providers initialized")
             except Exception as e:
                 logger.warning(f"Material detection initialization failed: {e}")
                 print(f"[STARTUP] Material detection skipped: {e}")

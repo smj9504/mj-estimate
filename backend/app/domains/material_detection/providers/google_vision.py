@@ -108,6 +108,11 @@ class GoogleVisionProvider(MaterialDetectionProvider):
             label_response = self.client.label_detection(image=image)
             object_response = self.client.object_localization(image=image)
 
+            # Log detected labels for debugging
+            labels = [f"{label.description}({label.score:.2f})" for label in label_response.label_annotations[:5]]
+            objects = [f"{obj.name}({obj.score:.2f})" for obj in object_response.localized_object_annotations[:5]]
+            logger.info(f"Google Vision detected - Labels: {labels}, Objects: {objects}")
+
             # Parse responses
             materials = self._parse_google_vision_response(
                 label_response,
@@ -162,18 +167,52 @@ class GoogleVisionProvider(MaterialDetectionProvider):
         """
         materials = []
 
-        # Material keywords mapping
+        # Material keywords mapping (expanded for better detection)
         material_keywords = {
+            # Flooring
             "wood": ["Hardwood Flooring", "Wood"],
+            "hardwood": ["Hardwood Flooring", "Oak"],
+            "laminate": ["Laminate Flooring", "Laminate"],
             "floor": ["Flooring", None],
+            "flooring": ["Flooring", None],
             "tile": ["Tile Flooring", "Tile"],
+            "ceramic": ["Tile Flooring", "Ceramic"],
+            "porcelain": ["Tile Flooring", "Porcelain"],
             "carpet": ["Carpet", None],
-            "concrete": ["Concrete", None],
-            "brick": ["Brick", None],
+            "vinyl": ["Vinyl Flooring", "Vinyl"],
+
+            # Wall materials
             "drywall": ["Drywall", None],
+            "sheetrock": ["Drywall", "Sheetrock"],
+            "plaster": ["Plaster", None],
+            "brick": ["Brick", None],
+            "masonry": ["Brick", "Masonry"],
+
+            # Structural
+            "concrete": ["Concrete", None],
+            "cement": ["Concrete", "Cement"],
             "metal": ["Metal", None],
+            "steel": ["Metal", "Steel"],
+            "aluminum": ["Metal", "Aluminum"],
+
+            # Finishing
             "stone": ["Stone", None],
-            "glass": ["Glass", None]
+            "marble": ["Stone", "Marble"],
+            "granite": ["Stone", "Granite"],
+            "glass": ["Glass", None],
+            "window": ["Glass", "Window"],
+
+            # Roofing
+            "shingle": ["Roofing", "Shingle"],
+            "roof": ["Roofing", None],
+
+            # Paint/Coating
+            "paint": ["Paint", None],
+            "coating": ["Coating", None],
+
+            # Insulation
+            "insulation": ["Insulation", None],
+            "fiberglass": ["Insulation", "Fiberglass"]
         }
 
         # Process object localizations (with bounding boxes)

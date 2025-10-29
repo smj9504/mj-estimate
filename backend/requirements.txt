@@ -56,20 +56,20 @@ pytz==2024.1  # Timezone support for business hours scheduling
 # Database Migration
 alembic==1.13.1
 
-# Material Detection APIs
-roboflow==1.1.11
-inference-sdk==0.59.0
-google-cloud-vision==3.5.0
+# Material Detection APIs (disabled for deployment optimization)
+# roboflow==1.1.11
+# inference-sdk==0.59.0
+# google-cloud-vision==3.5.0
 
 # AI/ML Models for Material Detection (Optional - very large, install separately if needed)
 # transformers>=4.30.0  # Hugging Face Transformers for Custom ViT (300MB+)
 # torch>=2.0.0  # PyTorch for deep learning models (500MB+)
 # pillow>=11.0.0  # Already included above
 
-# Image Processing
-opencv-python==4.10.0.84
-opencv-python-headless==4.8.0.76  # Fix yanked version warning
-numpy>=2.0.0,<2.3.0  # NumPy 2.x required for inference-sdk
+# Image Processing (disabled - only needed for Material Detection)
+# opencv-python==4.10.0.84
+# opencv-python-headless==4.8.0.76
+# numpy>=2.0.0,<2.3.0  # NumPy 2.x required for inference-sdk
 
 # Redis Caching (async)
 aioredis==2.0.1

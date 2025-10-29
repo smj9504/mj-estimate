@@ -21,6 +21,39 @@ from .wm_photo_adapter import WMPhotoAdapter
 
 logger = logging.getLogger(__name__)
 
+# Global storage provider instance (initialized at application startup)
+_storage_provider: Optional[StorageProvider] = None
+
+
+def initialize_storage():
+    """
+    Initialize storage provider at application startup.
+
+    This should be called once when the FastAPI application starts.
+    """
+    global _storage_provider
+    if _storage_provider is None:
+        _storage_provider = StorageFactory.get_instance()
+        logger.info(f"Storage provider initialized: {_storage_provider.provider_name}")
+
+
+def get_storage_provider() -> StorageProvider:
+    """
+    Get the global storage provider instance.
+
+    Returns:
+        StorageProvider instance initialized at startup
+
+    Raises:
+        RuntimeError: If storage provider not initialized (startup failed)
+    """
+    if _storage_provider is None:
+        raise RuntimeError(
+            "Storage provider not initialized. "
+            "This should be initialized during application startup."
+        )
+    return _storage_provider
+
 
 class FileService(BaseService[File, str]):
     """Service for file operations"""
@@ -28,8 +61,8 @@ class FileService(BaseService[File, str]):
     def __init__(self, database):
         super().__init__(database)
         self.repository = FileRepository(database.get_session())
-        # Get storage provider (singleton)
-        self.storage: StorageProvider = StorageFactory.get_instance()
+        # Use global storage provider (no repeated get_instance() calls)
+        self.storage: StorageProvider = get_storage_provider()
 
     def get_repository(self) -> FileRepository:
         """Get the repository used by this service"""

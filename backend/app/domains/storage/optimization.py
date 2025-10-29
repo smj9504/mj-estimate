@@ -116,7 +116,7 @@ class ImageOptimizer:
                 'final_dimensions': f"{img.size[0]}x{img.size[1]}"
             }
 
-            logger.info(f"Image optimized: {compression_ratio:.1f}% reduction ({original_size} → {optimized_size} bytes)")
+            logger.debug(f"Image optimized: {compression_ratio:.1f}% reduction ({original_size} → {optimized_size} bytes)")
 
             return output, metadata
 
