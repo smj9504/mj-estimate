@@ -12,7 +12,7 @@ services:
     region: oregon  # Change to your preferred region
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info --timeout-keep-alive 90
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info --timeout-keep-alive 30 --workers 1
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.0"
@@ -31,7 +31,9 @@ services:
       - key: LOG_LEVEL
         value: INFO
       - key: ENABLE_INTEGRATIONS
-        value: true
+        value: false
+      - key: ENABLE_MATERIAL_DETECTION
+        value: false
       # IMPORTANT: Set these in Render Dashboard (not here for security)
       # - DATABASE_URL (from NeonDB)
       # - SECRET_KEY (generate random string)
