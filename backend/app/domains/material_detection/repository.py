@@ -126,7 +126,9 @@ class MaterialDetectionRepository(BaseRepository[MaterialDetectionJob, UUID]):
         reconstruction_estimate_id: Optional[UUID] = None
     ) -> List[MaterialDetectionJob]:
         """List jobs with optional filtering."""
-        query = select(MaterialDetectionJob)
+        query = select(MaterialDetectionJob).options(
+            selectinload(MaterialDetectionJob.detected_materials)
+        )
 
         # Apply filters
         filters = []
@@ -174,41 +176,49 @@ class MaterialDetectionRepository(BaseRepository[MaterialDetectionJob, UUID]):
         job_id: UUID,
         status: str,
         error_message: Optional[str] = None
-    ) -> MaterialDetectionJob:
-        """Update job status."""
-        job = self.get_job(job_id, include_materials=False)
-        if not job:
-            raise ValueError(f"Job {job_id} not found")
+    ) -> None:
+        """Update job status - optimized without SELECT."""
+        from sqlalchemy import update
+        from datetime import datetime, timezone
 
-        job.status = JobStatus(status)
+        # Convert string to JobStatus enum for proper DB compatibility
+        status_enum = JobStatus(status) if isinstance(status, str) else status
+
+        values = {
+            'status': status_enum,
+            'updated_at': func.now()
+        }
+
         if error_message:
-            job.error_message = error_message
+            values['error_message'] = error_message
 
-        if status == JobStatus.COMPLETED.value:
-            from datetime import datetime, timezone
-            job.completed_at = datetime.now(timezone.utc)
+        if status_enum == JobStatus.COMPLETED:
+            values['completed_at'] = datetime.now(timezone.utc)
 
+        stmt = update(MaterialDetectionJob).where(
+            MaterialDetectionJob.id == job_id
+        ).values(**values)
+
+        self.session.execute(stmt)
         self.session.commit()
-        self.session.refresh(job)
-
-        return job
 
     def update_job_progress(
         self,
         job_id: UUID,
         processed_images: int
-    ) -> MaterialDetectionJob:
-        """Update job progress."""
-        job = self.get_job(job_id, include_materials=False)
-        if not job:
-            raise ValueError(f"Job {job_id} not found")
+    ) -> None:
+        """Update job progress - optimized without SELECT."""
+        from sqlalchemy import update
 
-        job.processed_images = processed_images
+        stmt = update(MaterialDetectionJob).where(
+            MaterialDetectionJob.id == job_id
+        ).values(
+            processed_images=processed_images,
+            updated_at=func.now()
+        )
 
+        self.session.execute(stmt)
         self.session.commit()
-        self.session.refresh(job)
-
-        return job
 
     def update_job_statistics(
         self,
@@ -216,20 +226,21 @@ class MaterialDetectionRepository(BaseRepository[MaterialDetectionJob, UUID]):
         total_materials_detected: int,
         avg_confidence: float,
         processing_time_ms: int
-    ) -> MaterialDetectionJob:
-        """Update job statistics after completion."""
-        job = self.get_job(job_id, include_materials=False)
-        if not job:
-            raise ValueError(f"Job {job_id} not found")
+    ) -> None:
+        """Update job statistics after completion - optimized without SELECT."""
+        from sqlalchemy import update
 
-        job.total_materials_detected = total_materials_detected
-        job.avg_confidence = avg_confidence
-        job.processing_time_ms = processing_time_ms
+        stmt = update(MaterialDetectionJob).where(
+            MaterialDetectionJob.id == job_id
+        ).values(
+            total_materials_detected=total_materials_detected,
+            avg_confidence=avg_confidence,
+            processing_time_ms=processing_time_ms,
+            updated_at=func.now()
+        )
 
+        self.session.execute(stmt)
         self.session.commit()
-        self.session.refresh(job)
-
-        return job
 
     # ===== Detected Material Operations =====
 
@@ -360,6 +371,176 @@ class MaterialDetectionRepository(BaseRepository[MaterialDetectionJob, UUID]):
             "total_materials_detected": row.total_materials or 0,
             "avg_confidence": float(row.avg_confidence) if row.avg_confidence else 0.0
         }
+
+    # ===== DetectedMaterial CRUD Operations =====
+
+    def get_detected_material(
+        self,
+        material_id: UUID,
+        include_job: bool = False
+    ) -> Optional[DetectedMaterial]:
+        """
+        Get a detected material by ID.
+
+        Args:
+            material_id: Material ID
+            include_job: Whether to eagerly load the parent job
+
+        Returns:
+            DetectedMaterial or None
+        """
+        query = select(DetectedMaterial).where(DetectedMaterial.id == material_id)
+
+        if include_job:
+            query = query.options(selectinload(DetectedMaterial.job))
+
+        result = self.session.execute(query)
+        return result.scalar_one_or_none()
+
+    def update_detected_material(
+        self,
+        material_id: UUID,
+        update_data: Dict[str, Any]
+    ) -> Optional[DetectedMaterial]:
+        """
+        Update a detected material (for manual review/correction).
+
+        Args:
+            material_id: Material ID
+            update_data: Fields to update
+
+        Returns:
+            Updated DetectedMaterial or None
+        """
+        material = self.get_detected_material(material_id)
+        if not material:
+            return None
+
+        # Update fields
+        for key, value in update_data.items():
+            if hasattr(material, key) and value is not None:
+                setattr(material, key, value)
+
+        self.session.commit()
+        self.session.refresh(material)
+
+        logger.info(f"Updated detected material {material_id}")
+        return material
+
+    def delete_detected_material(self, material_id: UUID) -> bool:
+        """
+        Delete a detected material.
+
+        Args:
+            material_id: Material ID
+
+        Returns:
+            True if deleted, False if not found
+        """
+        material = self.get_detected_material(material_id)
+        if not material:
+            return False
+
+        self.session.delete(material)
+        self.session.commit()
+
+        logger.info(f"Deleted detected material {material_id}")
+        return True
+
+    def get_materials_by_job(
+        self,
+        job_id: UUID,
+        skip: int = 0,
+        limit: int = 100,
+        category_filter: Optional[str] = None,
+        min_confidence: Optional[float] = None
+    ) -> List[DetectedMaterial]:
+        """
+        Get detected materials for a specific job with filtering.
+
+        Args:
+            job_id: Job ID
+            skip: Number of records to skip
+            limit: Maximum number of records
+            category_filter: Filter by material category
+            min_confidence: Minimum confidence score
+
+        Returns:
+            List of DetectedMaterial
+        """
+        query = select(DetectedMaterial).where(DetectedMaterial.job_id == job_id)
+
+        if category_filter:
+            query = query.where(DetectedMaterial.material_category.ilike(f"%{category_filter}%"))
+
+        if min_confidence is not None:
+            query = query.where(DetectedMaterial.confidence_score >= min_confidence)
+
+        query = query.order_by(DetectedMaterial.confidence_score.desc())
+        query = query.offset(skip).limit(limit)
+
+        result = self.session.execute(query)
+        return list(result.scalars().all())
+
+    def bulk_update_materials(
+        self,
+        material_ids: List[UUID],
+        update_data: Dict[str, Any]
+    ) -> int:
+        """
+        Bulk update multiple detected materials.
+
+        Args:
+            material_ids: List of material IDs
+            update_data: Fields to update
+
+        Returns:
+            Number of materials updated
+        """
+        if not material_ids:
+            return 0
+
+        materials = self.session.execute(
+            select(DetectedMaterial).where(DetectedMaterial.id.in_(material_ids))
+        ).scalars().all()
+
+        count = 0
+        for material in materials:
+            for key, value in update_data.items():
+                if hasattr(material, key) and value is not None:
+                    setattr(material, key, value)
+            count += 1
+
+        self.session.commit()
+
+        logger.info(f"Bulk updated {count} materials")
+        return count
+
+    def bulk_delete_materials(self, material_ids: List[UUID]) -> int:
+        """
+        Bulk delete multiple detected materials.
+
+        Args:
+            material_ids: List of material IDs
+
+        Returns:
+            Number of materials deleted
+        """
+        if not material_ids:
+            return 0
+
+        materials = self.session.execute(
+            select(DetectedMaterial).where(DetectedMaterial.id.in_(material_ids))
+        ).scalars().all()
+
+        count = len(materials)
+        for material in materials:
+            self.session.delete(material)
+
+        self.session.commit()
+
+        logger.info(f"Bulk deleted {count} materials")
+        return count
 
     # ===== Helper Methods =====
 

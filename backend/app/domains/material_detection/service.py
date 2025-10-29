@@ -7,7 +7,12 @@ Business logic for material detection operations.
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 from .repository import MaterialDetectionRepository
-from .providers import RoboflowProvider, GoogleVisionProvider
+from .providers import (
+    RoboflowProvider,
+    GoogleVisionProvider,
+    CustomViTProvider,
+    EnsembleProvider
+)
 from .providers.base import MaterialDetectionProvider
 from .schemas import MaterialDetectionJobCreate, ProviderType, JobStatus
 from .models import MaterialDetectionJob
@@ -20,41 +25,105 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 
+class ProviderManager:
+    """
+    Singleton manager for material detection providers.
+
+    Providers are initialized once on application startup and reused across requests.
+    """
+    _instance = None
+    _providers: Dict[str, MaterialDetectionProvider] = {}
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def initialize_providers(self):
+        """Initialize available material detection providers (once)."""
+        if self._initialized:
+            logger.debug("Providers already initialized, skipping")
+            return
+
+        logger.info("🚀 Initializing material detection providers...")
+
+        # Google Vision provider (uses existing GCS credentials)
+        try:
+            self._providers[ProviderType.GOOGLE_VISION.value] = GoogleVisionProvider()
+            logger.info("✓ Google Vision provider initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize Google Vision provider: {e}")
+
+        # Custom ViT provider (local model, no API key needed)
+        try:
+            self._providers[ProviderType.CUSTOM_VIT.value] = CustomViTProvider()
+            logger.info("✓ Custom ViT provider initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Custom ViT provider: {e}")
+            logger.info("Install with: pip install transformers torch pillow")
+
+        # Ensemble provider (combines all available models)
+        try:
+            # Only initialize if we have at least 2 providers
+            if len(self._providers) >= 2:
+                # Pass existing providers to avoid re-initialization
+                self._providers[ProviderType.ENSEMBLE.value] = EnsembleProvider(
+                    existing_providers=self._providers.copy()
+                )
+                logger.info("✓ Ensemble provider initialized (reusing existing providers)")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Ensemble provider: {e}")
+
+        # Roboflow provider (DISABLED - 405 errors)
+        # if settings.ROBOFLOW_API_KEY:
+        #     try:
+        #         self._providers[ProviderType.ROBOFLOW.value] = RoboflowProvider()
+        #         logger.info("✓ Roboflow provider initialized")
+        #     except Exception as e:
+        #         logger.error(f"Failed to initialize Roboflow provider: {e}")
+
+        if not self._providers:
+            logger.warning("⚠ No material detection providers available")
+        else:
+            logger.info(f"📊 Total providers initialized: {len(self._providers)}")
+
+        self._initialized = True
+
+    @property
+    def providers(self) -> Dict[str, MaterialDetectionProvider]:
+        """Get initialized providers."""
+        if not self._initialized:
+            self.initialize_providers()
+        return self._providers
+
+
+# Global singleton instance
+_provider_manager = ProviderManager()
+
+
+def initialize_material_detection():
+    """
+    Initialize material detection providers on application startup.
+
+    This should be called once when the FastAPI application starts.
+    """
+    _provider_manager.initialize_providers()
+
+
 class MaterialDetectionService:
     """
     Material detection orchestration service.
 
     Manages job creation, provider selection, and detection workflow.
+    Uses singleton ProviderManager for optimal performance.
     """
 
     def __init__(self, db: DatabaseSession):
         self.db = db
         self.repository = MaterialDetectionRepository(db)
-        self.providers: Dict[str, MaterialDetectionProvider] = {}
-
-        # Initialize available providers
-        self._initialize_providers()
-
-    def _initialize_providers(self):
-        """Initialize available material detection providers."""
-        # Roboflow provider
-        if settings.ROBOFLOW_API_KEY:
-            try:
-                self.providers[ProviderType.ROBOFLOW.value] = RoboflowProvider()
-                logger.info("Roboflow provider initialized")
-            except Exception as e:
-                logger.error(f"Failed to initialize Roboflow provider: {e}")
-
-        # Google Vision provider
-        if getattr(settings, 'GOOGLE_VISION_ENABLED', False) and settings.GOOGLE_CLOUD_VISION_KEY:
-            try:
-                self.providers[ProviderType.GOOGLE_VISION.value] = GoogleVisionProvider()
-                logger.info("Google Vision provider initialized")
-            except Exception as e:
-                logger.error(f"Failed to initialize Google Vision provider: {e}")
-
-        if not self.providers:
-            logger.warning("No material detection providers available")
+        # Use shared providers from singleton manager
+        self.providers = _provider_manager.providers
 
     async def create_detection_job(
         self,
@@ -313,3 +382,75 @@ class MaterialDetectionService:
 
         logger.info(f"Deleted detection job {job_id}")
         return True
+
+    # ===== DetectedMaterial CRUD =====
+
+    def get_detected_material(self, material_id: UUID):
+        """Get a detected material by ID."""
+        return self.repository.get_detected_material(material_id)
+
+    def update_detected_material(
+        self,
+        material_id: UUID,
+        updates,
+        reviewed_by_id: UUID
+    ):
+        """
+        Update a detected material (manual review).
+
+        Args:
+            material_id: Material ID
+            updates: DetectedMaterialUpdate schema
+            reviewed_by_id: ID of user performing review
+
+        Returns:
+            Updated material
+        """
+        update_data = updates.dict(exclude_unset=True)
+
+        # Add review metadata if any field is updated
+        if update_data:
+            update_data['reviewed_by_id'] = reviewed_by_id
+
+        return self.repository.update_detected_material(material_id, update_data)
+
+    def delete_detected_material(self, material_id: UUID) -> bool:
+        """Delete a detected material."""
+        return self.repository.delete_detected_material(material_id)
+
+    def bulk_update_materials(
+        self,
+        material_ids: List[UUID],
+        updates,
+        reviewed_by_id: UUID
+    ) -> int:
+        """
+        Bulk update multiple materials.
+
+        Args:
+            material_ids: List of material IDs
+            updates: DetectedMaterialUpdate schema
+            reviewed_by_id: ID of user performing review
+
+        Returns:
+            Number of materials updated
+        """
+        update_data = updates.dict(exclude_unset=True)
+
+        # Add review metadata
+        if update_data:
+            update_data['reviewed_by_id'] = reviewed_by_id
+
+        return self.repository.bulk_update_materials(material_ids, update_data)
+
+    def bulk_delete_materials(self, material_ids: List[UUID]) -> int:
+        """
+        Bulk delete multiple materials.
+
+        Args:
+            material_ids: List of material IDs
+
+        Returns:
+            Number of materials deleted
+        """
+        return self.repository.bulk_delete_materials(material_ids)

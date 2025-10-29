@@ -135,28 +135,18 @@ class BaseRepository(Repository[T, ID]):
         if not data:
             raise ValueError(f"No data provided for {operation} operation")
 
-        logger.info(f"=== BASE REPOSITORY _validate_data ===")
-        logger.info(f"Operation: {operation}")
-        logger.info(f"Input data loss_date: {data.get('loss_date')}")
-        logger.info(f"Input data client_name: {data.get('client_name')}")
+        logger.debug(f"Validating data for {operation} operation")
 
         # Remove None values if specified in settings (but not for update operations)
         if operation != "update" and getattr(settings, 'REMOVE_NONE_VALUES', True):
             data = {k: v for k, v in data.items() if v is not None}
-            logger.info(f"After None removal (create): loss_date: {data.get('loss_date')}")
 
         # Remove system fields that shouldn't be set manually
         system_fields = {'created_at', 'updated_at'} if operation == "create" else {'created_at'}
         for field in system_fields:
             data.pop(field, None)
 
-        logger.info(f"Before _prepare_data: loss_date: {data.get('loss_date')}")
-        logger.info(f"Before _prepare_data: client_name: {data.get('client_name')}")
-
         prepared_data = self._prepare_data(data)
-
-        logger.info(f"After _prepare_data: loss_date: {prepared_data.get('loss_date')}")
-        logger.info(f"After _prepare_data: client_name: {prepared_data.get('client_name')}")
 
         return prepared_data
 

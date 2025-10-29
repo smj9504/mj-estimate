@@ -48,6 +48,7 @@ from app.domains.receipt.api import router as receipt_router
 from app.domains.water_mitigation.api import router as water_mitigation_router
 from app.domains.reconstruction_estimate.api import router as reconstruction_estimate_router
 from app.domains.material_detection.api import router as material_detection_router
+from app.domains.material_detection.service import initialize_material_detection
 from app.core.config import settings
 from app.core.database_factory import get_database, db_factory
 # Service factory removed - using direct service instantiation
@@ -99,6 +100,17 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning(f"Database table initialization skipped: {e}")
                 print(f"[STARTUP] Database init skipped: {e}")
+
+        # Initialize material detection providers (lazy loading for faster startup)
+        if settings.ENABLE_MATERIAL_DETECTION:
+            try:
+                print("[STARTUP] Material detection enabled (will initialize on first use)")
+                # Lazy initialization - providers loaded on first API call
+                # initialize_material_detection()  # Deferred for faster deployment
+                logger.info("Material detection enabled (lazy initialization)")
+            except Exception as e:
+                logger.warning(f"Material detection initialization failed: {e}")
+                print(f"[STARTUP] Material detection skipped: {e}")
 
         # Start integration services if enabled
         if settings.ENABLE_INTEGRATIONS:

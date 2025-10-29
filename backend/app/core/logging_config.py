@@ -127,6 +127,10 @@ def setup_logging():
     uvicorn_access = logging.getLogger('uvicorn.access')
     uvicorn_access.addFilter(HealthCheckFilter())
 
+    # Suppress verbose multipart parsing logs (file upload)
+    logging.getLogger('multipart').setLevel(logging.WARNING)
+    logging.getLogger('multipart.multipart').setLevel(logging.WARNING)
+
     if log_level == logging.DEBUG:
         # 디버그 모드에서만 데이터베이스 로그 활성화 및 파일 생성
         logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)

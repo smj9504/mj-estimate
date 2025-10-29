@@ -25,22 +25,28 @@ class GoogleVisionProvider(MaterialDetectionProvider):
 
     def __init__(self):
         """Initialize Google Vision provider with credentials."""
-        if not settings.GOOGLE_CLOUD_VISION_KEY:
-            raise ValueError("GOOGLE_CLOUD_VISION_KEY not configured")
-
         try:
             from google.cloud import vision
+            from google.oauth2 import service_account
             import os
 
-            # Set credentials path
-            credentials_path = Path(settings.GOOGLE_CLOUD_VISION_KEY)
-            if credentials_path.exists():
-                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = str(credentials_path)
+            # Use GCS service account if available (same as storage)
+            service_account_file = settings.GCS_SERVICE_ACCOUNT_FILE
+            if service_account_file and os.path.exists(service_account_file):
+                credentials = service_account.Credentials.from_service_account_file(
+                    service_account_file
+                )
+                self.client = vision.ImageAnnotatorClient(credentials=credentials)
+                logger.info(f"Google Vision initialized with service account: {service_account_file}")
             else:
-                logger.warning(f"Google Cloud credentials file not found: {credentials_path}")
+                # Fallback to default credentials or GOOGLE_CLOUD_VISION_KEY
+                if hasattr(settings, 'GOOGLE_CLOUD_VISION_KEY') and settings.GOOGLE_CLOUD_VISION_KEY:
+                    credentials_path = Path(settings.GOOGLE_CLOUD_VISION_KEY)
+                    if credentials_path.exists():
+                        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = str(credentials_path)
 
-            self.client = vision.ImageAnnotatorClient()
-            logger.info("Google Vision provider initialized")
+                self.client = vision.ImageAnnotatorClient()
+                logger.info("Google Vision initialized with default credentials")
 
         except ImportError:
             logger.error("google-cloud-vision package not installed")
@@ -69,9 +75,6 @@ class GoogleVisionProvider(MaterialDetectionProvider):
         if not self.validate_image_path(image_path):
             raise ValueError(f"Invalid image path: {image_path}")
 
-        if image_path.startswith(('http://', 'https://')):
-            raise ValueError("Google Vision provider only supports local files")
-
         if not self.validate_confidence_threshold(confidence_threshold):
             raise ValueError(f"Invalid confidence threshold: {confidence_threshold}")
 
@@ -80,11 +83,26 @@ class GoogleVisionProvider(MaterialDetectionProvider):
         try:
             from google.cloud import vision
 
-            # Read image file
-            with open(image_path, 'rb') as image_file:
-                content = image_file.read()
+            # Prepare image based on source
+            image = vision.Image()
 
-            image = vision.Image(content=content)
+            if image_path.startswith('gs://'):
+                # GCS image - use URI
+                image.source.image_uri = image_path
+                logger.info(f"Using GCS image: {image_path}")
+            elif image_path.startswith(('http://', 'https://')):
+                # HTTP URL - download content
+                import httpx
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.get(image_path)
+                    response.raise_for_status()
+                    image.content = response.content
+                logger.info(f"Downloaded image from URL: {image_path}")
+            else:
+                # Local file
+                with open(image_path, 'rb') as image_file:
+                    image.content = image_file.read()
+                logger.info(f"Loaded local image: {image_path}")
 
             # Perform label detection and object localization
             label_response = self.client.label_detection(image=image)

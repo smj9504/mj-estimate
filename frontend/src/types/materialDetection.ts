@@ -28,7 +28,7 @@ export interface DetectedMaterial {
 }
 
 export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
-export type ProviderType = 'roboflow' | 'google_vision';
+export type ProviderType = 'roboflow' | 'google_vision' | 'custom_vit' | 'ensemble';
 
 export interface MaterialDetectionJob {
   id: string;

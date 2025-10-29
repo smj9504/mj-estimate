@@ -34,7 +34,9 @@ import {
   SyncOutlined,
   EyeOutlined,
   DeleteOutlined,
-  ApiOutlined
+  ApiOutlined,
+  DownloadOutlined,
+  FileExcelOutlined
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import materialDetectionService from '../../services/materialDetectionService';
@@ -64,7 +66,7 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
   const [health, setHealth] = useState<MaterialDetectionHealth | null>(null);
 
   // Detection settings
-  const [provider, setProvider] = useState<ProviderType>('roboflow');
+  const [provider, setProvider] = useState<ProviderType>('google_vision');
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.7);
 
   // Check service health on mount
@@ -267,6 +269,52 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
     }
   };
 
+  const handleExportCSV = async () => {
+    if (!currentJob) {
+      message.warning('No job to export');
+      return;
+    }
+
+    try {
+      const blob = await materialDetectionService.exportJobCSV(currentJob.id);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `materials_${currentJob.id}_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      message.success('CSV exported successfully');
+    } catch (error: any) {
+      console.error('Failed to export CSV:', error);
+      message.error('Failed to export CSV');
+    }
+  };
+
+  const handleExportExcel = async () => {
+    if (!currentJob) {
+      message.warning('No job to export');
+      return;
+    }
+
+    try {
+      const blob = await materialDetectionService.exportJobExcel(currentJob.id);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `materials_${currentJob.id}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      message.success('Excel exported successfully');
+    } catch (error: any) {
+      console.error('Failed to export Excel:', error);
+      message.error('Failed to export Excel');
+    }
+  };
+
   const getStatusTag = (status: JobStatus) => {
     const statusConfig = {
       pending: { color: 'default', icon: <SyncOutlined spin />, text: 'Pending' },
@@ -378,11 +426,11 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
         )
       }
     >
-      {!health?.providers.some(p => p.available) && (
+      {health && !health.providers.some(p => p.available) && (
         <Alert
-          type="warning"
+          type="error"
           message="Material detection service unavailable"
-          description="Please configure Roboflow API key"
+          description="No detection providers are currently available. Please check server configuration."
           showIcon
           style={{ marginBottom: 16 }}
         />
@@ -515,7 +563,29 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
 
       {/* Detected Materials */}
       {detectedMaterials.length > 0 && (
-        <Card type="inner" title={`Detected Materials (${detectedMaterials.length})`}>
+        <Card
+          type="inner"
+          title={`Detected Materials (${detectedMaterials.length})`}
+          extra={
+            <Space>
+              <Button
+                icon={<DownloadOutlined />}
+                onClick={handleExportCSV}
+                disabled={!currentJob || currentJob.status !== 'completed'}
+              >
+                Export CSV
+              </Button>
+              <Button
+                type="primary"
+                icon={<FileExcelOutlined />}
+                onClick={handleExportExcel}
+                disabled={!currentJob || currentJob.status !== 'completed'}
+              >
+                Export Excel
+              </Button>
+            </Space>
+          }
+        >
           <Table
             columns={columns}
             dataSource={detectedMaterials}

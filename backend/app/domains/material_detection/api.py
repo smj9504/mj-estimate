@@ -42,7 +42,7 @@ def get_service(db: DatabaseSession = Depends(get_db)) -> MaterialDetectionServi
 async def create_detection_job(
     job_data: MaterialDetectionJobCreate,
     background_tasks: BackgroundTasks,
-    db: DatabaseSession = Depends(get_db),
+    service: MaterialDetectionService = Depends(get_service),
     current_user: Staff = Depends(get_current_user)
 ):
     """
@@ -57,7 +57,6 @@ async def create_detection_job(
     - **reconstruction_estimate_id**: Optional link to reconstruction estimate
     """
     try:
-        service = MaterialDetectionService(db)
         result = await service.create_detection_job(job_data, current_user.id)
 
         # Get image paths from database
@@ -75,10 +74,10 @@ async def create_detection_job(
                 continue
 
             try:
-                # Query file from database
+                # Query file from database using service's db session
                 # File.id is String type, not UUID - query directly as string
                 stmt = select(File).where(File.id == str(image_id))
-                file_result = db.execute(stmt)
+                file_result = service.db.execute(stmt)
                 file = file_result.scalar_one_or_none()
 
                 if file and file.url:
@@ -297,9 +296,26 @@ async def get_detected_material(
 ):
     """
     Get details of a specific detected material.
+
+    Returns complete material information including job context.
     """
-    # TODO: Implement get single material with authorization check
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+    try:
+        material = service.get_detected_material(material_id)
+        if not material:
+            raise HTTPException(status_code=404, detail="Material not found")
+
+        # Check authorization (user owns the parent job)
+        job = service.get_job(material.job_id)
+        if not job or job.created_by_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to view this material")
+
+        return material
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get material {material_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to get material")
 
 
 @router.put("/materials/{material_id}", response_model=DetectedMaterialResponse)
@@ -314,5 +330,256 @@ async def update_detected_material(
 
     Allows users to correct or enhance material detection results.
     """
-    # TODO: Implement material update with authorization check
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+    try:
+        # Check authorization first
+        material = service.get_detected_material(material_id)
+        if not material:
+            raise HTTPException(status_code=404, detail="Material not found")
+
+        job = service.get_job(material.job_id)
+        if not job or job.created_by_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to update this material")
+
+        # Update material
+        updated_material = service.update_detected_material(
+            material_id,
+            updates,
+            current_user.id
+        )
+
+        if not updated_material:
+            raise HTTPException(status_code=500, detail="Failed to update material")
+
+        return updated_material
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update material {material_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to update material")
+
+
+@router.delete("/materials/{material_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_detected_material(
+    material_id: UUID,
+    service: MaterialDetectionService = Depends(get_service),
+    current_user: Staff = Depends(get_current_user)
+):
+    """
+    Delete a detected material.
+
+    Removes material from detection results (does not affect parent job).
+    """
+    try:
+        # Check authorization
+        material = service.get_detected_material(material_id)
+        if not material:
+            raise HTTPException(status_code=404, detail="Material not found")
+
+        job = service.get_job(material.job_id)
+        if not job or job.created_by_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this material")
+
+        # Delete material
+        success = service.delete_detected_material(material_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete material")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete material {material_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete material")
+
+
+# ===== Bulk Operations =====
+
+@router.post("/materials/bulk-update")
+async def bulk_update_materials(
+    material_ids: List[UUID],
+    updates: DetectedMaterialUpdate,
+    service: MaterialDetectionService = Depends(get_service),
+    current_user: Staff = Depends(get_current_user)
+):
+    """
+    Bulk update multiple detected materials.
+
+    Useful for batch review and correction operations.
+    """
+    try:
+        # Verify all materials belong to user
+        unauthorized = []
+        for material_id in material_ids:
+            material = service.get_detected_material(material_id)
+            if material:
+                job = service.get_job(material.job_id)
+                if not job or job.created_by_id != current_user.id:
+                    unauthorized.append(str(material_id))
+
+        if unauthorized:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Not authorized to update materials: {', '.join(unauthorized[:5])}"
+            )
+
+        # Bulk update
+        count = service.bulk_update_materials(material_ids, updates, current_user.id)
+
+        return {
+            "updated_count": count,
+            "message": f"Successfully updated {count} material(s)"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Bulk update failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Bulk update failed")
+
+
+@router.post("/materials/bulk-delete")
+async def bulk_delete_materials(
+    material_ids: List[UUID],
+    service: MaterialDetectionService = Depends(get_service),
+    current_user: Staff = Depends(get_current_user)
+):
+    """
+    Bulk delete multiple detected materials.
+
+    Useful for cleaning up false positives in batch.
+    """
+    try:
+        # Verify all materials belong to user
+        unauthorized = []
+        for material_id in material_ids:
+            material = service.get_detected_material(material_id)
+            if material:
+                job = service.get_job(material.job_id)
+                if not job or job.created_by_id != current_user.id:
+                    unauthorized.append(str(material_id))
+
+        if unauthorized:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Not authorized to delete materials: {', '.join(unauthorized[:5])}"
+            )
+
+        # Bulk delete
+        count = service.bulk_delete_materials(material_ids)
+
+        return {
+            "deleted_count": count,
+            "message": f"Successfully deleted {count} material(s)"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Bulk delete failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Bulk delete failed")
+
+
+
+# ===== Export Endpoints =====
+
+from fastapi.responses import StreamingResponse
+from ._export import export_materials_to_csv, export_materials_to_excel
+from datetime import datetime as dt
+
+
+@router.get("/jobs/{job_id}/export/csv")
+async def export_job_materials_csv(
+    job_id: UUID,
+    service: MaterialDetectionService = Depends(get_service),
+    current_user: Staff = Depends(get_current_user)
+):
+    """
+    Export detected materials to CSV format.
+
+    Returns CSV file with all materials for the specified job.
+    """
+    try:
+        # Check authorization
+        job = service.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        if job.created_by_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        # Get materials
+        materials = job.detected_materials or []
+        if not materials:
+            raise HTTPException(status_code=404, detail="No materials found for this job")
+
+        # Export to CSV
+        csv_buffer = export_materials_to_csv(materials)
+
+        # Generate filename
+        timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"materials_{job_id}_{timestamp}.csv"
+
+        # Return as streaming response
+        return StreamingResponse(
+            iter([csv_buffer.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"CSV export failed for job {job_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Export failed")
+
+
+@router.get("/jobs/{job_id}/export/excel")
+async def export_job_materials_excel(
+    job_id: UUID,
+    service: MaterialDetectionService = Depends(get_service),
+    current_user: Staff = Depends(get_current_user)
+):
+    """
+    Export detected materials to Excel format.
+
+    Returns Excel file with all materials for the specified job.
+    """
+    try:
+        # Check authorization
+        job = service.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        if job.created_by_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        # Get materials
+        materials = job.detected_materials or []
+        if not materials:
+            raise HTTPException(status_code=404, detail="No materials found for this job")
+
+        # Export to Excel
+        excel_buffer = export_materials_to_excel(materials)
+
+        # Generate filename
+        timestamp = dt.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"materials_{job_id}_{timestamp}.xlsx"
+
+        # Return as streaming response
+        return StreamingResponse(
+            iter([excel_buffer.getvalue()]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+
+    except HTTPException:
+        raise
+    except ImportError as e:
+        logger.error("openpyxl not installed")
+        raise HTTPException(
+            status_code=500,
+            detail="Excel export not available. Install openpyxl package."
+        )
+    except Exception as e:
+        logger.error(f"Excel export failed for job {job_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Export failed")

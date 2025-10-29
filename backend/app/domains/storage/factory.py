@@ -94,6 +94,9 @@ class StorageFactory:
             cls._instance = cls.create(provider_type)
             cls._provider_type = current_provider_type
             logger.info(f"Storage provider initialized: {cls._provider_type}")
+        else:
+            # Provider already initialized - reusing cached instance (no INFO log to reduce noise)
+            logger.debug(f"Reusing cached storage provider: {cls._provider_type}")
 
         return cls._instance
 
@@ -145,7 +148,7 @@ class StorageFactory:
                 "GCS_BUCKET_NAME environment variable is required for GCS storage"
             )
 
-        logger.info(f"Creating GCS storage provider: bucket={bucket_name}, optimizations=enabled")
+        logger.debug(f"Creating GCS storage provider: bucket={bucket_name}, optimizations=enabled")
 
         return GCSProvider(
             bucket_name=bucket_name,

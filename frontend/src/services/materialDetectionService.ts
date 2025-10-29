@@ -10,7 +10,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 export interface MaterialDetectionJobCreate {
   job_name?: string;
-  provider: 'roboflow' | 'google_vision';
+  provider: 'roboflow' | 'google_vision' | 'custom_vit' | 'ensemble';
   confidence_threshold?: number;
   image_ids: string[];
   reconstruction_estimate_id?: string;
@@ -166,6 +166,28 @@ class MaterialDetectionService {
     const response = await axios.put(
       `${API_BASE_URL}/api/material-detection/materials/${materialId}`,
       updates
+    );
+    return response.data;
+  }
+
+  /**
+   * Export job materials to CSV
+   */
+  async exportJobCSV(jobId: string): Promise<Blob> {
+    const response = await axios.get(
+      `${API_BASE_URL}/api/material-detection/jobs/${jobId}/export/csv`,
+      { responseType: 'blob' }
+    );
+    return response.data;
+  }
+
+  /**
+   * Export job materials to Excel
+   */
+  async exportJobExcel(jobId: string): Promise<Blob> {
+    const response = await axios.get(
+      `${API_BASE_URL}/api/material-detection/jobs/${jobId}/export/excel`,
+      { responseType: 'blob' }
     );
     return response.data;
   }

@@ -75,7 +75,7 @@ async def get_current_staff(
 
     # Try to get from cache first
     try:
-        cached_staff_data = cache.get(cache_key)
+        cached_staff_data = await cache.get(cache_key)
         if cached_staff_data:
             logger.debug(f"Cache HIT for staff: {user_id}")
             # Reconstruct Staff object from cached data
@@ -85,20 +85,24 @@ async def get_current_staff(
             class CachedStaff:
                 def __init__(self, data):
                     self.id = data['id']
+                    self.staff_number = data.get('staff_number', '')
+                    self.first_name = data.get('first_name', '')
+                    self.last_name = data.get('last_name', '')
                     self.username = data['username']
                     self.email = data['email']
                     self.full_name = data.get('full_name')
                     self.role = StaffRole[data['role']]
                     self.is_active = data['is_active']
                     self.can_login = data['can_login']
-                    self.company_id = data.get('company_id')
+                    self.email_verified = data.get('email_verified', False)
+                    self.created_at = data.get('created_at')
 
             staff = CachedStaff(staff_dict)
 
             # Validate cached staff
             if not staff.is_active or not staff.can_login:
                 logger.warning(f"Cached staff inactive - invalidating cache: {user_id}")
-                cache.delete(cache_key)
+                await cache.delete(cache_key)
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Staff member is inactive or not allowed to login"
@@ -133,15 +137,19 @@ async def get_current_staff(
     try:
         staff_data = {
             'id': str(staff.id),
+            'staff_number': staff.staff_number,
+            'first_name': staff.first_name,
+            'last_name': staff.last_name,
             'username': staff.username,
             'email': staff.email,
             'full_name': staff.full_name,
             'role': staff.role.value,
             'is_active': staff.is_active,
             'can_login': staff.can_login,
-            'company_id': str(staff.company_id) if staff.company_id else None
+            'email_verified': staff.email_verified,
+            'created_at': staff.created_at.isoformat() if staff.created_at else None
         }
-        cache.set(cache_key, json.dumps(staff_data), ttl=STAFF_CACHE_TTL)
+        await cache.set(cache_key, json.dumps(staff_data), ttl=STAFF_CACHE_TTL)
         logger.debug(f"Cached staff data for: {user_id} (TTL: {STAFF_CACHE_TTL}s)")
     except Exception as e:
         logger.warning(f"Failed to cache staff data: {e}")

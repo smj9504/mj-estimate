@@ -33,7 +33,8 @@ class RoboflowProvider(MaterialDetectionProvider):
 
         # Use a public pre-trained model from Roboflow Universe
         # Format: project-id/version (no workspace prefix)
-        self.model_id = "construction-detection/1"
+        # Using Construction Site Safety model (717 images, v27 YOLOv8s, August 2024)
+        self.model_id = "construction-site-safety/27"
 
         # Initialize Inference client
         from inference_sdk import InferenceHTTPClient

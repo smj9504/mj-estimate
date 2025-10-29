@@ -155,7 +155,16 @@ class Settings(BaseSettings):
 
     # Google Cloud Vision API
     GOOGLE_CLOUD_VISION_KEY: Optional[str] = os.getenv("GOOGLE_CLOUD_VISION_KEY")
-    GOOGLE_VISION_ENABLED: bool = os.getenv("GOOGLE_VISION_ENABLED", "false").lower() == "true"
+    GOOGLE_VISION_ENABLED: bool = os.getenv("GOOGLE_VISION_ENABLED", "true").lower() == "true"
+
+    # Custom ViT Model
+    CUSTOM_VIT_MODEL_NAME: str = os.getenv("CUSTOM_VIT_MODEL_NAME", "google/vit-base-patch16-224")
+    CUSTOM_VIT_MODEL_PATH: Optional[str] = os.getenv("CUSTOM_VIT_MODEL_PATH")
+
+    # Ensemble Settings
+    ENSEMBLE_STRATEGY: str = os.getenv("ENSEMBLE_STRATEGY", "voting")
+    ENSEMBLE_AGGREGATION: str = os.getenv("ENSEMBLE_AGGREGATION", "weighted_mean")
+    ENSEMBLE_MIN_PROVIDERS: int = int(os.getenv("ENSEMBLE_MIN_PROVIDERS", "2"))
 
     # Material Detection Settings
     MATERIAL_DETECTION_CONFIDENCE_THRESHOLD: float = float(os.getenv("MATERIAL_DETECTION_CONFIDENCE_THRESHOLD", "0.70"))
