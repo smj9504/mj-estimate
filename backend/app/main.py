@@ -154,6 +154,45 @@ app.add_middleware(
 )
 
 
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests with timing"""
+    import time
+
+    start_time = time.time()
+
+    # Log incoming request (skip health checks)
+    if "/health" not in request.url.path:
+        app_logger.info(f"→ {request.method} {request.url.path} from {request.client.host if request.client else 'unknown'}")
+
+    try:
+        response = await call_next(request)
+
+        # Calculate response time
+        process_time = (time.time() - start_time) * 1000  # Convert to ms
+
+        # Log response (skip health checks)
+        if "/health" not in request.url.path:
+            app_logger.info(
+                f"← {request.method} {request.url.path} "
+                f"Status: {response.status_code} "
+                f"Time: {process_time:.2f}ms"
+            )
+
+        # Add timing header
+        response.headers["X-Process-Time"] = str(process_time)
+        return response
+
+    except Exception as e:
+        # Log errors
+        error_logger.error(
+            f"✗ {request.method} {request.url.path} "
+            f"Error: {str(e)}"
+        )
+        raise
+
+
 # Exception handlers
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):

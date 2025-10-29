@@ -108,11 +108,12 @@ def setup_logging():
             specialized_logger.propagate = False
     
     # Database query logger (separate from general app logs)
-    # SQLAlchemy 로그 레벨 설정 - 헬스체크 등 불필요한 INFO 로그 제거
-    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
-    logging.getLogger('sqlalchemy.pool').setLevel(logging.WARNING)
-    logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
-    logging.getLogger('sqlalchemy.orm').setLevel(logging.WARNING)
+    # SQLAlchemy 로그 레벨 설정 - 프로덕션에서는 ERROR만, 개발에서는 WARNING
+    sqlalchemy_level = logging.ERROR if settings.ENVIRONMENT == 'production' else logging.WARNING
+    logging.getLogger('sqlalchemy.engine').setLevel(sqlalchemy_level)
+    logging.getLogger('sqlalchemy.pool').setLevel(sqlalchemy_level)
+    logging.getLogger('sqlalchemy.dialects').setLevel(sqlalchemy_level)
+    logging.getLogger('sqlalchemy.orm').setLevel(sqlalchemy_level)
 
     # Suppress verbose PDF generation library logs
     # fontTools와 PIL의 DEBUG/INFO 로그 숨김 (PDF 생성 시 노이즈 제거)
