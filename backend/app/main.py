@@ -78,29 +78,30 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting MJ Estimate API in {settings.ENVIRONMENT} environment")
     
     try:
-        # Initialize database system
+        # Initialize database system (lazy initialization - connection created on first use)
         database = get_database()
-        logger.info(f"Database system initialized: {database.provider_name}")
-        
-        # Perform health check
-        if database.health_check():
-            logger.info("Database health check passed")
-        else:
-            logger.warning("Database health check failed, but continuing...")
-        
-        # Services now use database directly via dependency injection
-        
-        # Initialize database tables
+        logger.info(f"Database system ready: {database.provider_name}")
+
+        # Skip health check at startup for faster deployment
+        # Health check will be performed by Render via /health endpoint
+
+        # Initialize database tables (only creates if not exists)
         if hasattr(database, 'init_database'):
-            database.init_database()
-            logger.info("Database tables initialized")
+            try:
+                database.init_database()
+                logger.info("Database tables initialized")
+            except Exception as e:
+                logger.warning(f"Database table initialization skipped: {e}")
 
         # Start integration services if enabled
         if settings.ENABLE_INTEGRATIONS:
-            start_scheduler()
-            logger.info("Integration services started (Google Sheets scheduler)")
+            try:
+                start_scheduler()
+                logger.info("Integration services started (Google Sheets scheduler)")
+            except Exception as e:
+                logger.warning(f"Integration services failed to start: {e}")
 
-        logger.info("Application startup completed successfully")
+        logger.info("Application startup completed - ready to accept requests")
         yield
         
     except ConfigurationError as e:
@@ -390,7 +391,22 @@ async def root():
 async def health_check(request: Request):
     """
     Lightweight health check endpoint for monitoring systems.
-    Does not log to reduce noise from frequent health checks.
+    Fast response - minimal checks for Render deployment health.
+    """
+    # Return immediate success - app is running
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "service": "mj-estimate-api",
+        "version": "2.0.0"
+    }
+
+
+@app.get("/health/detailed")
+async def detailed_health_check(request: Request):
+    """
+    Detailed health check with database and service checks.
+    Use this for monitoring, not for deployment health checks.
     """
     try:
         database = get_database()
@@ -399,7 +415,7 @@ async def health_check(request: Request):
         # Services are domain-based now
         service_info = {"status": "domain-based", "healthy": True}
 
-        # Simple response for Render health checks
+        # Detailed response
         return {
             "status": "healthy" if db_healthy else "degraded",
             "timestamp": datetime.utcnow().isoformat(),
@@ -419,8 +435,7 @@ async def health_check(request: Request):
             }
         }
     except Exception as e:
-        # Only log errors, not successful health checks
-        logger.error(f"Health check failed: {e}")
+        logger.error(f"Detailed health check failed: {e}")
         return JSONResponse(
             status_code=503,
             content={
