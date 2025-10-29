@@ -1,4 +1,4 @@
-import axios from 'axios';
+import api from './api';
 
 const API_BASE_URL = '/api/auth';
 
@@ -8,16 +8,16 @@ class AuthService {
   setAuthToken(token: string) {
     this.authToken = token;
     // Set default authorization header for all axios requests
-    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
   }
 
   clearAuthToken() {
     this.authToken = null;
-    delete axios.defaults.headers.common['Authorization'];
+    delete api.defaults.headers.common['Authorization'];
   }
 
   async login(username: string, password: string) {
-    const response = await axios.post(`${API_BASE_URL}/login`, {
+    const response = await api.post(`${API_BASE_URL}/login`, {
       username,
       password,
     });
@@ -34,12 +34,12 @@ class AuthService {
     role?: string;
     hire_date?: string;
   }) {
-    const response = await axios.post(`${API_BASE_URL}/register`, data);
+    const response = await api.post(`${API_BASE_URL}/register`, data);
     return response.data;
   }
 
   async getCurrentUser() {
-    const response = await axios.get(`${API_BASE_URL}/me`);
+    const response = await api.get(`${API_BASE_URL}/me`);
     return response.data;
   }
 
@@ -50,12 +50,12 @@ class AuthService {
     phone?: string;
     mobile_phone?: string;
   }) {
-    const response = await axios.put(`${API_BASE_URL}/me`, data);
+    const response = await api.put(`${API_BASE_URL}/me`, data);
     return response.data;
   }
 
   async changePassword(currentPassword: string, newPassword: string) {
-    const response = await axios.post(`${API_BASE_URL}/me/change-password`, {
+    const response = await api.post(`${API_BASE_URL}/me/change-password`, {
       current_password: currentPassword,
       new_password: newPassword,
     });
@@ -64,23 +64,23 @@ class AuthService {
 
   // Password reset endpoints
   async requestPasswordReset(email: string) {
-    const response = await axios.post(`${API_BASE_URL}/password-reset/request`, { email });
+    const response = await api.post(`${API_BASE_URL}/password-reset/request`, { email });
     return response.data;
   }
 
   async verifyResetToken(token: string) {
-    const response = await axios.post(`${API_BASE_URL}/password-reset/verify?token=${token}`);
+    const response = await api.post(`${API_BASE_URL}/password-reset/verify?token=${token}`);
     return response.data;
   }
 
   async confirmPasswordReset(data: { token: string; new_password: string }) {
-    const response = await axios.post(`${API_BASE_URL}/password-reset/confirm`, data);
+    const response = await api.post(`${API_BASE_URL}/password-reset/confirm`, data);
     return response.data;
   }
 
   // Admin only endpoints
   async getUsers() {
-    const response = await axios.get(`${API_BASE_URL}/staff`);
+    const response = await api.get(`${API_BASE_URL}/staff`);
     return response.data;
   }
 
@@ -96,12 +96,12 @@ class AuthService {
     is_active?: boolean;
     can_login?: boolean;
   }) {
-    const response = await axios.put(`${API_BASE_URL}/staff/${userId}`, data);
+    const response = await api.put(`${API_BASE_URL}/staff/${userId}`, data);
     return response.data;
   }
 
   async initializeAdmin() {
-    const response = await axios.post(`${API_BASE_URL}/init-admin`);
+    const response = await api.post(`${API_BASE_URL}/init-admin`);
     return response.data;
   }
 }

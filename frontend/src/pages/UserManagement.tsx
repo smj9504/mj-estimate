@@ -7,7 +7,7 @@ import {
   PlusOutlined, EditOutlined, LockOutlined, UserOutlined,
   MailOutlined, IdcardOutlined
 } from '@ant-design/icons';
-import { authService } from '../services/api';
+import authService from '../services/authService';
 
 const { Title } = Typography;
 const { Option } = Select;

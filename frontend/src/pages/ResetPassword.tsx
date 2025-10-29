@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Form, Input, Button, Card, Typography, Space, Alert, Result, Spin } from 'antd';
 import { LockOutlined, CheckCircleOutlined } from '@ant-design/icons';
-import { authService } from '../services/api';
+import authService from '../services/authService';
 
 const { Title, Text, Link } = Typography;
 

@@ -1,5 +1,4 @@
 import axios from 'axios';
-import authServiceInstance from './authService';
 
 // Create axios instance with base configuration
 // For production: use backend URL directly (Vercel env vars not working)
@@ -54,8 +53,5 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-
-// Export authService for convenience
-export const authService = authServiceInstance;
 
 export default api;
