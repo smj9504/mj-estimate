@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../../services/api';
 import {
   Card,
   Button,
@@ -24,7 +24,8 @@ import {
   message,
   Spin,
   Empty,
-  Tooltip
+  Tooltip,
+  Typography
 } from 'antd';
 import {
   CloudUploadOutlined,
@@ -47,6 +48,8 @@ import type {
   ProviderType,
   MaterialDetectionHealth
 } from '../../types/materialDetection';
+
+const { Text } = Typography;
 
 interface MaterialDetectionProps {
   reconstructionEstimateId?: string;
@@ -99,27 +102,65 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
 
       // Upload all pasted images
       if (imageFiles.length > 0) {
-        message.info(`${imageFiles.length} image(s) pasted from clipboard`);
+        message.info(`Uploading ${imageFiles.length} image(s) from clipboard...`);
 
         for (const file of imageFiles) {
           try {
             const tempImageId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-            // Create upload file object
+            // Create temporary upload file object (status: uploading)
             const uploadFile: UploadFile = {
               uid: tempImageId,
               name: file.name,
-              status: 'done',
+              status: 'uploading',
               url: URL.createObjectURL(file),
-              originFileObj: file as any,
-              response: { id: tempImageId }
+              originFileObj: file as any
             };
 
             setFileList(prev => [...prev, uploadFile]);
-            setUploadedImageIds(prev => [...prev, tempImageId]);
-          } catch (error) {
-            console.error('Failed to process pasted image:', error);
-            message.error(`Failed to process image: ${file.name}`);
+
+            // Actually upload the file to backend
+            const formData = new FormData();
+            formData.append('files', file);
+            formData.append('context', 'material_detection');
+            formData.append('context_id', reconstructionEstimateId || 'temp');
+            formData.append('category', 'material_detection_image');
+            formData.append('description', `Material detection image: ${file.name}`);
+
+            const response = await api.post('/api/files/upload', formData, {
+              headers: {
+                'Content-Type': 'multipart/form-data'
+              }
+            });
+
+            const fileId = response.data.data?.[0]?.id;
+
+            if (!fileId) {
+              throw new Error('No file ID returned from server');
+            }
+
+            // Update file list with success status and real ID
+            setFileList(prev => prev.map(f =>
+              f.uid === tempImageId
+                ? { ...f, status: 'done', response: { id: fileId } }
+                : f
+            ));
+
+            // Add real file ID to uploadedImageIds
+            setUploadedImageIds(prev => [...prev, fileId]);
+
+            console.log('[DEBUG] Paste upload successful - fileId:', fileId);
+          } catch (error: any) {
+            console.error('Failed to upload pasted image:', error);
+
+            // Update file list with error status
+            setFileList(prev => prev.map(f =>
+              f.uid === file.name
+                ? { ...f, status: 'error' }
+                : f
+            ));
+
+            message.error(`Failed to upload ${file.name}: ${error.message}`);
           }
         }
       }
@@ -138,14 +179,22 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
 
-    if (currentJob && currentJob.status === 'processing') {
+    console.log('[DEBUG] useEffect triggered - currentJob:', currentJob?.id, 'status:', currentJob?.status);
+
+    if (currentJob && (currentJob.status === 'pending' || currentJob.status === 'processing')) {
+      console.log('[DEBUG] Starting polling for job:', currentJob.id);
       setPolling(true);
       intervalId = setInterval(async () => {
         try {
+          console.log('[DEBUG] Polling job:', currentJob.id);
           const updatedJob = await materialDetectionService.getJob(currentJob.id);
+          console.log('[DEBUG] Received job update:', updatedJob.status);
           setCurrentJob(updatedJob);
 
           if (updatedJob.status === 'completed') {
+            console.log('[DEBUG] Job completed:', updatedJob);
+            console.log('[DEBUG] detected_materials:', updatedJob.detected_materials);
+            console.log('[DEBUG] detected_materials length:', updatedJob.detected_materials?.length);
             setDetectedMaterials(updatedJob.detected_materials || []);
             setPolling(false);
             message.success(`Detection completed! ${updatedJob.total_materials_detected} material(s) found.`);
@@ -162,10 +211,13 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
           setPolling(false);
         }
       }, 2000); // Poll every 2 seconds
+    } else {
+      console.log('[DEBUG] Not polling - currentJob:', currentJob?.id, 'status:', currentJob?.status);
     }
 
     return () => {
       if (intervalId) {
+        console.log('[DEBUG] Clearing polling interval');
         clearInterval(intervalId);
       }
     };
@@ -193,21 +245,29 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
       formData.append('category', 'material_detection_image');
       formData.append('description', `Material detection image: ${file.name}`);
 
-      const response = await axios.post('/api/files/upload', formData, {
+      const response = await api.post('/api/files/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
       });
 
+      console.log('[DEBUG] Upload response:', response.data);
+
       // API returns { data: [...], total, message }
       const fileId = response.data.data?.[0]?.id;
+
+      console.log('[DEBUG] Extracted file ID:', fileId);
 
       if (!fileId) {
         console.error('Upload response:', response.data);
         throw new Error('No file ID returned from server');
       }
 
-      setUploadedImageIds(prev => [...prev, fileId]);
+      setUploadedImageIds(prev => {
+        const newIds = [...prev, fileId];
+        console.log('[DEBUG] Updated uploadedImageIds:', newIds);
+        return newIds;
+      });
       onSuccess({ id: fileId }, file);
       message.success(`${file.name} uploaded successfully`);
     } catch (error: any) {
@@ -226,6 +286,10 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
   };
 
   const startDetection = async () => {
+    console.log('[DEBUG] startDetection called');
+    console.log('[DEBUG] uploadedImageIds:', uploadedImageIds);
+    console.log('[DEBUG] fileList:', fileList);
+
     if (uploadedImageIds.length === 0) {
       message.warning('Please upload images first');
       return;
@@ -234,10 +298,12 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
     setLoading(true);
 
     try {
+      console.log('[DEBUG] Creating job with image_ids:', uploadedImageIds);
+
       const result = await materialDetectionService.createJob({
         provider,
         confidence_threshold: confidenceThreshold,
-        image_ids: uploadedImageIds,
+        image_ids: uploadedImageIds,  // Use uploadedImageIds state directly
         reconstruction_estimate_id: reconstructionEstimateId,
         job_name: `Material Detection - ${new Date().toLocaleString('en-US')}`
       });
@@ -402,7 +468,99 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
     }
   ];
 
+  // Expandable row renderer for AI raw response
+  const expandedRowRender = (record: DetectedMaterial) => {
+    if (!record.raw_response) {
+      return (
+        <div style={{ padding: 16, background: '#fafafa' }}>
+          <Text type="secondary">No AI response data available</Text>
+        </div>
+      );
+    }
+
+    const rawResponse = record.raw_response as any;
+    const labels = rawResponse.labels || [];
+    const objects = rawResponse.objects || [];
+
+    return (
+      <div style={{ padding: 16, background: '#fafafa' }}>
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          {/* AI Provider Info */}
+          <div>
+            <Text strong>AI Provider: </Text>
+            <Tag color="blue">{currentJob?.provider || 'Unknown'}</Tag>
+          </div>
+
+          {/* Detected Labels */}
+          {labels.length > 0 && (
+            <div>
+              <Text strong>Detected Labels:</Text>
+              <div style={{ marginTop: 8 }}>
+                {labels.map((label: any, idx: number) => {
+                  const labelName = typeof label === 'string' ? label.split('(')[0] : label.description || label.name;
+                  const confidence = typeof label === 'string'
+                    ? parseFloat(label.match(/\(([\d.]+)\)/)?.[1] || '0')
+                    : label.score || 0;
+
+                  return (
+                    <Tag
+                      key={idx}
+                      color={confidence >= 0.9 ? 'green' : confidence >= 0.7 ? 'orange' : 'default'}
+                      style={{ marginBottom: 8 }}
+                    >
+                      {labelName} ({(confidence * 100).toFixed(1)}%)
+                    </Tag>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Detected Objects */}
+          {objects.length > 0 && (
+            <div>
+              <Text strong>Detected Objects:</Text>
+              <div style={{ marginTop: 8 }}>
+                {objects.map((obj: any, idx: number) => (
+                  <Tag key={idx} color="purple" style={{ marginBottom: 8 }}>
+                    {obj.name} ({(obj.score * 100).toFixed(1)}%)
+                  </Tag>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Raw JSON Response (collapsible) */}
+          <div>
+            <details>
+              <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
+                <Text type="secondary">View Raw JSON Response</Text>
+              </summary>
+              <pre style={{
+                marginTop: 12,
+                padding: 12,
+                background: '#f5f5f5',
+                borderRadius: 4,
+                overflow: 'auto',
+                maxHeight: 400
+              }}>
+                {JSON.stringify(rawResponse, null, 2)}
+              </pre>
+            </details>
+          </div>
+        </Space>
+      </div>
+    );
+  };
+
   const availableProvider = health?.providers.find(p => p.available);
+
+  console.log('[DEBUG] Button state check:');
+  console.log('  - uploadedImageIds:', uploadedImageIds);
+  console.log('  - uploadedImageIds.length:', uploadedImageIds.length);
+  console.log('  - health:', health);
+  console.log('  - availableProvider:', availableProvider);
+  console.log('  - Button disabled:', uploadedImageIds.length === 0 || !availableProvider);
 
   return (
     <Card
@@ -511,7 +669,7 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
             icon={<RobotOutlined />}
             onClick={startDetection}
             loading={loading}
-            disabled={uploadedImageIds.length === 0 || !availableProvider}
+            disabled={uploadedImageIds.length === 0}
             block
             size="large"
           >
@@ -592,6 +750,10 @@ const MaterialDetection: React.FC<MaterialDetectionProps> = ({
             rowKey="id"
             pagination={{ pageSize: 10 }}
             size="small"
+            expandable={{
+              expandedRowRender,
+              rowExpandable: (record) => !!record.raw_response
+            }}
           />
         </Card>
       )}

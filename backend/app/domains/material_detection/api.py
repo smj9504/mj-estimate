@@ -100,7 +100,15 @@ async def create_detection_job(
             )
             logger.info(f"Started background processing for job {result['job_id']} with {len(image_paths)} images")
         else:
-            logger.warning(f"No valid image paths found for job {result['job_id']}")
+            # No valid images to process - mark job as completed immediately
+            logger.warning(f"No valid image paths found for job {result['job_id']} - marking as completed")
+            from app.domains.material_detection.models import JobStatus
+            job = service.repository.get_by_id(UUID(result["job_id"]))
+            if job:
+                job.status = JobStatus.COMPLETED
+                job.error_message = "No valid images to process (temporary images are not supported)"
+                service.db.commit()
+                logger.info(f"Job {result['job_id']} marked as completed with no materials")
 
         return result
 

@@ -110,15 +110,15 @@ class DetectedMaterialResponse(BaseModel):
     material_description: Optional[str] = None
 
     # Confidence & metadata
-    confidence_score: Decimal
+    confidence_score: float
     provider_used: str
     bounding_box: Optional[BoundingBox] = None
 
     # Quantity estimation
-    quantity_estimate: Optional[Decimal] = None
+    quantity_estimate: Optional[float] = None
     unit_type: Optional[str] = None
-    unit_price: Optional[Decimal] = None
-    total_estimate: Optional[Decimal] = None
+    unit_price: Optional[float] = None
+    total_estimate: Optional[float] = None
 
     # Performance
     detection_time_ms: Optional[int] = None
@@ -148,13 +148,13 @@ class MaterialDetectionJobResponse(BaseModel):
 
     # Configuration
     provider: str
-    confidence_threshold: Decimal
+    confidence_threshold: float
 
     # Progress
     total_images: int
     processed_images: int
     total_materials_detected: int
-    avg_confidence: Optional[Decimal] = None
+    avg_confidence: Optional[float] = None
     processing_time_ms: Optional[int] = None
 
     # Error handling
@@ -169,7 +169,7 @@ class MaterialDetectionJobResponse(BaseModel):
     completed_at: Optional[datetime] = None
 
     # Relationships
-    detected_materials: List[DetectedMaterialResponse] = []
+    detected_materials: List[DetectedMaterialResponse] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

@@ -24,6 +24,7 @@ export interface DetectedMaterial {
   reviewed: boolean;
   reviewed_by_id?: string;
   reviewed_at?: string;
+  raw_response?: any;  // AI provider raw response (labels, objects, etc.)
   created_at: string;
 }
 

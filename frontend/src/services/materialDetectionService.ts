@@ -4,9 +4,7 @@
  * API service for AI-powered construction material detection from images.
  */
 
-import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import api from './api';
 
 export interface MaterialDetectionJobCreate {
   job_name?: string;
@@ -97,7 +95,7 @@ class MaterialDetectionService {
    * Check service health and provider availability
    */
   async getHealth(): Promise<MaterialDetectionHealth> {
-    const response = await axios.get(`${API_BASE_URL}/api/material-detection/health`);
+    const response = await api.get(`/api/material-detection/health`);
     return response.data;
   }
 
@@ -105,7 +103,7 @@ class MaterialDetectionService {
    * Create a new material detection job
    */
   async createJob(jobData: MaterialDetectionJobCreate): Promise<{ job_id: string; message: string }> {
-    const response = await axios.post(`${API_BASE_URL}/api/material-detection/jobs`, jobData);
+    const response = await api.post(`/api/material-detection/jobs`, jobData);
     return response.data;
   }
 
@@ -113,7 +111,7 @@ class MaterialDetectionService {
    * Get job details by ID
    */
   async getJob(jobId: string): Promise<MaterialDetectionJob> {
-    const response = await axios.get(`${API_BASE_URL}/api/material-detection/jobs/${jobId}`);
+    const response = await api.get(`/api/material-detection/jobs/${jobId}`);
     return response.data;
   }
 
@@ -126,7 +124,7 @@ class MaterialDetectionService {
     status?: string;
     reconstruction_estimate_id?: string;
   }): Promise<MaterialDetectionJobList> {
-    const response = await axios.get(`${API_BASE_URL}/api/material-detection/jobs`, { params });
+    const response = await api.get(`/api/material-detection/jobs`, { params });
     return response.data;
   }
 
@@ -134,14 +132,14 @@ class MaterialDetectionService {
    * Delete a job and all its detected materials
    */
   async deleteJob(jobId: string): Promise<void> {
-    await axios.delete(`${API_BASE_URL}/api/material-detection/jobs/${jobId}`);
+    await api.delete(`/api/material-detection/jobs/${jobId}`);
   }
 
   /**
    * Get job statistics
    */
   async getJobStatistics(jobId: string): Promise<MaterialDetectionStats> {
-    const response = await axios.get(`${API_BASE_URL}/api/material-detection/jobs/${jobId}/statistics`);
+    const response = await api.get(`/api/material-detection/jobs/${jobId}/statistics`);
     return response.data;
   }
 
@@ -149,7 +147,7 @@ class MaterialDetectionService {
    * Get overall statistics
    */
   async getOverallStatistics(): Promise<MaterialDetectionStats> {
-    const response = await axios.get(`${API_BASE_URL}/api/material-detection/statistics`);
+    const response = await api.get(`/api/material-detection/statistics`);
     return response.data;
   }
 
@@ -163,8 +161,8 @@ class MaterialDetectionService {
     material_finish?: string;
     reviewed?: boolean;
   }): Promise<DetectedMaterial> {
-    const response = await axios.put(
-      `${API_BASE_URL}/api/material-detection/materials/${materialId}`,
+    const response = await api.put(
+      `/api/material-detection/materials/${materialId}`,
       updates
     );
     return response.data;
@@ -174,8 +172,8 @@ class MaterialDetectionService {
    * Export job materials to CSV
    */
   async exportJobCSV(jobId: string): Promise<Blob> {
-    const response = await axios.get(
-      `${API_BASE_URL}/api/material-detection/jobs/${jobId}/export/csv`,
+    const response = await api.get(
+      `/api/material-detection/jobs/${jobId}/export/csv`,
       { responseType: 'blob' }
     );
     return response.data;
@@ -185,8 +183,8 @@ class MaterialDetectionService {
    * Export job materials to Excel
    */
   async exportJobExcel(jobId: string): Promise<Blob> {
-    const response = await axios.get(
-      `${API_BASE_URL}/api/material-detection/jobs/${jobId}/export/excel`,
+    const response = await api.get(
+      `/api/material-detection/jobs/${jobId}/export/excel`,
       { responseType: 'blob' }
     );
     return response.data;
