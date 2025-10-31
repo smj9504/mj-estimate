@@ -37,6 +37,7 @@ import {
   CategoryBreakdown,
 } from '../types/reconstructionEstimate';
 import { materialWeightAPI, materialCategoryAPI, debrisCalculationAPI } from '../services/reconstructionEstimateService';
+import Calculator from '../components/common/Calculator';
 
 const { Title, Text } = Typography;
 const { Option, OptGroup } = Select;
@@ -230,13 +231,15 @@ const DebrisCalculator: React.FC = () => {
                         </Col>
                         <Col xs={12} sm={6}>
                           <Form.Item label="Quantity" style={{ marginBottom: 0 }}>
-                            <InputNumber
+                            <Calculator
+                              initialValue={item.quantity}
+                              onChange={(value) => handleItemChange(item.key, 'quantity', value)}
+                              placeholder="Enter number or formula"
+                              decimalPlaces={2}
+                              unit={material?.unit || ''}
                               min={0}
-                              step={0.1}
-                              value={item.quantity}
-                              onChange={(value) => handleItemChange(item.key, 'quantity', value || 0)}
-                              style={{ width: '100%' }}
-                              addonAfter={material?.unit || ''}
+                              size="middle"
+                              showIcon={false}
                             />
                           </Form.Item>
                         </Col>
