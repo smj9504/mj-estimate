@@ -4,11 +4,45 @@
   <meta charset="UTF-8">
   <title>Receipt</title>
   <style>
+    /* PDF Header/Footer Styling */
+    @page {
+      margin: 95px 25px 75px 25px;
+
+      @top-right {
+        content: "{{ client_address_line1 }}" "\A" "{{ client_address_line2 }}";
+        font-size: 10px;
+        color: #333;
+        text-align: right;
+        white-space: pre-line;
+      }
+
+      @bottom-left {
+        content: "Page " counter(page) " of " counter(pages);
+        font-size: 10px;
+        color: #666;
+      }
+
+      @bottom-right {
+        content: "Receipt #{{ receipt_number }}";
+        font-size: 10px;
+        color: #666;
+        text-align: right;
+      }
+    }
+
+    @page :first {
+      margin-top: 25px;
+
+      @top-right {
+        content: none;
+      }
+    }
+
     body {
       font-family: Arial, sans-serif;
       font-size: 12px;
       color: #000;
-      margin: 5px;
+      margin: 25px;
     }
     .header-top {
       display: flex;
@@ -293,7 +327,8 @@
   <!-- ✅ Using sections with subtotals -->
   {% set item_counter = namespace(value=0) %}
   {% for section in sections %}
-    {% if sections|length > 1 %}
+    <!-- Always show section title if it's not a default name -->
+    {% if section.title and section.title != 'Items' and section.title != 'Services' %}
       <div class="section-title">{{ section.title }}</div>
     {% endif %}
 

@@ -290,7 +290,8 @@
   <!-- ✅ Using sections with subtotals -->
   {% set item_counter = namespace(value=0) %}
   {% for section in sections %}
-    {% if sections|length > 1 %}
+    <!-- Always show section title if it's not a default name -->
+    {% if section.title and section.title != 'Items' and section.title != 'Services' %}
       <div class="section-title">{{ section.title }}</div>
     {% endif %}
 
