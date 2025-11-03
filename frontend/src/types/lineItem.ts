@@ -6,8 +6,8 @@
 // Enums
 // =====================================================
 export enum LineItemType {
-  XACTIMATE = 'xactimate',
-  CUSTOM = 'custom'
+  XACTIMATE = 'XACTIMATE',
+  CUSTOM = 'CUSTOM'
 }
 
 export enum TaxMethod {
@@ -56,6 +56,7 @@ export interface LineItemModalItem {
 // =====================================================
 export interface LineItem {
   id: string;
+  type?: LineItemType; // Line item type (CUSTOM or XACTIMATE)
   cat?: string;
   item?: string; // Item code (e.g., "CUS001")
   description: string;

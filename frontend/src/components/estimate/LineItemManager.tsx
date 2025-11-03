@@ -173,35 +173,9 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
   const [selectedItemForNote, setSelectedItemForNote] = useState<EstimateLineItem | null>(null);
   // Unified notes array - combines saved and unsaved notes with internal _isSaved flag
   
-  // Smart save behavior state
-  const [userSavePattern, setUserSavePattern] = useState(() => {
-    const saved = localStorage.getItem('userSavePattern');
-    return saved ? JSON.parse(saved) : { totalCreated: 0, savedToDb: 0 };
-  });
-
-  // Get auto-save behavior based on global preference and user pattern
-  const getAutoSaveBehavior = () => {
-    const globalPref = localStorage.getItem('autoSaveLineItems');
-    if (globalPref !== null) return globalPref === 'true';
-    
-    // Pattern-based decision (if user saved 70% or more of items, auto-save)
-    if (userSavePattern.totalCreated >= 3) {
-      return (userSavePattern.savedToDb / userSavePattern.totalCreated) >= 0.7;
-    }
-    
-    // Default for new users: ask first few times
-    return false;
-  };
-
-  // Update user save pattern and persist to localStorage
-  const updateSavePattern = (saved: boolean) => {
-    const newPattern = {
-      totalCreated: userSavePattern.totalCreated + 1,
-      savedToDb: userSavePattern.savedToDb + (saved ? 1 : 0)
-    };
-    setUserSavePattern(newPattern);
-    localStorage.setItem('userSavePattern', JSON.stringify(newPattern));
-  };
+  // NOTE: Automatic database save feature removed for consistency with Invoice
+  // Estimate line items are now one-time use by default
+  // Users can manually save items to database if needed via separate action
   
   // Xactimate mode state
   const [xactimateModalVisible, setXactimateModalVisible] = useState(false);
@@ -583,79 +557,17 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
       onItemsChange([...(items || []), newItem]);
       message.success('Item added to estimate');
 
-      // Handle database saving for new line items
-      if (isNewLineItem && formData.description) {
-        handleNewLineItemSave(newItem);
-      }
+      // NOTE: No automatic database saving
+      // Users can save items to database via separate action if needed
+      // This keeps estimate items as one-time use by default
 
       handleClear();
     }
   };
 
-  // Handle saving new line items to database with smart behavior
-  const handleNewLineItemSave = async (newItem: EstimateLineItem) => {
-    const shouldAutoSave = getAutoSaveBehavior();
-    const globalPref = localStorage.getItem('autoSaveLineItems');
-    
-    if (shouldAutoSave && globalPref !== null) {
-      // Auto-save based on learned preference
-      try {
-        await saveLineItemToDatabase(newItem, true);
-      } catch (error) {
-        console.error('Failed to auto-save line item:', error);
-      }
-    } else if (userSavePattern.totalCreated < 3 || globalPref === null) {
-      // Ask user for the first few times or if no global preference set
-      Modal.confirm({
-        title: 'Save to Line Item Database?',
-        content: (
-          <div>
-            <p>Would you like to save "{newItem.description}" to the line item database for future use?</p>
-            {userSavePattern.totalCreated < 3 && (
-              <Checkbox 
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    localStorage.setItem('autoSaveLineItems', 'true');
-                  }
-                }}
-              >
-                Remember my choice and always save new items
-              </Checkbox>
-            )}
-          </div>
-        ),
-        okText: 'Yes, Save to Database',
-        cancelText: 'No, This Estimate Only',
-        onOk: async () => {
-          await saveLineItemToDatabase(newItem, true);
-        },
-        onCancel: () => {
-          updateSavePattern(false);
-        }
-      });
-    }
-    // If user pattern shows they don't usually save, just skip silently
-  };
-
-  // Save line item to database
-  const saveLineItemToDatabase = async (item: EstimateLineItem, userChose: boolean) => {
-    try {
-      await lineItemService.createLineItem({
-        cat: formData.category || '',
-        item: item.name,
-        description: item.description || '',
-        unit: item.unit || '',
-        untaxed_unit_price: item.unit_price || 0,
-        is_active: true
-      });
-      message.success('Line item saved to database for future use');
-      if (userChose) updateSavePattern(true);
-    } catch (error) {
-      console.error('Failed to save line item to database:', error);
-      message.error('Failed to save to database, but item added to estimate');
-      if (userChose) updateSavePattern(false);
-    }
-  };
+  // NOTE: Automatic save functions removed
+  // Line items in estimates are now one-time use only
+  // No database saving unless explicitly implemented in future
 
   // Handle clear - includes calculator reset
   const handleClear = () => {

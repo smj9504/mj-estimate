@@ -188,6 +188,7 @@ class LineItemResponse(LineItemBase):
 
 class LineItemSearch(BaseModel):
     """Schema for searching line items"""
+    type: Optional[LineItemType] = None  # Filter by line item type
     cat: Optional[str] = None  # Filter by category code
     item: Optional[str] = None  # Filter by item code
     search_term: Optional[str] = None  # Search in description and includes (ILIKE)

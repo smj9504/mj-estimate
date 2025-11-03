@@ -438,7 +438,7 @@ class LineItemService {
    */
   async createLineItem(lineItem: LineItemCreate): Promise<LineItem> {
     try {
-      const response = await apiClient.post('/api/line-items', lineItem);
+      const response = await apiClient.post('/api/line-items/', lineItem);
       return response.data;
     } catch (error: any) {
       throw new LineItemServiceError(

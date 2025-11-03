@@ -87,10 +87,10 @@ const LineItemManagement: React.FC = () => {
       };
 
       if (searchTerm) {
-        params.search = searchTerm;
+        params.search_term = searchTerm; // ✅ Changed from 'search'
       }
       if (categoryFilter) {
-        params.category = categoryFilter;
+        params.cat = categoryFilter; // ✅ Changed from 'category'
       }
       if (typeFilter) {
         params.type = typeFilter;
@@ -99,10 +99,21 @@ const LineItemManagement: React.FC = () => {
         params.is_active = activeFilter;
       }
 
+      console.log('Loading line items with params:', params);
       const response = await lineItemService.getLineItems(params);
       console.log('Line Items Response:', response);
       console.log('Line Items:', response.items);
-      setLineItems(response.items || []);
+      
+      // Set items directly - backend now properly serializes data
+      const items = response.items || [];
+      
+      console.log('Loaded line items:', {
+        count: items.length,
+        total: response.total,
+        firstItem: items[0]
+      });
+      
+      setLineItems(items);
       setTotalItems(response.total || 0);
     } catch (error: any) {
       console.error('Failed to load line items:', error);
@@ -162,9 +173,19 @@ const LineItemManagement: React.FC = () => {
       return;
     }
 
+    // Filter out null/undefined values
+    const validKeys = selectedRowKeys.filter(key => key != null) as string[];
+    
+    if (validKeys.length === 0) {
+      message.warning('No valid items selected');
+      return;
+    }
+
+    console.log('Deleting line items with IDs:', validKeys);
+
     try {
-      await lineItemService.deleteLineItems(selectedRowKeys as string[]);
-      message.success(`Deleted ${selectedRowKeys.length} item(s)`);
+      await lineItemService.deleteLineItems(validKeys);
+      message.success(`Deleted ${validKeys.length} item(s)`);
       setSelectedRowKeys([]);
       loadLineItems();
     } catch (error: any) {
@@ -185,7 +206,7 @@ const LineItemManagement: React.FC = () => {
       dataIndex: 'item',
       key: 'item',
       width: 120,
-      render: (text) => <Text strong>{text}</Text>,
+      render: (text: string) => <Text strong>{text}</Text>,
     },
     {
       title: 'Category',
@@ -199,7 +220,7 @@ const LineItemManagement: React.FC = () => {
       dataIndex: 'description',
       key: 'description',
       ellipsis: true,
-      render: (text, record) => (
+      render: (text: string, record: LineItem) => (
         <a onClick={() => handleEdit(record)}>
           {text}
         </a>
@@ -210,9 +231,9 @@ const LineItemManagement: React.FC = () => {
       dataIndex: 'type',
       key: 'type',
       width: 100,
-      render: (_, record) => {
-        // Determine type based on presence of Xactimate fields
-        const isXactimate = record.lab !== undefined || record.mat !== undefined;
+      render: (type: string) => {
+        // Use the actual type field from database
+        const isXactimate = type === 'XACTIMATE';
         return (
           <Tag color={isXactimate ? 'blue' : 'green'}>
             {isXactimate ? 'Xactimate' : 'Custom'}
@@ -231,8 +252,8 @@ const LineItemManagement: React.FC = () => {
       dataIndex: 'rate',
       key: 'rate',
       width: 120,
-      render: (_, record) => {
-        const isXactimate = record.lab !== undefined || record.mat !== undefined;
+      render: (_: any, record: LineItem) => {
+        const isXactimate = record.type === 'XACTIMATE';
         let rate = 0;
 
         if (isXactimate) {
@@ -264,11 +285,46 @@ const LineItemManagement: React.FC = () => {
       dataIndex: 'is_active',
       key: 'is_active',
       width: 80,
-      align: 'center',
-      render: (isActive) => (
+      align: 'center' as const,
+      render: (isActive: boolean) => (
         <Tag color={isActive ? 'success' : 'default'}>
           {isActive ? 'Active' : 'Inactive'}
         </Tag>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 100,
+      align: 'center' as const,
+      render: (_: any, record: LineItem) => (
+        <Space size="small">
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleEdit(record)}
+          />
+          <Popconfirm
+            title="Delete this line item?"
+            onConfirm={async () => {
+              try {
+                await lineItemService.deleteLineItem(record.id);
+                message.success('Line item deleted');
+                loadLineItems();
+              } catch (error) {
+                message.error('Failed to delete line item');
+              }
+            }}
+          >
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+            />
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
@@ -276,7 +332,10 @@ const LineItemManagement: React.FC = () => {
   const rowSelection = {
     selectedRowKeys,
     onChange: (newSelectedRowKeys: React.Key[]) => {
-      setSelectedRowKeys(newSelectedRowKeys);
+      console.log('Selected row keys changed:', newSelectedRowKeys);
+      // Filter out null/undefined values immediately
+      const validKeys = newSelectedRowKeys.filter(key => key != null);
+      setSelectedRowKeys(validKeys);
     },
   };
 
@@ -335,12 +394,13 @@ const LineItemManagement: React.FC = () => {
               allowClear
               value={typeFilter}
               onChange={(value) => {
+                console.log('Type filter changed to:', value);
                 setTypeFilter(value);
                 setCurrentPage(1);
               }}
             >
-              <Select.Option value={LineItemType.XACTIMATE}>Xactimate</Select.Option>
-              <Select.Option value={LineItemType.CUSTOM}>Custom</Select.Option>
+              <Select.Option value="XACTIMATE">Xactimate</Select.Option>
+              <Select.Option value="CUSTOM">Custom</Select.Option>
             </Select>
           </Col>
           <Col xs={24} sm={12} md={6}>
@@ -396,7 +456,7 @@ const LineItemManagement: React.FC = () => {
           rowSelection={rowSelection}
           columns={columns}
           dataSource={lineItems}
-          rowKey="id"
+          rowKey={(record) => record.id || `invalid-${Math.random()}`}
           loading={loading}
           onChange={handleTableChange}
           pagination={{

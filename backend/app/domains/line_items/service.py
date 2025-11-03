@@ -141,15 +141,17 @@ class LineItemService:
         # Get from database
         result = self.repository.get_line_items(search)
         
-        # Convert to response schemas - handle Pydantic v2
+        # Convert to response schemas and then to dict - handle Pydantic v2
         converted_items = []
         for item in result['items']:
             try:
-                converted_items.append(LineItemResponse.model_validate(item))
+                response_item = LineItemResponse.model_validate(item)
+                # Convert to dict for JSON serialization
+                converted_items.append(response_item.model_dump())
             except Exception as e:
                 print(f"Error converting item {item.id}: {e}")
                 # Create manual conversion as fallback
-                converted_items.append(LineItemResponse(
+                response_item = LineItemResponse(
                     id=item.id,
                     cat=item.cat,
                     item=item.item,
@@ -169,7 +171,9 @@ class LineItemService:
                     created_at=item.created_at,
                     updated_at=item.updated_at,
                     notes=[]
-                ))
+                )
+                converted_items.append(response_item.model_dump())
+        
         result['items'] = converted_items
         
         # Cache the result for 5 minutes
@@ -617,7 +621,7 @@ class LineItemService:
 
     def _validate_line_item_type(self, line_item: LineItemCreate):
         """Validate line item based on type"""
-        if line_item.type == LineItemType.xactimate:
+        if line_item.type == LineItemType.XACTIMATE:
             # Xactimate items should have component prices
             if not any([line_item.lab, line_item.mat, line_item.equ, 
                        line_item.labor_burden, line_item.market_condition]):

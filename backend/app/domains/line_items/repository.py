@@ -92,7 +92,19 @@ class LineItemRepository:
         query = self.db.query(LineItem)\
             .options(selectinload(LineItem.notes))
         
+        # Filter out invalid items with empty descriptions
+        query = query.filter(
+            and_(
+                LineItem.description.isnot(None),
+                LineItem.description != ''
+            )
+        )
+        
         # Apply filters
+        if search.type:
+            logger.info(f"Filtering by type: {search.type}")
+            query = query.filter(LineItem.type == search.type)
+        
         if search.cat:
             query = query.filter(LineItem.cat == search.cat)
         
@@ -117,9 +129,19 @@ class LineItemRepository:
         # Get total count
         total = query.count()
         
+        logger.info(
+            f"Line items query - Type: {search.type}, "
+            f"Active: {search.is_active}, Total: {total}"
+        )
+        
         # Apply pagination
         offset = (search.page - 1) * search.page_size
         items = query.offset(offset).limit(search.page_size).all()
+        
+        # Debug: Log types of returned items
+        if items:
+            types_found = [item.type for item in items[:3]]
+            logger.info(f"First 3 items types: {types_found}")
         
         return {
             "items": items,

@@ -54,6 +54,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { estimateService, EstimateLineItem, EstimateResponse, EstimateSection } from '../services/estimateService';
 import { companyService } from '../services/companyService';
 import lineItemService from '../services/lineItemService';
+import { LineItemType } from '../types/lineItem';
 import { Company } from '../types';
 import UnitSelect from '../components/common/UnitSelect';
 import { DEFAULT_UNIT } from '../constants/units';
@@ -730,7 +731,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       // Save to database if checkbox is checked
       if (values.saveToDatabase) {
         const lineItemData = {
-          type: 'CUSTOM', // Always CUSTOM for manually added items
+          type: LineItemType.CUSTOM, // Always CUSTOM for manually added items
           cat: undefined, // No category for custom items (will be NULL in DB)
           item: values.name ? values.name.toString().trim() : undefined, // Item code (optional)
           description: currentItemDescription ? currentItemDescription.trim() : values.name.toString().trim(),

@@ -66,6 +66,7 @@ import LineItemTemplateManager from '../components/line-items/LineItemTemplateMa
 import TemplateBuilderBar from '../components/line-items/TemplateBuilderBar';
 import TemplateBuilderModal from '../components/line-items/TemplateBuilderModal';
 import lineItemService from '../services/lineItemService';
+import { LineItemType } from '../types/lineItem';
 import { useTemplateBuilder } from '../contexts/TemplateBuilderContext';
 import {
   Collapse,
@@ -921,7 +922,7 @@ const InvoiceCreation: React.FC = () => {
       // Note: If not saving to database, we don't need to create a line_item record
       if (values.saveToDatabase) {
         const lineItemData = {
-          type: 'CUSTOM', // Always CUSTOM for manually added items
+          type: LineItemType.CUSTOM, // Always CUSTOM for manually added items
           cat: undefined, // No category for custom items (will be NULL in DB)
           item: values.name ? values.name.toString().trim() : undefined, // Item code (optional)
           description: values.description ? values.description.toString().trim() : values.name.toString().trim(),

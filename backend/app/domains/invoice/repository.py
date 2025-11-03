@@ -97,28 +97,85 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
     def __init__(self, session: DatabaseSession):
         super().__init__(session, Invoice)
 
-    def _ensure_line_item_id(self, item_data: Dict[str, Any], company_id: Optional[str] = None) -> Optional[str]:
+    def _generate_item_code(self, description: str) -> str:
         """
-        Ensure that an invoice item has a line_item_id by creating one in the library if needed.
+        Generate item code from description.
+        Uses uppercase letters, numbers, and underscores only.
+        """
+        import re
+        from datetime import datetime
+        
+        if not description or not description.strip():
+            return f"ITEM_{datetime.now().strftime('%H%M%S')[:6]}"
+        
+        # Extract alphanumeric words
+        words = re.findall(r'[a-zA-Z0-9]+', description)
+        
+        if not words:
+            return f"ITEM_{datetime.now().strftime('%H%M%S')[:6]}"
+        
+        # Filter out very short words (< 2 chars) unless it's the only word
+        meaningful_words = [w for w in words if len(w) >= 2] or words[:1]
+        
+        code = ''
+        if len(meaningful_words) == 1:
+            # Single word: take first 7 chars
+            code = meaningful_words[0][:7]
+        elif len(meaningful_words) == 2:
+            # Two words: 4 chars from first + 3 chars from second
+            code = meaningful_words[0][:4] + meaningful_words[1][:3]
+        else:
+            # Multiple words: 3+2+2 chars from first 3 words
+            code = (meaningful_words[0][:3] +
+                   meaningful_words[1][:2] +
+                   meaningful_words[2][:2])
+        
+        # Ensure minimum length of 3
+        if len(code) < 3:
+            timestamp = datetime.now().strftime('%H%M%S')
+            code = (code + timestamp)[:7]
+        
+        # Truncate to max 7 chars and uppercase
+        return code[:7].upper()
+
+    def _ensure_line_item_id(
+            self, item_data: Dict[str, Any],
+            company_id: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Ensure invoice item has line_item_id by creating in library if needed.
         Returns the line_item_id (existing or newly created).
         """
         # If item already has line_item_id, return it
         if item_data.get('line_item_id'):
-            logger.info(f"Item already has line_item_id: {item_data.get('line_item_id')}")
+            logger.info(
+                f"Item already has line_item_id: "
+                f"{item_data.get('line_item_id')}"
+            )
             return item_data.get('line_item_id')
 
         # Create line item in library
         try:
-            from app.domains.line_items.models import LineItem, LineItemType
+            from app.domains.line_items.models import (
+                LineItem, LineItemType
+            )
+
+            # Get description for item code generation
+            description = item_data.get(
+                'name', item_data.get('description', '')
+            )
 
             # Prepare line item data
             line_item_data = {
                 'type': LineItemType.CUSTOM,
                 'cat': None,  # NULL for custom items (FK constraint)
-                'description': item_data.get('name', item_data.get('description', '')),
+                'item': self._generate_item_code(description),
+                'description': description,
                 'includes': item_data.get('description', ''),
                 'unit': item_data.get('unit', 'EA'),
-                'untaxed_unit_price': Decimal(str(item_data.get('rate', 0))),
+                'untaxed_unit_price': Decimal(
+                    str(item_data.get('rate', 0))
+                ),
                 'company_id': company_id,
                 'is_active': True,
             }
@@ -128,12 +185,17 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
             self.db_session.add(line_item)
             self.db_session.flush()  # Flush to get the ID
 
-            logger.info(f"Created line item in library with ID: {line_item.id}")
+            logger.info(
+                f"Created line item in library with ID: {line_item.id}, "
+                f"item code: {line_item.item}"
+            )
             return str(line_item.id)
 
         except Exception as e:
-            logger.warning(f"Failed to create line item in library: {e}")
-            # Don't fail the invoice creation/update if library save fails
+            logger.warning(
+                f"Failed to create line item in library: {e}"
+            )
+            # Don't fail invoice creation/update if library save fails
             return None
     
     def get_by_id(self, entity_id: str) -> Optional[Dict[str, Any]]:
@@ -204,31 +266,17 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                 InvoiceItem.invoice_id == invoice_id
             ).order_by(InvoiceItem.order_index).all()
 
-            # Auto-create line_item_id for items that don't have one (for legacy invoices)
-            items_updated = False
-            for item in items:
-                if not item.line_item_id:
-                    # Create line item in library for this invoice item
-                    item_data = {
-                        'name': item.name,
-                        'description': item.description,
-                        'unit': item.unit,
-                        'rate': item.rate,
-                    }
-                    line_item_id = self._ensure_line_item_id(item_data, invoice.company_id)
-                    if line_item_id:
-                        item.line_item_id = line_item_id
-                        items_updated = True
-                        logger.info(f"Auto-created line_item_id for invoice item {item.id}: {line_item_id}")
-
-            # Commit if any items were updated
-            if items_updated:
-                self.db_session.commit()
-                logger.info(f"Auto-updated {sum(1 for item in items if item.line_item_id)} items with line_item_id")
+            # Note: We no longer auto-create line_item_id
+            # Items without line_item_id are one-time use items
+            # that user chose not to save to library
 
             # Debug: Check if note field is loaded
             for item in items:
-                logger.info(f"Item {item.id} - name: {item.name}, note: {repr(item.note)}, line_item_id: {item.line_item_id}")
+                logger.info(
+                    f"Item {item.id} - name: {item.name}, "
+                    f"note: {repr(item.note)}, "
+                    f"line_item_id: {item.line_item_id}"
+                )
 
             invoice_dict['items'] = [self._convert_to_dict(item) for item in items]
 
@@ -245,9 +293,8 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
             totals = self.calculate_totals(invoice_data)
             invoice_data.update(totals)
 
-            # Extract items and company_id
+            # Extract items
             items_data = invoice_data.pop('items', [])
-            company_id = invoice_data.get('company_id')
 
             # Create invoice
             invoice = self.create(invoice_data)
@@ -255,8 +302,9 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
 
             # Create items
             for idx, item_data in enumerate(items_data):
-                # Ensure item has line_item_id (create in library if needed)
-                line_item_id = self._ensure_line_item_id(item_data, company_id)
+                # Only use line_item_id if provided by frontend
+                # Don't auto-create - respect user's choice
+                line_item_id = item_data.get('line_item_id')
 
                 # Calculate item amount and tax
                 quantity = float(item_data.get('quantity', 1))
@@ -266,13 +314,16 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                 # Calculate item tax if taxable
                 taxable = item_data.get('taxable', True)
                 item_tax_rate = float(item_data.get('tax_rate', 0))
-                tax_amount = amount * (item_tax_rate / 100) if taxable and item_tax_rate > 0 else 0
+                tax_amount = (amount * (item_tax_rate / 100)
+                             if taxable and item_tax_rate > 0 else 0)
 
                 # Filter and map fields for InvoiceItem model
                 valid_fields = {
                     'invoice_id': invoice_id,
                     'order_index': idx,
-                    'name': item_data.get('name', item_data.get('description', '')),
+                    'name': item_data.get(
+                        'name', item_data.get('description', '')
+                    ),
                     'description': item_data.get('description'),
                     'note': item_data.get('note'),
                     'quantity': quantity,
@@ -282,8 +333,10 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                     'taxable': taxable,
                     'tax_rate': item_tax_rate,
                     'tax_amount': tax_amount,
-                    'line_item_id': line_item_id,  # Use the ensured line_item_id
-                    'is_custom_override': item_data.get('is_custom_override', False),
+                    'line_item_id': line_item_id,  # Use provided ID only
+                    'is_custom_override': item_data.get(
+                        'is_custom_override', False
+                    ),
                     'override_values': item_data.get('override_values'),
                     # Section/Group fields
                     'primary_group': item_data.get('primary_group'),
@@ -338,9 +391,6 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
             
             # Handle items if provided
             if items_data is not None:
-                # Get company_id for line item creation
-                company_id = invoice.company_id
-
                 # Delete existing items
                 self.db_session.query(InvoiceItem).filter(
                     InvoiceItem.invoice_id == invoice_id
@@ -348,8 +398,9 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
 
                 # Create new items
                 for idx, item_data in enumerate(items_data):
-                    # Ensure item has line_item_id (create in library if needed)
-                    line_item_id = self._ensure_line_item_id(item_data, company_id)
+                    # Only use line_item_id if provided
+                    # Don't auto-create - respect user's choice
+                    line_item_id = item_data.get('line_item_id')
 
                     # Calculate item amount and tax
                     quantity = float(item_data.get('quantity', 1))
@@ -359,13 +410,16 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                     # Calculate item tax if taxable
                     taxable = item_data.get('taxable', True)
                     item_tax_rate = float(item_data.get('tax_rate', 0))
-                    tax_amount = amount * (item_tax_rate / 100) if taxable and item_tax_rate > 0 else 0
+                    tax_amount = (amount * (item_tax_rate / 100)
+                                 if taxable and item_tax_rate > 0 else 0)
 
                     # Filter and map fields for InvoiceItem model
                     valid_fields = {
                         'invoice_id': invoice_id,
                         'order_index': idx,
-                        'name': item_data.get('name', item_data.get('description', '')),
+                        'name': item_data.get(
+                            'name', item_data.get('description', '')
+                        ),
                         'description': item_data.get('description'),
                         'note': item_data.get('note'),
                         'quantity': quantity,
@@ -375,8 +429,10 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                         'taxable': taxable,
                         'tax_rate': item_tax_rate,
                         'tax_amount': tax_amount,
-                        'line_item_id': line_item_id,  # Use the ensured line_item_id
-                        'is_custom_override': item_data.get('is_custom_override', False),
+                        'line_item_id': line_item_id,  # Use provided ID only
+                        'is_custom_override': item_data.get(
+                            'is_custom_override', False
+                        ),
                         'override_values': item_data.get('override_values'),
                         # Section/Group fields
                         'primary_group': item_data.get('primary_group'),
@@ -472,9 +528,8 @@ class InvoiceSupabaseRepository(SupabaseRepository, InvoiceRepositoryMixin):
             totals = self.calculate_totals(invoice_data)
             invoice_data.update(totals)
 
-            # Extract items and company_id
+            # Extract items
             items_data = invoice_data.pop('items', [])
-            company_id = invoice_data.get('company_id')
 
             # Create invoice
             invoice = self.create(invoice_data)
@@ -482,12 +537,8 @@ class InvoiceSupabaseRepository(SupabaseRepository, InvoiceRepositoryMixin):
 
             # Create items
             for idx, item_data in enumerate(items_data):
-                # Ensure item has line_item_id if not present
-                if not item_data.get('line_item_id'):
-                    line_item_id = self._ensure_line_item_id_supabase(item_data, company_id)
-                    if line_item_id:
-                        item_data['line_item_id'] = line_item_id
-
+                # Only use line_item_id if provided by frontend
+                # Don't auto-create - respect user's choice
                 item_data['invoice_id'] = invoice_id
                 item_data['order_index'] = idx
 
