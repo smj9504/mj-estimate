@@ -288,6 +288,7 @@
 <!-- Check sections first (with subtotals), then fall back to serviceSections -->
 {% if sections and sections|length > 0 %}
   <!-- ✅ Using sections with subtotals -->
+  {% set item_counter = namespace(value=0) %}
   {% for section in sections %}
     {% if sections|length > 1 %}
       <div class="section-title">{{ section.title }}</div>
@@ -302,8 +303,9 @@
     </div>
 
     {% for item in section['items'] %}
+    {% set item_counter.value = item_counter.value + 1 %}
     <div class="line-row">
-      <div class="col-item">{{ item.description if item.description else item.name }}</div>
+      <div class="col-item">{{ item_counter.value }}. {{ item.description if item.description else item.name }}</div>
       <div class="col-qty">{{ item.quantity }}</div>
       <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
       <div class="col-price">{{ item.rate|format_currency }}</div>
