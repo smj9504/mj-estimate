@@ -1512,12 +1512,31 @@ const InvoiceCreation: React.FC = () => {
     }, 300);
   };
 
+  // Generate filename with client street address
+  const generatePdfFilename = (type: 'invoice' | 'receipt', receiptNumber?: string) => {
+    const clientAddress = form.getFieldValue('client_address') || '';
+    // Extract street address (first line before comma or newline)
+    const streetAddress = clientAddress.split(/[,\n]/)[0].trim();
+    const sanitizedAddress = streetAddress.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_');
+
+    if (type === 'receipt' && receiptNumber) {
+      return sanitizedAddress
+        ? `${sanitizedAddress}_receipt_${receiptNumber}.pdf`
+        : `receipt_${receiptNumber}.pdf`;
+    } else {
+      const invoiceNumber = form.getFieldValue('invoice_number') || 'draft';
+      return sanitizedAddress
+        ? `${sanitizedAddress}_invoice_${invoiceNumber}.pdf`
+        : `invoice_${invoiceNumber}.pdf`;
+    }
+  };
+
   // Download receipt PDF
   const handleDownloadReceiptPdf = () => {
     if (receiptPdfBlobUrl) {
       const link = document.createElement('a');
       link.href = receiptPdfBlobUrl;
-      link.download = 'receipt_preview.pdf';
+      link.download = generatePdfFilename('receipt', 'preview');
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
