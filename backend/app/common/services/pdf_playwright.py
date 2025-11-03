@@ -38,14 +38,18 @@ class PlaywrightPDFService:
         
     @staticmethod
     def _format_currency(value: Any) -> str:
-        """Format number as currency (copied from Streamlit)"""
+        """Format number as currency with proper negative handling"""
         try:
             if value is None or value == '':
                 return "$0.00"
             if isinstance(value, str):
                 value = value.replace('$', '').replace(',', '').strip()
             num_value = float(value)
-            return f"${num_value:,.2f}"
+            if num_value < 0:
+                # Format negative as -$X,XXX.XX instead of $-X,XXX.XX
+                return f"-${abs(num_value):,.2f}"
+            else:
+                return f"${num_value:,.2f}"
         except (ValueError, TypeError):
             return "$0.00"
     

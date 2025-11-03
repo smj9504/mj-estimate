@@ -4,6 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Estimate #{{ estimate_number }}</title>
+    
+    {# Macro for formatting currency with proper negative handling #}
+    {% macro format_amount(value) -%}
+        {%- if value < 0 -%}
+            -${{ '{:,.2f}'.format(value|abs) }}
+        {%- else -%}
+            ${{ '{:,.2f}'.format(value) }}
+        {%- endif -%}
+    {%- endmacro %}
+    
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
@@ -108,15 +118,15 @@
         }
         
         .company-logo-container {
-            max-width: 200px;
+            max-width: 150px;
             display: flex;
             justify-content: flex-end;
             align-items: flex-start;
         }
 
         .company-logo {
-            max-width: 150px;
-            max-height: 80px;
+            max-width: 100px;
+            max-height: 50px;
             width: auto;
             height: auto;
             object-fit: contain;
@@ -512,7 +522,7 @@
                 <div class="insurance-item"><span class="insurance-label">Policy #:</span> {{ insurance.insurance_policy_number or policy_number }}</div>
                 {% endif %}
                 {% if insurance.insurance_deductible or deductible %}
-                <div class="insurance-item"><span class="insurance-label">Deductible:</span> ${{ '{:,.2f}'.format(insurance.insurance_deductible or deductible) }}</div>
+                <div class="insurance-item"><span class="insurance-label">Deductible:</span> {{ format_amount(insurance.insurance_deductible or deductible) }}</div>
                 {% endif %}
             </div>
             {% endif %}
@@ -521,7 +531,7 @@
         <!-- Amount Banner -->
         <div class="amount-banner">
             <span class="amount-text">
-                Total Estimate: ${{ '{:,.2f}'.format(total) }}
+                Total Estimate: {{ format_amount(total) }}
             </span>
         </div>
 
@@ -575,7 +585,7 @@
 
                 {% if section.showSubtotal and section['items'] and section['items']|length > 0 %}
                     <div class="section-subtotal">
-                        Section Subtotal: ${{ '{:,.2f}'.format(section.subtotal) }}
+                        Section Subtotal: {{ format_amount(section.subtotal) }}
                     </div>
                 {% endif %}
             </div>
@@ -620,33 +630,33 @@
             <div class="totals-container">
                 <div class="total-row subtotal">
                     <span class="total-label">Subtotal</span>
-                    <span class="total-value">${{ '{:,.2f}'.format(subtotal) }}</span>
+                    <span class="total-value">{{ format_amount(subtotal) }}</span>
                 </div>
 
                 {% if discount_amount and discount_amount > 0 %}
                 <div class="total-row">
                     <span class="total-label">Discount</span>
-                    <span class="total-value">-${{ '{:,.2f}'.format(discount_amount) }}</span>
+                    <span class="total-value">-{{ format_amount(discount_amount) }}</span>
                 </div>
                 {% endif %}
 
                 {% if op_amount and op_amount > 0 %}
                 <div class="total-row">
                     <span class="total-label">O&P{% if op_percent %} ({{ op_percent }}%){% endif %}</span>
-                    <span class="total-value">${{ '{:,.2f}'.format(op_amount) }}</span>
+                    <span class="total-value">{{ format_amount(op_amount) }}</span>
                 </div>
                 {% endif %}
 
                 {% if tax_amount and tax_amount > 0 %}
                 <div class="total-row">
                     <span class="total-label">Tax{% if tax_rate %} ({{ tax_rate }}%){% endif %}</span>
-                    <span class="total-value">${{ '{:,.2f}'.format(tax_amount) }}</span>
+                    <span class="total-value">{{ format_amount(tax_amount) }}</span>
                 </div>
                 {% endif %}
 
                 <div class="total-row grand-total">
                     <span class="total-label">Total Estimate</span>
-                    <span class="total-value">${{ '{:,.2f}'.format(total) }}</span>
+                    <span class="total-value">{{ format_amount(total) }}</span>
                 </div>
             </div>
         </div>

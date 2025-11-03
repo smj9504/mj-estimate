@@ -27,6 +27,7 @@ import {
   EyeOutlined,
   EditOutlined,
   HolderOutlined,
+  FileTextFilled,
 } from '@ant-design/icons';
 import DraggableTable from '../components/common/DraggableTable';
 import SortableSection from '../components/common/SortableSection';
@@ -118,6 +119,10 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
   // PDF Template selection state
   const [pdfTemplateType, setPdfTemplateType] = useState<'estimate' | 'invoice'>('estimate');
+
+  // PDF Preview Modal state
+  const [pdfPreviewVisible, setPdfPreviewVisible] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
 
 
   const statusOptions = [
@@ -942,17 +947,6 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     return previewData;
   };
 
-  // Open PDF preview in new window
-  const openPdfPreview = (htmlContent: string, estimateNumber?: string) => {
-    const newWindow = window.open('', '_blank');
-    if (newWindow) {
-      newWindow.document.write(htmlContent);
-      newWindow.document.close();
-      newWindow.document.title = `Estimate Preview - ${estimateNumber || 'Draft'}`;
-    } else {
-      message.error('Popup blocked. Please allow popups for this site to view the preview.');
-    }
-  };
 
   // Handle PDF preview errors
   const handlePdfPreviewError = (error: any) => {
@@ -981,15 +975,38 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       }
 
       const pdfData = createPdfPreviewData(values);
-      const htmlContent = await estimateService.previewHTML(pdfData, pdfTemplateType);
 
-      openPdfPreview(htmlContent, pdfData.estimate_number);
+      // Clean up any existing blob URL first
+      if (pdfBlobUrl) {
+        window.URL.revokeObjectURL(pdfBlobUrl);
+        setPdfBlobUrl(null);
+      }
+
+      // Use PDF preview service to get PDF blob
+      const blob = await estimateService.previewPDF(pdfData, pdfTemplateType);
+
+      // Create blob URL for iframe preview
+      const url = window.URL.createObjectURL(blob);
+      setPdfBlobUrl(url);
+      setPdfPreviewVisible(true);
 
     } catch (error: any) {
       handlePdfPreviewError(error);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Clean up blob URL when closing PDF preview modal
+  const handleClosePdfPreview = () => {
+    setPdfPreviewVisible(false);
+    // Delay cleanup to ensure modal close animation completes
+    setTimeout(() => {
+      if (pdfBlobUrl) {
+        window.URL.revokeObjectURL(pdfBlobUrl);
+        setPdfBlobUrl(null);
+      }
+    }, 300);
   };
 
   const companySelectOptions = [
@@ -1335,9 +1352,16 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                       dataIndex: 'description',
                                       key: 'description',
                                       ellipsis: true,
-                                      render: (value) => value ? (
-                                        <div dangerouslySetInnerHTML={{ __html: value }} />
-                                      ) : null,
+                                      render: (value, record: EstimateLineItem) => (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                          {value ? <div dangerouslySetInnerHTML={{ __html: value }} /> : null}
+                                          {record.note && (
+                                            <Tooltip title={<div dangerouslySetInnerHTML={{ __html: record.note }} />}>
+                                              <FileTextFilled style={{ color: '#1890ff', cursor: 'help', flexShrink: 0 }} />
+                                            </Tooltip>
+                                          )}
+                                        </div>
+                                      ),
                                     },
                                     {
                                       title: 'Qty',
@@ -1688,11 +1712,11 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
             <Col xs={24}>
               <Form.Item
                 name="name"
-                label="Item Name (Optional)"
+                label="Item Code (Optional)"
                 tooltip="If not provided, will be auto-generated from description"
               >
                 <ItemCodeSelector
-                  placeholder="Enter item name, search line items, or leave blank to auto-generate"
+                  placeholder="Enter item code, search line items, or leave blank to auto-generate"
                   onLineItemAdd={handleLineItemsAdd}
                   mode={editingIndex !== null ? 'edit' : 'add'}
                 />
@@ -1814,6 +1838,48 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
           placeholder="Enter section name"
           onPressEnter={handleSectionNameUpdate}
         />
+      </Modal>
+
+      {/* PDF Preview Modal */}
+      <Modal
+        title="Estimate Preview"
+        open={pdfPreviewVisible}
+        onCancel={handleClosePdfPreview}
+        footer={[
+          <Button key="close" onClick={handleClosePdfPreview}>
+            Close
+          </Button>,
+          pdfBlobUrl && (
+            <Button
+              key="download"
+              type="primary"
+              icon={<DownloadOutlined />}
+              href={pdfBlobUrl}
+              download={`estimate-preview-${dayjs().format('YYYYMMDD')}.pdf`}
+            >
+              Download PDF
+            </Button>
+          ),
+        ]}
+        width="90%"
+        style={{ top: 20 }}
+        styles={{ body: { height: 'calc(90vh - 110px)', padding: 0 } }}
+      >
+        {pdfBlobUrl ? (
+          <iframe
+            src={pdfBlobUrl}
+            style={{
+              width: '100%',
+              height: '100%',
+              border: 'none',
+            }}
+            title="Estimate PDF Preview"
+          />
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <Spin size="large" />
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -56,7 +56,11 @@ class UnifiedTemplateManager:
         
         def format_currency(value: float) -> str:
             try:
-                return f"${value:,.2f}"
+                if value < 0:
+                    # Format negative as -$X,XXX.XX instead of $-X,XXX.XX
+                    return f"-${abs(value):,.2f}"
+                else:
+                    return f"${value:,.2f}"
             except (ValueError, TypeError):
                 return "$0.00"
         
