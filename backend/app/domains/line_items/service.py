@@ -629,10 +629,10 @@ class LineItemService:
                     "Xactimate items must have at least one price component"
                 )
         else:
-            # Custom items must have untaxed_unit_price
-            if not line_item.untaxed_unit_price or line_item.untaxed_unit_price <= 0:
+            # Custom items must have untaxed_unit_price (allow negative)
+            if line_item.untaxed_unit_price is None:
                 raise ValidationError(
-                    "Custom items must have a positive untaxed_unit_price"
+                    "Custom items must have untaxed_unit_price"
                 )
     
     def _apply_overrides(

@@ -330,8 +330,8 @@
     <div class="col-item">{{ item.description if item.description else item.name }}</div>
     <div class="col-qty">{{ item.quantity }}</div>
     <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
-    <div class="col-price">${{ '{:,.2f}'.format(item.rate) }}</div>
-    <div class="col-total">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</div>
+    <div class="col-price">{{ item.rate|format_currency }}</div>
+    <div class="col-total">{{ (item.quantity * item.rate)|format_currency }}</div>
   </div>
 
   {% if item.note %}

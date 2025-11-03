@@ -93,10 +93,21 @@ class PDFService:
     
     @staticmethod
     def _format_currency(value: float) -> str:
-        """Format number as currency"""
+        """Format number as currency with proper negative handling"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
-            return f"${value:,.2f}"
-        except (ValueError, TypeError):
+            if value < 0:
+                # Format negative as -$X,XXX.XX instead of $-X,XXX.XX
+                result = f"-${abs(value):,.2f}"
+                logger.info(f"_format_currency: {value} -> {result}")
+                return result
+            else:
+                result = f"${value:,.2f}"
+                return result
+        except (ValueError, TypeError) as e:
+            logger.error(f"_format_currency error for value {value}: {e}")
             return "$0.00"
     
     @staticmethod
@@ -467,7 +478,14 @@ class PDFService:
     
     def _prepare_invoice_context(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare and validate invoice context for template"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         context = data.copy()
+        
+        # Log sections before and after copy
+        logger.info(f"_prepare_invoice_context - sections in input data: {len(data.get('sections', []))}")
+        logger.info(f"_prepare_invoice_context - sections in context: {len(context.get('sections', []))}")
 
         # Set invoice defaults
         context.setdefault('invoice_number', self._generate_invoice_number())
@@ -595,34 +613,13 @@ class PDFService:
         context['total'] = total
         context['total_with_tax'] = total  # Template expects this name
         
-        # Modern template expects serviceSections structure
-        # Check if data already has sections structure
+        # Modern template expects serviceSections structure (legacy)
+        # But prefer 'sections' (new format with subtotals) if available
         if data.get('sections'):
-            # Use sections from frontend
-            service_sections = []
-            for section in data['sections']:
-                section_items = section.get('items', [])
-                service_sections.append({
-                    'title': section.get('title', 'Services'),
-                    'line_items': [
-                        {
-                            'name': str(item.get('name', '')),
-                            'dec': str(item.get('description', '')) if item.get('description') else None,
-                            'note': str(item.get('note', '')) if item.get('note') else None,
-                            'qty': float(item.get('quantity', 0)),
-                            'unit': str(item.get('unit', 'ea')),
-                            'price': float(item.get('rate', 0)),
-                            'hide_price': False
-                        }
-                        for item in section_items
-                    ],
-                    'subtotal': sum(
-                        float(item.get('quantity', 0)) * float(item.get('rate', 0))
-                        for item in section_items
-                    ),
-                    'showSubtotal': len(section_items) > 1
-                })
-            context['serviceSections'] = service_sections
+            # Keep sections as-is (don't convert to serviceSections)
+            # Template will use 'sections' with subtotals
+            logger.info(f"Using 'sections' format with {len(data['sections'])} sections")
+            pass  # sections already in context from data.copy()
         elif items:
             # Group items by primary_group if available
             sections_map = {}

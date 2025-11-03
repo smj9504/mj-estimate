@@ -23,8 +23,19 @@ export const formatNumber = (num: number | undefined | null, decimals: number = 
  * @returns Formatted currency string
  */
 export const formatCurrency = (amount: number | undefined | null, showCurrency: boolean = true): string => {
-  const formatted = formatNumber(amount);
-  return showCurrency ? `$${formatted}` : formatted;
+  if (amount === undefined || amount === null) {
+    return showCurrency ? '$0.00' : '0.00';
+  }
+  
+  const absAmount = Math.abs(amount);
+  const formatted = formatNumber(absAmount);
+  
+  if (!showCurrency) {
+    return amount < 0 ? `-${formatted}` : formatted;
+  }
+  
+  // Format as -$X,XXX.XX for negative, $X,XXX.XX for positive
+  return amount < 0 ? `-$${formatted}` : `$${formatted}`;
 };
 
 /**

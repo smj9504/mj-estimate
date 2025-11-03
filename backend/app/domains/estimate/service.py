@@ -605,8 +605,7 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
         
         for item in items:
             # Description is optional, can be empty
-            if float(item.get('rate', 0)) < 0:
-                raise ValueError("Item rate cannot be negative")
+            # Allow negative rates for discounts/credits
             if float(item.get('quantity', 0)) <= 0:
                 raise ValueError("Item quantity must be positive")
         

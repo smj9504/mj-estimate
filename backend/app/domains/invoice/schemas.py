@@ -361,6 +361,15 @@ class InvoiceResponse(BaseModel):
         from_attributes = True
 
 
+class InvoiceSection(BaseModel):
+    """Section model for PDF generation"""
+    id: Optional[str] = None
+    title: str
+    items: List[InvoiceItemBase]
+    showSubtotal: Optional[bool] = True
+    subtotal: float = 0
+
+
 class InvoicePDFRequest(BaseModel):
     """Request model for generating PDF preview"""
     invoice_number: str = Field(default_factory=lambda: f"INV-{datetime.now().strftime('%Y%m%d-%H%M%S')}")
@@ -372,6 +381,7 @@ class InvoicePDFRequest(BaseModel):
     insurance: Optional[InsuranceInfo] = None
     
     items: List[InvoiceItemBase] = []
+    sections: Optional[List[InvoiceSection]] = []  # Grouped items by section
     
     subtotal: float = 0
     op_percent: Optional[float] = 0  # O&P percentage

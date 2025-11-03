@@ -565,8 +565,8 @@
                             </td>
                             <td class="text-center">{{ item.quantity }}</td>
                             <td class="text-center">{{ item.unit if item.unit else 'EA' }}</td>
-                            <td class="text-right">${{ '{:,.2f}'.format(item.rate) }}</td>
-                            <td class="text-right">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</td>
+                            <td class="text-right">{{ item.rate|format_currency }}</td>
+                            <td class="text-right">{{ (item.quantity * item.rate)|format_currency }}</td>
                         </tr>
                         {% endfor %}
                         {% endif %}
@@ -606,8 +606,8 @@
                             </td>
                             <td class="text-center">{{ item.quantity }}</td>
                             <td class="text-center">{{ item.unit if item.unit else 'EA' }}</td>
-                            <td class="text-right">${{ '{:,.2f}'.format(item.rate) }}</td>
-                            <td class="text-right">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</td>
+                            <td class="text-right">{{ item.rate|format_currency }}</td>
+                            <td class="text-right">{{ (item.quantity * item.rate)|format_currency }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>

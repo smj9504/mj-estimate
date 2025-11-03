@@ -622,7 +622,7 @@
                     <span class="no-date">No date specified</span>
                   {% endif %}
                 </td>
-                <td class="payment-amount">-${{ "{:.2f}".format(payment.amount) }}</td>
+                <td class="payment-amount">{{ (-payment.amount)|format_currency }}</td>
                 <td>{{ payment.reference or payment.notes or '—' }}</td>
               </tr>
             {% endfor %}

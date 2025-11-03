@@ -899,9 +899,9 @@ const InvoiceCreation: React.FC = () => {
         return;
       }
 
-      // Validate rate
-      if (values.rate === null || values.rate === undefined || values.rate <= 0) {
-        message.error('Please enter a valid rate greater than $0');
+      // Validate rate (allow negative for discounts/credits)
+      if (values.rate === null || values.rate === undefined) {
+        message.error('Please enter a valid rate');
         return;
       }
 
@@ -1264,6 +1264,13 @@ const InvoiceCreation: React.FC = () => {
           deductible: values.insurance_deductible,
         } : null,
         items: convertSectionsToItems(),
+        sections: sections.map(section => ({
+          id: section.id,
+          title: section.title,
+          items: section.items,
+          showSubtotal: section.showSubtotal !== false,
+          subtotal: section.subtotal || section.items.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
+        })),
         subtotal: totals.subtotal,
         op_percent: opPercent,
         tax_method: taxMethod,
@@ -1568,14 +1575,14 @@ const InvoiceCreation: React.FC = () => {
       key: 'rate',
       width: 100,
       align: 'right' as const,
-      render: (value: number) => `$${formatCurrency(value)}`,
+      render: (value: number) => formatCurrency(value),
     },
     {
       title: 'Amount',
       key: 'amount',
       width: 120,
       align: 'right' as const,
-      render: (_: any, record: InvoiceItem) => `$${formatCurrency(record.quantity * record.rate)}`,
+      render: (_: any, record: InvoiceItem) => formatCurrency(record.quantity * record.rate),
     },
     ...(taxMethod === 'percentage' ? [{
       title: (
@@ -2174,14 +2181,14 @@ const InvoiceCreation: React.FC = () => {
                               key: 'rate',
                               width: 100,
                               align: 'right' as const,
-                              render: (value) => `$${formatCurrency(value || 0)}`,
+                              render: (value) => formatCurrency(value || 0),
                             },
                             {
                               title: 'Amount',
                               key: 'amount',
                               width: 100,
                               align: 'right' as const,
-                              render: (_: any, record: InvoiceItem) => `$${formatCurrency((record.quantity || 0) * (record.rate || 0))}`,
+                              render: (_: any, record: InvoiceItem) => formatCurrency((record.quantity || 0) * (record.rate || 0)),
                             },
                             ...(taxMethod === 'percentage' ? [{
                               title: (
@@ -2753,23 +2760,25 @@ const InvoiceCreation: React.FC = () => {
                 label="Rate"
                 rules={[
                   { required: true, message: 'Please enter rate' },
-                  {
-                    type: 'number',
-                    min: 0.01,
-                    message: 'Rate must be greater than $0'
-                  }
+                  { type: 'number', message: 'Rate must be a valid number' }
                 ]}
+                tooltip="Negative values allowed for discounts or credits"
               >
                 <InputNumber
                   style={{ width: '100%' }}
-                  min={0.01}
                   step={0.01}
                   precision={2}
-                  placeholder="Enter rate"
-                  formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  placeholder="Enter rate (negative allowed)"
+                  formatter={value => {
+                    const num = typeof value === 'number' ? value : parseFloat(value || '0');
+                    if (num < 0) {
+                      return `-$${Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                    }
+                    return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                  }}
                   parser={((value: any) => {
-                    const parsed = parseFloat(value!.replace(/\$\s?|(,*)/g, ''));
-                    return isNaN(parsed) ? undefined : parsed;
+                    const parsed = parseFloat(value!.replace(/\$\s?|-|(,*)/g, '').trim() || '0');
+                    return isNaN(parsed) ? undefined : (value?.includes('-') ? -parsed : parsed);
                   }) as any}
                 />
               </Form.Item>

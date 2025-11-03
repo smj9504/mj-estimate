@@ -112,15 +112,15 @@ class LineItemBase(BaseModel):
     labor_burden: Optional[Decimal] = Field(None, ge=0)
     market_condition: Optional[Decimal] = Field(None, ge=0)
     
-    # Required unit price for custom items
-    untaxed_unit_price: Decimal = Field(..., gt=0)
+    # Required unit price for custom items (allow negative for credits/discounts)
+    untaxed_unit_price: Decimal = Field(...)
     
     @field_validator('untaxed_unit_price')
     @classmethod
-    def ensure_positive_price(cls, v):
-        """Ensure unit price is positive"""
-        if v is None or v <= 0:
-            raise ValueError('Line items must have a positive untaxed_unit_price')
+    def ensure_valid_price(cls, v):
+        """Ensure unit price is a valid number"""
+        if v is None:
+            raise ValueError('Line items must have untaxed_unit_price')
         return v
 
 

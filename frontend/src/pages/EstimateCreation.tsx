@@ -674,8 +674,11 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     if (!values.unit) {
       return 'Please select unit';
     }
-    if (!values.unit_price || values.unit_price <= 0) {
-      return 'Please enter valid unit price';
+    if (values.unit_price === null || values.unit_price === undefined) {
+      return 'Please enter unit price';
+    }
+    if (isNaN(values.unit_price)) {
+      return 'Unit price must be a valid number';
     }
     return null;
   };
@@ -1725,15 +1728,28 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
               <Form.Item
                 name="unit_price"
                 label="Unit Price"
-                rules={[{ required: true, message: 'Please enter unit price' }]}
+                rules={[
+                  { required: true, message: 'Please enter unit price' },
+                  { type: 'number', message: 'Unit price must be a valid number' }
+                ]}
+                tooltip="Negative values allowed for discounts or credits"
               >
                 <InputNumber
                   style={{ width: '100%' }}
-                  min={0}
                   step={0.01}
-                  placeholder="0.00"
-                  formatter={(value?: string | number) => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={(value?: string) => parseFloat(value?.replace(/\$\s?|(,*)/g, '') || '0') || 0}
+                  precision={2}
+                  placeholder="Enter price (negative allowed)"
+                  formatter={(value?: string | number) => {
+                    const num = typeof value === 'number' ? value : parseFloat(value || '0');
+                    if (num < 0) {
+                      return `-$${Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                    }
+                    return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                  }}
+                  parser={(value?: string) => {
+                    const parsed = parseFloat(value?.replace(/\$\s?|-|(,*)/g, '').trim() || '0');
+                    return isNaN(parsed) ? 0 : (value?.includes('-') ? -parsed : parsed);
+                  }}
                 />
               </Form.Item>
             </Col>

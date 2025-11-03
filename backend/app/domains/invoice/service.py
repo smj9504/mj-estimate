@@ -428,8 +428,7 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
         for item in items:
             if not item.get('description'):
                 raise ValueError("Item description is required")
-            if float(item.get('rate', 0)) < 0:
-                raise ValueError("Item rate cannot be negative")
+            # Allow negative rates for discounts/credits
             if float(item.get('quantity', 0)) <= 0:
                 raise ValueError("Item quantity must be positive")
         
@@ -509,8 +508,7 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             for item in items:
                 if not item.get('name') and not item.get('description'):
                     raise ValueError("Item name or description is required")
-                if float(item.get('rate', 0)) < 0:
-                    raise ValueError("Item rate cannot be negative")
+                # Allow negative rates for discounts/credits
                 if float(item.get('quantity', 0)) <= 0:
                     raise ValueError("Item quantity must be positive")
             

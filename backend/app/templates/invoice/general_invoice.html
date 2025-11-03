@@ -149,11 +149,13 @@
       padding-bottom: 4px;
     }
     .subtotal {
+      font-size: 13px;
       text-align: right;
-      font-weight: bold;
+      font-weight: normal;
       padding-top: 7px;
       border-top: 1px solid #ccc;
       margin-bottom: 10px;
+      margin-top: 5px;
     }
     .footer-total {
       display: flex;
@@ -283,9 +285,11 @@
 <p>{{ notes }}</p>
 {% endif %}
 
-{% if serviceSections %}
-  {% for section in serviceSections %}
-    {% if serviceSections|length > 1 %}
+<!-- Check sections first (with subtotals), then fall back to serviceSections -->
+{% if sections and sections|length > 0 %}
+  <!-- ✅ Using sections with subtotals -->
+  {% for section in sections %}
+    {% if sections|length > 1 %}
       <div class="section-title">{{ section.title }}</div>
     {% endif %}
 
@@ -297,21 +301,28 @@
         <div class="col-total">Total</div>
     </div>
 
-    {% for item in section.line_items %}
+    {% for item in section['items'] %}
     <div class="line-row">
-      <div class="col-item">{{ item.dec if item.dec else item.name }}</div>
-      <div class="col-qty">{{ item.qty }}</div>
+      <div class="col-item">{{ item.description if item.description else item.name }}</div>
+      <div class="col-qty">{{ item.quantity }}</div>
       <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
-      <div class="col-price">${{ '{:,.2f}'.format(item.price) }}</div>
-      <div class="col-total">${{ '{:,.2f}'.format(item.qty * item.price) }}</div>
+      <div class="col-price">{{ item.rate|format_currency }}</div>
+      <div class="col-total">{{ (item.quantity * item.rate)|format_currency }}</div>
     </div>
 
     {% if item.note %}
       <div class="col-desc">{{ item.note.replace('\n', '<br>') | safe }}</div>
     {% endif %}
     {% endfor %}
+    
+    <!-- Section Subtotal -->
+    {% if section.get('showSubtotal', True) %}
+    <div class="subtotal">
+      {{ section.title }} Subtotal: {{ section.subtotal|format_currency }}
+    </div>
+    {% endif %}
   {% endfor %}
-{% else %}
+{% elif serviceSections %}
   <div class="line-header">
       <div class="col-item">Item</div>
       <div class="col-qty">Qty</div>
@@ -320,19 +331,66 @@
       <div class="col-total">Total</div>
   </div>
 
-  {% for item in items %}
-  <div class="line-row">
-    <div class="col-item">{{ item.description if item.description else item.name }}</div>
-    <div class="col-qty">{{ item.quantity }}</div>
-    <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
-    <div class="col-price">${{ '{:,.2f}'.format(item.rate) }}</div>
-    <div class="col-total">${{ '{:,.2f}'.format(item.quantity * item.rate) }}</div>
-  </div>
+  <!-- Display sections if available, otherwise show flat items list -->
+  <!-- DEBUG START -->
+  <!-- sections variable exists: {{ 'YES' if sections is defined else 'NO' }} -->
+  <!-- sections type: {{ sections.__class__.__name__ if sections is defined else 'undefined' }} -->
+  <!-- sections length: {{ sections|length if sections else 0 }} -->
+  <!-- sections value: {{ sections }} -->
+  <!-- DEBUG END -->
+  
+  {% if sections and sections|length > 0 %}
+    <!-- ✅ USING SECTIONS LAYOUT -->
+    {% for section in sections %}
+      <!-- Section Header -->
+      <div class="line-row" style="background-color: #f5f5f5; font-weight: 600; margin-top: 8px;">
+        <div class="col-item">{{ section.title }}</div>
+        <div class="col-qty"></div>
+        <div class="col-unit"></div>
+        <div class="col-price"></div>
+        <div class="col-total"></div>
+      </div>
+      
+      <!-- Section Items -->
+      {% for item in section['items'] %}
+      <div class="line-row">
+        <div class="col-item">{{ item.description if item.description else item.name }}</div>
+        <div class="col-qty">{{ item.quantity }}</div>
+        <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
+        <div class="col-price">{{ item.rate|format_currency }}</div>
+        <div class="col-total">{{ (item.quantity * item.rate)|format_currency }}</div>
+      </div>
 
-  {% if item.note %}
-    <div class="col-desc">{{ item.note.replace('\n', '<br>') | safe }}</div>
+      {% if item.note %}
+        <div class="col-desc">{{ item.note.replace('\n', '<br>') | safe }}</div>
+      {% endif %}
+      {% endfor %}
+      
+      <!-- Section Subtotal -->
+      <div class="line-row" style="font-weight: 600; border-top: 1px solid #ddd; background-color: #fafafa;">
+        <div class="col-item" style="text-align: right; padding-right: 10px;">{{ section.title }} Subtotal</div>
+        <div class="col-qty"></div>
+        <div class="col-unit"></div>
+        <div class="col-price"></div>
+        <div class="col-total">{{ section.subtotal|format_currency }}</div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <!-- Fallback: flat items list -->
+    {% for item in items %}
+    <div class="line-row">
+      <div class="col-item">{{ item.description if item.description else item.name }}</div>
+      <div class="col-qty">{{ item.quantity }}</div>
+      <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
+      <div class="col-price">{{ item.rate|format_currency }}</div>
+      <div class="col-total">{{ (item.quantity * item.rate)|format_currency }}</div>
+    </div>
+
+    {% if item.note %}
+      <div class="col-desc">{{ item.note.replace('\n', '<br>') | safe }}</div>
+    {% endif %}
+    {% endfor %}
   {% endif %}
-  {% endfor %}
 {% endif %}
 
 <div class="footer-total">

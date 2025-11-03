@@ -586,6 +586,39 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
             logger.error(traceback.format_exc())
 
     # Prepare data for HTML generation
+    # Group items by section (primary_group)
+    from collections import defaultdict
+    items_by_section_html = defaultdict(list)
+    all_items_html = invoice.get('items', [])
+    
+    logger.info(f"Processing {len(all_items_html)} items for HTML generation")
+    
+    for item in all_items_html:
+        section_name = item.get('primary_group') or 'Items'
+        logger.info(f"Item: {item.get('name')} -> Section: {section_name}")
+        items_by_section_html[section_name].append({
+            "name": item.get('name', ''),
+            "description": item.get('description'),
+            "note": item.get('note'),
+            "quantity": item.get('quantity', 0),
+            "unit": item.get('unit', ''),
+            "rate": item.get('rate', 0),
+            "amount": item.get('quantity', 0) * item.get('rate', 0)
+        })
+    
+    # Create sections with subtotals
+    sections_html = []
+    for section_name, section_items in items_by_section_html.items():
+        section_subtotal = sum(item['amount'] for item in section_items)
+        sections_html.append({
+            "title": section_name,
+            "items": section_items,
+            "subtotal": section_subtotal
+        })
+        logger.info(f"Section '{section_name}': {len(section_items)} items, subtotal: {section_subtotal}")
+    
+    logger.info(f"Created {len(sections_html)} sections for HTML")
+    
     html_data = {
         "invoice_number": invoice.get('invoice_number', ''),
         "date": invoice.get('date', invoice.get('invoice_date', invoice.get('created_at', ''))),
@@ -609,17 +642,8 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
             "phone": invoice.get('client_phone'),
             "email": invoice.get('client_email')
         },
-        "items": [
-            {
-                "name": item.get('name', ''),
-                "description": item.get('description'),
-                "note": item.get('note'),
-                "quantity": item.get('quantity', 0),
-                "unit": item.get('unit', ''),
-                "rate": item.get('rate', 0)
-            }
-            for item in invoice.get('items', [])
-        ],
+        "items": all_items_html,  # Keep original items for backward compatibility
+        "sections": sections_html,  # New: grouped by section with subtotals
         "subtotal": invoice.get('subtotal', 0),
         "tax_rate": invoice.get('tax_rate', 0),
         "tax_amount": invoice.get('tax_amount', 0),
@@ -695,6 +719,39 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
             logger.error(traceback.format_exc())
 
     # Prepare data for PDF generation
+    # Group items by section (primary_group)
+    from collections import defaultdict
+    items_by_section = defaultdict(list)
+    all_items = invoice.get('items', [])
+    
+    logger.info(f"Processing {len(all_items)} items for PDF generation")
+    
+    for item in all_items:
+        section_name = item.get('primary_group') or 'Items'
+        logger.info(f"Item: {item.get('name')} -> Section: {section_name}")
+        items_by_section[section_name].append({
+            "name": item.get('name', ''),
+            "description": item.get('description'),
+            "note": item.get('note'),
+            "quantity": item.get('quantity', 0),
+            "unit": item.get('unit', ''),
+            "rate": item.get('rate', 0),
+            "amount": item.get('quantity', 0) * item.get('rate', 0)
+        })
+    
+    # Create sections with subtotals
+    sections = []
+    for section_name, section_items in items_by_section.items():
+        section_subtotal = sum(item['amount'] for item in section_items)
+        sections.append({
+            "title": section_name,
+            "items": section_items,
+            "subtotal": section_subtotal
+        })
+        logger.info(f"Section '{section_name}': {len(section_items)} items, subtotal: {section_subtotal}")
+    
+    logger.info(f"Created {len(sections)} sections for PDF")
+    
     pdf_data = {
         "invoice_number": invoice.get('invoice_number', ''),
         "date": invoice.get('date', invoice.get('invoice_date', invoice.get('created_at', ''))),
@@ -718,17 +775,8 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
             "phone": invoice.get('client_phone'),
             "email": invoice.get('client_email')
         },
-        "items": [
-            {
-                "name": item.get('name', ''),
-                "description": item.get('description'),
-                "note": item.get('note'),
-                "quantity": item.get('quantity', 0),
-                "unit": item.get('unit', ''),
-                "rate": item.get('rate', 0)
-            }
-            for item in invoice.get('items', [])
-        ],
+        "items": all_items,  # Keep original items for backward compatibility
+        "sections": sections,  # New: grouped by section with subtotals
         "subtotal": invoice.get('subtotal', 0),
         "tax_rate": invoice.get('tax_rate', 0),
         "tax_amount": invoice.get('tax_amount', 0),
@@ -796,6 +844,17 @@ async def preview_invoice_html(data: InvoicePDFRequest):
         # Prepare data for HTML generation
         html_data = data.dict()
         logger.info(f"Generating HTML preview with data keys: {html_data.keys()}")
+        
+        # Log sections info
+        sections_data = html_data.get('sections', [])
+        logger.info(f"Sections field exists: {'sections' in html_data}, Sections length: {len(sections_data)}")
+        
+        if sections_data and len(sections_data) > 0:
+            logger.info(f"Sections in HTML preview data: {len(sections_data)} sections")
+            for sec in sections_data:
+                logger.info(f"  - Section '{sec.get('title')}': {len(sec.get('items', []))} items, subtotal: {sec.get('subtotal')}")
+        else:
+            logger.warning(f"No valid sections in HTML preview data - sections value: {sections_data}")
 
         # Generate HTML
         html_content = pdf_service.generate_invoice_html(html_data)
@@ -833,6 +892,17 @@ async def preview_invoice_pdf(data: InvoicePDFRequest):
         # Prepare data for PDF generation
         pdf_data = data.dict()
         logger.info(f"Generating PDF preview with data keys: {pdf_data.keys()}")
+        
+        # Log sections info
+        sections_data = pdf_data.get('sections', [])
+        logger.info(f"Sections field exists: {'sections' in pdf_data}, Sections length: {len(sections_data)}")
+        
+        if sections_data and len(sections_data) > 0:
+            logger.info(f"Sections in preview data: {len(sections_data)} sections")
+            for sec in sections_data:
+                logger.info(f"  - Section '{sec.get('title')}': {len(sec.get('items', []))} items, subtotal: {sec.get('subtotal')}")
+        else:
+            logger.warning(f"No valid sections in preview data - sections value: {sections_data}")
         
         # Generate PDF
         pdf_path = pdf_service.generate_invoice_pdf(pdf_data, output_path)
