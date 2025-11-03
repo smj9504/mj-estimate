@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Invoice - {{ invoice_number }}</title>
+  <title>{% if client_address %}{{ client_address.split(',')[0].strip() }} - {% endif %}Invoice {{ invoice_number }}</title>
   <style>
     /* Modern Invoice CSS Styles */
     * {

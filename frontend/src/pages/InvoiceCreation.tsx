@@ -1594,19 +1594,23 @@ const InvoiceCreation: React.FC = () => {
       const blob = await receiptService.previewPDF(receiptData);
       const url = window.URL.createObjectURL(blob);
 
+      // Generate filename for download
+      const filename = generatePdfFilename('receipt', payment.receipt_number);
+
       // Open in new window with blob URL
       const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
 
       if (!newWindow) {
-        // If popup blocked, try alternative method
+        // If popup blocked, try alternative method with download
         const link = document.createElement('a');
         link.href = url;
+        link.download = filename;
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        message.info('Receipt opened (check if popup was blocked)');
+        message.info('Receipt downloaded (popup was blocked)');
       } else {
         message.success('Receipt opened in new tab');
       }

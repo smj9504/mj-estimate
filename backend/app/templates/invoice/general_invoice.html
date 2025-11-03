@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Invoice</title>
+  <title>{% if client_address %}{{ client_address.split(',')[0].strip() }} - {% endif %}Invoice {{ invoice_number }}</title>
   <style>
     /* PDF Header/Footer Styling */
     @page {

@@ -511,6 +511,11 @@ class PDFService:
 
         context['client_address_line1'] = client_street
         context['client_address_line2'] = f"{client.get('city', '')}, {client.get('state', '')} {client_zip}".strip(', ')
+        # Add full client_address for title tag (using direct field if available, otherwise construct from parts)
+        context['client_address'] = context.get('client_address') or client_street
+        logger.info(f"=== Client Address Debug ===")
+        logger.info(f"client_street: {client_street}")
+        logger.info(f"context['client_address']: {context.get('client_address')}")
         context['company_name'] = company.get('name', '')
         context['estimate_number'] = context.get('estimate_number', '')
 
@@ -677,6 +682,10 @@ class PDFService:
 
         # Calculate payment totals
         payments = context.get('payments', [])
+        logger.info(f"=== PDF Context - Payments Debug ===")
+        logger.info(f"Number of payments in context: {len(payments)}")
+        for idx, payment in enumerate(payments):
+            logger.info(f"Payment {idx}: {payment}")
         total_paid = sum(float(payment.get('amount', 0)) for payment in payments)
         balance_due = total - total_paid
 
@@ -1122,12 +1131,9 @@ class PDFService:
 
         html_content = template.render(**context)
 
-        # general_receipt.html has inline CSS, so no external stylesheets needed
+        # general_receipt.html has inline CSS including @page headers/footers
+        # No external stylesheets needed - template is self-contained
         stylesheets = []
-
-        # Add header/footer CSS
-        header_footer_css = self._generate_header_footer_css(context)
-        stylesheets.append(CSS(string=header_footer_css))
 
         # Generate PDF
         output_path = Path(output_path)

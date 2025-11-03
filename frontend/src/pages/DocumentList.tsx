@@ -279,7 +279,14 @@ const DocumentList: React.FC = () => {
         };
         
         blob = await invoiceService.previewPDF(pdfData);
-        filename = `invoice_${invoice.invoice_number}.pdf`;
+
+        // Generate filename with client street address
+        const clientAddress = invoice.client_address || '';
+        const streetAddress = clientAddress.split(/[,\n]/)[0].trim();
+        const sanitizedAddress = streetAddress.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_');
+        filename = sanitizedAddress
+          ? `${sanitizedAddress}_invoice_${invoice.invoice_number}.pdf`
+          : `invoice_${invoice.invoice_number}.pdf`;
       } else if (type === 'estimate' || type === 'insurance_estimate') {
         // Use the new estimate PDF endpoint for saved estimates
         blob = await estimateService.generatePDF(id);

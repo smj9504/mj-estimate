@@ -1,4 +1,4 @@
-import axios from 'axios';
+import api from './api';
 import type {
   Receipt,
   ReceiptTemplate,
@@ -7,8 +7,7 @@ import type {
   ReceiptTemplateUpdateRequest,
 } from '../types/receipt';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-const RECEIPTS_API = `${API_BASE_URL}/api/receipts`;
+const RECEIPTS_API = `/api/receipts`;
 
 /**
  * Receipt Service
@@ -21,7 +20,7 @@ export const receiptService = {
    * Generate a new receipt from an invoice
    */
   generateReceipt: async (data: ReceiptGenerateRequest): Promise<Receipt> => {
-    const response = await axios.post(`${RECEIPTS_API}/generate`, data);
+    const response = await api.post(`${RECEIPTS_API}/generate`, data);
     return response.data;
   },
 
@@ -33,7 +32,7 @@ export const receiptService = {
     limit?: number;
     status?: string;
   }): Promise<Receipt[]> => {
-    const response = await axios.get(RECEIPTS_API, { params });
+    const response = await api.get(RECEIPTS_API, { params });
     return response.data;
   },
 
@@ -41,7 +40,7 @@ export const receiptService = {
    * Get a single receipt by ID
    */
   getReceipt: async (receiptId: string): Promise<Receipt> => {
-    const response = await axios.get(`${RECEIPTS_API}/${receiptId}`);
+    const response = await api.get(`${RECEIPTS_API}/${receiptId}`);
     return response.data;
   },
 
@@ -49,7 +48,7 @@ export const receiptService = {
    * Get all receipts for a specific invoice
    */
   getReceiptsByInvoice: async (invoiceId: string): Promise<Receipt[]> => {
-    const response = await axios.get(`${RECEIPTS_API}/by-invoice/${invoiceId}`);
+    const response = await api.get(`${RECEIPTS_API}/by-invoice/${invoiceId}`);
     return response.data;
   },
 
@@ -58,7 +57,7 @@ export const receiptService = {
    * More efficient than getReceiptsByInvoice when you only need one receipt
    */
   getReceiptByNumber: async (invoiceId: string, receiptNumber: string): Promise<Receipt> => {
-    const response = await axios.get(
+    const response = await api.get(
       `${RECEIPTS_API}/by-invoice/${invoiceId}/number/${receiptNumber}`
     );
     return response.data;
@@ -71,7 +70,7 @@ export const receiptService = {
     receiptId: string,
     data: Partial<ReceiptGenerateRequest>
   ): Promise<Receipt> => {
-    const response = await axios.put(`${RECEIPTS_API}/${receiptId}`, data);
+    const response = await api.put(`${RECEIPTS_API}/${receiptId}`, data);
     return response.data;
   },
 
@@ -79,7 +78,7 @@ export const receiptService = {
    * Void a receipt
    */
   voidReceipt: async (receiptId: string, reason: string): Promise<Receipt> => {
-    const response = await axios.post(`${RECEIPTS_API}/${receiptId}/void`, {
+    const response = await api.post(`${RECEIPTS_API}/${receiptId}/void`, {
       void_reason: reason,
     });
     return response.data;
@@ -89,7 +88,7 @@ export const receiptService = {
    * Delete a receipt
    */
   deleteReceipt: async (receiptId: string): Promise<void> => {
-    await axios.delete(`${RECEIPTS_API}/${receiptId}`);
+    await api.delete(`${RECEIPTS_API}/${receiptId}`);
   },
 
   /**
@@ -103,7 +102,7 @@ export const receiptService = {
    * Generate receipt PDF blob
    */
   generateReceiptPDF: async (receiptId: string): Promise<Blob> => {
-    const response = await axios.get(`${RECEIPTS_API}/${receiptId}/pdf`, {
+    const response = await api.get(`${RECEIPTS_API}/${receiptId}/pdf`, {
       responseType: 'blob',
     });
     return response.data;
@@ -113,7 +112,17 @@ export const receiptService = {
    * Preview receipt HTML (without saving)
    */
   previewHTML: async (data: any): Promise<string> => {
-    const response = await axios.post(`${RECEIPTS_API}/preview-html`, data);
+    const response = await api.post(`${RECEIPTS_API}/preview-html`, data);
+    return response.data;
+  },
+
+  /**
+   * Preview receipt PDF (without saving) - returns PDF blob
+   */
+  previewPDF: async (data: any): Promise<Blob> => {
+    const response = await api.post(`${RECEIPTS_API}/preview-pdf`, data, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 
@@ -123,7 +132,7 @@ export const receiptService = {
    * Get all templates for a company
    */
   getTemplates: async (companyId: string): Promise<ReceiptTemplate[]> => {
-    const response = await axios.get(`${RECEIPTS_API}/templates/company/${companyId}`);
+    const response = await api.get(`${RECEIPTS_API}/templates/company/${companyId}`);
     return response.data;
   },
 
@@ -131,7 +140,7 @@ export const receiptService = {
    * Get a single template by ID
    */
   getTemplate: async (templateId: string): Promise<ReceiptTemplate> => {
-    const response = await axios.get(`${RECEIPTS_API}/templates/${templateId}`);
+    const response = await api.get(`${RECEIPTS_API}/templates/${templateId}`);
     return response.data;
   },
 
@@ -139,7 +148,7 @@ export const receiptService = {
    * Create a new template
    */
   createTemplate: async (data: ReceiptTemplateCreateRequest): Promise<ReceiptTemplate> => {
-    const response = await axios.post(`${RECEIPTS_API}/templates`, data);
+    const response = await api.post(`${RECEIPTS_API}/templates`, data);
     return response.data;
   },
 
@@ -150,7 +159,7 @@ export const receiptService = {
     templateId: string,
     data: ReceiptTemplateUpdateRequest
   ): Promise<ReceiptTemplate> => {
-    const response = await axios.put(`${RECEIPTS_API}/templates/${templateId}`, data);
+    const response = await api.put(`${RECEIPTS_API}/templates/${templateId}`, data);
     return response.data;
   },
 
@@ -158,7 +167,7 @@ export const receiptService = {
    * Delete a template
    */
   deleteTemplate: async (templateId: string): Promise<void> => {
-    await axios.delete(`${RECEIPTS_API}/templates/${templateId}`);
+    await api.delete(`${RECEIPTS_API}/templates/${templateId}`);
   },
 
   /**
@@ -169,7 +178,7 @@ export const receiptService = {
     companyId: string,
     templateType: string = 'standard'
   ): Promise<ReceiptTemplate> => {
-    const response = await axios.put(
+    const response = await api.put(
       `${RECEIPTS_API}/templates/${templateId}/set-default`,
       null,
       {

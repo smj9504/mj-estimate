@@ -3,6 +3,16 @@ FastAPI Backend for MJ Estimate Generator
 Main application entry point with comprehensive database abstraction system
 """
 
+# Suppress WeasyPrint GTK/Fontconfig warnings on Windows
+# These are harmless warnings from Linux libraries running on Windows
+import os
+os.environ.setdefault('FONTCONFIG_FILE', 'NUL')
+os.environ.setdefault('G_SLICE', 'always-malloc')
+
+# Suppress GLib warnings
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+
 from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -54,16 +64,33 @@ from app.domains.sketch.api import router as sketch_router
 from app.domains.receipt.api import router as receipt_router
 from app.domains.water_mitigation.api import router as water_mitigation_router
 from app.domains.reconstruction_estimate.api import router as reconstruction_estimate_router
+from app.domains.pack_calculation.api import router as pack_calculation_router
+from app.domains.analytics.api import router as analytics_router
 from app.domains.file.service import initialize_storage
 from app.core.config import settings
 
 # Conditional Material Detection imports (only if enabled)
+material_detection_available = False
+training_api_available = False
+
 if settings.ENABLE_MATERIAL_DETECTION:
     try:
         from app.domains.material_detection.api import router as material_detection_router
         from app.domains.material_detection.service import initialize_material_detection
-    except ImportError:
-        settings.ENABLE_MATERIAL_DETECTION = False  # Disable if dependencies missing
+        material_detection_available = True
+        print("[INFO] Material Detection module loaded successfully")
+    except ImportError as e:
+        print(f"[WARNING] Material Detection dependencies missing: {e}")
+        settings.ENABLE_MATERIAL_DETECTION = False
+
+    # Try to import training API (optional)
+    if material_detection_available:
+        try:
+            from app.domains.material_detection.training.api import router as training_router
+            training_api_available = True
+            print("[INFO] Training API module loaded successfully")
+        except ImportError as e:
+            print(f"[WARNING] Training API dependencies missing (optional): {e}")
 from app.core.database_factory import get_database, db_factory
 # Service factory removed - using direct service instantiation
 from app.core.interfaces import DatabaseException, ConnectionError, ConfigurationError
@@ -107,7 +134,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 print(f"[STARTUP] Scheduler skipped: {e}")
 
-        print("[STARTUP] ✓ Ready - database/storage initialize on first use")
+        print("[STARTUP] Ready - database/storage initialize on first use")
         yield
         
     except ConfigurationError as e:
@@ -363,10 +390,21 @@ app.include_router(water_mitigation_router, prefix="/api")
 # Reconstruction Estimate System endpoints
 app.include_router(reconstruction_estimate_router)
 
+# Pack-In/Out Calculation System endpoints
+app.include_router(pack_calculation_router, prefix="/api")
+
+# Analytics endpoints
+app.include_router(analytics_router, prefix="/api", tags=["Analytics"])
+
 # Material Detection endpoints (conditionally loaded)
-if getattr(settings, 'ENABLE_MATERIAL_DETECTION', True):
+if material_detection_available:
     app.include_router(material_detection_router, prefix="/api/material-detection", tags=["Material Detection"])
     logger.info("Material Detection routes registered")
+
+    # Training API (optional)
+    if training_api_available:
+        app.include_router(training_router, prefix="/api/material-detection", tags=["ML Training"])
+        logger.info("Training API routes registered")
 
 # External Integrations endpoints (conditionally loaded)
 if settings.ENABLE_INTEGRATIONS:
