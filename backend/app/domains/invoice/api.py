@@ -20,6 +20,7 @@ from app.domains.invoice.schemas import (
     InvoicePDFRequest,
     InvoiceNumberResponse,
     CompanyInfo,
+    ClientInfo,
     PaymentRecord
 )
 from app.common.services.pdf_service import pdf_service
@@ -218,6 +219,26 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
             # Generate a simple temp code for now
             company_code = f"TEMP-{company_name[:3].upper()}"
     
+    # Handle client information - fetch from company if client_company_id is provided
+    if invoice_data.client_company_id and (not invoice_data.client or not invoice_data.client.name):
+        try:
+            from app.domains.company.repository import get_company_repository
+            company_repo = get_company_repository(db)
+            client_company = company_repo.get_by_id(str(invoice_data.client_company_id))
+            if client_company:
+                # Populate client info from the company
+                invoice_data.client = ClientInfo(
+                    name=client_company.get('name'),
+                    address=client_company.get('address'),
+                    city=client_company.get('city'),
+                    state=client_company.get('state'),
+                    zipcode=client_company.get('zipcode'),
+                    phone=client_company.get('phone'),
+                    email=client_company.get('email')
+                )
+        except Exception as e:
+            logger.error(f"Error fetching client company: {e}")
+    
     # Generate invoice number if not provided
     if not invoice_data.invoice_number:
         # Fallback to timestamp-based number
@@ -274,6 +295,7 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
 
         # Client information - directly on Invoice model
         'client_name': invoice_data.client.name if invoice_data.client else '',
+        'client_company_id': str(invoice_data.client_company_id) if invoice_data.client_company_id else None,
         'client_address': invoice_data.client.address if invoice_data.client else '',
         'client_city': invoice_data.client.city if invoice_data.client else '',
         'client_state': invoice_data.client.state if invoice_data.client else '',

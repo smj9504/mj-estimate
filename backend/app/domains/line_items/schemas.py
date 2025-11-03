@@ -126,6 +126,7 @@ class LineItemBase(BaseModel):
 
 class LineItemCreate(LineItemBase):
     """Schema for creating a line item"""
+    type: Optional[LineItemType] = Field(LineItemType.CUSTOM, description="Line item type")
     company_id: Optional[UUID] = None
     is_active: bool = True
     note_ids: Optional[List[UUID]] = []  # Attach existing notes

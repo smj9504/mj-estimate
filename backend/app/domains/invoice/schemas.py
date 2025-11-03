@@ -22,7 +22,7 @@ class CompanyInfo(BaseModel):
 
 
 class ClientInfo(BaseModel):
-    name: str
+    name: Optional[str] = None  # Optional when client_company_id is provided
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
