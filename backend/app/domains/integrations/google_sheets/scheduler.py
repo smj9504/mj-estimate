@@ -53,7 +53,7 @@ async def sync_google_sheets_job():
     asyncio.create_task(_run_sync_in_background(is_business))
 
     schedule_type = "business hours (15min)" if is_business else "off-hours (180min)"
-    logger.info(f"🔄 Google Sheets sync task started in background [{schedule_type}]")
+    logger.info(f"Google Sheets sync task started in background [{schedule_type}]")
 
     # 다음 실행 스케줄 조정 (동적 변경)
     _update_schedule_if_needed()
@@ -89,7 +89,7 @@ async def _run_sync_in_background(is_business: bool):
             )
 
             logger.info(
-                f"✅ Scheduled sync completed [{schedule_type}]: "
+                f"Scheduled sync completed [{schedule_type}]: "
                 f"processed={stats['processed']}, "
                 f"created={stats['created']}, "
                 f"updated={stats['updated']}, "
@@ -99,7 +99,7 @@ async def _run_sync_in_background(is_business: bool):
             db.close()
 
     except Exception as e:
-        logger.error(f"❌ Background sync failed: {e}", exc_info=True)
+        logger.error(f"Background sync failed: {e}", exc_info=True)
 
 
 def _update_schedule_if_needed():
@@ -123,7 +123,7 @@ def _update_schedule_if_needed():
                 trigger=IntervalTrigger(minutes=interval_minutes)
             )
             schedule_type = "business hours (15min)" if is_business else "off-hours (180min)"
-            logger.info(f"📅 Schedule updated to {schedule_type}")
+            logger.info(f"Schedule updated to {schedule_type}")
 
 
 def start_scheduler():
@@ -145,15 +145,15 @@ def start_scheduler():
         sync_google_sheets_job,
         trigger=IntervalTrigger(minutes=initial_interval),
         id='google_sheets_sync',
-        name='Google Sheets 동기화 (스마트 스케줄)',
+        name='Google Sheets Sync (Smart Schedule)',
         replace_existing=True
     )
 
     scheduler.start()
     us_time = datetime.now(US_EASTERN_TZ)
-    schedule_info = "15분 간격" if is_business else "180분 간격"
+    schedule_info = "15min interval" if is_business else "180min interval"
     logger.info(
-        f"🚀 Google Sheets sync scheduler started - "
+        f"Google Sheets sync scheduler started - "
         f"US Time: {us_time.strftime('%I:%M %p %Z')}, "
         f"Current mode: {schedule_info}"
     )
