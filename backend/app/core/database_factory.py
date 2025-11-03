@@ -469,6 +469,7 @@ class PostgreSQLDatabase(DatabaseProvider):
             import app.domains.line_items.models  # Line Items 모델 추가
             import app.domains.line_items.category_models  # Line Item Categories 모델 추가
             import app.domains.file.models  # File management 모델 추가
+            import app.domains.analytics.models  # Analytics models (API usage logs)
             from sqlalchemy import inspect
             
             # Check if tables already exist
@@ -759,6 +760,9 @@ def get_db():
 
     try:
         yield session
+        # Commit the transaction if no errors occurred
+        if hasattr(session, 'commit'):
+            session.commit()
     except Exception as e:
         if hasattr(session, 'rollback'):
             session.rollback()

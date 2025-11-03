@@ -34,6 +34,10 @@ import WaterMitigationDetail from './pages/WaterMitigationDetail';
 import DebrisCalculator from './pages/DebrisCalculator';
 import MaterialManagement from './pages/MaterialManagement';
 import MaterialDetectionPage from './pages/MaterialDetectionPage';
+import MLTraining from './pages/MLTraining';
+import PackCalculator from './pages/PackCalculator';
+import PackCalculationList from './pages/PackCalculationList';
+import AdminApiUsage from './pages/AdminApiUsage';
 import NotFound from './pages/NotFound';
 import 'antd/dist/reset.css';
 
@@ -94,6 +98,16 @@ const router = createBrowserRouter([
       <ProtectedRoute requiredRole="admin">
         <Layout>
           <AdminDashboard />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/admin/api-usage",
+    element: (
+      <ProtectedRoute requiredRole="admin">
+        <Layout>
+          <AdminApiUsage />
         </Layout>
       </ProtectedRoute>
     )
@@ -329,6 +343,56 @@ const router = createBrowserRouter([
       <ProtectedRoute>
         <Layout>
           <MaterialDetectionPage />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/reconstruction-estimate/pack-calculations",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <PackCalculationList />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/reconstruction-estimate/pack-calculator",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <PackCalculator />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/reconstruction-estimate/pack-calculator/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <PackCalculator />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/reconstruction-estimate/pack-calculator/:id/edit",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <PackCalculator />
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/ml-training",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <MLTraining />
         </Layout>
       </ProtectedRoute>
     )

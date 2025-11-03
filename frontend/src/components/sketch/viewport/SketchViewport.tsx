@@ -2004,6 +2004,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
         // Start wall moving if wall is selected (but not if a fixture is being dragged)
         if (!isDraggingFixture && (selectedWallIds.includes(wallId) || !isCtrlPressed)) {
+          // Always move only the clicked wall, regardless of Ctrl key
           const selectedIds = isCtrlPressed ?
             (selectedWallIds.includes(wallId) ? selectedWallIds : [...selectedWallIds, wallId]) :
             [wallId];
@@ -2068,7 +2069,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
       });
       setIsDragSelecting(true);
     }
-  }, [currentTool, walls, rooms, selectedWallIds, selectedRoomIds, getWallsConnectedAtPoint, splitWallAtPoint]);
+  }, [currentTool, walls, rooms, selectedWallIds, selectedRoomIds, getWallsConnectedAtPoint, splitWallAtPoint, isDraggingFixture]);
 
   // Handle mouse up to finish dragging
   const handleMouseUp = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -2710,7 +2711,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
 
     // Call the original handler if provided
     onStageClick(e);
-  }, [currentTool, isDrawing, currentWall, walls, rooms, gridSize, onStageClick, findClosestSnapPoint, findClosestEndpoint, findRoomWithWallEndpoint, findRoomByVertex, updateRoomDimensions, selectedFixture, fixtureDimensions, placementMode, setFixturePlacement, addWallFixture, addRoomFixture, setCurrentTool, hoveredRoomVertex]);
+  }, [currentTool, isDrawing, currentWall, walls, rooms, gridSize, onStageClick, findClosestSnapPoint, findClosestEndpoint, findRoomWithWallEndpoint, findRoomByVertex, updateRoomDimensions, selectedFixture, fixtureDimensions, placementMode, setFixturePlacement, addWallFixture, addRoomFixture, setCurrentTool, hoveredRoomVertex, getWallsConnectedAtPoint]);
 
   // Handle right-click context menu
   const handleContextMenu = useCallback((e: Konva.KonvaEventObject<PointerEvent>) => {

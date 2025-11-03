@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Table, Button, Modal, Form, Input, InputNumber, Switch, Space, message, Divider } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import axios from 'axios';
+import api from '../../../services/api';
 import { getErrorMessage, getErrorStatus } from '../../../api/errorHandler';
 
 interface PaymentMethod {
@@ -43,7 +43,7 @@ const PaymentConfig: React.FC = () => {
   const fetchPaymentMethods = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('/api/payment-config/payment-methods', {
+      const response = await api.get('/api/payment-config/payment-methods', {
         params: { active_only: false }
       });
       setPaymentMethods(response.data || []);
@@ -62,7 +62,7 @@ const PaymentConfig: React.FC = () => {
   const fetchPaymentFrequencies = async () => {
     setLoading(true);
     try {
-      const response = await axios.get('/api/payment-config/payment-frequencies', {
+      const response = await api.get('/api/payment-config/payment-frequencies', {
         params: { active_only: false }
       });
       setPaymentFrequencies(response.data || []);
@@ -86,10 +86,10 @@ const PaymentConfig: React.FC = () => {
   const handleMethodSubmit = async (values: any) => {
     try {
       if (editingMethod) {
-        await axios.put(`/api/payment-config/payment-methods/${editingMethod.id}`, values);
+        await api.put(`/api/payment-config/payment-methods/${editingMethod.id}`, values);
         message.success('Payment method updated successfully');
       } else {
-        await axios.post('/api/payment-config/payment-methods', values);
+        await api.post('/api/payment-config/payment-methods', values);
         message.success('Payment method created successfully');
       }
       setMethodModalVisible(false);
@@ -105,10 +105,10 @@ const PaymentConfig: React.FC = () => {
   const handleFrequencySubmit = async (values: any) => {
     try {
       if (editingFrequency) {
-        await axios.put(`/api/payment-config/payment-frequencies/${editingFrequency.id}`, values);
+        await api.put(`/api/payment-config/payment-frequencies/${editingFrequency.id}`, values);
         message.success('Payment frequency updated successfully');
       } else {
-        await axios.post('/api/payment-config/payment-frequencies', values);
+        await api.post('/api/payment-config/payment-frequencies', values);
         message.success('Payment frequency created successfully');
       }
       setFrequencyModalVisible(false);
@@ -127,7 +127,7 @@ const PaymentConfig: React.FC = () => {
       content: 'Are you sure you want to delete this payment method?',
       onOk: async () => {
         try {
-          await axios.delete(`/api/payment-config/payment-methods/${id}`);
+          await api.delete(`/api/payment-config/payment-methods/${id}`);
           message.success('Payment method deleted successfully');
           fetchPaymentMethods();
         } catch (error) {
@@ -144,7 +144,7 @@ const PaymentConfig: React.FC = () => {
       content: 'Are you sure you want to delete this payment frequency?',
       onOk: async () => {
         try {
-          await axios.delete(`/api/payment-config/payment-frequencies/${id}`);
+          await api.delete(`/api/payment-config/payment-frequencies/${id}`);
           message.success('Payment frequency deleted successfully');
           fetchPaymentFrequencies();
         } catch (error) {

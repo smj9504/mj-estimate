@@ -1,6 +1,4 @@
-import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import api from './api';
 
 export interface ClientInfo {
   name: string;
@@ -85,20 +83,15 @@ export interface PlumberReport {
 }
 
 class PlumberReportService {
-  private api = axios.create({
-    baseURL: `${API_BASE_URL}/api/plumber-reports`,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
+  private baseUrl = `/api/plumber-reports`;
 
   async createReport(report: PlumberReport): Promise<PlumberReport> {
-    const response = await this.api.post('/', report);
+    const response = await api.post(this.baseUrl, report);
     return response.data;
   }
 
   async getReport(id: string): Promise<PlumberReport> {
-    const response = await this.api.get(`/${id}`);
+    const response = await api.get(`${this.baseUrl}/${id}`);
     return response.data;
   }
 
@@ -113,17 +106,17 @@ class PlumberReportService {
     page: number;
     limit: number;
   }> {
-    const response = await this.api.get('/', { params });
+    const response = await api.get(this.baseUrl, { params });
     return response.data;
   }
 
   async updateReport(id: string, report: Partial<PlumberReport>): Promise<PlumberReport> {
-    const response = await this.api.put(`/${id}`, report);
+    const response = await api.put(`${this.baseUrl}/${id}`, report);
     return response.data;
   }
 
   async deleteReport(id: string): Promise<void> {
-    await this.api.delete(`/${id}`);
+    await api.delete(`${this.baseUrl}/${id}`);
   }
 
   async uploadPhoto(
@@ -139,7 +132,7 @@ class PlumberReportService {
       formData.append('caption', caption);
     }
 
-    const response = await this.api.post(`/${reportId}/upload-photo`, formData, {
+    const response = await api.post(`${this.baseUrl}/${reportId}/upload-photo`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -148,7 +141,7 @@ class PlumberReportService {
   }
 
   async generatePDF(reportId: string): Promise<Blob> {
-    const response = await this.api.post(`/${reportId}/generate-pdf`, null, {
+    const response = await api.post(`${this.baseUrl}/${reportId}/generate-pdf`, null, {
       responseType: 'blob',
     });
     return response.data;
@@ -158,7 +151,7 @@ class PlumberReportService {
     include_photos?: boolean;
     include_financial?: boolean;
   }): Promise<Blob> {
-    const response = await this.api.post('/preview-pdf', {
+    const response = await api.post(`${this.baseUrl}/preview-pdf`, {
       report_data: report,
       ...options,
     }, {
@@ -168,7 +161,7 @@ class PlumberReportService {
   }
 
   async duplicateReport(reportId: string): Promise<PlumberReport> {
-    const response = await this.api.get(`/${reportId}/duplicate`);
+    const response = await api.get(`${this.baseUrl}/${reportId}/duplicate`);
     return response.data;
   }
 
@@ -208,7 +201,7 @@ class PlumberReportService {
       const params = new URLSearchParams();
       if (companyId) params.append('company_id', companyId);
 
-      const response = await this.api.get(`/generate-number?${params.toString()}`);
+      const response = await api.get(`${this.baseUrl}/generate-number?${params.toString()}`);
       return response.data.report_number;
     } catch (error) {
       console.error('Failed to generate report number from API, using fallback:', error);

@@ -55,6 +55,10 @@ class BaseRepository(Repository[T, ID]):
                         # Debug log for note field
                         if key == 'note':
                             logger.info(f"_convert_to_dict: note field - key: {key}, value: {repr(value)}, type: {type(value)}")
+                        
+                        # Debug log for xactimate_materials field
+                        if key == 'xactimate_materials':
+                            logger.debug(f"_convert_to_dict: xactimate_materials field - key: {key}, value: {repr(value)}, type: {type(value)}")
 
                         # Handle special types
                         if isinstance(value, UUID):
@@ -65,6 +69,23 @@ class BaseRepository(Repository[T, ID]):
                             result[key] = value.isoformat()
                         elif value is None:
                             result[key] = None
+                        # Handle JSONB/dict fields - SQLAlchemy JSONB may come as dict already
+                        elif isinstance(value, dict):
+                            result[key] = value
+                        # Handle JSONB fields that might be wrapped in special types
+                        elif hasattr(value, '__dict__') and hasattr(value, '__class__') and 'JSON' in str(type(value)):
+                            # SQLAlchemy JSONB wrapper - extract the actual value
+                            try:
+                                if hasattr(value, 'data'):
+                                    result[key] = value.data
+                                elif hasattr(value, 'astext'):
+                                    import json
+                                    result[key] = json.loads(value.astext) if value.astext else {}
+                                else:
+                                    result[key] = dict(value) if value else {}
+                            except Exception as e:
+                                logger.warning(f"Error converting JSONB field {key}: {e}")
+                                result[key] = value if value else {}
                         # For string UUIDs (already converted by UUIDType), keep as is
                         elif isinstance(value, str) and key.endswith('_id'):
                             result[key] = value
@@ -81,10 +102,14 @@ class BaseRepository(Repository[T, ID]):
                         if key == 'note':
                             logger.info(f"_convert_to_dict: note assigned - result[note]: {repr(result.get('note'))}")
 
-                # Handle relationships (like invoice items) with circular reference protection
-                # Check for common relationship names
+                # Handle relationships with circular reference protection
+                # Common relationship: items
                 if hasattr(entity, 'items') and hasattr(entity.items, '__iter__'):
                     result['items'] = [self._convert_to_dict(item, visited.copy()) for item in entity.items]
+
+                # Pack Calculation specific relationship: rooms
+                if hasattr(entity, 'rooms') and hasattr(entity.rooms, '__iter__'):
+                    result['rooms'] = [self._convert_to_dict(room, visited.copy()) for room in entity.rooms]
 
                 # Handle category relationship for Xactimate items with circular reference protection
                 if hasattr(entity, 'category') and entity.category is not None:
@@ -215,11 +240,22 @@ class SQLAlchemyRepository(BaseRepository[T, ID]):
     def get_by_id(self, entity_id: ID) -> Optional[T]:
         """Get entity by ID using SQLAlchemy"""
         try:
+            # Try both UUID and string representations to avoid type mismatch issues
+            candidates = [entity_id]
+            try:
+                candidates.append(str(entity_id))
+            except Exception:
+                pass
             entity = self.db_session.query(self.model_class).filter(
-                self.model_class.id == entity_id
+                self.model_class.id.in_(candidates)
             ).first()
             
-            return self._convert_to_dict(entity) if entity else None
+            if entity is None:
+                logger.debug(
+                    f"[{self.table_name}] get_by_id not found for candidates={candidates}"
+                )
+                return None
+            return self._convert_to_dict(entity)
             
         except Exception as e:
             logger.error(f"Error getting {self.table_name} by ID {entity_id}: {e}")
@@ -279,8 +315,14 @@ class SQLAlchemyRepository(BaseRepository[T, ID]):
             sqlalchemy_data = self._prepare_sqlalchemy_data(validated_data)
             
             # Find entity
+            # Try both UUID and string representations
+            candidates = [entity_id]
+            try:
+                candidates.append(str(entity_id))
+            except Exception:
+                pass
             entity = self.db_session.query(self.model_class).filter(
-                self.model_class.id == entity_id
+                self.model_class.id.in_(candidates)
             ).first()
             
             if not entity:

@@ -19,6 +19,8 @@ import {
   DropboxOutlined,
   CalculatorOutlined,
   RobotOutlined,
+  ExperimentOutlined,
+  RocketOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -124,6 +126,23 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             icon: <RobotOutlined />,
             label: 'AI Material Detection',
           },
+          {
+            key: '/reconstruction-estimate/pack-calculations',
+            icon: <DropboxOutlined />,
+            label: 'Pack Calculations',
+          },
+        ],
+      },
+      {
+        key: '/training',
+        icon: <ExperimentOutlined />,
+        label: 'Training',
+        children: [
+          {
+            key: '/ml-training',
+            icon: <RocketOutlined />,
+            label: 'ML Model Training',
+          },
         ],
       },
       {
@@ -170,6 +189,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           {
             key: '/admin/dashboard',
             label: 'Admin Dashboard',
+          },
+          {
+            key: '/admin/api-usage',
+            label: 'API Usage',
           },
           {
             key: '/admin/config',

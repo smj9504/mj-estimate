@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse as FastAPIFileResponse
 from typing import List, Optional
 import logging
 import mimetypes
+import io
 from pathlib import Path
 
 from .schemas import (
@@ -150,10 +151,47 @@ async def preview_file(
 ):
     """Get file preview (for images, returns thumbnail if available)"""
     try:
+        from fastapi.responses import StreamingResponse
+        from app.domains.file.service import get_storage_provider
+
         file_record = service.repository.get_by_id(file_id)
         if not file_record or not file_record.get('is_active', True):
             raise HTTPException(status_code=404, detail="File not found")
 
+        file_url = file_record.get('url', '')
+        storage = get_storage_provider()
+
+        # Check if file is in cloud storage (gs:// or other remote URL)
+        if file_url.startswith('gs://') or file_url.startswith('https://') or file_url.startswith('http://'):
+            # Get file from storage provider
+            try:
+                # For images, try thumbnail first
+                if (file_record.get('content_type', '').startswith('image/') and
+                    file_record.get('thumbnail_url')):
+                    thumb_url = file_record['thumbnail_url']
+                    if thumb_url.startswith('gs://') or thumb_url.startswith('http'):
+                        file_data = storage.download_file(thumb_url)
+                        return StreamingResponse(
+                            io.BytesIO(file_data),
+                            media_type='image/jpeg',
+                            headers={"Content-Disposition": "inline"}
+                        )
+
+                # Download original file
+                file_data = storage.download_file(file_url)
+                media_type = file_record.get('content_type', 'application/octet-stream')
+                content_disposition = "inline" if media_type.startswith('image/') or media_type == 'application/pdf' else "attachment"
+
+                return StreamingResponse(
+                    io.BytesIO(file_data),
+                    media_type=media_type,
+                    headers={"Content-Disposition": content_disposition}
+                )
+            except Exception as e:
+                logger.error(f"Error downloading file from storage: {e}")
+                raise HTTPException(status_code=404, detail=f"File not accessible: {str(e)}")
+
+        # Local file handling (existing logic)
         # For images, try to return thumbnail first
         if (file_record.get('content_type', '').startswith('image/') and
             file_record.get('thumbnail_url')):
@@ -171,9 +209,6 @@ async def preview_file(
             raise HTTPException(status_code=404, detail="File not found on disk")
 
         media_type = file_record.get('content_type', 'application/octet-stream')
-
-        # For PDFs and images, use inline display
-        # For other files, use attachment (download)
         content_disposition = "inline" if media_type in ['application/pdf'] or media_type.startswith('image/') else "attachment"
 
         return FastAPIFileResponse(

@@ -47,11 +47,14 @@ def get_storage_provider() -> StorageProvider:
     Raises:
         RuntimeError: If storage provider not initialized (startup failed)
     """
+    global _storage_provider
+
+    # Fallback: Initialize on first use if not initialized at startup
     if _storage_provider is None:
-        raise RuntimeError(
-            "Storage provider not initialized. "
-            "This should be initialized during application startup."
-        )
+        logger.warning("Storage provider not initialized at startup, initializing now (fallback)")
+        _storage_provider = StorageFactory.get_instance()
+        logger.info(f"Storage provider initialized (fallback): {_storage_provider.provider_name}")
+
     return _storage_provider
 
 

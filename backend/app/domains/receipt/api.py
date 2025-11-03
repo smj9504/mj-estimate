@@ -911,7 +911,19 @@ async def preview_receipt_html(
                     filtered_payments.append(payment)
             payments = filtered_payments
 
+        # Debug: Log payments before and after mapping
+        logger.info(f"=== Receipt Preview - Payments Debug ===")
+        logger.info(f"Receipt date: {receipt_date_str}")
+        logger.info(f"Number of payments before filtering: {len(data.get('payments', invoice.get('payments', [])))}")
+        logger.info(f"Number of filtered payments: {len(payments)}")
+        for idx, payment in enumerate(payments):
+            logger.info(f"Payment {idx} before mapping: amount={payment.get('amount')}, date={payment.get('date')}, method={payment.get('method')}")
+
         mapped_payments = _map_payment_methods(payments, method_mapping)
+
+        logger.info(f"Number of mapped payments: {len(mapped_payments)}")
+        for idx, payment in enumerate(mapped_payments):
+            logger.info(f"Payment {idx} after mapping: amount={payment.get('amount')}, date={payment.get('date')}, method={payment.get('method')}")
 
         # Determine receipt number to display for preview
         # Use the receipt_number provided in the request data
@@ -994,6 +1006,150 @@ async def preview_receipt_html(
 
     except Exception as e:
         logger.error(f"Receipt HTML preview error: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/preview-pdf")
+async def preview_receipt_pdf(
+    data: dict,
+    service: ReceiptService = Depends(get_receipt_service)
+):
+    """Preview receipt PDF without saving to database - returns PDF blob"""
+    try:
+        logger.info("Starting receipt PDF preview generation")
+
+        # Get invoice data
+        invoice_id = data.get('invoice_id')
+        if invoice_id:
+            from app.domains.invoice.service import InvoiceService
+            from app.core.database_factory import get_database
+            database = get_database()
+            invoice_service = InvoiceService(database)
+            invoice = invoice_service.get_with_items(invoice_id)
+            if not invoice:
+                raise HTTPException(status_code=404, detail="Invoice not found")
+        else:
+            invoice = data
+
+        # Get payment method mapping and filter payments
+        method_mapping = _get_payment_method_mapping()
+        receipt_date_str = data.get('receipt_date', '')
+        payments = data.get('payments', invoice.get('payments', []))
+
+        if receipt_date_str:
+            filtered_payments = []
+            for payment in payments:
+                payment_date = payment.get('date')
+                if payment_date and payment_date <= receipt_date_str:
+                    filtered_payments.append(payment)
+                elif not payment_date:
+                    filtered_payments.append(payment)
+            payments = filtered_payments
+
+        mapped_payments = _map_payment_methods(payments, method_mapping)
+
+        # Prepare preview data
+        preview_data = {
+            "receipt_number": data.get('receipt_number', 'PREVIEW'),
+            "receipt_date": receipt_date_str,
+            "invoice_number": data.get('invoice_number', invoice.get('invoice_number', '')),
+            "company": {
+                "name": invoice.get('company_name', ''),
+                "address": invoice.get('company_address'),
+                "city": invoice.get('company_city'),
+                "state": invoice.get('company_state'),
+                "zip": invoice.get('company_zip'),
+                "phone": invoice.get('company_phone'),
+                "email": invoice.get('company_email'),
+                "logo": invoice.get('company_logo')
+            },
+            "client": {
+                "name": invoice.get('client_name', 'Unknown Client'),
+                "address": invoice.get('client_address'),
+                "city": invoice.get('client_city'),
+                "state": invoice.get('client_state'),
+                "zip": invoice.get('client_zipcode'),
+                "phone": invoice.get('client_phone'),
+                "email": invoice.get('client_email')
+            },
+            "insurance": {
+                "insurance_company": invoice.get('insurance_company'),
+                "insurance_policy_number": invoice.get('insurance_policy_number'),
+                "insurance_claim_number": invoice.get('insurance_claim_number'),
+                "insurance_deductible": invoice.get('insurance_deductible')
+            },
+            "amount": data.get('payment_amount', 0),
+            "payment_method": data.get('payment_method', ''),
+            "payments": mapped_payments,
+            "items": invoice.get('items', []),
+            "items_subtotal": invoice.get('subtotal', 0),
+            "op_percent": invoice.get('op_percent', 0),
+            "op_amount": invoice.get('subtotal', 0) * (invoice.get('op_percent', 0) / 100) if invoice.get('op_percent') else 0,
+            "tax_rate": invoice.get('tax_rate', 0),
+            "tax_amount": invoice.get('tax_amount', 0),
+            "tax_method": invoice.get('tax_method', 'percentage'),
+            "discount": invoice.get('discount', 0),
+            "total": invoice.get('total', 0),
+            "top_note": data.get('top_note', ''),
+            "bottom_note": data.get('bottom_note', ''),
+        }
+
+        # Group items by section
+        items = invoice.get('items', [])
+        if items:
+            sections_map = {}
+            for item in items:
+                group_name = item.get('primary_group', 'Services')
+                if group_name not in sections_map:
+                    sections_map[group_name] = []
+                sections_map[group_name].append(item)
+
+            # Convert to sections with subtotal
+            sections = []
+            for section_name, section_items in sections_map.items():
+                sections.append({
+                    'title': section_name,
+                    'items': section_items,
+                    'subtotal': sum(float(item.get('quantity', 0)) * float(item.get('rate', 0)) for item in section_items),
+                    'showSubtotal': len(section_items) > 1
+                })
+            preview_data['sections'] = sections
+            preview_data['serviceSections'] = sections
+
+        # Generate PDF
+        if not pdf_service:
+            raise HTTPException(status_code=500, detail="PDF service not available")
+
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            output_path = tmp_file.name
+
+        try:
+            pdf_path = pdf_service.generate_receipt_pdf(preview_data, output_path)
+            with open(pdf_path, "rb") as pdf_file:
+                pdf_content = pdf_file.read()
+            try:
+                os.unlink(pdf_path)
+            except:
+                pass
+
+            return Response(
+                content=pdf_content,
+                media_type="application/pdf",
+                headers={"Content-Disposition": "inline; filename=receipt_preview.pdf"}
+            )
+        except Exception as e:
+            try:
+                os.unlink(output_path)
+            except:
+                pass
+            raise
+
+    except Exception as e:
+        logger.error(f"Receipt PDF preview error: {str(e)}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))

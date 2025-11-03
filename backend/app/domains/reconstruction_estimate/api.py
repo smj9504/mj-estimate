@@ -245,3 +245,28 @@ def delete_debris_calculation(
         str(current_user.id) if current_user else "system"
     )
     return None
+
+
+# Database Seeding Endpoint (Admin only)
+@router.post("/admin/seed-materials")
+def seed_materials_database(
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user)
+):
+    """Seed database with comprehensive residential construction materials (Admin only)"""
+    from .seed_materials import seed_materials
+
+    try:
+        stats = seed_materials(db)
+        db.commit()
+        return {
+            "success": True,
+            "message": "Materials database seeded successfully",
+            "stats": stats
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to seed materials: {str(e)}"
+        )

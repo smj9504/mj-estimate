@@ -1,6 +1,4 @@
-import axios from 'axios';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import api from './api';
 
 export interface PlumberReportTemplate {
   id: string;
@@ -46,7 +44,7 @@ export interface PlumberReportTemplateSearchFilters {
 }
 
 class PlumberReportTemplateService {
-  private apiUrl = `${API_BASE_URL}/api/plumber-report-templates`;
+  private apiUrl = `/api/plumber-report-templates`;
 
   async getTemplates(
     companyId: string,
@@ -60,7 +58,7 @@ class PlumberReportTemplateService {
     if (filters?.sort_by) params.append('sort_by', filters.sort_by);
     if (filters?.sort_order) params.append('sort_order', filters.sort_order);
 
-    const response = await axios.get(`${this.apiUrl}?${params}`);
+    const response = await api.get(`${this.apiUrl}?${params}`);
     return response.data;
   }
 
@@ -68,7 +66,7 @@ class PlumberReportTemplateService {
     companyId: string,
     type: 'warranty' | 'terms' | 'notes'
   ): Promise<PlumberReportTemplate[]> {
-    const response = await axios.get(
+    const response = await api.get(
       `${this.apiUrl}/by-type/${type}?company_id=${companyId}`
     );
     return response.data;
@@ -78,14 +76,14 @@ class PlumberReportTemplateService {
     companyId: string,
     type: 'warranty' | 'terms' | 'notes'
   ): Promise<PlumberReportTemplate[]> {
-    const response = await axios.get(
+    const response = await api.get(
       `${this.apiUrl}/quick/${type}?company_id=${companyId}`
     );
     return response.data;
   }
 
   async getTemplate(templateId: string): Promise<PlumberReportTemplateDetail> {
-    const response = await axios.get(`${this.apiUrl}/${templateId}`);
+    const response = await api.get(`${this.apiUrl}/${templateId}`);
     return response.data;
   }
 
@@ -94,7 +92,7 @@ class PlumberReportTemplateService {
     userId: string,
     templateData: PlumberReportTemplateCreate
   ): Promise<PlumberReportTemplateDetail> {
-    const response = await axios.post(
+    const response = await api.post(
       `${this.apiUrl}?company_id=${companyId}&user_id=${userId}`,
       templateData
     );
@@ -106,7 +104,7 @@ class PlumberReportTemplateService {
     companyId: string,
     templateData: Partial<PlumberReportTemplateCreate>
   ): Promise<PlumberReportTemplateDetail> {
-    const response = await axios.put(
+    const response = await api.put(
       `${this.apiUrl}/${templateId}?company_id=${companyId}`,
       templateData
     );
@@ -114,7 +112,7 @@ class PlumberReportTemplateService {
   }
 
   async deleteTemplate(templateId: string, companyId: string): Promise<void> {
-    await axios.delete(`${this.apiUrl}/${templateId}?company_id=${companyId}`);
+    await api.delete(`${this.apiUrl}/${templateId}?company_id=${companyId}`);
   }
 
   async useTemplate(
@@ -132,7 +130,7 @@ class PlumberReportTemplateService {
       params.append('report_id', reportId);
     }
 
-    const response = await axios.post(`${this.apiUrl}/${templateId}/use?${params}`);
+    const response = await api.post(`${this.apiUrl}/${templateId}/use?${params}`);
     return response.data;
   }
 }
