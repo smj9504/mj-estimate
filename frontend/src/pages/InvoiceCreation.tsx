@@ -673,26 +673,28 @@ const InvoiceCreation: React.FC = () => {
 
   // Consolidated reset and mode switching effect
   useEffect(() => {
-    // Reset all state when mode changes
-    setInvoiceData(null);
-    setItems([]);
-    setSections([]);
-    setActiveKeys([]);
-    setNewSectionTitle('');
-    setPayments([]);
-    setShowPaymentDates(true);
-    setTaxMethod('percentage');
-    setTaxRate(0);
-    setSpecificTaxAmount(0);
-    setOpPercent(0);
-    setSelectedCompany(null);
-    setLoading(false);
-
-    // Reset form
-    form.resetFields();
-
-    // Set default form values for create mode
+    // Only reset state when switching from edit mode to create mode
+    // Don't reset when entering edit mode or when id changes
     if (!isEditMode) {
+      // Reset all state for create mode
+      setInvoiceData(null);
+      setItems([]);
+      setSections([]);
+      setActiveKeys([]);
+      setNewSectionTitle('');
+      setPayments([]);
+      setShowPaymentDates(true);
+      setTaxMethod('percentage');
+      setTaxRate(0);
+      setSpecificTaxAmount(0);
+      setOpPercent(0);
+      setSelectedCompany(null);
+      setLoading(false);
+
+      // Reset form
+      form.resetFields();
+
+      // Set default form values for create mode
       form.setFieldsValue({
         date: dayjs(),
         due_date: dayjs().add(30, 'day'),
@@ -703,7 +705,7 @@ const InvoiceCreation: React.FC = () => {
         op_percent: 0,
       });
     }
-    // Invoice loading handled by React Query useInvoice hook
+    // Invoice loading handled by React Query useInvoice hook in edit mode
   }, [isEditMode, id, form]);
 
   // Consolidated company and form population effect
@@ -812,6 +814,51 @@ const InvoiceCreation: React.FC = () => {
     setItemModalVisible(true);
   };
 
+  // Helper function to generate item code from description
+  const generateItemCode = (description: string): string => {
+    if (!description?.trim()) {
+      return `ITEM_${Date.now().toString().slice(-6)}`;
+    }
+    
+    // Extract alphanumeric words only
+    const words = description.trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter(word => word.length > 0);
+    
+    if (words.length === 0) {
+      return `ITEM_${Date.now().toString().slice(-6)}`;
+    }
+    
+    let code = '';
+    if (words.length === 1) {
+      // Single word: take first 7 characters
+      code = words[0].substring(0, 7);
+    } else if (words.length === 2) {
+      // Two words: 4 chars from first + 3 from second
+      code = words[0].substring(0, 4) + words[1].substring(0, 3);
+    } else {
+      // Multiple words: 3+2+2 from first 3 words
+      code = words.slice(0, 3).map((word, index) => {
+        if (index === 0) return word.substring(0, 3);
+        return word.substring(0, 2);
+      }).join('');
+    }
+    
+    // Ensure max 7 characters
+    if (code.length > 7) {
+      code = code.substring(0, 7);
+    }
+    
+    // If too short, pad with timestamp
+    if (code.length < 3) {
+      code += Date.now().toString().slice(-2);
+    }
+    
+    return code;
+  };
+
   const handleItemSubmit = async () => {
     if (editingSectionIndex === null) {
       message.error('Please select a section to add the item to');
@@ -823,10 +870,20 @@ const InvoiceCreation: React.FC = () => {
 
       // Comprehensive validation with user-friendly error messages
 
-      // Validate item name/description
+      // Auto-generate item code from description if not provided
       if (!values.name || values.name.toString().trim() === '') {
-        message.error('Please enter a valid item code');
-        return;
+        // Try to extract meaningful text from description field for code generation
+        const descriptionText = values.description ? 
+          (typeof values.description === 'string' ? values.description : values.description.toString()) : '';
+        const plainText = descriptionText.replace(/<[^>]*>/g, '').trim(); // Strip HTML tags
+        
+        if (plainText) {
+          values.name = generateItemCode(plainText);
+          console.log('Auto-generated item code:', values.name);
+        } else {
+          // If no description either, generate a generic code
+          values.name = `ITEM_${Date.now().toString().slice(-6)}`;
+        }
       }
 
       // Validate quantity
@@ -860,13 +917,15 @@ const InvoiceCreation: React.FC = () => {
         lineItemId = editingItem.line_item_id;
       }
 
-      // Save to database if checkbox is checked or if we need it for templates
-      // Always save to library so it can be used in templates
-      if (values.saveToDatabase || (!editingIndex && !lineItemId)) {
+      // Save to database if checkbox is checked
+      // Note: If not saving to database, we don't need to create a line_item record
+      if (values.saveToDatabase) {
         const lineItemData = {
-          cat: '', // Category code - empty for custom items
-          description: values.name.toString().trim(),
-          includes: values.description ? values.description.toString().trim() : '',
+          type: 'CUSTOM', // Always CUSTOM for manually added items
+          cat: undefined, // No category for custom items (will be NULL in DB)
+          item: values.name ? values.name.toString().trim() : undefined, // Item code (optional)
+          description: values.description ? values.description.toString().trim() : values.name.toString().trim(),
+          includes: values.note ? values.note.toString().trim() : '',
           unit: values.unit,
           untaxed_unit_price: Number(values.rate),
           company_id: selectedCompany?.id,
@@ -878,14 +937,10 @@ const InvoiceCreation: React.FC = () => {
           const createdLineItem = await lineItemService.createLineItem(lineItemData);
           lineItemId = createdLineItem.id;
           console.log('Created line item with ID:', lineItemId);
-          if (values.saveToDatabase) {
-            message.success('Item saved to library successfully');
-          }
+          message.success('Item saved to library successfully');
         } catch (error) {
           console.error('Failed to save line item to library:', error);
-          if (values.saveToDatabase) {
-            message.warning('Item will be added to invoice but not saved to library');
-          }
+          message.warning('Item will be added to invoice but not saved to library');
         }
       }
 
@@ -2646,16 +2701,15 @@ const InvoiceCreation: React.FC = () => {
         >
           <Form.Item
             name="name"
-            label="Item Code"
+            label="Item Code (Optional)"
+            tooltip="If not provided, will be auto-generated from description"
             rules={[
-              { required: true, message: 'Please enter item code' },
-              { whitespace: true, message: 'Item code cannot be empty or just whitespace' },
-              { min: 1, message: 'Item code is required' }
+              { whitespace: true, message: 'Item code cannot be just whitespace' }
             ]}
           >
             <ItemCodeSelector
               onLineItemAdd={handleLineItemsAdd}
-              placeholder="Enter item code or search line items"
+              placeholder="Enter item code, search line items, or leave blank to auto-generate"
             />
           </Form.Item>
           <Row gutter={16}>

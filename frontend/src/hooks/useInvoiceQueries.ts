@@ -69,8 +69,8 @@ export function useUpdateInvoice(id: string) {
   return useMutation({
     mutationFn: (data: Partial<InvoiceData>) => invoiceService.updateInvoice(id, data),
     onSuccess: (updatedInvoice) => {
-      // Update the cached invoice data
-      queryClient.setQueryData(invoiceKeys.detail(id), updatedInvoice);
+      // Invalidate the cached invoice data to force refetch with latest data
+      queryClient.invalidateQueries({ queryKey: invoiceKeys.detail(id) });
       // Invalidate lists to reflect changes
       queryClient.invalidateQueries({ queryKey: invoiceKeys.lists() });
     },

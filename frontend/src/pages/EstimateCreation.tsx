@@ -18,6 +18,7 @@ import {
   Popconfirm,
   Collapse,
   Switch,
+  Checkbox,
 } from 'antd';
 import {
   PlusOutlined,
@@ -52,6 +53,7 @@ import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
 import { estimateService, EstimateLineItem, EstimateResponse, EstimateSection } from '../services/estimateService';
 import { companyService } from '../services/companyService';
+import lineItemService from '../services/lineItemService';
 import { Company } from '../types';
 import UnitSelect from '../components/common/UnitSelect';
 import { DEFAULT_UNIT } from '../constants/units';
@@ -260,15 +262,19 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     loadCompanies();
   }, [loadCompanies]);
 
+  // Load estimate data when entering edit mode
   useEffect(() => {
-    if (companies.length > 0 && id) {
+    if (companies.length > 0 && id && isEditMode) {
       if (initialEstimate) {
         loadEstimate(initialEstimate);
       } else {
         loadEstimate();
       }
     }
-  }, [companies, id, loadEstimate, initialEstimate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companies.length, id, isEditMode, initialEstimate]);
+  // Note: loadEstimate intentionally excluded to prevent infinite loop
+  // It's stable because it uses useCallback with correct dependencies
 
   // Section management functions
   const addSection = () => {
@@ -599,11 +605,68 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     return { subtotal, opAmount, taxAmount, total };
   }, [sections, opPercent, taxMethod, taxRate, specificTaxAmount]);
 
+  // Helper function to generate item code from description
+  const generateItemCode = (description: string): string => {
+    if (!description?.trim()) {
+      return `ITEM_${Date.now().toString().slice(-6)}`;
+    }
+    
+    // Extract alphanumeric words only
+    const words = description.trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter(word => word.length > 0);
+    
+    if (words.length === 0) {
+      return `ITEM_${Date.now().toString().slice(-6)}`;
+    }
+    
+    let code = '';
+    if (words.length === 1) {
+      // Single word: take first 7 characters
+      code = words[0].substring(0, 7);
+    } else if (words.length === 2) {
+      // Two words: 4 chars from first + 3 from second
+      code = words[0].substring(0, 4) + words[1].substring(0, 3);
+    } else {
+      // Multiple words: 3+2+2 from first 3 words
+      code = words.slice(0, 3).map((word, index) => {
+        if (index === 0) return word.substring(0, 3);
+        return word.substring(0, 2);
+      }).join('');
+    }
+    
+    // Ensure max 7 characters
+    if (code.length > 7) {
+      code = code.substring(0, 7);
+    }
+    
+    // If too short, pad with timestamp
+    if (code.length < 3) {
+      code += Date.now().toString().slice(-2);
+    }
+    
+    return code;
+  };
+
   // Validate item form values
   const validateItemValues = (values: any): string | null => {
+    // Auto-generate item code if not provided
     if (!values.name || values.name.trim() === '') {
-      return 'Please enter item name';
+      // Try to extract text from description for code generation
+      // currentItemDescription is always a string (from useState)
+      const plainText = currentItemDescription.replace(/<[^>]*>/g, '').trim(); // Strip HTML tags
+      
+      if (plainText) {
+        values.name = generateItemCode(plainText);
+        console.log('Auto-generated item code:', values.name);
+      } else {
+        // If no description either, generate a generic code
+        values.name = `ITEM_${Date.now().toString().slice(-6)}`;
+      }
     }
+    
     if (!values.quantity || values.quantity <= 0) {
       return 'Please enter valid quantity';
     }
@@ -651,8 +714,10 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     expandSection(sectionId);
   };
 
-  const handleItemSave = () => {
-    itemForm.validateFields().then((values) => {
+  const handleItemSave = async () => {
+    try {
+      const values = await itemForm.validateFields();
+      
       // Validate form values
       const validationError = validateItemValues(values);
       if (validationError) {
@@ -660,12 +725,48 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
         return;
       }
 
+      let lineItemId: string | undefined = undefined;
+
+      // Save to database if checkbox is checked
+      if (values.saveToDatabase) {
+        const lineItemData = {
+          type: 'CUSTOM', // Always CUSTOM for manually added items
+          cat: undefined, // No category for custom items (will be NULL in DB)
+          item: values.name ? values.name.toString().trim() : undefined, // Item code (optional)
+          description: currentItemDescription ? currentItemDescription.trim() : values.name.toString().trim(),
+          includes: currentItemNote ? currentItemNote.trim() : '',
+          unit: values.unit,
+          untaxed_unit_price: Number(values.unit_price),
+          company_id: selectedCompany?.id,
+          is_active: true,
+          note_ids: [],
+        };
+
+        try {
+          const createdLineItem = await lineItemService.createLineItem(lineItemData);
+          lineItemId = createdLineItem.id;
+          console.log('Created line item with ID:', lineItemId);
+          message.success('Item saved to library successfully');
+        } catch (error) {
+          console.error('Failed to save line item to library:', error);
+          message.warning('Item will be added to estimate but not saved to library');
+        }
+      }
+
       const newItem = createItemFromValues(values);
+      
+      // Add line_item_id if saved to database
+      if (lineItemId) {
+        newItem.line_item_id = lineItemId;
+      }
+      
       saveItemToSection(newItem);
 
       resetItemModal();
       message.success(editingIndex !== null ? 'Item updated successfully' : 'Item added successfully');
-    });
+    } catch (error) {
+      console.error('Form validation failed:', error);
+    }
   };
 
   // Generate estimate number for selected company
@@ -1583,11 +1684,11 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
             <Col xs={24}>
               <Form.Item
                 name="name"
-                label="Item Name"
-                rules={[{ required: true, message: 'Please enter item name' }]}
+                label="Item Name (Optional)"
+                tooltip="If not provided, will be auto-generated from description"
               >
                 <ItemCodeSelector
-                  placeholder="Enter item name or search line items"
+                  placeholder="Enter item name, search line items, or leave blank to auto-generate"
                   onLineItemAdd={handleLineItemsAdd}
                   mode={editingIndex !== null ? 'edit' : 'add'}
                 />
@@ -1666,6 +1767,17 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                   minHeight={80}
                   maxHeight={120}
                 />
+              </Form.Item>
+            </Col>
+            <Col xs={24}>
+              <Form.Item
+                name="saveToDatabase"
+                valuePropName="checked"
+                tooltip="Save this line item with description and note to database for future use in other estimates"
+              >
+                <Checkbox>
+                  Save to database (with description and note)
+                </Checkbox>
               </Form.Item>
             </Col>
           </Row>
