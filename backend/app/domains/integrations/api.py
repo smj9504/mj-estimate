@@ -74,11 +74,13 @@ async def companycam_webhook(
 
     **Webhook Events:**
     - `photo.created` - New photo uploaded to CompanyCam project
+    - `project.created` - New project created in CompanyCam
+    - `project.updated` - Project updated (may include new photos)
 
     **CompanyCam Setup:**
     1. Go to CompanyCam Settings → API & Webhooks
     2. Create webhook: `https://your-domain.com/api/integrations/companycam/webhook`
-    3. Subscribe to `photo.created` event
+    3. Subscribe to events: `photo.created`, `project.created`, `project.updated`
     4. Configure `COMPANYCAM_WEBHOOK_TOKEN` in environment
     """
     # Get raw request body for signature verification
@@ -103,11 +105,34 @@ async def companycam_webhook(
             detail="Invalid JSON payload"
         )
 
+    # Extract event type - support both new and legacy webhook formats
+    # New format: payload.get("event_type")
+    # Legacy format: payload.get("type")
+    event_type = payload.get("event_type") or payload.get("type", "unknown")
+
+    # Extract event_id based on event type
+    if event_type in ["photo.created", "photo.updated"]:
+        # New format: payload.payload.photo.id
+        # Legacy format: payload.photo.id
+        event_id = str(
+            payload.get("payload", {}).get("photo", {}).get("id") or
+            payload.get("photo", {}).get("id", "")
+        )
+    elif event_type in ["project.created", "project.updated"]:
+        # New format: payload.payload.project.id
+        # Legacy format: payload.project.id
+        event_id = str(
+            payload.get("payload", {}).get("project", {}).get("id") or
+            payload.get("project", {}).get("id", "")
+        )
+    else:
+        event_id = ""
+
     # Log webhook event
     webhook_event = WebhookEvent(
         service_name="companycam",
-        event_type=payload.get("type", "unknown"),
-        event_id=str(payload.get("photo", {}).get("id")),
+        event_type=event_type,
+        event_id=event_id,
         payload=payload,
         headers=dict(request.headers),
         ip_address=request.client.host if request.client else None,
@@ -119,18 +144,26 @@ async def companycam_webhook(
     db.commit()
     db.refresh(webhook_event)
 
-    logger.info(f"Received {webhook_event.event_type} webhook event from CompanyCam")
+    logger.info(f"📥 Received {event_type} webhook from CompanyCam (Event ID: {webhook_event.id})")
 
-    # Process event in background
-    event_type = payload.get("type")
-
+    # Process event in background (non-blocking)
     if event_type == "photo.created":
-        # Process photo upload event asynchronously
         background_tasks.add_task(
             process_photo_created_event,
-            webhook_event.id,
-            payload,
-            db
+            str(webhook_event.id),
+            payload
+        )
+    elif event_type == "project.created":
+        background_tasks.add_task(
+            process_project_created_event,
+            str(webhook_event.id),
+            payload
+        )
+    elif event_type == "project.updated":
+        background_tasks.add_task(
+            process_project_updated_event,
+            str(webhook_event.id),
+            payload
         )
     else:
         # Unknown event type - mark as ignored
@@ -138,26 +171,86 @@ async def companycam_webhook(
         webhook_event.processed_at = datetime.utcnow()
         webhook_event.error_message = f"Unsupported event type: {event_type}"
         db.commit()
+        logger.info(f"⏭️ Ignored unsupported event type: {event_type}")
 
     return {"status": "ok", "event_id": str(webhook_event.id)}
 
 
 async def process_photo_created_event(
     webhook_event_id: str,
-    payload: dict,
-    db: Session
+    payload: dict
 ):
     """
     Process photo.created webhook event for Water Mitigation (background task)
 
+    Performance optimizations:
+    - Creates new DB session (original session is closed)
+    - Async photo download (non-blocking)
+    - Batch notification system (prevents spam)
+
     Args:
         webhook_event_id: Webhook event ID
         payload: Webhook payload
-        db: Database session
     """
+    db = None
     try:
-        # Parse webhook data
-        webhook_data = PhotoCreatedWebhook(**payload)
+        # Create new DB session for background task
+        database = get_database()
+        db = database.get_session()
+
+        logger.info(f"⚙️ Processing photo.created event (Webhook: {webhook_event_id})")
+
+        # Parse webhook data - support both new and legacy formats
+        try:
+            # Try new format first (payload.payload structure)
+            if "payload" in payload and "photo" in payload["payload"]:
+                # Convert new format to legacy PhotoCreatedWebhook format
+                from .companycam.schemas import PhotoData, ProjectData, UserData, PhotoURIs, PhotoCoordinates
+
+                photo_data = payload["payload"]["photo"]
+                project_data = payload["payload"].get("project", {})
+                user_data = payload.get("user", payload["payload"].get("user", {}))
+
+                # Extract URIs from list format
+                uris = {}
+                for uri_obj in photo_data.get("uris", []):
+                    uri_type = uri_obj.get("type", "")
+                    if uri_type:
+                        uris[uri_type] = uri_obj.get("url", "")
+
+                webhook_data = PhotoCreatedWebhook(
+                    photo=PhotoData(
+                        id=int(photo_data.get("id", 0)),
+                        uris=PhotoURIs(
+                            original=uris.get("original", ""),
+                            large=uris.get("large"),
+                            thumbnail=uris.get("thumbnail")
+                        ),
+                        photo_description=photo_data.get("description"),
+                        tags=photo_data.get("tags", []),
+                        coordinates=PhotoCoordinates(**photo_data["coordinates"]) if photo_data.get("coordinates") else None,
+                        created_at=photo_data.get("created_at"),
+                        captured_at=photo_data.get("captured_at")
+                    ),
+                    project=ProjectData(
+                        id=int(project_data.get("id", 0)),
+                        name=project_data.get("name"),
+                        address=project_data.get("address", {}),
+                        coordinates=project_data.get("coordinates")
+                    ),
+                    user=UserData(
+                        id=int(user_data.get("id", 0)),
+                        name=user_data.get("name", "Unknown"),
+                        email_address=user_data.get("email_address")
+                    )
+                )
+            else:
+                # Legacy format
+                webhook_data = PhotoCreatedWebhook(**payload)
+        except Exception as parse_error:
+            logger.error(f"Failed to parse webhook payload: {parse_error}", exc_info=True)
+            logger.debug(f"Payload structure: {json.dumps(payload, indent=2)}")
+            raise
 
         # Process with Water Mitigation webhook handler
         handler = CompanyCamWaterMitigationHandler(db)
@@ -166,10 +259,185 @@ async def process_photo_created_event(
             webhook_event_id=webhook_event_id
         )
 
-        logger.info(f"Photo webhook processing result: {result.dict()}")
+        logger.info(f"✅ Photo webhook processed successfully: {result.dict()}")
 
     except Exception as e:
-        logger.error(f"Error processing photo webhook: {e}", exc_info=True)
+        logger.error(f"❌ Error processing photo webhook: {e}", exc_info=True)
+
+        # Update webhook event status to failed
+        if db:
+            try:
+                webhook_event = db.query(WebhookEvent).filter(
+                    WebhookEvent.id == webhook_event_id
+                ).first()
+                if webhook_event:
+                    webhook_event.status = "failed"
+                    webhook_event.error_message = str(e)
+                    webhook_event.processed_at = datetime.utcnow()
+                    db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to update webhook event status: {db_error}")
+
+    finally:
+        # Always close DB session
+        if db:
+            db.close()
+
+
+async def process_project_created_event(
+    webhook_event_id: str,
+    payload: dict
+):
+    """
+    Process project.created webhook event for Water Mitigation (background task)
+
+    When a new CompanyCam project is created, automatically:
+    1. Create a Water Mitigation Lead
+    2. Fetch and download all existing photos from the project
+    3. Send Slack notification
+
+    Performance optimizations:
+    - Creates new DB session
+    - Async API calls to CompanyCam
+    - Batch photo processing
+
+    Args:
+        webhook_event_id: Webhook event ID
+        payload: Webhook payload
+    """
+    db = None
+    try:
+        # Create new DB session for background task
+        database = get_database()
+        db = database.get_session()
+
+        logger.info(f"⚙️ Processing project.created event (Webhook: {webhook_event_id})")
+
+        # Parse webhook data - support both new and legacy formats
+        try:
+            if "payload" in payload and "project" in payload["payload"]:
+                # New format
+                from .companycam.schemas import ProjectData, UserData
+
+                project_data = payload["payload"]["project"]
+                user_data = payload.get("user", payload["payload"].get("user", {}))
+
+                webhook_data = ProjectCreatedWebhook(
+                    project=ProjectData(
+                        id=int(project_data.get("id", 0)),
+                        name=project_data.get("name"),
+                        address=project_data.get("address", {}),
+                        coordinates=project_data.get("coordinates"),
+                        creator_id=project_data.get("creator_id"),
+                        creator_name=project_data.get("creator_name")
+                    ),
+                    user=UserData(
+                        id=int(user_data.get("id", 0)),
+                        name=user_data.get("name", "Unknown"),
+                        email_address=user_data.get("email_address")
+                    )
+                )
+            else:
+                # Legacy format
+                webhook_data = ProjectCreatedWebhook(**payload)
+        except Exception as parse_error:
+            logger.error(f"Failed to parse project webhook payload: {parse_error}", exc_info=True)
+            logger.debug(f"Payload structure: {json.dumps(payload, indent=2)}")
+            raise
+
+        # Process with Water Mitigation webhook handler
+        handler = CompanyCamWaterMitigationHandler(db)
+        result = await handler.handle_project_created(
+            webhook_data,
+            webhook_event_id=webhook_event_id
+        )
+
+        logger.info(f"✅ Project.created webhook processed: Job ID {result.get('job_id')}, "
+                   f"Created: {result.get('job_created')}, Photos: {result.get('photos_processed', 0)}")
+
+    except Exception as e:
+        logger.error(f"❌ Error processing project.created webhook: {e}", exc_info=True)
+
+        # Update webhook event status to failed
+        if db:
+            try:
+                webhook_event = db.query(WebhookEvent).filter(
+                    WebhookEvent.id == webhook_event_id
+                ).first()
+                if webhook_event:
+                    webhook_event.status = "failed"
+                    webhook_event.error_message = str(e)
+                    webhook_event.processed_at = datetime.utcnow()
+                    db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to update webhook event status: {db_error}")
+
+    finally:
+        # Always close DB session
+        if db:
+            db.close()
+
+
+async def process_project_updated_event(
+    webhook_event_id: str,
+    payload: dict
+):
+    """
+    Process project.updated webhook event for Water Mitigation (background task)
+
+    When a CompanyCam project is updated (may include new photos):
+    1. Fetch latest photos from the project
+    2. Process only new photos (not already synced)
+    3. Attach to existing Water Mitigation job or create new one
+
+    Performance optimizations:
+    - Creates new DB session
+    - Only fetches new photos (checks DB first)
+    - Batch processing for multiple photos
+
+    Args:
+        webhook_event_id: Webhook event ID
+        payload: Webhook payload
+    """
+    db = None
+    try:
+        # Create new DB session for background task
+        database = get_database()
+        db = database.get_session()
+
+        logger.info(f"⚙️ Processing project.updated event (Webhook: {webhook_event_id})")
+
+        # Process with Water Mitigation webhook handler
+        handler = CompanyCamWaterMitigationHandler(db)
+        result = await handler.handle_project_updated(
+            payload,
+            webhook_event_id=webhook_event_id
+        )
+
+        photos_count = len(result.work_order_match.matched) if hasattr(result.work_order_match, 'matched') else 0
+        logger.info(f"✅ Project.updated webhook processed: {photos_count} new photo(s) found")
+
+    except Exception as e:
+        logger.error(f"❌ Error processing project.updated webhook: {e}", exc_info=True)
+
+        # Update webhook event status to failed
+        if db:
+            try:
+                webhook_event = db.query(WebhookEvent).filter(
+                    WebhookEvent.id == webhook_event_id
+                ).first()
+                if webhook_event:
+                    webhook_event.status = "failed"
+                    webhook_event.error_message = str(e)
+                    webhook_event.processed_at = datetime.utcnow()
+                    db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to update webhook event status: {db_error}")
+
+    finally:
+        # Always close DB session
+        if db:
+            db.close()
 
 
 @router.get(

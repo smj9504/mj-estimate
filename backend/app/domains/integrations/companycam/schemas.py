@@ -41,6 +41,50 @@ class CompanyCamProject(BaseModel):
     coordinates: Optional[CompanyCamCoordinates] = None
 
 
+# Webhook-specific data classes (for parsing webhook payloads)
+
+class PhotoCoordinates(BaseModel):
+    """Photo GPS coordinates"""
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    accuracy: Optional[float] = None
+
+
+class PhotoURIs(BaseModel):
+    """Photo URLs"""
+    original: str
+    large: Optional[str] = None
+    thumbnail: Optional[str] = None
+
+
+class PhotoData(BaseModel):
+    """Photo data for webhook processing"""
+    id: int
+    uris: PhotoURIs
+    photo_description: Optional[str] = None
+    tags: Optional[List[str]] = []
+    coordinates: Optional[PhotoCoordinates] = None
+    created_at: Optional[str] = None
+    captured_at: Optional[str] = None
+
+
+class ProjectData(BaseModel):
+    """Project data for webhook processing"""
+    id: int
+    name: Optional[str] = None
+    address: Optional[Dict[str, Any]] = None
+    coordinates: Optional[Dict[str, Any]] = None
+    creator_id: Optional[int] = None
+    creator_name: Optional[str] = None
+
+
+class UserData(BaseModel):
+    """User data for webhook processing"""
+    id: int
+    name: str
+    email_address: Optional[str] = None
+
+
 class CompanyCamPhoto(BaseModel):
     """CompanyCam photo object from API/webhook"""
     id: int

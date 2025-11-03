@@ -2,7 +2,7 @@ from sqlalchemy import Column, String, Text, Boolean, Integer, DateTime, Foreign
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func, text
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.core.database_factory import Base
 
 
 class Template(Base):
