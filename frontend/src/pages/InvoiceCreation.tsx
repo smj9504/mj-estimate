@@ -27,6 +27,8 @@ import {
   EditOutlined,
   HolderOutlined,
   FileTextOutlined,
+  FilePdfOutlined,
+  DownloadOutlined,
   AppstoreAddOutlined,
   FolderAddOutlined,
   FolderOpenOutlined,
@@ -145,6 +147,10 @@ const InvoiceCreation: React.FC = () => {
 
   // React Query: Load companies
   const { data: companies = [], isLoading: companiesLoading } = useCompanies();
+  
+  // React Query: Mutations for create/update
+  const createInvoiceMutation = useCreateInvoice();
+  const updateInvoiceMutation = useUpdateInvoice(id || '');
 
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [itemModalVisible, setItemModalVisible] = useState(false);
@@ -175,6 +181,10 @@ const InvoiceCreation: React.FC = () => {
   const [receiptTopNote, setReceiptTopNote] = useState<string>('');
   const [receiptBottomNote, setReceiptBottomNote] = useState<string>('');
   const [generatingReceipt, setGeneratingReceipt] = useState(false);
+
+  // Receipt preview modal state
+  const [receiptPreviewVisible, setReceiptPreviewVisible] = useState(false);
+  const [receiptPdfBlobUrl, setReceiptPdfBlobUrl] = useState<string | null>(null);
 
   // Section editing state
   const [sectionEditModalVisible, setSectionEditModalVisible] = useState(false);
@@ -1197,12 +1207,12 @@ const InvoiceCreation: React.FC = () => {
 
       let response;
       if (isEditMode && id) {
-        // Update existing invoice
-        response = await invoiceService.updateInvoice(id, invoiceData);
+        // Update existing invoice using mutation (invalidates cache automatically)
+        response = await updateInvoiceMutation.mutateAsync(invoiceData);
         message.success('Invoice updated successfully!');
       } else {
-        // Create new invoice
-        response = await invoiceService.createInvoice(invoiceData);
+        // Create new invoice using mutation
+        response = await createInvoiceMutation.mutateAsync(invoiceData);
         message.success('Invoice saved successfully!');
       }
 
@@ -1442,8 +1452,19 @@ const InvoiceCreation: React.FC = () => {
         currentInvoiceData = await invoiceService.getInvoice(id);
       }
 
+      // Convert current payments state to API format for preview
+      const paymentsForPreview = payments.map(p => ({
+        amount: p.amount,
+        date: p.date ? p.date.format('YYYY-MM-DD') : null,
+        method: p.method,
+        reference: p.reference,
+        receipt_number: p.receipt_number,
+        top_note: p.top_note,
+        bottom_note: p.bottom_note
+      }));
+
       // Create preview data structure similar to invoice preview
-      // Keep all payments from invoiceData for payment history table
+      // Include current payments state for payment history display
       const receiptPreviewData = {
         ...currentInvoiceData,
         receipt_number: payment.receipt_number || `PREVIEW-${Date.now()}`,
@@ -1453,18 +1474,132 @@ const InvoiceCreation: React.FC = () => {
         payment_reference: payment.reference,
         top_note: payment.top_note,
         bottom_note: payment.bottom_note,
-        // Keep all payments from invoice for payment history display
+        // Override payments with current state to include newly added payments
+        payments: paymentsForPreview
       };
 
-      // Use receipt HTML preview service
-      const htmlContent = await receiptService.previewHTML(receiptPreviewData);
-      const blob = new Blob([htmlContent], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
+      // Clean up any existing blob URL first
+      if (receiptPdfBlobUrl) {
+        window.URL.revokeObjectURL(receiptPdfBlobUrl);
+        setReceiptPdfBlobUrl(null);
+      }
+
+      // Use receipt PDF preview service to get PDF blob
+      const blob = await receiptService.previewPDF(receiptPreviewData);
+
+      // Create blob URL for iframe preview
+      const url = window.URL.createObjectURL(blob);
+      setReceiptPdfBlobUrl(url);
+      setReceiptPreviewVisible(true);
 
     } catch (error: any) {
       message.error(`Failed to preview receipt: ${error.response?.data?.detail || error.message}`);
       console.error('Receipt preview error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Clean up blob URL when closing receipt preview modal
+  const handleCloseReceiptPreview = () => {
+    setReceiptPreviewVisible(false);
+    // Delay cleanup to ensure modal close animation completes
+    setTimeout(() => {
+      if (receiptPdfBlobUrl) {
+        window.URL.revokeObjectURL(receiptPdfBlobUrl);
+        setReceiptPdfBlobUrl(null);
+      }
+    }, 300);
+  };
+
+  // Download receipt PDF
+  const handleDownloadReceiptPdf = () => {
+    if (receiptPdfBlobUrl) {
+      const link = document.createElement('a');
+      link.href = receiptPdfBlobUrl;
+      link.download = 'receipt_preview.pdf';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      message.success('Receipt PDF downloaded');
+    }
+  };
+
+  // View receipt PDF in new window/tab (for already generated receipts)
+  const handleViewPaymentReceipt = async (paymentIndex: number) => {
+    const payment = payments[paymentIndex];
+    if (!payment.receipt_number) {
+      message.error('No receipt has been generated yet');
+      return;
+    }
+
+    if (!isEditMode || !id) {
+      message.error('Please save the invoice first');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Use existing invoiceData if available, only fetch if null
+      let currentInvoiceData = invoiceData;
+      if (!currentInvoiceData) {
+        currentInvoiceData = await invoiceService.getInvoice(id);
+      }
+
+      // Convert current payments state to API format
+      const paymentsForPreview = payments.map(p => ({
+        amount: p.amount,
+        date: p.date ? p.date.format('YYYY-MM-DD') : null,
+        method: p.method,
+        reference: p.reference,
+        receipt_number: p.receipt_number,
+        top_note: p.top_note,
+        bottom_note: p.bottom_note
+      }));
+
+      // Create receipt data structure
+      const receiptData = {
+        ...currentInvoiceData,
+        receipt_number: payment.receipt_number,
+        receipt_date: payment.date ? payment.date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+        payment_amount: payment.amount,
+        payment_method: payment.method,
+        payment_reference: payment.reference,
+        top_note: payment.top_note,
+        bottom_note: payment.bottom_note,
+        payments: paymentsForPreview
+      };
+
+      // Get PDF blob
+      const blob = await receiptService.previewPDF(receiptData);
+      const url = window.URL.createObjectURL(blob);
+
+      // Open in new window with blob URL
+      const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
+
+      if (!newWindow) {
+        // If popup blocked, try alternative method
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        message.info('Receipt opened (check if popup was blocked)');
+      } else {
+        message.success('Receipt opened in new tab');
+      }
+
+      // Clean up blob URL after sufficient delay
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+      }, 5000);
+
+    } catch (error: any) {
+      message.error(`Failed to view receipt: ${error.response?.data?.detail || error.message}`);
+      console.error('Receipt view error:', error);
     } finally {
       setLoading(false);
     }
@@ -2562,15 +2697,15 @@ const InvoiceCreation: React.FC = () => {
                             </Button>
                           </Tooltip>
                         ) : (
-                          <Tooltip title="Receipt already generated">
+                          <Tooltip title="View generated receipt PDF in new window">
                             <Button
                               size="small"
                               type="default"
-                              icon={<FileTextOutlined />}
-                              onClick={() => handleGeneratePaymentReceipt(index)}
-                              disabled={loading || generatingReceipt}
+                              icon={<FilePdfOutlined />}
+                              onClick={() => handleViewPaymentReceipt(index)}
+                              disabled={loading}
                             >
-                              Regenerate Receipt
+                              View Receipt
                             </Button>
                           </Tooltip>
                         )}
@@ -3034,6 +3169,41 @@ const InvoiceCreation: React.FC = () => {
 
       {/* Template Builder Bar (Bottom floating bar) */}
       <TemplateBuilderBar />
+
+      {/* Receipt Preview Modal */}
+      <Modal
+        title="Receipt Preview"
+        open={receiptPreviewVisible}
+        onCancel={handleCloseReceiptPreview}
+        footer={[
+          <Button key="close" onClick={handleCloseReceiptPreview}>
+            Close
+          </Button>,
+          <Button
+            key="download"
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={handleDownloadReceiptPdf}
+          >
+            Download PDF
+          </Button>,
+        ]}
+        width="90vw"
+        style={{ top: 20 }}
+        bodyStyle={{ height: 'calc(90vh - 110px)', padding: 0 }}
+      >
+        {receiptPdfBlobUrl && (
+          <iframe
+            src={receiptPdfBlobUrl}
+            style={{
+              width: '100%',
+              height: '100%',
+              border: 'none',
+            }}
+            title="Receipt Preview"
+          />
+        )}
+      </Modal>
     </div>
   );
 };
