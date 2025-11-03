@@ -11,7 +11,6 @@ import {
   Typography,
   Row,
   Col,
-  Statistic,
   Tooltip,
 } from 'antd';
 import {
@@ -41,12 +40,12 @@ const PackCalculationList: React.FC = () => {
     setLoading(true);
     try {
       const data = await packCalculationAPI.getAll();
-      console.log('✅ Fetched pack calculations:', data);
-      console.log('📊 Total calculations:', data?.length);
+      console.log('Fetched pack calculations:', data);
+      console.log('Total calculations:', data?.length);
       setCalculations(data);
     } catch (error) {
       message.error('Failed to load calculations');
-      console.error('❌ Error fetching calculations:', error);
+      console.error('Error fetching calculations:', error);
     } finally {
       setLoading(false);
     }
@@ -191,14 +190,6 @@ const PackCalculationList: React.FC = () => {
     },
   ];
 
-  // Calculate summary statistics
-  const totalCalculations = calculations.length;
-  const totalPackOutHours = calculations.reduce((sum, calc) => sum + calc.total_pack_out_hours, 0);
-  const totalPackInHours = calculations.reduce((sum, calc) => sum + calc.total_pack_in_hours, 0);
-  const avgConfidence = calculations.length > 0
-    ? calculations.reduce((sum, calc) => sum + calc.ml_confidence, 0) / calculations.length
-    : 0;
-
   return (
     <div style={{ padding: '24px' }}>
       <Row justify="space-between" align="middle" style={{ marginBottom: '24px' }}>
@@ -222,47 +213,6 @@ const PackCalculationList: React.FC = () => {
               New Calculation
             </Button>
           </Space>
-        </Col>
-      </Row>
-
-      {/* Summary Statistics */}
-      <Row gutter={16} style={{ marginBottom: '24px' }}>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="Total Calculations"
-              value={totalCalculations}
-              prefix={<CheckCircleOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="Total Pack-Out Hours"
-              value={totalPackOutHours.toFixed(1)}
-              suffix="hrs"
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="Total Pack-In Hours"
-              value={totalPackInHours.toFixed(1)}
-              suffix="hrs"
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="Avg ML Confidence"
-              value={(avgConfidence * 100).toFixed(0)}
-              suffix="%"
-              valueStyle={{ color: avgConfidence >= 0.8 ? '#3f8600' : '#cf1322' }}
-            />
-          </Card>
         </Col>
       </Row>
 
