@@ -25,29 +25,60 @@ else:
 from app.core.database_factory import Base
 from app.core.config import settings
 
-# Import all existing models
+# Import all existing models (COMPLETE LIST - DO NOT REMOVE ANY)
+# Core domains
 import app.domains.auth.models
 import app.domains.company.models
+import app.domains.staff.models
+
+# Document management
+import app.domains.document.models
+import app.domains.document_types.models
+import app.domains.file.models
+import app.domains.template.models
+
+# Financial
 import app.domains.invoice.models
 import app.domains.estimate.models
-import app.domains.document.models
-import app.domains.plumber_report.models
-import app.domains.document_types.models
-import app.domains.work_order.models
 import app.domains.payment.models
 import app.domains.payment_config.models
 import app.domains.credit.models
-import app.domains.staff.models
+import app.domains.receipt.models
+
+# Work orders
+import app.domains.work_order.models
+import app.domains.water_mitigation.models
+
+# Reports
+import app.domains.plumber_report.models
+import app.domains.plumber_report.templates.models
+
+# Line items
 import app.domains.line_items.models
 import app.domains.line_items.category_models
-import app.domains.file.models
-import app.domains.sketch.models
-import app.domains.receipt.models
-import app.domains.water_mitigation.models
-import app.domains.reconstruction_estimate.models
 
-# Material detection models
-import app.domains.material_detection.models
+# Construction
+import app.domains.reconstruction_estimate.models
+import app.domains.pack_calculation.models
+import app.domains.sketch.models
+import app.domains.xactimate.models
+
+# Analytics
+import app.domains.analytics.models
+
+# Material detection (conditional)
+try:
+    import app.domains.material_detection.models
+    import app.domains.material_detection.training.models
+except ImportError:
+    pass  # Material detection not enabled
+
+# Integrations (conditional)
+try:
+    import app.domains.integrations.models
+    import app.domains.integrations.companycam.models
+except ImportError:
+    pass  # Integrations not enabled
 
 # Alembic Config
 config = context.config
