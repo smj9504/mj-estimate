@@ -298,7 +298,7 @@ const DebrisCalculator: React.FC = () => {
                   <Col span={12}>
                     <Statistic
                       title="Total Weight"
-                      value={result.total_weight_lb.toFixed(2)}
+                      value={Number(result.total_weight_lb).toFixed(2)}
                       suffix="lbs"
                       precision={2}
                     />
@@ -306,7 +306,7 @@ const DebrisCalculator: React.FC = () => {
                   <Col span={12}>
                     <Statistic
                       title="Total Weight"
-                      value={result.total_weight_ton.toFixed(4)}
+                      value={Number(result.total_weight_ton).toFixed(4)}
                       suffix="tons"
                       precision={4}
                     />
@@ -323,7 +323,7 @@ const DebrisCalculator: React.FC = () => {
                   </div>
                   <div>
                     <Text strong>Capacity: </Text>
-                    <Text>{result.dumpster_recommendation.capacity_ton} tons</Text>
+                    <Text>{Number(result.dumpster_recommendation.capacity_ton).toFixed(2)} tons</Text>
                   </div>
                   {result.dumpster_recommendation.multiple_loads && (
                     <div>
@@ -352,14 +352,14 @@ const DebrisCalculator: React.FC = () => {
                       title: 'Weight (tons)',
                       dataIndex: 'weight_ton',
                       key: 'weight_ton',
-                      render: (val: number) => val.toFixed(4),
+                      render: (val: number) => Number(val).toFixed(4),
                       align: 'right',
                     },
                     {
                       title: '%',
                       dataIndex: 'percentage',
                       key: 'percentage',
-                      render: (val: number) => `${val.toFixed(1)}%`,
+                      render: (val: number) => `${Number(val).toFixed(1)}%`,
                       align: 'right',
                     },
                   ]}
