@@ -27,9 +27,9 @@ from .companycam.client import CompanyCamClient
 from .companycam.webhook_handler_wm import CompanyCamWaterMitigationHandler
 from .companycam.schemas import (
     PhotoCreatedWebhook,
+    ProjectCreatedWebhook,
     CompanyCamPhotoResponse,
-    CompanyCamStatsResponse,
-    PhotoProcessingResult
+    CompanyCamStatsResponse
 )
 from .slack.client import SlackClient
 
@@ -205,45 +205,51 @@ async def process_photo_created_event(
             # Try new format first (payload.payload structure)
             if "payload" in payload and "photo" in payload["payload"]:
                 # Convert new format to legacy PhotoCreatedWebhook format
-                from .companycam.schemas import PhotoData, ProjectData, UserData, PhotoURIs, PhotoCoordinates
-
                 photo_data = payload["payload"]["photo"]
                 project_data = payload["payload"].get("project", {})
                 user_data = payload.get("user", payload["payload"].get("user", {}))
 
-                # Extract URIs from list format
+                # Extract URIs from list format to dict format
                 uris = {}
                 for uri_obj in photo_data.get("uris", []):
                     uri_type = uri_obj.get("type", "")
                     if uri_type:
                         uris[uri_type] = uri_obj.get("url", "")
 
-                webhook_data = PhotoCreatedWebhook(
-                    photo=PhotoData(
-                        id=int(photo_data.get("id", 0)),
-                        uris=PhotoURIs(
-                            original=uris.get("original", ""),
-                            large=uris.get("large"),
-                            thumbnail=uris.get("thumbnail")
-                        ),
-                        photo_description=photo_data.get("description"),
-                        tags=photo_data.get("tags", []),
-                        coordinates=PhotoCoordinates(**photo_data["coordinates"]) if photo_data.get("coordinates") else None,
-                        created_at=photo_data.get("created_at"),
-                        captured_at=photo_data.get("captured_at")
-                    ),
-                    project=ProjectData(
-                        id=int(project_data.get("id", 0)),
-                        name=project_data.get("name"),
-                        address=project_data.get("address", {}),
-                        coordinates=project_data.get("coordinates")
-                    ),
-                    user=UserData(
-                        id=int(user_data.get("id", 0)),
-                        name=user_data.get("name", "Unknown"),
-                        email_address=user_data.get("email_address")
-                    )
-                )
+                # Build dict format that matches PhotoCreatedWebhook schema
+                webhook_payload = {
+                    "type": "photo.created",  # Add required 'type' field
+                    "photo": {
+                        "id": int(photo_data.get("id", 0)),
+                        "project_id": int(project_data.get("id", 0)),
+                        "creator_id": int(user_data.get("id", 0)),
+                        "photo_description": photo_data.get("description"),
+                        "uris": {
+                            "original": uris.get("original", ""),
+                            "large": uris.get("large"),
+                            "medium": uris.get("medium"),
+                            "small": uris.get("small"),
+                            "thumbnail": uris.get("thumbnail")
+                        },
+                        "coordinates": photo_data.get("coordinates"),
+                        "captured_at": photo_data.get("captured_at"),
+                        "created_at": photo_data.get("created_at"),
+                        "updated_at": photo_data.get("updated_at", photo_data.get("created_at"))
+                    },
+                    "project": {
+                        "id": int(project_data.get("id", 0)),
+                        "name": project_data.get("name"),
+                        "address": project_data.get("address", {}),
+                        "coordinates": project_data.get("coordinates")
+                    },
+                    "user": {
+                        "id": int(user_data.get("id", 0)),
+                        "name": user_data.get("name", "Unknown"),
+                        "email_address": user_data.get("email_address")
+                    }
+                }
+
+                webhook_data = PhotoCreatedWebhook(**webhook_payload)
             else:
                 # Legacy format
                 webhook_data = PhotoCreatedWebhook(**payload)
