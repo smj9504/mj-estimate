@@ -377,6 +377,7 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         date=date_str,
         due_date=due_date_str,
         status=created_invoice.get('status', 'pending'),
+        company_id=created_invoice.get('company_id'),
         company_name=company_name,
         company_address=company_address,
         company_city=company_city,
@@ -451,7 +452,7 @@ async def update_invoice(
     
     # Prepare update data
     update_dict = invoice_data.dict(exclude_unset=True)
-    
+
     # Flatten nested objects
     if 'company' in update_dict:
         company = update_dict.pop('company')
@@ -481,6 +482,7 @@ async def update_invoice(
         date=updated_invoice.get('date', ''),
         due_date=updated_invoice.get('due_date', ''),
         status=updated_invoice.get('status', 'draft'),
+        company_id=updated_invoice.get('company_id'),
         company_name=updated_invoice.get('company_name', ''),
         company_address=updated_invoice.get('company_address'),
         company_city=updated_invoice.get('company_city'),

@@ -52,13 +52,6 @@ class BaseRepository(Repository[T, ID]):
                 result = {}
                 for key, value in entity.__dict__.items():
                     if not key.startswith('_'):
-                        # Debug log for note field
-                        if key == 'note':
-                            logger.info(f"_convert_to_dict: note field - key: {key}, value: {repr(value)}, type: {type(value)}")
-                        
-                        # Debug log for xactimate_materials field
-                        if key == 'xactimate_materials':
-                            logger.debug(f"_convert_to_dict: xactimate_materials field - key: {key}, value: {repr(value)}, type: {type(value)}")
 
                         # Handle special types
                         if isinstance(value, UUID):
@@ -97,10 +90,6 @@ class BaseRepository(Repository[T, ID]):
                                 result[key] = 0.0
                         else:
                             result[key] = value
-
-                        # Debug log after assignment
-                        if key == 'note':
-                            logger.info(f"_convert_to_dict: note assigned - result[note]: {repr(result.get('note'))}")
 
                 # Handle relationships with circular reference protection
                 # Common relationship: items

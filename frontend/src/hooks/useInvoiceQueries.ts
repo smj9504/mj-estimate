@@ -23,6 +23,7 @@ export function useInvoice(id: string | undefined, enabled = true) {
     enabled: enabled && !!id,
     staleTime: 5 * 60 * 1000, // 5 minutes - invoice data doesn't change often
     gcTime: 10 * 60 * 1000, // 10 minutes in cache
+    refetchOnWindowFocus: false, // Prevent refetch on window focus to reduce unnecessary API calls
   });
 }
 

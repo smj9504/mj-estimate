@@ -427,18 +427,6 @@ const InvoiceCreation: React.FC = () => {
     const newSections = [...sections];
     const currentSection = sections[sectionIndex];
 
-    // Debug: Log incoming items
-    console.log('=== DEBUG: addItemsToSection ===');
-    console.log('Items to add:', itemsToAdd);
-    itemsToAdd.forEach((item, idx) => {
-      console.log(`Source item ${idx}:`, {
-        id: item.id,
-        line_item_id: item.line_item_id,
-        name: item.name,
-        hasLineItemId: !!item.line_item_id
-      });
-    });
-
     // Convert EstimateLineItem to InvoiceItem and update with section title
     const convertedItems: InvoiceItem[] = itemsToAdd.map(item => ({
       id: item.id,
@@ -563,19 +551,6 @@ const InvoiceCreation: React.FC = () => {
     const data = fetchedInvoice as any;
     setInvoiceData(data);
 
-    // DEBUG: Check raw items data from backend
-    if (data.items && data.items.length > 0) {
-      console.log('=== RAW ITEMS FROM BACKEND ===');
-      data.items.forEach((item: any, idx: number) => {
-        console.log(`Raw item ${idx}:`, {
-          id: item.id,
-          line_item_id: item.line_item_id,
-          name: item.name,
-          hasLineItemId: !!item.line_item_id
-        });
-      });
-    }
-
     // Convert items to sections or use existing sections
     if (data.sections && data.sections.length > 0) {
       setSections(data.sections);
@@ -654,6 +629,8 @@ const InvoiceCreation: React.FC = () => {
       if (clientCompany) {
         setSelectedClient(clientCompany);
         setUseCustomClient(false);
+        // Set client company selection in form
+        form.setFieldValue('client_company_selection', clientCompany.id);
       }
     }
 
@@ -792,6 +769,7 @@ const InvoiceCreation: React.FC = () => {
 
   const handleCompanyChange = async (companyId: string) => {
     const company = companies.find(c => c.id === companyId);
+
     if (company) {
       setSelectedCompany(company);
       // Set form value to the selected company ID
@@ -802,7 +780,6 @@ const InvoiceCreation: React.FC = () => {
         try {
           const newInvoiceNumber = await invoiceService.generateInvoiceNumber(company.id);
           form.setFieldsValue({ invoice_number: newInvoiceNumber });
-          console.log('Generated new invoice number:', newInvoiceNumber);
         } catch (error) {
           console.error('Failed to generate invoice number:', error);
           // Fallback to default number if API fails
@@ -1152,16 +1129,30 @@ const InvoiceCreation: React.FC = () => {
         company_id: selectedCompany.id, // Always use company_id from selected company
       };
 
-      // Add client info (always from form fields, which are auto-filled if company selected)
-      invoiceData.client = {
-        name: values.client_name,
-        address: values.client_address,
-        city: values.client_city,
-        state: values.client_state,
-        zipcode: values.client_zipcode,
-        phone: values.client_phone,
-        email: values.client_email,
-      };
+      // Add client info
+      // If using company selection mode and a client company is selected, use that
+      if (!useCustomClient && selectedClient) {
+        invoiceData.client = {
+          name: selectedClient.name,
+          address: selectedClient.address || '',
+          city: selectedClient.city || '',
+          state: selectedClient.state || '',
+          zipcode: selectedClient.zipcode || '',
+          phone: selectedClient.phone || '',
+          email: selectedClient.email || '',
+        };
+      } else {
+        // Manual input mode - get from form fields
+        invoiceData.client = {
+          name: values.client_name,
+          address: values.client_address,
+          city: values.client_city,
+          state: values.client_state,
+          zipcode: values.client_zipcode,
+          phone: values.client_phone,
+          email: values.client_email,
+        };
+      }
 
       // Optionally store client_company_id if client was selected from registered companies
       if (!useCustomClient && selectedClient) {
@@ -1174,8 +1165,6 @@ const InvoiceCreation: React.FC = () => {
         claim_number: values.insurance_claim_number,
         deductible: values.insurance_deductible,
       } : null;
-
-      console.log('Current sections state:', JSON.stringify(sections, null, 2));
 
       // Send both items (converted from sections) and sections
       const allItems = convertSectionsToItems();
@@ -1882,7 +1871,6 @@ const InvoiceCreation: React.FC = () => {
                 rules={[{ required: true, message: 'Please select a company' }]}
               >
                 <Select
-                  value={selectedCompany?.id || undefined}
                   onChange={handleCompanyChange}
                   placeholder="Select company"
                   options={companies.map(company => ({
@@ -1970,19 +1958,21 @@ const InvoiceCreation: React.FC = () => {
                   <Col xs={24}>
                     <Form.Item
                       label="Select Client Company"
+                      name="client_company_selection"
                       rules={[{ required: true, message: 'Please select a client company' }]}
                     >
                       <Select
                         showSearch
                         placeholder="Select a registered company"
                         optionFilterProp="children"
-                        value={selectedClient?.id}
                         onChange={(value) => {
                           const company = companies.find(c => c.id === value);
+
                           if (company) {
                             setSelectedClient(company);
+
                             // Auto-fill client fields
-                            form.setFieldsValue({
+                            const clientFields = {
                               client_name: company.name,
                               client_email: company.email || '',
                               client_phone: company.phone || '',
@@ -1990,7 +1980,9 @@ const InvoiceCreation: React.FC = () => {
                               client_city: company.city || '',
                               client_state: company.state || '',
                               client_zipcode: company.zipcode || '',
-                            });
+                            };
+
+                            form.setFieldsValue(clientFields);
                           }
                         }}
                         filterOption={(input, option) => {

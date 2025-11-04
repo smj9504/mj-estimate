@@ -270,13 +270,7 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
             # Items without line_item_id are one-time use items
             # that user chose not to save to library
 
-            # Debug: Check if note field is loaded
-            for item in items:
-                logger.info(
-                    f"Item {item.id} - name: {item.name}, "
-                    f"note: {repr(item.note)}, "
-                    f"line_item_id: {item.line_item_id}"
-                )
+            # Debug logging removed for performance
 
             invoice_dict['items'] = [self._convert_to_dict(item) for item in items]
 
@@ -381,8 +375,6 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
             # Update invoice fields
             for key, value in update_data.items():
                 if hasattr(invoice, key):
-                    if key == 'payments':
-                        logger.info(f"Updating invoice {invoice_id} payments: {value}")
                     setattr(invoice, key, value)
             
             # Update timestamp
@@ -449,6 +441,9 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
 
             self.db_session.flush()
             self.db_session.commit()
+
+            # Refresh session to reload relationships after commit
+            self.db_session.expire_all()
 
             # Return updated invoice with items
             return self.get_with_items(invoice_id)

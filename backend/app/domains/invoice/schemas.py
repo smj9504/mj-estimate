@@ -215,7 +215,8 @@ class InvoiceUpdate(BaseModel):
     date: Optional[str] = None  # Changed to string
     due_date: Optional[str] = None  # Changed to string
     status: Optional[str] = None
-    
+    company_id: Optional[UUID] = None  # Add company_id field
+
     @validator('date', 'due_date', pre=True)
     def convert_date_format(cls, v):
         """Convert MM-DD-YYYY to YYYY-MM-DD for database storage"""
