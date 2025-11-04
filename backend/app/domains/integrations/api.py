@@ -146,22 +146,20 @@ async def companycam_webhook(
 
     logger.info(f"📥 Received {event_type} webhook from CompanyCam (Event ID: {webhook_event.id})")
 
-    # Process event in background (non-blocking)
+    # Process event immediately (Render deployment: background tasks may not complete)
+    # In production, webhooks need immediate processing to ensure completion
     if event_type == "photo.created":
-        background_tasks.add_task(
-            process_photo_created_event,
+        await process_photo_created_event(
             str(webhook_event.id),
             payload
         )
     elif event_type == "project.created":
-        background_tasks.add_task(
-            process_project_created_event,
+        await process_project_created_event(
             str(webhook_event.id),
             payload
         )
     elif event_type == "project.updated":
-        background_tasks.add_task(
-            process_project_updated_event,
+        await process_project_updated_event(
             str(webhook_event.id),
             payload
         )
