@@ -328,21 +328,25 @@ async def process_project_created_event(
                 project_data = payload["payload"]["project"]
                 user_data = payload.get("user", payload["payload"].get("user", {}))
 
-                webhook_data = ProjectCreatedWebhook(
-                    project=ProjectData(
-                        id=int(project_data.get("id", 0)),
-                        name=project_data.get("name"),
-                        address=project_data.get("address", {}),
-                        coordinates=project_data.get("coordinates"),
-                        creator_id=project_data.get("creator_id"),
-                        creator_name=project_data.get("creator_name")
-                    ),
-                    user=UserData(
-                        id=int(user_data.get("id", 0)),
-                        name=user_data.get("name", "Unknown"),
-                        email_address=user_data.get("email_address")
-                    )
-                )
+                # Build webhook_payload dict first, then convert to ProjectCreatedWebhook
+                webhook_payload = {
+                    "type": "project.created",  # Required field
+                    "project": {
+                        "id": int(project_data.get("id", 0)),
+                        "name": project_data.get("name"),
+                        "address": project_data.get("address", {}),
+                        "coordinates": project_data.get("coordinates"),
+                        "creator_id": project_data.get("creator_id"),
+                        "creator_name": project_data.get("creator_name")
+                    },
+                    "user": {
+                        "id": int(user_data.get("id", 0)),
+                        "name": user_data.get("name", "Unknown"),
+                        "email_address": user_data.get("email_address")
+                    }
+                }
+
+                webhook_data = ProjectCreatedWebhook(**webhook_payload)
             else:
                 # Legacy format
                 webhook_data = ProjectCreatedWebhook(**payload)
