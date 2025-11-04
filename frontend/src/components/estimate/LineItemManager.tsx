@@ -33,6 +33,7 @@ import {
   DeleteOutlined,
   CopyOutlined,
   FileTextOutlined,
+  FileTextFilled,
   SaveOutlined,
   ClearOutlined,
   CloseOutlined,
@@ -1374,6 +1375,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
               minHeight: '24px',
               display: 'flex',
               alignItems: 'center',
+              gap: 8,
             }}
             onMouseEnter={(e) => {
               (e.target as HTMLElement).style.backgroundColor = '#f5f5f5';
@@ -1383,7 +1385,15 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
             }}
             title="Click to edit description"
           >
-            {value || '-'}
+            <span>{value || '-'}</span>
+            {record.note && (
+              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: record.note }} />}>
+                <FileTextFilled
+                  style={{ color: '#1890ff', cursor: 'help', flexShrink: 0 }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </Tooltip>
+            )}
           </div>
         );
       },

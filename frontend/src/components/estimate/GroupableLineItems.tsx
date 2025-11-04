@@ -36,6 +36,7 @@ import {
   DownOutlined,
   RightOutlined,
   FileTextOutlined,
+  FileTextFilled,
 } from '@ant-design/icons';
 import { EstimateLineItem } from '../../services/estimateService';
 import debounce from 'lodash/debounce';
@@ -433,6 +434,11 @@ const GroupableLineItems: React.FC<GroupableLineItemsProps> = ({
             <FileTextOutlined />
             <Text strong>{item.name}</Text>
             {item.description && <Text type="secondary">({item.description})</Text>}
+            {item.note && (
+              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: item.note }} />}>
+                <FileTextFilled style={{ color: '#1890ff', cursor: 'help' }} />
+              </Tooltip>
+            )}
           </Space>
         </div>
         

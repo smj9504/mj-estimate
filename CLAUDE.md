@@ -244,6 +244,48 @@ frontend/src/
 3. API 통신이 필요하면 `frontend/src/services/`에 서비스 함수 추가
 4. 라우팅이 필요하면 `App.tsx`에 경로 추가
 
+#### ⚠️ 새 페이지 추가 시 필수 패턴 (Lazy Loading)
+
+**Step 1: Lazy Import 선언**
+```typescript
+// frontend/src/App.tsx 상단에 추가 (카테고리별로 그룹화)
+const NewFeaturePage = lazy(() => import('./pages/NewFeaturePage'));
+```
+
+**Step 2: Router에 라우트 추가 (반드시 Suspense로 감싸기)**
+```typescript
+// 인증이 필요한 페이지
+{
+  path: "/new-feature",
+  element: (
+    <ProtectedRoute>
+      <Layout>
+        <Suspense fallback={<PageLoader />}>
+          <NewFeaturePage />
+        </Suspense>
+      </Layout>
+    </ProtectedRoute>
+  )
+}
+
+// 인증이 필요 없는 Public 페이지
+{
+  path: "/landing",
+  element: (
+    <Suspense fallback={<PageLoader />}>
+      <LandingPage />
+    </Suspense>
+  )
+}
+```
+
+**⚠️ 주의사항:**
+- **반드시 `<Suspense>`로 감싸야 합니다!** (Suspense 없으면 lazy loading 작동 안 함)
+- **fallback은 `<PageLoader />`를 사용하세요** (일관된 로딩 경험)
+- **import 경로에 .tsx 확장자 제외** (예: `'./pages/MyPage'` ✅, `'./pages/MyPage.tsx'` ❌)
+
+📖 **상세 가이드**: [docs/LAZY_LOADING_OPTIMIZATION.md](./docs/LAZY_LOADING_OPTIMIZATION.md)
+
 ## Important URLs & Services
 
 ### Application Servers
@@ -320,6 +362,7 @@ Each domain follows a consistent 5-file pattern:
 - **Routing**: React Router v7 with type-safe routing
 - **UI Framework**: Ant Design 5.x with Korean locale
 - **Build Tool**: CRACO for Create React App configuration override
+- **Performance Optimization**: React Lazy Loading + Code Splitting (50%+ faster startup)
 
 ### Key Technologies
 - **Frontend**: React 18 + TypeScript + Ant Design + Zustand + React Query

@@ -7,6 +7,7 @@ import {
   Dropdown,
   Empty,
   Checkbox,
+  Tooltip,
   message,
 } from 'antd';
 import {
@@ -17,6 +18,7 @@ import {
   ArrowUpOutlined,
   ArrowDownOutlined,
   FileTextOutlined,
+  FileTextFilled,
   PlusOutlined,
 } from '@ant-design/icons';
 import { EstimateLineItem } from '../../services/estimateService';
@@ -153,6 +155,11 @@ const SimpleLineItems: React.FC<SimpleLineItemsProps> = ({
               <Text type="secondary" style={{ fontSize: 12 }}>
                 ({item.description})
               </Text>
+            )}
+            {item.note && (
+              <Tooltip title={<div dangerouslySetInnerHTML={{ __html: item.note }} />}>
+                <FileTextFilled style={{ color: '#1890ff', cursor: 'help', marginLeft: 8 }} />
+              </Tooltip>
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>

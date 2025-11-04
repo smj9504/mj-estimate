@@ -120,10 +120,6 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   // PDF Template selection state
   const [pdfTemplateType, setPdfTemplateType] = useState<'estimate' | 'invoice'>('estimate');
 
-  // PDF Preview Modal state
-  const [pdfPreviewVisible, setPdfPreviewVisible] = useState(false);
-  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
-
 
   const statusOptions = [
     { value: 'draft', label: 'Draft' },
@@ -976,19 +972,17 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
       const pdfData = createPdfPreviewData(values);
 
-      // Clean up any existing blob URL first
-      if (pdfBlobUrl) {
-        window.URL.revokeObjectURL(pdfBlobUrl);
-        setPdfBlobUrl(null);
+      // Get HTML preview and open in new window (working approach without WeasyPrint)
+      const htmlContent = await estimateService.previewHTML(pdfData, pdfTemplateType);
+
+      const newWindow = window.open('', '_blank');
+      if (newWindow) {
+        newWindow.document.write(htmlContent);
+        newWindow.document.close();
+        newWindow.document.title = `Estimate Preview - ${pdfData.estimate_number || 'Draft'}`;
+      } else {
+        message.error('Popup blocked. Please allow popups for this site to view the preview.');
       }
-
-      // Use PDF preview service to get PDF blob
-      const blob = await estimateService.previewPDF(pdfData, pdfTemplateType);
-
-      // Create blob URL for iframe preview
-      const url = window.URL.createObjectURL(blob);
-      setPdfBlobUrl(url);
-      setPdfPreviewVisible(true);
 
     } catch (error: any) {
       handlePdfPreviewError(error);
@@ -997,17 +991,6 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     }
   };
 
-  // Clean up blob URL when closing PDF preview modal
-  const handleClosePdfPreview = () => {
-    setPdfPreviewVisible(false);
-    // Delay cleanup to ensure modal close animation completes
-    setTimeout(() => {
-      if (pdfBlobUrl) {
-        window.URL.revokeObjectURL(pdfBlobUrl);
-        setPdfBlobUrl(null);
-      }
-    }, 300);
-  };
 
   const companySelectOptions = [
     ...companies.map(company => ({
@@ -1838,48 +1821,6 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
           placeholder="Enter section name"
           onPressEnter={handleSectionNameUpdate}
         />
-      </Modal>
-
-      {/* PDF Preview Modal */}
-      <Modal
-        title="Estimate Preview"
-        open={pdfPreviewVisible}
-        onCancel={handleClosePdfPreview}
-        footer={[
-          <Button key="close" onClick={handleClosePdfPreview}>
-            Close
-          </Button>,
-          pdfBlobUrl && (
-            <Button
-              key="download"
-              type="primary"
-              icon={<DownloadOutlined />}
-              href={pdfBlobUrl}
-              download={`estimate-preview-${dayjs().format('YYYYMMDD')}.pdf`}
-            >
-              Download PDF
-            </Button>
-          ),
-        ]}
-        width="90%"
-        style={{ top: 20 }}
-        styles={{ body: { height: 'calc(90vh - 110px)', padding: 0 } }}
-      >
-        {pdfBlobUrl ? (
-          <iframe
-            src={pdfBlobUrl}
-            style={{
-              width: '100%',
-              height: '100%',
-              border: 'none',
-            }}
-            title="Estimate PDF Preview"
-          />
-        ) : (
-          <div style={{ textAlign: 'center', padding: '40px' }}>
-            <Spin size="large" />
-          </div>
-        )}
       </Modal>
     </div>
   );
