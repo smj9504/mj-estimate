@@ -45,6 +45,19 @@ services:
       # - GOOGLE_SHEETS_WATER_MITIGATION_ID
       # - FRONTEND_URL (Vercel URL)
       # - CORS_ORIGINS (JSON array with Vercel URL)
+      # 
+      # Redis Cache (for session/auth caching):
+      # Option 1: Use Upstash Redis (free tier recommended)
+      # - Sign up at https://upstash.com/
+      # - Create a Redis database
+      # - Set REDIS_URL in Render Dashboard with your Upstash Redis URL
+      #   Format: redis://:PASSWORD@HOST:PORT
+      # 
+      # Option 2: Use Render Redis addon ($5/month)
+      # - Add Redis addon in Render Dashboard
+      # - REDIS_URL will be automatically set
+      # 
+      # If Redis is not configured, the app will use in-memory cache (not recommended for production)
     healthCheckPath: /health
     autoDeploy: true
 

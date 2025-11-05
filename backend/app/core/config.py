@@ -183,6 +183,14 @@ class Settings(BaseSettings):
     GDRIVE_SERVICE_ACCOUNT_FILE: Optional[str] = os.getenv("GDRIVE_SERVICE_ACCOUNT_FILE")
     GDRIVE_ROOT_FOLDER_ID: Optional[str] = os.getenv("GDRIVE_ROOT_FOLDER_ID")
 
+    # Redis Cache Settings
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
+    REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+    REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD")
+    # For services like Upstash or Render Redis
+    REDIS_URL: Optional[str] = os.getenv("REDIS_URL")
+
     class Config:
         env_file = f".env.{os.getenv('ENVIRONMENT', 'development')}"
         case_sensitive = True

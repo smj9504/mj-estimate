@@ -29,19 +29,39 @@ class CacheService:
         """Connect to Redis"""
         try:
             # Use Redis if available, otherwise use in-memory cache
-            self.redis_client = redis.Redis(
-                host=getattr(settings, 'REDIS_HOST', 'localhost'),
-                port=getattr(settings, 'REDIS_PORT', 6379),
-                db=getattr(settings, 'REDIS_DB', 0),
-                decode_responses=True,
-                socket_connect_timeout=2,
-                socket_timeout=2
-            )
+            # Priority: REDIS_URL > individual settings
+            if settings.REDIS_URL:
+                # Use Redis URL (e.g., from Upstash or other Redis services)
+                self.redis_client = redis.from_url(
+                    settings.REDIS_URL,
+                    decode_responses=True,
+                    socket_connect_timeout=2,
+                    socket_timeout=2
+                )
+                logger.info("Connecting to Redis using REDIS_URL")
+            else:
+                # Use individual Redis settings
+                self.redis_client = redis.Redis(
+                    host=settings.REDIS_HOST,
+                    port=settings.REDIS_PORT,
+                    db=settings.REDIS_DB,
+                    password=settings.REDIS_PASSWORD,
+                    decode_responses=True,
+                    socket_connect_timeout=2,
+                    socket_timeout=2
+                )
+                logger.info(
+                    f"Connecting to Redis at "
+                    f"{settings.REDIS_HOST}:{settings.REDIS_PORT}"
+                )
+            
             # Test connection
             self.redis_client.ping()
-            logger.info("Connected to Redis cache")
+            logger.info("Successfully connected to Redis cache")
         except (RedisError, ConnectionError) as e:
-            logger.warning(f"Redis not available, using in-memory cache: {e}")
+            logger.warning(
+                f"Redis not available, using in-memory cache: {e}"
+            )
             self.redis_client = InMemoryCache()
     
     async def get(self, key: str) -> Optional[str]:
