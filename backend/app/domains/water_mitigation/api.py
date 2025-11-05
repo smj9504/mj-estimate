@@ -360,7 +360,7 @@ def list_photos(
 
 
 @router.get("/photos/{photo_id}/preview")
-def preview_photo(
+async def preview_photo(
     photo_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service)
 ):
@@ -379,11 +379,13 @@ def preview_photo(
     mime_type = photo.get('mime_type') if isinstance(photo, dict) else photo.mime_type
     media_type = mime_type or 'image/jpeg'
 
-    # Handle CompanyCam photos - redirect to CompanyCam URL
+    # Handle CompanyCam photos - proxy the image to avoid CORS issues
     if source == 'companycam' and external_id:
         try:
             from ..integrations.companycam.client import CompanyCamClient
             from app.core.config import settings
+            from fastapi.responses import StreamingResponse
+            import io
 
             if not settings.ENABLE_INTEGRATIONS or not settings.COMPANYCAM_API_KEY:
                 logger.error(f"CompanyCam integration disabled or API key missing for photo {photo_id}")
@@ -397,15 +399,25 @@ def preview_photo(
                 logger.error(f"Failed to get CompanyCam URL for external_id: {external_id}")
                 raise HTTPException(status_code=404, detail="CompanyCam photo URL not found")
 
-            # Redirect to CompanyCam URL
-            from fastapi.responses import RedirectResponse
-            return RedirectResponse(url=photo_url, status_code=302)
+            # Download and stream the image instead of redirecting (avoids CORS issues)
+            logger.info(f"Proxying CompanyCam photo {external_id} from URL: {photo_url}")
+            photo_bytes = await companycam_client.download_photo(photo_url)
+
+            # Return image as streaming response with appropriate content type
+            return StreamingResponse(
+                io.BytesIO(photo_bytes),
+                media_type=media_type,
+                headers={
+                    "Content-Disposition": "inline",
+                    "Cache-Control": "public, max-age=3600"  # Cache for 1 hour
+                }
+            )
 
         except ImportError:
             logger.error(f"CompanyCam integration not available for photo {photo_id}")
             raise HTTPException(status_code=503, detail="CompanyCam integration not available")
         except Exception as e:
-            logger.error(f"Failed to get CompanyCam photo URL for {photo_id}: {e}")
+            logger.error(f"Failed to proxy CompanyCam photo for {photo_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to access CompanyCam photo: {str(e)}")
 
     # Handle cloud storage (GCS, S3, etc.) - redirect to signed URL
