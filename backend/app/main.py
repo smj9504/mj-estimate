@@ -411,6 +411,9 @@ if settings.ENABLE_INTEGRATIONS:
     app.include_router(integrations_router, prefix="/api/integrations", tags=["External Integrations"])
     app.include_router(google_sheets_router, prefix="/api/integrations/google-sheets", tags=["Google Sheets Integration"])
     logger.info("Integration routes registered (CompanyCam, Google Sheets, Slack)")
+    logger.info(f"Webhook endpoint available at: /api/integrations/companycam/webhook")
+else:
+    logger.warning("⚠️ ENABLE_INTEGRATIONS is False - Integration endpoints disabled")
 
 
 # System information endpoints
