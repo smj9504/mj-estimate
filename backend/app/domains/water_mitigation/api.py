@@ -366,7 +366,11 @@ def preview_photo(
 ):
     """Get photo preview - supports both local and cloud storage (GCS, S3, etc.)"""
     photo = service.photo_repo.get_by_id(str(photo_id))
-    if not photo:
+    logger.debug(f"Photo lookup result for {photo_id}: {photo}")
+    logger.debug(f"Photo type: {type(photo)}, is_none: {photo is None}, is_dict: {isinstance(photo, dict)}, dict_keys: {list(photo.keys()) if isinstance(photo, dict) else 'N/A'}")
+
+    if photo is None:
+        logger.warning(f"Photo not found in database for ID: {photo_id}")
         raise HTTPException(status_code=404, detail="Photo not found")
 
     # Extract photo properties

@@ -238,14 +238,18 @@ class SQLAlchemyRepository(BaseRepository[T, ID]):
             entity = self.db_session.query(self.model_class).filter(
                 self.model_class.id.in_(candidates)
             ).first()
-            
+
             if entity is None:
                 logger.debug(
                     f"[{self.table_name}] get_by_id not found for candidates={candidates}"
                 )
                 return None
-            return self._convert_to_dict(entity)
-            
+
+            # Convert to dict
+            result = self._convert_to_dict(entity)
+            logger.debug(f"[{self.table_name}] get_by_id found entity, dict keys: {list(result.keys()) if result else 'EMPTY_DICT'}")
+            return result
+
         except Exception as e:
             logger.error(f"Error getting {self.table_name} by ID {entity_id}: {e}")
             raise DatabaseException(f"Failed to get {self.table_name} by ID", e)
