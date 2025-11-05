@@ -96,13 +96,25 @@ class CompanyCamClient:
                 response.raise_for_status()
                 photo_data = response.json()
 
+                # Log full response to understand structure
+                logger.debug(f"CompanyCam photo {photo_id} response keys: {list(photo_data.keys())}")
+
                 # Extract photo URL from response
-                # CompanyCam API returns "uri" field with the photo URL
-                photo_url = photo_data.get('uri') or photo_data.get('url')
+                # Try multiple possible field names from CompanyCam API
+                photo_url = (
+                    photo_data.get('uri') or
+                    photo_data.get('url') or
+                    photo_data.get('uris', {}).get('original') or
+                    photo_data.get('uris', {}).get('large') or
+                    photo_data.get('image_url')
+                )
+
                 if not photo_url:
-                    logger.warning(f"No URI/URL found in CompanyCam photo {photo_id} response")
+                    logger.warning(f"No photo URL found in CompanyCam photo {photo_id} response. Available keys: {list(photo_data.keys())}")
+                    logger.debug(f"Full response data: {photo_data}")
                     return None
 
+                logger.info(f"Successfully retrieved CompanyCam photo URL for {photo_id}")
                 return photo_url
 
         except httpx.HTTPError as e:
