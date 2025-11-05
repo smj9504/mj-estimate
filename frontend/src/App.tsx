@@ -17,7 +17,6 @@ import 'antd/dist/reset.css';
 
 // Public Pages (로그인 관련)
 const Login = lazy(() => import('./pages/Login'));
-const SignUp = lazy(() => import('./pages/SignUp'));
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 
@@ -122,14 +121,6 @@ const router = createBrowserRouter([
     element: (
       <Suspense fallback={<PageLoader />}>
         <Login />
-      </Suspense>
-    )
-  },
-  {
-    path: "/register",
-    element: (
-      <Suspense fallback={<PageLoader />}>
-        <SignUp />
       </Suspense>
     )
   },

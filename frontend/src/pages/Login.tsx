@@ -113,10 +113,7 @@ const Login: React.FC = () => {
           </Form>
 
           <div style={{ textAlign: 'center' }}>
-            <Space split="|">
-              <Link onClick={() => navigate('/register')}>Sign Up</Link>
-              <Link onClick={() => navigate('/forgot-password')}>Forgot Password</Link>
-            </Space>
+            <Link onClick={() => navigate('/forgot-password')}>Forgot Password?</Link>
           </div>
 
           {/* Development only: Initialize admin button */}

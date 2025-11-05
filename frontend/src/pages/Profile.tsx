@@ -23,7 +23,6 @@ const Profile: React.FC = () => {
   useEffect(() => {
     if (user) {
       form.setFieldsValue({
-        username: user.username,
         email: user.email,
         first_name: user.first_name,
         last_name: user.last_name,
@@ -165,6 +164,12 @@ const Profile: React.FC = () => {
             onFinish={handleUpdateProfile}
             requiredMark={false}
           >
+            <Space direction="vertical" style={{ width: '100%', marginBottom: '16px' }}>
+              <Text type="secondary">
+                Username and Staff Number cannot be changed by users. Please contact an administrator if you need to update these fields.
+              </Text>
+            </Space>
+
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item

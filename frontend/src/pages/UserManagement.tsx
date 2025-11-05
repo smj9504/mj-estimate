@@ -59,9 +59,11 @@ const UserManagement: React.FC = () => {
   const handleEditUser = (user: User) => {
     setEditingUser(user);
     form.setFieldsValue({
+      username: user.username,
       email: user.email,
       first_name: user.first_name,
       last_name: user.last_name,
+      staff_number: user.staff_number,
       role: user.role,
       is_active: user.is_active,
       can_login: user.can_login
@@ -264,39 +266,44 @@ const UserManagement: React.FC = () => {
           layout="vertical"
           requiredMark={false}
         >
+          <Form.Item
+            name="username"
+            label="Username"
+            rules={[
+              { required: !editingUser, message: 'Please enter username' },
+              { min: 3, message: 'Username must be at least 3 characters' }
+            ]}
+          >
+            <Input 
+              prefix={<UserOutlined />} 
+              placeholder="Username" 
+              disabled={!!editingUser}
+            />
+          </Form.Item>
+
           {!editingUser && (
-            <>
-              <Form.Item
-                name="username"
-                label="Username"
-                rules={[
-                  { required: true, message: 'Please enter username' },
-                  { min: 3, message: 'Username must be at least 3 characters' }
-                ]}
-              >
-                <Input prefix={<UserOutlined />} placeholder="Username" />
-              </Form.Item>
-
-              <Form.Item
-                name="password"
-                label="Password"
-                rules={[
-                  { required: true, message: 'Please enter password' },
-                  { min: 6, message: 'Password must be at least 6 characters' }
-                ]}
-              >
-                <Input.Password prefix={<LockOutlined />} placeholder="Password" />
-              </Form.Item>
-
-              <Form.Item
-                name="staff_number"
-                label="Staff Number"
-                rules={[{ required: true, message: 'Please enter staff number' }]}
-              >
-                <Input prefix={<IdcardOutlined />} placeholder="e.g., EMP001" />
-              </Form.Item>
-            </>
+            <Form.Item
+              name="password"
+              label="Password"
+              rules={[
+                { required: true, message: 'Please enter password' },
+                { min: 6, message: 'Password must be at least 6 characters' }
+              ]}
+            >
+              <Input.Password prefix={<LockOutlined />} placeholder="Password" />
+            </Form.Item>
           )}
+
+          <Form.Item
+            name="staff_number"
+            label="Staff Number"
+            rules={[{ required: !editingUser, message: 'Please enter staff number' }]}
+          >
+            <Input 
+              prefix={<IdcardOutlined />} 
+              placeholder="e.g., EMP001"
+            />
+          </Form.Item>
 
           <Form.Item
             name="email"

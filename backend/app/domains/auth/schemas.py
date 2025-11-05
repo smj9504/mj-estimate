@@ -1,11 +1,12 @@
 """
 Authentication schemas
 """
-from pydantic import BaseModel, EmailStr
-from typing import Optional
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
-from enum import Enum
+
+from pydantic import BaseModel, EmailStr
+
 from app.domains.staff.models import StaffRole
 
 
@@ -27,9 +28,11 @@ class StaffUpdate(BaseModel):
     email: Optional[EmailStr] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    role: Optional[StaffRole] = None
-    is_active: Optional[bool] = None
-    can_login: Optional[bool] = None
+    username: Optional[str] = None  # Only admin can update
+    staff_number: Optional[str] = None  # Only admin can update
+    role: Optional[StaffRole] = None  # Only admin can update
+    is_active: Optional[bool] = None  # Only admin can update
+    can_login: Optional[bool] = None  # Only admin can update
     phone: Optional[str] = None
     mobile_phone: Optional[str] = None
 
@@ -42,7 +45,7 @@ class StaffInDB(StaffBase):
     created_at: datetime
     updated_at: datetime
     last_login: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -61,7 +64,7 @@ class StaffResponse(BaseModel):
     can_login: bool
     email_verified: bool
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 

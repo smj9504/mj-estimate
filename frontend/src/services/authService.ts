@@ -24,6 +24,7 @@ class AuthService {
     return response.data;
   }
 
+  // Admin only: Create new user
   async register(data: {
     username: string;
     email: string;
@@ -88,10 +89,13 @@ class AuthService {
     return this.getUsers();
   }
 
+  // Admin only: Update user (can update username, staff_number, role)
   async updateUser(userId: string, data: {
     email?: string;
     first_name?: string;
     last_name?: string;
+    username?: string;
+    staff_number?: string;
     role?: string;
     is_active?: boolean;
     can_login?: boolean;
