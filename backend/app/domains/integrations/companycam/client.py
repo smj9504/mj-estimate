@@ -104,25 +104,11 @@ class CompanyCamClient:
                 )
 
                 # Extract photo URL from response
-                # Try multiple possible field names from CompanyCam API
+                # Try 'uris' field FIRST as it contains CDN URLs that don't require auth
                 photo_url = None
 
-                # Log photo_url field value for debugging
-                logger.debug(
-                    f"CompanyCam photo {photo_id} photo_url field value: "
-                    f"{photo_data.get('photo_url')}"
-                )
-
-                # Try direct URL fields first
-                photo_url = (
-                    photo_data.get('uri') or
-                    photo_data.get('url') or
-                    photo_data.get('photo_url') or
-                    photo_data.get('image_url')
-                )
-
-                # Handle 'uris' field which can be dict or list
-                if not photo_url and 'uris' in photo_data:
+                # Handle 'uris' field which can be dict or list (PRIORITY: check this first)
+                if 'uris' in photo_data:
                     uris = photo_data['uris']
                     logger.info(
                         f"CompanyCam photo {photo_id} uris structure: "
@@ -156,6 +142,19 @@ class CompanyCamClient:
                             )
                         elif not photo_url and isinstance(uris[0], str):
                             photo_url = uris[0]
+
+                # Fallback to direct URL fields if uris didn't work
+                if not photo_url:
+                    logger.info(
+                        f"CompanyCam photo {photo_id}: uris field didn't provide URL, "
+                        f"trying fallback fields"
+                    )
+                    photo_url = (
+                        photo_data.get('uri') or
+                        photo_data.get('url') or
+                        photo_data.get('photo_url') or
+                        photo_data.get('image_url')
+                    )
 
                 if not photo_url:
                     logger.warning(
