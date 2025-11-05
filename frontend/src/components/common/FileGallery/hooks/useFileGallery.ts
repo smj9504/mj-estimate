@@ -45,10 +45,13 @@ export const useFileGallery = ({
         const response = await api.get(`/api/water-mitigation/jobs/${contextId}/photos`, { params });
         const data = response.data;
 
+        // Get API base URL for production photo preview URLs
+        const baseURL = api.defaults.baseURL || '';
+
         // Convert to FileItem format
         const items = data.items.map((photo: any) => {
-          // Use API endpoint for image URL instead of direct file path
-          const imageUrl = `/api/water-mitigation/photos/${photo.id}/preview`;
+          // Use absolute URL for image preview (supports both dev and production)
+          const imageUrl = `${baseURL}/api/water-mitigation/photos/${photo.id}/preview`;
 
           return {
             id: photo.id,
