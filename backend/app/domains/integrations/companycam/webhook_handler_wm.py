@@ -952,14 +952,8 @@ class CompanyCamWaterMitigationHandler:
                 webhook_data.photo.id
             )
 
-            # Parse captured date
-            captured_date = None
-            if webhook_data.photo.captured_at:
-                try:
-                    from dateutil import parser
-                    captured_date = parser.parse(webhook_data.photo.captured_at)
-                except Exception as e:
-                    logger.warning(f"Failed to parse captured_at date: {e}")
+            # Get captured date (already parsed by Pydantic)
+            captured_date = webhook_data.photo.captured_at
 
             # Save photo to water mitigation job
             wm_photo = await self.wm_service.save_companycam_photo(
