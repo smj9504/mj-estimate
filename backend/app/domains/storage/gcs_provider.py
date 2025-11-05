@@ -97,6 +97,16 @@ class GCSProvider(StorageProvider):
             logger.error(f"Failed to initialize GCS bucket: {e}")
             raise RuntimeError(f"GCS bucket initialization failed: {e}")
 
+    def _strip_gs_prefix(self, file_id: str) -> str:
+        """Strip gs:// prefix from file path if present"""
+        if file_id.startswith('gs://'):
+            # Extract path after bucket name
+            # Format: gs://bucket-name/path/to/file
+            parts = file_id.replace('gs://', '').split('/', 1)
+            if len(parts) == 2:
+                return parts[1]
+        return file_id
+
     def _build_blob_path(
         self,
         context: str,
@@ -252,7 +262,9 @@ class GCSProvider(StorageProvider):
     def download(self, file_id: str) -> bytes:
         """Download file from GCS"""
         try:
-            blob = self.bucket.blob(file_id)
+            # Strip gs:// prefix if present
+            blob_path = self._strip_gs_prefix(file_id)
+            blob = self.bucket.blob(blob_path)
 
             if not blob.exists():
                 raise FileNotFoundError(f"File not found in GCS: {file_id}")
@@ -269,7 +281,9 @@ class GCSProvider(StorageProvider):
     def delete(self, file_id: str) -> bool:
         """Delete file from GCS"""
         try:
-            blob = self.bucket.blob(file_id)
+            # Strip gs:// prefix if present
+            blob_path = self._strip_gs_prefix(file_id)
+            blob = self.bucket.blob(blob_path)
 
             if not blob.exists():
                 logger.warning(f"File not found for deletion: {file_id}")
@@ -286,7 +300,9 @@ class GCSProvider(StorageProvider):
     def get_url(self, file_id: str, expires_in: Optional[int] = None) -> str:
         """Get file URL (public or signed)"""
         try:
-            blob = self.bucket.blob(file_id)
+            # Strip gs:// prefix if present
+            blob_path = self._strip_gs_prefix(file_id)
+            blob = self.bucket.blob(blob_path)
 
             if not blob.exists():
                 raise FileNotFoundError(f"File not found in GCS: {file_id}")
@@ -365,7 +381,9 @@ class GCSProvider(StorageProvider):
     ) -> bool:
         """Update file metadata"""
         try:
-            blob = self.bucket.blob(file_id)
+            # Strip gs:// prefix if present
+            blob_path = self._strip_gs_prefix(file_id)
+            blob = self.bucket.blob(blob_path)
 
             if not blob.exists():
                 logger.warning(f"File not found for metadata update: {file_id}")
@@ -393,7 +411,9 @@ class GCSProvider(StorageProvider):
     def get_metadata(self, file_id: str) -> Optional[FileMetadata]:
         """Get file metadata"""
         try:
-            blob = self.bucket.blob(file_id)
+            # Strip gs:// prefix if present
+            blob_path = self._strip_gs_prefix(file_id)
+            blob = self.bucket.blob(blob_path)
 
             if not blob.exists():
                 return None
@@ -423,7 +443,9 @@ class GCSProvider(StorageProvider):
     ) -> bool:
         """Move file to different category/folder"""
         try:
-            source_blob = self.bucket.blob(file_id)
+            # Strip gs:// prefix if present
+            blob_path = self._strip_gs_prefix(file_id)
+            source_blob = self.bucket.blob(blob_path)
 
             if not source_blob.exists():
                 logger.warning(f"Source file not found: {file_id}")
@@ -451,7 +473,9 @@ class GCSProvider(StorageProvider):
     def exists(self, file_id: str) -> bool:
         """Check if file exists"""
         try:
-            blob = self.bucket.blob(file_id)
+            # Strip gs:// prefix if present
+            blob_path = self._strip_gs_prefix(file_id)
+            blob = self.bucket.blob(blob_path)
             return blob.exists()
         except Exception as e:
             logger.error(f"GCS exists check failed: {e}")
