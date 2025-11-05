@@ -364,22 +364,40 @@ def preview_photo(
     photo_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service)
 ):
-    """Get photo preview"""
+    """Get photo preview - supports both local and cloud storage (GCS, S3, etc.)"""
     photo = service.photo_repo.get_by_id(str(photo_id))
     if not photo:
         raise HTTPException(status_code=404, detail="Photo not found")
 
-    # Get file path
-    file_path = Path(photo.get('file_path') if isinstance(photo, dict) else photo.file_path)
-
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Photo file not found on disk")
-
+    # Extract photo properties
+    storage_provider = photo.get('storage_provider') if isinstance(photo, dict) else photo.storage_provider
+    file_path = photo.get('file_path') if isinstance(photo, dict) else photo.file_path
     mime_type = photo.get('mime_type') if isinstance(photo, dict) else photo.mime_type
     media_type = mime_type or 'image/jpeg'
 
+    # Handle cloud storage (GCS, S3, etc.) - redirect to signed URL
+    if storage_provider and storage_provider != 'local':
+        try:
+            from ..storage.factory import StorageFactory
+            storage = StorageFactory.get_instance(storage_provider)
+
+            # Get signed URL (valid for 1 hour)
+            signed_url = storage.get_url(file_path, expires_in=3600)
+
+            # Redirect to signed URL
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url=signed_url, status_code=302)
+        except Exception as e:
+            logger.error(f"Failed to generate signed URL for photo {photo_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to access photo: {str(e)}")
+
+    # Handle local storage - serve file directly
+    local_file_path = Path(file_path)
+    if not local_file_path.exists():
+        raise HTTPException(status_code=404, detail="Photo file not found on disk")
+
     return FileResponse(
-        path=str(file_path),
+        path=str(local_file_path),
         media_type=media_type,
         headers={"Content-Disposition": "inline"}
     )
