@@ -107,6 +107,12 @@ class CompanyCamClient:
                 # Try multiple possible field names from CompanyCam API
                 photo_url = None
 
+                # Log photo_url field value for debugging
+                logger.debug(
+                    f"CompanyCam photo {photo_id} photo_url field value: "
+                    f"{photo_data.get('photo_url')}"
+                )
+
                 # Try direct URL fields first
                 photo_url = (
                     photo_data.get('uri') or
@@ -118,9 +124,9 @@ class CompanyCamClient:
                 # Handle 'uris' field which can be dict or list
                 if not photo_url and 'uris' in photo_data:
                     uris = photo_data['uris']
-                    logger.debug(
-                        f"CompanyCam photo {photo_id} uris type: "
-                        f"{type(uris)}, value: {uris}"
+                    logger.info(
+                        f"CompanyCam photo {photo_id} uris structure: "
+                        f"type={type(uris)}, value={uris}"
                     )
 
                     if isinstance(uris, dict):
