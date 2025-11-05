@@ -148,28 +148,36 @@ async def companycam_webhook(
 
     # Process event immediately (Render deployment: background tasks may not complete)
     # In production, webhooks need immediate processing to ensure completion
-    if event_type == "photo.created":
-        await process_photo_created_event(
-            str(webhook_event.id),
-            payload
-        )
-    elif event_type == "project.created":
-        await process_project_created_event(
-            str(webhook_event.id),
-            payload
-        )
-    elif event_type == "project.updated":
-        await process_project_updated_event(
-            str(webhook_event.id),
-            payload
-        )
-    else:
-        # Unknown event type - mark as ignored
-        webhook_event.status = "ignored"
+    try:
+        if event_type == "photo.created":
+            await process_photo_created_event(
+                str(webhook_event.id),
+                payload
+            )
+        elif event_type == "project.created":
+            await process_project_created_event(
+                str(webhook_event.id),
+                payload
+            )
+        elif event_type == "project.updated":
+            await process_project_updated_event(
+                str(webhook_event.id),
+                payload
+            )
+        else:
+            # Unknown event type - mark as ignored
+            webhook_event.status = "ignored"
+            webhook_event.processed_at = datetime.utcnow()
+            webhook_event.error_message = f"Unsupported event type: {event_type}"
+            db.commit()
+            logger.info(f"⏭️ Ignored unsupported event type: {event_type}")
+    except Exception as e:
+        # Log error but don't fail the webhook response
+        logger.error(f"❌ Error processing webhook {webhook_event.id}: {e}", exc_info=True)
+        webhook_event.status = "failed"
         webhook_event.processed_at = datetime.utcnow()
-        webhook_event.error_message = f"Unsupported event type: {event_type}"
+        webhook_event.error_message = str(e)
         db.commit()
-        logger.info(f"⏭️ Ignored unsupported event type: {event_type}")
 
     return {"status": "ok", "event_id": str(webhook_event.id)}
 
