@@ -218,7 +218,19 @@ async def process_photo_created_event(
                 user_data = payload.get("user", payload["payload"].get("user", {}))
 
                 # Extract project_id from photo if not in project object
-                project_id = project_data.get("id") or photo_data.get("project_id", 0)
+                # Use photo_data.project_id first (more reliable), fallback to project_data.id
+                project_id = photo_data.get("project_id") or project_data.get("id") or 0
+                # Convert to int and validate (0 is invalid)
+                try:
+                    project_id = int(project_id) if project_id else 0
+                except (ValueError, TypeError):
+                    project_id = 0
+
+                # Log for debugging
+                if project_id == 0:
+                    logger.warning(f"Invalid project_id detected. photo_data.project_id={photo_data.get('project_id')}, project_data.id={project_data.get('id')}")
+                    logger.debug(f"Full photo_data keys: {list(photo_data.keys())}")
+                    logger.debug(f"Full project_data: {project_data}")
 
                 # Extract URIs from list format to dict format
                 uris = {}

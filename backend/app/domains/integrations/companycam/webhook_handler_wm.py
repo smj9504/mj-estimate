@@ -593,8 +593,14 @@ class CompanyCamWaterMitigationHandler:
         )
 
         try:
-            # Step 1: Get project ID
-            companycam_project_id = str(webhook_data.project.id)
+            # Step 1: Get project ID (prefer photo.project_id over project.id)
+            companycam_project_id = str(webhook_data.photo.project_id if hasattr(webhook_data.photo, 'project_id') else webhook_data.project.id)
+
+            # Validate project_id (0 or "0" is invalid)
+            if not companycam_project_id or companycam_project_id == "0" or int(companycam_project_id) == 0:
+                logger.error(f"Invalid project_id: {companycam_project_id} for photo {webhook_data.photo.id}")
+                result.error_message = "Invalid or missing project_id in webhook"
+                return result
 
             # Step 2: Try to find existing job by CompanyCam project ID first
             job_by_project = self.wm_service.get_by_companycam_project(companycam_project_id)
