@@ -8,12 +8,13 @@ Handles all API communication with CompanyCam:
 - Webhook signature verification
 """
 
-import httpx
-import hmac
-import hashlib
 import base64
-from typing import Optional, Dict, Any
+import hashlib
+import hmac
 import logging
+from typing import Any, Dict, Optional
+
+import httpx
 
 from app.core.config import settings
 
@@ -97,28 +98,79 @@ class CompanyCamClient:
                 photo_data = response.json()
 
                 # Log full response to understand structure
-                logger.debug(f"CompanyCam photo {photo_id} response keys: {list(photo_data.keys())}")
+                logger.debug(
+                    f"CompanyCam photo {photo_id} response keys: "
+                    f"{list(photo_data.keys())}"
+                )
 
                 # Extract photo URL from response
                 # Try multiple possible field names from CompanyCam API
+                photo_url = None
+
+                # Try direct URL fields first
                 photo_url = (
                     photo_data.get('uri') or
                     photo_data.get('url') or
-                    photo_data.get('uris', {}).get('original') or
-                    photo_data.get('uris', {}).get('large') or
+                    photo_data.get('photo_url') or
                     photo_data.get('image_url')
                 )
 
+                # Handle 'uris' field which can be dict or list
+                if not photo_url and 'uris' in photo_data:
+                    uris = photo_data['uris']
+                    logger.debug(
+                        f"CompanyCam photo {photo_id} uris type: "
+                        f"{type(uris)}, value: {uris}"
+                    )
+
+                    if isinstance(uris, dict):
+                        # Handle dict structure
+                        photo_url = (
+                            uris.get('original') or
+                            uris.get('large') or
+                            uris.get('medium')
+                        )
+                    elif isinstance(uris, list) and len(uris) > 0:
+                        # Handle list structure - find best quality
+                        for uri_item in uris:
+                            if isinstance(uri_item, dict):
+                                # Look for 'original' or 'large'
+                                if (uri_item.get('size') == 'original' or
+                                        uri_item.get('type') == 'original'):
+                                    photo_url = (
+                                        uri_item.get('uri') or
+                                        uri_item.get('url')
+                                    )
+                                    break
+                        # If no 'original' found, take first one
+                        if not photo_url and isinstance(uris[0], dict):
+                            photo_url = (
+                                uris[0].get('uri') or
+                                uris[0].get('url')
+                            )
+                        elif not photo_url and isinstance(uris[0], str):
+                            photo_url = uris[0]
+
                 if not photo_url:
-                    logger.warning(f"No photo URL found in CompanyCam photo {photo_id} response. Available keys: {list(photo_data.keys())}")
+                    logger.warning(
+                        f"No photo URL found in CompanyCam photo "
+                        f"{photo_id} response. Available keys: "
+                        f"{list(photo_data.keys())}"
+                    )
                     logger.debug(f"Full response data: {photo_data}")
                     return None
 
-                logger.info(f"Successfully retrieved CompanyCam photo URL for {photo_id}")
+                logger.info(
+                    f"Successfully retrieved CompanyCam photo URL "
+                    f"for {photo_id}"
+                )
                 return photo_url
 
         except httpx.HTTPError as e:
-            logger.error(f"Failed to get photo URL for {photo_id} from CompanyCam: {e}")
+            logger.error(
+                f"Failed to get photo URL for {photo_id} "
+                f"from CompanyCam: {e}"
+            )
             raise
 
     async def get_project(self, project_id: int) -> Dict[str, Any]:
