@@ -212,8 +212,13 @@ async def process_photo_created_event(
             if "payload" in payload and "photo" in payload["payload"]:
                 # Convert new format to legacy PhotoCreatedWebhook format
                 photo_data = payload["payload"]["photo"]
+                # In new format, project info is nested under payload.payload.project
+                # But project_id is also in photo_data.project_id
                 project_data = payload["payload"].get("project", {})
                 user_data = payload.get("user", payload["payload"].get("user", {}))
+
+                # Extract project_id from photo if not in project object
+                project_id = project_data.get("id") or photo_data.get("project_id", 0)
 
                 # Extract URIs from list format to dict format
                 uris = {}
@@ -227,8 +232,8 @@ async def process_photo_created_event(
                     "type": "photo.created",  # Add required 'type' field
                     "photo": {
                         "id": int(photo_data.get("id", 0)),
-                        "project_id": int(project_data.get("id", 0)),
-                        "creator_id": int(user_data.get("id", 0)),
+                        "project_id": int(project_id) if project_id else 0,
+                        "creator_id": int(photo_data.get("creator_id") or user_data.get("id", 0)),
                         "photo_description": photo_data.get("description"),
                         "uris": {
                             "original": uris.get("original", ""),
@@ -243,10 +248,10 @@ async def process_photo_created_event(
                         "updated_at": photo_data.get("updated_at", photo_data.get("created_at"))
                     },
                     "project": {
-                        "id": int(project_data.get("id", 0)),
-                        "name": project_data.get("name"),
+                        "id": int(project_id) if project_id else 0,
+                        "name": project_data.get("name") or photo_data.get("project_name"),
                         "address": project_data.get("address", {}),
-                        "coordinates": project_data.get("coordinates")
+                        "coordinates": project_data.get("coordinates") or photo_data.get("coordinates")
                     },
                     "user": {
                         "id": int(user_data.get("id", 0)),

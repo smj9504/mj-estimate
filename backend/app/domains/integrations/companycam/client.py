@@ -139,7 +139,16 @@ class CompanyCamClient:
         """
         try:
             result = await self.list_project_photos(project_id, page=1, per_page=limit)
-            return result.get("data", [])
+
+            # Handle both direct list response and paginated dict response
+            if isinstance(result, list):
+                return result
+            elif isinstance(result, dict):
+                return result.get("data", [])
+            else:
+                logger.warning(f"Unexpected response type from CompanyCam API: {type(result)}")
+                return []
+
         except Exception as e:
             logger.error(f"Failed to get photos for project {project_id}: {e}")
             return []

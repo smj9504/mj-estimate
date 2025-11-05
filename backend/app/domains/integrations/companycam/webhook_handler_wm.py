@@ -593,12 +593,10 @@ class CompanyCamWaterMitigationHandler:
         )
 
         try:
-            # Step 1: Parse address from project
-            address_info = parse_companycam_address(webhook_data.project)
-            logger.info(f"Parsed address: {address_info.full_address}")
+            # Step 1: Get project ID
+            companycam_project_id = str(webhook_data.project.id)
 
             # Step 2: Try to find existing job by CompanyCam project ID first
-            companycam_project_id = str(webhook_data.project.id)
             job_by_project = self.wm_service.get_by_companycam_project(companycam_project_id)
 
             if job_by_project:
@@ -614,6 +612,27 @@ class CompanyCamWaterMitigationHandler:
                 )
             else:
                 # No existing job found by project ID
+                # Fetch full project details from CompanyCam API to get address
+                logger.info(f"No existing job found. Fetching project details from CompanyCam API...")
+
+                try:
+                    project_details = await self.companycam_client.get_project(int(companycam_project_id))
+                    if not project_details:
+                        logger.error(f"Failed to fetch project {companycam_project_id} from CompanyCam API")
+                        result.error_message = "Failed to fetch project details from CompanyCam"
+                        return result
+
+                    # Parse address from fetched project details
+                    from .schemas import ProjectData
+                    project_obj = ProjectData(**project_details)
+                    address_info = parse_companycam_address(project_obj)
+                    logger.info(f"Parsed address from API: {address_info.full_address}")
+
+                except Exception as e:
+                    logger.error(f"Error fetching project from CompanyCam: {e}")
+                    result.error_message = f"Error fetching project: {str(e)}"
+                    return result
+
                 if not address_info.is_complete:
                     logger.warning(f"Incomplete address from project {companycam_project_id} and no existing job found")
                     result.error_message = "Incomplete address information and no existing job"
