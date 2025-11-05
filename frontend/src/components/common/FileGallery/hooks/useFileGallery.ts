@@ -3,6 +3,7 @@ import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tansta
 import { message } from 'antd';
 import { FileItem, FileContext, FileCategory } from '../types';
 import { fileService } from '../../../../services/fileService';
+import api from '../../../../services/api';
 
 interface UseFileGalleryProps {
   context: FileContext;
@@ -34,18 +35,15 @@ export const useFileGallery = ({
 
       // Use pagination API for water-mitigation photos
       if (context === 'water-mitigation' && fileCategory === 'image') {
-        const params = new URLSearchParams({
-          page: String(pageParam),
-          page_size: String(pageSize),
+        const params = {
+          page: pageParam,
+          page_size: pageSize,
           sort_by: 'captured_date',
           sort_order: 'desc'
-        });
+        };
 
-        const response = await fetch(`/api/water-mitigation/jobs/${contextId}/photos?${params}`);
-        if (!response.ok) {
-          throw new Error(`Failed to load photos: ${response.status}`);
-        }
-        const data = await response.json();
+        const response = await api.get(`/api/water-mitigation/jobs/${contextId}/photos`, { params });
+        const data = response.data;
 
         // Convert to FileItem format
         const items = data.items.map((photo: any) => {
