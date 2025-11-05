@@ -364,20 +364,49 @@ def preview_photo(
     photo_id: UUID,
     service: WaterMitigationService = Depends(get_wm_service)
 ):
-    """Get photo preview - supports both local and cloud storage (GCS, S3, etc.)"""
+    """Get photo preview - supports CompanyCam, local, and cloud storage"""
     photo = service.photo_repo.get_by_id(str(photo_id))
-    logger.debug(f"Photo lookup result for {photo_id}: {photo}")
-    logger.debug(f"Photo type: {type(photo)}, is_none: {photo is None}, is_dict: {isinstance(photo, dict)}, dict_keys: {list(photo.keys()) if isinstance(photo, dict) else 'N/A'}")
 
     if photo is None:
         logger.warning(f"Photo not found in database for ID: {photo_id}")
         raise HTTPException(status_code=404, detail="Photo not found")
 
     # Extract photo properties
+    source = photo.get('source') if isinstance(photo, dict) else photo.source
+    external_id = photo.get('external_id') if isinstance(photo, dict) else photo.external_id
     storage_provider = photo.get('storage_provider') if isinstance(photo, dict) else photo.storage_provider
     file_path = photo.get('file_path') if isinstance(photo, dict) else photo.file_path
     mime_type = photo.get('mime_type') if isinstance(photo, dict) else photo.mime_type
     media_type = mime_type or 'image/jpeg'
+
+    # Handle CompanyCam photos - redirect to CompanyCam URL
+    if source == 'companycam' and external_id:
+        try:
+            from ..integrations.companycam.client import CompanyCamClient
+            from app.core.config import settings
+
+            if not settings.ENABLE_INTEGRATIONS or not settings.COMPANYCAM_API_KEY:
+                logger.error(f"CompanyCam integration disabled or API key missing for photo {photo_id}")
+                raise HTTPException(status_code=503, detail="CompanyCam integration not available")
+
+            # Get CompanyCam photo URL
+            companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
+            photo_url = companycam_client.get_photo_url(external_id)
+
+            if not photo_url:
+                logger.error(f"Failed to get CompanyCam URL for external_id: {external_id}")
+                raise HTTPException(status_code=404, detail="CompanyCam photo URL not found")
+
+            # Redirect to CompanyCam URL
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url=photo_url, status_code=302)
+
+        except ImportError:
+            logger.error(f"CompanyCam integration not available for photo {photo_id}")
+            raise HTTPException(status_code=503, detail="CompanyCam integration not available")
+        except Exception as e:
+            logger.error(f"Failed to get CompanyCam photo URL for {photo_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to access CompanyCam photo: {str(e)}")
 
     # Handle cloud storage (GCS, S3, etc.) - redirect to signed URL
     if storage_provider and storage_provider != 'local':
@@ -398,6 +427,7 @@ def preview_photo(
     # Handle local storage - serve file directly
     local_file_path = Path(file_path)
     if not local_file_path.exists():
+        logger.error(f"Local file not found for photo {photo_id}: {file_path}")
         raise HTTPException(status_code=404, detail="Photo file not found on disk")
 
     return FileResponse(

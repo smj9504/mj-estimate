@@ -75,6 +75,40 @@ class CompanyCamClient:
             logger.error(f"Failed to get photo {photo_id} from CompanyCam: {e}")
             raise
 
+    def get_photo_url(self, photo_id: str) -> Optional[str]:
+        """
+        Get photo URL from CompanyCam (synchronous)
+
+        Args:
+            photo_id: CompanyCam photo ID (as string)
+
+        Returns:
+            Photo URL or None if not found
+
+        Raises:
+            httpx.HTTPError: If API request fails
+        """
+        url = f"{self.base_url}/photos/{photo_id}"
+
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.get(url, headers=self.headers)
+                response.raise_for_status()
+                photo_data = response.json()
+
+                # Extract photo URL from response
+                # CompanyCam API returns "uri" field with the photo URL
+                photo_url = photo_data.get('uri') or photo_data.get('url')
+                if not photo_url:
+                    logger.warning(f"No URI/URL found in CompanyCam photo {photo_id} response")
+                    return None
+
+                return photo_url
+
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to get photo URL for {photo_id} from CompanyCam: {e}")
+            raise
+
     async def get_project(self, project_id: int) -> Dict[str, Any]:
         """
         Get project details from CompanyCam
