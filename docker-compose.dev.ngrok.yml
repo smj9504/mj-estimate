@@ -1,0 +1,63 @@
+# Docker Compose - 개발 환경 with ngrok
+version: '3.8'
+
+services:
+  # 백엔드 서비스
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - COMPANYCAM_API_KEY=${COMPANYCAM_API_KEY}
+      - COMPANYCAM_WEBHOOK_TOKEN=${COMPANYCAM_WEBHOOK_TOKEN}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - app-network
+
+  # ngrok 서비스 (고정 도메인 사용)
+  ngrok:
+    image: ngrok/ngrok:latest
+    restart: unless-stopped
+    command:
+      - "start"
+      - "--all"
+      - "--config"
+      - "/etc/ngrok.yml"
+    volumes:
+      - ./ngrok.yml:/etc/ngrok.yml
+    ports:
+      - "4040:4040"  # ngrok 웹 인터페이스
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTH_TOKEN}
+    networks:
+      - app-network
+    depends_on:
+      - backend
+
+  # Webhook 자동 등록 서비스
+  webhook-updater:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    volumes:
+      - ./backend:/app
+    environment:
+      - COMPANYCAM_API_KEY=${COMPANYCAM_API_KEY}
+      - COMPANYCAM_WEBHOOK_TOKEN=${COMPANYCAM_WEBHOOK_TOKEN}
+      - NGROK_DOMAIN=${NGROK_DOMAIN}
+    command: python /app/tests/auto_update_webhook.py
+    networks:
+      - app-network
+    depends_on:
+      - ngrok
+
+networks:
+  app-network:
+    driver: bridge
+

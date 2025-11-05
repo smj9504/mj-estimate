@@ -8,26 +8,27 @@ Processes incoming webhook events from CompanyCam:
 - Slack notifications
 """
 
-import logging
 import asyncio
-from typing import Optional, Dict
+import logging
 from datetime import datetime, timedelta
-from sqlalchemy.orm import Session
+from typing import Dict, Optional
 from uuid import UUID
 
+from sqlalchemy.orm import Session
+
+from ...water_mitigation.schemas import WaterMitigationJobCreate
+from ...water_mitigation.service import WaterMitigationService
+from ..models import CompanyCamPhoto, WebhookEvent
+from ..slack.client import SlackClient
+from .client import CompanyCamClient
 from .schemas import (
+    AddressInfo,
     PhotoCreatedWebhook,
+    PhotoProcessingResult,
     ProjectCreatedWebhook,
     WorkOrderMatch,
-    PhotoProcessingResult,
-    AddressInfo
 )
-from .client import CompanyCamClient
-from .utils import parse_companycam_address, match_addresses, extract_photo_filename
-from ..models import WebhookEvent, CompanyCamPhoto
-from ...water_mitigation.service import WaterMitigationService
-from ...water_mitigation.schemas import WaterMitigationJobCreate
-from ..slack.client import SlackClient
+from .utils import extract_photo_filename, match_addresses, parse_companycam_address
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ class CompanyCamWaterMitigationHandler:
             job = wm_service.get_by_id(job_id)
 
             if job:
-                from ..slack.schemas import SlackMessage, SlackBlock
+                from ..slack.schemas import SlackBlock, SlackMessage
 
                 # Handle both dict and model object
                 property_address = job.get('property_address') if isinstance(job, dict) else job.property_address
@@ -384,7 +385,7 @@ class CompanyCamWaterMitigationHandler:
             # (If photos exist, delayed batch notification will send combined message)
             if photos_processed == 0:
                 try:
-                    from ..slack.schemas import SlackMessage, SlackBlock
+                    from ..slack.schemas import SlackBlock, SlackMessage
 
                     slack_message = SlackMessage(
                         text=f"🆕 New Water Mitigation Lead Created",
@@ -529,8 +530,11 @@ class CompanyCamWaterMitigationHandler:
             PhotoCreatedWebhook object
         """
         from .schemas import (
-            PhotoData, ProjectData, UserData,
-            PhotoCoordinates, PhotoURIs
+            PhotoCoordinates,
+            PhotoData,
+            PhotoURIs,
+            ProjectData,
+            UserData,
         )
 
         # Build PhotoCreatedWebhook structure
@@ -691,7 +695,7 @@ class CompanyCamWaterMitigationHandler:
                     # Send batched notification with photo count
                     job = self.wm_service.get_by_id(job_id)
                     if job:
-                        from ..slack.schemas import SlackMessage, SlackBlock
+                        from ..slack.schemas import SlackBlock, SlackMessage
 
                         # Handle both dict and model object
                         property_address = job.get('property_address') if isinstance(job, dict) else job.property_address
@@ -1018,6 +1022,142 @@ class CompanyCamWaterMitigationHandler:
             uploaded_by=webhook_data.user.name,
             is_new_job=is_new_job
         )
+
+    async def handle_project_deleted(
+        self,
+        webhook_data: dict,
+        webhook_event_id: Optional[UUID] = None
+    ) -> dict:
+        """
+        Handle project.deleted webhook event for Water Mitigation
+
+        When a project is deleted in CompanyCam, mark the corresponding
+        Water Mitigation lead as inactive.
+
+        Args:
+            webhook_data: Raw webhook payload dict
+            webhook_event_id: ID of webhook event record
+
+        Returns:
+            Processing result with status
+        """
+        logger.info("Processing project.deleted event for Water Mitigation")
+
+        result = {
+            "success": False,
+            "job_id": None,
+            "job_deactivated": False,
+            "error_message": None
+        }
+
+        try:
+            # Extract project info
+            project_data = webhook_data.get("payload", {}).get("project", {})
+            project_id = project_data.get("id")
+
+            if not project_id:
+                logger.warning("No project ID in webhook payload")
+                result["error_message"] = "No project ID in webhook"
+                return result
+
+            companycam_project_id = str(project_id)
+            logger.info(f"Project deleted: {companycam_project_id}")
+
+            # Find water mitigation job by CompanyCam project ID
+            job = self.wm_service.get_by_companycam_project(companycam_project_id)
+
+            if not job:
+                logger.info(f"No water mitigation job found for project {companycam_project_id}")
+                result["success"] = True
+                result["error_message"] = "No job found for this project"
+                return result
+
+            # Get job ID (handle both dict and model object)
+            job_id = job.get('id') if isinstance(job, dict) else job.id
+
+            # Mark job as inactive
+            updated_job = self.wm_service.toggle_job_active(
+                job_id=job_id,
+                active=False,
+                updated_by_id=None  # System update
+            )
+
+            if updated_job:
+                logger.info(
+                    f"✅ Marked water mitigation job {job_id} as inactive "
+                    "due to CompanyCam project deletion"
+                )
+                result["success"] = True
+                result["job_id"] = str(job_id)
+                result["job_deactivated"] = True
+
+                # Update webhook event status
+                if webhook_event_id:
+                    self._update_webhook_event(
+                        webhook_event_id,
+                        status="completed",
+                        related_entity_type="water_mitigation_job",
+                        related_entity_id=job_id
+                    )
+
+                # Send Slack notification
+                try:
+                    from ..slack.schemas import SlackBlock, SlackMessage
+
+                    # Handle both dict and model object
+                    property_address = job.get('property_address') if isinstance(job, dict) else job.property_address
+                    status_value = job.get('status') if isinstance(job, dict) else job.status
+
+                    slack_message = SlackMessage(
+                        text="⚠️ Water Mitigation Lead Marked Inactive",
+                        blocks=[
+                            SlackBlock(
+                                type="section",
+                                text={
+                                    "type": "mrkdwn",
+                                    "text": (
+                                        "*CompanyCam Project Deleted*\n"
+                                        f"• Job Address: {property_address}\n"
+                                        f"• Status: {status_value}\n"
+                                        "• Job marked as: Inactive\n"
+                                        "• Reason: CompanyCam project deleted"
+                                    )
+                                }
+                            )
+                        ]
+                    )
+
+                    success = await self.slack_client.send_message(
+                        slack_message
+                    )
+                    if success:
+                        logger.info(
+                            "✅ Sent Slack notification for project deletion"
+                        )
+                    else:
+                        logger.warning(
+                            "⚠️ Failed to send Slack notification"
+                        )
+
+                except Exception as e:
+                    logger.error(f"Failed to send Slack notification: {e}", exc_info=True)
+
+            else:
+                logger.error(f"Failed to mark job {job_id} as inactive")
+                result["error_message"] = "Failed to update job status"
+
+        except Exception as e:
+            logger.error(f"Error processing project.deleted webhook: {e}", exc_info=True)
+            result["error_message"] = str(e)
+
+            if webhook_event_id:
+                self._update_webhook_event(
+                    webhook_event_id,
+                    status="failed",
+                    error_message=str(e)
+                )
+
+        return result
 
     def _update_webhook_event(
         self,

@@ -7,29 +7,31 @@ Handles webhooks and API calls for external service integrations:
 - Google Sheets sync (future)
 """
 
-from fastapi import APIRouter, Request, Depends, HTTPException, status, BackgroundTasks
-from sqlalchemy.orm import Session
-from typing import Optional, List
-from datetime import datetime, timedelta
-import logging
 import json
+import logging
+from datetime import datetime, timedelta
+from typing import List, Optional
 
-from app.core.database_factory import get_database
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from sqlalchemy.orm import Session
+
 from app.core.config import settings
-from .schemas import (
-    WebhookEventCreate,
-    WebhookEventResponse,
-    IntegrationHealthCheck,
-    IntegrationStats
-)
-from .models import WebhookEvent, CompanyCamPhoto
+from app.core.database_factory import get_database
+
 from .companycam.client import CompanyCamClient
-from .companycam.webhook_handler_wm import CompanyCamWaterMitigationHandler
 from .companycam.schemas import (
+    CompanyCamPhotoResponse,
+    CompanyCamStatsResponse,
     PhotoCreatedWebhook,
     ProjectCreatedWebhook,
-    CompanyCamPhotoResponse,
-    CompanyCamStatsResponse
+)
+from .companycam.webhook_handler_wm import CompanyCamWaterMitigationHandler
+from .models import CompanyCamPhoto, WebhookEvent
+from .schemas import (
+    IntegrationHealthCheck,
+    IntegrationStats,
+    WebhookEventCreate,
+    WebhookEventResponse,
 )
 from .slack.client import SlackClient
 
@@ -76,11 +78,12 @@ async def companycam_webhook(
     - `photo.created` - New photo uploaded to CompanyCam project
     - `project.created` - New project created in CompanyCam
     - `project.updated` - Project updated (may include new photos)
+    - `project.deleted` - Project deleted in CompanyCam (marks lead as inactive)
 
     **CompanyCam Setup:**
     1. Go to CompanyCam Settings → API & Webhooks
     2. Create webhook: `https://your-domain.com/api/integrations/companycam/webhook`
-    3. Subscribe to events: `photo.created`, `project.created`, `project.updated`
+    3. Subscribe to events: `photo.created`, `project.created`, `project.updated`, `project.deleted`
     4. Configure `COMPANYCAM_WEBHOOK_TOKEN` in environment
     """
     # Get raw request body for signature verification
@@ -118,7 +121,7 @@ async def companycam_webhook(
             payload.get("payload", {}).get("photo", {}).get("id") or
             payload.get("photo", {}).get("id", "")
         )
-    elif event_type in ["project.created", "project.updated"]:
+    elif event_type in ["project.created", "project.updated", "project.deleted"]:
         # New format: payload.payload.project.id
         # Legacy format: payload.project.id
         event_id = str(
@@ -161,6 +164,11 @@ async def companycam_webhook(
             )
         elif event_type == "project.updated":
             await process_project_updated_event(
+                str(webhook_event.id),
+                payload
+            )
+        elif event_type == "project.deleted":
+            await process_project_deleted_event(
                 str(webhook_event.id),
                 payload
             )
@@ -452,6 +460,66 @@ async def process_project_updated_event(
 
     except Exception as e:
         logger.error(f"❌ Error processing project.updated webhook: {e}", exc_info=True)
+
+        # Update webhook event status to failed
+        if db:
+            try:
+                webhook_event = db.query(WebhookEvent).filter(
+                    WebhookEvent.id == webhook_event_id
+                ).first()
+                if webhook_event:
+                    webhook_event.status = "failed"
+                    webhook_event.error_message = str(e)
+                    webhook_event.processed_at = datetime.utcnow()
+                    db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to update webhook event status: {db_error}")
+
+    finally:
+        # Always close DB session
+        if db:
+            db.close()
+
+
+async def process_project_deleted_event(
+    webhook_event_id: str,
+    payload: dict
+):
+    """
+    Process project.deleted webhook event for Water Mitigation (background task)
+
+    When a CompanyCam project is deleted:
+    1. Find the corresponding Water Mitigation job
+    2. Mark the job as inactive (active=False)
+    3. Send Slack notification
+
+    Args:
+        webhook_event_id: Webhook event ID
+        payload: Webhook payload
+    """
+    db = None
+    try:
+        # Create new DB session for background task
+        database = get_database()
+        db = database.get_session()
+
+        logger.info(f"⚙️ Processing project.deleted event (Webhook: {webhook_event_id})")
+
+        # Process with Water Mitigation webhook handler
+        handler = CompanyCamWaterMitigationHandler(db)
+        result = await handler.handle_project_deleted(
+            payload,
+            webhook_event_id=webhook_event_id
+        )
+
+        if result.get("success"):
+            logger.info(f"✅ Project.deleted webhook processed: Job ID {result.get('job_id')}, "
+                       f"Deactivated: {result.get('job_deactivated')}")
+        else:
+            logger.warning(f"⚠️ Project.deleted processed with warning: {result.get('error_message')}")
+
+    except Exception as e:
+        logger.error(f"❌ Error processing project.deleted webhook: {e}", exc_info=True)
 
         # Update webhook event status to failed
         if db:

@@ -1,0 +1,25 @@
+# ngrok 설정 파일
+# https://ngrok.com/docs/agent/config/
+
+version: "2"
+authtoken: ${NGROK_AUTHTOKEN}
+
+tunnels:
+  backend:
+    addr: backend:8000
+    proto: http
+    # 무료 버전: 랜덤 URL (매번 변경됨)
+    # 유료 버전: 아래 domain 설정으로 고정 도메인 사용 가능
+    # domain: your-fixed-domain.ngrok-free.app
+    
+    # 기본 헤더 추가
+    request_header:
+      add:
+        - "ngrok-skip-browser-warning: true"
+    
+    # 압축 활성화
+    compression: true
+
+# 웹 인터페이스 설정
+web_addr: 0.0.0.0:4040
+
