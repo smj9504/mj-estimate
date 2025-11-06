@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
+from app.domains.auth.dependencies import get_current_user
 from .schemas import (
     JobCreate,
     JobUpdate,
