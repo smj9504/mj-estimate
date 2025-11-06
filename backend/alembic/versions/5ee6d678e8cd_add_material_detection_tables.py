@@ -33,6 +33,35 @@ def upgrade() -> None:
         ))
         conn.commit()
 
+    # Check if material_detection_jobs table exists
+    result = conn.execute(sa.text(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+        "WHERE table_name = 'material_detection_jobs')"
+    ))
+    table_exists = result.scalar()
+
+    if table_exists:
+        # Table already exists, just ensure status column uses jobstatus enum
+        # Check if status column is already jobstatus type
+        result = conn.execute(sa.text(
+            "SELECT data_type FROM information_schema.columns "
+            "WHERE table_name = 'material_detection_jobs' "
+            "AND column_name = 'status'"
+        ))
+        current_type = result.scalar()
+
+        if current_type != 'USER-DEFINED':
+            # Convert status column to jobstatus enum
+            conn.execute(sa.text(
+                "ALTER TABLE material_detection_jobs "
+                "ALTER COLUMN status TYPE jobstatus "
+                "USING status::jobstatus"
+            ))
+            conn.commit()
+
+        # Skip table creation, it already exists
+        return
+
     # Create material_detection_jobs table
     # Use PostgreSQL's native type reference
     # to avoid re-creating the ENUM
