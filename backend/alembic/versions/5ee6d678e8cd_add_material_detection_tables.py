@@ -19,11 +19,15 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Create JobStatus enum if it doesn't exist
+    jobstatus_enum = postgresql.ENUM('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', name='jobstatus', create_type=False)
+    jobstatus_enum.create(op.get_bind(), checkfirst=True)
+
     # Create material_detection_jobs table
     op.create_table(
         'material_detection_jobs',
         sa.Column('job_name', sa.String(length=255), nullable=True),
-        sa.Column('status', sa.Enum('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', name='jobstatus'), nullable=False),
+        sa.Column('status', sa.Enum('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', name='jobstatus', create_type=False), nullable=False),
         sa.Column('reconstruction_estimate_id', UUIDType(length=36), nullable=True),
         sa.Column('provider', sa.String(length=50), nullable=True),
         sa.Column('confidence_threshold', sa.DECIMAL(precision=3, scale=2), nullable=True),
