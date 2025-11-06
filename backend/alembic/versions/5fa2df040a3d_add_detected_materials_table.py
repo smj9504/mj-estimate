@@ -87,10 +87,9 @@ def upgrade() -> None:
         sa.Column('pricing_notes', sa.Text(), nullable=True),
         sa.Column('gpt4_response', sa.JSON(), nullable=True),
 
-        sa.ForeignKeyConstraint(
-            ['training_image_id'],
-            ['training_images.id'],
-        ),
+        # Note: No foreign key constraint on training_image_id
+        # This table may reference images that don't exist in training_images
+        # or may use a different ID system
         sa.PrimaryKeyConstraint('id')
     )
 
