@@ -36,6 +36,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
         // Edit mode - populate form with job data
         form.setFieldsValue({
           property_address: job.property_address,
+          companycam_project_id: job.companycam_project_id,
           homeowner_name: job.homeowner_name,
           homeowner_phone: job.homeowner_phone,
           homeowner_email: job.homeowner_email,
@@ -138,6 +139,15 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
           rules={[{ required: true, message: 'Please enter property address' }]}
         >
           <TextArea rows={2} placeholder="123 Main St, City, State ZIP" />
+        </Form.Item>
+
+        {/* CompanyCam Integration */}
+        <Form.Item
+          label="CompanyCam Project ID"
+          name="companycam_project_id"
+          tooltip="Optional: Link this job to a CompanyCam project for automatic photo sync"
+        >
+          <Input placeholder="Enter CompanyCam Project ID (e.g., 2695397918)" />
         </Form.Item>
 
         {/* Homeowner Information */}

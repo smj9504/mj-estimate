@@ -434,6 +434,54 @@ class WaterMitigationService:
         # Delete from database
         return self.photo_repo.delete(photo_id)
 
+    def trash_photo(self, photo_id: UUID, trashed_by_id: Optional[UUID] = None, reason: str = 'manual') -> bool:
+        """Move photo to trash (soft delete)"""
+        photo = self.photo_repo.get_by_id(photo_id)
+        if not photo:
+            return False
+
+        from datetime import datetime
+        photo.is_trashed = True
+        photo.trashed_at = datetime.utcnow()
+        photo.trashed_by_id = trashed_by_id
+        photo.trash_reason = reason
+
+        self.photo_repo.update(photo_id, {
+            'is_trashed': True,
+            'trashed_at': datetime.utcnow(),
+            'trashed_by_id': trashed_by_id,
+            'trash_reason': reason
+        })
+
+        logger.info(f"Moved photo {photo_id} to trash (reason: {reason})")
+        return True
+
+    def restore_photo(self, photo_id: UUID) -> bool:
+        """Restore photo from trash"""
+        photo = self.photo_repo.get_by_id(photo_id)
+        if not photo:
+            return False
+
+        self.photo_repo.update(photo_id, {
+            'is_trashed': False,
+            'trashed_at': None,
+            'trashed_by_id': None,
+            'trash_reason': None
+        })
+
+        logger.info(f"Restored photo {photo_id} from trash")
+        return True
+
+    def list_trashed_photos(self, job_id: Optional[UUID] = None) -> List[Dict[str, Any]]:
+        """List all trashed photos (optionally filtered by job)"""
+        query = self.db.query(WMPhoto).filter(WMPhoto.is_trashed == True)
+
+        if job_id:
+            query = query.filter(WMPhoto.job_id == job_id)
+
+        photos = query.all()
+        return [self._photo_to_dict(photo) for photo in photos]
+
     # Helper methods
     def _create_status_history(
         self,

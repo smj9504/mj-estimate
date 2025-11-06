@@ -52,12 +52,13 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
         """
         from sqlalchemy.orm import aliased
 
-        # Subquery to count photos per job
+        # Subquery to count photos per job (exclude trashed photos)
         photo_count_subquery = (
             self.db_session.query(
                 WMPhoto.job_id,
                 func.count(WMPhoto.id).label('photo_count')
             )
+            .filter(WMPhoto.is_trashed == False)
             .group_by(WMPhoto.job_id)
             .subquery()
         )
@@ -182,9 +183,10 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         Returns:
             Tuple of (photos, total_count)
         """
-        # Base query
+        # Base query (exclude trashed photos by default)
         query = self.db_session.query(WMPhoto).filter(
-            WMPhoto.job_id == job_id
+            WMPhoto.job_id == job_id,
+            WMPhoto.is_trashed == False
         )
 
         # Get total count
@@ -202,9 +204,10 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         return photos, total
 
     def count_by_job(self, job_id: UUID) -> int:
-        """Count photos for a job"""
+        """Count photos for a job (exclude trashed)"""
         return self.db_session.query(WMPhoto).filter(
-            WMPhoto.job_id == job_id
+            WMPhoto.job_id == job_id,
+            WMPhoto.is_trashed == False
         ).count()
 
 

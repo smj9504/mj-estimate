@@ -86,13 +86,20 @@ async def companycam_webhook(
     3. Subscribe to events: `photo.created`, `project.created`, `project.updated`, `project.deleted`
     4. Configure `COMPANYCAM_WEBHOOK_TOKEN` in environment
     """
+    # Log incoming webhook request
+    logger.info(f"📥 Received webhook request from {request.client.host if request.client else 'unknown'}")
+    logger.info(f"Headers: {dict(request.headers)}")
+
     # Get raw request body for signature verification
     body = await request.body()
+    logger.info(f"Body preview: {body[:200]}...")  # First 200 bytes
 
     # Verify signature
     signature = request.headers.get("X-CompanyCam-Signature", "")
+    logger.info(f"Signature present: {bool(signature)}")
+
     if not CompanyCamClient.verify_webhook_signature(body, signature):
-        logger.warning("Invalid webhook signature from CompanyCam")
+        logger.warning(f"Invalid webhook signature from CompanyCam (signature={signature[:20]}...)")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid webhook signature"
@@ -114,7 +121,7 @@ async def companycam_webhook(
     event_type = payload.get("event_type") or payload.get("type", "unknown")
 
     # Extract event_id based on event type
-    if event_type in ["photo.created", "photo.updated"]:
+    if event_type in ["photo.created", "photo.updated", "photo.deleted"]:
         # New format: payload.payload.photo.id
         # Legacy format: payload.photo.id
         event_id = str(
@@ -169,6 +176,11 @@ async def companycam_webhook(
             )
         elif event_type == "project.deleted":
             await process_project_deleted_event(
+                str(webhook_event.id),
+                payload
+            )
+        elif event_type == "photo.deleted":
+            await process_photo_deleted_event(
                 str(webhook_event.id),
                 payload
             )
@@ -520,6 +532,66 @@ async def process_project_deleted_event(
 
     except Exception as e:
         logger.error(f"❌ Error processing project.deleted webhook: {e}", exc_info=True)
+
+        # Update webhook event status to failed
+        if db:
+            try:
+                webhook_event = db.query(WebhookEvent).filter(
+                    WebhookEvent.id == webhook_event_id
+                ).first()
+                if webhook_event:
+                    webhook_event.status = "failed"
+                    webhook_event.error_message = str(e)
+                    webhook_event.processed_at = datetime.utcnow()
+                    db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to update webhook event status: {db_error}")
+
+    finally:
+        # Always close DB session
+        if db:
+            db.close()
+
+
+async def process_photo_deleted_event(
+    webhook_event_id: str,
+    payload: dict
+):
+    """
+    Process photo.deleted webhook event for Water Mitigation (background task)
+
+    When a CompanyCam photo is deleted:
+    1. Find the corresponding WM photo by external_id
+    2. Move the photo to trash (soft delete)
+    3. Send Slack notification
+
+    Args:
+        webhook_event_id: Webhook event ID
+        payload: Webhook payload
+    """
+    db = None
+    try:
+        # Create new DB session for background task
+        database = get_database()
+        db = database.get_session()
+
+        logger.info(f"⚙️ Processing photo.deleted event (Webhook: {webhook_event_id})")
+
+        # Process with Water Mitigation webhook handler
+        handler = CompanyCamWaterMitigationHandler(db)
+        result = await handler.handle_photo_deleted(
+            payload,
+            webhook_event_id=webhook_event_id
+        )
+
+        if result.get("success"):
+            logger.info(f"✅ Photo.deleted webhook processed: Photo ID {result.get('photo_id')}, "
+                       f"Trashed: {result.get('photo_trashed')}")
+        else:
+            logger.warning(f"⚠️ Photo.deleted processed with warning: {result.get('error_message')}")
+
+    except Exception as e:
+        logger.error(f"❌ Error processing photo.deleted webhook: {e}", exc_info=True)
 
         # Update webhook event status to failed
         if db:

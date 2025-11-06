@@ -1159,6 +1159,126 @@ class CompanyCamWaterMitigationHandler:
 
         return result
 
+    async def handle_photo_deleted(
+        self,
+        webhook_data: dict,
+        webhook_event_id: Optional[UUID] = None
+    ) -> dict:
+        """
+        Handle photo.deleted webhook event for Water Mitigation
+
+        When a photo is deleted in CompanyCam, move it to trash in our system.
+        The photo is not permanently deleted - it's marked as trashed and can be restored.
+
+        Args:
+            webhook_data: Raw webhook payload dict
+            webhook_event_id: ID of webhook event record
+
+        Returns:
+            Processing result with status
+        """
+        logger.info("Processing photo.deleted event for Water Mitigation")
+
+        result = {
+            "success": False,
+            "photo_id": None,
+            "photo_trashed": False,
+            "error_message": None
+        }
+
+        try:
+            # Extract photo info from webhook
+            photo_data = webhook_data.get("payload", {}).get("photo", {})
+            photo_id = photo_data.get("id")
+
+            if not photo_id:
+                logger.warning("No photo ID in webhook payload")
+                result["error_message"] = "No photo ID in webhook"
+                return result
+
+            companycam_photo_id = str(photo_id)
+            logger.info(f"Photo deleted in CompanyCam: {companycam_photo_id}")
+
+            # Find photo in our system by external_id (CompanyCam photo ID)
+            from app.domains.water_mitigation.models import WMPhoto
+
+            wm_photo = self.db.query(WMPhoto).filter(
+                WMPhoto.external_id == companycam_photo_id,
+                WMPhoto.source == 'companycam'
+            ).first()
+
+            if not wm_photo:
+                logger.info(f"No WM photo found for CompanyCam photo {companycam_photo_id}")
+                result["success"] = True
+                result["error_message"] = "No photo found in our system"
+                return result
+
+            # Move photo to trash (soft delete)
+            wm_photo.is_trashed = True
+            wm_photo.trashed_at = datetime.utcnow()
+            wm_photo.trash_reason = 'companycam_deleted'
+
+            self.db.commit()
+
+            logger.info(f"✅ Moved photo {wm_photo.id} to trash (CompanyCam photo {companycam_photo_id} deleted)")
+
+            result["success"] = True
+            result["photo_id"] = str(wm_photo.id)
+            result["photo_trashed"] = True
+
+            # Update webhook event status
+            if webhook_event_id:
+                self._update_webhook_event(
+                    webhook_event_id,
+                    status="completed",
+                    related_entity_type="wm_photo",
+                    related_entity_id=wm_photo.id
+                )
+
+            # Optional: Send Slack notification for deleted photo
+            try:
+                from ..slack.schemas import SlackBlock, SlackMessage
+
+                job = wm_photo.job
+                if job:
+                    slack_message = SlackMessage(
+                        text="🗑️ Photo Moved to Trash",
+                        blocks=[
+                            SlackBlock(
+                                type="section",
+                                text={
+                                    "type": "mrkdwn",
+                                    "text": (
+                                        "*Photo Deleted in CompanyCam*\n"
+                                        f"• Job: {job.property_address}\n"
+                                        f"• Photo: {wm_photo.file_name}\n"
+                                        f"• Status: Moved to trash\n"
+                                        f"• Reason: Deleted in CompanyCam\n"
+                                        "• Action: Photo can be restored from trash"
+                                    )
+                                }
+                            )
+                        ]
+                    )
+
+                    await self.slack_client.send_message(slack_message)
+
+            except Exception as e:
+                logger.error(f"Failed to send Slack notification: {e}")
+
+        except Exception as e:
+            logger.error(f"Error processing photo.deleted webhook: {e}", exc_info=True)
+            result["error_message"] = str(e)
+
+            if webhook_event_id:
+                self._update_webhook_event(
+                    webhook_event_id,
+                    status="failed",
+                    error_message=str(e)
+                )
+
+        return result
+
     def _update_webhook_event(
         self,
         webhook_event_id: UUID,

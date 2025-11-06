@@ -140,6 +140,12 @@ class WMPhoto(Base, BaseModel):
     upload_status = Column(String(50), default='completed')
     uploaded_by_id = Column(UUIDType(), ForeignKey("staff.id"))
 
+    # Trash/Deletion tracking
+    is_trashed = Column(Boolean, default=False)
+    trashed_at = Column(DateTime(timezone=True))
+    trashed_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+    trash_reason = Column(String(100))  # 'user_deleted' | 'companycam_deleted' | 'manual'
+
     # Relationships
     job = relationship("WaterMitigationJob", back_populates="photos")
     category_associations = relationship("WMPhotoCategory", back_populates="photo", cascade="all, delete-orphan")

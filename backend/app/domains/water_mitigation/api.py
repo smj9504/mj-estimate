@@ -612,6 +612,47 @@ def delete_photo(
     return {"message": "Photo deleted successfully"}
 
 
+@router.post("/photos/{photo_id}/trash")
+def trash_photo(
+    photo_id: UUID,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session),
+    current_user=Depends(get_current_user)
+):
+    """Move photo to trash (soft delete)"""
+    success = service.trash_photo(photo_id, trashed_by_id=current_user.id, reason='manual')
+    if not success:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    db.commit()
+    return {"message": "Photo moved to trash"}
+
+
+@router.post("/photos/{photo_id}/restore")
+def restore_photo(
+    photo_id: UUID,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Restore photo from trash"""
+    success = service.restore_photo(photo_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    db.commit()
+    return {"message": "Photo restored from trash"}
+
+
+@router.get("/photos/trash")
+def list_trashed_photos(
+    job_id: Optional[UUID] = None,
+    service: WaterMitigationService = Depends(get_wm_service)
+):
+    """List all trashed photos (optionally filtered by job)"""
+    photos = service.list_trashed_photos(job_id=job_id)
+    return {"items": photos, "total": len(photos)}
+
+
 # Document generation endpoints
 @router.post("/jobs/{job_id}/documents/generate-pdf", response_model=WMDocumentResponse)
 async def generate_document_pdf(
