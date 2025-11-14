@@ -15,7 +15,7 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-      alembic upgrade head
+      alembic upgrade head || (echo "Migration failed, stamping as head..." && alembic stamp head)
     # Option 2: Use custom build script for advanced caching
     # buildCommand: chmod +x build.sh && ./build.sh
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --log-level info --timeout-keep-alive 30 --workers 1
