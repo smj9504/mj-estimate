@@ -48,10 +48,33 @@ export const useFileGallery = ({
         // Get API base URL for production photo preview URLs
         const baseURL = api.defaults.baseURL || '';
 
+        // Batch fetch photo preview URLs for all photos in this page
+        const photoIds = data.items.map((photo: any) => photo.id);
+        let previewUrls: Record<string, string> = {};
+
+        if (photoIds.length > 0) {
+          try {
+            const batchResponse = await api.post(
+              `/api/water-mitigation/photos/batch-preview`,
+              {
+                photo_ids: photoIds,
+                size: 'web'
+              }
+            );
+            previewUrls = batchResponse.data;
+          } catch (error) {
+            console.warn('Batch preview failed, falling back to individual URLs:', error);
+            // Fallback to individual preview URLs
+            photoIds.forEach((id: string) => {
+              previewUrls[id] = `${baseURL}/api/water-mitigation/photos/${id}/preview`;
+            });
+          }
+        }
+
         // Convert to FileItem format
         const items = data.items.map((photo: any) => {
-          // Use absolute URL for image preview (supports both dev and production)
-          const imageUrl = `${baseURL}/api/water-mitigation/photos/${photo.id}/preview`;
+          // Use batch-fetched URL or fallback to individual preview endpoint
+          const imageUrl = previewUrls[photo.id] || `${baseURL}/api/water-mitigation/photos/${photo.id}/preview`;
 
           return {
             id: photo.id,

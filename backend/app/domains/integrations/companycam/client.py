@@ -8,6 +8,7 @@ Handles all API communication with CompanyCam:
 - Webhook signature verification
 """
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -224,6 +225,54 @@ class CompanyCamClient:
 
         except httpx.HTTPError as e:
             logger.error(f"Failed to download photo from {photo_url}: {e}")
+            raise
+
+    async def get_photos_batch(self, photo_ids: list[int]) -> Dict[int, Dict[str, Any]]:
+        """
+        Get multiple photos details from CompanyCam in batch
+
+        Note: CompanyCam API doesn't have a native batch endpoint,
+        so we make parallel requests for efficiency.
+
+        Args:
+            photo_ids: List of CompanyCam photo IDs
+
+        Returns:
+            Dictionary mapping photo_id to photo details
+            {photo_id: {uris: [...], ...}, ...}
+        """
+        results = {}
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Create tasks for parallel requests
+                tasks = []
+                for photo_id in photo_ids:
+                    url = f"{self.base_url}/photos/{photo_id}"
+                    tasks.append(client.get(url, headers=self.headers))
+
+                # Execute all requests in parallel
+                responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Process responses
+                for photo_id, response in zip(photo_ids, responses):
+                    if isinstance(response, Exception):
+                        logger.error(f"Failed to get photo {photo_id}: {response}")
+                        continue
+
+                    try:
+                        response.raise_for_status()
+                        photo_data = response.json()
+                        results[photo_id] = photo_data
+                    except Exception as e:
+                        logger.error(f"Failed to parse photo {photo_id} response: {e}")
+                        continue
+
+                logger.info(f"Batch fetched {len(results)}/{len(photo_ids)} photos from CompanyCam")
+                return results
+
+        except Exception as e:
+            logger.error(f"Failed to batch fetch photos: {e}")
             raise
 
     async def get_project_photos(self, project_id: int, limit: int = 10) -> list:

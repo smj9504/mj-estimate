@@ -360,6 +360,125 @@ def list_photos(
     }
 
 
+class BatchPreviewRequest(BaseModel):
+    """Batch preview request schema"""
+    photo_ids: List[str]
+    size: str = "web"
+
+
+@router.post("/photos/batch-preview")
+async def batch_preview_photos(
+    request: BatchPreviewRequest,
+    service: WaterMitigationService = Depends(get_wm_service)
+):
+    """Get photo preview URLs in batch - optimized for CompanyCam photos
+
+    Args:
+        photo_ids: List of photo UUIDs
+        size: Image size - 'thumbnail' (250px), 'web' (400px), or 'original' (full size)
+
+    Returns:
+        Dictionary mapping photo_id to preview URL
+        {photo_id: url, ...}
+    """
+    from app.core.cache import get_cache
+    import base64
+
+    result = {}
+    cache = get_cache()
+
+    # Get all photos from database
+    photos_by_id = {}
+    companycam_photo_ids = []
+
+    for photo_id in request.photo_ids:
+        photo = service.photo_repo.get_by_id(photo_id)
+        if not photo:
+            logger.warning(f"Photo not found: {photo_id}")
+            continue
+
+        photos_by_id[photo_id] = photo
+
+        # Collect CompanyCam photo IDs for batch processing
+        source = photo.get('source') if isinstance(photo, dict) else photo.source
+        external_id = photo.get('external_id') if isinstance(photo, dict) else photo.external_id
+
+        if source == 'companycam' and external_id:
+            companycam_photo_ids.append((photo_id, int(external_id)))
+
+    # Batch fetch CompanyCam photo URLs
+    if companycam_photo_ids:
+        from ..integrations.companycam.client import CompanyCamClient
+        from app.core.config import settings
+
+        if not settings.ENABLE_INTEGRATIONS or not settings.COMPANYCAM_API_KEY:
+            logger.error("CompanyCam integration disabled or API key missing")
+        else:
+            try:
+                companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
+
+                # Get only the external IDs
+                external_ids = [ext_id for _, ext_id in companycam_photo_ids]
+
+                # Batch fetch photo data
+                photos_data = await companycam_client.get_photos_batch(external_ids)
+
+                # Process each photo
+                for photo_id, external_id in companycam_photo_ids:
+                    photo_data = photos_data.get(external_id)
+                    if not photo_data:
+                        continue
+
+                    # Extract URLs from response
+                    photo_url = None
+                    size_url = None
+
+                    if 'uris' in photo_data:
+                        uris = photo_data['uris']
+                        if isinstance(uris, list):
+                            for uri_item in uris:
+                                if isinstance(uri_item, dict):
+                                    uri_type = uri_item.get('type')
+                                    uri_value = uri_item.get('uri') or uri_item.get('url')
+
+                                    # Cache all size URLs
+                                    if uri_type and uri_value:
+                                        cache_key = f"companycam:photo:url:{external_id}:{uri_type}"
+                                        await cache.set(cache_key, uri_value, ttl=86400)
+
+                                    # Get requested size
+                                    if uri_type == request.size:
+                                        size_url = uri_value
+                                    elif uri_type == 'original' and not photo_url:
+                                        photo_url = uri_value
+
+                    # Use size-specific URL if available, otherwise fallback to original
+                    result[photo_id] = size_url or photo_url
+
+                    # Cache the URL
+                    if result[photo_id]:
+                        cache_key = f"companycam:photo:url:{external_id}"
+                        await cache.set(cache_key, result[photo_id], ttl=86400)
+
+            except Exception as e:
+                logger.error(f"Failed to batch fetch CompanyCam photos: {e}")
+
+    # Handle local/cloud storage photos
+    for photo_id, photo in photos_by_id.items():
+        if photo_id in result:
+            continue
+
+        source = photo.get('source') if isinstance(photo, dict) else photo.source
+        storage_provider = photo.get('storage_provider') if isinstance(photo, dict) else photo.storage_provider
+        file_path = photo.get('file_path') if isinstance(photo, dict) else photo.file_path
+
+        if source != 'companycam':
+            # For local storage, return the preview endpoint URL
+            result[photo_id] = f"/api/water-mitigation/photos/{photo_id}/preview?size={request.size}"
+
+    return result
+
+
 @router.get("/photos/{photo_id}/preview")
 async def preview_photo(
     photo_id: UUID,
