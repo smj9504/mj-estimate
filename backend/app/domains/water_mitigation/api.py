@@ -2,7 +2,7 @@
 Water Mitigation API endpoints
 """
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse
 from typing import List, Optional
 from uuid import UUID
@@ -363,9 +363,18 @@ def list_photos(
 @router.get("/photos/{photo_id}/preview")
 async def preview_photo(
     photo_id: UUID,
+    size: Optional[str] = Query("web", description="Image size: thumbnail, web, or original"),
     service: WaterMitigationService = Depends(get_wm_service)
 ):
-    """Get photo preview - supports CompanyCam, local, and cloud storage"""
+    """Get photo preview - supports CompanyCam, local, and cloud storage
+    
+    Args:
+        photo_id: Photo UUID
+        size: Image size - 'thumbnail' (250px), 'web' (400px), or 'original' (full size)
+    """
+    from app.core.cache import get_cache
+    import base64
+    
     photo = service.photo_repo.get_by_id(str(photo_id))
 
     if photo is None:
@@ -392,25 +401,110 @@ async def preview_photo(
                 logger.error(f"CompanyCam integration disabled or API key missing for photo {photo_id}")
                 raise HTTPException(status_code=503, detail="CompanyCam integration not available")
 
-            # Get CompanyCam photo URL
-            companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
-            photo_url = companycam_client.get_photo_url(external_id)
+            cache = get_cache()
+            
+            # Check cache for photo bytes first (fastest)
+            cache_key_bytes = f"companycam:photo:bytes:{external_id}:{size}"
+            cached_bytes = await cache.get(cache_key_bytes)
+            
+            if cached_bytes:
+                try:
+                    photo_bytes = base64.b64decode(cached_bytes)
+                    logger.debug(f"Serving cached photo bytes for {external_id} (size: {size})")
+                    return StreamingResponse(
+                        io.BytesIO(photo_bytes),
+                        media_type=media_type,
+                        headers={
+                            "Content-Disposition": "inline",
+                            "Cache-Control": "public, max-age=86400"  # Cache for 24 hours
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to decode cached photo bytes: {e}")
 
+            # Check cache for photo URL
+            cache_key_url = f"companycam:photo:url:{external_id}"
+            photo_url = await cache.get(cache_key_url)
+            
+            # If not cached, get from API or use file_path if it's a URL
             if not photo_url:
-                logger.error(f"Failed to get CompanyCam URL for external_id: {external_id}")
-                raise HTTPException(status_code=404, detail="CompanyCam photo URL not found")
+                # Try using file_path if it's a CompanyCam URL
+                if file_path and file_path.startswith('https://img.companycam.com'):
+                    photo_url = file_path
+                    logger.debug(f"Using stored photo URL from file_path for {external_id}")
+                else:
+                    # Get from CompanyCam API
+                    companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
+                    photo_url = companycam_client.get_photo_url(external_id)
+                    
+                    if photo_url:
+                        # Cache the URL for 24 hours
+                        await cache.set(cache_key_url, photo_url, ttl=86400)
+                    else:
+                        logger.error(f"Failed to get CompanyCam URL for external_id: {external_id}")
+                        raise HTTPException(status_code=404, detail="CompanyCam photo URL not found")
+            else:
+                logger.debug(f"Using cached photo URL for {external_id}")
 
-            # Download and stream the image instead of redirecting (avoids CORS issues)
+            # For thumbnail/web sizes, try to redirect directly to CompanyCam CDN
+            # This is much faster than proxying through our server
+            if size in ("thumbnail", "web") and photo_url:
+                # Check if we have size-specific URL cached
+                cache_key_size_url = f"companycam:photo:url:{external_id}:{size}"
+                size_url = await cache.get(cache_key_size_url)
+                
+                if not size_url:
+                    # Try to get size-specific URL from API
+                    companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
+                    try:
+                        photo_data = await companycam_client.get_photo(int(external_id))
+                        if 'uris' in photo_data:
+                            uris = photo_data['uris']
+                            if isinstance(uris, list):
+                                for uri_item in uris:
+                                    if isinstance(uri_item, dict) and uri_item.get('type') == size:
+                                        size_url = uri_item.get('uri') or uri_item.get('url')
+                                        if size_url:
+                                            # Cache size-specific URL
+                                            await cache.set(cache_key_size_url, size_url, ttl=86400)
+                                            logger.debug(f"Using {size} size URL for {external_id}")
+                                            break
+                    except Exception as e:
+                        logger.warning(f"Failed to get size-specific URL: {e}")
+                
+                # If we have a size-specific URL, redirect directly (faster)
+                if size_url:
+                    from fastapi.responses import RedirectResponse
+                    return RedirectResponse(
+                        url=size_url,
+                        status_code=302,
+                        headers={
+                            "Cache-Control": "public, max-age=86400"
+                        }
+                    )
+
+            # For original or if size-specific URL not available, proxy through server
             logger.info(f"Proxying CompanyCam photo {external_id} from URL: {photo_url}")
+            companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
             photo_bytes = await companycam_client.download_photo(photo_url)
 
-            # Return image as streaming response with appropriate content type
+            # Cache photo bytes for 24 hours
+            try:
+                await cache.set(
+                    cache_key_bytes,
+                    base64.b64encode(photo_bytes).decode('utf-8'),
+                    ttl=86400
+                )
+            except Exception as e:
+                logger.warning(f"Failed to cache photo bytes: {e}")
+
+            # Return image as streaming response
             return StreamingResponse(
                 io.BytesIO(photo_bytes),
                 media_type=media_type,
                 headers={
                     "Content-Disposition": "inline",
-                    "Cache-Control": "public, max-age=3600"  # Cache for 1 hour
+                    "Cache-Control": "public, max-age=86400"
                 }
             )
 
