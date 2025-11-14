@@ -82,6 +82,13 @@ def upgrade() -> None:
         )
 
     # Add foreign key constraint for trashed_by_id (if it doesn't exist)
+    # Check if column exists now (may have been just added)
+    result = conn.execute(sa.text(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'wm_photos' AND column_name = 'trashed_by_id')"
+    ))
+    trashed_by_id_exists_now = result.scalar()
+
     result = conn.execute(sa.text(
         "SELECT EXISTS (SELECT 1 FROM information_schema.table_constraints "
         "WHERE constraint_name = 'fk_wm_photos_trashed_by' "
@@ -89,7 +96,7 @@ def upgrade() -> None:
     ))
     fk_exists = result.scalar()
 
-    if not fk_exists and trashed_by_id_exists:
+    if not fk_exists and trashed_by_id_exists_now:
         op.create_foreign_key(
             'fk_wm_photos_trashed_by',
             'wm_photos',
