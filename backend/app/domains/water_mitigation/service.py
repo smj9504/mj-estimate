@@ -2,28 +2,44 @@
 Water Mitigation service layer
 """
 
-from typing import List, Optional, Dict, Any
-from uuid import UUID
-from datetime import datetime
 import logging
 import os
 import shutil
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+
 from fastapi import UploadFile
 from PIL import Image
 from PIL.ExifTags import TAGS
 
 from app.core.interfaces import DatabaseSession
-from .repository import (
-    WaterMitigationJobRepository,
-    PhotoCategoryRepository,
-    WMPhotoRepository,
-    WMJobStatusHistoryRepository,
-    WMReportConfigRepository
-)
+
 from .document_repository import WMDocumentRepository
-from .models import WaterMitigationJob, PhotoCategory, WMPhoto, WMJobStatusHistory, WMDocument, WMReportConfig
-from .schemas import JobCreate, JobUpdate, JobStatusUpdate, CategoryCreate, ReportConfigCreate, ReportConfigUpdate
+from .models import (
+    PhotoCategory,
+    WaterMitigationJob,
+    WMDocument,
+    WMJobStatusHistory,
+    WMPhoto,
+    WMReportConfig,
+)
+from .repository import (
+    PhotoCategoryRepository,
+    WaterMitigationJobRepository,
+    WMJobStatusHistoryRepository,
+    WMPhotoRepository,
+    WMReportConfigRepository,
+)
+from .schemas import (
+    CategoryCreate,
+    JobCreate,
+    JobStatusUpdate,
+    JobUpdate,
+    ReportConfigCreate,
+    ReportConfigUpdate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -549,6 +565,37 @@ class WaterMitigationService:
     def get_by_companycam_project(self, companycam_project_id: str) -> Optional[WaterMitigationJob]:
         """Get job by CompanyCam project ID"""
         return self.job_repo.find_by_companycam_project_id(companycam_project_id)
+
+    def get_by_street_address(
+        self,
+        street: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        active_only: bool = True
+    ) -> Optional[WaterMitigationJob]:
+        """
+        Get job by street address, city, and state using fuzzy matching
+        
+        This method prevents duplicate leads by matching addresses even when:
+        - States are in different formats (Maryland vs MD, Virginia vs VA)
+        - Zipcodes are present or missing
+        - Address formatting differs slightly
+        
+        Args:
+            street: Street address
+            city: City name
+            state: State name or abbreviation
+            active_only: Only search active jobs (default: True)
+            
+        Returns:
+            Matching job or None
+        """
+        return self.job_repo.find_by_street_address(
+            street=street,
+            city=city,
+            state=state,
+            active_only=active_only
+        )
 
     def get_all(self, filters: Optional[Dict[str, Any]] = None) -> List[WaterMitigationJob]:
         """Get all jobs with optional filters"""

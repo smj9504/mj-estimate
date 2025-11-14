@@ -306,6 +306,33 @@ class CompanyCamWaterMitigationHandler:
             # Parse address from payload.project.address
             address_info = parse_companycam_address(webhook_data.project)
 
+            # Check for duplicate lead by street address (even if CompanyCam project ID is different)
+            # This prevents duplicate leads when the same address is created from different sources
+            if address_info.street:
+                existing_job_by_address = self.wm_service.get_by_street_address(
+                    street=address_info.street,
+                    city=address_info.city,
+                    state=address_info.state,
+                    active_only=True
+                )
+                
+                if existing_job_by_address:
+                    # Update existing job with CompanyCam project ID if not already set
+                    if not existing_job_by_address.companycam_project_id:
+                        logger.info(f"Found existing job by address, updating with CompanyCam project ID: {existing_job_by_address.id}")
+                        from app.domains.water_mitigation.schemas import JobUpdate
+                        update_data = JobUpdate(companycam_project_id=companycam_project_id)
+                        self.wm_service.update_job(
+                            existing_job_by_address.id,
+                            update_data
+                        )
+                    
+                    logger.info(f"Job already exists for address {address_info.full_address}: {existing_job_by_address.id}")
+                    result["success"] = True
+                    result["job_id"] = str(existing_job_by_address.id)
+                    result["job_created"] = False
+                    return result
+
             # Use address from project.address field (NOT project.name)
             # project.name is a custom name, not the address
             if address_info.full_address:

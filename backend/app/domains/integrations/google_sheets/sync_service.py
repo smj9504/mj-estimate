@@ -2,23 +2,24 @@
 Google Sheets sync service for Water Mitigation jobs
 """
 
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
-from uuid import UUID
-from sqlalchemy.orm import Session
-from sqlalchemy import select
 import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from app.domains.water_mitigation.models import WaterMitigationJob, WMSyncLog
-from app.domains.water_mitigation.schemas import JobUpdate
-from app.domains.integrations.google_sheets.client import GoogleSheetsClient, WM_HEADER_MAPPING
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.domains.integrations.google_sheets.client import (
+    WM_HEADER_MAPPING,
+    GoogleSheetsClient,
+)
 from app.domains.integrations.google_sheets.utils import (
     addresses_match,
-    parse_date_value,
     parse_boolean_value,
+    parse_date_value,
     parse_numeric_value,
-    normalize_address
 )
+from app.domains.water_mitigation.models import WaterMitigationJob, WMSyncLog
 
 logger = logging.getLogger(__name__)
 
@@ -176,8 +177,26 @@ class GoogleSheetsSyncService:
         if not address or not address.strip():
             return None
 
-        # Find existing job by address (fuzzy match)
-        existing_job = self._find_job_by_address(address)
+        # Extract street, city, state from row data
+        street = row_data.get("property_street") or None
+        city = row_data.get("property_city") or None
+        state = row_data.get("property_state") or None
+
+        # If street is not provided, try to extract from full address
+        if not street and address:
+            # Try to parse street from full address (assume first part before comma)
+            parts = [p.strip() for p in address.split(',')]
+            if parts:
+                street = parts[0]
+
+        # Find existing job by street address (fuzzy match)
+        # This prevents duplicate leads when the same address is created from different sources
+        existing_job = self._find_job_by_street_address(
+            street=street,
+            city=city,
+            state=state,
+            full_address=address
+        )
 
         # Prepare update data
         update_data = self._prepare_job_data(row_data)
@@ -191,18 +210,67 @@ class GoogleSheetsSyncService:
             job = self._create_job(update_data, row_number)
             return {"job": job, "created": True, "updated": False}
 
+    def _find_job_by_street_address(
+        self,
+        street: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        full_address: Optional[str] = None
+    ) -> Optional[WaterMitigationJob]:
+        """
+        Find job by street address, city, and state using fuzzy matching
+        
+        This method prevents duplicate leads by matching addresses even when:
+        - States are in different formats (Maryland vs MD, Virginia vs VA)
+        - Zipcodes are present or missing
+        - Address formatting differs slightly
+        
+        Args:
+            street: Street address
+            city: City name
+            state: State name or abbreviation
+            full_address: Full address string (used as fallback if street is not available)
+            
+        Returns:
+            Matching job or None
+        """
+        from app.domains.water_mitigation.service import WaterMitigationService
+        
+        # Use WaterMitigationService with existing DB session
+        wm_service = WaterMitigationService(self.db)
+        
+        # If we have street address, use the improved matching
+        if street:
+            return wm_service.get_by_street_address(
+                street=street,
+                city=city,
+                state=state,
+                active_only=True
+            )
+        
+        # Fallback: If no street address, use full address matching (legacy)
+        if full_address:
+            return self._find_job_by_address(full_address)
+        
+        return None
+
     def _find_job_by_address(self, address: str) -> Optional[WaterMitigationJob]:
         """
-        Find job by address using fuzzy matching
+        Find job by full address using fuzzy matching (legacy method)
+        
+        This is a fallback method when street address is not available.
+        For better duplicate prevention, use _find_job_by_street_address instead.
 
         Args:
-            address: Address to search for
+            address: Full address string
 
         Returns:
             Matching job or None
         """
         # Get all active jobs (or recent jobs)
-        query = select(WaterMitigationJob).where(WaterMitigationJob.active == True)
+        query = select(WaterMitigationJob).where(
+            WaterMitigationJob.active.is_(True)
+        )
         result = self.db.execute(query)
         jobs = result.scalars().all()
 

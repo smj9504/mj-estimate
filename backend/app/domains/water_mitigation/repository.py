@@ -2,22 +2,22 @@
 Water Mitigation repository
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from uuid import UUID
-from datetime import datetime
-from sqlalchemy import and_, or_, func, desc
+
+from sqlalchemy import and_, desc, func, or_
 from sqlalchemy.orm import joinedload
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
+
 from .models import (
-    WaterMitigationJob,
     PhotoCategory,
-    WMPhoto,
-    WMPhotoCategory,
+    WaterMitigationJob,
     WMJobStatusHistory,
+    WMPhoto,
+    WMReportConfig,
     WMSyncLog,
-    WMReportConfig
 )
 
 
@@ -58,7 +58,7 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
                 WMPhoto.job_id,
                 func.count(WMPhoto.id).label('photo_count')
             )
-            .filter(WMPhoto.is_trashed == False)
+            .filter(WMPhoto.is_trashed.is_(False))
             .group_by(WMPhoto.job_id)
             .subquery()
         )
@@ -136,6 +136,75 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
             WaterMitigationJob.companycam_project_id == project_id
         ).first()
 
+    def find_by_street_address(
+        self,
+        street: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        active_only: bool = True
+    ) -> Optional[WaterMitigationJob]:
+        """
+        Find job by street address, city, and state using fuzzy matching
+        
+        This method prevents duplicate leads by matching addresses even when:
+        - States are in different formats (Maryland vs MD, Virginia vs VA)
+        - Zipcodes are present or missing
+        - Address formatting differs slightly
+        
+        Args:
+            street: Street address
+            city: City name
+            state: State name or abbreviation
+            active_only: Only search active jobs (default: True)
+            
+        Returns:
+            Matching job or None
+        """
+        if not street:
+            return None
+        
+        from app.domains.integrations.companycam.utils import (
+            match_street_address,
+            normalize_state,
+            normalize_street_address,
+        )
+        
+        # Get all active jobs (or all jobs if active_only=False)
+        query = self.db_session.query(WaterMitigationJob)
+        if active_only:
+            query = query.filter(WaterMitigationJob.active.is_(True))
+
+        jobs = query.all()
+
+        best_match = None
+        best_confidence = 0.0
+        
+        for job in jobs:
+            # Skip if job doesn't have street address
+            if not job.property_street:
+                continue
+            
+            # Match using the street address matching function
+            is_match, confidence, match_type = match_street_address(
+                street,
+                city,
+                state,
+                job.property_street,
+                job.property_city,
+                job.property_state,
+                threshold=0.85
+            )
+            
+            if is_match and confidence > best_confidence:
+                best_match = job
+                best_confidence = confidence
+                
+                # If we have a very high confidence match, return immediately
+                if confidence >= 0.98:
+                    return best_match
+        
+        return best_match if best_confidence >= 0.85 else None
+
 
 class PhotoCategoryRepository(SQLAlchemyRepository[PhotoCategory, UUID]):
     """Photo category repository"""
@@ -147,7 +216,7 @@ class PhotoCategoryRepository(SQLAlchemyRepository[PhotoCategory, UUID]):
         """Find all categories for a client"""
         return self.db_session.query(PhotoCategory).filter(
             PhotoCategory.client_id == client_id,
-            PhotoCategory.is_active == True
+            PhotoCategory.is_active.is_(True)
         ).order_by(PhotoCategory.display_order).all()
 
     def find_by_name(self, client_id: UUID, category_name: str) -> Optional[PhotoCategory]:
@@ -186,7 +255,7 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         # Base query (exclude trashed photos by default)
         query = self.db_session.query(WMPhoto).filter(
             WMPhoto.job_id == job_id,
-            WMPhoto.is_trashed == False
+            WMPhoto.is_trashed.is_(False)
         )
 
         # Get total count
@@ -207,7 +276,7 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         """Count photos for a job (exclude trashed)"""
         return self.db_session.query(WMPhoto).filter(
             WMPhoto.job_id == job_id,
-            WMPhoto.is_trashed == False
+            WMPhoto.is_trashed.is_(False)
         ).count()
 
 
