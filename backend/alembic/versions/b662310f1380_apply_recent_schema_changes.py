@@ -74,9 +74,31 @@ def upgrade() -> None:
                comment=None,
                existing_comment='Whether the item is subject to tax',
                existing_nullable=True)
-    op.drop_index('idx_estimate_items_item_code', table_name='estimate_items')
-    op.drop_index('idx_estimate_items_taxable', table_name='estimate_items', postgresql_where='(taxable = true)')
-    op.drop_column('estimate_items', 'item_code')
+    
+    # Drop indexes only if they exist (idempotent)
+    result = conn.execute(sa.text(
+        "SELECT EXISTS (SELECT 1 FROM pg_indexes "
+        "WHERE indexname = 'idx_estimate_items_item_code' "
+        "AND tablename = 'estimate_items')"
+    ))
+    if result.scalar():
+        op.drop_index('idx_estimate_items_item_code', table_name='estimate_items')
+    
+    result = conn.execute(sa.text(
+        "SELECT EXISTS (SELECT 1 FROM pg_indexes "
+        "WHERE indexname = 'idx_estimate_items_taxable' "
+        "AND tablename = 'estimate_items')"
+    ))
+    if result.scalar():
+        op.drop_index('idx_estimate_items_taxable', table_name='estimate_items', postgresql_where='(taxable = true)')
+    
+    # Drop column only if it exists
+    result = conn.execute(sa.text(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'estimate_items' AND column_name = 'item_code')"
+    ))
+    if result.scalar():
+        op.drop_column('estimate_items', 'item_code')
     op.alter_column('estimates', 'estimate_type',
                existing_type=sa.VARCHAR(length=50),
                server_default=None,
