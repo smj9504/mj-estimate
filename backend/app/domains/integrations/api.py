@@ -369,7 +369,18 @@ async def process_project_created_event(
                 from .companycam.schemas import ProjectData, UserData
 
                 project_data = payload["payload"]["project"]
+
+                # Extract user info from project.creator_id/creator_name (new webhook format)
+                # or from separate user object (legacy format)
                 user_data = payload.get("user", payload["payload"].get("user", {}))
+
+                # If no user object, use creator info from project
+                if not user_data or not user_data.get("id"):
+                    user_data = {
+                        "id": project_data.get("creator_id"),
+                        "name": project_data.get("creator_name", "Unknown"),
+                        "email_address": None
+                    }
 
                 # Build webhook_payload dict first, then convert to ProjectCreatedWebhook
                 webhook_payload = {
