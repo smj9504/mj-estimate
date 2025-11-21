@@ -332,4 +332,5 @@ export interface CompanyCamSyncResult {
   total_companycam: number;
   errors: string[];
   message: string;
+  cancelled?: boolean;
 }

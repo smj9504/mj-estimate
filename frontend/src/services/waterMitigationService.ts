@@ -18,7 +18,6 @@ import type {
   ReportConfigCreate,
   ReportConfigUpdate,
   GenerateReportRequest,
-  GenerateReportResponse,
   CompanyCamSyncResult
 } from '../types/waterMitigation';
 

@@ -245,9 +245,11 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         page: int = 1,
         page_size: int = 50,
         sort_by: str = 'captured_date',
-        sort_order: str = 'desc'
+        sort_order: str = 'desc',
+        category_filter: Optional[List[str]] = None,
+        uncategorized_only: bool = False
     ) -> tuple[List[WMPhoto], int]:
-        """Find photos for a job with pagination
+        """Find photos for a job with pagination and optional category filtering
 
         Returns:
             Tuple of (photos, total_count)
@@ -258,7 +260,19 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             WMPhoto.is_trashed.is_(False)
         )
 
-        # Get total count
+        # Apply category filters at database level (more efficient)
+        if uncategorized_only:
+            query = query.filter(
+                or_(
+                    WMPhoto.category.is_(None),
+                    WMPhoto.category == ''
+                )
+            )
+        elif category_filter:
+            # Filter by multiple categories (OR logic)
+            query = query.filter(WMPhoto.category.in_(category_filter))
+
+        # Get total count (after filters)
         total = query.count()
 
         # Apply sorting
@@ -271,6 +285,15 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         photos = query.order_by(order_clause).limit(page_size).offset((page - 1) * page_size).all()
 
         return photos, total
+
+    def find_by_ids(self, photo_ids: List[UUID]) -> List[WMPhoto]:
+        """Find multiple photos by their IDs in a single query (optimized for batch operations)"""
+        if not photo_ids:
+            return []
+        
+        return self.db_session.query(WMPhoto).filter(
+            WMPhoto.id.in_(photo_ids)
+        ).all()
 
     def count_by_job(self, job_id: UUID) -> int:
         """Count photos for a job (exclude trashed)"""

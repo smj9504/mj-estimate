@@ -249,6 +249,10 @@ class PhotoResponse(BaseModel):
     # Additional field for thumbnail support
     thumbnail_path: Optional[str] = None
     category: Optional[str] = None
+    
+    # Preview URL for quick loading (optimized)
+    preview_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -432,6 +436,7 @@ class CompanyCamSyncResult(BaseModel):
     total_companycam: int = Field(0, description="Total photos found in CompanyCam project")
     errors: List[str] = Field(default_factory=list, description="Error messages if any")
     message: str = Field("", description="Summary message")
+    cancelled: bool = Field(False, description="Whether sync was cancelled by user")
 
 
 class CompanyCamSyncRequest(BaseModel):

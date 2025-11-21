@@ -586,7 +586,12 @@ const WaterMitigationDetail: React.FC = () => {
             {
               key: 'photos',
               label: `Photos (${job.photo_count || 0})`,
-              children: id ? <WaterMitigationPhotosTab jobId={id} /> : null
+              children: id ? (
+                <WaterMitigationPhotosTab
+                  jobId={id}
+                  companycamProjectId={job.companycam_project_id}
+                />
+              ) : null
             },
             {
               key: 'documents',

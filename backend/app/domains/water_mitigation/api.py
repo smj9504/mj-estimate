@@ -2,38 +2,49 @@
 Water Mitigation API endpoints
 """
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
-from fastapi.responses import FileResponse
-from typing import List, Optional
-from uuid import UUID
-from pathlib import Path
-from datetime import datetime, date, time
 import logging
 import math
+from datetime import date, datetime, time
+from pathlib import Path
+from typing import List, Optional
+from uuid import UUID
+
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+)
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
 from app.domains.auth.dependencies import get_current_user
+
 from .schemas import (
-    JobCreate,
-    JobUpdate,
-    JobStatusUpdate,
-    JobResponse,
-    JobListResponse,
+    BulkUpdateDateRequest,
     CategoryCreate,
     CategoryResponse,
-    JobFilters,
-    StatusHistoryResponse,
-    BulkUpdateDateRequest,
-    PhotoListResponse,
-    ReportConfigCreate,
-    ReportConfigUpdate,
-    ReportConfigResponse,
+    GenerateDocumentRequest,
     GenerateReportRequest,
     GenerateReportResponse,
+    JobCreate,
+    JobFilters,
+    JobListResponse,
+    JobResponse,
+    JobStatusUpdate,
+    JobUpdate,
+    PhotoListResponse,
+    ReportConfigCreate,
+    ReportConfigResponse,
+    ReportConfigUpdate,
+    StatusHistoryResponse,
     WMDocumentResponse,
-    GenerateDocumentRequest
 )
 from .service import WaterMitigationService
 
@@ -328,31 +339,57 @@ def list_photos(
     page_size = min(page_size, 200)
     page = max(page, 1)
 
-    # Get paginated photos
+    # Parse category filter
+    categories = None
+    if category_filter:
+        categories = [c.strip() for c in category_filter.split(',') if c.strip()]
+        if not categories:
+            categories = None
+
+    # Get paginated photos with filters applied at database level (more efficient)
     photos, total = service.photo_repo.find_by_job_paginated(
         job_id=job_id,
         page=page,
         page_size=page_size,
         sort_by=sort_by,
-        sort_order=sort_order
+        sort_order=sort_order,
+        category_filter=categories,
+        uncategorized_only=uncategorized_only
     )
-
-    # Apply filters (note: filtering after pagination may reduce actual items returned)
-    if uncategorized_only:
-        # Filter photos that have no category or empty category
-        photos = [p for p in photos if not getattr(p, 'category', None) or getattr(p, 'category', '') == '']
-    elif category_filter:
-        # Parse comma-separated categories
-        categories = [c.strip() for c in category_filter.split(',') if c.strip()]
-        if categories:
-            # Filter by multiple categories (OR logic)
-            photos = [p for p in photos if getattr(p, 'category', None) in categories]
 
     # Calculate total pages
     total_pages = math.ceil(total / page_size) if total > 0 else 1
 
+    # Convert photos to dict and add preview URLs (optimized - no extra API calls needed)
+    items = []
+    for photo in photos:
+        photo_dict = service.photo_repo._convert_to_dict(photo)
+        
+        # Generate preview URL based on photo source and storage
+        preview_url = None
+        thumbnail_url = None
+        
+        # Use stored thumbnail URL if available (fastest)
+        if photo.storage_thumbnail_url:
+            thumbnail_url = photo.storage_thumbnail_url
+            preview_url = photo.storage_thumbnail_url
+        
+        # For CompanyCam photos, use preview endpoint (will redirect to CDN)
+        elif photo.source == 'companycam':
+            preview_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=web"
+            thumbnail_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=thumbnail"
+        
+        # For local/cloud storage photos, use preview endpoint
+        else:
+            preview_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=web"
+            thumbnail_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=thumbnail"
+        
+        photo_dict['preview_url'] = preview_url
+        photo_dict['thumbnail_url'] = thumbnail_url
+        items.append(photo_dict)
+
     return {
-        "items": [service.photo_repo._convert_to_dict(photo) for photo in photos],
+        "items": items,
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -382,34 +419,41 @@ async def batch_preview_photos(
         {photo_id: url, ...}
     """
     from app.core.cache import get_cache
-    import base64
 
     result = {}
     cache = get_cache()
 
-    # Get all photos from database
-    photos_by_id = {}
-    companycam_photo_ids = []
-
+    # Convert photo_ids to UUIDs
+    from uuid import UUID as UUIDType
+    photo_uuid_ids = []
     for photo_id in request.photo_ids:
-        photo = service.photo_repo.get_by_id(photo_id)
-        if not photo:
-            logger.warning(f"Photo not found: {photo_id}")
+        try:
+            photo_uuid_ids.append(UUIDType(photo_id))
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid photo ID format: {photo_id}")
             continue
 
-        photos_by_id[photo_id] = photo
+    if not photo_uuid_ids:
+        return result
 
-        # Collect CompanyCam photo IDs for batch processing
-        source = photo.get('source') if isinstance(photo, dict) else photo.source
-        external_id = photo.get('external_id') if isinstance(photo, dict) else photo.external_id
-
-        if source == 'companycam' and external_id:
-            companycam_photo_ids.append((photo_id, int(external_id)))
+    # Get all photos from database in a single query (optimized - no N+1 problem)
+    photos = service.photo_repo.find_by_ids(photo_uuid_ids)
+    photos_by_id = {str(photo.id): photo for photo in photos}
+    
+    # Collect CompanyCam photo IDs for batch processing
+    companycam_photo_ids = []
+    for photo in photos:
+        if photo.source == 'companycam' and photo.external_id:
+            try:
+                companycam_photo_ids.append((str(photo.id), int(photo.external_id)))
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid external_id for photo {photo.id}: {photo.external_id}")
 
     # Batch fetch CompanyCam photo URLs
     if companycam_photo_ids:
-        from ..integrations.companycam.client import CompanyCamClient
         from app.core.config import settings
+
+        from ..integrations.companycam.client import CompanyCamClient
 
         if not settings.ENABLE_INTEGRATIONS or not settings.COMPANYCAM_API_KEY:
             logger.error("CompanyCam integration disabled or API key missing")
@@ -468,11 +512,7 @@ async def batch_preview_photos(
         if photo_id in result:
             continue
 
-        source = photo.get('source') if isinstance(photo, dict) else photo.source
-        storage_provider = photo.get('storage_provider') if isinstance(photo, dict) else photo.storage_provider
-        file_path = photo.get('file_path') if isinstance(photo, dict) else photo.file_path
-
-        if source != 'companycam':
+        if photo.source != 'companycam':
             # For local storage, return the preview endpoint URL
             result[photo_id] = f"/api/water-mitigation/photos/{photo_id}/preview?size={request.size}"
 
@@ -491,8 +531,9 @@ async def preview_photo(
         photo_id: Photo UUID
         size: Image size - 'thumbnail' (250px), 'web' (400px), or 'original' (full size)
     """
-    from app.core.cache import get_cache
     import base64
+
+    from app.core.cache import get_cache
     
     photo = service.photo_repo.get_by_id(str(photo_id))
 
@@ -511,10 +552,13 @@ async def preview_photo(
     # Handle CompanyCam photos - proxy the image to avoid CORS issues
     if source == 'companycam' and external_id:
         try:
-            from ..integrations.companycam.client import CompanyCamClient
-            from app.core.config import settings
-            from fastapi.responses import StreamingResponse
             import io
+
+            from fastapi.responses import StreamingResponse
+
+            from app.core.config import settings
+
+            from ..integrations.companycam.client import CompanyCamClient
 
             if not settings.ENABLE_INTEGRATIONS or not settings.COMPANYCAM_API_KEY:
                 logger.error(f"CompanyCam integration disabled or API key missing for photo {photo_id}")
@@ -871,6 +915,7 @@ def list_trashed_photos(
 @router.post("/jobs/{job_id}/sync-companycam-photos")
 async def sync_companycam_photos(
     job_id: UUID,
+    background_tasks: BackgroundTasks,
     service: WaterMitigationService = Depends(get_wm_service),
     db: DatabaseSession = Depends(get_db_session)
 ):
@@ -878,43 +923,210 @@ async def sync_companycam_photos(
     Manually sync photos from CompanyCam project to Water Mitigation job.
 
     This endpoint:
-    - Fetches all photos from the linked CompanyCam project
-    - Adds only new photos (skips existing and trashed)
-    - Preserves existing photo categories
-    - Does not modify trashed photos (is_trashed=True stays trashed)
+    - Starts a background task to fetch all photos from CompanyCam
+    - Returns immediately with status 'started'
+    - Poll GET /sync-companycam-photos/status for progress
 
     Use this when webhook sync fails or to force a full sync.
 
     Returns:
-        CompanyCamSyncResult with sync statistics
+        Confirmation that sync has started
     """
+    import json
+
+    from app.core.cache import get_cache
+
     try:
         # Check if job exists and has CompanyCam project linked
         job = service.get_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-        if not job.get('companycam_project_id'):
+        companycam_project_id = job.get('companycam_project_id') if isinstance(job, dict) else getattr(job, 'companycam_project_id', None)
+        if not companycam_project_id:
             raise HTTPException(
                 status_code=400,
                 detail="Job has no CompanyCam project linked"
             )
 
-        # Run sync
-        result = await service.sync_companycam_photos(job_id)
+        # Check if sync is already running
+        cache = get_cache()
+        sync_key = f"companycam_sync:{job_id}"
+        status_json = await cache.get(sync_key)
+        if status_json:
+            try:
+                status = json.loads(status_json)
+                if status.get('status') == 'running':
+                    return {
+                        "success": False,
+                        "message": "Sync already in progress",
+                        "status": "running"
+                    }
+            except:
+                pass
 
-        # Commit any changes
-        db.commit()
+        # Set initial status
+        await cache.set(sync_key, json.dumps({
+            'status': 'running',
+            'synced_count': 0,
+            'skipped_existing': 0,
+            'skipped_trashed': 0,
+            'total_companycam': 0,
+            'current_page': 0,
+            'errors': [],
+            'message': 'Starting sync...'
+        }), ttl=3600)
 
-        return result
+        # Start background task (creates its own DB session)
+        background_tasks.add_task(
+            run_sync_in_background,
+            job_id=job_id
+        )
+
+        return {
+            "success": True,
+            "message": "Sync started in background",
+            "status": "running"
+        }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to sync CompanyCam photos for job {job_id}: {e}")
+        logger.error(f"Failed to start CompanyCam sync for job {job_id}: {e}")
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def run_sync_in_background(job_id: UUID):
+    """Background task to run CompanyCam sync (sync wrapper for async)"""
+    import asyncio
+    logger.info(f"Background sync task starting for job {job_id}")
+
+    # Create a new event loop for this thread (more stable than asyncio.run in threads)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_run_sync_async(job_id))
+    finally:
+        # Clean up properly
+        try:
+            # Cancel any pending tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            # Wait for cancellation
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        finally:
+            loop.close()
+
+
+async def _run_sync_async(job_id: UUID):
+    """Actual async sync implementation"""
+    from app.core.database_factory import get_database
+
+    from .service import WaterMitigationService
+
+    logger.info(f"Background sync started for job {job_id}")
+
+    # Get session from database factory
+    database = get_database()
+    db_session = database.get_session()
+    try:
+        service = WaterMitigationService(db_session)
+
+        result = await service.sync_companycam_photos(job_id)
+        db_session.commit()
+
+        logger.info(f"Background sync completed for job {job_id}: {result}")
+    except Exception as e:
+        logger.error(f"Background sync failed for job {job_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        db_session.rollback()
+    finally:
+        db_session.close()
+
+
+@router.get("/jobs/{job_id}/sync-companycam-photos/status")
+async def get_sync_status(job_id: UUID):
+    """
+    Get current status of CompanyCam photo sync.
+
+    Returns:
+        Sync status with progress information
+    """
+    import json
+
+    from app.core.cache import get_cache
+
+    cache = get_cache()
+    sync_key = f"companycam_sync:{job_id}"
+
+    status_json = await cache.get(sync_key)
+    if not status_json:
+        return {
+            'status': 'idle',
+            'message': 'No sync in progress'
+        }
+
+    try:
+        return json.loads(status_json)
+    except:
+        return {
+            'status': 'unknown',
+            'message': 'Could not parse sync status'
+        }
+
+
+@router.post("/jobs/{job_id}/sync-companycam-photos/cancel")
+async def cancel_sync(job_id: UUID):
+    """
+    Cancel an ongoing CompanyCam photo sync.
+
+    Returns:
+        Confirmation message
+    """
+    import json
+
+    from app.core.cache import get_cache
+
+    cache = get_cache()
+    sync_key = f"companycam_sync:{job_id}"
+
+    # Get current status
+    status_json = await cache.get(sync_key)
+    if not status_json:
+        return {
+            'success': False,
+            'message': 'No sync in progress to cancel'
+        }
+
+    try:
+        status = json.loads(status_json)
+        if status.get('status') != 'running':
+            return {
+                'success': False,
+                'message': f"Sync is not running (status: {status.get('status')})"
+            }
+
+        # Set cancelled flag and message
+        status['status'] = 'cancelled'
+        status['message'] = f"Sync cancelled. Synced {status.get('synced_count', 0)} photos before cancellation."
+        await cache.set(sync_key, json.dumps(status), ttl=3600)
+
+        logger.info(f"Sync cancellation requested for job {job_id}")
+        return {
+            'success': True,
+            'message': 'Cancellation requested. Sync will stop after current photo.'
+        }
+    except Exception as e:
+        logger.error(f"Failed to cancel sync for job {job_id}: {e}")
+        return {
+            'success': False,
+            'message': f'Failed to cancel: {str(e)}'
+        }
 
 
 # Document generation endpoints
@@ -935,10 +1147,14 @@ async def generate_document_pdf(
     - EWA: Emergency Work Agreement & Authorization (1 photo, template + overlay + photo)
     """
     try:
-        from app.common.services.pdf_service import generate_images_pdf, generate_ewa_pdf
-        from pathlib import Path
         import json
         import os
+        from pathlib import Path
+
+        from app.common.services.pdf_service import (
+            generate_ewa_pdf,
+            generate_images_pdf,
+        )
 
         # Get photo file paths
         photo_paths = []
@@ -1093,8 +1309,9 @@ def preview_document(
             raise HTTPException(status_code=404, detail="Document file not found on disk")
 
         # Return with inline disposition for browser preview
-        from fastapi.responses import Response
         import mimetypes
+
+        from fastapi.responses import Response
 
         with open(file_path, 'rb') as f:
             content = f.read()
@@ -1229,9 +1446,10 @@ async def generate_photo_report(
     Optionally saves the config for future use.
     """
     try:
-        from app.common.services.pdf_service import generate_water_mitigation_report_pdf
-        from pathlib import Path
         from datetime import datetime
+        from pathlib import Path
+
+        from app.common.services.pdf_service import generate_water_mitigation_report_pdf
 
         # Get job data
         job = service.get_job(job_id)
@@ -1303,8 +1521,9 @@ async def generate_photo_report(
         logger.info(f"Report generated: {output_path}")
 
         # Create file record in database
-        from app.domains.file.repository import FileRepository
         import os
+
+        from app.domains.file.repository import FileRepository
 
         file_repo = FileRepository(db)
         file_size = os.path.getsize(output_path)

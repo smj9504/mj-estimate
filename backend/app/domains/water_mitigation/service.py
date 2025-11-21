@@ -2,6 +2,7 @@
 Water Mitigation service layer
 """
 
+import json
 import logging
 import os
 from datetime import datetime
@@ -598,6 +599,8 @@ class WaterMitigationService:
         }
 
         created_photo = self.photo_repo.create(photo_data)
+        # Flush to ensure photo is saved even if sync is cancelled
+        self.session.flush()
         logger.info(f"Created WMPhoto record for CompanyCam photo {companycam_photo_id}")
 
         return created_photo
@@ -862,7 +865,13 @@ class WaterMitigationService:
                 'errors': [f'Job {job_id} not found']
             }
 
-        if not job.companycam_project_id:
+        # Handle both dict and model object
+        companycam_project_id = (
+            job.get('companycam_project_id') if isinstance(job, dict)
+            else getattr(job, 'companycam_project_id', None)
+        )
+
+        if not companycam_project_id:
             return {
                 'success': False,
                 'message': 'Job has no CompanyCam project linked',
@@ -873,8 +882,13 @@ class WaterMitigationService:
                 'errors': ['No CompanyCam project ID']
             }
 
-        project_id = int(job.companycam_project_id)
+        project_id = int(companycam_project_id)
+        sync_key = f"companycam_sync:{job_id}"
         logger.info(f"Starting CompanyCam sync for job {job_id}, project {project_id}")
+
+        # Get cache service for cancellation check and progress updates
+        from app.core.cache import get_cache
+        cache = get_cache()
 
         # Get existing photos by external_id (including trashed)
         existing_photos = self.photo_repo.find_by_job_with_external_ids(
@@ -892,12 +906,53 @@ class WaterMitigationService:
         # Initialize CompanyCam client
         companycam_client = CompanyCamClient()
 
+        # Helper to check cancellation
+        async def is_cancelled() -> bool:
+            status_json = await cache.get(sync_key)
+            if status_json:
+                try:
+                    status = json.loads(status_json)
+                    return status.get('status') == 'cancelled'
+                except:
+                    pass
+            return False
+
+        # Helper to update progress (preserves cancelled status if set)
+        async def update_progress(page: int):
+            # Check current status first to preserve cancelled flag
+            current_status = 'running'
+            status_json = await cache.get(sync_key)
+            if status_json:
+                try:
+                    status_data = json.loads(status_json)
+                    if status_data.get('status') == 'cancelled':
+                        current_status = 'cancelled'
+                except:
+                    pass
+
+            await cache.set(sync_key, json.dumps({
+                'status': current_status,
+                'synced_count': synced_count,
+                'skipped_existing': skipped_existing,
+                'skipped_trashed': skipped_trashed,
+                'total_companycam': total_companycam,
+                'current_page': page,
+                'errors': errors[:5]
+            }), ttl=3600)
+
         # Fetch photos page by page
         page = 1
         per_page = 100
         has_more = True
+        cancelled = False
 
         while has_more:
+            # Check for cancellation at start of each page
+            if await is_cancelled():
+                logger.info(f"Sync cancelled for job {job_id}")
+                cancelled = True
+                break
+
             try:
                 logger.info(f"Fetching CompanyCam photos page {page}")
                 response = await companycam_client.list_project_photos(
@@ -920,7 +975,8 @@ class WaterMitigationService:
 
                 total_companycam += len(photos)
 
-                # Process each photo
+                # Filter photos to sync (skip existing and trashed)
+                photos_to_sync = []
                 for cc_photo in photos:
                     photo_id = str(cc_photo.get('id'))
 
@@ -935,21 +991,116 @@ class WaterMitigationService:
                             logger.debug(f"Skipping existing photo {photo_id}")
                         continue
 
-                    # New photo - download and save
-                    try:
-                        await self._sync_single_companycam_photo(
-                            job_id=job_id,
-                            cc_photo=cc_photo,
-                            companycam_client=companycam_client
-                        )
-                        synced_count += 1
-                        existing_external_ids.add(photo_id)  # Mark as processed
-                        logger.info(f"Synced CompanyCam photo {photo_id}")
+                    photos_to_sync.append(cc_photo)
+                    existing_external_ids.add(photo_id)  # Mark as will be processed
 
-                    except Exception as e:
-                        error_msg = f"Failed to sync photo {photo_id}: {str(e)}"
-                        errors.append(error_msg)
-                        logger.error(error_msg, exc_info=True)
+                # Check cancellation before parallel download
+                if await is_cancelled():
+                    logger.info(f"Sync cancelled for job {job_id}")
+                    cancelled = True
+                    break
+
+                # Parallel download in batches of 5 (balance speed vs memory/connections)
+                # Note: Downloads are parallel, but DB saves are sequential to avoid session conflicts
+                import asyncio
+                PARALLEL_BATCH_SIZE = 5
+
+                for batch_start in range(0, len(photos_to_sync), PARALLEL_BATCH_SIZE):
+                    # Check cancellation before each batch
+                    if await is_cancelled():
+                        logger.info(f"Sync cancelled for job {job_id}")
+                        cancelled = True
+                        break
+
+                    batch = photos_to_sync[batch_start:batch_start + PARALLEL_BATCH_SIZE]
+
+                    async def download_photo_safe(cc_photo: Dict[str, Any]) -> tuple[str, Optional[bytes], Dict[str, Any], str]:
+                        """Download single photo, return (photo_id, photo_bytes, cc_photo, error_msg)"""
+                        photo_id = str(cc_photo.get('id'))
+                        try:
+                            # Extract photo URL from uris
+                            uris = cc_photo.get('uris', [])
+                            photo_url = None
+
+                            if isinstance(uris, list):
+                                for uri in uris:
+                                    if isinstance(uri, dict):
+                                        if uri.get('type') == 'original':
+                                            photo_url = uri.get('uri')
+                                            break
+                                        elif uri.get('type') == 'large' and not photo_url:
+                                            photo_url = uri.get('uri')
+                                if not photo_url and uris:
+                                    first_uri = uris[0]
+                                    photo_url = first_uri.get('uri') if isinstance(first_uri, dict) else first_uri
+                            elif isinstance(uris, dict):
+                                photo_url = uris.get('original') or uris.get('large') or uris.get('medium')
+
+                            if not photo_url:
+                                return (photo_id, None, cc_photo, f"No photo URL found for {photo_id}")
+
+                            # Download photo (parallel safe - no DB access)
+                            photo_bytes = await companycam_client.download_photo(photo_url)
+                            return (photo_id, photo_bytes, cc_photo, "")
+                        except Exception as e:
+                            error_msg = f"Failed to download photo {photo_id}: {str(e)}"
+                            logger.error(error_msg, exc_info=True)
+                            return (photo_id, None, cc_photo, error_msg)
+
+                    # Run downloads in parallel
+                    download_results = await asyncio.gather(*[download_photo_safe(p) for p in batch])
+
+                    # Save to DB sequentially (SQLAlchemy session is not thread-safe)
+                    for photo_id, photo_bytes, cc_photo, error_msg in download_results:
+                        if error_msg:
+                            errors.append(error_msg)
+                            continue
+
+                        if photo_bytes is None:
+                            errors.append(f"No photo bytes for {photo_id}")
+                            continue
+
+                        try:
+                            # Extract metadata
+                            captured_at = cc_photo.get('captured_at')
+                            captured_date = None
+                            if captured_at:
+                                try:
+                                    if isinstance(captured_at, int):
+                                        captured_date = datetime.fromtimestamp(captured_at)
+                                    elif isinstance(captured_at, str):
+                                        captured_date = datetime.fromisoformat(captured_at.replace('Z', '+00:00'))
+                                    else:
+                                        captured_date = datetime.utcnow()
+                                except (ValueError, TypeError, OSError):
+                                    captured_date = datetime.utcnow()
+
+                            filename = f"companycam_{photo_id}.jpg"
+
+                            # Save to storage and DB (sequential)
+                            await self.save_companycam_photo(
+                                job_id=job_id,
+                                photo_bytes=photo_bytes,
+                                filename=filename,
+                                companycam_photo_id=photo_id,
+                                mime_type='image/jpeg',
+                                title=cc_photo.get('title'),
+                                description=cc_photo.get('description'),
+                                captured_date=captured_date
+                            )
+                            synced_count += 1
+                            logger.info(f"Synced CompanyCam photo {photo_id}")
+                        except Exception as e:
+                            error_msg = f"Failed to save photo {photo_id}: {str(e)}"
+                            errors.append(error_msg)
+                            logger.error(error_msg, exc_info=True)
+
+                    # Update progress after each batch
+                    await update_progress(page)
+
+                # Break outer loop if cancelled
+                if cancelled:
+                    break
 
                 # Check if there are more pages
                 if len(photos) < per_page:
@@ -964,16 +1115,36 @@ class WaterMitigationService:
                 has_more = False
 
         # Build result
-        success = len(errors) == 0 or synced_count > 0
-        message = (
-            f"Synced {synced_count} photos. "
-            f"Skipped {skipped_existing} existing, {skipped_trashed} trashed. "
-            f"Total in CompanyCam: {total_companycam}."
-        )
-        if errors:
-            message += f" {len(errors)} errors occurred."
+        if cancelled:
+            success = True
+            message = (
+                f"Sync cancelled. Synced {synced_count} photos before cancellation. "
+                f"Skipped {skipped_existing} existing, {skipped_trashed} trashed."
+            )
+        else:
+            success = len(errors) == 0 or synced_count > 0
+            message = (
+                f"Synced {synced_count} photos. "
+                f"Skipped {skipped_existing} existing, {skipped_trashed} trashed. "
+                f"Total in CompanyCam: {total_companycam}."
+            )
+            if errors:
+                message += f" {len(errors)} errors occurred."
 
-        logger.info(f"CompanyCam sync completed for job {job_id}: {message}")
+        logger.info(f"CompanyCam sync {'cancelled' if cancelled else 'completed'} for job {job_id}: {message}")
+
+        # Update final status in cache
+        final_status = 'cancelled' if cancelled else 'completed'
+        await cache.set(sync_key, json.dumps({
+            'status': final_status,
+            'synced_count': synced_count,
+            'skipped_existing': skipped_existing,
+            'skipped_trashed': skipped_trashed,
+            'total_companycam': total_companycam,
+            'current_page': page,
+            'errors': errors[:10],
+            'message': message
+        }), ttl=300)  # Keep result for 5 minutes
 
         return {
             'success': success,
@@ -982,7 +1153,8 @@ class WaterMitigationService:
             'skipped_existing': skipped_existing,
             'skipped_trashed': skipped_trashed,
             'total_companycam': total_companycam,
-            'errors': errors[:10]  # Limit errors in response
+            'errors': errors[:10],
+            'cancelled': cancelled
         }
 
     async def _sync_single_companycam_photo(
@@ -1035,10 +1207,16 @@ class WaterMitigationService:
         captured_date = None
         if captured_at:
             try:
-                captured_date = datetime.fromisoformat(
-                    captured_at.replace('Z', '+00:00')
-                )
-            except (ValueError, TypeError):
+                # Handle both Unix timestamp (int) and ISO string formats
+                if isinstance(captured_at, int):
+                    captured_date = datetime.fromtimestamp(captured_at)
+                elif isinstance(captured_at, str):
+                    captured_date = datetime.fromisoformat(
+                        captured_at.replace('Z', '+00:00')
+                    )
+                else:
+                    captured_date = datetime.utcnow()
+            except (ValueError, TypeError, OSError):
                 captured_date = datetime.utcnow()
 
         # Generate filename
