@@ -47,13 +47,13 @@ class Company(Base, BaseModel):
     is_active = Column(Boolean, default=True)
     is_default = Column(Boolean, default=False)
     
-    # Relationships
-    invoices = relationship("Invoice", back_populates="company", foreign_keys="Invoice.company_id", cascade="all, delete-orphan")
-    estimates = relationship("Estimate", back_populates="company", cascade="all, delete-orphan")
-    plumber_reports = relationship("PlumberReport", back_populates="company", cascade="all, delete-orphan")
-    sketches = relationship("Sketch", back_populates="company", cascade="all, delete-orphan")
-    receipts = relationship("Receipt", back_populates="company", cascade="all, delete-orphan")
-    receipt_templates = relationship("ReceiptTemplate", back_populates="company", cascade="all, delete-orphan")
+    # Relationships (lazy='select' prevents circular import issues)
+    invoices = relationship("Invoice", back_populates="company", foreign_keys="Invoice.company_id", cascade="all, delete-orphan", lazy='select')
+    estimates = relationship("Estimate", back_populates="company", cascade="all, delete-orphan", lazy='select')
+    plumber_reports = relationship("PlumberReport", back_populates="company", cascade="all, delete-orphan", lazy='select')
+    sketches = relationship("Sketch", back_populates="company", cascade="all, delete-orphan", lazy='select')
+    receipts = relationship("Receipt", back_populates="company", cascade="all, delete-orphan", lazy='select')
+    receipt_templates = relationship("ReceiptTemplate", back_populates="company", cascade="all, delete-orphan", lazy='select')
     
     # Payment configuration relationships - temporarily commented out to resolve circular import
     # payment_method_ref = relationship("PaymentMethod", foreign_keys=[payment_method_id], lazy="joined")

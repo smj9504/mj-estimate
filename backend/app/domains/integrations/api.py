@@ -745,6 +745,79 @@ async def get_webhook_event(
     return event
 
 
+@router.post(
+    "/webhook-events/{event_id}/retry",
+    response_model=dict,
+    summary="Retry Failed or Pending Webhook Event"
+)
+async def retry_webhook_event(
+    event_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Retry processing a failed or pending webhook event
+
+    Useful for reprocessing events that failed due to temporary issues.
+    """
+    event = db.query(WebhookEvent).filter(WebhookEvent.id == event_id).first()
+
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Webhook event {event_id} not found"
+        )
+
+    if event.status not in ["pending", "failed"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot retry event with status '{event.status}'. Only 'pending' or 'failed' events can be retried."
+        )
+
+    logger.info(f"🔄 Retrying webhook event {event_id} (type: {event.event_type}, status: {event.status})")
+
+    # Reset status to pending
+    event.status = "pending"
+    event.error_message = None
+    db.commit()
+
+    # Process the event based on type
+    try:
+        if event.event_type == "photo.created":
+            await process_photo_created_event(str(event.id), event.payload)
+        elif event.event_type == "project.created":
+            await process_project_created_event(str(event.id), event.payload)
+        elif event.event_type == "project.updated":
+            await process_project_updated_event(str(event.id), event.payload)
+        elif event.event_type == "project.deleted":
+            await process_project_deleted_event(str(event.id), event.payload)
+        elif event.event_type == "photo.deleted":
+            await process_photo_deleted_event(str(event.id), event.payload)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported event type: {event.event_type}"
+            )
+
+        # Refresh to get updated status
+        db.refresh(event)
+
+        return {
+            "success": True,
+            "event_id": str(event.id),
+            "event_type": event.event_type,
+            "old_status": event.status,
+            "new_status": event.status,
+            "message": f"Event {event_id} reprocessed successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error retrying webhook event {event_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retry event: {str(e)}"
+        )
+
+
 # ========== Health Checks ==========
 
 @router.get(

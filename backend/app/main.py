@@ -28,11 +28,14 @@ from contextlib import asynccontextmanager
 
 # Import all models first to ensure SQLAlchemy relationships are properly set up
 # This prevents circular dependency issues
-from app.domains.sketch.models import *
-from app.domains.company.models import *
+# Import dependent models BEFORE Company model
 from app.domains.staff.models import *
+from app.domains.sketch.models import *
+from app.domains.receipt.models import *
 from app.domains.water_mitigation.models import *
 from app.domains.reconstruction_estimate.models import *
+# Import Company AFTER its dependencies
+from app.domains.company.models import *
 
 # Conditional model imports (only if Material Detection enabled)
 from app.core.config import settings as _early_settings

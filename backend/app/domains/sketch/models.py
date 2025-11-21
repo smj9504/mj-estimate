@@ -9,6 +9,8 @@ from app.core.database_factory import Base
 from app.core.base_models import BaseModel
 from app.core.database_types import UUIDType
 
+__all__ = ['Sketch', 'Room', 'Wall', 'Fixture', 'Measurement']
+
 
 class Sketch(Base, BaseModel):
     """
