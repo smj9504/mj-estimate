@@ -4,8 +4,8 @@ Water Mitigation service layer
 
 import logging
 import os
-import shutil
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -14,7 +14,9 @@ from fastapi import UploadFile
 from PIL import Image
 from PIL.ExifTags import TAGS
 
+from app.core.config import settings
 from app.core.interfaces import DatabaseSession
+from app.domains.storage.factory import StorageFactory
 
 from .document_repository import WMDocumentRepository
 from .models import (
@@ -178,7 +180,118 @@ class WaterMitigationService:
         return jobs, total
 
     def delete_job(self, job_id: UUID) -> bool:
-        """Delete job (cascades to photos and history)"""
+        """
+        Delete job and all associated files (photos and documents)
+        
+        This method:
+        1. Deletes all photo files from disk/storage
+        2. Deletes all document files from disk/storage
+        3. Deletes the job (cascade delete handles DB records)
+        """
+        # Get job first to verify it exists
+        job = self.job_repo.get_by_id(job_id)
+        if not job:
+            return False
+        
+        # Get all photos for this job
+        photos = self.photo_repo.find_by_job(job_id)
+        
+        # Delete photo files
+        for photo in photos:
+            try:
+                # Handle both dict and model object
+                storage_provider = (
+                    photo.get('storage_provider') if isinstance(photo, dict)
+                    else getattr(photo, 'storage_provider', 'local')
+                )
+                file_path_str = (
+                    photo.get('file_path') if isinstance(photo, dict)
+                    else getattr(photo, 'file_path', None)
+                )
+                storage_file_id = (
+                    photo.get('storage_file_id') if isinstance(photo, dict)
+                    else getattr(photo, 'storage_file_id', None)
+                )
+                photo_id = (
+                    photo.get('id') if isinstance(photo, dict)
+                    else getattr(photo, 'id', None)
+                )
+                
+                # Delete based on storage provider
+                if storage_provider == 'local' and file_path_str:
+                    # Delete local file
+                    file_path = Path(file_path_str)
+                    if file_path.exists():
+                        file_path.unlink()
+                        logger.info(f"Deleted local photo file: {file_path_str}")
+                    else:
+                        logger.warning(
+                            f"Photo file not found: {file_path_str}"
+                        )
+                elif storage_provider != 'local' and storage_file_id:
+                    # Delete from cloud storage
+                    try:
+                        storage = StorageFactory.get_instance(storage_provider)
+                        if hasattr(storage, 'delete'):
+                            success = storage.delete(storage_file_id)
+                            if success:
+                                logger.info(
+                                    f"Deleted {storage_provider} photo file: "
+                                    f"{storage_file_id}"
+                                )
+                            else:
+                                logger.warning(
+                                    f"Failed to delete {storage_provider} "
+                                    f"photo: {storage_file_id}"
+                                )
+                    except Exception as storage_error:
+                        logger.error(
+                            f"Failed to delete {storage_provider} photo "
+                            f"{storage_file_id}: {storage_error}",
+                            exc_info=True
+                        )
+            except Exception as e:
+                logger.error(
+                    f"Failed to delete photo file {photo_id}: {e}",
+                    exc_info=True
+                )
+        
+        # Get all documents for this job
+        documents = self.document_repo.get_by_job(
+            str(job_id), is_active=None
+        )  # Get all, including inactive
+        
+        # Delete document files
+        for document in documents:
+            try:
+                # Handle both dict and model object
+                file_path_str = (
+                    document.get('file_path') if isinstance(document, dict)
+                    else getattr(document, 'file_path', None)
+                )
+                document_id = (
+                    document.get('id') if isinstance(document, dict)
+                    else getattr(document, 'id', None)
+                )
+                
+                # Only delete local files
+                # For other storage providers, files are managed externally
+                if file_path_str:
+                    file_path = Path(file_path_str)
+                    if file_path.exists():
+                        file_path.unlink()
+                        logger.info(f"Deleted document file: {file_path_str}")
+                    else:
+                        logger.warning(
+                            f"Document file not found: {file_path_str}"
+                        )
+            except Exception as e:
+                logger.error(
+                    f"Failed to delete document file {document_id}: {e}",
+                    exc_info=True
+                )
+        
+        # Delete job (cascade delete will handle DB records for photos, documents, etc.)
         return self.job_repo.delete(job_id)
 
     # Category operations
@@ -281,57 +394,93 @@ class WaterMitigationService:
         description: Optional[str] = None,
         uploaded_by_id: Optional[UUID] = None
     ) -> WMPhoto:
-        """Upload photo to job"""
+        """
+        Upload photo to job using configured storage provider
+        
+        Supports:
+        - Local filesystem (development)
+        - Google Cloud Storage (production)
+        - Google Drive (production)
+        """
         # Verify job exists
         job = self.job_repo.get_by_id(job_id)
         if not job:
             raise ValueError(f"Job {job_id} not found")
 
-        # Create upload directory if it doesn't exist
-        job_upload_dir = UPLOAD_DIR / str(job_id)
-        job_upload_dir.mkdir(parents=True, exist_ok=True)
+        # Get storage provider
+        storage = StorageFactory.get_instance()
+        storage_provider_type = settings.STORAGE_PROVIDER.lower()
 
-        # Generate unique filename
-        file_ext = Path(file.filename).suffix if file.filename else '.jpg'
-        unique_filename = f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
-        file_path = job_upload_dir / unique_filename
-
-        # Save file
-        try:
-            with file_path.open("wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-        finally:
-            file.file.close()
-
-        # Get file size
-        file_size = file_path.stat().st_size
+        # Read file content
+        file_content = await file.read()
+        file_size = len(file_content)
+        
+        # Determine file type
+        is_image = file.content_type and file.content_type.startswith('image/')
+        file_type = 'photo' if is_image else 'video'
 
         # Extract capture date from EXIF metadata
-        is_image = file.content_type and file.content_type.startswith('image/')
+        captured_date = None
         if is_image:
-            captured_date = self._extract_photo_capture_date(file_path)
-        else:
-            # For videos, use file modification time
             try:
-                file_mtime = file_path.stat().st_mtime
-                captured_date = datetime.fromtimestamp(file_mtime)
-            except Exception:
+                # Save to temp location for EXIF extraction
+                temp_path = (
+                    UPLOAD_DIR / "temp" /
+                    f"temp_{datetime.utcnow().timestamp()}.jpg"
+                )
+                temp_path.parent.mkdir(parents=True, exist_ok=True)
+                with temp_path.open("wb") as f:
+                    f.write(file_content)
+                captured_date = self._extract_photo_capture_date(temp_path)
+                temp_path.unlink()  # Clean up temp file
+            except Exception as e:
+                logger.warning(f"Failed to extract EXIF date: {e}")
                 captured_date = datetime.utcnow()
+        else:
+            captured_date = datetime.utcnow()
+
+        # Upload to storage
+        try:
+            file_stream = BytesIO(file_content)
+            upload_result = storage.upload(
+                file_data=file_stream,
+                filename=file.filename or f"photo_{datetime.utcnow().timestamp()}.jpg",
+                context="water-mitigation",
+                context_id=str(job_id),
+                category="photos",
+                content_type=file.content_type
+            )
+            
+            # Get file path (works for both local and cloud storage)
+            file_path = upload_result.file_path
+            
+            logger.info(
+                f"Photo uploaded to {storage_provider_type} storage: "
+                f"{upload_result.file_path}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to upload photo to storage: {e}", exc_info=True)
+            raise
 
         # Create photo record
         photo_data = {
             'job_id': job_id,
             'source': 'manual_upload',
-            'file_name': file.filename or unique_filename,
-            'file_path': str(file_path),
+            'file_name': file.filename or upload_result.file_id,
+            'file_path': file_path,
             'file_size': file_size,
             'mime_type': file.content_type,
-            'file_type': 'photo' if is_image else 'video',
+            'file_type': file_type,
             'title': title,
             'description': description,
             'captured_date': captured_date,
             'upload_status': 'completed',
-            'uploaded_by_id': uploaded_by_id
+            'uploaded_by_id': uploaded_by_id,
+            'storage_provider': storage_provider_type,
+            'storage_file_id': upload_result.file_id,
+            'storage_thumbnail_url': upload_result.thumbnail_url,
+            'storage_folder_path': upload_result.folder_path
         }
 
         created_photo = self.photo_repo.create(photo_data)
@@ -351,7 +500,7 @@ class WaterMitigationService:
         captured_date: Optional[datetime] = None
     ) -> WMPhoto:
         """
-        Save CompanyCam photo to Water Mitigation job
+        Save CompanyCam photo to Water Mitigation job using configured storage provider
 
         Args:
             job_id: Water mitigation job ID
@@ -371,24 +520,9 @@ class WaterMitigationService:
         if not job:
             raise ValueError(f"Job {job_id} not found")
 
-        # Create upload directory
-        job_upload_dir = UPLOAD_DIR / str(job_id)
-        job_upload_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate unique filename
-        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-        file_ext = Path(filename).suffix or '.jpg'
-        unique_filename = f"companycam_{timestamp}_{filename}"
-        file_path = job_upload_dir / unique_filename
-
-        # Save photo bytes to file
-        try:
-            with file_path.open("wb") as f:
-                f.write(photo_bytes)
-            logger.info(f"Saved CompanyCam photo to {file_path}")
-        except Exception as e:
-            logger.error(f"Failed to save photo file: {e}")
-            raise
+        # Get storage provider
+        storage = StorageFactory.get_instance()
+        storage_provider_type = settings.STORAGE_PROVIDER.lower()
 
         # Get file size
         file_size = len(photo_bytes)
@@ -398,7 +532,13 @@ class WaterMitigationService:
             is_image = mime_type and mime_type.startswith('image/')
             if is_image:
                 try:
-                    captured_date = self._extract_photo_capture_date(file_path)
+                    # Save to temp location for EXIF extraction
+                    temp_path = UPLOAD_DIR / "temp" / f"temp_{datetime.utcnow().timestamp()}.jpg"
+                    temp_path.parent.mkdir(parents=True, exist_ok=True)
+                    with temp_path.open("wb") as f:
+                        f.write(photo_bytes)
+                    captured_date = self._extract_photo_capture_date(temp_path)
+                    temp_path.unlink()  # Clean up temp file
                 except Exception as e:
                     logger.warning(f"Failed to extract EXIF date: {e}")
                     captured_date = datetime.utcnow()
@@ -408,20 +548,53 @@ class WaterMitigationService:
         # Determine file type
         file_type = 'photo' if mime_type and mime_type.startswith('image/') else 'video'
 
+        # Upload to storage
+        try:
+            # Generate unique filename
+            timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            unique_filename = f"companycam_{timestamp}_{filename}"
+            
+            file_stream = BytesIO(photo_bytes)
+            upload_result = storage.upload(
+                file_data=file_stream,
+                filename=unique_filename,
+                context="water-mitigation",
+                context_id=str(job_id),
+                category="photos",
+                content_type=mime_type
+            )
+            
+            # Get file URL (for cloud storage) or path (for local)
+            if storage_provider_type == 'local':
+                file_path = upload_result.file_path
+            else:
+                # For cloud storage, file_path is the storage path
+                file_path = upload_result.file_path
+            
+            logger.info(f"CompanyCam photo uploaded to {storage_provider_type} storage: {upload_result.file_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to upload CompanyCam photo to storage: {e}", exc_info=True)
+            raise
+
         # Create photo record
         photo_data = {
             'job_id': job_id,
             'source': 'companycam',
             'external_id': companycam_photo_id,
             'file_name': filename,
-            'file_path': str(file_path),
+            'file_path': file_path,
             'file_size': file_size,
             'mime_type': mime_type,
             'file_type': file_type,
             'title': title,
             'description': description,
             'captured_date': captured_date,
-            'upload_status': 'completed'
+            'upload_status': 'completed',
+            'storage_provider': storage_provider_type,
+            'storage_file_id': upload_result.file_id,
+            'storage_thumbnail_url': upload_result.thumbnail_url,
+            'storage_folder_path': upload_result.folder_path
         }
 
         created_photo = self.photo_repo.create(photo_data)
