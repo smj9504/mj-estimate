@@ -420,3 +420,20 @@ class GenerateDocumentRequest(BaseModel):
 
 # Alias for CompanyCam integration
 WaterMitigationJobCreate = JobCreate
+
+
+# CompanyCam Sync schemas
+class CompanyCamSyncResult(BaseModel):
+    """Result of CompanyCam photo sync operation"""
+    success: bool
+    synced_count: int = Field(0, description="Number of photos newly synced")
+    skipped_existing: int = Field(0, description="Photos already in WM (not re-synced)")
+    skipped_trashed: int = Field(0, description="Photos skipped because they are trashed in WM")
+    total_companycam: int = Field(0, description="Total photos found in CompanyCam project")
+    errors: List[str] = Field(default_factory=list, description="Error messages if any")
+    message: str = Field("", description="Summary message")
+
+
+class CompanyCamSyncRequest(BaseModel):
+    """Request to sync CompanyCam photos (optional params)"""
+    force_refresh: bool = Field(False, description="Re-download even if photo exists")

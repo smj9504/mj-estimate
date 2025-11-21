@@ -18,7 +18,8 @@ import type {
   ReportConfigCreate,
   ReportConfigUpdate,
   GenerateReportRequest,
-  GenerateReportResponse
+  GenerateReportResponse,
+  CompanyCamSyncResult
 } from '../types/waterMitigation';
 
 const BASE_URL = '/api/water-mitigation';
@@ -148,9 +149,42 @@ export const waterMitigationService = {
       return response.data;
     },
 
-    // Delete photo
+    // Delete photo (hard delete - permanent)
     delete: async (photoId: string): Promise<void> => {
       await api.delete(`${BASE_URL}/photos/${photoId}`);
+    },
+
+    // Move photo to trash (soft delete - recoverable)
+    trash: async (photoId: string): Promise<void> => {
+      await api.post(`${BASE_URL}/photos/${photoId}/trash`);
+    },
+
+    // Restore photo from trash
+    restore: async (photoId: string): Promise<void> => {
+      await api.post(`${BASE_URL}/photos/${photoId}/restore`);
+    },
+
+    // Get trashed photos (optionally filtered by job)
+    getTrashed: async (jobId?: string): Promise<{ items: any[]; total: number }> => {
+      const params = new URLSearchParams();
+      if (jobId) params.append('job_id', jobId);
+      const response = await api.get(`${BASE_URL}/photos/trash?${params.toString()}`);
+      return response.data;
+    },
+
+    // Bulk trash photos
+    bulkTrash: async (photoIds: string[]): Promise<void> => {
+      await Promise.all(photoIds.map(id => api.post(`${BASE_URL}/photos/${id}/trash`)));
+    },
+
+    // Bulk restore photos from trash
+    bulkRestore: async (photoIds: string[]): Promise<void> => {
+      await Promise.all(photoIds.map(id => api.post(`${BASE_URL}/photos/${id}/restore`)));
+    },
+
+    // Bulk delete photos permanently
+    bulkDelete: async (photoIds: string[]): Promise<void> => {
+      await Promise.all(photoIds.map(id => api.delete(`${BASE_URL}/photos/${id}`)));
     },
 
     // Update photo category
@@ -176,6 +210,12 @@ export const waterMitigationService = {
         photo_ids: photoIds,
         new_date: newDate  // Expected format: YYYY-MM-DD
       });
+      return response.data;
+    },
+
+    // Sync photos from CompanyCam project
+    syncFromCompanyCam: async (jobId: string): Promise<CompanyCamSyncResult> => {
+      const response = await api.post(`${BASE_URL}/jobs/${jobId}/sync-companycam-photos`);
       return response.data;
     }
   },

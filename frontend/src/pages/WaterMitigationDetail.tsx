@@ -27,8 +27,6 @@ import dayjs from 'dayjs';
 import {
   ArrowLeftOutlined,
   EditOutlined,
-  SaveOutlined,
-  CloseOutlined,
   SwapOutlined
 } from '@ant-design/icons';
 import waterMitigationService from '../services/waterMitigationService';
@@ -38,6 +36,7 @@ import JobFormModal from '../components/water-mitigation/JobFormModal';
 import WaterMitigationPhotosTab from '../components/water-mitigation/WaterMitigationPhotosTab';
 import WaterMitigationDocumentsTab from '../components/water-mitigation/WaterMitigationDocumentsTab';
 import WaterMitigationReportTab from '../components/water-mitigation/WaterMitigationReportTab';
+import WaterMitigationTrashTab from '../components/water-mitigation/WaterMitigationTrashTab';
 import EditableSection from '../components/water-mitigation/EditableSection';
 
 const WaterMitigationDetail: React.FC = () => {
@@ -108,6 +107,7 @@ const WaterMitigationDetail: React.FC = () => {
 
   useEffect(() => {
     loadJob();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   // Update form states when job loads
@@ -608,6 +608,11 @@ const WaterMitigationDetail: React.FC = () => {
                   jobAddress={job.property_address || 'Unknown Address'}
                 />
               ) : null
+            },
+            {
+              key: 'trash',
+              label: '🗑️ Trash',
+              children: id ? <WaterMitigationTrashTab jobId={id} /> : null
             }
           ]}
         />

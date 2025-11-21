@@ -663,13 +663,39 @@ class WaterMitigationService:
 
     def list_trashed_photos(self, job_id: Optional[UUID] = None) -> List[Dict[str, Any]]:
         """List all trashed photos (optionally filtered by job)"""
-        query = self.db.query(WMPhoto).filter(WMPhoto.is_trashed == True)
+        query = self.photo_repo.session.query(WMPhoto).filter(WMPhoto.is_trashed == True)
 
         if job_id:
             query = query.filter(WMPhoto.job_id == job_id)
 
-        photos = query.all()
+        photos = query.order_by(WMPhoto.trashed_at.desc()).all()
         return [self._photo_to_dict(photo) for photo in photos]
+
+    def _photo_to_dict(self, photo: WMPhoto) -> Dict[str, Any]:
+        """Convert WMPhoto model to dictionary"""
+        return {
+            'id': str(photo.id),
+            'job_id': str(photo.job_id) if photo.job_id else None,
+            'source': photo.source,
+            'external_id': photo.external_id,
+            'file_name': photo.file_name,
+            'file_path': photo.file_path,
+            'file_size': photo.file_size,
+            'mime_type': photo.mime_type,
+            'file_type': photo.file_type,
+            'storage_provider': photo.storage_provider,
+            'storage_file_id': photo.storage_file_id,
+            'storage_thumbnail_url': photo.storage_thumbnail_url,
+            'title': photo.title,
+            'description': photo.description,
+            'captured_date': photo.captured_date.isoformat() if photo.captured_date else None,
+            'category': photo.category,
+            'is_trashed': photo.is_trashed,
+            'trashed_at': photo.trashed_at.isoformat() if photo.trashed_at else None,
+            'trash_reason': photo.trash_reason,
+            'created_at': photo.created_at.isoformat() if photo.created_at else None,
+            'updated_at': photo.updated_at.isoformat() if photo.updated_at else None
+        }
 
     # Helper methods
     def _create_status_history(
@@ -797,3 +823,235 @@ class WaterMitigationService:
         if isinstance(created, dict):
             return self.job_repo.get_by_id(created['id'])
         return created
+
+    # CompanyCam photo sync
+    async def sync_companycam_photos(
+        self,
+        job_id: UUID,
+        force_refresh: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Sync photos from CompanyCam project to Water Mitigation job.
+
+        Logic:
+        1. Get job's companycam_project_id
+        2. Fetch all photos from CompanyCam API (paginated)
+        3. Compare with existing WMPhotos by external_id
+        4. Add only new photos (skip existing and trashed)
+        5. Preserve existing category assignments
+
+        Args:
+            job_id: Water mitigation job ID
+            force_refresh: If True, re-download even if photo exists (not implemented)
+
+        Returns:
+            Dict with sync results
+        """
+        from app.domains.integrations.companycam.client import CompanyCamClient
+
+        # Get job and validate
+        job = self.job_repo.get_by_id(job_id)
+        if not job:
+            return {
+                'success': False,
+                'message': f'Job {job_id} not found',
+                'synced_count': 0,
+                'skipped_existing': 0,
+                'skipped_trashed': 0,
+                'total_companycam': 0,
+                'errors': [f'Job {job_id} not found']
+            }
+
+        if not job.companycam_project_id:
+            return {
+                'success': False,
+                'message': 'Job has no CompanyCam project linked',
+                'synced_count': 0,
+                'skipped_existing': 0,
+                'skipped_trashed': 0,
+                'total_companycam': 0,
+                'errors': ['No CompanyCam project ID']
+            }
+
+        project_id = int(job.companycam_project_id)
+        logger.info(f"Starting CompanyCam sync for job {job_id}, project {project_id}")
+
+        # Get existing photos by external_id (including trashed)
+        existing_photos = self.photo_repo.find_by_job_with_external_ids(
+            job_id, include_trashed=True
+        )
+        existing_external_ids = set(existing_photos.keys())
+
+        # Initialize counters
+        synced_count = 0
+        skipped_existing = 0
+        skipped_trashed = 0
+        total_companycam = 0
+        errors = []
+
+        # Initialize CompanyCam client
+        companycam_client = CompanyCamClient()
+
+        # Fetch photos page by page
+        page = 1
+        per_page = 100
+        has_more = True
+
+        while has_more:
+            try:
+                logger.info(f"Fetching CompanyCam photos page {page}")
+                response = await companycam_client.list_project_photos(
+                    project_id=project_id,
+                    page=page,
+                    per_page=per_page
+                )
+
+                # Handle response (can be list or dict with data key)
+                if isinstance(response, list):
+                    photos = response
+                elif isinstance(response, dict):
+                    photos = response.get('data', response.get('photos', []))
+                else:
+                    photos = []
+
+                if not photos:
+                    has_more = False
+                    break
+
+                total_companycam += len(photos)
+
+                # Process each photo
+                for cc_photo in photos:
+                    photo_id = str(cc_photo.get('id'))
+
+                    # Check if already exists
+                    if photo_id in existing_external_ids:
+                        existing_photo = existing_photos.get(photo_id)
+                        if existing_photo and existing_photo.is_trashed:
+                            skipped_trashed += 1
+                            logger.debug(f"Skipping trashed photo {photo_id}")
+                        else:
+                            skipped_existing += 1
+                            logger.debug(f"Skipping existing photo {photo_id}")
+                        continue
+
+                    # New photo - download and save
+                    try:
+                        await self._sync_single_companycam_photo(
+                            job_id=job_id,
+                            cc_photo=cc_photo,
+                            companycam_client=companycam_client
+                        )
+                        synced_count += 1
+                        existing_external_ids.add(photo_id)  # Mark as processed
+                        logger.info(f"Synced CompanyCam photo {photo_id}")
+
+                    except Exception as e:
+                        error_msg = f"Failed to sync photo {photo_id}: {str(e)}"
+                        errors.append(error_msg)
+                        logger.error(error_msg, exc_info=True)
+
+                # Check if there are more pages
+                if len(photos) < per_page:
+                    has_more = False
+                else:
+                    page += 1
+
+            except Exception as e:
+                error_msg = f"Failed to fetch page {page}: {str(e)}"
+                errors.append(error_msg)
+                logger.error(error_msg, exc_info=True)
+                has_more = False
+
+        # Build result
+        success = len(errors) == 0 or synced_count > 0
+        message = (
+            f"Synced {synced_count} photos. "
+            f"Skipped {skipped_existing} existing, {skipped_trashed} trashed. "
+            f"Total in CompanyCam: {total_companycam}."
+        )
+        if errors:
+            message += f" {len(errors)} errors occurred."
+
+        logger.info(f"CompanyCam sync completed for job {job_id}: {message}")
+
+        return {
+            'success': success,
+            'message': message,
+            'synced_count': synced_count,
+            'skipped_existing': skipped_existing,
+            'skipped_trashed': skipped_trashed,
+            'total_companycam': total_companycam,
+            'errors': errors[:10]  # Limit errors in response
+        }
+
+    async def _sync_single_companycam_photo(
+        self,
+        job_id: UUID,
+        cc_photo: Dict[str, Any],
+        companycam_client: Any
+    ) -> WMPhoto:
+        """
+        Download and save a single CompanyCam photo.
+
+        Args:
+            job_id: Water mitigation job ID
+            cc_photo: CompanyCam photo data dict
+            companycam_client: CompanyCam API client
+
+        Returns:
+            Created WMPhoto record
+        """
+        photo_id = str(cc_photo.get('id'))
+
+        # Extract photo URL from uris
+        uris = cc_photo.get('uris', [])
+        photo_url = None
+
+        if isinstance(uris, list):
+            # Find best quality URL
+            for uri in uris:
+                if isinstance(uri, dict):
+                    if uri.get('type') == 'original':
+                        photo_url = uri.get('uri')
+                        break
+                    elif uri.get('type') == 'large' and not photo_url:
+                        photo_url = uri.get('uri')
+            # Fallback to first uri
+            if not photo_url and uris:
+                first_uri = uris[0]
+                photo_url = first_uri.get('uri') if isinstance(first_uri, dict) else first_uri
+        elif isinstance(uris, dict):
+            photo_url = uris.get('original') or uris.get('large') or uris.get('medium')
+
+        if not photo_url:
+            raise ValueError(f"No photo URL found for CompanyCam photo {photo_id}")
+
+        # Download photo
+        photo_bytes = await companycam_client.download_photo(photo_url)
+
+        # Extract metadata
+        captured_at = cc_photo.get('captured_at')
+        captured_date = None
+        if captured_at:
+            try:
+                captured_date = datetime.fromisoformat(
+                    captured_at.replace('Z', '+00:00')
+                )
+            except (ValueError, TypeError):
+                captured_date = datetime.utcnow()
+
+        # Generate filename
+        filename = f"companycam_{photo_id}.jpg"
+
+        # Save photo using existing method
+        return await self.save_companycam_photo(
+            job_id=job_id,
+            photo_bytes=photo_bytes,
+            filename=filename,
+            companycam_photo_id=photo_id,
+            mime_type='image/jpeg',
+            title=cc_photo.get('title'),
+            description=cc_photo.get('description'),
+            captured_date=captured_date
+        )

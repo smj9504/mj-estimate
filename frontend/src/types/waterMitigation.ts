@@ -322,3 +322,14 @@ export const LAYOUT_OPTIONS = [
   { value: 'four', label: '4 photos per page (2x2)' },
   { value: 'six', label: '6 photos per page (3x2)' }
 ] as const;
+
+// CompanyCam Sync Result
+export interface CompanyCamSyncResult {
+  success: boolean;
+  synced_count: number;
+  skipped_existing: number;
+  skipped_trashed: number;
+  total_companycam: number;
+  errors: string[];
+  message: string;
+}

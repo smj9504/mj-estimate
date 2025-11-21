@@ -2,7 +2,7 @@
 Water Mitigation repository
 """
 
-from typing import List, Optional
+from typing import Dict, List, Optional, Set
 from uuid import UUID
 
 from sqlalchemy import and_, desc, func, or_
@@ -278,6 +278,53 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             WMPhoto.job_id == job_id,
             WMPhoto.is_trashed.is_(False)
         ).count()
+
+    def find_by_job_with_external_ids(
+        self,
+        job_id: UUID,
+        include_trashed: bool = True
+    ) -> Dict[str, WMPhoto]:
+        """
+        Find all photos for a job and return as dict keyed by external_id.
+
+        Used for CompanyCam sync to quickly check which photos already exist.
+        Photos without external_id are excluded from the result.
+
+        Args:
+            job_id: Water mitigation job ID
+            include_trashed: Include trashed photos in result (default True)
+
+        Returns:
+            Dict mapping external_id -> WMPhoto
+        """
+        query = self.db_session.query(WMPhoto).filter(
+            WMPhoto.job_id == job_id,
+            WMPhoto.external_id.isnot(None)
+        )
+
+        if not include_trashed:
+            query = query.filter(WMPhoto.is_trashed.is_(False))
+
+        photos = query.all()
+        return {photo.external_id: photo for photo in photos}
+
+    def get_external_ids_for_job(self, job_id: UUID) -> Set[str]:
+        """
+        Get all external_ids for a job's photos (including trashed).
+
+        Optimized query that only fetches external_id column.
+
+        Args:
+            job_id: Water mitigation job ID
+
+        Returns:
+            Set of external_ids (excluding None values)
+        """
+        results = self.db_session.query(WMPhoto.external_id).filter(
+            WMPhoto.job_id == job_id,
+            WMPhoto.external_id.isnot(None)
+        ).all()
+        return {r[0] for r in results}
 
 
 class WMJobStatusHistoryRepository(SQLAlchemyRepository[WMJobStatusHistory, UUID]):

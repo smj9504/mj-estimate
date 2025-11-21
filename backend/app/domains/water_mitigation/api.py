@@ -867,6 +867,56 @@ def list_trashed_photos(
     return {"items": photos, "total": len(photos)}
 
 
+# CompanyCam sync endpoint
+@router.post("/jobs/{job_id}/sync-companycam-photos")
+async def sync_companycam_photos(
+    job_id: UUID,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Manually sync photos from CompanyCam project to Water Mitigation job.
+
+    This endpoint:
+    - Fetches all photos from the linked CompanyCam project
+    - Adds only new photos (skips existing and trashed)
+    - Preserves existing photo categories
+    - Does not modify trashed photos (is_trashed=True stays trashed)
+
+    Use this when webhook sync fails or to force a full sync.
+
+    Returns:
+        CompanyCamSyncResult with sync statistics
+    """
+    try:
+        # Check if job exists and has CompanyCam project linked
+        job = service.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        if not job.get('companycam_project_id'):
+            raise HTTPException(
+                status_code=400,
+                detail="Job has no CompanyCam project linked"
+            )
+
+        # Run sync
+        result = await service.sync_companycam_photos(job_id)
+
+        # Commit any changes
+        db.commit()
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to sync CompanyCam photos for job {job_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Document generation endpoints
 @router.post("/jobs/{job_id}/documents/generate-pdf", response_model=WMDocumentResponse)
 async def generate_document_pdf(

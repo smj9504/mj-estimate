@@ -194,17 +194,17 @@ export const useFileGallery = ({
     }
   });
 
-  // Delete mutation
+  // Delete mutation (uses trash for water-mitigation photos, hard delete for others)
   const deleteMutation = useMutation({
     mutationFn: async (fileId: string) => {
       if (onDelete) {
         return await onDelete(fileId);
       }
 
-      // Use water-mitigation specific API for WM photos (images only)
+      // Use water-mitigation specific API for WM photos (images only) - trash instead of delete
       if (context === 'water-mitigation' && fileCategory === 'image') {
         const { default: waterMitigationService } = await import('../../../../services/waterMitigationService');
-        await waterMitigationService.photos.delete(fileId);
+        await waterMitigationService.photos.trash(fileId);  // Changed from delete to trash
       } else {
         // Use general file API for documents or other contexts
         await fileService.deleteFile(fileId);
@@ -215,6 +215,9 @@ export const useFileGallery = ({
       queryClient.invalidateQueries({
         queryKey: ['files', context, contextId, fileCategory]
       });
+      queryClient.invalidateQueries({
+        queryKey: ['files-infinite', context, contextId, fileCategory]
+      });
 
       // Also invalidate file count queries
       queryClient.invalidateQueries({
@@ -224,11 +227,16 @@ export const useFileGallery = ({
         queryKey: ['work-order-documents-count', contextId]
       });
 
-      message.success('File deleted successfully');
+      // Invalidate trashed photos query
+      queryClient.invalidateQueries({
+        queryKey: ['trashed-photos', contextId]
+      });
+
+      message.success('File moved to trash');
     },
     onError: (error: any) => {
-      console.error('Delete failed:', error);
-      message.error(`Delete failed: ${error.message || 'Unknown error'}`);
+      console.error('Trash failed:', error);
+      message.error(`Failed to move to trash: ${error.message || 'Unknown error'}`);
     }
   });
 
