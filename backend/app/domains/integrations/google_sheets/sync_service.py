@@ -162,6 +162,11 @@ class GoogleSheetsSyncService:
         """
         Process a single row and update/create job
 
+        Matching strategy:
+        1. First, try to find job by google_sheet_row_number (most accurate, active/inactive agnostic)
+        2. If not found, try to find by street address (fuzzy match, active_only=True)
+        3. If still not found, create new job
+
         Args:
             row: Row data
             row_number: Row number in sheet
@@ -177,30 +182,37 @@ class GoogleSheetsSyncService:
         if not address or not address.strip():
             return None
 
-        # Extract street, city, state from row data
-        street = row_data.get("property_street") or None
-        city = row_data.get("property_city") or None
-        state = row_data.get("property_state") or None
-
-        # If street is not provided, try to extract from full address
-        if not street and address:
-            # Try to parse street from full address (assume first part before comma)
-            parts = [p.strip() for p in address.split(',')]
-            if parts:
-                street = parts[0]
-
-        # Find existing job by street address (fuzzy match)
-        # This prevents duplicate leads when the same address is created from different sources
-        existing_job = self._find_job_by_street_address(
-            street=street,
-            city=city,
-            state=state,
-            full_address=address
-        )
-
         # Prepare update data
         update_data = self._prepare_job_data(row_data)
 
+        # Step 1: Try to find job by google_sheet_row_number (most accurate)
+        # This matches the exact row that was previously synced, regardless of active status
+        existing_job = self._find_job_by_row_number(row_number)
+
+        # Step 2: If not found by row number, try address matching (fallback for new rows)
+        if not existing_job:
+            # Extract street, city, state from row data
+            street = row_data.get("property_street") or None
+            city = row_data.get("property_city") or None
+            state = row_data.get("property_state") or None
+
+            # If street is not provided, try to extract from full address
+            if not street and address:
+                # Try to parse street from full address (assume first part before comma)
+                parts = [p.strip() for p in address.split(',')]
+                if parts:
+                    street = parts[0]
+
+            # Find existing job by street address (fuzzy match, active_only=True)
+            # This prevents duplicate leads when the same address is created from different sources
+            existing_job = self._find_job_by_street_address(
+                street=street,
+                city=city,
+                state=state,
+                full_address=address
+            )
+
+        # Step 3: Update existing job or create new one
         if existing_job:
             # Update existing job
             job = self._update_job(existing_job, update_data, row_number)
@@ -209,6 +221,28 @@ class GoogleSheetsSyncService:
             # Create new job
             job = self._create_job(update_data, row_number)
             return {"job": job, "created": True, "updated": False}
+
+    def _find_job_by_row_number(
+        self,
+        row_number: int
+    ) -> Optional[WaterMitigationJob]:
+        """
+        Find job by Google Sheets row number
+        
+        This is the most accurate matching method because it directly links
+        a sheet row to a specific job, regardless of active status.
+        
+        Args:
+            row_number: Google Sheets row number (1-based)
+            
+        Returns:
+            Matching job or None
+        """
+        query = select(WaterMitigationJob).where(
+            WaterMitigationJob.google_sheet_row_number == row_number
+        )
+        result = self.db.execute(query)
+        return result.scalar_one_or_none()
 
     def _find_job_by_street_address(
         self,
