@@ -48,33 +48,19 @@ export const useFileGallery = ({
         // Get API base URL for production photo preview URLs
         const baseURL = api.defaults.baseURL || '';
 
-        // Batch fetch photo preview URLs for all photos in this page
-        const photoIds = data.items.map((photo: any) => photo.id);
-        let previewUrls: Record<string, string> = {};
-
-        if (photoIds.length > 0) {
-          try {
-            const batchResponse = await api.post(
-              `/api/water-mitigation/photos/batch-preview`,
-              {
-                photo_ids: photoIds,
-                size: 'web'
-              }
-            );
-            previewUrls = batchResponse.data;
-          } catch (error) {
-            console.warn('Batch preview failed, falling back to individual URLs:', error);
-            // Fallback to individual preview URLs
-            photoIds.forEach((id: string) => {
-              previewUrls[id] = `${baseURL}/api/water-mitigation/photos/${id}/preview`;
-            });
-          }
-        }
-
-        // Convert to FileItem format
+        // Convert to FileItem format - use preview URLs from API response (optimized)
         const items = data.items.map((photo: any) => {
-          // Use batch-fetched URL or fallback to individual preview endpoint
-          const imageUrl = previewUrls[photo.id] || `${baseURL}/api/water-mitigation/photos/${photo.id}/preview`;
+          // Use preview_url from API response (already optimized by backend)
+          // Fallback to thumbnail_url or default preview endpoint
+          const imageUrl = photo.preview_url 
+            ? (photo.preview_url.startsWith('http') ? photo.preview_url : `${baseURL}${photo.preview_url}`)
+            : photo.thumbnail_url
+            ? (photo.thumbnail_url.startsWith('http') ? photo.thumbnail_url : `${baseURL}${photo.thumbnail_url}`)
+            : `${baseURL}/api/water-mitigation/photos/${photo.id}/preview?size=web`;
+          
+          const thumbUrl = photo.thumbnail_url
+            ? (photo.thumbnail_url.startsWith('http') ? photo.thumbnail_url : `${baseURL}${photo.thumbnail_url}`)
+            : imageUrl;
 
           return {
             id: photo.id,
@@ -82,7 +68,7 @@ export const useFileGallery = ({
             originalName: photo.file_name,
             url: imageUrl,
             fileUrl: imageUrl,
-            thumbnailUrl: imageUrl, // Use same endpoint (backend can optimize if needed)
+            thumbnailUrl: thumbUrl,
             contentType: photo.mime_type || 'image/jpeg',
             mimeType: photo.mime_type,
             size: photo.file_size || 0,

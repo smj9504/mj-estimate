@@ -1116,7 +1116,9 @@ async def cancel_sync(job_id: UUID):
         status['message'] = f"Sync cancelled. Synced {status.get('synced_count', 0)} photos before cancellation."
         await cache.set(sync_key, json.dumps(status), ttl=3600)
 
-        logger.info(f"Sync cancellation requested for job {job_id}")
+        # Verify cancellation was saved
+        verify_json = await cache.get(sync_key)
+        logger.info(f"Sync cancellation requested for job {job_id}, verified cache: {verify_json}")
         return {
             'success': True,
             'message': 'Cancellation requested. Sync will stop after current photo.'

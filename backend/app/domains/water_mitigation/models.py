@@ -2,12 +2,23 @@
 Water Mitigation domain models
 """
 
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, Boolean, Index, DECIMAL
+from sqlalchemy import (
+    DECIMAL,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.core.database_factory import Base
+
 from app.core.base_models import BaseModel
+from app.core.database_factory import Base
 from app.core.database_types import UUIDType
 
 
@@ -110,6 +121,9 @@ class WMPhoto(Base, BaseModel):
     __tablename__ = "wm_photos"
     __table_args__ = (
         Index('ix_wm_photos_job', 'job_id'),
+        Index('ix_wm_photos_job_trashed', 'job_id', 'is_trashed'),
+        Index('ix_wm_photos_category', 'category'),
+        Index('ix_wm_photos_captured_date', 'captured_date'),
         {'extend_existing': True}
     )
 
