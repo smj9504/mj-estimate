@@ -298,7 +298,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
         // Performance optimization: Enable infinite scroll
         enableInfiniteScroll={true}
-        pageSize={50}  // Load 50 photos at a time
+        pageSize={20}  // Smaller initial load (20) for faster perceived performance, subsequent pages load 30
 
         // Upload configuration
         uploadConfig={{

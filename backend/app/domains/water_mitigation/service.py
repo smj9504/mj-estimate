@@ -912,7 +912,10 @@ class WaterMitigationService:
             if status_json:
                 try:
                     status = json.loads(status_json)
-                    return status.get('status') == 'cancelled'
+                    is_cancelled_status = status.get('status') == 'cancelled'
+                    if is_cancelled_status:
+                        logger.info(f"Cancellation detected for job {job_id}")
+                    return is_cancelled_status
                 except:
                     pass
             return False
@@ -1052,6 +1055,12 @@ class WaterMitigationService:
 
                     # Save to DB sequentially (SQLAlchemy session is not thread-safe)
                     for photo_id, photo_bytes, cc_photo, error_msg in download_results:
+                        # Check cancellation during DB save loop
+                        if await is_cancelled():
+                            logger.info(f"Sync cancelled during save for job {job_id}")
+                            cancelled = True
+                            break
+
                         if error_msg:
                             errors.append(error_msg)
                             continue
@@ -1097,6 +1106,10 @@ class WaterMitigationService:
 
                     # Update progress after each batch
                     await update_progress(page)
+
+                    # Break batch loop if cancelled during save
+                    if cancelled:
+                        break
 
                 # Break outer loop if cancelled
                 if cancelled:

@@ -142,11 +142,19 @@ class CacheService:
 
 
 class InMemoryCache:
-    """Fallback in-memory cache when Redis is not available"""
-    
+    """Fallback in-memory cache when Redis is not available
+
+    Uses class-level storage to share cache across all instances.
+    """
+
+    # Class-level storage for shared cache across instances
+    _shared_cache = {}
+    _shared_ttls = {}
+
     def __init__(self):
-        self._cache = {}
-        self._ttls = {}
+        # Use class-level shared storage
+        self._cache = InMemoryCache._shared_cache
+        self._ttls = InMemoryCache._shared_ttls
         self._lock = asyncio.Lock()
     
     def get(self, key: str) -> Optional[str]:

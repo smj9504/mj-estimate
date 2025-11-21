@@ -244,14 +244,16 @@ class CompanyCamClient:
         results = {}
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            # Use shorter timeout for batch requests to prevent blocking
+            # Individual requests will timeout after 2 seconds
+            async with httpx.AsyncClient(timeout=2.0) as client:
                 # Create tasks for parallel requests
                 tasks = []
                 for photo_id in photo_ids:
                     url = f"{self.base_url}/photos/{photo_id}"
                     tasks.append(client.get(url, headers=self.headers))
 
-                # Execute all requests in parallel
+                # Execute all requests in parallel with return_exceptions to handle timeouts gracefully
                 responses = await asyncio.gather(*tasks, return_exceptions=True)
 
                 # Process responses

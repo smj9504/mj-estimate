@@ -576,7 +576,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
                   {group.count} {group.count === 1 ? 'photo' : 'photos'}
                 </Typography.Text>
               </div>
-              <FileGrid {...commonProps} files={group.files} />
+              <FileGrid {...commonProps} files={group.files} containerHeight={height === '100%' ? window.innerHeight - 300 : parseInt(height) || 600} />
             </div>
           ))}
         </div>
@@ -656,7 +656,9 @@ const FileGallery: React.FC<FileGalleryProps> = ({
         content = <FileCard {...commonProps} />;
         break;
       default:
-        content = <FileGrid {...commonProps} gridColumns={gridColumns} enableLazyLoading={enableLazyLoading} />;
+        // Calculate container height for virtual scrolling
+        const calculatedHeight = height === '100%' ? window.innerHeight - 300 : parseInt(height) || 600;
+        content = <FileGrid {...commonProps} gridColumns={gridColumns} enableLazyLoading={enableLazyLoading} containerHeight={calculatedHeight} />;
         break;
     }
 

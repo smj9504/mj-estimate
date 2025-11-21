@@ -22,7 +22,7 @@ export const useFileGallery = ({
   onUpload,
   onDelete,
   enableInfiniteScroll = false,
-  pageSize = 50
+  pageSize = 20  // Optimized default: smaller initial load for faster perceived performance
 }: UseFileGalleryProps) => {
   const queryClient = useQueryClient();
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
@@ -35,9 +35,12 @@ export const useFileGallery = ({
 
       // Use pagination API for water-mitigation photos
       if (context === 'water-mitigation' && fileCategory === 'image') {
+        // Dynamic page size: smaller for first page (faster initial load), larger for subsequent pages
+        const dynamicPageSize = pageParam === 1 ? 20 : 30;
+        
         const params = {
           page: pageParam,
-          page_size: pageSize,
+          page_size: dynamicPageSize,
           sort_by: 'captured_date',
           sort_order: 'desc'
         };
@@ -100,6 +103,11 @@ export const useFileGallery = ({
       };
     },
     getNextPageParam: (lastPage) => {
+      // If total_pages is None (performance optimization), continue loading
+      // until we get an empty page
+      if (lastPage.total_pages === null || lastPage.total_pages === undefined) {
+        return lastPage.items.length > 0 ? lastPage.page + 1 : undefined;
+      }
       if (lastPage.page < lastPage.total_pages) {
         return lastPage.page + 1;
       }
@@ -107,8 +115,11 @@ export const useFileGallery = ({
     },
     initialPageParam: 1,
     enabled: !!contextId && enableInfiniteScroll,
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
+    staleTime: 5 * 60 * 1000, // 5 minutes - data is fresh for longer
+    gcTime: 10 * 60 * 1000, // 10 minutes - keep cache longer to preserve scroll position
+    maxPages: undefined, // No limit - keep all loaded pages for smooth scrolling
+    refetchOnWindowFocus: false, // Don't refetch when window regains focus
+    refetchOnMount: false, // Don't refetch on mount if data exists
   });
 
   // Regular query for non-infinite scroll
@@ -132,8 +143,11 @@ export const useFileGallery = ({
   });
 
   // Select the appropriate query based on mode
+  // For infinite scroll, keep all loaded pages to preserve scroll position
+  // This allows smooth scrolling up and down without losing data
   const files = enableInfiniteScroll
-    ? (infiniteQuery.data?.pages.flatMap(page => page.items) || [])
+    ? (infiniteQuery.data?.pages
+        .flatMap(page => page.items) || []) // Keep all pages for smooth bidirectional scrolling
     : (regularQuery.data || []);
 
   const loading = enableInfiniteScroll ? infiniteQuery.isLoading : regularQuery.isLoading;

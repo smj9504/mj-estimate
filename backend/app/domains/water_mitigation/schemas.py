@@ -262,10 +262,10 @@ class PhotoResponse(BaseModel):
 class PhotoListResponse(BaseModel):
     """Paginated photo list response"""
     items: List[PhotoResponse]
-    total: int
+    total: Optional[int] = None  # None for performance optimization on later pages
     page: int
     page_size: int
-    total_pages: int
+    total_pages: Optional[int] = None  # None for performance optimization on later pages
 
     class Config:
         from_attributes = True

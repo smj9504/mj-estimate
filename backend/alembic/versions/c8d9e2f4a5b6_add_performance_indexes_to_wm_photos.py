@@ -81,3 +81,4 @@ def downgrade() -> None:
     safe_drop_index('ix_wm_photos_category', 'wm_photos')
     safe_drop_index('ix_wm_photos_job_trashed', 'wm_photos')
 
+

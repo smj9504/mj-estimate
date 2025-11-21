@@ -248,7 +248,7 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         sort_order: str = 'desc',
         category_filter: Optional[List[str]] = None,
         uncategorized_only: bool = False
-    ) -> tuple[List[WMPhoto], int]:
+    ) -> tuple[List[WMPhoto], Optional[int]]:
         """Find photos for a job with pagination and optional category filtering
 
         Returns:
@@ -272,8 +272,12 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             # Filter by multiple categories (OR logic)
             query = query.filter(WMPhoto.category.in_(category_filter))
 
-        # Get total count (after filters)
-        total = query.count()
+        # Get total count (after filters) - only for first page
+        # Skip count for later pages to significantly improve performance
+        total = None
+        if page == 1:
+            # Only count on first page - this is the most expensive operation
+            total = query.count()
 
         # Apply sorting
         if sort_order.lower() == 'asc':
@@ -281,8 +285,29 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         else:
             order_clause = getattr(WMPhoto, sort_by).desc()
 
-        # Apply pagination
-        photos = query.order_by(order_clause).limit(page_size).offset((page - 1) * page_size).all()
+        # Optimize pagination: use keyset pagination for pages > 3
+        # Offset pagination becomes slow for deep pages
+        if page > 3 and sort_by == 'captured_date':
+            # Use keyset pagination: get cursor from previous page's last item
+            # This is much faster than large offsets
+            prev_page_offset = (page - 2) * page_size
+            cursor_query = query.order_by(order_clause).limit(1).offset(prev_page_offset)
+            cursor_photo = cursor_query.first()
+            
+            if cursor_photo:
+                cursor_value = getattr(cursor_photo, sort_by)
+                # Filter photos after cursor (keyset pagination)
+                if sort_order.lower() == 'desc':
+                    query = query.filter(getattr(WMPhoto, sort_by) < cursor_value)
+                else:
+                    query = query.filter(getattr(WMPhoto, sort_by) > cursor_value)
+                photos = query.order_by(order_clause).limit(page_size).all()
+            else:
+                # Fallback to offset pagination if cursor not found
+                photos = query.order_by(order_clause).limit(page_size).offset((page - 1) * page_size).all()
+        else:
+            # Use standard offset pagination for early pages (page 1-3)
+            photos = query.order_by(order_clause).limit(page_size).offset((page - 1) * page_size).all()
 
         return photos, total
 

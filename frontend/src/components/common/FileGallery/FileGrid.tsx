@@ -1,5 +1,6 @@
-import React, { useState, memo } from 'react';
+import React, { useState, memo, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Card, Image, Button, Typography, Space, Tooltip, Modal, Checkbox } from 'antd';
+import { Grid } from 'react-window';
 import {
   EyeOutlined,
   DownloadOutlined,
@@ -12,6 +13,79 @@ import { fileService } from '../../../services/fileService';
 
 const { Text } = Typography;
 const { Meta } = Card;
+
+// Optimized lazy loading image component with Intersection Observer
+interface LazyImageProps {
+  src: string;
+  fallbackSrc: string;
+  alt: string;
+  enableLazyLoading: boolean;
+}
+
+const LazyImage: React.FC<LazyImageProps> = memo(({ src, fallbackSrc, alt, enableLazyLoading }) => {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const [imageSrc, setImageSrc] = useState<string | null>(enableLazyLoading ? null : src);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!enableLazyLoading || !imgRef.current) {
+      setImageSrc(src);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setImageSrc(src);
+            observer.disconnect();
+          }
+        });
+      },
+      {
+        rootMargin: '50px', // Start loading 50px before image enters viewport
+        threshold: 0.01
+      }
+    );
+
+    if (imgRef.current) {
+      observer.observe(imgRef.current);
+    }
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [src, enableLazyLoading]);
+
+  return (
+    <img
+      ref={imgRef}
+      src={imageSrc || undefined}
+      alt={alt}
+      style={{
+        width: '100%',
+        height: '100%',
+        objectFit: 'cover',
+        display: 'block',
+        opacity: isLoaded ? 1 : 0,
+        transition: 'opacity 0.2s ease'
+      }}
+      loading={enableLazyLoading ? "lazy" : "eager"}
+      decoding="async"
+      fetchPriority="low"
+      onLoad={() => setIsLoaded(true)}
+      onError={(e) => {
+        // Fallback to full image if thumbnail fails
+        const img = e.target as HTMLImageElement;
+        if (img.src !== fallbackSrc && imageSrc !== fallbackSrc) {
+          setImageSrc(fallbackSrc);
+        }
+      }}
+    />
+  );
+});
+
+LazyImage.displayName = 'LazyImage';
 
 // Memoized individual file card component to prevent unnecessary re-renders
 interface FileCardItemProps {
@@ -70,18 +144,11 @@ const FileCardItem = memo<FileCardItemProps>(({
         <div style={{ position: 'relative', width: '100%', aspectRatio: '1', overflow: 'hidden', background: '#f5f5f5' }}>
           {isImage ? (
             <>
-              <img
+              <LazyImage
                 src={file.thumbnailUrl || file.url}
+                fallbackSrc={file.url}
                 alt={file.originalName}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                loading={enableLazyLoading ? "lazy" : undefined}
-                onError={(e) => {
-                  // Fallback to full image if thumbnail fails
-                  const img = e.target as HTMLImageElement;
-                  if (img.src !== file.url) {
-                    img.src = file.url;
-                  }
-                }}
+                enableLazyLoading={enableLazyLoading}
               />
               <div className="file-overlay">
                 <Space direction="vertical" align="center" style={{ width: '100%' }}>
@@ -215,6 +282,7 @@ interface FileGridProps {
   showImageInfo?: boolean;
   gridColumns?: Record<string, number>;
   enableLazyLoading?: boolean;
+  containerHeight?: number; // Height for virtual scrolling
 }
 
 const FileGrid: React.FC<FileGridProps> = ({
@@ -230,7 +298,8 @@ const FileGrid: React.FC<FileGridProps> = ({
   enableImageZoom = true,
   showImageInfo = true,
   gridColumns = { xs: 3, sm: 4, md: 5, lg: 6, xl: 8 },
-  enableLazyLoading = true
+  enableLazyLoading = true,
+  containerHeight = 600
 }) => {
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
@@ -384,27 +453,150 @@ const FileGrid: React.FC<FileGridProps> = ({
     handleFileSelect(fileId, selected);
   }, [handleFileSelect]);
 
+  // Use virtual scrolling for large lists (200+ items) to improve performance
+  // Increased threshold to reduce issues with scroll position tracking
+  const useVirtualScrolling = files.length > 200;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<any>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const scrollPositionRef = useRef<{ scrollTop: number; scrollLeft: number } | null>(null);
+
+  // Calculate container width for virtual scrolling
+  useEffect(() => {
+    if (!useVirtualScrolling || !containerRef.current) return;
+
+    const updateWidth = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.offsetWidth);
+      }
+    };
+
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, [useVirtualScrolling]);
+
+  // Save scroll position when scrolling
+  useEffect(() => {
+    if (!useVirtualScrolling || !containerRef.current) return;
+
+    const container = containerRef.current;
+    const handleScroll = () => {
+      scrollPositionRef.current = {
+        scrollTop: container.scrollTop,
+        scrollLeft: container.scrollLeft
+      };
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [useVirtualScrolling]);
+
+  // Restore scroll position when files change (but preserve if user is scrolling)
+  useEffect(() => {
+    if (!useVirtualScrolling || !containerRef.current || !scrollPositionRef.current) return;
+
+    // Only restore if we have a saved position and container is at top
+    const container = containerRef.current;
+    if (container.scrollTop === 0 && scrollPositionRef.current.scrollTop > 0) {
+      // User scrolled up, restore position
+      requestAnimationFrame(() => {
+        if (container && scrollPositionRef.current) {
+          container.scrollTop = scrollPositionRef.current.scrollTop;
+          container.scrollLeft = scrollPositionRef.current.scrollLeft;
+        }
+      });
+    }
+  }, [files.length, useVirtualScrolling]);
+
+  // Calculate columns based on container width
+  const columnCount = useMemo(() => {
+    if (!useVirtualScrolling || containerWidth === 0) return 6;
+    // Calculate columns: ~150px per item
+    return Math.max(3, Math.floor(containerWidth / 150));
+  }, [useVirtualScrolling, containerWidth]);
+
+  const itemSize = 150; // Fixed item size for virtual scrolling
+  const rowCount = Math.ceil(files.length / columnCount);
+
+  // Virtual grid cell renderer
+  const Cell = useCallback(({ columnIndex, rowIndex, style }: { columnIndex: number; rowIndex: number; style: React.CSSProperties }) => {
+    const index = rowIndex * columnCount + columnIndex;
+    if (index >= files.length) return null;
+
+    const file = files[index];
+    return (
+      <div style={style}>
+        <FileCardItem
+          key={file.id}
+          file={file}
+          isSelected={currentSelectedSet.has(file.id)}
+          allowMultiSelect={allowMultiSelect}
+          fileCategory={fileCategory}
+          showImagePreview={showImagePreview}
+          showImageInfo={showImageInfo}
+          enableLazyLoading={enableLazyLoading}
+          onSelect={handleFileSelectMemo}
+          onPreview={handlePreview}
+          onDownload={handleDownload}
+          onDelete={onDelete ? handleDelete : undefined}
+          onCardClick={handleCardClick}
+        />
+      </div>
+    );
+  }, [files, currentSelectedSet, allowMultiSelect, fileCategory, showImagePreview, showImageInfo, enableLazyLoading, handleFileSelectMemo, handlePreview, handleDownload, handleDelete, handleCardClick, columnCount, onDelete]);
+
   return (
     <>
       <style>{getGridStyle()}</style>
-      <div className="file-grid">
-        {files.map((file) => (
-          <FileCardItem
-            key={file.id}
-            file={file}
-            isSelected={currentSelectedSet.has(file.id)}
-            allowMultiSelect={allowMultiSelect}
-            fileCategory={fileCategory}
-            showImagePreview={showImagePreview}
-            showImageInfo={showImageInfo}
-            enableLazyLoading={enableLazyLoading}
-            onSelect={handleFileSelectMemo}
-            onPreview={handlePreview}
-            onDownload={handleDownload}
-            onDelete={onDelete ? handleDelete : undefined}
-            onCardClick={handleCardClick}
-          />
-        ))}
+      <div 
+        ref={containerRef}
+        className="file-grid"
+        style={useVirtualScrolling ? { height: '100%', width: '100%' } : {}}
+      >
+        {useVirtualScrolling && containerWidth > 0 ? (
+          React.createElement(
+            Grid as any,
+            {
+              ref: gridRef,
+              columnCount,
+              columnWidth: containerWidth / columnCount,
+              height: containerHeight,
+              rowCount,
+              rowHeight: itemSize + 12, // item size + gap
+              width: containerWidth,
+              style: { overflowX: 'hidden' },
+              children: Cell,
+              onScroll: (e: any) => {
+                // Update scroll position ref
+                if (containerRef.current) {
+                  scrollPositionRef.current = {
+                    scrollTop: containerRef.current.scrollTop,
+                    scrollLeft: containerRef.current.scrollLeft
+                  };
+                }
+              }
+            }
+          )
+        ) : (
+          files.map((file) => (
+            <FileCardItem
+              key={file.id}
+              file={file}
+              isSelected={currentSelectedSet.has(file.id)}
+              allowMultiSelect={allowMultiSelect}
+              fileCategory={fileCategory}
+              showImagePreview={showImagePreview}
+              showImageInfo={showImageInfo}
+              enableLazyLoading={enableLazyLoading}
+              onSelect={handleFileSelectMemo}
+              onPreview={handlePreview}
+              onDownload={handleDownload}
+              onDelete={onDelete ? handleDelete : undefined}
+              onCardClick={handleCardClick}
+            />
+          ))
+        )}
       </div>
 
       {/* Image Preview Modal */}

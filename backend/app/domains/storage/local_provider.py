@@ -3,17 +3,18 @@ Local filesystem storage provider
 For development and small deployments
 """
 
+import logging
+import mimetypes
 import os
 import shutil
 import uuid
-from pathlib import Path
-from typing import BinaryIO, Optional, List, Dict, Any
 from datetime import datetime
-import mimetypes
-import logging
+from pathlib import Path
+from typing import Any, BinaryIO, Dict, List, Optional
 
-from .base import StorageProvider, UploadResult, FileMetadata
 from PIL import Image
+
+from .base import FileMetadata, StorageProvider, UploadResult
 
 logger = logging.getLogger(__name__)
 
@@ -253,9 +254,9 @@ class LocalStorageProvider(StorageProvider):
         self,
         image_path: Path,
         output_dir: Path,
-        size: tuple = (200, 200)
+        size: tuple = (300, 300)  # Increased from 200x200 for better quality
     ) -> Optional[str]:
-        """Generate thumbnail for image"""
+        """Generate optimized thumbnail for image (WebP format for better compression)"""
         try:
             with Image.open(image_path) as img:
                 # Convert to RGB if necessary
@@ -265,15 +266,27 @@ class LocalStorageProvider(StorageProvider):
                 # Create thumbnail
                 img.thumbnail(size, Image.Resampling.LANCZOS)
 
-                # Generate thumbnail filename
-                thumb_filename = f"thumb_{image_path.stem}.jpg"
+                # Generate thumbnail filename (use WebP for better compression)
+                thumb_filename = f"thumb_{image_path.stem}.webp"
                 thumb_path = output_dir / thumb_filename
 
-                # Save thumbnail
-                img.save(thumb_path, 'JPEG', quality=85)
+                # Save thumbnail as WebP (better compression than JPEG)
+                img.save(thumb_path, 'WebP', quality=80, method=6)
 
                 return str(thumb_path.relative_to(self.base_dir))
 
         except Exception as e:
             logger.error(f"Thumbnail generation failed: {e}")
-            return None
+            # Fallback to JPEG if WebP fails
+            try:
+                with Image.open(image_path) as img:
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    img.thumbnail(size, Image.Resampling.LANCZOS)
+                    thumb_filename = f"thumb_{image_path.stem}.jpg"
+                    thumb_path = output_dir / thumb_filename
+                    img.save(thumb_path, 'JPEG', quality=85)
+                    return str(thumb_path.relative_to(self.base_dir))
+            except Exception as e2:
+                logger.error(f"Thumbnail generation fallback failed: {e2}")
+                return None
