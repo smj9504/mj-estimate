@@ -21,7 +21,7 @@ class Invoice(Base, BaseModel):
     version = Column(Integer, default=1, nullable=False)
     is_latest = Column(Boolean, default=True, nullable=False)
     company_id = Column(UUIDType(), ForeignKey("companies.id"))  # String → UUIDType으로 수정
-    client_name = Column(String(255), nullable=False)
+    client_name = Column(String(255), nullable=True)  # Optional when client_company_id is provided
     client_company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=True)  # Optional reference to registered company
     client_address = Column(Text)
     client_city = Column(String(100))

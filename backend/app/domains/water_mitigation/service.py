@@ -521,6 +521,20 @@ class WaterMitigationService:
         if not job:
             raise ValueError(f"Job {job_id} not found")
 
+        # Prevent duplicate uploads for the same CompanyCam photo
+        existing_photo = self.session.query(WMPhoto).filter(
+            WMPhoto.job_id == job_id,
+            WMPhoto.external_id == companycam_photo_id
+        ).first()
+
+        if existing_photo:
+            logger.info(
+                "CompanyCam photo %s already attached to job %s. Skipping re-upload.",
+                companycam_photo_id,
+                job_id,
+            )
+            return existing_photo
+
         # Get storage provider
         storage = StorageFactory.get_instance()
         storage_provider_type = settings.STORAGE_PROVIDER.lower()

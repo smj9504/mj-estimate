@@ -115,21 +115,42 @@ async def download_file(
     file_id: str,
     service: FileService = Depends(get_file_service)
 ):
-    """Download a file by ID"""
+    """Download a file by ID (supports both local and cloud storage)"""
     try:
+        from fastapi.responses import StreamingResponse
+        from app.domains.file.service import get_storage_provider
+
         file_record = service.repository.get_by_id(file_id)
         if not file_record or not file_record.get('is_active', True):
             raise HTTPException(status_code=404, detail="File not found")
 
-        file_path = Path(file_record['url'])
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail="File not found on disk")
+        file_url = file_record.get('url', '')
+        storage = get_storage_provider()
 
         # Determine media type
         media_type = file_record.get('content_type')
         if not media_type:
-            media_type, _ = mimetypes.guess_type(str(file_path))
+            media_type, _ = mimetypes.guess_type(file_record.get('original_name', ''))
             media_type = media_type or 'application/octet-stream'
+
+        # Check if file is in cloud storage (gs:// or other remote URL)
+        if file_url.startswith('gs://') or file_url.startswith('https://') or file_url.startswith('http://'):
+            # Get file from storage provider
+            try:
+                file_data = storage.download_file(file_url)
+                return StreamingResponse(
+                    io.BytesIO(file_data),
+                    media_type=media_type,
+                    headers={"Content-Disposition": f'attachment; filename="{file_record["original_name"]}"'}
+                )
+            except Exception as e:
+                logger.error(f"Error downloading file from storage: {e}")
+                raise HTTPException(status_code=404, detail=f"File not accessible: {str(e)}")
+
+        # Local file handling
+        file_path = Path(file_record['url'])
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found on disk")
 
         return FastAPIFileResponse(
             path=str(file_path),

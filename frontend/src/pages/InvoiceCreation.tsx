@@ -2047,7 +2047,6 @@ const InvoiceCreation: React.FC = () => {
                     <Form.Item
                       name="client_name"
                       label="Client Name"
-                      rules={[{ required: true, message: 'Please enter client name' }]}
                     >
                       <Input />
                     </Form.Item>

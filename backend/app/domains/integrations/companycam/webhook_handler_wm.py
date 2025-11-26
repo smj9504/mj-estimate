@@ -788,11 +788,31 @@ class CompanyCamWaterMitigationHandler:
                     result.work_order_match.work_order_id = job_id
 
             # Step 5: Save photo metadata
-            companycam_photo = await self._save_photo_metadata(
+            companycam_photo, created = await self._save_photo_metadata(
                 webhook_data,
                 address_info,
                 job_id
                 )
+
+            if not created and companycam_photo.is_synced:
+                logger.info(
+                    "CompanyCam photo %s already synced to job %s. Bypassing download/notification.",
+                    webhook_data.photo.id,
+                    job_id,
+                )
+
+                result.success = True
+                result.photo_downloaded = True
+
+                if webhook_event_id:
+                    self._update_webhook_event(
+                        webhook_event_id,
+                        status="duplicate",
+                        related_entity_type="water_mitigation_job",
+                        related_entity_id=job_id
+                    )
+
+                return result
 
             # Step 6: Download and attach photo to job
             try:
@@ -1012,7 +1032,7 @@ class CompanyCamWaterMitigationHandler:
         webhook_data: PhotoCreatedWebhook,
         address_info: AddressInfo,
         job_id: UUID
-    ) -> CompanyCamPhoto:
+    ) -> tuple[CompanyCamPhoto, bool]:
         """
         Save CompanyCam photo metadata to database
 
@@ -1022,8 +1042,29 @@ class CompanyCamWaterMitigationHandler:
             job_id: Associated water mitigation job ID
 
         Returns:
-            Saved CompanyCamPhoto record
+            Tuple of (CompanyCamPhoto record, created_flag)
         """
+        companycam_photo_id = str(webhook_data.photo.id)
+
+        # If the photo already exists, short-circuit to avoid duplicate inserts
+        existing_photo = self.db.query(CompanyCamPhoto).filter(
+            CompanyCamPhoto.companycam_photo_id == companycam_photo_id
+        ).first()
+
+        if existing_photo:
+            logger.info(
+                "CompanyCam photo %s already stored (synced=%s). Skipping metadata insert.",
+                companycam_photo_id,
+                existing_photo.is_synced,
+            )
+
+            # Make sure the job reference stays up-to-date (should normally match)
+            if not existing_photo.water_mitigation_job_id:
+                existing_photo.water_mitigation_job_id = str(job_id)
+                self.db.commit()
+
+            return existing_photo, False
+
         photo_data = CompanyCamPhoto(
             companycam_photo_id=str(webhook_data.photo.id),
             companycam_project_id=str(webhook_data.project.id),
@@ -1053,7 +1094,7 @@ class CompanyCamWaterMitigationHandler:
         self.db.refresh(photo_data)
 
         logger.info(f"Saved photo metadata: {photo_data.id}")
-        return photo_data
+        return photo_data, True
 
     async def _download_and_attach_photo(
         self,
