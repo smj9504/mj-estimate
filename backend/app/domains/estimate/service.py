@@ -2,17 +2,18 @@
 Estimate domain service with comprehensive business logic and validation.
 """
 
-from typing import Any, Dict, List, Optional
-import logging
-from datetime import datetime, date
-from decimal import Decimal
 import json
-from sqlalchemy import text, select, func
+import logging
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import func, select, text
 
 from app.common.base_service import TransactionalService
-from app.domains.estimate.repository import get_estimate_repository
-from app.core.interfaces import DatabaseProvider
 from app.core.database_factory import get_database
+from app.core.interfaces import DatabaseProvider
+from app.domains.estimate.repository import get_estimate_repository
 
 logger = logging.getLogger(__name__)
 
@@ -352,7 +353,7 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             logger.error(f"Error converting estimate to invoice: {e}")
             raise
     
-    def calculate_totals(self, items: List[Dict[str, Any]], op_percent: float = 0, tax_method: str = 'percentage', tax_rate: float = 0, tax_amount: float = 0) -> Dict[str, Any]:
+    def calculate_totals(self, items: List[Dict[str, Any]], op_percent: float = 0, tax_method: str = 'percentage', tax_rate: float = 0, tax_amount: float = 0, adjustments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """
         Calculate estimate totals based on items with O&P and tax calculations.
 
@@ -385,10 +386,49 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                 total_item_tax += item_tax
                 total_depreciation += item_depreciation
 
-            # Calculate O&P amount
-            op_amount = subtotal * (Decimal(str(op_percent)) / 100)
+            # Apply adjustments in order (new flexible system)
+            current_subtotal = subtotal
+            calculated_adjustments = []
+            
+            if adjustments:
+                # Sort adjustments by order
+                sorted_adjustments = sorted(adjustments, key=lambda x: x.get('order', 999))
+                
+                for adj in sorted_adjustments:
+                    percentage = Decimal(str(adj.get('percentage', 0)))
+                    adj_type = adj.get('type', 'add')
+                    adj_name = adj.get('name', 'Adjustment')
+                    
+                    # Calculate adjustment amount based on current subtotal
+                    adj_amount = current_subtotal * (abs(percentage) / 100)
+                    
+                    # Apply adjustment based on type
+                    if adj_type == 'subtract' or percentage < 0:
+                        current_subtotal -= adj_amount
+                    else:
+                        current_subtotal += adj_amount
+                    
+                    calculated_adjustments.append({
+                        'name': adj_name,
+                        'percentage': float(percentage),
+                        'type': adj_type,
+                        'order': adj.get('order', 999),
+                        'amount': float(adj_amount)
+                    })
+            
+            # Backward compatibility: apply op_percent if provided and no adjustments
+            op_amount = Decimal('0')
+            
+            if not adjustments or len(adjustments) == 0:
+                # Use legacy op_percent
+                if op_percent:
+                    op_amount = subtotal * (Decimal(str(op_percent)) / 100)
+                    current_subtotal = subtotal + op_amount
+            else:
+                # Calculate op_amount for display (even if not used in calculation)
+                op_amount = subtotal * (Decimal(str(op_percent)) / 100)
 
-            # Calculate tax based on method
+            # Calculate tax based on method on adjusted subtotal
             if tax_method == 'percentage':
                 # Calculate tax on taxable items only + proportional O&P
                 taxable_amount = Decimal('0')
@@ -398,24 +438,50 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                         rate = Decimal(str(item.get('rate', 0)))
                         taxable_amount += quantity * rate
 
-                # Calculate taxable ratio and apply to O&P
-                taxable_ratio = taxable_amount / subtotal if subtotal > 0 else Decimal('0')
-                taxable_op_amount = op_amount * taxable_ratio
-
-                # Calculate tax on taxable items + taxable portion of O&P
-                calculated_tax_amount = (taxable_amount + taxable_op_amount) * (Decimal(str(tax_rate)) / 100)
+                if taxable_amount > 0 and subtotal > 0:
+                    taxable_ratio = taxable_amount / subtotal
+                    
+                    # Apply adjustments proportionally to taxable amount
+                    taxable_current = taxable_amount
+                    
+                    if adjustments and len(adjustments) > 0:
+                        for adj in sorted_adjustments:
+                            percentage = Decimal(str(adj.get('percentage', 0)))
+                            adj_type = adj.get('type', 'add')
+                            
+                            taxable_adj_amount = taxable_current * (abs(percentage) / 100)
+                            
+                            if adj_type == 'subtract' or percentage < 0:
+                                taxable_current -= taxable_adj_amount
+                            else:
+                                taxable_current += taxable_adj_amount
+                    else:
+                        # Legacy: apply op_percent proportionally
+                        taxable_op_amount = taxable_amount * (Decimal(str(op_percent)) / 100)
+                        taxable_current = taxable_amount + taxable_op_amount
+                    
+                    # Calculate tax on taxable adjusted amount
+                    calculated_tax_amount = taxable_current * (Decimal(str(tax_rate)) / 100)
+                else:
+                    calculated_tax_amount = Decimal('0')
             else:
                 # Use specific tax amount
                 calculated_tax_amount = Decimal(str(tax_amount))
 
-            discount = Decimal(str(items[0].get('discount_amount', 0) if items else 0))
-            rcv_amount = subtotal + op_amount + calculated_tax_amount - discount  # Replacement Cost Value
+            # Apply discount for backward compatibility (only if no adjustments)
+            discount = Decimal('0')
+            if not adjustments or len(adjustments) == 0:
+                discount = Decimal(str(items[0].get('discount_amount', 0) if items else 0))
+                current_subtotal -= discount
+            
+            rcv_amount = current_subtotal + calculated_tax_amount  # Replacement Cost Value
             acv_amount = rcv_amount - total_depreciation  # Actual Cash Value
 
             return {
-                'subtotal': float(subtotal),
-                'op_percent': float(op_percent),
-                'op_amount': float(op_amount),
+                'subtotal': float(current_subtotal),
+                'adjustments': calculated_adjustments,
+                'op_percent': float(op_percent),  # For backward compatibility
+                'op_amount': float(op_amount),  # For backward compatibility
                 'tax_method': tax_method,
                 'tax_rate': float(tax_rate) if tax_method == 'percentage' else 0,
                 'tax_amount': float(calculated_tax_amount),
@@ -526,8 +592,9 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             if company_id:
                 with self.database.get_session() as session:
                     # Count estimates for this specific company in the current year
-                    from app.domains.estimate.models import Estimate
                     from sqlalchemy import extract
+
+                    from app.domains.estimate.models import Estimate
 
                     count = session.query(func.count(Estimate.id)).filter(
                         Estimate.company_id == company_id,
@@ -614,13 +681,27 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
         if room_data and not isinstance(room_data, (dict, str)):
             raise ValueError("Room data must be a dictionary or JSON string")
         
-        # Calculate totals with O&P and tax information
+        # Calculate totals with adjustments, O&P and tax information
         op_percent = float(validated_data.get('op_percent', 0))
         tax_method = validated_data.get('tax_method', 'percentage')
         tax_rate = float(validated_data.get('tax_rate', 0))
         tax_amount = float(validated_data.get('tax_amount', 0))
+        
+        # Prepare adjustments if provided
+        adjustments_data = None
+        if 'adjustments' in validated_data and validated_data['adjustments']:
+            adjustments_data = validated_data['adjustments']
+            if isinstance(adjustments_data, list):
+                # Convert to dict format if needed
+                adjustments_data = [
+                    adj.dict() if hasattr(adj, 'dict') else adj
+                    for adj in adjustments_data
+                ]
 
-        totals = self.calculate_totals(items, op_percent, tax_method, tax_rate, tax_amount)
+        totals = self.calculate_totals(
+            items, op_percent, tax_method, tax_rate, tax_amount,
+            adjustments=adjustments_data
+        )
         validated_data.update(totals)
         
         return validated_data
@@ -660,13 +741,27 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                 if float(item.get('quantity', 0)) <= 0:
                     raise ValueError("Item quantity must be positive")
             
-            # Calculate totals with O&P and tax information
+            # Calculate totals with adjustments, O&P and tax information
             op_percent = float(validated_data.get('op_percent', 0))
             tax_method = validated_data.get('tax_method', 'percentage')
             tax_rate = float(validated_data.get('tax_rate', 0))
             tax_amount = float(validated_data.get('tax_amount', 0))
+            
+            # Prepare adjustments if provided
+            adjustments_data = None
+            if 'adjustments' in validated_data and validated_data['adjustments']:
+                adjustments_data = validated_data['adjustments']
+                if isinstance(adjustments_data, list):
+                    # Convert to dict format if needed
+                    adjustments_data = [
+                        adj.dict() if hasattr(adj, 'dict') else adj
+                        for adj in adjustments_data
+                    ]
 
-            totals = self.calculate_totals(items, op_percent, tax_method, tax_rate, tax_amount)
+            totals = self.calculate_totals(
+                items, op_percent, tax_method, tax_rate, tax_amount,
+                adjustments=adjustments_data
+            )
             validated_data.update(totals)
         
         # Validate room data if provided

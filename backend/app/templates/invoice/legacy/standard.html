@@ -438,7 +438,7 @@
             
             <div class="client-section">
                 <div style="font-size: 14px; font-weight: 600; color: #111827; margin-bottom: 12px;">Bill to</div>
-                <div class="company-name">{{ client.name }}</div>
+                {% if client.name %}<div class="company-name">{{ client.name }}</div>{% endif %}
                 {% if client.address %}
                 <div class="info-line">{{ client.address }}</div>
                 {% endif %}

@@ -212,7 +212,7 @@
       font-weight: 500;
     }
     .note, .disclaimer {
-      font-size: 12px;
+      font-size: 13px;
       color: #555;
       margin-top: 10px;
     }
@@ -248,7 +248,7 @@
     <div class="client-insurance-container">
       <div class="client-info">
         <p><strong>Bill to</strong></p>
-        <p>{{ client.name }}</p>
+        {% if client.name %}<p>{{ client.name }}</p>{% endif %}
         {% if client.address %}<p>{{ client.address }}</p>{% endif %}
         {% if client.city or client.state or client.zip %}
         <p>{{ client.city }}{% if client.city and client.state %}, {% endif %}{{ client.state }} {{ client.zip }}</p>
@@ -263,7 +263,7 @@
         {% if insurance.insurance_company %}<p>Company: {{ insurance.insurance_company }}</p>{% endif %}
         {% if insurance.insurance_policy_number %}<p>Policy #: {{ insurance.insurance_policy_number }}</p>{% endif %}
         {% if insurance.insurance_claim_number %}<p>Claim #: {{ insurance.insurance_claim_number }}</p>{% endif %}
-        {% if insurance.insurance_deductible %}<p>Deductible: ${{ '{:,.2f}'.format(insurance.insurance_deductible) }}</p>{% endif %}
+        {% if insurance.insurance_deductible %}<p>Deductible: ${{ insurance.insurance_deductible|format_number_smart }}</p>{% endif %}
       </div>
       {% elif insurance_company or insurance_policy_number or insurance_claim_number or insurance_deductible %}
       <div class="insurance-info">
@@ -271,18 +271,18 @@
         {% if insurance_company %}<p>Company: {{ insurance_company }}</p>{% endif %}
         {% if insurance_policy_number %}<p>Policy #: {{ insurance_policy_number }}</p>{% endif %}
         {% if insurance_claim_number %}<p>Claim #: {{ insurance_claim_number }}</p>{% endif %}
-        {% if insurance_deductible %}<p>Deductible: ${{ '{:,.2f}'.format(insurance_deductible) }}</p>{% endif %}
+        {% if insurance_deductible %}<p>Deductible: ${{ insurance_deductible|format_number_smart }}</p>{% endif %}
       </div>
       {% endif %}
     </div>
 </div>
 
 <div class="amount-due">
-  <h3>${{ '{:,.2f}'.format(total) }} USD due {{ due_date|format_date }}</h3>
+  <h3>${{ total|format_number_smart }} USD due {{ due_date|format_date }}</h3>
 </div>
 
 {% if notes %}
-<p>{{ notes }}</p>
+<p class="note" style="font-size: 13px;">{{ notes }}</p>
 {% endif %}
 
 <!-- Check sections first (with subtotals), then fall back to serviceSections -->
@@ -307,7 +307,7 @@
     {% set item_counter.value = item_counter.value + 1 %}
     <div class="line-row">
       <div class="col-item">{{ item_counter.value }}. {{ item.description if item.description else item.name }}</div>
-      <div class="col-qty">{{ item.quantity }}</div>
+      <div class="col-qty">{{ item.quantity|format_quantity }}</div>
       <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
       <div class="col-price">{{ item.rate|format_currency }}</div>
       <div class="col-total">{{ (item.quantity * item.rate)|format_currency }}</div>
@@ -358,7 +358,7 @@
       {% for item in section['items'] %}
       <div class="line-row">
         <div class="col-item">{{ item.description if item.description else item.name }}</div>
-        <div class="col-qty">{{ item.quantity }}</div>
+        <div class="col-qty">{{ item.quantity|format_quantity }}</div>
         <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
         <div class="col-price">{{ item.rate|format_currency }}</div>
         <div class="col-total">{{ (item.quantity * item.rate)|format_currency }}</div>
@@ -383,7 +383,7 @@
     {% for item in items %}
     <div class="line-row">
       <div class="col-item">{{ item.description if item.description else item.name }}</div>
-      <div class="col-qty">{{ item.quantity }}</div>
+      <div class="col-qty">{{ item.quantity|format_quantity }}</div>
       <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
       <div class="col-price">{{ item.rate|format_currency }}</div>
       <div class="col-total">{{ (item.quantity * item.rate)|format_currency }}</div>
@@ -400,14 +400,42 @@
   <div class="totals-container">
     <div class="total-row">
       <span class="total-label">Items Subtotal</span>
-      <span class="total-value">${{ '{:,.2f}'.format(items_subtotal) }}</span>
+      <span class="total-value">${{ items_subtotal|format_number_smart }}</span>
     </div>
 
-    {% if op_percent and op_percent > 0 %}
-    <div class="total-row">
-      <span class="total-label">O&P ({{ op_percent }}%)</span>
-      <span class="total-value">${{ '{:,.2f}'.format(op_amount) }}</span>
-    </div>
+    {% if adjustments and adjustments|length > 0 %}
+      {% for adjustment in adjustments|sort(attribute='order') %}
+      <div class="total-row">
+        <span class="total-label">
+          {{ adjustment.name }}
+          {% if adjustment.percentage != 0 %}
+            ({{ adjustment.percentage|abs }}%)
+          {% endif %}
+        </span>
+        <span class="total-value">
+          {% if adjustment.type == 'subtract' or adjustment.percentage < 0 %}
+            -${{ adjustment.amount|format_number_smart }}
+          {% else %}
+            ${{ adjustment.amount|format_number_smart }}
+          {% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    {% else %}
+      {# Backward compatibility: show op_percent and discount if adjustments not used #}
+      {% if op_percent and op_percent > 0 %}
+      <div class="total-row">
+        <span class="total-label">O&P ({{ op_percent }}%)</span>
+        <span class="total-value">${{ op_amount|format_number_smart }}</span>
+      </div>
+      {% endif %}
+
+      {% if discount and discount > 0 %}
+      <div class="total-row">
+        <span class="total-label">Discount</span>
+        <span class="total-value">-${{ discount|format_number_smart }}</span>
+      </div>
+      {% endif %}
     {% endif %}
 
     {% if tax_amount and tax_amount > 0 %}
@@ -417,51 +445,44 @@
       {% else %}
         <span class="total-label">Tax</span>
       {% endif %}
-      <span class="total-value">${{ '{:,.2f}'.format(tax_amount) }}</span>
-    </div>
-    {% endif %}
-
-    {% if discount and discount > 0 %}
-    <div class="total-row">
-      <span class="total-label">Discount</span>
-      <span class="total-value">-${{ '{:,.2f}'.format(discount) }}</span>
+      <span class="total-value">${{ tax_amount|format_number_smart }}</span>
     </div>
     {% endif %}
 
     {% if shipping and shipping > 0 %}
     <div class="total-row">
       <span class="total-label">Shipping</span>
-      <span class="total-value">${{ '{:,.2f}'.format(shipping) }}</span>
+      <span class="total-value">${{ shipping|format_number_smart }}</span>
     </div>
     {% endif %}
 
     <div class="total-row grand-total">
       <span class="total-label">Total</span>
-      <span class="total-value">${{ '{:,.2f}'.format(total) }}</span>
+      <span class="total-value">${{ total|format_number_smart }}</span>
     </div>
 
     {% if payments and payments|length > 0 %}
       {% for payment in payments %}
       <div class="total-row">
         <span class="total-label">Payment{% if payment.date %} ({{ payment.date|format_date }}){% endif %}</span>
-        <span class="total-value">-${{ '{:,.2f}'.format(payment.amount) }}</span>
+        <span class="total-value">-${{ payment.amount|format_number_smart }}</span>
       </div>
       {% endfor %}
 
       {% set total_paid = payments | sum(attribute='amount') %}
       <div class="total-row">
         <span class="total-label">Total Paid</span>
-        <span class="total-value">${{ '{:,.2f}'.format(total_paid) }}</span>
+        <span class="total-value">${{ total_paid|format_number_smart }}</span>
       </div>
 
       <div class="total-row grand-total balance-due">
         <span class="total-label">Balance Due</span>
-        <span class="total-value">${{ '{:,.2f}'.format(total - total_paid) }}</span>
+        <span class="total-value">${{ (total - total_paid)|format_number_smart }}</span>
       </div>
     {% else %}
       <div class="total-row grand-total balance-due">
         <span class="total-label">Amount Due</span>
-        <span class="total-value">${{ '{:,.2f}'.format(total) }}</span>
+        <span class="total-value">${{ total|format_number_smart }}</span>
       </div>
     {% endif %}
   </div>

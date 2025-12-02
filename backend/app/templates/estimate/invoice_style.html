@@ -376,11 +376,32 @@
       <span class="total-value">${{ '{:,.2f}'.format(items_subtotal) }}</span>
     </div>
 
-    {% if op_percent and op_percent > 0 %}
-    <div class="total-row">
-      <span class="total-label">O&P ({{ op_percent }}%)</span>
-      <span class="total-value">${{ '{:,.2f}'.format(op_amount) }}</span>
-    </div>
+    {% if adjustments and adjustments|length > 0 %}
+      {% for adjustment in adjustments|sort(attribute='order') %}
+      <div class="total-row">
+        <span class="total-label">
+          {{ adjustment.name }}
+          {% if adjustment.percentage != 0 %}
+            ({{ adjustment.percentage|abs }}%)
+          {% endif %}
+        </span>
+        <span class="total-value">
+          {% if adjustment.type == 'subtract' or adjustment.percentage < 0 %}
+            -${{ '{:,.2f}'.format(adjustment.amount) }}
+          {% else %}
+            ${{ '{:,.2f}'.format(adjustment.amount) }}
+          {% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    {% else %}
+      {# Backward compatibility: show op_percent if adjustments not used #}
+      {% if op_percent and op_percent > 0 %}
+      <div class="total-row">
+        <span class="total-label">O&P ({{ op_percent }}%)</span>
+        <span class="total-value">${{ '{:,.2f}'.format(op_amount) }}</span>
+      </div>
+      {% endif %}
     {% endif %}
 
     {% if tax_amount and tax_amount > 0 %}

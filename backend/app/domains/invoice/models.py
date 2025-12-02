@@ -2,11 +2,23 @@
 Invoice domain models
 """
 
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, DECIMAL, Boolean, Index, JSON
+from sqlalchemy import (
+    DECIMAL,
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.core.database_factory import Base
+
 from app.core.base_models import BaseModel
+from app.core.database_factory import Base
 from app.core.database_types import UUIDType  # UUID 타입 임포트 추가
 
 
@@ -35,11 +47,12 @@ class Invoice(Base, BaseModel):
     status = Column(String(50), default="pending")  # pending, paid, overdue, cancelled
     
     subtotal = Column(DECIMAL(15, 2), default=0)
-    op_percent = Column(DECIMAL(5, 2), default=0)  # O&P percentage
+    adjustments = Column(JSON, default=list)  # List of adjustments (new flexible system)
+    op_percent = Column(DECIMAL(5, 2), default=0)  # O&P percentage (DEPRECATED: Use adjustments instead)
     tax_method = Column(String(50), default="percentage")  # 'percentage' or 'specific'
     tax_rate = Column(DECIMAL(5, 2), default=0)
     tax_amount = Column(DECIMAL(15, 2), default=0)
-    discount_amount = Column(DECIMAL(15, 2), default=0)
+    discount_amount = Column(DECIMAL(15, 2), default=0)  # DEPRECATED: Use adjustments instead
     total_amount = Column(DECIMAL(15, 2), default=0)
     
     # Payment tracking

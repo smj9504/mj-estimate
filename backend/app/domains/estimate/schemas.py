@@ -2,11 +2,15 @@
 Estimate domain Pydantic schemas
 """
 
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
 from datetime import datetime
-from uuid import UUID
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+
+from pydantic import BaseModel, Field, validator
+
+# Import Adjustment from invoice schemas (shared)
+from app.domains.invoice.schemas import Adjustment
 
 
 class EstimateItemBase(BaseModel):
@@ -146,7 +150,8 @@ class EstimateUpdate(BaseModel):
 
     # ✅ Added missing financial fields
     subtotal: Optional[float] = None
-    op_percent: Optional[float] = None  # O&P percentage
+    adjustments: Optional[List[Adjustment]] = Field(default_factory=list, description="List of adjustments")
+    op_percent: Optional[float] = None  # O&P percentage (DEPRECATED: Use adjustments instead)
     op_amount: Optional[float] = None  # O&P amount
     tax_method: Optional[str] = None  # 'percentage' or 'specific'
     tax_rate: Optional[float] = None
@@ -231,12 +236,13 @@ class EstimateResponse(BaseModel):
     
     # Financial
     subtotal: float = 0.0
-    op_percent: float = 0.0  # O&P percentage
+    adjustments: Optional[List[Adjustment]] = Field(default_factory=list, description="List of adjustments")
+    op_percent: float = 0.0  # O&P percentage (DEPRECATED: Use adjustments instead)
     op_amount: float = 0.0  # O&P amount
     tax_method: Optional[str] = "percentage"  # 'percentage' or 'specific'
     tax_rate: float = 0.0
     tax_amount: float = 0.0
-    discount_amount: float = 0.0
+    discount_amount: float = 0.0  # DEPRECATED: Use adjustments instead
     total_amount: float = 0.0
     
     # Insurance specific
@@ -301,11 +307,12 @@ class EstimatePDFRequest(BaseModel):
 
     # Financial
     subtotal: float = 0
-    op_percent: float = 0  # O&P percentage
+    adjustments: Optional[List[Adjustment]] = Field(default_factory=list, description="List of adjustments")
+    op_percent: float = 0  # O&P percentage (DEPRECATED: Use adjustments instead)
     op_amount: float = 0  # O&P amount
     tax_rate: float = 0
     tax_amount: float = 0
-    discount_amount: float = 0
+    discount_amount: float = 0  # DEPRECATED: Use adjustments instead
     total_amount: float = 0
 
     # Insurance - can be either nested dict or flat fields

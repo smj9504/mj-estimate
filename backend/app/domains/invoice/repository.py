@@ -2,15 +2,15 @@
 Invoice domain repository implementations for different database providers.
 """
 
-from typing import Any, Dict, List, Optional
 import logging
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
 from app.common.base_repository import SQLAlchemyRepository, SupabaseRepository
+from app.core.config import settings
 from app.core.interfaces import DatabaseSession
 from app.domains.invoice.models import Invoice, InvoiceItem
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +156,7 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
 
         # Create line item in library
         try:
-            from app.domains.line_items.models import (
-                LineItem, LineItemType
-            )
+            from app.domains.line_items.models import LineItem, LineItemType
 
             # Get description for item code generation
             description = item_data.get(
@@ -237,29 +235,114 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
     def get_with_items(self, invoice_id: str) -> Optional[Dict[str, Any]]:
         """Get invoice with its items and company info"""
         try:
-            from sqlalchemy.orm import joinedload
-
-            invoice = self.db_session.query(Invoice).options(
-                joinedload(Invoice.company)
-            ).filter(
+            # Query invoice - don't use joinedload for company as we'll fetch fresh
+            invoice = self.db_session.query(Invoice).filter(
                 Invoice.id == invoice_id
             ).first()
 
             if not invoice:
                 return None
 
+            # Refresh to ensure we have latest company_id
+            self.db_session.refresh(invoice)
+
             invoice_dict = self._convert_to_dict(invoice)
 
             # Add company info if available
-            if invoice.company:
-                invoice_dict['company_name'] = invoice.company.name or ''
-                invoice_dict['company_address'] = invoice.company.address or ''
-                invoice_dict['company_city'] = invoice.company.city or ''
-                invoice_dict['company_state'] = invoice.company.state or ''
-                invoice_dict['company_zip'] = invoice.company.zipcode or ''
-                invoice_dict['company_phone'] = invoice.company.phone or ''
-                invoice_dict['company_email'] = invoice.company.email or ''
-                invoice_dict['company_logo'] = invoice.company.logo or None
+            # Always fetch fresh company info from company_id
+            # to ensure it's up-to-date
+            company_id = invoice_dict.get('company_id') or invoice.company_id
+            logger.info(f"get_with_items: invoice_id={invoice_id}, company_id={company_id}")
+            if company_id:
+                try:
+                    from app.domains.company.repository import get_company_repository
+                    company_repo = get_company_repository(self.db_session)
+                    company_info = company_repo.get_by_id(
+                        str(company_id)
+                    )
+                    logger.info(f"get_with_items: fetched company_info={company_info.get('name') if company_info else None}")
+                    if company_info:
+                        invoice_dict['company_name'] = (
+                            company_info.get('name', '')
+                        )
+                        invoice_dict['company_address'] = (
+                            company_info.get('address', '')
+                        )
+                        invoice_dict['company_city'] = (
+                            company_info.get('city', '')
+                        )
+                        invoice_dict['company_state'] = (
+                            company_info.get('state', '')
+                        )
+                        invoice_dict['company_zip'] = (
+                            company_info.get('zipcode', '')
+                        )
+                        invoice_dict['company_phone'] = (
+                            company_info.get('phone', '')
+                        )
+                        invoice_dict['company_email'] = (
+                            company_info.get('email', '')
+                        )
+                        invoice_dict['company_logo'] = (
+                            company_info.get('logo')
+                        )
+                    elif invoice.company:
+                        # Fallback to relationship if repository fails
+                        invoice_dict['company_name'] = (
+                            invoice.company.name or ''
+                        )
+                        invoice_dict['company_address'] = (
+                            invoice.company.address or ''
+                        )
+                        invoice_dict['company_city'] = (
+                            invoice.company.city or ''
+                        )
+                        invoice_dict['company_state'] = (
+                            invoice.company.state or ''
+                        )
+                        invoice_dict['company_zip'] = (
+                            invoice.company.zipcode or ''
+                        )
+                        invoice_dict['company_phone'] = (
+                            invoice.company.phone or ''
+                        )
+                        invoice_dict['company_email'] = (
+                            invoice.company.email or ''
+                        )
+                        invoice_dict['company_logo'] = (
+                            invoice.company.logo or None
+                        )
+                except Exception as e:
+                    logger.warning(
+                        f"Error fetching company info from repository, "
+                        f"using relationship: {e}"
+                    )
+                    # Fallback to relationship
+                    if invoice.company:
+                        invoice_dict['company_name'] = (
+                            invoice.company.name or ''
+                        )
+                        invoice_dict['company_address'] = (
+                            invoice.company.address or ''
+                        )
+                        invoice_dict['company_city'] = (
+                            invoice.company.city or ''
+                        )
+                        invoice_dict['company_state'] = (
+                            invoice.company.state or ''
+                        )
+                        invoice_dict['company_zip'] = (
+                            invoice.company.zipcode or ''
+                        )
+                        invoice_dict['company_phone'] = (
+                            invoice.company.phone or ''
+                        )
+                        invoice_dict['company_email'] = (
+                            invoice.company.email or ''
+                        )
+                        invoice_dict['company_logo'] = (
+                            invoice.company.logo or None
+                        )
 
             # Get items
             items = self.db_session.query(InvoiceItem).filter(
@@ -373,13 +456,74 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                 raise Exception(f"Invoice {invoice_id} not found")
             
             # Update invoice fields
+            logger.info(f"Updating invoice fields: {list(update_data.keys())}")
+            if 'company_id' in update_data:
+                logger.info(f"Updating company_id from {invoice.company_id} to {update_data['company_id']}")
+            
             for key, value in update_data.items():
                 if hasattr(invoice, key):
+                    old_value = getattr(invoice, key, None)
+                    
+                    # Handle company_id - UUIDType will handle conversion
+                    # Just ensure it's a valid string format if it's a string
+                    if key == 'company_id' and value is not None:
+                        # UUIDType accepts both string and UUID, but let's ensure it's a valid format
+                        if isinstance(value, str):
+                            try:
+                                import uuid
+                                # Validate UUID format but keep as string
+                                uuid.UUID(value)
+                            except (ValueError, AttributeError):
+                                logger.warning(f"Invalid UUID format for company_id: {value}")
+                                value = None
+                    
                     setattr(invoice, key, value)
+                    new_value = getattr(invoice, key, None)
+                    if key == 'company_id':
+                        logger.info(f"Set company_id: {old_value} -> {new_value} (type: {type(new_value)})")
+                        # Force SQLAlchemy to detect the change even if value appears the same
+                        from sqlalchemy.orm.attributes import flag_modified
+                        flag_modified(invoice, 'company_id')
+                else:
+                    logger.warning(f"Field {key} not found on Invoice model")
             
             # Update timestamp
             if hasattr(invoice, 'updated_at'):
                 invoice.updated_at = datetime.utcnow()
+            
+            # Verify company_id was set correctly
+            logger.info(f"After update, invoice.company_id = {invoice.company_id}")
+            
+            # Explicitly ensure company_id is updated if it's in update_data
+            if 'company_id' in update_data:
+                company_id_value = update_data['company_id']
+                # Convert to proper type for comparison
+                if isinstance(company_id_value, str):
+                    import uuid
+                    try:
+                        company_id_value = uuid.UUID(company_id_value)
+                    except (ValueError, AttributeError):
+                        pass
+                
+                # Compare current value with new value
+                current_company_id = invoice.company_id
+                if isinstance(current_company_id, str):
+                    try:
+                        current_company_id = uuid.UUID(current_company_id)
+                    except (ValueError, AttributeError):
+                        pass
+                
+                # If different, force update
+                if str(current_company_id) != str(company_id_value):
+                    logger.info(f"Force updating company_id: {current_company_id} -> {company_id_value}")
+                    invoice.company_id = company_id_value
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(invoice, 'company_id')
+                elif company_id_value is not None:
+                    # Even if same, ensure it's marked as modified if explicitly provided
+                    logger.info(f"Company_id explicitly provided, ensuring it's in UPDATE")
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(invoice, 'company_id')
             
             # Handle items if provided
             if items_data is not None:
@@ -439,14 +583,67 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                     item_entity = InvoiceItem(**filtered_fields)
                     self.db_session.add(item_entity)
 
+            # Before flush, ensure company_id is properly set if it was in update_data
+            if 'company_id' in update_data:
+                company_id_value = update_data['company_id']
+                # Ensure it's set and marked as modified
+                if company_id_value is not None:
+                    # Convert to UUID if string
+                    if isinstance(company_id_value, str):
+                        import uuid
+                        try:
+                            company_id_value = uuid.UUID(company_id_value)
+                        except (ValueError, AttributeError):
+                            pass
+                    invoice.company_id = company_id_value
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(invoice, 'company_id')
+                    logger.info(f"Before flush, forced company_id = {invoice.company_id}")
+                else:
+                    invoice.company_id = None
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(invoice, 'company_id')
+                    logger.info(f"Before flush, forced company_id = None")
+            
             self.db_session.flush()
+            
+            # Verify company_id before commit
+            if 'company_id' in update_data:
+                logger.info(f"Before commit, invoice.company_id = {invoice.company_id}")
+            
             self.db_session.commit()
+            
+            # Verify company_id after commit
+            if 'company_id' in update_data:
+                # Re-query to verify it was saved
+                saved_invoice = self.db_session.query(Invoice).filter(
+                    Invoice.id == invoice_id
+                ).first()
+                if saved_invoice:
+                    logger.info(f"After commit, saved_invoice.company_id = {saved_invoice.company_id}")
 
             # Refresh session to reload relationships after commit
+            # Especially important when company_id is updated
             self.db_session.expire_all()
+            
+            # Explicitly expire company relationship if company_id was updated
+            if 'company_id' in update_data:
+                # Re-query the invoice to ensure we have the latest data
+                invoice = self.db_session.query(Invoice).filter(
+                    Invoice.id == invoice_id
+                ).first()
+                if invoice:
+                    logger.info(f"Before get_with_items, invoice.company_id = {invoice.company_id}")
+                    # Expire the company relationship to force reload
+                    self.db_session.expire(invoice, ['company'])
 
             # Return updated invoice with items
-            return self.get_with_items(invoice_id)
+            # This will fetch fresh company info from repository
+            result = self.get_with_items(invoice_id)
+            if result and 'company_id' in update_data:
+                logger.info(f"get_with_items returned company_id = {result.get('company_id')}")
+                logger.info(f"get_with_items returned company_name = {result.get('company_name')}")
+            return result
             
         except Exception as e:
             logger.error(f"Error updating invoice with items: {e}")

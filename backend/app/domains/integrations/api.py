@@ -314,23 +314,36 @@ async def process_photo_created_event(
         logger.error(f"❌ Error processing photo webhook: {e}", exc_info=True)
 
         # Update webhook event status to failed
-        if db:
-            try:
-                webhook_event = db.query(WebhookEvent).filter(
-                    WebhookEvent.id == webhook_event_id
-                ).first()
-                if webhook_event:
-                    webhook_event.status = "failed"
-                    webhook_event.error_message = str(e)
-                    webhook_event.processed_at = datetime.utcnow()
-                    db.commit()
-            except Exception as db_error:
-                logger.error(f"Failed to update webhook event status: {db_error}")
+        # Use a separate session to avoid holding the main session during error handling
+        error_db = None
+        try:
+            database = get_database()
+            error_db = database.get_session()
+            webhook_event = error_db.query(WebhookEvent).filter(
+                WebhookEvent.id == webhook_event_id
+            ).first()
+            if webhook_event:
+                webhook_event.status = "failed"
+                webhook_event.error_message = str(e)
+                webhook_event.processed_at = datetime.utcnow()
+                error_db.commit()
+        except Exception as db_error:
+            # Don't fail if we can't update the status - log and continue
+            logger.error(f"Failed to update webhook event status: {db_error}")
+        finally:
+            if error_db:
+                try:
+                    error_db.close()
+                except Exception:
+                    pass
 
     finally:
-        # Always close DB session
+        # Always close DB session - do this first to release connection quickly
         if db:
-            db.close()
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 async def process_project_created_event(
@@ -423,23 +436,36 @@ async def process_project_created_event(
         logger.error(f"❌ Error processing project.created webhook: {e}", exc_info=True)
 
         # Update webhook event status to failed
-        if db:
-            try:
-                webhook_event = db.query(WebhookEvent).filter(
-                    WebhookEvent.id == webhook_event_id
-                ).first()
-                if webhook_event:
-                    webhook_event.status = "failed"
-                    webhook_event.error_message = str(e)
-                    webhook_event.processed_at = datetime.utcnow()
-                    db.commit()
-            except Exception as db_error:
-                logger.error(f"Failed to update webhook event status: {db_error}")
+        # Use a separate session to avoid holding the main session during error handling
+        error_db = None
+        try:
+            database = get_database()
+            error_db = database.get_session()
+            webhook_event = error_db.query(WebhookEvent).filter(
+                WebhookEvent.id == webhook_event_id
+            ).first()
+            if webhook_event:
+                webhook_event.status = "failed"
+                webhook_event.error_message = str(e)
+                webhook_event.processed_at = datetime.utcnow()
+                error_db.commit()
+        except Exception as db_error:
+            # Don't fail if we can't update the status - log and continue
+            logger.error(f"Failed to update webhook event status: {db_error}")
+        finally:
+            if error_db:
+                try:
+                    error_db.close()
+                except Exception:
+                    pass
 
     finally:
-        # Always close DB session
+        # Always close DB session - do this first to release connection quickly
         if db:
-            db.close()
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 async def process_project_updated_event(
@@ -485,23 +511,36 @@ async def process_project_updated_event(
         logger.error(f"❌ Error processing project.updated webhook: {e}", exc_info=True)
 
         # Update webhook event status to failed
-        if db:
-            try:
-                webhook_event = db.query(WebhookEvent).filter(
-                    WebhookEvent.id == webhook_event_id
-                ).first()
-                if webhook_event:
-                    webhook_event.status = "failed"
-                    webhook_event.error_message = str(e)
-                    webhook_event.processed_at = datetime.utcnow()
-                    db.commit()
-            except Exception as db_error:
-                logger.error(f"Failed to update webhook event status: {db_error}")
+        # Use a separate session to avoid holding the main session during error handling
+        error_db = None
+        try:
+            database = get_database()
+            error_db = database.get_session()
+            webhook_event = error_db.query(WebhookEvent).filter(
+                WebhookEvent.id == webhook_event_id
+            ).first()
+            if webhook_event:
+                webhook_event.status = "failed"
+                webhook_event.error_message = str(e)
+                webhook_event.processed_at = datetime.utcnow()
+                error_db.commit()
+        except Exception as db_error:
+            # Don't fail if we can't update the status - log and continue
+            logger.error(f"Failed to update webhook event status: {db_error}")
+        finally:
+            if error_db:
+                try:
+                    error_db.close()
+                except Exception:
+                    pass
 
     finally:
-        # Always close DB session
+        # Always close DB session - do this first to release connection quickly
         if db:
-            db.close()
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 async def process_project_deleted_event(
@@ -545,23 +584,36 @@ async def process_project_deleted_event(
         logger.error(f"❌ Error processing project.deleted webhook: {e}", exc_info=True)
 
         # Update webhook event status to failed
-        if db:
-            try:
-                webhook_event = db.query(WebhookEvent).filter(
-                    WebhookEvent.id == webhook_event_id
-                ).first()
-                if webhook_event:
-                    webhook_event.status = "failed"
-                    webhook_event.error_message = str(e)
-                    webhook_event.processed_at = datetime.utcnow()
-                    db.commit()
-            except Exception as db_error:
-                logger.error(f"Failed to update webhook event status: {db_error}")
+        # Use a separate session to avoid holding the main session during error handling
+        error_db = None
+        try:
+            database = get_database()
+            error_db = database.get_session()
+            webhook_event = error_db.query(WebhookEvent).filter(
+                WebhookEvent.id == webhook_event_id
+            ).first()
+            if webhook_event:
+                webhook_event.status = "failed"
+                webhook_event.error_message = str(e)
+                webhook_event.processed_at = datetime.utcnow()
+                error_db.commit()
+        except Exception as db_error:
+            # Don't fail if we can't update the status - log and continue
+            logger.error(f"Failed to update webhook event status: {db_error}")
+        finally:
+            if error_db:
+                try:
+                    error_db.close()
+                except Exception:
+                    pass
 
     finally:
-        # Always close DB session
+        # Always close DB session - do this first to release connection quickly
         if db:
-            db.close()
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 async def process_photo_deleted_event(
@@ -605,23 +657,36 @@ async def process_photo_deleted_event(
         logger.error(f"❌ Error processing photo.deleted webhook: {e}", exc_info=True)
 
         # Update webhook event status to failed
-        if db:
-            try:
-                webhook_event = db.query(WebhookEvent).filter(
-                    WebhookEvent.id == webhook_event_id
-                ).first()
-                if webhook_event:
-                    webhook_event.status = "failed"
-                    webhook_event.error_message = str(e)
-                    webhook_event.processed_at = datetime.utcnow()
-                    db.commit()
-            except Exception as db_error:
-                logger.error(f"Failed to update webhook event status: {db_error}")
+        # Use a separate session to avoid holding the main session during error handling
+        error_db = None
+        try:
+            database = get_database()
+            error_db = database.get_session()
+            webhook_event = error_db.query(WebhookEvent).filter(
+                WebhookEvent.id == webhook_event_id
+            ).first()
+            if webhook_event:
+                webhook_event.status = "failed"
+                webhook_event.error_message = str(e)
+                webhook_event.processed_at = datetime.utcnow()
+                error_db.commit()
+        except Exception as db_error:
+            # Don't fail if we can't update the status - log and continue
+            logger.error(f"Failed to update webhook event status: {db_error}")
+        finally:
+            if error_db:
+                try:
+                    error_db.close()
+                except Exception:
+                    pass
 
     finally:
-        # Always close DB session
+        # Always close DB session - do this first to release connection quickly
         if db:
-            db.close()
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 @router.get(

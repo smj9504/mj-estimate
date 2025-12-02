@@ -56,7 +56,13 @@ export interface EstimateCreate {
   deductible?: number;
   items: EstimateLineItem[];
   sections?: EstimateSection[];  // 섹션 기반 데이터
-  op_percent?: number;  // O&P 퍼센트
+  op_percent?: number;  // O&P 퍼센트 (DEPRECATED: Use adjustments instead)
+  adjustments?: Array<{
+    name: string;
+    percentage: number;
+    type: 'add' | 'subtract';
+    order: number;
+  }>;
   tax_method?: 'percentage' | 'specific'; // Tax calculation method
   tax_rate?: number;
   tax_amount?: number;
@@ -111,8 +117,14 @@ export interface EstimateResponse {
   discount_amount?: number;
   total_amount?: number;
   rcv_total?: number;
-  op_percent?: number;  // O&P 퍼센트
+  op_percent?: number;  // O&P 퍼센트 (DEPRECATED: Use adjustments instead)
   op_amount?: number;   // O&P 금액
+  adjustments?: Array<{
+    name: string;
+    percentage: number;
+    type: 'add' | 'subtract';
+    order: number;
+  }>;
   
   // Additional
   notes?: string;

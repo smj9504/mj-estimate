@@ -3,32 +3,40 @@ Database Factory with comprehensive error handling, connection pooling, and retr
 Provides database abstraction layer supporting SQLite, PostgreSQL, and Supabase.
 """
 
-from typing import Any, Dict, List, Optional, Generator, Union, Type
+from typing import Any, Dict, Generator, List, Optional, Type, Union
+
 from sqlalchemy import create_engine, event, text
-from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.pool import QueuePool, NullPool
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool, QueuePool
 
 # Conditional import for Supabase (only needed when DATABASE_TYPE=supabase)
 try:
-    from supabase import create_client, Client
+    from supabase import Client, create_client
 except ImportError:
     create_client = None
     Client = None
 
-from app.core.config import settings
-from app.core.interfaces import (
-    DatabaseProvider, DatabaseSession, ConnectionError, DatabaseException,
-    QueryError, TransactionError, ConfigurationError, UnitOfWork
-)
 import logging
-import time
 import threading
-from contextlib import contextmanager
-from functools import wraps
+import time
 import traceback
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
+from functools import wraps
+
+from app.core.config import settings
+from app.core.interfaces import (
+    ConfigurationError,
+    ConnectionError,
+    DatabaseException,
+    DatabaseProvider,
+    DatabaseSession,
+    QueryError,
+    TransactionError,
+    UnitOfWork,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -227,8 +235,10 @@ class SQLAlchemyUnitOfWork(UnitOfWork):
     def get_repository(self, repository_type: str):
         """Get repository instance within this unit of work"""
         from app.repositories import (
-            get_company_repository, get_invoice_repository, 
-            get_estimate_repository, get_plumber_report_repository
+            get_company_repository,
+            get_estimate_repository,
+            get_invoice_repository,
+            get_plumber_report_repository,
         )
         
         if repository_type not in self._repositories:
@@ -336,19 +346,20 @@ class SQLiteDatabase(DatabaseProvider):
         """Create all tables if they don't exist"""
         try:
             # Import all models to ensure they are registered with Base
+            from sqlalchemy import inspect
+
             import app.domains.auth.models
             import app.domains.company.models
-            import app.domains.invoice.models
-            import app.domains.estimate.models
-            import app.domains.document.models
-            import app.domains.plumber_report.models
-            import app.domains.document_types.models
-            import app.domains.work_order.models
-            import app.domains.payment.models
             import app.domains.credit.models
-            import app.domains.staff.models
+            import app.domains.document.models
+            import app.domains.document_types.models
+            import app.domains.estimate.models
             import app.domains.file.models  # File management 모델 추가
-            from sqlalchemy import inspect
+            import app.domains.invoice.models
+            import app.domains.payment.models
+            import app.domains.plumber_report.models
+            import app.domains.staff.models
+            import app.domains.work_order.models
             
             # Check if tables already exist
             inspector = inspect(self.engine)
@@ -393,14 +404,16 @@ class PostgreSQLDatabase(DatabaseProvider):
         self.database_url = database_url
         self._lock = threading.Lock()
         
-        # Configure engine with connection pooling
+        # Configure engine with connection pooling using config values
+        # Render/NeonDB compatibility: Use smaller pool sizes to avoid connection limits
         self.engine = create_engine(
             self.database_url,
             poolclass=QueuePool,
-            pool_size=10,
-            max_overflow=20,
-            pool_pre_ping=True,
-            pool_recycle=300,  # Recycle connections every 5 minutes
+            pool_size=settings.DB_POOL_SIZE,
+            max_overflow=settings.DB_MAX_OVERFLOW,
+            pool_pre_ping=True,  # Verify connections before using
+            pool_recycle=settings.DB_POOL_RECYCLE,  # Recycle connections to prevent stale connections
+            pool_timeout=settings.DB_POOL_TIMEOUT,  # Timeout for getting connection from pool
             echo=settings.DEBUG,
             future=True
         )
@@ -412,7 +425,13 @@ class PostgreSQLDatabase(DatabaseProvider):
             expire_on_commit=False
         )
         
-        logger.info(f"PostgreSQL database initialized: {self.database_url}")
+        # Log pool configuration for debugging
+        max_connections = settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW
+        logger.info(
+            f"PostgreSQL database initialized: {self.database_url} "
+            f"(pool_size={settings.DB_POOL_SIZE}, max_overflow={settings.DB_MAX_OVERFLOW}, "
+            f"max_connections={max_connections})"
+        )
     
     @retry_on_database_error(max_retries=3)
     def get_session(self) -> DatabaseSession:
@@ -454,23 +473,24 @@ class PostgreSQLDatabase(DatabaseProvider):
         """Create all tables if they don't exist"""
         try:
             # Import all models to ensure they are registered with Base - PostgreSQL 전용
+            from sqlalchemy import inspect
+
+            import app.domains.analytics.models  # Analytics models (API usage logs)
             import app.domains.auth.models
             import app.domains.company.models
-            import app.domains.invoice.models
-            import app.domains.estimate.models
+            import app.domains.credit.models
             import app.domains.document.models
-            import app.domains.plumber_report.models
             import app.domains.document_types.models
-            import app.domains.work_order.models
+            import app.domains.estimate.models
+            import app.domains.file.models  # File management 모델 추가
+            import app.domains.invoice.models
+            import app.domains.line_items.category_models  # Line Item Categories 모델 추가
+            import app.domains.line_items.models  # Line Items 모델 추가
             import app.domains.payment.models
             import app.domains.payment_config.models  # 추가 - PaymentMethod 테이블을 위해 필요
-            import app.domains.credit.models
+            import app.domains.plumber_report.models
             import app.domains.staff.models
-            import app.domains.line_items.models  # Line Items 모델 추가
-            import app.domains.line_items.category_models  # Line Item Categories 모델 추가
-            import app.domains.file.models  # File management 모델 추가
-            import app.domains.analytics.models  # Analytics models (API usage logs)
-            from sqlalchemy import inspect
+            import app.domains.work_order.models
             
             # Check if tables already exist
             inspector = inspect(self.engine)

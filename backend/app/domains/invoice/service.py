@@ -2,15 +2,15 @@
 Invoice domain service with comprehensive business logic and validation.
 """
 
-from typing import Any, Dict, List, Optional
 import logging
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
 from app.common.base_service import TransactionalService
-from app.domains.invoice.repository import get_invoice_repository
-from app.core.interfaces import DatabaseProvider
 from app.core.database_factory import get_database
+from app.core.interfaces import DatabaseProvider
+from app.domains.invoice.repository import get_invoice_repository
 
 logger = logging.getLogger(__name__)
 
@@ -265,20 +265,21 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
         """
         return self.update(invoice_id, {'status': 'overdue'})
     
-    def calculate_totals(self, items: List[Dict[str, Any]], tax_method: str = "percentage", tax_rate: float = 0, tax_amount: float = 0, discount_amount: float = 0, op_percent: float = 0) -> Dict[str, Any]:
+    def calculate_totals(self, items: List[Dict[str, Any]], tax_method: str = "percentage", tax_rate: float = 0, tax_amount: float = 0, discount_amount: float = 0, op_percent: float = 0, adjustments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """
-        Calculate invoice totals based on items and tax configuration.
+        Calculate invoice totals based on items, adjustments, and tax configuration.
 
         Args:
             items: List of invoice items
             tax_method: 'percentage' or 'specific'
             tax_rate: Tax rate percentage (for percentage method)
             tax_amount: Specific tax amount (for specific method)
-            discount_amount: Discount amount to subtract
-            op_percent: O&P percentage to add
+            discount_amount: Discount amount to subtract (DEPRECATED: Use adjustments instead)
+            op_percent: O&P percentage to add (DEPRECATED: Use adjustments instead)
+            adjustments: List of adjustments to apply (new flexible system)
 
         Returns:
-            Dictionary with calculated totals
+            Dictionary with calculated totals including adjustments
         """
         try:
             items_subtotal = Decimal('0')
@@ -297,43 +298,100 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                 if taxable:
                     taxable_amount += item_amount
 
-            # Calculate O&P amount
-            op_amount = items_subtotal * (Decimal(str(op_percent)) / 100)
-            subtotal_with_op = items_subtotal + op_amount
+            # Apply adjustments in order (new flexible system)
+            current_subtotal = items_subtotal
+            calculated_adjustments = []
+            
+            if adjustments:
+                # Sort adjustments by order
+                sorted_adjustments = sorted(adjustments, key=lambda x: x.get('order', 999))
+                
+                for adj in sorted_adjustments:
+                    percentage = Decimal(str(adj.get('percentage', 0)))
+                    adj_type = adj.get('type', 'add')
+                    adj_name = adj.get('name', 'Adjustment')
+                    
+                    # Calculate adjustment amount based on current subtotal
+                    adj_amount = current_subtotal * (abs(percentage) / 100)
+                    
+                    # Apply adjustment based on type
+                    if adj_type == 'subtract' or percentage < 0:
+                        current_subtotal -= adj_amount
+                    else:
+                        current_subtotal += adj_amount
+                    
+                    calculated_adjustments.append({
+                        'name': adj_name,
+                        'percentage': float(percentage),
+                        'type': adj_type,
+                        'order': adj.get('order', 999),
+                        'amount': float(adj_amount)
+                    })
+            
+            # Backward compatibility: apply op_percent and discount if provided and no adjustments
+            op_amount = Decimal('0')
+            discount = Decimal('0')
+            
+            if not adjustments or len(adjustments) == 0:
+                # Use legacy op_percent and discount
+                if op_percent:
+                    op_amount = items_subtotal * (Decimal(str(op_percent)) / 100)
+                    current_subtotal = items_subtotal + op_amount
+                
+                if discount_amount:
+                    discount = Decimal(str(discount_amount))
+                    current_subtotal -= discount
 
-            # Calculate tax amount
+            # Calculate tax amount on adjusted subtotal
             tax_total = Decimal('0')
             if tax_method == 'percentage' and tax_rate > 0:
-                # For percentage tax: apply to (subtotal + O&P - discount)
-                # But only on taxable items
-                if taxable_amount > 0:
-                    # Calculate O&P portion that's taxable
-                    taxable_op_amount = taxable_amount * (Decimal(str(op_percent)) / 100)
-                    taxable_subtotal_with_op = taxable_amount + taxable_op_amount
-
-                    # Apply discount proportionally to taxable amount
-                    discount = Decimal(str(discount_amount))
-                    taxable_ratio = taxable_amount / items_subtotal if items_subtotal > 0 else Decimal('0')
-                    taxable_discount = discount * taxable_ratio
-
-                    # Calculate tax on (taxable_subtotal_with_op - taxable_discount)
-                    taxable_base = taxable_subtotal_with_op - taxable_discount
-                    if taxable_base > 0:
-                        tax_total = taxable_base * (Decimal(str(tax_rate)) / 100)
+                # For percentage tax: apply to adjusted subtotal
+                # But only on taxable items proportion
+                if taxable_amount > 0 and items_subtotal > 0:
+                    # Calculate taxable ratio
+                    taxable_ratio = taxable_amount / items_subtotal
+                    
+                    # Apply same adjustments proportionally to taxable amount
+                    taxable_current = taxable_amount
+                    
+                    if adjustments:
+                        for adj in sorted_adjustments:
+                            percentage = Decimal(str(adj.get('percentage', 0)))
+                            adj_type = adj.get('type', 'add')
+                            
+                            taxable_adj_amount = taxable_current * (abs(percentage) / 100)
+                            
+                            if adj_type == 'subtract' or percentage < 0:
+                                taxable_current -= taxable_adj_amount
+                            else:
+                                taxable_current += taxable_adj_amount
+                    else:
+                        # Legacy: apply op_percent and discount proportionally
+                        if op_percent:
+                            taxable_op_amount = taxable_amount * (Decimal(str(op_percent)) / 100)
+                            taxable_current = taxable_amount + taxable_op_amount
+                        
+                        if discount_amount:
+                            taxable_discount = discount * taxable_ratio
+                            taxable_current -= taxable_discount
+                    
+                    # Calculate tax on taxable adjusted amount
+                    if taxable_current > 0:
+                        tax_total = taxable_current * (Decimal(str(tax_rate)) / 100)
             elif tax_method == 'specific' and tax_amount > 0:
                 # Use specific tax amount
                 tax_total = Decimal(str(tax_amount))
 
-            # Apply discount and calculate final total
-            discount = Decimal(str(discount_amount))
-            total_amount = subtotal_with_op + tax_total - discount
+            # Calculate final total
+            total_amount = current_subtotal + tax_total
 
             return {
                 'items_subtotal': float(items_subtotal),
-                'op_amount': float(op_amount),
-                'subtotal': float(subtotal_with_op),
+                'adjustments': calculated_adjustments,
+                'op_amount': float(op_amount),  # For backward compatibility
+                'subtotal': float(current_subtotal),
                 'tax_amount': float(tax_total),
-                'discount_amount': float(discount),
+                'discount_amount': float(discount),  # For backward compatibility
                 'total_amount': float(total_amount)
             }
             
@@ -511,15 +569,23 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                 # Allow negative rates for discounts/credits
                 if float(item.get('quantity', 0)) <= 0:
                     raise ValueError("Item quantity must be positive")
-            
-            # Calculate totals with tax configuration
+        
+        # Prepare adjustments if provided
+        adjustments_data = validated_data.get('adjustments')
+        if adjustments_data is None:
+            adjustments_data = []
+        
+        # Calculate totals if items are provided (items are required for calculation)
+        if items is not None:
+            # Calculate totals with tax configuration and adjustments
             totals = self.calculate_totals(
                 items,
                 tax_method=validated_data.get('tax_method', 'percentage'),
                 tax_rate=float(validated_data.get('tax_rate', 0)),
                 tax_amount=float(validated_data.get('tax_amount', 0)),
                 discount_amount=float(validated_data.get('discount_amount', 0)),
-                op_percent=float(validated_data.get('op_percent', 0))
+                op_percent=float(validated_data.get('op_percent', 0)),
+                adjustments=adjustments_data if adjustments_data else None
             )
             validated_data.update(totals)
             
@@ -527,6 +593,10 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             if payments is not None:
                 paid_amount = sum(float(payment.get('amount', 0)) for payment in payments)
                 validated_data['balance_due'] = totals['total_amount'] - paid_amount
+        elif adjustments_data:
+            # If only adjustments are provided without items, preserve them
+            # (items might not be updated, so we keep adjustments for the next update)
+            validated_data['adjustments'] = adjustments_data
         
         return validated_data
     
@@ -702,7 +772,9 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                     repository = self._get_repository_instance(session)
 
                     # Use document number service to get count
-                    from app.common.services.document_number_service import DocumentNumberService
+                    from app.common.services.document_number_service import (
+                        DocumentNumberService,
+                    )
                     doc_service = DocumentNumberService(session)
                     count = doc_service.get_document_count_for_company('invoice', company_code)
 

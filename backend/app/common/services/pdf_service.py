@@ -3,15 +3,16 @@ PDF Generation Service for React Backend
 Separate from Streamlit's pdf_generator.py
 """
 
-from pathlib import Path
-from jinja2 import Environment, FileSystemLoader
-from datetime import datetime
-import os
-import sys
-from typing import Dict, Any, Optional, List
 import json
-import re
 import logging
+import os
+import re
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from jinja2 import Environment, FileSystemLoader
 
 # Add GTK+ path for WeasyPrint on Windows (development only)
 # In production/Docker, GTK dependencies are installed system-wide
@@ -27,7 +28,7 @@ if sys.platform == 'win32' and os.environ.get('ENVIRONMENT', 'development') == '
                 pass
 
 try:
-    from weasyprint import HTML, CSS
+    from weasyprint import CSS, HTML
     WEASYPRINT_AVAILABLE = True
 except Exception as e:
     print(f"WeasyPrint not available: {e}")
@@ -36,11 +37,12 @@ except Exception as e:
     CSS = None
 
 try:
+    import io
+
     from pypdf import PdfReader, PdfWriter
     from pypdf.generic import RectangleObject
-    from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import letter
-    import io
+    from reportlab.pdfgen import canvas
     PYPDF_AVAILABLE = True
 except Exception as e:
     print(f"pypdf/reportlab not available: {e}")
@@ -88,33 +90,82 @@ class PDFService:
         """Register custom Jinja2 filters"""
         self.env.filters['format_currency'] = self._format_currency
         self.env.filters['format_number'] = self._format_number
+        self.env.filters['format_number_smart'] = self._format_number_smart
+        self.env.filters['format_quantity'] = self._format_quantity
         self.env.filters['format_date'] = self._format_date
         self.env.filters['markdown_to_html'] = self._markdown_to_html
     
     @staticmethod
     def _format_currency(value: float) -> str:
-        """Format number as currency with proper negative handling"""
+        """Format number as currency with proper negative handling.
+        Shows 2 decimal places if decimal part exists, otherwise shows integer only.
+        Examples: 94.24 -> $94.24, 20.10 -> $20.10, 78.0 -> $78, 10.0 -> $10
+        """
         import logging
         logger = logging.getLogger(__name__)
         
         try:
+            # Check if value has decimal part (with small epsilon for floating point precision)
+            has_decimal = abs(value % 1) > 1e-10
+            
             if value < 0:
                 # Format negative as -$X,XXX.XX instead of $-X,XXX.XX
-                result = f"-${abs(value):,.2f}"
+                if has_decimal:
+                    result = f"-${abs(value):,.2f}"
+                else:
+                    result = f"-${abs(int(value)):,}"
                 logger.info(f"_format_currency: {value} -> {result}")
                 return result
             else:
-                result = f"${value:,.2f}"
+                if has_decimal:
+                    result = f"${value:,.2f}"
+                else:
+                    result = f"${int(value):,}"
                 return result
         except (ValueError, TypeError) as e:
             logger.error(f"_format_currency error for value {value}: {e}")
-            return "$0.00"
+            return "$0"
     
     @staticmethod
     def _format_number(value: float, decimal_places: int = 2) -> str:
-        """Format number with commas and decimal places"""
+        """Format number with commas and decimal places.
+        Shows decimal places if decimal part exists, otherwise shows integer only.
+        Examples: 94.24 -> 94.24, 20.10 -> 20.10, 78.0 -> 78, 10.0 -> 10
+        """
         try:
-            return f"{value:,.{decimal_places}f}"
+            # Check if value has decimal part (with small epsilon for floating point precision)
+            has_decimal = abs(value % 1) > 1e-10
+            
+            if has_decimal:
+                return f"{value:,.{decimal_places}f}"
+            else:
+                return f"{int(value):,}"
+        except (ValueError, TypeError):
+            return "0"
+    
+    @staticmethod
+    def _format_number_smart(value: float) -> str:
+        """Format number smartly: shows 2 decimal places if decimal part exists, otherwise shows integer only.
+        This is the same as format_number but without the dollar sign, for use in templates with $ prefix.
+        Examples: 94.24 -> 94.24, 20.10 -> 20.10, 78.0 -> 78, 10.0 -> 10
+        """
+        return PDFService._format_number(value, decimal_places=2)
+    
+    @staticmethod
+    def _format_quantity(value: float) -> str:
+        """Format quantity: shows decimal places if decimal part exists, otherwise shows integer only.
+        No thousand separators (commas) for quantities.
+        Examples: 94.24 -> 94.24, 20.10 -> 20.10, 78.0 -> 78, 10.0 -> 10
+        """
+        try:
+            num_value = float(value)
+            # Check if value has decimal part (with small epsilon for floating point precision)
+            has_decimal = abs(num_value % 1) > 1e-10
+            
+            if has_decimal:
+                return f"{num_value:.2f}"
+            else:
+                return f"{int(num_value)}"
         except (ValueError, TypeError):
             return "0"
     
@@ -497,8 +548,8 @@ class PDFService:
         context['date_due'] = context.get('due_date', datetime.now().strftime("%Y-%m-%d"))
         
         # Ensure required sections exist with safe defaults
-        context.setdefault('company', {'name': 'Unknown Company'})
-        context.setdefault('client', {'name': 'Unknown Client'})
+        context.setdefault('company', {})
+        context.setdefault('client', {})
         context.setdefault('items', [])
 
         # Add flat client address fields for page header (two lines)
@@ -563,8 +614,7 @@ class PDFService:
         # Ensure company and client have safe name values
         if not context['company'].get('name'):
             context['company']['name'] = 'Unknown Company'
-        if not context['client'].get('name'):
-            context['client']['name'] = 'Unknown Client'
+        # Don't set default for client name - let template handle empty values
         
         # Calculate totals - matching frontend logic
         items = context.get('items', [])
@@ -573,38 +623,105 @@ class PDFService:
             for item in items
         )
 
-        # Get O&P percentage and calculate O&P amount
-        op_percent = float(context.get('op_percent', 0))
-        op_amount = items_subtotal * (op_percent / 100)
+        # Process adjustments if provided (new flexible system)
+        adjustments = context.get('adjustments', [])
+        current_subtotal = items_subtotal
+        calculated_adjustments = []
+        
+        if adjustments and len(adjustments) > 0:
+            # Sort adjustments by order
+            sorted_adjustments = sorted(adjustments, key=lambda x: x.get('order', 999))
+            
+            for adj in sorted_adjustments:
+                percentage = float(adj.get('percentage', 0))
+                adj_type = adj.get('type', 'add')
+                adj_name = adj.get('name', 'Adjustment')
+                
+                # Calculate adjustment amount
+                adj_amount = current_subtotal * (abs(percentage) / 100)
+                
+                # Apply adjustment
+                if adj_type == 'subtract' or percentage < 0:
+                    current_subtotal -= adj_amount
+                else:
+                    current_subtotal += adj_amount
+                
+                calculated_adjustments.append({
+                    'name': adj_name,
+                    'percentage': percentage,
+                    'type': adj_type,
+                    'order': adj.get('order', 999),
+                    'amount': adj_amount
+                })
+            
+            context['adjustments'] = calculated_adjustments
+            op_percent = 0
+            op_amount = 0
+            discount = 0
+        else:
+            # Backward compatibility: use op_percent and discount
+            op_percent = float(context.get('op_percent', 0))
+            op_amount = items_subtotal * (op_percent / 100)
+            current_subtotal = items_subtotal + op_amount
+            discount = float(context.get('discount', 0))
+            current_subtotal -= discount
+            context['adjustments'] = []
 
-        # Calculate tax
+        # Calculate tax on adjusted subtotal
         context.setdefault('tax_rate', 0)
         tax_method = context.get('tax_method', 'percentage')
 
         if tax_method == 'percentage':
-            # Calculate tax on taxable items + proportional O&P
+            # Calculate tax on taxable items proportionally
             taxable_amount = sum(
                 float(item.get('quantity', 0)) * float(item.get('rate', 0))
                 for item in items
                 if item.get('taxable', True)  # Default to taxable
             )
-            taxable_ratio = taxable_amount / items_subtotal if items_subtotal > 0 else 0
-            taxable_op_amount = op_amount * taxable_ratio
-            tax_amount = (taxable_amount + taxable_op_amount) * float(context['tax_rate']) / 100
+            
+            if taxable_amount > 0 and items_subtotal > 0:
+                taxable_ratio = taxable_amount / items_subtotal
+                
+                # Apply adjustments proportionally to taxable amount
+                taxable_current = taxable_amount
+                
+                if adjustments and len(adjustments) > 0:
+                    for adj in sorted_adjustments:
+                        percentage = float(adj.get('percentage', 0))
+                        adj_type = adj.get('type', 'add')
+                        
+                        taxable_adj_amount = taxable_current * (abs(percentage) / 100)
+                        
+                        if adj_type == 'subtract' or percentage < 0:
+                            taxable_current -= taxable_adj_amount
+                        else:
+                            taxable_current += taxable_adj_amount
+                else:
+                    # Legacy: apply op_percent and discount proportionally
+                    taxable_op_amount = taxable_amount * (op_percent / 100)
+                    taxable_current = taxable_amount + taxable_op_amount
+                    taxable_discount = discount * taxable_ratio
+                    taxable_current -= taxable_discount
+                
+                tax_amount = taxable_current * float(context['tax_rate']) / 100
+            else:
+                tax_amount = 0
         else:
             tax_amount = float(context.get('tax_amount', 0))
 
-        # Subtotal includes Items + O&P + Tax
-        subtotal = items_subtotal + op_amount + tax_amount
+        # Final subtotal after adjustments and before tax
+        subtotal_before_tax = current_subtotal
+        
+        # Subtotal includes Items + Adjustments + Tax
+        subtotal = subtotal_before_tax + tax_amount
 
-        context.setdefault('discount', 0)
         context.setdefault('shipping', 0)
 
-        # Total is subtotal minus discount plus shipping
-        total = subtotal - float(context.get('discount', 0)) + float(context.get('shipping', 0))
+        # Total is subtotal plus shipping
+        total = subtotal + float(context.get('shipping', 0))
 
-        # Ensure discount and shipping are properly set in context
-        context['discount'] = float(context.get('discount', 0))
+        # Ensure values are properly set in context
+        context['discount'] = discount
         context['shipping'] = float(context.get('shipping', 0))
 
         # Set all required context values
@@ -859,16 +976,59 @@ class PDFService:
             context['items'] = processed_items
             context['subtotal'] = subtotal
         
-        # Calculate O&P and final totals
-        op_percent = float(context.get('op_percent', 0))
-        subtotal = context['subtotal']
-        op_amount = subtotal * (op_percent / 100)
+        # Process adjustments if provided (new flexible system)
+        adjustments = context.get('adjustments', [])
+        current_subtotal = context['subtotal']
         
-        context['op_percent'] = op_percent
-        context['op_amount'] = op_amount
+        if adjustments and len(adjustments) > 0:
+            # Sort adjustments by order
+            sorted_adjustments = sorted(adjustments, key=lambda x: x.get('order', 999))
+            
+            # Calculate adjustment amounts and apply to subtotal
+            processed_adjustments = []
+            for adj in sorted_adjustments:
+                percentage = float(adj.get('percentage', 0))
+                adj_type = adj.get('type', 'add')
+                amount = current_subtotal * (abs(percentage) / 100)
+                
+                if adj_type == 'subtract' or percentage < 0:
+                    current_subtotal -= amount
+                else:
+                    current_subtotal += amount
+                
+                processed_adjustments.append({
+                    'name': adj.get('name', ''),
+                    'percentage': percentage,
+                    'type': adj_type,
+                    'order': adj.get('order', 999),
+                    'amount': amount
+                })
+            
+            context['adjustments'] = processed_adjustments
+            context['op_amount'] = 0  # No O&P when using adjustments
+            context['op_percent'] = 0
+        else:
+            # Legacy O&P calculation (only if no adjustments)
+            op_percent = float(context.get('op_percent', 0))
+            op_amount = context['subtotal'] * (op_percent / 100)
+            context['op_percent'] = op_percent
+            context['op_amount'] = op_amount
+            current_subtotal = context['subtotal'] + op_amount
+        
+        # Calculate tax
         context.setdefault('tax_rate', 0)
-        context['tax_amount'] = subtotal * float(context['tax_rate']) / 100
-        context['total'] = subtotal + op_amount + context['tax_amount']
+        tax_rate = float(context['tax_rate'])
+        tax_method = context.get('tax_method', 'percentage')
+        
+        if tax_method == 'percentage':
+            # Calculate tax on adjusted subtotal
+            context['tax_amount'] = current_subtotal * (tax_rate / 100)
+        else:
+            # Specific tax amount
+            context['tax_amount'] = float(context.get('tax_amount', 0))
+        
+        # Final total
+        context['total'] = current_subtotal + context['tax_amount']
         
         # Preserve HTML in global notes fields
         if context.get('notes'):
@@ -1291,9 +1451,9 @@ def generate_water_mitigation_report_pdf(
     if not WEASYPRINT_AVAILABLE:
         raise RuntimeError("WeasyPrint is not available")
 
-    from datetime import datetime
-    import logging
     import base64
+    import logging
+    from datetime import datetime
 
     logger = logging.getLogger(__name__)
 

@@ -148,6 +148,7 @@
             padding: 15px;
             background-color: #fff3cd;
             border-left: 4px solid #ffc107;
+            font-size: 14px;
         }
 
         .disclaimer {
@@ -188,7 +189,7 @@
     </div>
     <div class="client-info">
         <p><strong>Bill to</strong></p>
-        <p>{{ client.name }}</p>
+        {% if client.name %}<p>{{ client.name }}</p>{% endif %}
         {% if client.address %}<p>{{ client.address }}</p>{% endif %}
         {% if client.city or client.state or client.zip %}
         <p>{{ client.city }}{% if client.city and client.state %}, {% endif %}{{ client.state }} {{ client.zip }}</p>
@@ -217,7 +218,7 @@
 {% for item in items %}
 <div class="line-row">
     <div class="col-item">{{ item.name }}</div>
-    <div class="col-qty">{{ item.quantity }}</div>
+    <div class="col-qty">{{ item.quantity|format_quantity }}</div>
     <div class="col-unit">{% if item.unit %}{{ item.unit }}{% else %}ea{% endif %}</div>
     <div class="col-price">{{ item.rate|format_currency }}</div>
     <div class="col-total">{{ (item.quantity * item.rate)|format_currency }}</div>

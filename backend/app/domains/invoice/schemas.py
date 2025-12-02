@@ -2,10 +2,11 @@
 Invoice domain Pydantic schemas
 """
 
-from pydantic import BaseModel, Field, validator
-from typing import List, Optional, Dict, Any
-from datetime import datetime, date
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 from uuid import UUID
+
+from pydantic import BaseModel, Field, validator
 
 
 # Nested schemas
@@ -36,6 +37,27 @@ class InsuranceInfo(BaseModel):
     policy_number: Optional[str] = None
     claim_number: Optional[str] = None
     deductible: Optional[float] = None
+
+
+class Adjustment(BaseModel):
+    """Adjustment schema for invoice/estimate (e.g., Holiday Premium, Discount, O&P)"""
+    name: str = Field(..., description="Adjustment name (e.g., 'Holiday Premium', 'Discount', 'O&P')")
+    percentage: float = Field(..., description="Percentage value (can be positive or negative)")
+    type: str = Field("add", description="Type: 'add' or 'subtract'")
+    order: int = Field(..., description="Application order (lower number = applied first)")
+    amount: Optional[float] = Field(None, description="Calculated amount (computed, not user input)")
+
+    @validator('type')
+    def validate_type(cls, v):
+        if v not in ['add', 'subtract']:
+            raise ValueError("type must be 'add' or 'subtract'")
+        return v
+
+    @validator('order')
+    def validate_order(cls, v):
+        if v < 1:
+            raise ValueError('order must be at least 1')
+        return v
 
 
 class PaymentRecord(BaseModel):
@@ -144,9 +166,12 @@ class InvoiceBase(BaseModel):
     tax_rate: Optional[float] = 0
     tax_amount: Optional[float] = 0
 
-    # Other financial fields
-    op_percent: Optional[float] = 0  # O&P percentage
-    discount: Optional[float] = 0
+    # Adjustments (new flexible system)
+    adjustments: Optional[List[Adjustment]] = Field(default_factory=list, description="List of adjustments (e.g., Holiday Premium, Discount, O&P)")
+    
+    # Other financial fields (deprecated - use adjustments instead, kept for backward compatibility)
+    op_percent: Optional[float] = 0  # O&P percentage (DEPRECATED: Use adjustments instead)
+    discount: Optional[float] = 0  # Discount (DEPRECATED: Use adjustments instead)
     paid_amount: Optional[float] = 0
     
     # Payment tracking
@@ -239,6 +264,7 @@ class InvoiceUpdate(BaseModel):
     
     company: Optional[CompanyInfo] = None
     client: Optional[ClientInfo] = None
+    client_company_id: Optional[UUID] = None  # Optional reference to registered company as client
     insurance: Optional[InsuranceInfo] = None
     
     items: Optional[List[InvoiceItemCreate]] = None
@@ -247,8 +273,13 @@ class InvoiceUpdate(BaseModel):
     tax_method: Optional[str] = None
     tax_rate: Optional[float] = None
     tax_amount: Optional[float] = None
-    op_percent: Optional[float] = None  # O&P percentage
-    discount: Optional[float] = None
+    
+    # Adjustments (new flexible system)
+    adjustments: Optional[List[Adjustment]] = Field(default_factory=list, description="List of adjustments (e.g., Holiday Premium, Discount, O&P)")
+    
+    # Other financial fields (deprecated - use adjustments instead, kept for backward compatibility)
+    op_percent: Optional[float] = None  # O&P percentage (DEPRECATED: Use adjustments instead)
+    discount: Optional[float] = None  # Discount (DEPRECATED: Use adjustments instead)
     paid_amount: Optional[float] = None
     
     # Payment tracking
@@ -281,7 +312,7 @@ class InvoiceListResponse(BaseModel):
     status: str
     company_id: Optional[UUID] = None
     company_name: str
-    client_name: str
+    client_name: Optional[str] = None
     total: float
     paid_amount: float
     created_at: Optional[datetime] = None
@@ -311,7 +342,7 @@ class InvoiceResponse(BaseModel):
     company_logo: Optional[str]
     
     # Client info
-    client_name: str
+    client_name: Optional[str] = None
     client_company_id: Optional[UUID] = None  # Optional reference to registered company
     client_address: Optional[str]
     client_city: Optional[str]
@@ -328,12 +359,13 @@ class InvoiceResponse(BaseModel):
     
     # Financial
     subtotal: float
-    op_percent: Optional[float] = 0  # O&P percentage
+    adjustments: Optional[List[Adjustment]] = Field(default_factory=list, description="List of adjustments")
+    op_percent: Optional[float] = 0  # O&P percentage (DEPRECATED: Use adjustments instead)
     tax_method: Optional[str] = "percentage"
     tax_rate: float
     tax_amount: float
     discount: float
-    discount_amount: Optional[float] = None  # Added for compatibility
+    discount_amount: Optional[float] = None  # Added for compatibility (DEPRECATED: Use adjustments instead)
     total: float
     total_amount: Optional[float] = None  # Added for compatibility
     paid_amount: float
@@ -385,11 +417,12 @@ class InvoicePDFRequest(BaseModel):
     sections: Optional[List[InvoiceSection]] = []  # Grouped items by section
     
     subtotal: float = 0
-    op_percent: Optional[float] = 0  # O&P percentage
+    adjustments: Optional[List[Adjustment]] = Field(default_factory=list, description="List of adjustments")
+    op_percent: Optional[float] = 0  # O&P percentage (DEPRECATED: Use adjustments instead)
     tax_method: Optional[str] = "percentage"
     tax_rate: float = 0
     tax_amount: float = 0
-    discount: float = 0
+    discount: float = 0  # DEPRECATED: Use adjustments instead
     total: float = 0
     paid_amount: float = 0
     

@@ -2,11 +2,12 @@
 Configuration settings for the application
 """
 
-from typing import List, Optional
-from pydantic_settings import BaseSettings
 import os
 from pathlib import Path
+from typing import List, Optional
+
 from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
 
 # Get the base directory (2 levels up from this file)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
@@ -45,10 +46,12 @@ class Settings(BaseSettings):
     POSTGRES_DB: Optional[str] = None
     
     # Connection Pool Settings
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
-    DB_POOL_TIMEOUT: int = 30
-    DB_POOL_RECYCLE: int = 3600  # 1 hour
+    # Render/NeonDB free tier typically allows 5-10 connections
+    # Adjust these via environment variables if needed
+    DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "5"))  # Reduced from 10 for Render compatibility
+    DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "5"))  # Reduced from 20 for Render compatibility
+    DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+    DB_POOL_RECYCLE: int = int(os.getenv("DB_POOL_RECYCLE", "3600"))  # 1 hour
     
     # Database Operation Settings
     DB_RETRY_ATTEMPTS: int = 3

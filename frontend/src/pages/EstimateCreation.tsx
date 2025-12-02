@@ -64,6 +64,15 @@ import ItemCodeSelector from '../components/estimate/ItemCodeSelector';
 import { formatCurrency } from '../utils/formatUtils';
 const { Title } = Typography;
 
+interface Adjustment {
+  id: string;
+  name: string;
+  percentage: number;
+  type: 'add' | 'subtract';
+  order: number;
+  amount?: number; // Calculated
+}
+
 interface EstimateCreationProps {
   initialEstimate?: EstimateResponse;
 }
@@ -102,8 +111,9 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   // Multi-select state
   const [selectedItemKeys, setSelectedItemKeys] = useState<{[sectionIndex: number]: string[]}>({});
   
-  // O&P and calculations
+  // O&P and calculations (DEPRECATED: Use adjustments instead)
   const [opPercent, setOpPercent] = useState(0);
+  const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
 
   // Tax states
   const [taxMethod, setTaxMethod] = useState<'percentage' | 'specific'>('percentage');
@@ -200,9 +210,23 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
         setActiveKeys(sectionsFromItems.map(s => s.id));
       }
       
-      // Set O&P percent
+      // Set O&P percent (for backward compatibility)
       if (estimate.op_percent) {
         setOpPercent(estimate.op_percent);
+      }
+
+      // Set adjustments if provided
+      if (estimate.adjustments && Array.isArray(estimate.adjustments) && estimate.adjustments.length > 0) {
+        const loadedAdjustments: Adjustment[] = estimate.adjustments.map((adj: any, index: number) => ({
+          id: `adj-${Date.now()}-${index}`,
+          name: adj.name || '',
+          percentage: parseFloat(String(adj.percentage)) || 0,
+          type: adj.type || 'add',
+          order: adj.order || index + 1,
+        }));
+        setAdjustments(loadedAdjustments);
+      } else {
+        setAdjustments([]);
       }
 
       // Set tax method and amount
@@ -577,9 +601,58 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     return items.reduce((sum, item) => sum + (item.total || 0), 0);
   };
 
-  const calculateGrandTotal = useMemo((): { subtotal: number; opAmount: number; taxAmount: number; total: number } => {
+  // Adjustments handlers
+  const handleAddAdjustment = () => {
+    const newAdjustment: Adjustment = {
+      id: `adj-${Date.now()}`,
+      name: '',
+      percentage: 0,
+      type: 'add',
+      order: adjustments.length + 1,
+    };
+    setAdjustments([...adjustments, newAdjustment]);
+  };
+
+  const handleRemoveAdjustment = (id: string) => {
+    setAdjustments(adjustments.filter(adj => adj.id !== id));
+  };
+
+  const handleAdjustmentChange = (id: string, field: keyof Adjustment, value: any) => {
+    setAdjustments(adjustments.map(adj => 
+      adj.id === id ? { ...adj, [field]: value } : adj
+    ));
+  };
+
+  const calculateGrandTotal = useMemo((): { 
+    subtotal: number; 
+    opAmount: number; 
+    taxAmount: number; 
+    total: number;
+    adjustments?: Array<{ adjustment: Adjustment; amount: number }>;
+  } => {
     const subtotal = sections.reduce((sum, section) => sum + section.subtotal, 0);
-    const opAmount = subtotal * (opPercent / 100);
+    
+    // Process adjustments if provided (new flexible system)
+    let currentSubtotal = subtotal;
+    const adjustmentsWithAmounts: Array<{ adjustment: Adjustment; amount: number }> = [];
+    
+    if (adjustments.length > 0) {
+      // Sort adjustments by order
+      const sortedAdjustments = [...adjustments].sort((a, b) => a.order - b.order);
+      
+      sortedAdjustments.forEach(adj => {
+        const amount = currentSubtotal * (adj.percentage / 100);
+        if (adj.type === 'add') {
+          currentSubtotal += amount;
+        } else {
+          currentSubtotal -= amount;
+        }
+        adjustmentsWithAmounts.push({ adjustment: adj, amount });
+      });
+    }
+    
+    // Legacy O&P calculation (only if no adjustments)
+    const opAmount = adjustments.length === 0 ? subtotal * (opPercent / 100) : 0;
 
     // Calculate tax amount
     let taxAmount = 0;
@@ -594,18 +667,36 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
         }, 0);
       }, 0);
 
-      // Calculate tax on (taxable amount + O&P proportional to taxable items)
-      const taxableRatio = subtotal > 0 ? taxableAmount / subtotal : 0;
-      const taxableOpAmount = opAmount * taxableRatio;
-      taxAmount = (taxableAmount + taxableOpAmount) * (taxRate / 100);
+      if (adjustments.length > 0) {
+        // Calculate tax on (taxable amount + adjustments proportional to taxable items)
+        const taxableRatio = subtotal > 0 ? taxableAmount / subtotal : 0;
+        const adjustmentsTotal = adjustmentsWithAmounts.reduce((sum, adj) => {
+          return sum + (adj.adjustment.type === 'add' ? adj.amount : -adj.amount);
+        }, 0);
+        const taxableAdjustmentsAmount = adjustmentsTotal * taxableRatio;
+        taxAmount = (taxableAmount + taxableAdjustmentsAmount) * (taxRate / 100);
+      } else {
+        // Legacy: Calculate tax on (taxable amount + O&P proportional to taxable items)
+        const taxableRatio = subtotal > 0 ? taxableAmount / subtotal : 0;
+        const taxableOpAmount = opAmount * taxableRatio;
+        taxAmount = (taxableAmount + taxableOpAmount) * (taxRate / 100);
+      }
     } else {
       taxAmount = specificTaxAmount;
     }
 
-    const total = subtotal + opAmount + taxAmount;
+    const total = adjustments.length > 0 
+      ? currentSubtotal + taxAmount 
+      : subtotal + opAmount + taxAmount;
 
-    return { subtotal, opAmount, taxAmount, total };
-  }, [sections, opPercent, taxMethod, taxRate, specificTaxAmount]);
+    return { 
+      subtotal, 
+      opAmount, 
+      taxAmount, 
+      total,
+      adjustments: adjustmentsWithAmounts.length > 0 ? adjustmentsWithAmounts : undefined
+    };
+  }, [sections, opPercent, adjustments, taxMethod, taxRate, specificTaxAmount]);
 
   // Helper function to generate item code from description
   const generateItemCode = (description: string): string => {
@@ -870,6 +961,12 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       op_percent: opPercent,
       op_amount: grandTotal.opAmount,
       subtotal: grandTotal.subtotal,
+      adjustments: adjustments.length > 0 ? adjustments.map(adj => ({
+        name: adj.name,
+        percentage: adj.percentage,
+        type: adj.type,
+        order: adj.order,
+      })) : undefined,
       tax_method: taxMethod,
       tax_rate: taxMethod === 'percentage' ? taxRate : 0,
       tax_amount: grandTotal.taxAmount,
@@ -924,6 +1021,12 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       op_percent: opPercent,
       op_amount: grandTotal.opAmount,
       subtotal: grandTotal.subtotal,
+      adjustments: adjustments.length > 0 ? adjustments.map(adj => ({
+        name: adj.name,
+        percentage: adj.percentage,
+        type: adj.type,
+        order: adj.order,
+      })) : undefined,
       tax_method: taxMethod,
       tax_rate: taxMethod === 'percentage' ? taxRate : 0,
       tax_amount: grandTotal.taxAmount,
@@ -1533,22 +1636,145 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
             <Card title="O&P, Tax & Totals" style={{ marginBottom: 24 }}>
               <Row gutter={16}>
                 <Col xs={24} md={12}>
+                  {/* Adjustments Section */}
                   <Row gutter={16}>
                     <Col span={24}>
-                      <Form.Item label="O&P Percentage (%)">
-                        <InputNumber
-                          style={{ width: '100%' }}
-                          min={0}
-                          max={100}
-                          step={0.1}
-                          value={opPercent}
-                          onChange={(value) => setOpPercent(typeof value === 'number' ? value : 0)}
-                          formatter={(value?: string | number) => `${value}%`}
-                          parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
-                        />
-                      </Form.Item>
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <div>
+                            <span style={{ fontWeight: 'bold' }}>Adjustments</span>
+                            <Tooltip title="Add custom adjustments (e.g., Holiday Premium, Discount, O&P) that are applied in order to the subtotal">
+                              <span style={{ marginLeft: '8px', color: '#999', fontSize: '12px', cursor: 'help' }}>ℹ️</span>
+                            </Tooltip>
+                          </div>
+                          <Button
+                            type="dashed"
+                            size="small"
+                            icon={<PlusOutlined />}
+                            onClick={handleAddAdjustment}
+                          >
+                            Add Adjustment
+                          </Button>
+                        </div>
+                        {adjustments.length > 0 && (
+                          <div style={{ 
+                            padding: '8px 12px', 
+                            marginBottom: '8px',
+                            background: '#f0f7ff', 
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            color: '#666'
+                          }}>
+                            <strong>Fields:</strong> Name | <strong>%</strong> (percentage) | <strong>+/-</strong> (add/subtract) | <strong>Order</strong> (application order, lower = first) | <strong>Amount</strong> (calculated)
+                          </div>
+                        )}
+                        {adjustments.length === 0 && (
+                          <div style={{ padding: '8px 0', color: '#999', fontSize: '12px' }}>
+                            No adjustments. Use legacy O&P field below, or add custom adjustments above.
+                          </div>
+                        )}
+                        {adjustments.map((adj) => {
+                          const calculatedAdj = calculateGrandTotal.adjustments?.find(a => a.adjustment.id === adj.id);
+                          return (
+                            <div key={adj.id} style={{ 
+                              marginBottom: 12, 
+                              padding: 12, 
+                              border: '1px solid #f0f0f0', 
+                              borderRadius: 4,
+                              background: '#fafafa'
+                            }}>
+                              <Row gutter={8} align="middle">
+                                <Col span={6}>
+                                  <Input
+                                    placeholder="Name (e.g., Holiday Premium)"
+                                    value={adj.name}
+                                    onChange={(e) => handleAdjustmentChange(adj.id, 'name', e.target.value)}
+                                    size="small"
+                                  />
+                                </Col>
+                                <Col span={4}>
+                                  <Tooltip title="Percentage value (e.g., 10 for 10%, -5 for -5%)">
+                                    <InputNumber
+                                      placeholder="%"
+                                      value={adj.percentage}
+                                      onChange={(value) => handleAdjustmentChange(adj.id, 'percentage', value || 0)}
+                                      min={-100}
+                                      max={100}
+                                      step={0.1}
+                                      size="small"
+                                      style={{ width: '100%' }}
+                                      formatter={(value?: string | number) => `${value}%`}
+                                      parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
+                                    />
+                                  </Tooltip>
+                                </Col>
+                                <Col span={4}>
+                                  <Tooltip title="Add (+) or Subtract (-) from subtotal">
+                                    <Select
+                                      value={adj.type}
+                                      onChange={(value) => handleAdjustmentChange(adj.id, 'type', value)}
+                                      size="small"
+                                      style={{ width: '100%' }}
+                                    >
+                                      <Select.Option value="add">+</Select.Option>
+                                      <Select.Option value="subtract">-</Select.Option>
+                                    </Select>
+                                  </Tooltip>
+                                </Col>
+                                <Col span={4}>
+                                  <Tooltip title="Application order (lower number = applied first)">
+                                    <InputNumber
+                                      placeholder="Order"
+                                      value={adj.order}
+                                      onChange={(value) => handleAdjustmentChange(adj.id, 'order', value || 1)}
+                                      min={1}
+                                      size="small"
+                                      style={{ width: '100%' }}
+                                    />
+                                  </Tooltip>
+                                </Col>
+                                <Col span={4}>
+                                  <Tooltip title="Calculated adjustment amount">
+                                    <span style={{ fontSize: '12px', color: '#666', fontWeight: '500' }}>
+                                      {formatCurrency(calculatedAdj?.amount || 0)}
+                                    </span>
+                                  </Tooltip>
+                                </Col>
+                                <Col span={2}>
+                                  <Button
+                                    danger
+                                    size="small"
+                                    icon={<DeleteOutlined />}
+                                    onClick={() => handleRemoveAdjustment(adj.id)}
+                                  />
+                                </Col>
+                              </Row>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </Col>
                   </Row>
+
+                  {/* Legacy O&P (shown only if no adjustments) */}
+                  {adjustments.length === 0 && (
+                    <Row gutter={16}>
+                      <Col span={24}>
+                        <Form.Item label="O&P Percentage (%) (Legacy)">
+                          <InputNumber
+                            style={{ width: '100%' }}
+                            min={0}
+                            max={100}
+                            step={0.1}
+                            value={opPercent}
+                            onChange={(value) => setOpPercent(typeof value === 'number' ? value : 0)}
+                            formatter={(value?: string | number) => `${value}%`}
+                            parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  )}
 
                   <Row gutter={16}>
                     <Col span={12}>
@@ -1630,7 +1856,17 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                 <Col xs={24} md={12}>
                   <div style={{ textAlign: 'right', fontSize: '16px' }}>
                     <div>Subtotal: <strong>{formatCurrency(calculateGrandTotal.subtotal)}</strong></div>
-                    {opPercent > 0 && (
+                    {calculateGrandTotal.adjustments && calculateGrandTotal.adjustments.length > 0 && (
+                      <>
+                        {calculateGrandTotal.adjustments.map((adjData, idx) => (
+                          <div key={idx}>
+                            {adjData.adjustment.name} ({adjData.adjustment.percentage}%{adjData.adjustment.type === 'add' ? '+' : '-'}): 
+                            <strong> {formatCurrency(adjData.amount)}</strong>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    {adjustments.length === 0 && opPercent > 0 && (
                       <div>O&P ({opPercent}%): <strong>{formatCurrency(calculateGrandTotal.opAmount)}</strong></div>
                     )}
                     {calculateGrandTotal.taxAmount > 0 && (

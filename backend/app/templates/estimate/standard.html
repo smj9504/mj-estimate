@@ -633,18 +633,39 @@
                     <span class="total-value">{{ format_amount(subtotal) }}</span>
                 </div>
 
-                {% if discount_amount and discount_amount > 0 %}
-                <div class="total-row">
-                    <span class="total-label">Discount</span>
-                    <span class="total-value">-{{ format_amount(discount_amount) }}</span>
-                </div>
-                {% endif %}
+                {% if adjustments and adjustments|length > 0 %}
+                    {% for adjustment in adjustments|sort(attribute='order') %}
+                    <div class="total-row">
+                        <span class="total-label">
+                            {{ adjustment.name }}
+                            {% if adjustment.percentage != 0 %}
+                                ({{ adjustment.percentage|abs }}%)
+                            {% endif %}
+                        </span>
+                        <span class="total-value">
+                            {% if adjustment.type == 'subtract' or adjustment.percentage < 0 %}
+                                -{{ format_amount(adjustment.amount) }}
+                            {% else %}
+                                {{ format_amount(adjustment.amount) }}
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    {# Backward compatibility: show op_percent and discount_amount if adjustments not used #}
+                    {% if discount_amount and discount_amount > 0 %}
+                    <div class="total-row">
+                        <span class="total-label">Discount</span>
+                        <span class="total-value">-{{ format_amount(discount_amount) }}</span>
+                    </div>
+                    {% endif %}
 
-                {% if op_amount and op_amount > 0 %}
-                <div class="total-row">
-                    <span class="total-label">O&P{% if op_percent %} ({{ op_percent }}%){% endif %}</span>
-                    <span class="total-value">{{ format_amount(op_amount) }}</span>
-                </div>
+                    {% if op_amount and op_amount > 0 %}
+                    <div class="total-row">
+                        <span class="total-label">O&P{% if op_percent %} ({{ op_percent }}%){% endif %}</span>
+                        <span class="total-value">{{ format_amount(op_amount) }}</span>
+                    </div>
+                    {% endif %}
                 {% endif %}
 
                 {% if tax_amount and tax_amount > 0 %}

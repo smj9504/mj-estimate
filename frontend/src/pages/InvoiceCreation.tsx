@@ -32,6 +32,7 @@ import {
   AppstoreAddOutlined,
   FolderAddOutlined,
   FolderOpenOutlined,
+  CommentOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -119,6 +120,15 @@ interface PaymentRecord {
   receipt_number?: string;  // Track if receipt was generated for this payment
 }
 
+interface Adjustment {
+  id: string;
+  name: string;
+  percentage: number;
+  type: 'add' | 'subtract';
+  order: number;
+  amount?: number; // Calculated
+}
+
 const InvoiceCreation: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
@@ -126,6 +136,9 @@ const InvoiceCreation: React.FC = () => {
   const isEditMode = !!id;
   const [loading, setLoading] = useState(false);
   const [formMounted, setFormMounted] = useState(false);
+  
+  // Local state for company selection to ensure Select updates immediately
+  const [companySelectionValue, setCompanySelectionValue] = useState<string | undefined>(undefined);
 
   // Template Builder Context
   const {
@@ -170,7 +183,8 @@ const InvoiceCreation: React.FC = () => {
   const [editingPaymentIndex, setEditingPaymentIndex] = useState<number | null>(null);
   const [useCustomClient, setUseCustomClient] = useState(true); // Default to manual input
   const [selectedClient, setSelectedClient] = useState<Company | null>(null);
-  const [opPercent, setOpPercent] = useState(0);
+  const [opPercent, setOpPercent] = useState(0); // DEPRECATED: Use adjustments instead
+  const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
 
   // Receipt generation state
   // React Query: Load receipt templates when company is selected
@@ -324,13 +338,22 @@ const InvoiceCreation: React.FC = () => {
       groupedItems[groupKey].push(item);
     });
 
-    return Object.entries(groupedItems).map(([title, groupItems], index) => ({
-      id: `section-${index}`,
-      title,
-      items: groupItems,
-      showSubtotal: true,
-      subtotal: groupItems.reduce((sum, item) => sum + (item.amount || (item.quantity * item.rate)), 0),
-    }));
+    return Object.entries(groupedItems).map(([title, groupItems], index) => {
+      const subtotal = groupItems.reduce((sum, item) => {
+        const quantity = parseFloat(String(item.quantity)) || 0;
+        const rate = parseFloat(String(item.rate)) || 0;
+        const amount = parseFloat(String(item.amount)) || (quantity * rate);
+        return sum + amount;
+      }, 0);
+      
+      return {
+        id: `section-${index}`,
+        title,
+        items: groupItems,
+        showSubtotal: true,
+        subtotal,
+      };
+    });
   };
 
   const convertSectionsToItems = (): InvoiceItem[] => {
@@ -419,7 +442,12 @@ const InvoiceCreation: React.FC = () => {
   };
 
   const calculateSectionSubtotal = (items: InvoiceItem[]): number => {
-    return items.reduce((sum, item) => sum + (item.amount || (item.quantity * item.rate)), 0);
+    return items.reduce((sum, item) => {
+      const quantity = parseFloat(String(item.quantity)) || 0;
+      const rate = parseFloat(String(item.rate)) || 0;
+      const amount = parseFloat(String(item.amount)) || (quantity * rate);
+      return sum + amount;
+    }, 0);
   };
 
   // Add items to a specific section
@@ -556,21 +584,28 @@ const InvoiceCreation: React.FC = () => {
       setSections(data.sections);
       setActiveKeys(data.sections.map((s: any) => s.id));
     } else if (data.items && data.items.length > 0) {
-      const processedItems = data.items.map((item: any) => ({
-        id: item.id,
-        line_item_id: item.line_item_id, // IMPORTANT: Preserve line_item_id for template creation
-        name: item.name || item.description,
-        description: item.description,
-        quantity: item.quantity,
-        unit: item.unit || 'EA',
-        rate: item.rate || item.unit_price,
-        amount: item.amount || item.total,
-        taxable: item.taxable !== false,
-        primary_group: item.primary_group,
-        secondary_group: item.secondary_group,
-        sort_order: item.sort_order,
-        note: item.note,
-      }));
+      const processedItems = data.items.map((item: any) => {
+        // Ensure numeric values are properly converted
+        const quantity = parseFloat(item.quantity) || 0;
+        const rate = parseFloat(item.rate || item.unit_price) || 0;
+        const amount = parseFloat(item.amount || item.total) || (quantity * rate);
+        
+        return {
+          id: item.id,
+          line_item_id: item.line_item_id, // IMPORTANT: Preserve line_item_id for template creation
+          name: item.name || item.description,
+          description: item.description,
+          quantity,
+          unit: item.unit || 'EA',
+          rate,
+          amount,
+          taxable: item.taxable !== false,
+          primary_group: item.primary_group,
+          secondary_group: item.secondary_group,
+          sort_order: item.sort_order || 0,
+          note: item.note,
+        };
+      });
 
       const sectionsFromItems = convertItemsToSections(processedItems);
       setSections(sectionsFromItems);
@@ -593,14 +628,14 @@ const InvoiceCreation: React.FC = () => {
       client_email: data.client_email,
       notes: data.notes,
       payment_terms: data.payment_terms,
-      tax_rate: data.tax_rate || 0,
-      tax_amount: data.tax_amount || 0,
-      discount: data.discount || data.discount_amount || 0,
-      op_percent: data.op_percent || 0,
+      tax_rate: parseFloat(data.tax_rate) || 0,
+      tax_amount: parseFloat(data.tax_amount) || 0,
+      discount: parseFloat(data.discount || data.discount_amount) || 0,
+      op_percent: parseFloat(data.op_percent) || 0,
       insurance_company: data.insurance_company || '',
       insurance_policy_number: data.insurance_policy_number || '',
       insurance_claim_number: data.insurance_claim_number || '',
-      insurance_deductible: data.insurance_deductible || 0,
+      insurance_deductible: parseFloat(data.insurance_deductible) || 0,
     };
     form.setFieldsValue(formValues);
 
@@ -608,15 +643,15 @@ const InvoiceCreation: React.FC = () => {
     if (data.tax_method) {
       setTaxMethod(data.tax_method);
       if (data.tax_method === 'percentage') {
-        setTaxRate(data.tax_rate || 0);
+        setTaxRate(parseFloat(data.tax_rate) || 0);
       }
       if (data.tax_method === 'specific') {
-        setSpecificTaxAmount(data.tax_amount || 0);
+        setSpecificTaxAmount(parseFloat(data.tax_amount) || 0);
       }
     }
 
     // Set discount state
-    setDiscount(data.discount || data.discount_amount || 0);
+    setDiscount(parseFloat(data.discount || data.discount_amount) || 0);
 
     // Set insurance visibility
     if (data.insurance_company || data.insurance_policy_number || data.insurance_claim_number || data.insurance_deductible) {
@@ -637,7 +672,7 @@ const InvoiceCreation: React.FC = () => {
     // Set payments
     if (data.payments && data.payments.length > 0) {
       const processedPayments = data.payments.map((payment: any) => ({
-        amount: payment.amount || 0,
+        amount: parseFloat(payment.amount) || 0,
         date: payment.date ? dayjs(payment.date) : null,
         method: payment.method || '',
         reference: payment.reference || '',
@@ -653,9 +688,23 @@ const InvoiceCreation: React.FC = () => {
       setShowPaymentDates(data.show_payment_dates);
     }
 
-    // Set O&P percent
+    // Set O&P percent (for backward compatibility)
     if (data.op_percent !== undefined) {
-      setOpPercent(data.op_percent || 0);
+      setOpPercent(parseFloat(data.op_percent) || 0);
+    }
+
+    // Set adjustments if provided
+    if (data.adjustments && Array.isArray(data.adjustments) && data.adjustments.length > 0) {
+      const loadedAdjustments: Adjustment[] = data.adjustments.map((adj: any, index: number) => ({
+        id: `adj-${Date.now()}-${index}`,
+        name: adj.name || '',
+        percentage: parseFloat(String(adj.percentage)) || 0,
+        type: adj.type || 'add',
+        order: adj.order || index + 1,
+      }));
+      setAdjustments(loadedAdjustments);
+    } else {
+      setAdjustments([]);
     }
   }, [fetchedInvoice, isEditMode, companies, form]);
 
@@ -745,6 +794,7 @@ const InvoiceCreation: React.FC = () => {
       due_date: invoiceData.due_date ? dayjs(invoiceData.due_date) : undefined,
       status: invoiceData.status,
       company_id: invoiceData.company_id,
+      company_selection: invoiceData.company_id, // Set company_selection for the Select component
       company_name: invoiceData.company_name,
       company_address: invoiceData.company_address,
       company_city: invoiceData.company_city,
@@ -765,28 +815,50 @@ const InvoiceCreation: React.FC = () => {
       terms: invoiceData.terms,
       payment_terms: invoiceData.payment_terms,
     });
+    
+    // Also update local state for Select component
+    if (invoiceData.company_id) {
+      setCompanySelectionValue(invoiceData.company_id);
+    }
   }, [invoiceData, isEditMode, companies, form, selectedCompany]);
 
   const handleCompanyChange = async (companyId: string) => {
+    console.log('handleCompanyChange called with:', companyId);
     const company = companies.find(c => c.id === companyId);
 
     if (company) {
+      console.log('Found company:', company);
+      
+      // Update local state immediately for instant UI update
+      setCompanySelectionValue(companyId);
       setSelectedCompany(company);
-      // Set form value to the selected company ID
-      form.setFieldValue('company_selection', companyId);
+      
+      // Prepare all form updates at once
+      const updates: any = {
+        company_selection: companyId,
+        company_id: company.id,
+      };
 
-      // Generate new invoice number based on selected company (only in create mode)
-      if (!isEditMode) {
-        try {
-          const newInvoiceNumber = await invoiceService.generateInvoiceNumber(company.id);
-          form.setFieldsValue({ invoice_number: newInvoiceNumber });
-        } catch (error) {
-          console.error('Failed to generate invoice number:', error);
-          // Fallback to default number if API fails
+      // Generate new invoice number based on selected company
+      try {
+        const newInvoiceNumber = await invoiceService.generateInvoiceNumber(company.id);
+        updates.invoice_number = newInvoiceNumber;
+      } catch (error) {
+        console.error('Failed to generate invoice number:', error);
+        if (!isEditMode) {
+          // Fallback to default number if API fails (only in create mode)
           const fallbackNumber = `INV-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
-          form.setFieldsValue({ invoice_number: fallbackNumber });
+          updates.invoice_number = fallbackNumber;
         }
       }
+
+      // Update form fields
+      form.setFieldsValue(updates);
+      
+      console.log('Form values updated:', updates);
+    } else {
+      console.warn('Company not found for ID:', companyId);
+      setCompanySelectionValue(undefined);
     }
   };
 
@@ -1059,74 +1131,157 @@ const InvoiceCreation: React.FC = () => {
     setPayments(updatedPayments);
   };
 
+  // Adjustments handlers
+  const handleAddAdjustment = () => {
+    const newAdjustment: Adjustment = {
+      id: `adj-${Date.now()}`,
+      name: '',
+      percentage: 0,
+      type: 'add',
+      order: adjustments.length + 1,
+    };
+    setAdjustments([...adjustments, newAdjustment]);
+  };
+
+  const handleRemoveAdjustment = (id: string) => {
+    setAdjustments(adjustments.filter(adj => adj.id !== id));
+  };
+
+  const handleAdjustmentChange = (id: string, field: keyof Adjustment, value: any) => {
+    setAdjustments(adjustments.map(adj => 
+      adj.id === id ? { ...adj, [field]: value } : adj
+    ));
+  };
+
   const calculateTotals = useCallback(() => {
-    // Calculate subtotal from sections
-    const itemsSubtotal = sections.reduce((sum, section) => sum + section.subtotal, 0);
+    // Calculate subtotal from sections (ensure numeric)
+    const itemsSubtotal = sections.reduce((sum, section) => {
+      const sectionSubtotal = parseFloat(String(section.subtotal)) || 0;
+      return sum + sectionSubtotal;
+    }, 0);
 
-    // Calculate O&P on items subtotal
-    const opAmount = itemsSubtotal * (opPercent / 100);
+    // Apply adjustments in order (new flexible system)
+    let currentSubtotal = itemsSubtotal;
+    const calculatedAdjustments = adjustments
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map(adj => {
+        const amount = currentSubtotal * (Math.abs(adj.percentage) / 100);
+        if (adj.type === 'subtract' || adj.percentage < 0) {
+          currentSubtotal -= amount;
+        } else {
+          currentSubtotal += amount;
+        }
+        return { ...adj, amount };
+      });
 
+    // Backward compatibility: apply op_percent and discount if no adjustments
+    let opAmount = 0;
+    let discountAmount = 0;
+    
+    if (adjustments.length === 0) {
+      // Use legacy op_percent and discount
+      const opPercentNum = parseFloat(String(opPercent)) || 0;
+      opAmount = itemsSubtotal * (opPercentNum / 100);
+      currentSubtotal = itemsSubtotal + opAmount;
+      
+      const discountNum = parseFloat(String(discount)) || 0;
+      discountAmount = discountNum;
+      currentSubtotal -= discountAmount;
+    }
+
+    // Calculate tax on adjusted subtotal
     let taxAmount = 0;
     if (taxMethod === 'percentage') {
       // Calculate tax on taxable items only
       const taxableAmount = sections.reduce((sum, section) => {
         return sum + section.items.reduce((itemSum, item) => {
           if (item.taxable !== false) { // Default to taxable if not specified
-            return itemSum + (item.amount || (item.quantity * item.rate));
+            const quantity = parseFloat(String(item.quantity)) || 0;
+            const rate = parseFloat(String(item.rate)) || 0;
+            const amount = parseFloat(String(item.amount)) || (quantity * rate);
+            return itemSum + amount;
           }
           return itemSum;
         }, 0);
       }, 0);
 
-      // Calculate tax on taxable amount + proportional O&P
-      const taxableRatio = itemsSubtotal > 0 ? taxableAmount / itemsSubtotal : 0;
-      const taxableOpAmount = opAmount * taxableRatio;
-      taxAmount = (taxableAmount + taxableOpAmount) * (taxRate / 100);
+      if (taxableAmount > 0 && itemsSubtotal > 0) {
+        const taxableRatio = taxableAmount / itemsSubtotal;
+        
+        // Apply adjustments proportionally to taxable amount
+        let taxableCurrent = taxableAmount;
+        
+        if (adjustments.length > 0) {
+          for (const adj of calculatedAdjustments) {
+            const taxableAdjAmount = taxableCurrent * (Math.abs(adj.percentage) / 100);
+            if (adj.type === 'subtract' || adj.percentage < 0) {
+              taxableCurrent -= taxableAdjAmount;
+            } else {
+              taxableCurrent += taxableAdjAmount;
+            }
+          }
+        } else {
+          // Legacy: apply op_percent and discount proportionally
+          const taxableOpAmount = taxableAmount * (parseFloat(String(opPercent)) || 0) / 100;
+          taxableCurrent = taxableAmount + taxableOpAmount;
+          const taxableDiscount = discountAmount * taxableRatio;
+          taxableCurrent -= taxableDiscount;
+        }
+        
+        const taxRateNum = parseFloat(String(taxRate)) || 0;
+        taxAmount = taxableCurrent * (taxRateNum / 100);
+      }
     } else {
-      taxAmount = specificTaxAmount;
+      taxAmount = parseFloat(String(specificTaxAmount)) || 0;
     }
 
-    // Subtotal includes Items + O&P + Tax
-    const subtotal = itemsSubtotal + opAmount + taxAmount;
+    // Final subtotal includes Items + Adjustments + Tax
+    const subtotal = currentSubtotal + taxAmount;
 
-    // Total is subtotal minus discount, then subtract payments for balance
-    const total = subtotal - discount;
-    const totalPaid = payments.reduce((sum, payment) => sum + payment.amount, 0);
+    // Total is subtotal (payments are tracked separately)
+    const total = subtotal;
+    const totalPaid = payments.reduce((sum, payment) => {
+      const paymentAmount = parseFloat(String(payment.amount)) || 0;
+      return sum + paymentAmount;
+    }, 0);
     const balanceDue = total - totalPaid;
 
     return {
       itemsSubtotal,
-      opAmount,
+      adjustments: calculatedAdjustments,
+      opAmount, // For backward compatibility
       subtotal,
-      discount,
+      discount: discountAmount, // For backward compatibility
       taxAmount,
       total,
       totalPaid,
       balanceDue,
     };
-  }, [sections, taxMethod, taxRate, specificTaxAmount, discount, payments, form, formMounted, opPercent]);
+  }, [sections, adjustments, taxMethod, taxRate, specificTaxAmount, discount, payments, form, formMounted, opPercent]);
 
   const handleSave = async (status: string = 'pending', skipNavigation: boolean = false) => {
     try {
       const values = await form.validateFields();
       setLoading(true);
 
-      // Validate company information
-      if (!selectedCompany) {
+      const totals = calculateTotals();
+
+      // Prepare invoice data
+      // Use company_id from form values (set by handleCompanyChange) or selectedCompany
+      const companyId = values.company_id || values.company_selection || selectedCompany?.id;
+      if (!companyId) {
         message.error('Please select a company');
         setLoading(false);
         return null;
       }
 
-      const totals = calculateTotals();
-
-      // Prepare invoice data
       const invoiceData: any = {
         invoice_number: values.invoice_number,
         date: values.date ? values.date.format('MM-DD-YYYY') : dayjs().format('MM-DD-YYYY'),
         due_date: values.due_date ? values.due_date.format('MM-DD-YYYY') : dayjs().add(30, 'days').format('MM-DD-YYYY'),
         status,
-        company_id: selectedCompany.id, // Always use company_id from selected company
+        company_id: companyId, // Use company_id from form or selectedCompany
       };
 
       // Add client info
@@ -1171,12 +1326,28 @@ const InvoiceCreation: React.FC = () => {
       invoiceData.items = allItems;
       invoiceData.sections = sections;
       invoiceData.subtotal = totals.subtotal;
-      invoiceData.op_percent = opPercent;
+      // Add adjustments if provided, otherwise use legacy op_percent and discount
+      if (adjustments.length > 0) {
+        invoiceData.adjustments = adjustments.map(adj => ({
+          name: adj.name,
+          percentage: adj.percentage,
+          type: adj.type,
+          order: adj.order,
+        }));
+      } else {
+        // Backward compatibility
+        invoiceData.op_percent = opPercent;
+      }
       invoiceData.tax_method = taxMethod;
       invoiceData.tax_rate = taxMethod === 'percentage' ? taxRate : 0;
       invoiceData.tax_amount = taxMethod === 'specific' ? (values.tax_amount || 0) : totals.taxAmount;
-      invoiceData.discount = values.discount || 0;
-      invoiceData.discount_amount = values.discount || 0;
+      
+      // Add discount for backward compatibility (only if no adjustments)
+      if (adjustments.length === 0) {
+        invoiceData.discount = values.discount || 0;
+        invoiceData.discount_amount = values.discount || 0;
+      }
+      
       invoiceData.total = totals.total;
       invoiceData.payments = payments.map(payment => ({
         amount: payment.amount,
@@ -1192,7 +1363,12 @@ const InvoiceCreation: React.FC = () => {
       invoiceData.payment_terms = values.payment_terms;
       invoiceData.notes = values.notes;
 
-      console.log('Sending invoice data:', JSON.stringify(invoiceData, null, 2));
+      // Safe JSON stringify with error handling
+      try {
+        console.log('Sending invoice data:', JSON.stringify(invoiceData, null, 2));
+      } catch (error) {
+        console.log('Sending invoice data (stringify failed):', invoiceData);
+      }
 
       let response;
       if (isEditMode && id) {
@@ -1271,12 +1447,18 @@ const InvoiceCreation: React.FC = () => {
           subtotal: section.subtotal || section.items.reduce((sum, item) => sum + (item.quantity * item.rate), 0)
         })),
         subtotal: totals.subtotal,
-        op_percent: opPercent,
+        adjustments: adjustments.length > 0 ? adjustments.map(adj => ({
+          name: adj.name,
+          percentage: adj.percentage,
+          type: adj.type,
+          order: adj.order,
+        })) : undefined,
+        op_percent: adjustments.length === 0 ? opPercent : 0, // For backward compatibility
         tax_method: taxMethod,
         tax_rate: taxMethod === 'percentage' ? taxRate : 0,
         tax_amount: taxMethod === 'specific' ? (values.tax_amount || 0) : totals.taxAmount,
-        discount: values.discount || 0,
-        discount_amount: values.discount || 0,
+        discount: adjustments.length === 0 ? (values.discount || 0) : 0, // For backward compatibility
+        discount_amount: adjustments.length === 0 ? (values.discount || 0) : 0, // For backward compatibility
         total: totals.total,
         payments: payments.map(payment => ({
           amount: payment.amount,
@@ -1871,12 +2053,18 @@ const InvoiceCreation: React.FC = () => {
                 rules={[{ required: true, message: 'Please select a company' }]}
               >
                 <Select
+                  value={companySelectionValue || undefined}
                   onChange={handleCompanyChange}
                   placeholder="Select company"
+                  allowClear
+                  showSearch
+                  filterOption={(input, option) => {
+                    const label = String(option?.label || '');
+                    return label.toLowerCase().includes(input.toLowerCase());
+                  }}
                   options={companies.map(company => ({
-                    key: company.id,
+                    label: company.name,
                     value: company.id,
-                    label: company.name
                   }))}
                 />
               </Form.Item>
@@ -2306,9 +2494,27 @@ const InvoiceCreation: React.FC = () => {
                               dataIndex: 'description',
                               key: 'description',
                               ellipsis: true,
-                              render: (value) => value ? (
-                                <div dangerouslySetInnerHTML={{ __html: value }} />
-                              ) : null,
+                              render: (value: string, record: InvoiceItem) => (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  {value ? (
+                                    <div dangerouslySetInnerHTML={{ __html: value }} style={{ flex: 1 }} />
+                                  ) : null}
+                                  {record.note && record.note.trim() ? (
+                                    <Tooltip 
+                                      title={`Item Note: ${record.note.replace(/<[^>]*>/g, '').substring(0, 100)}${record.note.replace(/<[^>]*>/g, '').length > 100 ? '...' : ''}`}
+                                    >
+                                      <CommentOutlined 
+                                        style={{ 
+                                          color: '#1890ff', 
+                                          fontSize: '16px',
+                                          cursor: 'pointer',
+                                          flexShrink: 0
+                                        }} 
+                                      />
+                                    </Tooltip>
+                                  ) : null}
+                                </div>
+                              ),
                             },
                             {
                               title: 'Qty',
@@ -2562,21 +2768,146 @@ const InvoiceCreation: React.FC = () => {
                 </Col>
               </Row>
 
+              {/* Adjustments Section */}
               <Row gutter={16}>
                 <Col span={24}>
-                  <Form.Item name="op_percent" label="O&P Percentage (%)">
-                    <InputNumber
-                      style={{ width: '100%' }}
-                      min={0}
-                      max={100}
-                      step={0.1}
-                      onChange={(value) => setOpPercent(typeof value === 'number' ? value : 0)}
-                      formatter={(value?: string | number) => `${value}%`}
-                      parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
-                    />
-                  </Form.Item>
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <div>
+                        <span style={{ fontWeight: 'bold' }}>Adjustments</span>
+                        <Tooltip title="Add custom adjustments (e.g., Holiday Premium, Discount, O&P) that are applied in order to the subtotal">
+                          <span style={{ marginLeft: '8px', color: '#999', fontSize: '12px', cursor: 'help' }}>ℹ️</span>
+                        </Tooltip>
+                      </div>
+                      <Button
+                        type="dashed"
+                        size="small"
+                        icon={<PlusOutlined />}
+                        onClick={handleAddAdjustment}
+                      >
+                        Add Adjustment
+                      </Button>
+                    </div>
+                    {adjustments.length > 0 && (
+                      <div style={{ 
+                        padding: '8px 12px', 
+                        marginBottom: '8px',
+                        background: '#f0f7ff', 
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        color: '#666'
+                      }}>
+                        <strong>Fields:</strong> Name | <strong>%</strong> (percentage) | <strong>+/-</strong> (add/subtract) | <strong>Order</strong> (application order, lower = first) | <strong>Amount</strong> (calculated)
+                      </div>
+                    )}
+                    {adjustments.length === 0 && (
+                      <div style={{ padding: '8px 0', color: '#999', fontSize: '12px' }}>
+                        No adjustments. Use legacy O&P and Discount fields below, or add custom adjustments above.
+                      </div>
+                    )}
+                    {adjustments.map((adj, index) => {
+                      const calculatedAdj = totals.adjustments?.find(a => a.id === adj.id);
+                      return (
+                        <div key={adj.id} style={{ 
+                          marginBottom: 12, 
+                          padding: 12, 
+                          border: '1px solid #f0f0f0', 
+                          borderRadius: 4,
+                          background: '#fafafa'
+                        }}>
+                          <Row gutter={8} align="middle">
+                            <Col span={6}>
+                              <Input
+                                placeholder="Name (e.g., Holiday Premium)"
+                                value={adj.name}
+                                onChange={(e) => handleAdjustmentChange(adj.id, 'name', e.target.value)}
+                                size="small"
+                              />
+                            </Col>
+                            <Col span={4}>
+                              <Tooltip title="Percentage value (e.g., 10 for 10%, -5 for -5%)">
+                                <InputNumber
+                                  placeholder="%"
+                                  value={adj.percentage}
+                                  onChange={(value) => handleAdjustmentChange(adj.id, 'percentage', value || 0)}
+                                  min={-100}
+                                  max={100}
+                                  step={0.1}
+                                  size="small"
+                                  style={{ width: '100%' }}
+                                  formatter={(value?: string | number) => `${value}%`}
+                                  parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
+                                />
+                              </Tooltip>
+                            </Col>
+                            <Col span={4}>
+                              <Tooltip title="Add (+) or Subtract (-) from subtotal">
+                                <Select
+                                  value={adj.type}
+                                  onChange={(value) => handleAdjustmentChange(adj.id, 'type', value)}
+                                  size="small"
+                                  style={{ width: '100%' }}
+                                >
+                                  <Select.Option value="add">+</Select.Option>
+                                  <Select.Option value="subtract">-</Select.Option>
+                                </Select>
+                              </Tooltip>
+                            </Col>
+                            <Col span={4}>
+                              <Tooltip title="Application order (lower number = applied first)">
+                                <InputNumber
+                                  placeholder="Order"
+                                  value={adj.order}
+                                  onChange={(value) => handleAdjustmentChange(adj.id, 'order', value || 1)}
+                                  min={1}
+                                  size="small"
+                                  style={{ width: '100%' }}
+                                />
+                              </Tooltip>
+                            </Col>
+                            <Col span={4}>
+                              <Tooltip title="Calculated adjustment amount">
+                                <span style={{ fontSize: '12px', color: '#666', fontWeight: '500' }}>
+                                  ${calculatedAdj?.amount?.toFixed(2) || '0.00'}
+                                </span>
+                              </Tooltip>
+                            </Col>
+                            <Col span={2}>
+                              <Button
+                                danger
+                                size="small"
+                                icon={<DeleteOutlined />}
+                                onClick={() => handleRemoveAdjustment(adj.id)}
+                              />
+                            </Col>
+                          </Row>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </Col>
               </Row>
+
+              {/* Legacy O&P and Discount (shown only if no adjustments) */}
+              {adjustments.length === 0 && (
+                <>
+                  <Row gutter={16}>
+                    <Col span={24}>
+                      <Form.Item name="op_percent" label="O&P Percentage (%) (Legacy)">
+                        <InputNumber
+                          style={{ width: '100%' }}
+                          min={0}
+                          max={100}
+                          step={0.1}
+                          onChange={(value) => setOpPercent(typeof value === 'number' ? value : 0)}
+                          formatter={(value?: string | number) => `${value}%`}
+                          parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </>
+              )}
               <Row gutter={16}>
                 <Col span={12}>
                   <Form.Item label="Tax Method">
@@ -2745,12 +3076,41 @@ const InvoiceCreation: React.FC = () => {
                   <Col>Items Subtotal:</Col>
                   <Col>${formatCurrency(totals.itemsSubtotal)}</Col>
                 </Row>
-                {opPercent > 0 && (
-                  <Row justify="space-between" style={{ marginBottom: 8 }}>
-                    <Col>O&P ({opPercent}%):</Col>
-                    <Col>${formatCurrency(totals.opAmount)}</Col>
-                  </Row>
+                
+                {/* Show adjustments if available */}
+                {totals.adjustments && totals.adjustments.length > 0 ? (
+                  totals.adjustments
+                    .sort((a, b) => a.order - b.order)
+                    .map((adj, index) => (
+                      <Row key={index} justify="space-between" style={{ marginBottom: 8 }}>
+                        <Col>
+                          {adj.name}
+                          {adj.percentage !== 0 && ` (${Math.abs(adj.percentage)}%)`}
+                        </Col>
+                        <Col>
+                          {adj.type === 'subtract' || adj.percentage < 0 ? '-' : '+'}
+                          ${formatCurrency(adj.amount || 0)}
+                        </Col>
+                      </Row>
+                    ))
+                ) : (
+                  <>
+                    {/* Legacy: Show O&P and Discount if no adjustments */}
+                    {opPercent > 0 && (
+                      <Row justify="space-between" style={{ marginBottom: 8 }}>
+                        <Col>O&P ({opPercent}%):</Col>
+                        <Col>${formatCurrency(totals.opAmount)}</Col>
+                      </Row>
+                    )}
+                    {totals.discount > 0 && (
+                      <Row justify="space-between" style={{ marginBottom: 8 }}>
+                        <Col>Discount:</Col>
+                        <Col>-${formatCurrency(totals.discount)}</Col>
+                      </Row>
+                    )}
+                  </>
                 )}
+                
                 {totals.taxAmount > 0 && (
                   <Row justify="space-between" style={{ marginBottom: 8 }}>
                     <Col>
@@ -2763,12 +3123,6 @@ const InvoiceCreation: React.FC = () => {
                   <Col>Subtotal:</Col>
                   <Col>${formatCurrency(totals.subtotal)}</Col>
                 </Row>
-                {totals.discount > 0 && (
-                  <Row justify="space-between" style={{ marginBottom: 8 }}>
-                    <Col>Discount:</Col>
-                    <Col>-${formatCurrency(totals.discount)}</Col>
-                  </Row>
-                )}
                 <Divider />
                 <Row justify="space-between" style={{ fontWeight: 'bold', fontSize: '18px' }}>
                   <Col>Total:</Col>

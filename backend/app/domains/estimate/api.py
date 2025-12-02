@@ -2,26 +2,27 @@
 Estimate domain API endpoints
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Response
-from typing import List, Optional, Dict, Any
-from datetime import datetime, timedelta
-import tempfile
-import os
 import json
 import logging
+import os
+import tempfile
 import traceback
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Response
+
+from app.common.services.pdf_service import pdf_service
 from app.core.database_factory import get_db_session as get_db
 from app.domains.estimate.schemas import (
     EstimateCreate,
-    EstimateUpdate,
-    EstimateResponse,
-    EstimateListResponse,
     EstimateItemResponse,
+    EstimateListResponse,
+    EstimateNumberResponse,
     EstimatePDFRequest,
-    EstimateNumberResponse
+    EstimateResponse,
+    EstimateUpdate,
 )
-from app.common.services.pdf_service import pdf_service
 from app.domains.estimate.service import EstimateService
 
 logger = logging.getLogger(__name__)
@@ -361,6 +362,12 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
         'policy_number': estimate_data.policy_number,
         'deductible': estimate_data.deductible,
         'room_data': estimate_data.room_data,
+        'adjustments': [adj.dict() for adj in estimate_data.adjustments] if estimate_data.adjustments else [],
+        'op_percent': estimate_data.op_percent if hasattr(estimate_data, 'op_percent') else 0,
+        'tax_method': estimate_data.tax_method if hasattr(estimate_data, 'tax_method') else 'percentage',
+        'tax_rate': estimate_data.tax_rate if hasattr(estimate_data, 'tax_rate') else 0,
+        'tax_amount': estimate_data.tax_amount if hasattr(estimate_data, 'tax_amount') else 0,
+        'discount_amount': estimate_data.discount_amount if hasattr(estimate_data, 'discount_amount') else 0,
         'items': [
             {
                 'room': item.room,
@@ -410,6 +417,10 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
         valid_until=created_estimate.get('valid_until'),
         status=created_estimate.get('status', 'draft'),
         subtotal=created_estimate.get('subtotal', 0),
+        adjustments=created_estimate.get('adjustments', []),
+        op_percent=created_estimate.get('op_percent', 0),
+        op_amount=created_estimate.get('op_amount', 0),
+        tax_method=created_estimate.get('tax_method', 'percentage'),
         tax_rate=created_estimate.get('tax_rate', 0),
         tax_amount=created_estimate.get('tax_amount', 0),
         discount_amount=created_estimate.get('discount_amount', 0),
@@ -512,6 +523,10 @@ async def update_estimate(
         valid_until=updated_estimate.get('valid_until'),
         status=updated_estimate.get('status', 'draft'),
         subtotal=updated_estimate.get('subtotal', 0),
+        adjustments=updated_estimate.get('adjustments', []),
+        op_percent=updated_estimate.get('op_percent', 0),
+        op_amount=updated_estimate.get('op_amount', 0),
+        tax_method=updated_estimate.get('tax_method', 'percentage'),
         tax_rate=updated_estimate.get('tax_rate', 0),
         tax_amount=updated_estimate.get('tax_amount', 0),
         discount_amount=updated_estimate.get('discount_amount', 0),

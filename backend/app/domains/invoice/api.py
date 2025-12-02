@@ -2,30 +2,30 @@
 Invoice domain API endpoints
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Response, UploadFile, File
-from typing import List, Optional
-from datetime import datetime, timedelta
-import tempfile
-import os
 import logging
+import os
+import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import List, Optional
 
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+
+from app.common.services.pdf_service import pdf_service
 from app.core.database_factory import get_db_session as get_db
 from app.domains.invoice.schemas import (
-    InvoiceCreate,
-    InvoiceUpdate,
-    InvoiceResponse,
-    InvoiceListResponse,
-    InvoiceItemResponse,
-    InvoicePDFRequest,
-    InvoiceNumberResponse,
-    CompanyInfo,
     ClientInfo,
-    PaymentRecord
+    CompanyInfo,
+    InvoiceCreate,
+    InvoiceItemResponse,
+    InvoiceListResponse,
+    InvoiceNumberResponse,
+    InvoicePDFRequest,
+    InvoiceResponse,
+    InvoiceUpdate,
+    PaymentRecord,
 )
-from app.common.services.pdf_service import pdf_service
 from app.domains.invoice.service import InvoiceService
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -244,28 +244,50 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         # Fallback to timestamp-based number
         invoice_data.invoice_number = f"INV-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     
-    # Calculate totals
-    subtotal = sum(item.quantity * item.rate for item in invoice_data.items)
+    # Calculate totals using service method (supports adjustments)
+    from app.core.database_factory import get_database
+    database = get_database()
+    service = InvoiceService(database)
     
-    # Handle tax calculation based on method
+    # Prepare items for calculation
+    items_for_calc = [
+        {
+            'quantity': item.quantity,
+            'rate': item.rate,
+            'taxable': item.taxable if hasattr(item, 'taxable') else True
+        }
+        for item in invoice_data.items
+    ]
+    
+    # Prepare adjustments if provided
+    adjustments_data = None
+    if hasattr(invoice_data, 'adjustments') and invoice_data.adjustments:
+        adjustments_data = [adj.dict() for adj in invoice_data.adjustments]
+    
+    # Calculate totals with adjustments support
     tax_method = invoice_data.tax_method or 'percentage'
     tax_rate = invoice_data.tax_rate or 0
-    tax_amount = 0
-    
-    if tax_method == 'percentage' and tax_rate > 0:
-        tax_amount = subtotal * tax_rate / 100
-    elif tax_method == 'specific' and invoice_data.tax_amount:
-        tax_amount = invoice_data.tax_amount
-    
-    # Use discount from schema
+    tax_amount = invoice_data.tax_amount if tax_method == 'specific' else 0
     discount = invoice_data.discount if hasattr(invoice_data, 'discount') else 0
+    op_percent = invoice_data.op_percent if hasattr(invoice_data, 'op_percent') else 0
+    
+    totals = service.calculate_totals(
+        items=items_for_calc,
+        tax_method=tax_method,
+        tax_rate=tax_rate,
+        tax_amount=tax_amount,
+        discount_amount=discount,
+        op_percent=op_percent,
+        adjustments=adjustments_data
+    )
+    
+    subtotal = totals['items_subtotal']
+    tax_amount = totals['tax_amount']
+    total = totals['total_amount']
     
     # Calculate paid amount from payment records
     payments = invoice_data.payments or []
     paid_amount = sum(payment.amount for payment in payments)
-    
-    # Calculate totals
-    total = subtotal + tax_amount - discount
     balance_due = total - paid_amount
     
     # Convert date strings to datetime objects for SQLAlchemy
@@ -310,11 +332,13 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         'insurance_deductible': invoice_data.insurance.deductible if invoice_data.insurance else None,
 
         # Financial information
-        'subtotal': subtotal,
+        'subtotal': totals['subtotal'],
+        'adjustments': totals.get('adjustments', []),
         'tax_method': tax_method,
         'tax_rate': tax_rate,
         'tax_amount': tax_amount,
-        'discount_amount': discount,
+        'discount_amount': totals.get('discount_amount', discount),
+        'op_percent': op_percent,
         'total_amount': total,
 
         # Payment tracking
@@ -398,11 +422,12 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         insurance_claim_number=created_invoice.get('insurance_claim_number'),
         insurance_deductible=created_invoice.get('insurance_deductible'),
         subtotal=created_invoice.get('subtotal', 0),
+        adjustments=created_invoice.get('adjustments', []),  # Include adjustments in response
         tax_method=created_invoice.get('tax_method', 'percentage'),
         tax_rate=created_invoice.get('tax_rate', 0),
         tax_amount=created_invoice.get('tax_amount', 0),
         discount=created_invoice.get('discount_amount', 0),  # Map from discount_amount to discount
-                total=created_invoice.get('total_amount', 0),  # Map from total_amount to total
+        total=created_invoice.get('total_amount', 0),  # Map from total_amount to total
         paid_amount=sum(float(payment.get('amount', 0)) for payment in created_invoice.get('payments', [])),
         payments=created_invoice.get('payments', []),
         show_payment_dates=created_invoice.get('show_payment_dates', True),
@@ -441,6 +466,10 @@ async def update_invoice(
     db=Depends(get_db)
 ):
     """Update an existing invoice"""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Updating invoice {invoice_id}")
+    
     from app.core.database_factory import get_database
     database = get_database()
     service = InvoiceService(database)
@@ -451,13 +480,92 @@ async def update_invoice(
         raise HTTPException(status_code=404, detail="Invoice not found")
     
     # Prepare update data
+    # Use exclude_unset=False to include all fields, then filter None values manually
+    # This ensures company_id is included even if it's explicitly set
     update_dict = invoice_data.dict(exclude_unset=True)
+    
+    # Also check if company_id was provided in the request body
+    if hasattr(invoice_data, 'company_id') and invoice_data.company_id is not None:
+        update_dict['company_id'] = invoice_data.company_id
+    
+    logger.info(f"Update dict keys: {list(update_dict.keys())}")
+    logger.info(f"Company ID in update: {update_dict.get('company_id')}")
+    logger.info(f"Company ID type: {type(update_dict.get('company_id'))}")
 
-    # Flatten nested objects
+    # Check if company_id is being changed
+    existing_company_id = existing.get('company_id')
+    new_company_id = update_dict.get('company_id') if 'company_id' in update_dict else None
+    
+    # Handle company_id update if provided
+    company_changed = False
+    if 'company_id' in update_dict:
+        company_id_value = update_dict.get('company_id')
+        logger.info(f"Raw company_id_value: {company_id_value} (type: {type(company_id_value)})")
+        if company_id_value:
+            # Keep as string - UUIDType will handle conversion
+            # Don't convert UUID to string here, let the repository handle it
+            if not isinstance(company_id_value, str):
+                update_dict['company_id'] = str(company_id_value)
+            logger.info(f"Setting company_id to: {update_dict['company_id']} (type: {type(update_dict['company_id'])})")
+        else:
+            # If company_id is explicitly set to None, allow it
+            update_dict['company_id'] = None
+            logger.info("Setting company_id to None (custom company)")
+        
+        # Check if company_id actually changed
+        existing_company_id_str = str(existing_company_id) if existing_company_id else None
+        new_company_id_str = str(update_dict['company_id']) if update_dict['company_id'] else None
+        company_changed = existing_company_id_str != new_company_id_str
+        logger.info(f"Company changed: {company_changed} (from {existing_company_id_str} to {new_company_id_str})")
+    
+    # If company changed, regenerate invoice number
+    if company_changed:
+        logger.info("Company changed, regenerating invoice number...")
+        try:
+            new_invoice_number_data = service.generate_invoice_number(new_company_id_str)
+            new_invoice_number = new_invoice_number_data.get('invoice_number')
+            if new_invoice_number:
+                update_dict['invoice_number'] = new_invoice_number
+                logger.info(f"Generated new invoice number: {new_invoice_number}")
+            else:
+                logger.warning("Failed to generate new invoice number, keeping existing")
+        except Exception as e:
+            logger.error(f"Error generating new invoice number: {e}")
+            # Don't fail the update if invoice number generation fails
+
+    # Handle client information - fetch from company if client_company_id is provided
+    client_company_id = update_dict.get('client_company_id') or getattr(invoice_data, 'client_company_id', None)
+    if client_company_id and (not invoice_data.client or not invoice_data.client.name):
+        try:
+            from app.domains.company.repository import get_company_repository
+            company_repo = get_company_repository(db)
+            client_company = company_repo.get_by_id(str(client_company_id))
+            if client_company:
+                # Populate client info from the company
+                if 'client' not in update_dict:
+                    update_dict['client'] = {}
+                update_dict['client'].update({
+                    'name': client_company.get('name'),
+                    'address': client_company.get('address'),
+                    'city': client_company.get('city'),
+                    'state': client_company.get('state'),
+                    'zipcode': client_company.get('zipcode'),
+                    'phone': client_company.get('phone'),
+                    'email': client_company.get('email')
+                })
+        except Exception as e:
+            logger.error(f"Error fetching client company: {e}")
+
+    # Handle company information
+    # If company_id is provided, use it (company info comes from Company table)
+    # If company object is provided without company_id, set company_id to None (custom company)
     if 'company' in update_dict:
         company = update_dict.pop('company')
-        for key, value in company.items():
-            update_dict[f'company_{key}'] = value
+        # If company_id is not explicitly provided in update, keep existing company_id
+        # Custom company info is not stored in Invoice table - only company_id is stored
+        # If user wants to use a custom company, they should set company_id to None
+        logger.info(f"Company object provided in update, but Invoice model only stores company_id")
+        # Don't modify company_id unless explicitly provided
     
     if 'client' in update_dict:
         client = update_dict.pop('client')
@@ -469,29 +577,216 @@ async def update_invoice(
         if insurance:
             for key, value in insurance.items():
                 update_dict[f'insurance_{key}'] = value
+
+    # Convert date strings to datetime objects for SQLAlchemy
+    if 'date' in update_dict:
+        invoice_date = update_dict['date']
+        if invoice_date and isinstance(invoice_date, str):
+            try:
+                update_dict['invoice_date'] = datetime.strptime(invoice_date, '%Y-%m-%d')
+            except ValueError:
+                logger.warning(f"Invalid date format: {invoice_date}")
+        update_dict.pop('date', None)
+    
+    if 'due_date' in update_dict:
+        due_date = update_dict['due_date']
+        if due_date and isinstance(due_date, str):
+            try:
+                update_dict['due_date'] = datetime.strptime(due_date, '%Y-%m-%d')
+            except ValueError:
+                logger.warning(f"Invalid due_date format: {due_date}")
+
+    # Prepare adjustments if provided
+    adjustments_data = None
+    if 'adjustments' in update_dict and update_dict['adjustments']:
+        adjustments_data = update_dict['adjustments']
+    elif hasattr(invoice_data, 'adjustments') and invoice_data.adjustments:
+        adjustments_data = [adj.dict() if hasattr(adj, 'dict') else adj for adj in invoice_data.adjustments]
+    
+    # Calculate totals if items are provided
+    if 'items' in update_dict and update_dict['items']:
+        items = update_dict['items']
+        
+        # Prepare items for calculation
+        items_for_calc = [
+            {
+                'quantity': item.get('quantity', 0),
+                'rate': item.get('rate', 0),
+                'taxable': item.get('taxable', True)
+            }
+            for item in items
+        ]
+        
+        # Handle tax calculation based on method
+        tax_method = update_dict.get('tax_method', invoice_data.tax_method if hasattr(invoice_data, 'tax_method') else 'percentage')
+        tax_rate = update_dict.get('tax_rate', invoice_data.tax_rate if hasattr(invoice_data, 'tax_rate') else 0)
+        tax_amount = update_dict.get('tax_amount', 0) if tax_method == 'specific' else 0
+        
+        # Use discount and op_percent from update_dict or invoice_data (for backward compatibility)
+        discount = update_dict.get('discount', invoice_data.discount if hasattr(invoice_data, 'discount') else 0)
+        op_percent = update_dict.get('op_percent', invoice_data.op_percent if hasattr(invoice_data, 'op_percent') else 0)
+        
+        # Calculate totals using service method (supports adjustments)
+        totals = service.calculate_totals(
+            items=items_for_calc,
+            tax_method=tax_method,
+            tax_rate=tax_rate,
+            tax_amount=tax_amount,
+            discount_amount=discount,
+            op_percent=op_percent,
+            adjustments=adjustments_data
+        )
+        
+        # Calculate paid amount from payment records
+        payments = update_dict.get('payments', invoice_data.payments or [])
+        if payments:
+            paid_amount = sum(
+                payment.get('amount', 0) if isinstance(payment, dict)
+                else payment.amount
+                for payment in payments
+            )
+        else:
+            paid_amount = 0
+        
+        total = totals['total_amount']
+        balance_due = total - paid_amount
+        
+        # Update totals in update_dict
+        update_dict['subtotal'] = totals['subtotal']
+        update_dict['adjustments'] = totals.get('adjustments', [])
+        update_dict['tax_method'] = tax_method
+        update_dict['tax_rate'] = tax_rate
+        update_dict['tax_amount'] = totals['tax_amount']
+        update_dict['discount_amount'] = totals.get('discount_amount', discount)
+        update_dict['op_percent'] = op_percent
+        update_dict['total_amount'] = total
+        update_dict['balance_due'] = balance_due
+        
+        # Prepare items separately
+        items_data = [
+            {
+                'name': item.get('name', ''),
+                'description': item.get('description', ''),
+                'quantity': item.get('quantity', 0),
+                'unit': item.get('unit', 'ea'),
+                'rate': item.get('rate', 0),
+                'amount': item.get('quantity', 0) * item.get('rate', 0),
+                'taxable': item.get('taxable', True),
+                'primary_group': item.get('primary_group'),
+                'secondary_group': item.get('secondary_group'),
+                'sort_order': item.get('sort_order', 0),
+                'note': item.get('note'),
+                'line_item_id': item.get('line_item_id')
+            }
+            for item in items
+        ]
+        update_dict['items'] = items_data
+    elif adjustments_data:
+        # If only adjustments are provided without items, use existing invoice items to recalculate totals
+        # Get existing invoice to use its items
+        existing_items = existing.get('items', [])
+        if existing_items:
+            items_for_calc = [
+                {
+                    'quantity': item.get('quantity', 0),
+                    'rate': item.get('rate', 0),
+                    'taxable': item.get('taxable', True)
+                }
+                for item in existing_items
+            ]
+            
+            # Use existing tax configuration
+            tax_method = update_dict.get('tax_method', existing.get('tax_method', 'percentage'))
+            tax_rate = update_dict.get('tax_rate', existing.get('tax_rate', 0))
+            tax_amount = update_dict.get('tax_amount', existing.get('tax_amount', 0)) if tax_method == 'specific' else 0
+            
+            # Use discount and op_percent from update_dict or existing (for backward compatibility)
+            discount = update_dict.get('discount', existing.get('discount_amount', 0))
+            op_percent = update_dict.get('op_percent', existing.get('op_percent', 0))
+            
+            # Calculate totals using service method (supports adjustments)
+            totals = service.calculate_totals(
+                items=items_for_calc,
+                tax_method=tax_method,
+                tax_rate=tax_rate,
+                tax_amount=tax_amount,
+                discount_amount=discount,
+                op_percent=op_percent,
+                adjustments=adjustments_data
+            )
+            
+            # Calculate paid amount from payment records
+            payments = update_dict.get('payments', existing.get('payments', []))
+            if payments:
+                paid_amount = sum(
+                    payment.get('amount', 0) if isinstance(payment, dict)
+                    else payment.amount
+                    for payment in payments
+                )
+            else:
+                paid_amount = 0
+            
+            total = totals['total_amount']
+            balance_due = total - paid_amount
+            
+            # Update totals in update_dict
+            update_dict['subtotal'] = totals['subtotal']
+            update_dict['adjustments'] = totals.get('adjustments', [])
+            update_dict['tax_method'] = tax_method
+            update_dict['tax_rate'] = tax_rate
+            update_dict['tax_amount'] = totals['tax_amount']
+            update_dict['discount_amount'] = totals.get('discount_amount', discount)
+            update_dict['op_percent'] = op_percent
+            update_dict['total_amount'] = total
+            update_dict['balance_due'] = balance_due
+        else:
+            # No items available, just save adjustments
+            update_dict['adjustments'] = adjustments_data
     
     # Update invoice with items (the service will handle items and totals)
+    logger.info(f"Calling service.update_with_items with invoice_id: {invoice_id}")
     updated_invoice = service.update_with_items(invoice_id, update_dict)
     if not updated_invoice:
         raise HTTPException(status_code=500, detail="Failed to update invoice")
+    
+    # Get company information from updated_invoice (already flattened by get_with_items)
+    logger.info(f"Updated invoice company_id: {updated_invoice.get('company_id')}")
+    logger.info(f"Updated invoice company_name: {updated_invoice.get('company_name')}")
+    company_name = updated_invoice.get('company_name', '')
+    company_address = updated_invoice.get('company_address')
+    company_city = updated_invoice.get('company_city')
+    company_state = updated_invoice.get('company_state')
+    company_zipcode = updated_invoice.get('company_zip')
+    company_phone = updated_invoice.get('company_phone')
+    company_email = updated_invoice.get('company_email')
+    company_logo = updated_invoice.get('company_logo')
+    
+    # Convert date back to string for response
+    date_str = updated_invoice.get('invoice_date', updated_invoice.get('date', ''))
+    if isinstance(date_str, datetime):
+        date_str = date_str.strftime('%Y-%m-%d')
+    
+    due_date_str = updated_invoice.get('due_date', '')
+    if isinstance(due_date_str, datetime):
+        due_date_str = due_date_str.strftime('%Y-%m-%d')
     
     # Convert to response format
     return InvoiceResponse(
         id=updated_invoice['id'],
         invoice_number=updated_invoice.get('invoice_number', ''),
-        date=updated_invoice.get('date', ''),
-        due_date=updated_invoice.get('due_date', ''),
+        date=date_str,
+        due_date=due_date_str,
         status=updated_invoice.get('status', 'draft'),
         company_id=updated_invoice.get('company_id'),
-        company_name=updated_invoice.get('company_name', ''),
-        company_address=updated_invoice.get('company_address'),
-        company_city=updated_invoice.get('company_city'),
-        company_state=updated_invoice.get('company_state'),
-        company_zipcode=updated_invoice.get('company_zip'),
-        company_phone=updated_invoice.get('company_phone'),
-        company_email=updated_invoice.get('company_email'),
-        company_logo=updated_invoice.get('company_logo'),
-        client_name=updated_invoice.get('client_name', ''),
+        company_name=company_name,
+        company_address=company_address,
+        company_city=company_city,
+        company_state=company_state,
+        company_zipcode=company_zipcode,
+        company_phone=company_phone,
+        company_email=company_email,
+        company_logo=company_logo,
+        client_name=updated_invoice.get('client_name') or '',
         client_address=updated_invoice.get('client_address'),
         client_city=updated_invoice.get('client_city'),
         client_state=updated_invoice.get('client_state'),
@@ -503,15 +798,20 @@ async def update_invoice(
         insurance_claim_number=updated_invoice.get('insurance_claim_number'),
         insurance_deductible=updated_invoice.get('insurance_deductible'),
         subtotal=updated_invoice.get('subtotal', 0),
+        adjustments=updated_invoice.get('adjustments', []),  # Include adjustments in response
+        tax_method=updated_invoice.get('tax_method', 'percentage'),
         tax_rate=updated_invoice.get('tax_rate', 0),
         tax_amount=updated_invoice.get('tax_amount', 0),
-        discount=updated_invoice.get('discount', 0),
-                total=updated_invoice.get('total', 0),
-        paid_amount=updated_invoice.get('paid_amount', 0),
+        discount=updated_invoice.get('discount_amount', updated_invoice.get('discount', 0)),
+        total=updated_invoice.get('total_amount', updated_invoice.get('total', 0)),
+        paid_amount=sum(float(payment.get('amount', 0)) for payment in updated_invoice.get('payments', [])) if updated_invoice.get('payments') else 0,
+        payments=updated_invoice.get('payments', []),
+        show_payment_dates=updated_invoice.get('show_payment_dates', True),
+        balance_due=updated_invoice.get('balance_due', 0),
         payment_terms=updated_invoice.get('payment_terms'),
         notes=updated_invoice.get('notes'),
-        created_at=updated_invoice.get('created_at', ''),
-        updated_at=updated_invoice.get('updated_at', ''),
+        created_at=updated_invoice.get('created_at'),
+        updated_at=updated_invoice.get('updated_at'),
         items=[
             InvoiceItemResponse(
                 id=item.get('id'),
@@ -561,13 +861,18 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
     database = get_database()
     service = InvoiceService(database)
 
-    # Get invoice from database
-    invoice = service.get_by_id(invoice_id)
+    # Get invoice from database with items and company info
+    # Use get_with_items to ensure we get the latest company info
+    invoice = service.get_with_items(invoice_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    # Get company info if company_id exists (similar to PDF generation)
-    if invoice.get('company_id'):
+    logger.info(f"HTML generation - invoice company_id: {invoice.get('company_id')}")
+    logger.info(f"HTML generation - invoice company_name: {invoice.get('company_name')}")
+
+    # Company info is already included by get_with_items, but ensure it's present
+    # If company_id exists but company info is missing, fetch it
+    if invoice.get('company_id') and not invoice.get('company_name'):
         try:
             from app.domains.company.repository import get_company_repository
             company_repo = get_company_repository(db)
@@ -647,9 +952,11 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
         "items": all_items_html,  # Keep original items for backward compatibility
         "sections": sections_html,  # New: grouped by section with subtotals
         "subtotal": invoice.get('subtotal', 0),
+        "adjustments": invoice.get('adjustments', []),  # New: adjustments list
+        "op_percent": invoice.get('op_percent', 0),  # For backward compatibility
         "tax_rate": invoice.get('tax_rate', 0),
         "tax_amount": invoice.get('tax_amount', 0),
-        "discount": invoice.get('discount_amount', invoice.get('discount', 0)),
+        "discount": invoice.get('discount_amount', invoice.get('discount', 0)),  # For backward compatibility
         "shipping": invoice.get('shipping', 0),
         "total": invoice.get('total_amount', invoice.get('total', 0)),
         "payments": invoice.get('payments', []),
@@ -694,13 +1001,21 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
     database = get_database()
     service = InvoiceService(database)
 
-    # Get invoice from database
-    invoice = service.get_by_id(invoice_id)
+    # Get invoice from database with items and company info
+    # Use get_with_items to ensure we get the latest company info
+    invoice = service.get_with_items(invoice_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    # Get company info if company_id exists (similar to estimate PDF generation)
-    if invoice.get('company_id'):
+    logger.info(f"PDF generation - invoice company_id: {invoice.get('company_id')}")
+    logger.info(f"PDF generation - invoice company_name: {invoice.get('company_name')}")
+    logger.info(f"PDF generation - invoice company_address: {invoice.get('company_address')}")
+    logger.info(f"PDF generation - invoice company_city: {invoice.get('company_city')}")
+    logger.info(f"PDF generation - invoice company_state: {invoice.get('company_state')}")
+
+    # Company info is already included by get_with_items, but ensure it's present
+    # If company_id exists but company info is missing, fetch it
+    if invoice.get('company_id') and not invoice.get('company_name'):
         try:
             from app.domains.company.repository import get_company_repository
             company_repo = get_company_repository(db)
@@ -754,13 +1069,19 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
     
     logger.info(f"Created {len(sections)} sections for PDF")
     
+    # Log company info before creating pdf_data
+    company_name = invoice.get('company_name', '')
+    company_address = invoice.get('company_address')
+    logger.info(f"PDF data - company_name: {company_name}")
+    logger.info(f"PDF data - company_address: {company_address}")
+    
     pdf_data = {
         "invoice_number": invoice.get('invoice_number', ''),
         "date": invoice.get('date', invoice.get('invoice_date', invoice.get('created_at', ''))),
         "due_date": invoice.get('due_date', ''),
         "company": {
-            "name": invoice.get('company_name', ''),
-            "address": invoice.get('company_address'),
+            "name": company_name,
+            "address": company_address,
             "city": invoice.get('company_city'),
             "state": invoice.get('company_state'),
             "zip": invoice.get('company_zip', invoice.get('company_zipcode')),
@@ -780,9 +1101,11 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
         "items": all_items,  # Keep original items for backward compatibility
         "sections": sections,  # New: grouped by section with subtotals
         "subtotal": invoice.get('subtotal', 0),
+        "adjustments": invoice.get('adjustments', []),  # New: adjustments list
+        "op_percent": invoice.get('op_percent', 0),  # For backward compatibility
         "tax_rate": invoice.get('tax_rate', 0),
         "tax_amount": invoice.get('tax_amount', 0),
-        "discount": invoice.get('discount_amount', invoice.get('discount', 0)),
+        "discount": invoice.get('discount_amount', invoice.get('discount', 0)),  # For backward compatibility
         "total": invoice.get('total_amount', invoice.get('total', 0)),
         "paid_amount": invoice.get('paid_amount', 0),
         "payments": invoice.get('payments', []),
@@ -1208,13 +1531,14 @@ async def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_inv
             insurance_claim_number=invoice.get('insurance_claim_number'),
             insurance_deductible=invoice.get('insurance_deductible'),
             subtotal=invoice.get('subtotal', 0),
+            adjustments=invoice.get('adjustments', []),  # Include adjustments in response
             op_percent=invoice.get('op_percent', 0),
             tax_method=invoice.get('tax_method', 'percentage'),
             tax_rate=invoice.get('tax_rate', 0),
             tax_amount=invoice.get('tax_amount', 0),
             discount=invoice.get('discount_amount', invoice.get('discount', 0)),
             discount_amount=invoice.get('discount_amount', invoice.get('discount', 0)),
-                        total=invoice.get('total_amount', invoice.get('total', 0)),
+            total=invoice.get('total_amount', invoice.get('total', 0)),
             total_amount=invoice.get('total_amount', invoice.get('total', 0)),
             paid_amount=sum(float(payment.get('amount', 0)) for payment in invoice.get('payments', [])),
             payments=invoice.get('payments', []),

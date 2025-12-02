@@ -48,7 +48,7 @@
     <div class="billing-section">
       <div class="bill-to">
         <div class="section-title">Bill To</div>
-        <div class="client-name">{{ client.name }}</div>
+        {% if client.name %}<div class="client-name">{{ client.name }}</div>{% endif %}
         <div class="client-details">
           {% if client.phone %}{{ client.phone }}<br>{% endif %}
           {% if client.email %}{{ client.email }}<br>{% endif %}
@@ -119,7 +119,7 @@
                   {% endif %}
                 </td>
                 <td class="text-center">
-                  {% if not item.hide_price %}{{ item.qty }}{% else %}—{% endif %}
+                  {% if not item.hide_price %}{{ item.qty|format_quantity }}{% else %}—{% endif %}
                 </td>
                 <td class="text-center">
                   {% if not item.hide_price %}{{ item.unit }}{% else %}—{% endif %}
