@@ -130,6 +130,9 @@ class JobUpdate(BaseModel):
 
     active: Optional[bool] = None
 
+    # CompanyCam Integration
+    companycam_project_id: Optional[str] = Field(None, max_length=100)
+
     @validator('date_of_loss', 'mitigation_start_date', 'mitigation_end_date', 'inspection_date', 'documents_sent_date', 'check_date', pre=True)
     def convert_date_to_datetime(cls, v):
         """Convert date to datetime if needed"""

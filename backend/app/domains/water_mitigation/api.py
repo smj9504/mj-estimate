@@ -1092,6 +1092,205 @@ def list_trashed_photos(
     return {"items": photos, "total": len(photos)}
 
 
+# CompanyCam project search endpoint
+@router.get("/jobs/{job_id}/search-companycam-projects")
+async def search_companycam_projects(
+    job_id: UUID,
+    query: Optional[str] = Query(None, description="Search query (if not provided, uses job address)"),
+    service: WaterMitigationService = Depends(get_wm_service)
+):
+    """
+    Search CompanyCam projects by address to find matching project for this job.
+
+    If no query is provided, uses the job's street address to search.
+    Returns list of matching CompanyCam projects with address comparison scores.
+
+    Args:
+        job_id: Water mitigation job ID
+        query: Optional search query (uses job address if not provided)
+
+    Returns:
+        List of matching CompanyCam projects with match scores
+    """
+    from difflib import SequenceMatcher
+
+    from app.domains.integrations.companycam.client import CompanyCamClient
+
+    try:
+        # Get the job to extract address
+        job = service.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        # Get job address - WM jobs use property_street, property_address fields
+        if isinstance(job, dict):
+            job_street = job.get('property_street') or job.get('property_address') or ''
+            job_city = job.get('property_city') or ''
+            job_state = job.get('property_state') or ''
+            job_zipcode = job.get('property_zipcode') or ''
+        else:
+            job_street = getattr(job, 'property_street', '') or getattr(job, 'property_address', '') or ''
+            job_city = getattr(job, 'property_city', '') or ''
+            job_state = getattr(job, 'property_state', '') or ''
+            job_zipcode = getattr(job, 'property_zipcode', '') or ''
+
+        # Build full address for display
+        job_address_parts = [p for p in [job_street, job_city, job_state, job_zipcode] if p]
+        job_address = ', '.join(job_address_parts)
+
+        logger.info(f"Job {job_id} address fields: street='{job_street}', city='{job_city}', state='{job_state}', zip='{job_zipcode}'")
+
+        # Use provided query or extract just the street name for search
+        if query:
+            search_query = query
+        elif job_street:
+            # Extract just the street portion (before any comma)
+            # e.g., "4215 Middlebrook Street, Fairfax 22032" -> "4215 Middlebrook Street"
+            search_query = job_street.split(',')[0].strip()
+        else:
+            search_query = ''
+
+        if not search_query:
+            raise HTTPException(
+                status_code=400,
+                detail="No search query provided and job has no address"
+            )
+
+        logger.info(f"Searching CompanyCam projects with query: '{search_query}'")
+
+        # Search CompanyCam projects
+        client = CompanyCamClient()
+
+        # Try search first
+        results = await client.search_projects(search_query, per_page=50)
+
+        # Log raw CompanyCam response for debugging
+        logger.info(f"CompanyCam search API response type: {type(results)}")
+        if isinstance(results, dict):
+            logger.info(f"CompanyCam response keys: {list(results.keys())}")
+        logger.info(f"CompanyCam search raw response (first 2000 chars): {str(results)[:2000]}")
+
+        # If search returns empty, fetch all projects and filter locally
+        project_list = results if isinstance(results, list) else results.get('data', results.get('projects', []))
+
+        if not project_list:
+            logger.info("Search returned empty results. Fetching all projects to filter locally...")
+
+            # Fetch multiple pages of projects
+            all_projects = []
+            for page_num in range(1, 6):  # Fetch up to 5 pages (500 projects)
+                page_results = await client.list_projects(page=page_num, per_page=100)
+                page_list = page_results if isinstance(page_results, list) else page_results.get('data', page_results.get('projects', []))
+
+                if not page_list:
+                    break
+
+                all_projects.extend(page_list)
+                logger.info(f"Fetched page {page_num}: {len(page_list)} projects (total: {len(all_projects)})")
+
+                # Stop if we got fewer than requested (last page)
+                if len(page_list) < 100:
+                    break
+
+            # Use all fetched projects
+            results = all_projects
+            logger.info(f"Total projects fetched for local filtering: {len(results)}")
+
+        # Process and score results
+        projects = []
+        job_street_lower = job_street.lower().strip()
+        job_address_lower = job_address.lower().strip()
+
+        # Handle both list and dict response formats
+        project_list = results if isinstance(results, list) else results.get('data', results.get('projects', []))
+
+        logger.info(f"Found {len(project_list)} projects from CompanyCam")
+
+        for project in project_list:
+            project_id = project.get('id')
+            project_name = project.get('name') or ''  # Handle None explicitly
+
+            # Log each project for debugging
+            logger.info(f"CompanyCam project: id={project_id}, name='{project_name}', keys={list(project.keys())}")
+
+            # Get project address - CompanyCam may have it in different formats
+            project_address = ''
+            if 'address' in project:
+                addr = project['address']
+                logger.info(f"  Project address field: type={type(addr)}, value={addr}")
+                if isinstance(addr, str):
+                    project_address = addr
+                elif isinstance(addr, dict):
+                    # Build address string from components
+                    parts = [
+                        addr.get('street_address_1', ''),
+                        addr.get('street_address_2', ''),
+                        addr.get('city', ''),
+                        addr.get('state', ''),
+                        addr.get('postal_code', '')
+                    ]
+                    project_address = ', '.join(p for p in parts if p)
+
+            # Calculate match score using SequenceMatcher
+            # Compare project name with job street (since project name is often the street address)
+            project_name_lower = project_name.lower().strip()
+            project_address_lower = project_address.lower().strip()
+
+            # Multiple comparisons to find best match
+            # 1. Project name vs job street address (most common match)
+            name_vs_street_score = SequenceMatcher(None, job_street_lower, project_name_lower).ratio()
+            # 2. Project address vs job full address
+            addr_vs_addr_score = SequenceMatcher(None, job_address_lower, project_address_lower).ratio() if project_address else 0
+            # 3. Project name vs job full address
+            name_vs_addr_score = SequenceMatcher(None, job_address_lower, project_name_lower).ratio()
+
+            # Use best match score
+            match_score = max(name_vs_street_score, addr_vs_addr_score, name_vs_addr_score)
+
+            logger.info(f"  Match scores: name_vs_street={name_vs_street_score:.2f}, addr_vs_addr={addr_vs_addr_score:.2f}, name_vs_addr={name_vs_addr_score:.2f} -> best={match_score:.2f}")
+
+            projects.append({
+                'id': str(project_id),
+                'name': project_name,
+                'address': project_address,
+                'match_score': round(match_score * 100, 1),  # Convert to percentage
+                'photo_count': project.get('photo_count', 0),
+                'created_at': project.get('created_at'),
+                'updated_at': project.get('updated_at')
+            })
+
+        # Sort by match score descending
+        projects.sort(key=lambda x: x['match_score'], reverse=True)
+
+        # Filter to only show projects with at least some match (>10%)
+        # but include all if we did a local search (from list_projects)
+        min_score = 10 if project_list else 0
+        filtered_projects = [p for p in projects if p['match_score'] >= min_score]
+
+        # Take top 20 results
+        top_projects = filtered_projects[:20]
+
+        logger.info(
+            f"Returning {len(top_projects)} projects "
+            f"(filtered from {len(projects)} total, min_score={min_score}%)"
+        )
+
+        return {
+            'job_address': job_address,
+            'search_query': search_query,
+            'projects': top_projects,
+            'total': len(top_projects)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to search CompanyCam projects: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # CompanyCam sync endpoint
 @router.post("/jobs/{job_id}/sync-companycam-photos")
 async def sync_companycam_photos(
@@ -1142,7 +1341,8 @@ async def sync_companycam_photos(
 
         # If a new project ID was provided and it's different from existing, update the job
         if companycam_project_id and companycam_project_id != existing_project_id:
-            service.update_job(job_id, {'companycam_project_id': companycam_project_id})
+            job_update_data = JobUpdate(companycam_project_id=companycam_project_id)
+            service.update_job(job_id, job_update_data)
             db.commit()
             logger.info(f"Updated job {job_id} with CompanyCam project ID: {companycam_project_id}")
 

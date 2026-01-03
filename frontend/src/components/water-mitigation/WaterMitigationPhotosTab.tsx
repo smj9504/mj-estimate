@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, Space, message, Modal, Typography, Alert, Input, Form } from 'antd';
-import { SyncOutlined, CloudDownloadOutlined, StopOutlined, LinkOutlined } from '@ant-design/icons';
+import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin } from 'antd';
+import { SyncOutlined, CloudDownloadOutlined, StopOutlined, LinkOutlined, SearchOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import api from '../../services/api';
@@ -26,7 +26,25 @@ interface SyncStatus {
   message?: string;
 }
 
-// API calls - now supports optional project ID parameter
+// CompanyCam project search result
+interface CompanyCamProject {
+  id: string;
+  name: string;
+  address: string;
+  match_score: number;
+  photo_count: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface ProjectSearchResult {
+  job_address: string;
+  search_query: string;
+  projects: CompanyCamProject[];
+  total: number;
+}
+
+// API calls
 const syncCompanyCamPhotos = async (jobId: string, projectId?: string): Promise<CompanyCamSyncResult> => {
   const params = projectId ? `?companycam_project_id=${encodeURIComponent(projectId)}` : '';
   const response = await api.post(`/api/water-mitigation/jobs/${jobId}/sync-companycam-photos${params}`);
@@ -40,6 +58,12 @@ const getSyncStatus = async (jobId: string): Promise<SyncStatus> => {
 
 const cancelSync = async (jobId: string): Promise<{ success: boolean; message: string }> => {
   const response = await api.post(`/api/water-mitigation/jobs/${jobId}/sync-companycam-photos/cancel`);
+  return response.data;
+};
+
+const searchCompanyCamProjects = async (jobId: string, query?: string): Promise<ProjectSearchResult> => {
+  const params = query ? `?query=${encodeURIComponent(query)}` : '';
+  const response = await api.get(`/api/water-mitigation/jobs/${jobId}/search-companycam-projects${params}`);
   return response.data;
 };
 
@@ -63,6 +87,13 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const pollingRef = useRef<boolean>(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Project search state
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<CompanyCamProject[]>([]);
+  const [jobAddress, setJobAddress] = useState<string>('');
+  const [selectedProject, setSelectedProject] = useState<CompanyCamProject | null>(null);
+  const [manualInput, setManualInput] = useState(false);
 
   // Update current project ID when prop changes
   useEffect(() => {
@@ -160,6 +191,30 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
+  // Search for CompanyCam projects when modal opens
+  const handleSearchProjects = async () => {
+    setIsSearching(true);
+    setSearchResults([]);
+    setSelectedProject(null);
+    setManualInput(false);
+
+    try {
+      const result = await searchCompanyCamProjects(jobId);
+      setJobAddress(result.job_address || '');
+      setSearchResults(result.projects || []);
+
+      // Auto-select if there's a high-confidence match (>70%)
+      if (result.projects?.length > 0 && result.projects[0].match_score > 70) {
+        setSelectedProject(result.projects[0]);
+      }
+    } catch (error: any) {
+      console.error('Failed to search CompanyCam projects:', error);
+      message.error(`Failed to search projects: ${error?.response?.data?.detail || error.message}`);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   // Sync mutation - now supports project ID parameter
   const syncMutation = useMutation({
     mutationFn: (projectId?: string) => syncCompanyCamPhotos(jobId, projectId),
@@ -202,9 +257,9 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       // Project ID exists, show confirmation modal
       setSyncModalVisible(true);
     } else {
-      // No project ID, show input modal
-      setInputProjectId('');
+      // No project ID, show search modal and start search
       setProjectIdModalVisible(true);
+      handleSearchProjects();
     }
   };
 
@@ -213,16 +268,19 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   };
 
   const confirmSyncWithProjectId = () => {
-    if (!inputProjectId.trim()) {
-      message.error('Please enter a CompanyCam Project ID');
+    const projectId = manualInput ? inputProjectId.trim() : selectedProject?.id;
+
+    if (!projectId) {
+      message.error('Please select a project or enter a Project ID');
       return;
     }
+
     // Update local state and notify parent
-    setCurrentProjectId(inputProjectId.trim());
+    setCurrentProjectId(projectId);
     if (onProjectIdUpdated) {
-      onProjectIdUpdated(inputProjectId.trim());
+      onProjectIdUpdated(projectId);
     }
-    syncMutation.mutate(inputProjectId.trim());
+    syncMutation.mutate(projectId);
   };
 
   const handleCancel = () => {
@@ -246,6 +304,13 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   };
 
   const progressInfo = getProgressInfo();
+
+  // Get match score color
+  const getMatchScoreColor = (score: number) => {
+    if (score >= 80) return 'green';
+    if (score >= 50) return 'orange';
+    return 'default';
+  };
 
   return (
     <div className="wm-photos-tab" style={{ height: 'calc(100vh - 180px)', padding: '16px' }}>
@@ -396,42 +461,141 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         </Space>
       </Modal>
 
-      {/* Project ID Input Modal - when no project is linked */}
+      {/* Project Search Modal - when no project is linked */}
       <Modal
         title={
           <Space>
-            <LinkOutlined style={{ color: '#1890ff' }} />
-            <span>Link CompanyCam Project</span>
+            <SearchOutlined style={{ color: '#1890ff' }} />
+            <span>Find CompanyCam Project</span>
           </Space>
         }
         open={projectIdModalVisible}
         onOk={confirmSyncWithProjectId}
-        onCancel={() => setProjectIdModalVisible(false)}
+        onCancel={() => {
+          setProjectIdModalVisible(false);
+          setSelectedProject(null);
+          setManualInput(false);
+          setInputProjectId('');
+        }}
         confirmLoading={syncMutation.isPending}
         okText="Link & Start Sync"
         cancelText="Cancel"
+        width={600}
+        okButtonProps={{ disabled: !selectedProject && !inputProjectId.trim() }}
       >
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Text>
-            Enter the CompanyCam Project ID to link and sync photos from:
-          </Text>
-          <Form layout="vertical">
-            <Form.Item
-              label="CompanyCam Project ID"
-              required
-              help="You can find this in the CompanyCam project URL (e.g., https://app.companycam.com/projects/12345678)"
-            >
-              <Input
-                placeholder="e.g., 12345678"
-                value={inputProjectId}
-                onChange={(e) => setInputProjectId(e.target.value)}
-                onPressEnter={confirmSyncWithProjectId}
+          {/* Job Address Display */}
+          {jobAddress && (
+            <Alert
+              type="info"
+              message={
+                <Text>
+                  <strong>Job Address:</strong> {jobAddress}
+                </Text>
+              }
+              style={{ marginBottom: 8 }}
+            />
+          )}
+
+          {/* Loading State */}
+          {isSearching && (
+            <div style={{ textAlign: 'center', padding: '20px' }}>
+              <Spin tip="Searching all CompanyCam projects by address match..." />
+              <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                This may take a moment if you have many projects
+              </Text>
+            </div>
+          )}
+
+          {/* Search Results */}
+          {!isSearching && searchResults.length > 0 && !manualInput && (
+            <>
+              <Text>Select a matching CompanyCam project:</Text>
+              <List
+                size="small"
+                bordered
+                dataSource={searchResults}
+                style={{ maxHeight: '300px', overflow: 'auto' }}
+                renderItem={(project) => (
+                  <List.Item
+                    style={{
+                      cursor: 'pointer',
+                      backgroundColor: selectedProject?.id === project.id ? '#e6f7ff' : 'transparent',
+                      borderLeft: selectedProject?.id === project.id ? '3px solid #1890ff' : '3px solid transparent',
+                      padding: '12px 16px'
+                    }}
+                    onClick={() => setSelectedProject(project)}
+                  >
+                    <div style={{ width: '100%' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <Text strong>{project.name || 'Unnamed Project'}</Text>
+                        <Tag>{project.photo_count} photos</Tag>
+                      </div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {project.address || 'No address'}
+                      </Text>
+                    </div>
+                  </List.Item>
+                )}
               />
-            </Form.Item>
-          </Form>
-          <Text type="secondary">
-            This will save the project ID and start syncing all photos from CompanyCam.
-          </Text>
+              <Button
+                type="link"
+                onClick={() => setManualInput(true)}
+                style={{ padding: 0 }}
+              >
+                Can't find the project? Enter ID manually
+              </Button>
+            </>
+          )}
+
+          {/* No Results */}
+          {!isSearching && searchResults.length === 0 && !manualInput && (
+            <>
+              <Alert
+                type="warning"
+                message="No matching projects found"
+                description="No CompanyCam projects match this job's address. You can enter the Project ID manually."
+              />
+              <Button
+                type="primary"
+                onClick={() => setManualInput(true)}
+              >
+                Enter Project ID Manually
+              </Button>
+            </>
+          )}
+
+          {/* Manual Input */}
+          {manualInput && (
+            <>
+              <div>
+                <Text strong style={{ display: 'block', marginBottom: 4 }}>
+                  CompanyCam Project ID <span style={{ color: '#ff4d4f' }}>*</span>
+                </Text>
+                <Input
+                  placeholder="e.g., 12345678"
+                  value={inputProjectId}
+                  onChange={(e) => setInputProjectId(e.target.value)}
+                  onPressEnter={confirmSyncWithProjectId}
+                />
+                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                  You can find this in the CompanyCam project URL (e.g., https://app.companycam.com/projects/12345678)
+                </Text>
+              </div>
+              {searchResults.length > 0 && (
+                <Button
+                  type="link"
+                  onClick={() => {
+                    setManualInput(false);
+                    setInputProjectId('');
+                  }}
+                  style={{ padding: 0 }}
+                >
+                  ← Back to search results
+                </Button>
+              )}
+            </>
+          )}
         </Space>
       </Modal>
     </div>

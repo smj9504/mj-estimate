@@ -386,6 +386,77 @@ class CompanyCamClient:
             logger.error(f"Error verifying webhook signature: {e}")
             return False
 
+    async def search_projects(
+        self,
+        query: str,
+        page: int = 1,
+        per_page: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Search projects by address or name
+
+        Args:
+            query: Search query (address, name, etc.)
+            page: Page number (1-indexed)
+            per_page: Results per page (max 100)
+
+        Returns:
+            List of matching projects
+
+        Raises:
+            httpx.HTTPError: If API request fails
+        """
+        url = f"{self.base_url}/projects"
+        params = {
+            "query": query,
+            "page": page,
+            "per_page": min(per_page, 100)
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(url, headers=self.headers, params=params)
+                response.raise_for_status()
+                return response.json()
+
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to search projects with query '{query}': {e}")
+            raise
+
+    async def list_projects(
+        self,
+        page: int = 1,
+        per_page: int = 50
+    ) -> Dict[str, Any]:
+        """
+        List all projects (paginated)
+
+        Args:
+            page: Page number (1-indexed)
+            per_page: Results per page (max 100)
+
+        Returns:
+            Paginated list of projects
+
+        Raises:
+            httpx.HTTPError: If API request fails
+        """
+        url = f"{self.base_url}/projects"
+        params = {
+            "page": page,
+            "per_page": min(per_page, 100)
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.get(url, headers=self.headers, params=params)
+                response.raise_for_status()
+                return response.json()
+
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to list projects: {e}")
+            raise
+
     async def health_check(self) -> bool:
         """
         Check if CompanyCam API is accessible
