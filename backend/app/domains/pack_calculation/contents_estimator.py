@@ -18,13 +18,15 @@ class ContentsEstimator:
     """
 
     # Furniture types and their typical contents
+    # ADJUSTED: Reduced packing times by 60-70% to reflect professional crew efficiency
+    # Professional packers work in teams with assembly line efficiency
     FURNITURE_CONTENTS_PROFILES = {
         'bookshelf': {
             'contents_type': 'books',
             'box_type': 'CPS BXBK',  # Book box - best for heavy items
             'base_boxes': {'small': 2, 'medium': 3, 'large': 4, 'xl': 6},
             'items_per_box': 15,  # ~15 books per box
-            'packing_minutes_per_box': 9,  # 0.15 hours
+            'packing_minutes_per_box': 3,  # REDUCED: was 9, professional crew efficiency
             'additional_materials': {
                 'TMC PPB': 0.1,  # Packing paper (10% of bundle per box)
             }
@@ -34,7 +36,7 @@ class ContentsEstimator:
             'box_type': 'CPS BX MED',
             'base_boxes': {'small': 2, 'medium': 3, 'large': 4, 'xl': 5},
             'items_per_box': 20,  # ~20 folded items
-            'packing_minutes_per_box': 8,
+            'packing_minutes_per_box': 3,  # REDUCED: was 8
             'additional_materials': {
                 'CPS BWRAP': 5,  # Bubble wrap for delicate items
             }
@@ -44,7 +46,7 @@ class ContentsEstimator:
             'box_type': 'CPS BXWDR',  # Wardrobe box
             'base_boxes': {'small': 1, 'medium': 2, 'large': 3, 'xl': 4},
             'items_per_box': 24,  # ~24 hanging items
-            'packing_minutes_per_box': 6,  # Faster - just hang
+            'packing_minutes_per_box': 2,  # REDUCED: was 6, fastest category
             'additional_materials': {}
         },
         'cabinet': {
@@ -52,7 +54,7 @@ class ContentsEstimator:
             'box_type': 'TMC BXDISH',  # Dish-pack with separators
             'base_boxes': {'small': 2, 'medium': 3, 'large': 4, 'xl': 5},
             'items_per_box': 12,  # ~12 dishes/plates
-            'packing_minutes_per_box': 15,  # More careful packing
+            'packing_minutes_per_box': 5,  # REDUCED: was 15, still careful but efficient
             'additional_materials': {
                 'TMC PPB': 0.2,
                 'TMC BW24': 10,  # Bubble wrap for dishes
@@ -63,7 +65,7 @@ class ContentsEstimator:
             'box_type': 'CPS BX MED',
             'base_boxes': {'small': 1, 'medium': 2, 'large': 3, 'xl': 4},
             'items_per_box': 25,
-            'packing_minutes_per_box': 8,
+            'packing_minutes_per_box': 3,  # REDUCED: was 8
             'additional_materials': {
                 'CPS BWRAP': 5,
             }
@@ -73,7 +75,7 @@ class ContentsEstimator:
             'box_type': 'CPS BX MED',
             'base_boxes': {'small': 2, 'medium': 3, 'large': 5, 'xl': 7},
             'items_per_box': 20,
-            'packing_minutes_per_box': 10,
+            'packing_minutes_per_box': 3,  # REDUCED: was 10
             'additional_materials': {
                 'CPS BWRAP': 8,
             }
@@ -156,8 +158,9 @@ class ContentsEstimator:
         quantity_multiplier = cls._detect_quantity_multiplier(item_lower)
 
         # 4. Calculate boxes needed
+        # Allow zero boxes for empty contents (quantity_multiplier = 0.0)
         base_boxes = profile['base_boxes'].get(size, profile['base_boxes']['medium'])
-        boxes_needed = max(1, round(base_boxes * quantity_multiplier))
+        boxes_needed = max(0, round(base_boxes * quantity_multiplier))
 
         # 5. Calculate line items
         line_items = {

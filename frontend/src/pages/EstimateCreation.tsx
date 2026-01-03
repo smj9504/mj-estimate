@@ -894,10 +894,15 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     const company = companies.find(c => c.id === companyId);
     setSelectedCompany(company || null);
     form.setFieldValue('company_selection', companyId);
+    form.setFieldValue('company_id', companyId);
 
-    // Generate new estimate number (only in create mode)
-    if (!isEditMode && company) {
-      await generateEstimateNumber(company.id);
+    // Generate new estimate number when company changes (both create and edit mode)
+    if (company) {
+      // Check if company actually changed
+      const currentCompanyId = form.getFieldValue('company_id');
+      if (currentCompanyId !== company.id) {
+        await generateEstimateNumber(company.id);
+      }
     }
   };
 
@@ -989,6 +994,12 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       }
 
       const estimateData = createEstimateData(values);
+      
+      // Ensure company_id from form is used (for edit mode company changes)
+      const formCompanyId = form.getFieldValue('company_id') || form.getFieldValue('company_selection');
+      if (formCompanyId && formCompanyId !== 'custom') {
+        estimateData.company_id = formCompanyId;
+      }
 
       if (isEditMode) {
         await estimateService.updateEstimate(id!, estimateData);
@@ -1398,7 +1409,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                   </Space>
                                 </div>
                                 <DraggableTable
-                                  className="draggable-table"
+                                  className="draggable-table estimate-items-table"
                                   dataSource={section.items.map((item, index) => ({
                                     ...item,
                                     key: item.id || `${sectionIndex}-${index}-${item.name || 'unnamed'}-${item.unit_price || 0}`
@@ -1414,6 +1425,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                   sectionIndex={sectionIndex}
                                   dragType="item"
                                   activeId={activeId}
+                                  scroll={{ x: 600 }}
                                   rowSelection={{
                                     selectedRowKeys: selectedItemKeys[sectionIndex] || [],
                                     onChange: (selectedRowKeys) => handleItemRowSelection(sectionIndex, selectedRowKeys as string[]),
@@ -1426,18 +1438,13 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                     }
                                   })}
                                   columns={[
-                                    // Item code column hidden - description is the primary identifier
-                                    // {
-                                    //   title: 'Item',
-                                    //   dataIndex: 'name',
-                                    //   key: 'name',
-                                    //   width: 120,
-                                    // },
                                     {
                                       title: 'Description',
                                       dataIndex: 'description',
                                       key: 'description',
                                       ellipsis: true,
+                                      width: 200,
+                                      fixed: 'left' as const,
                                       render: (value, record: EstimateLineItem) => (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                           {value ? <div dangerouslySetInnerHTML={{ __html: value }} /> : null}
@@ -1453,32 +1460,36 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                       title: 'Qty',
                                       dataIndex: 'quantity',
                                       key: 'quantity',
-                                      width: 80,
+                                      width: 60,
+                                      align: 'center' as const,
                                     },
                                     {
                                       title: 'Unit',
                                       dataIndex: 'unit',
                                       key: 'unit',
-                                      width: 80,
+                                      width: 60,
+                                      align: 'center' as const,
                                     },
                                     {
                                       title: 'Rate',
                                       dataIndex: 'unit_price',
                                       key: 'unit_price',
-                                      width: 100,
+                                      width: 80,
+                                      align: 'right' as const,
                                       render: (value) => formatCurrency(value || 0),
                                     },
                                     {
                                       title: 'Total',
                                       dataIndex: 'total',
                                       key: 'total',
-                                      width: 100,
+                                      width: 90,
+                                      align: 'right' as const,
                                       render: (value) => formatCurrency(value || 0),
                                     },
-                                    {
+                                    ...(taxMethod === 'percentage' ? [{
                                       title: (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                          <span>Taxable</span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                          <span>Tax</span>
                                           <Tooltip title="Toggle all items in this section">
                                             <Switch
                                               size="small"
@@ -1497,33 +1508,33 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                       ),
                                       dataIndex: 'taxable',
                                       key: 'taxable',
-                                      width: taxMethod === 'percentage' ? 120 : 0,
+                                      width: 80,
                                       align: 'center' as const,
+                                      responsive: ['md'] as any,
                                       render: (value: boolean | undefined, record: EstimateLineItem, recordIndex: number) => (
-                                        taxMethod === 'percentage' ? (
-                                          <Switch
-                                            size="small"
-                                            checked={value !== false}
-                                            onChange={(checked) => {
-                                              const newSections = [...sections];
-                                              const itemIndex = newSections[sectionIndex].items.findIndex((item, idx) => idx === recordIndex);
-                                              if (itemIndex !== -1) {
-                                                newSections[sectionIndex].items[itemIndex] = {
-                                                  ...newSections[sectionIndex].items[itemIndex],
-                                                  taxable: checked
-                                                };
-                                                setSections(newSections);
-                                              }
-                                            }}
-                                          />
-                                        ) : null
+                                        <Switch
+                                          size="small"
+                                          checked={value !== false}
+                                          onChange={(checked) => {
+                                            const newSections = [...sections];
+                                            const itemIndex = newSections[sectionIndex].items.findIndex((item, idx) => idx === recordIndex);
+                                            if (itemIndex !== -1) {
+                                              newSections[sectionIndex].items[itemIndex] = {
+                                                ...newSections[sectionIndex].items[itemIndex],
+                                                taxable: checked
+                                              };
+                                              setSections(newSections);
+                                            }
+                                          }}
+                                        />
                                       ),
-                                    },
+                                    }] : []),
                                     {
-                                      title: 'Actions',
+                                      title: '',
                                       key: 'actions',
-                                      width: 100,
+                                      width: 70,
                                       align: 'center' as const,
+                                      fixed: 'right' as const,
                                       render: (_: any, record: EstimateLineItem, index: number) => (
                                         <Space size="small">
                                           <Tooltip title="Edit item">

@@ -27,10 +27,10 @@ import {
   EditOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import type { ColumnsType, TablePaginationConfig } from 'antd/es/table';
+import type { ColumnsType, TablePaginationConfig, SorterResult } from 'antd/es/table/interface';
 import lineItemService from '../services/lineItemService';
 import LineItemFormModal from '../components/line-items/LineItemFormModal';
-import { LineItem, LineItemType } from '../types/lineItem';
+import { LineItem } from '../types/lineItem';
 import { debounce } from 'lodash';
 
 const { Title, Text } = Typography;
@@ -49,6 +49,10 @@ const LineItemManagement: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>(undefined);
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
   const [activeFilter, setActiveFilter] = useState<boolean | undefined>(true);
+  
+  // Sorting
+  const [sortBy, setSortBy] = useState<string | undefined>(undefined);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | undefined>(undefined);
 
   // Modal state
   const [formModalOpen, setFormModalOpen] = useState(false);
@@ -62,10 +66,10 @@ const LineItemManagement: React.FC = () => {
     loadCategories();
   }, []);
 
-  // Load line items when filters or pagination change
+  // Load line items when filters, pagination, or sorting change
   useEffect(() => {
     loadLineItems();
-  }, [searchTerm, categoryFilter, typeFilter, activeFilter, currentPage, pageSize]);
+  }, [searchTerm, categoryFilter, typeFilter, activeFilter, currentPage, pageSize, sortBy, sortOrder]);
 
   const loadCategories = async () => {
     try {
@@ -97,6 +101,12 @@ const LineItemManagement: React.FC = () => {
       }
       if (activeFilter !== undefined) {
         params.is_active = activeFilter;
+      }
+      if (sortBy) {
+        params.sort_by = sortBy;
+      }
+      if (sortOrder) {
+        params.sort_order = sortOrder;
       }
 
       console.log('Loading line items with params:', params);
@@ -186,17 +196,63 @@ const LineItemManagement: React.FC = () => {
     try {
       await lineItemService.deleteLineItems(validKeys);
       message.success(`Deleted ${validKeys.length} item(s)`);
+      
+      // Remove deleted items from the current list immediately
+      setLineItems(prevItems => prevItems.filter(item => !validKeys.includes(item.id)));
+      setTotalItems(prevTotal => Math.max(0, prevTotal - validKeys.length));
       setSelectedRowKeys([]);
-      loadLineItems();
+      
+      // Check if current page will be empty after deletion
+      const itemsOnCurrentPage = lineItems.length;
+      const deletedCount = validKeys.length;
+      
+      if (itemsOnCurrentPage <= deletedCount && currentPage > 1) {
+        // Move to previous page if all items on current page were deleted
+        setCurrentPage(currentPage - 1);
+      } else {
+        // Reload to ensure consistency with server
+        loadLineItems();
+      }
     } catch (error: any) {
       console.error('Failed to delete line items:', error);
       message.error('Failed to delete line items');
     }
   };
 
-  const handleTableChange = (pagination: TablePaginationConfig) => {
+  const handleTableChange = (
+    pagination: TablePaginationConfig,
+    filters: any,
+    sorter: SorterResult<LineItem> | SorterResult<LineItem>[]
+  ) => {
     setCurrentPage(pagination.current || 1);
     setPageSize(pagination.pageSize || 10);
+    
+    // Handle sorting
+    if (sorter && !Array.isArray(sorter) && sorter.field) {
+      const field = sorter.field as string;
+      const order = sorter.order;
+      
+      // Map frontend field names to backend field names
+      const fieldMap: Record<string, string> = {
+        'item': 'item',
+        'description': 'description',
+        'cat': 'cat',
+        'unit': 'unit',
+        'rate': 'rate',
+      };
+      
+      const backendField = fieldMap[field];
+      if (backendField) {
+        setSortBy(backendField);
+        setSortOrder(order === 'ascend' ? 'asc' : order === 'descend' ? 'desc' : undefined);
+      } else {
+        setSortBy(undefined);
+        setSortOrder(undefined);
+      }
+    } else {
+      setSortBy(undefined);
+      setSortOrder(undefined);
+    }
   };
 
   // Table columns
@@ -206,6 +262,8 @@ const LineItemManagement: React.FC = () => {
       dataIndex: 'item',
       key: 'item',
       width: 120,
+      sorter: true,
+      sortOrder: sortBy === 'item' ? (sortOrder === 'asc' ? 'ascend' : sortOrder === 'desc' ? 'descend' : null) : null,
       render: (text: string) => <Text strong>{text}</Text>,
     },
     {
@@ -220,6 +278,8 @@ const LineItemManagement: React.FC = () => {
       dataIndex: 'description',
       key: 'description',
       ellipsis: true,
+      sorter: true,
+      sortOrder: sortBy === 'description' ? (sortOrder === 'asc' ? 'ascend' : sortOrder === 'desc' ? 'descend' : null) : null,
       render: (text: string, record: LineItem) => (
         <a onClick={() => handleEdit(record)}>
           {text}
@@ -311,7 +371,20 @@ const LineItemManagement: React.FC = () => {
               try {
                 await lineItemService.deleteLineItem(record.id);
                 message.success('Line item deleted');
-                loadLineItems();
+                
+                // Remove the deleted item from the current list immediately
+                setLineItems(prevItems => prevItems.filter(item => item.id !== record.id));
+                setTotalItems(prevTotal => Math.max(0, prevTotal - 1));
+                
+                // Check if current page will be empty after deletion
+                const itemsOnCurrentPage = lineItems.length;
+                if (itemsOnCurrentPage === 1 && currentPage > 1) {
+                  // Move to previous page if this was the last item on current page
+                  setCurrentPage(currentPage - 1);
+                } else {
+                  // Reload to ensure consistency with server
+                  loadLineItems();
+                }
               } catch (error) {
                 message.error('Failed to delete line item');
               }

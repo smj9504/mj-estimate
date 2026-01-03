@@ -10,6 +10,8 @@
     "@dnd-kit/modifiers": "^9.0.0",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@react-pdf-viewer/core": "^3.12.0",
+    "@react-pdf-viewer/default-layout": "^3.12.0",
     "@tanstack/react-query": "^5.85.5",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.7.0",
@@ -19,6 +21,7 @@
     "@types/node": "^16.18.126",
     "@types/react": "^18.3.13",
     "@types/react-dom": "^18.3.2",
+    "@types/react-pdf": "^6.2.0",
     "@types/react-window": "^1.8.8",
     "@types/uuid": "^10.0.0",
     "antd": "^5.27.1",
@@ -27,9 +30,12 @@
     "file-saver": "^2.0.5",
     "konva": "8.4.3",
     "mathjs": "^14.6.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^3.11.174",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-konva": "18.2.10",
+    "react-pdf": "^10.2.0",
     "react-router-dom": "^6.26.1",
     "react-scripts": "^5.0.1",
     "react-window": "^2.2.3",
@@ -75,6 +81,7 @@
     "@types/lodash": "^4.17.20",
     "@types/react-router-dom": "^5.3.3",
     "ajv": "^8.17.1",
+    "baseline-browser-mapping": "^2.9.11",
     "cross-env": "^10.0.0"
   }
 }

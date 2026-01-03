@@ -21,6 +21,7 @@ import {
   RobotOutlined,
   ExperimentOutlined,
   RocketOutlined,
+  FilePdfOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -129,7 +130,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           {
             key: '/reconstruction-estimate/pack-calculations',
             icon: <DropboxOutlined />,
-            label: 'Pack Calculations',
+            label: 'Pack Calculations (Old)',
+          },
+          {
+            key: '/reconstruction-estimate/pack-calculator-new/list',
+            icon: <RocketOutlined />,
+            label: 'Pack Calculator (New)',
           },
         ],
       },
@@ -149,6 +155,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         key: '/sketch-test',
         icon: <SketchOutlined />,
         label: 'Sketch Test',
+      },
+      {
+        key: '/pdf-editor',
+        icon: <FilePdfOutlined />,
+        label: 'PDF Editor',
       },
       {
         key: '/create',

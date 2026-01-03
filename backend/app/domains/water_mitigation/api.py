@@ -1097,6 +1097,7 @@ def list_trashed_photos(
 async def sync_companycam_photos(
     job_id: UUID,
     background_tasks: BackgroundTasks,
+    companycam_project_id: Optional[str] = Query(None, description="CompanyCam project ID to sync from (will be saved to job if provided)"),
     service: WaterMitigationService = Depends(get_wm_service),
     db: DatabaseSession = Depends(get_db_session)
 ):
@@ -1107,8 +1108,12 @@ async def sync_companycam_photos(
     - Starts a background task to fetch all photos from CompanyCam
     - Returns immediately with status 'started'
     - Poll GET /sync-companycam-photos/status for progress
+    - If companycam_project_id is provided, it will be saved to the job
 
     Use this when webhook sync fails or to force a full sync.
+
+    Args:
+        companycam_project_id: Optional CompanyCam project ID. If provided and job doesn't have one, it will be saved.
 
     Returns:
         Confirmation that sync has started
@@ -1118,17 +1123,28 @@ async def sync_companycam_photos(
     from app.core.cache import get_cache
 
     try:
-        # Check if job exists and has CompanyCam project linked
+        # Check if job exists
         job = service.get_job(job_id)
         if not job:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-        companycam_project_id = job.get('companycam_project_id') if isinstance(job, dict) else getattr(job, 'companycam_project_id', None)
-        if not companycam_project_id:
+        # Get existing project ID or use provided one
+        existing_project_id = job.get('companycam_project_id') if isinstance(job, dict) else getattr(job, 'companycam_project_id', None)
+
+        # Use provided project ID if given, otherwise use existing
+        project_id_to_use = companycam_project_id or existing_project_id
+
+        if not project_id_to_use:
             raise HTTPException(
                 status_code=400,
-                detail="Job has no CompanyCam project linked"
+                detail="No CompanyCam project ID provided and job has no project linked"
             )
+
+        # If a new project ID was provided and it's different from existing, update the job
+        if companycam_project_id and companycam_project_id != existing_project_id:
+            service.update_job(job_id, {'companycam_project_id': companycam_project_id})
+            db.commit()
+            logger.info(f"Updated job {job_id} with CompanyCam project ID: {companycam_project_id}")
 
         # Check if sync is already running
         cache = get_cache()

@@ -6,39 +6,46 @@ Main application entry point with comprehensive database abstraction system
 # Suppress WeasyPrint GTK/Fontconfig warnings on Windows
 # These are harmless warnings from Linux libraries running on Windows
 import os
+
 os.environ.setdefault('FONTCONFIG_FILE', 'NUL')
 os.environ.setdefault('G_SLICE', 'always-malloc')
 
 # Suppress GLib warnings
 import warnings
+
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
-from fastapi import FastAPI, Request, Depends, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+import logging
+import os
+import sys
+from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
-from datetime import datetime
-import logging
-import sys
-import os
-from pathlib import Path
-from contextlib import asynccontextmanager
+
+# Conditional model imports (only if Material Detection enabled)
+from app.core.config import settings as _early_settings
+
+# Import Company AFTER its dependencies
+from app.domains.company.models import *
+from app.domains.packout.models import *
+from app.domains.photo_analysis.models import *
+from app.domains.receipt.models import *
+from app.domains.reconstruction_estimate.models import *
+from app.domains.sketch.models import *
 
 # Import all models first to ensure SQLAlchemy relationships are properly set up
 # This prevents circular dependency issues
 # Import dependent models BEFORE Company model
 from app.domains.staff.models import *
-from app.domains.sketch.models import *
-from app.domains.receipt.models import *
 from app.domains.water_mitigation.models import *
-from app.domains.reconstruction_estimate.models import *
-# Import Company AFTER its dependencies
-from app.domains.company.models import *
 
-# Conditional model imports (only if Material Detection enabled)
-from app.core.config import settings as _early_settings
 if getattr(_early_settings, 'ENABLE_MATERIAL_DETECTION', False):
     try:
         from app.domains.material_detection.models import *
@@ -46,31 +53,38 @@ if getattr(_early_settings, 'ENABLE_MATERIAL_DETECTION', False):
         pass  # Material Detection dependencies not installed
 
 # API and core imports
-from app.domains.company.api import router as company_router
-from app.domains.invoice.api import router as invoice_router
-from app.domains.estimate.api import router as estimate_router
-from app.domains.plumber_report.api import router as plumber_report_router
-from app.domains.plumber_report.templates.api import router as plumber_report_template_router
-from app.domains.document.api import router as document_router
-from app.domains.work_order.api import router as work_order_router
-from app.domains.payment.api import router as payment_router
-from app.domains.credit.api import router as credit_router
-from app.domains.staff.api import router as staff_router
-from app.domains.document_types.api import router as document_types_router
-from app.domains.auth.api import router as auth_router
-from app.domains.dashboard.api import router as dashboard_router
-from app.domains.payment_config.api import router as payment_config_router
-from app.domains.line_items.api import router as line_items_router
-from app.domains.xactimate.api import router as xactimate_router
-from app.domains.file.api import router as file_router
-from app.domains.sketch.api import router as sketch_router
-from app.domains.receipt.api import router as receipt_router
-from app.domains.water_mitigation.api import router as water_mitigation_router
-from app.domains.reconstruction_estimate.api import router as reconstruction_estimate_router
-from app.domains.pack_calculation.api import router as pack_calculation_router
-from app.domains.analytics.api import router as analytics_router
-from app.domains.file.service import initialize_storage
 from app.core.config import settings
+from app.domains.analytics.api import router as analytics_router
+from app.domains.auth.api import router as auth_router
+from app.domains.company.api import router as company_router
+from app.domains.credit.api import router as credit_router
+from app.domains.dashboard.api import router as dashboard_router
+from app.domains.document.api import router as document_router
+from app.domains.document_types.api import router as document_types_router
+from app.domains.estimate.api import router as estimate_router
+from app.domains.file.api import router as file_router
+from app.domains.file.service import initialize_storage
+from app.domains.invoice.api import router as invoice_router
+from app.domains.line_items.api import router as line_items_router
+from app.domains.pack_calculation.api import router as pack_calculation_router
+from app.domains.packout.api import router as packout_router
+from app.domains.payment.api import router as payment_router
+from app.domains.payment_config.api import router as payment_config_router
+from app.domains.pdf_editor.api import router as pdf_editor_router
+from app.domains.photo_analysis.api import router as photo_analysis_router
+from app.domains.plumber_report.api import router as plumber_report_router
+from app.domains.plumber_report.templates.api import (
+    router as plumber_report_template_router,
+)
+from app.domains.receipt.api import router as receipt_router
+from app.domains.reconstruction_estimate.api import (
+    router as reconstruction_estimate_router,
+)
+from app.domains.sketch.api import router as sketch_router
+from app.domains.staff.api import router as staff_router
+from app.domains.water_mitigation.api import router as water_mitigation_router
+from app.domains.work_order.api import router as work_order_router
+from app.domains.xactimate.api import router as xactimate_router
 
 # Conditional Material Detection imports (only if enabled)
 material_detection_available = False
@@ -78,7 +92,9 @@ training_api_available = False
 
 if settings.ENABLE_MATERIAL_DETECTION:
     try:
-        from app.domains.material_detection.api import router as material_detection_router
+        from app.domains.material_detection.api import (
+            router as material_detection_router,
+        )
         from app.domains.material_detection.service import initialize_material_detection
         material_detection_available = True
         print("[INFO] Material Detection module loaded successfully")
@@ -89,23 +105,32 @@ if settings.ENABLE_MATERIAL_DETECTION:
     # Try to import training API (optional)
     if material_detection_available:
         try:
-            from app.domains.material_detection.training.api import router as training_router
+            from app.domains.material_detection.training.api import (
+                router as training_router,
+            )
             training_api_available = True
             print("[INFO] Training API module loaded successfully")
         except ImportError as e:
             print(f"[WARNING] Training API dependencies missing (optional): {e}")
-from app.core.database_factory import get_database, db_factory
+from app.core.database_factory import db_factory, get_database
+
 # Service factory removed - using direct service instantiation
-from app.core.interfaces import DatabaseException, ConnectionError, ConfigurationError
+from app.core.interfaces import ConfigurationError, ConnectionError, DatabaseException
 
 # Conditional integration imports (only if enabled)
 if settings.ENABLE_INTEGRATIONS:
     from app.domains.integrations.api import router as integrations_router
-    from app.domains.integrations.google_sheets.api import router as google_sheets_router
-    from app.domains.integrations.google_sheets.scheduler import start_scheduler, stop_scheduler
+    from app.domains.integrations.google_sheets.api import (
+        router as google_sheets_router,
+    )
+    from app.domains.integrations.google_sheets.scheduler import (
+        start_scheduler,
+        stop_scheduler,
+    )
 
 # Configure logging system
-from app.core.logging_config import setup_logging, get_access_logger, get_error_logger
+from app.core.logging_config import get_access_logger, get_error_logger, setup_logging
+
 logger = setup_logging()
 
 # Specialized loggers
@@ -398,6 +423,15 @@ app.include_router(pack_calculation_router, prefix="/api")
 
 # Analytics endpoints
 app.include_router(analytics_router, prefix="/api", tags=["Analytics"])
+
+# Photo Analysis endpoints (AI-powered room analysis)
+app.include_router(photo_analysis_router, prefix="/api/photo-analysis", tags=["Photo Analysis"])
+
+# Packout Analysis endpoints (Xactimate-based content packout estimation)
+app.include_router(packout_router, prefix="/api", tags=["Packout Analysis"])
+
+# PDF Editor endpoints
+app.include_router(pdf_editor_router, prefix="/api", tags=["PDF Editor"])
 
 # Material Detection endpoints (conditionally loaded)
 if material_detection_available:

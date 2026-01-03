@@ -2,23 +2,28 @@
 File API endpoints for file upload and management
 """
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
-from fastapi.responses import FileResponse as FastAPIFileResponse
-from typing import List, Optional
+import io
 import logging
 import mimetypes
-import io
 from pathlib import Path
+from typing import List, Optional
 
-from .schemas import (
-    FilesResponse, FileResponse, FileUploadRequest,
-    FileCountResponse, CategoryListResponse, FileUpdate
-)
-from .service import FileService
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse as FastAPIFileResponse
+
 from app.core.database_factory import get_database
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.staff.models import Staff
 
+from .schemas import (
+    CategoryListResponse,
+    FileCountResponse,
+    FileResponse,
+    FilesResponse,
+    FileUpdate,
+    FileUploadRequest,
+)
+from .service import FileService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -118,6 +123,7 @@ async def download_file(
     """Download a file by ID (supports both local and cloud storage)"""
     try:
         from fastapi.responses import StreamingResponse
+
         from app.domains.file.service import get_storage_provider
 
         file_record = service.repository.get_by_id(file_id)
@@ -137,7 +143,7 @@ async def download_file(
         if file_url.startswith('gs://') or file_url.startswith('https://') or file_url.startswith('http://'):
             # Get file from storage provider
             try:
-                file_data = storage.download_file(file_url)
+                file_data = storage.download(file_url)
                 return StreamingResponse(
                     io.BytesIO(file_data),
                     media_type=media_type,
@@ -173,6 +179,7 @@ async def preview_file(
     """Get file preview (for images, returns thumbnail if available)"""
     try:
         from fastapi.responses import StreamingResponse
+
         from app.domains.file.service import get_storage_provider
 
         file_record = service.repository.get_by_id(file_id)
@@ -191,7 +198,7 @@ async def preview_file(
                     file_record.get('thumbnail_url')):
                     thumb_url = file_record['thumbnail_url']
                     if thumb_url.startswith('gs://') or thumb_url.startswith('http'):
-                        file_data = storage.download_file(thumb_url)
+                        file_data = storage.download(thumb_url)
                         return StreamingResponse(
                             io.BytesIO(file_data),
                             media_type='image/jpeg',
@@ -199,7 +206,7 @@ async def preview_file(
                         )
 
                 # Download original file
-                file_data = storage.download_file(file_url)
+                file_data = storage.download(file_url)
                 media_type = file_record.get('content_type', 'application/octet-stream')
                 content_disposition = "inline" if media_type.startswith('image/') or media_type == 'application/pdf' else "attachment"
 

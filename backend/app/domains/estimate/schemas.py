@@ -3,11 +3,10 @@ Estimate domain Pydantic schemas
 """
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 
 # Import Adjustment from invoice schemas (shared)
 from app.domains.invoice.schemas import Adjustment
@@ -113,6 +112,22 @@ class EstimateBase(BaseModel):
     adjuster_name: Optional[str] = None
     adjuster_phone: Optional[str] = None
     adjuster_email: Optional[str] = None
+    
+    # Financial fields
+    subtotal: Optional[float] = None
+    adjustments: Optional[List[Adjustment]] = Field(default_factory=list, description="List of adjustments")
+    op_percent: Optional[float] = None  # O&P percentage (DEPRECATED: Use adjustments instead)
+    op_amount: Optional[float] = None  # O&P amount
+    tax_method: Optional[str] = None  # 'percentage' or 'specific'
+    tax_rate: Optional[float] = None
+    tax_amount: Optional[float] = None
+    discount_amount: Optional[float] = None
+    total_amount: Optional[float] = None
+    
+    # Insurance total fields
+    depreciation_amount: Optional[float] = None
+    acv_amount: Optional[float] = None
+    rcv_amount: Optional[float] = None
     
     # Room data for floor plans
     room_data: Optional[Dict[str, Any]] = None

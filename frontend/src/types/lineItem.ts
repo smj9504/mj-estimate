@@ -49,6 +49,7 @@ export interface LineItemModalItem {
   id: string | number; // Allow both string and number IDs
   category: string;
   type?: string; // Made optional as not all items may have this
+  includes?: string; // Work description/notes from line item
 }
 
 // =====================================================

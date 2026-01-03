@@ -3,12 +3,13 @@
  * Uses FileGallery component with date-based grouping option
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Button, Space, message, Modal, Typography, Alert } from 'antd';
-import { SyncOutlined, CloudDownloadOutlined, StopOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Button, Space, message, Modal, Typography, Alert, Input, Form } from 'antd';
+import { SyncOutlined, CloudDownloadOutlined, StopOutlined, LinkOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import api from '../../services/api';
+import waterMitigationService from '../../services/waterMitigationService';
 import type { CompanyCamSyncResult } from '../../types/waterMitigation';
 
 const { Text } = Typography;
@@ -25,9 +26,10 @@ interface SyncStatus {
   message?: string;
 }
 
-// API calls
-const syncCompanyCamPhotos = async (jobId: string): Promise<CompanyCamSyncResult> => {
-  const response = await api.post(`/api/water-mitigation/jobs/${jobId}/sync-companycam-photos`);
+// API calls - now supports optional project ID parameter
+const syncCompanyCamPhotos = async (jobId: string, projectId?: string): Promise<CompanyCamSyncResult> => {
+  const params = projectId ? `?companycam_project_id=${encodeURIComponent(projectId)}` : '';
+  const response = await api.post(`/api/water-mitigation/jobs/${jobId}/sync-companycam-photos${params}`);
   return response.data;
 };
 
@@ -44,18 +46,43 @@ const cancelSync = async (jobId: string): Promise<{ success: boolean; message: s
 interface WaterMitigationPhotosTabProps {
   jobId: string;
   companycamProjectId?: string;
+  onProjectIdUpdated?: (projectId: string) => void;
 }
 
 const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   jobId,
-  companycamProjectId
+  companycamProjectId,
+  onProjectIdUpdated
 }) => {
   const queryClient = useQueryClient();
   const [syncModalVisible, setSyncModalVisible] = useState(false);
+  const [projectIdModalVisible, setProjectIdModalVisible] = useState(false);
+  const [inputProjectId, setInputProjectId] = useState('');
+  const [currentProjectId, setCurrentProjectId] = useState(companycamProjectId);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ status: 'idle' });
   const [isSyncing, setIsSyncing] = useState(false);
   const pollingRef = useRef<boolean>(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Update current project ID when prop changes
+  useEffect(() => {
+    setCurrentProjectId(companycamProjectId);
+  }, [companycamProjectId]);
+
+  // Custom upload handler for Water Mitigation photos
+  const handleUpload = useCallback(async (files: File[], category?: string): Promise<void> => {
+    try {
+      await waterMitigationService.photos.uploadMultiple(jobId, files, category);
+      message.success(`Successfully uploaded ${files.length} photo(s)`);
+      // Refresh photos after upload
+      queryClient.invalidateQueries({ queryKey: ['files', 'water-mitigation', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
+    } catch (error: any) {
+      console.error('Upload failed:', error);
+      message.error(`Upload failed: ${error.message || 'Unknown error'}`);
+      throw error;
+    }
+  }, [jobId, queryClient]);
 
   // Poll for sync status using setTimeout (waits for previous request to complete)
   const pollStatus = async () => {
@@ -128,18 +155,18 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         // Ignore errors on initial check
       }
     };
-    if (companycamProjectId) {
-      checkInitialStatus();
-    }
+    // Always check status - sync might have been started with a manually entered project ID
+    checkInitialStatus();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, companycamProjectId]);
+  }, [jobId]);
 
-  // Sync mutation
+  // Sync mutation - now supports project ID parameter
   const syncMutation = useMutation({
-    mutationFn: () => syncCompanyCamPhotos(jobId),
+    mutationFn: (projectId?: string) => syncCompanyCamPhotos(jobId, projectId),
     onMutate: () => {
       setIsSyncing(true);
       setSyncModalVisible(false);
+      setProjectIdModalVisible(false);
       startPolling();
     },
     onSuccess: (result) => {
@@ -171,11 +198,31 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   });
 
   const handleSyncClick = () => {
-    setSyncModalVisible(true);
+    if (currentProjectId) {
+      // Project ID exists, show confirmation modal
+      setSyncModalVisible(true);
+    } else {
+      // No project ID, show input modal
+      setInputProjectId('');
+      setProjectIdModalVisible(true);
+    }
   };
 
   const confirmSync = () => {
-    syncMutation.mutate();
+    syncMutation.mutate(undefined);
+  };
+
+  const confirmSyncWithProjectId = () => {
+    if (!inputProjectId.trim()) {
+      message.error('Please enter a CompanyCam Project ID');
+      return;
+    }
+    // Update local state and notify parent
+    setCurrentProjectId(inputProjectId.trim());
+    if (onProjectIdUpdated) {
+      onProjectIdUpdated(inputProjectId.trim());
+    }
+    syncMutation.mutate(inputProjectId.trim());
   };
 
   const handleCancel = () => {
@@ -202,51 +249,54 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
   return (
     <div className="wm-photos-tab" style={{ height: 'calc(100vh - 180px)', padding: '16px' }}>
-      {/* Sync Controls - only show if CompanyCam project is linked */}
-      {companycamProjectId && (
-        <div style={{ marginBottom: '12px' }}>
-          {/* Progress indicator when syncing */}
-          {isSyncing && progressInfo && (
-            <Alert
-              type="info"
-              showIcon
-              icon={<SyncOutlined spin />}
-              message={
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text>
-                      Syncing photos... Page {progressInfo.page} |
-                      Synced: {progressInfo.synced} | Skipped: {progressInfo.skipped}
-                    </Text>
-                    <Button
-                      danger
-                      size="small"
-                      icon={<StopOutlined />}
-                      onClick={handleCancel}
-                      loading={cancelMutation.isPending}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </Space>
-              }
-              style={{ marginBottom: '12px' }}
-            />
-          )}
+      {/* Sync Controls - always visible */}
+      <div style={{ marginBottom: '12px' }}>
+        {/* Progress indicator when syncing */}
+        {isSyncing && progressInfo && (
+          <Alert
+            type="info"
+            showIcon
+            icon={<SyncOutlined spin />}
+            message={
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text>
+                    Syncing photos... Page {progressInfo.page} |
+                    Synced: {progressInfo.synced} | Skipped: {progressInfo.skipped}
+                  </Text>
+                  <Button
+                    danger
+                    size="small"
+                    icon={<StopOutlined />}
+                    onClick={handleCancel}
+                    loading={cancelMutation.isPending}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </Space>
+            }
+            style={{ marginBottom: '12px' }}
+          />
+        )}
 
-          {/* Sync button */}
-          {!isSyncing && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <Button
-                icon={<SyncOutlined />}
-                onClick={handleSyncClick}
-              >
-                Sync from CompanyCam
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
+        {/* Sync button - always visible */}
+        {!isSyncing && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
+            {currentProjectId && (
+              <Text type="secondary" style={{ fontSize: '12px' }}>
+                <LinkOutlined /> Project: {currentProjectId}
+              </Text>
+            )}
+            <Button
+              icon={<SyncOutlined />}
+              onClick={handleSyncClick}
+            >
+              {currentProjectId ? 'Sync from CompanyCam' : 'Link & Sync CompanyCam'}
+            </Button>
+          </div>
+        )}
+      </div>
 
       <FileGallery
         context="water-mitigation"
@@ -261,6 +311,9 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         height="100%"
         allowUpload={true}
         allowCategoryCreate={true}
+
+        // Custom upload handler for Water Mitigation photos
+        onUpload={handleUpload}
 
         // Multi-select support
         allowMultiSelect={true}
@@ -312,7 +365,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         enableDateGrouping={true}
       />
 
-      {/* Sync Confirmation Modal */}
+      {/* Sync Confirmation Modal - when project is already linked */}
       <Modal
         title={
           <Space>
@@ -339,6 +392,45 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           </ul>
           <Text type="secondary">
             This may take a while for projects with many photos. You can cancel anytime.
+          </Text>
+        </Space>
+      </Modal>
+
+      {/* Project ID Input Modal - when no project is linked */}
+      <Modal
+        title={
+          <Space>
+            <LinkOutlined style={{ color: '#1890ff' }} />
+            <span>Link CompanyCam Project</span>
+          </Space>
+        }
+        open={projectIdModalVisible}
+        onOk={confirmSyncWithProjectId}
+        onCancel={() => setProjectIdModalVisible(false)}
+        confirmLoading={syncMutation.isPending}
+        okText="Link & Start Sync"
+        cancelText="Cancel"
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Text>
+            Enter the CompanyCam Project ID to link and sync photos from:
+          </Text>
+          <Form layout="vertical">
+            <Form.Item
+              label="CompanyCam Project ID"
+              required
+              help="You can find this in the CompanyCam project URL (e.g., https://app.companycam.com/projects/12345678)"
+            >
+              <Input
+                placeholder="e.g., 12345678"
+                value={inputProjectId}
+                onChange={(e) => setInputProjectId(e.target.value)}
+                onPressEnter={confirmSyncWithProjectId}
+              />
+            </Form.Item>
+          </Form>
+          <Text type="secondary">
+            This will save the project ID and start syncing all photos from CompanyCam.
           </Text>
         </Space>
       </Modal>

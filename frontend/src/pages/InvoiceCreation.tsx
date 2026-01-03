@@ -33,6 +33,8 @@ import {
   FolderAddOutlined,
   FolderOpenOutlined,
   CommentOutlined,
+  UpOutlined,
+  DownOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -50,7 +52,9 @@ import {
   SortableContext,
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
+  useSortable,
 } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import DraggableTable from '../components/common/DraggableTable';
 import dayjs from 'dayjs';
@@ -128,6 +132,470 @@ interface Adjustment {
   order: number;
   amount?: number; // Calculated
 }
+
+// Sortable wrapper for each section in the Collapse
+interface SortableSectionItemProps {
+  id: string;
+  children: React.ReactNode;
+}
+
+const SortableSectionItem: React.FC<SortableSectionItemProps> = ({ id, children }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: 'relative' as const,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      {React.cloneElement(children as React.ReactElement, {
+        dragListeners: listeners,
+      })}
+    </div>
+  );
+};
+
+// Section header component that receives drag listeners
+interface SectionHeaderProps {
+  section: InvoiceSection;
+  sectionIndex: number;
+  dragListeners?: any;
+  formatCurrency: (value: number) => string;
+  onAddItem: () => void;
+  onApplyTemplate: () => void;
+  onSaveAsTemplate: () => void;
+  onEditSection: () => void;
+  onDeleteSection: () => void;
+}
+
+const SectionHeader: React.FC<SectionHeaderProps> = ({
+  section,
+  dragListeners,
+  formatCurrency,
+  onAddItem,
+  onApplyTemplate,
+  onSaveAsTemplate,
+  onEditSection,
+  onDeleteSection,
+}) => {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+      <Space>
+        <span
+          {...dragListeners}
+          className="section-drag-handle"
+          style={{ cursor: 'grab', color: '#999', padding: '4px' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <HolderOutlined />
+        </span>
+        <span style={{ fontWeight: 'bold' }}>{section.title}</span>
+        <Badge count={section.items.length} showZero color="#108ee9" />
+        {section.showSubtotal && (
+          <Tag color="blue">${formatCurrency(section.subtotal)}</Tag>
+        )}
+      </Space>
+      <Space onClick={(e) => e.stopPropagation()}>
+        <Button
+          size="small"
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddItem();
+          }}
+        >
+          Add Item
+        </Button>
+        <Button
+          size="small"
+          icon={<AppstoreAddOutlined />}
+          onClick={(e) => {
+            e.stopPropagation();
+            onApplyTemplate();
+          }}
+        >
+          Apply Template
+        </Button>
+        <Tooltip title="Save section as template">
+          <Button
+            size="small"
+            icon={<FolderAddOutlined />}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSaveAsTemplate();
+            }}
+          >
+            Save as Template
+          </Button>
+        </Tooltip>
+        <Tooltip title="Edit section name">
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditSection();
+            }}
+          />
+        </Tooltip>
+        <Popconfirm
+          title="Delete this section?"
+          description="This will delete all items in this section."
+          onConfirm={onDeleteSection}
+        >
+          <Button size="small" danger icon={<DeleteOutlined />} />
+        </Popconfirm>
+      </Space>
+    </div>
+  );
+};
+
+// SectionPanel component for displaying a collapsible section with items
+interface SectionPanelProps {
+  section: InvoiceSection;
+  sectionIndex: number;
+  isOpen: boolean;
+  onToggle: () => void;
+  onAddItem: () => void;
+  onApplyTemplate: () => void;
+  onSaveAsTemplate: () => void;
+  onEditSection: () => void;
+  onDeleteSection: () => void;
+  formatCurrency: (value: number) => string;
+  taxMethod: string;
+  sections: InvoiceSection[];
+  setSections: React.Dispatch<React.SetStateAction<InvoiceSection[]>>;
+  calculateSectionSubtotal: (items: any[]) => number;
+  activeId: string | null;
+  dragListeners?: any;
+  setEditingSectionIndex: (index: number) => void;
+  setEditingItem: (item: any) => void;
+  setEditingIndex: (index: number | null) => void;
+  itemForm: any;
+  setItemModalVisible: (visible: boolean) => void;
+}
+
+const SectionPanel: React.FC<SectionPanelProps> = ({
+  section,
+  sectionIndex,
+  isOpen,
+  onToggle,
+  onAddItem,
+  onApplyTemplate,
+  onSaveAsTemplate,
+  onEditSection,
+  onDeleteSection,
+  formatCurrency,
+  taxMethod,
+  sections,
+  setSections,
+  calculateSectionSubtotal,
+  activeId,
+  dragListeners,
+  setEditingSectionIndex,
+  setEditingItem,
+  setEditingIndex,
+  itemForm,
+  setItemModalVisible,
+}) => {
+  return (
+    <div
+      style={{
+        border: '1px solid #d9d9d9',
+        borderRadius: '8px',
+        marginBottom: '8px',
+        overflow: 'hidden',
+        backgroundColor: '#fff',
+      }}
+    >
+      {/* Section Header */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '12px 16px',
+          backgroundColor: '#fafafa',
+          borderBottom: isOpen ? '1px solid #d9d9d9' : 'none',
+          cursor: 'pointer',
+        }}
+        onClick={onToggle}
+      >
+        <Space>
+          <span
+            {...dragListeners}
+            className="section-drag-handle"
+            style={{ cursor: 'grab', color: '#999', padding: '4px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <HolderOutlined />
+          </span>
+          <span style={{ fontWeight: 'bold' }}>{section.title}</span>
+          <Badge count={section.items.length} showZero color="#108ee9" />
+          {section.showSubtotal && (
+            <Tag color="blue">${formatCurrency(section.subtotal)}</Tag>
+          )}
+          <span style={{ color: '#999', marginLeft: '8px' }}>
+            {isOpen ? <UpOutlined /> : <DownOutlined />}
+          </span>
+        </Space>
+        <Space onClick={(e) => e.stopPropagation()}>
+          <Button
+            size="small"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddItem();
+            }}
+          >
+            Add Item
+          </Button>
+          <Button
+            size="small"
+            icon={<AppstoreAddOutlined />}
+            onClick={(e) => {
+              e.stopPropagation();
+              onApplyTemplate();
+            }}
+          >
+            Apply Template
+          </Button>
+          <Tooltip title="Save section as template">
+            <Button
+              size="small"
+              icon={<FolderAddOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSaveAsTemplate();
+              }}
+            >
+              Save as Template
+            </Button>
+          </Tooltip>
+          <Tooltip title="Edit section name">
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditSection();
+              }}
+            />
+          </Tooltip>
+          <Popconfirm
+            title="Delete this section?"
+            description="This will delete all items in this section."
+            onConfirm={onDeleteSection}
+          >
+            <Button size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
+      </div>
+
+      {/* Section Content */}
+      {isOpen && (
+        <div style={{ padding: '16px' }}>
+          {section.items.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
+              No items in this section. Click "Add Item" to add items.
+            </div>
+          ) : (
+            <DraggableTable
+              className="draggable-table invoice-items-table"
+              dataSource={section.items.map((item, index) => ({
+                ...item,
+                key: `item-${sectionIndex}-${index}`
+              }))}
+              onReorder={() => {}}
+              pagination={false}
+              size="small"
+              showDragHandle={true}
+              dragHandlePosition="start"
+              dragColumnWidth={30}
+              getRowId={(record: any, index: number) => `item-${sectionIndex}-${index}`}
+              disableDrag={false}
+              sectionIndex={sectionIndex}
+              dragType="item"
+              activeId={activeId}
+              scroll={{ x: 600 }}
+              columns={[
+                {
+                  title: 'Description',
+                  dataIndex: 'description',
+                  key: 'description',
+                  ellipsis: true,
+                  width: 200,
+                  fixed: 'left' as const,
+                  render: (value: string, record: InvoiceItem) => (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {value ? (
+                        <div dangerouslySetInnerHTML={{ __html: value }} style={{ flex: 1 }} />
+                      ) : null}
+                      {record.note && record.note.trim() ? (
+                        <Tooltip
+                          title={`Item Note: ${record.note.replace(/<[^>]*>/g, '').substring(0, 100)}${record.note.replace(/<[^>]*>/g, '').length > 100 ? '...' : ''}`}
+                        >
+                          <CommentOutlined
+                            style={{
+                              color: '#1890ff',
+                              fontSize: '16px',
+                              cursor: 'pointer',
+                              flexShrink: 0
+                            }}
+                          />
+                        </Tooltip>
+                      ) : null}
+                    </div>
+                  ),
+                },
+                {
+                  title: 'Qty',
+                  dataIndex: 'quantity',
+                  key: 'quantity',
+                  width: 60,
+                  align: 'center' as const,
+                },
+                {
+                  title: 'Unit',
+                  dataIndex: 'unit',
+                  key: 'unit',
+                  width: 60,
+                  align: 'center' as const,
+                },
+                {
+                  title: 'Rate',
+                  dataIndex: 'rate',
+                  key: 'rate',
+                  width: 80,
+                  align: 'right' as const,
+                  render: (value: number) => formatCurrency(value || 0),
+                },
+                {
+                  title: 'Amount',
+                  key: 'amount',
+                  width: 90,
+                  align: 'right' as const,
+                  render: (_: any, record: InvoiceItem) => formatCurrency((record.quantity || 0) * (record.rate || 0)),
+                },
+                ...(taxMethod === 'percentage' ? [{
+                  title: (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span>Tax</span>
+                      <Tooltip title="Toggle all items in this section">
+                        <Switch
+                          size="small"
+                          checked={section.items.every(item => item.taxable !== false)}
+                          onChange={(checked) => {
+                            const newSections = [...sections];
+                            newSections[sectionIndex].items = newSections[sectionIndex].items.map(item => ({
+                              ...item,
+                              taxable: checked
+                            }));
+                            newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+                            setSections(newSections);
+                          }}
+                        />
+                      </Tooltip>
+                    </div>
+                  ),
+                  dataIndex: 'taxable',
+                  key: 'taxable',
+                  width: 80,
+                  align: 'center' as const,
+                  responsive: ['md'] as any,
+                  render: (value: boolean | undefined, record: InvoiceItem, recordIndex: number) => (
+                    <Switch
+                      size="small"
+                      checked={value !== false}
+                      onChange={(checked) => {
+                        const newSections = [...sections];
+                        newSections[sectionIndex].items[recordIndex] = {
+                          ...newSections[sectionIndex].items[recordIndex],
+                          taxable: checked
+                        };
+                        newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+                        setSections(newSections);
+                      }}
+                    />
+                  ),
+                }] : []),
+                {
+                  title: '',
+                  key: 'actions',
+                  width: 70,
+                  align: 'center' as const,
+                  fixed: 'right' as const,
+                  render: (_: any, record: InvoiceItem, index: number) => (
+                    <Space size="small">
+                      <Tooltip title="Edit item">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EditOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingSectionIndex(sectionIndex);
+                            setEditingItem(record);
+                            setEditingIndex(index);
+                            itemForm.setFieldsValue({
+                              name: record.name,
+                              description: record.description,
+                              note: record.note || '',
+                              quantity: record.quantity,
+                              unit: record.unit,
+                              rate: record.rate,
+                              taxable: record.taxable !== false,
+                            });
+                            setItemModalVisible(true);
+                          }}
+                        />
+                      </Tooltip>
+                      <Tooltip title="Delete item">
+                        <Popconfirm
+                          title="Are you sure you want to delete this item?"
+                          onConfirm={(e) => {
+                            e?.stopPropagation();
+                            const newSections = [...sections];
+                            newSections[sectionIndex].items.splice(index, 1);
+                            newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+                            setSections(newSections);
+                            message.success('Item deleted successfully');
+                          }}
+                          okText="Yes"
+                          cancelText="No"
+                        >
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            danger
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </Popconfirm>
+                      </Tooltip>
+                    </Space>
+                  ),
+                },
+              ]}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const InvoiceCreation: React.FC = () => {
   const [form] = Form.useForm();
@@ -231,20 +699,12 @@ const InvoiceCreation: React.FC = () => {
   );
 
   const handleDragStart = (event: DragStartEvent) => {
-    const { active, activatorEvent } = event;
+    const { active } = event;
     const activeIdStr = active.id as string;
 
     if (activeIdStr.startsWith('section-')) {
-      // Section drag
-      if (activatorEvent && 'target' in activatorEvent) {
-        const target = activatorEvent.target as Element;
-        const isFromSectionHandle = target.closest('.section-drag-handle');
-
-        // Cancel if not from section handle
-        if (!isFromSectionHandle) {
-          return;
-        }
-      }
+      // Section drag - useSortable listeners are attached to the drag handle,
+      // so we don't need to check for the handle class here
       setActiveDragType('section');
       setActiveId(activeIdStr);
     } else if (activeIdStr.startsWith('item-')) {
@@ -328,24 +788,28 @@ const InvoiceCreation: React.FC = () => {
   // Invoice data processing happens in useEffect when fetchedInvoice changes
 
   const convertItemsToSections = (items: InvoiceItem[]): InvoiceSection[] => {
-    const groupedItems: { [key: string]: InvoiceItem[] } = {};
+    // Sort items by sort_order first to preserve section ordering
+    const sortedItems = [...items].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
-    items.forEach(item => {
+    // Use a Map to maintain insertion order (order of first appearance)
+    const groupedItems = new Map<string, InvoiceItem[]>();
+
+    sortedItems.forEach(item => {
       const groupKey = item.primary_group || 'Default Section';
-      if (!groupedItems[groupKey]) {
-        groupedItems[groupKey] = [];
+      if (!groupedItems.has(groupKey)) {
+        groupedItems.set(groupKey, []);
       }
-      groupedItems[groupKey].push(item);
+      groupedItems.get(groupKey)!.push(item);
     });
 
-    return Object.entries(groupedItems).map(([title, groupItems], index) => {
+    return Array.from(groupedItems.entries()).map(([title, groupItems], index) => {
       const subtotal = groupItems.reduce((sum, item) => {
         const quantity = parseFloat(String(item.quantity)) || 0;
         const rate = parseFloat(String(item.rate)) || 0;
         const amount = parseFloat(String(item.amount)) || (quantity * rate);
         return sum + amount;
       }, 0);
-      
+
       return {
         id: `section-${index}`,
         title,
@@ -358,11 +822,14 @@ const InvoiceCreation: React.FC = () => {
 
   const convertSectionsToItems = (): InvoiceItem[] => {
     const allItems: InvoiceItem[] = [];
-    sections.forEach(section => {
-      section.items.forEach(item => {
+    sections.forEach((section, sectionIndex) => {
+      section.items.forEach((item, itemIndex) => {
         allItems.push({
           ...item,
           primary_group: section.title,
+          // Use sort_order to preserve section order: sectionIndex * 1000 + itemIndex
+          // This allows up to 1000 items per section while maintaining section order
+          sort_order: sectionIndex * 1000 + itemIndex,
         });
       });
     });
@@ -469,6 +936,7 @@ const InvoiceCreation: React.FC = () => {
       primary_group: currentSection.title,
       secondary_group: item.secondary_group,
       sort_order: item.sort_order,
+      note: item.note,  // Include note from line item
     }));
 
     console.log('Converted items:', convertedItems);
@@ -2353,302 +2821,68 @@ const InvoiceCreation: React.FC = () => {
               items={sections.map(section => section.id)}
               strategy={verticalListSortingStrategy}
             >
-              <Collapse
-                activeKey={activeKeys}
-                onChange={setActiveKeys}
-                expandIconPosition="end"
-                size="small"
-                items={sections.map((section, sectionIndex) => ({
-                  key: section.id,
-                  label: (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                      <Space>
-                        <HolderOutlined className="section-drag-handle" style={{ cursor: 'grab', color: '#999' }} />
-                        <span style={{ fontWeight: 'bold' }}>{section.title}</span>
-                        <Badge count={section.items.length} showZero color="#108ee9" />
-                        {section.showSubtotal && (
-                          <Tag color="blue">${formatCurrency(section.subtotal)}</Tag>
-                        )}
-                      </Space>
-                      <Space onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          size="small"
-                          type="primary"
-                          icon={<PlusOutlined />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingSectionIndex(sectionIndex);
-                            setEditingItem(null);
-                            setEditingIndex(null);
-                            itemForm.resetFields();
-                            itemForm.setFieldsValue({
-                              quantity: 1,
-                              unit: DEFAULT_UNIT,
-                              rate: 0,
-                              taxable: true,
-                            });
-                            setItemModalVisible(true);
-                          }}
-                        >
-                          Add Item
-                        </Button>
-                        <Button
-                          size="small"
-                          icon={<AppstoreAddOutlined />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setTemplateTargetSectionIndex(sectionIndex);
-                            setTemplateSelectorVisible(true);
-                          }}
-                        >
-                          Apply Template
-                        </Button>
-                        <Tooltip title="Save section as template">
-                          <Button
-                            size="small"
-                            icon={<FolderAddOutlined />}
-                            onClick={async (e) => {
-                              e.stopPropagation();
-
-                              // Prepare template items with embedded data support
-                              const templateItems = section.items.map((item, index) => ({
-                                line_item_id: item.line_item_id,
-                                source_item_id: item.id,
-                                name: item.name,
-                                description: item.description,
-                                unit: item.unit,
-                                rate: Number(item.rate) || 0,
-                                quantity_multiplier: Number(item.quantity) || 1,
-                                order_index: index,
-                              }));
-
-                              console.log('Creating template from section:', {
-                                title: section.title,
-                                items: templateItems,
-                                withLibraryRef: templateItems.filter(i => i.line_item_id).length,
-                                withoutLibraryRef: templateItems.filter(i => !i.line_item_id).length
-                              });
-
-                              // Save template directly - backend will handle embedded vs reference mode
-                              const companyIdForTemplate = invoiceData?.company_id || selectedCompany?.id;
-                              saveSectionAsNewTemplate(section.title, templateItems, companyIdForTemplate);
-                            }}
-                          >
-                            Save as Template
-                          </Button>
-                        </Tooltip>
-                        <Tooltip title="Edit section name">
-                          <Button
-                            size="small"
-                            icon={<EditOutlined />}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEditSection(section.id, section.title);
-                            }}
-                          />
-                        </Tooltip>
-                        <Popconfirm
-                          title="Delete this section?"
-                          description="This will delete all items in this section."
-                          onConfirm={() => deleteSection(sectionIndex)}
-                        >
-                          <Button size="small" danger icon={<DeleteOutlined />} />
-                        </Popconfirm>
-                      </Space>
-                    </div>
-                  ),
-                  children: (
-                    <div style={{ padding: '8px 0' }}>
-                      {section.items.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '20px', color: '#999' }}>
-                          No items in this section. Click "Add Item" to add items.
-                        </div>
-                      ) : (
-                        <DraggableTable
-                          className="draggable-table"
-                          dataSource={section.items.map((item, index) => ({
-                            ...item,
-                            key: `item-${sectionIndex}-${index}`
-                          }))}
-                          onReorder={() => {}} // Handled by DnD context
-                          pagination={false}
-                          size="small"
-                          showDragHandle={true}
-                          dragHandlePosition="start"
-                          dragColumnWidth={30}
-                          getRowId={(record, index) => `item-${sectionIndex}-${index}`}
-                          disableDrag={false}
-                          sectionIndex={sectionIndex}
-                          dragType="item"
-                          activeId={activeId}
-                          columns={[
-                            // Item code column hidden - description is the primary identifier
-                            // {
-                            //   title: 'Item Code',
-                            //   dataIndex: 'name',
-                            //   key: 'name',
-                            //   width: 120,
-                            // },
-                            {
-                              title: 'Description',
-                              dataIndex: 'description',
-                              key: 'description',
-                              ellipsis: true,
-                              render: (value: string, record: InvoiceItem) => (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  {value ? (
-                                    <div dangerouslySetInnerHTML={{ __html: value }} style={{ flex: 1 }} />
-                                  ) : null}
-                                  {record.note && record.note.trim() ? (
-                                    <Tooltip 
-                                      title={`Item Note: ${record.note.replace(/<[^>]*>/g, '').substring(0, 100)}${record.note.replace(/<[^>]*>/g, '').length > 100 ? '...' : ''}`}
-                                    >
-                                      <CommentOutlined 
-                                        style={{ 
-                                          color: '#1890ff', 
-                                          fontSize: '16px',
-                                          cursor: 'pointer',
-                                          flexShrink: 0
-                                        }} 
-                                      />
-                                    </Tooltip>
-                                  ) : null}
-                                </div>
-                              ),
-                            },
-                            {
-                              title: 'Qty',
-                              dataIndex: 'quantity',
-                              key: 'quantity',
-                              width: 80,
-                              align: 'center' as const,
-                            },
-                            {
-                              title: 'Unit',
-                              dataIndex: 'unit',
-                              key: 'unit',
-                              width: 80,
-                              align: 'center' as const,
-                            },
-                            {
-                              title: 'Rate',
-                              dataIndex: 'rate',
-                              key: 'rate',
-                              width: 100,
-                              align: 'right' as const,
-                              render: (value) => formatCurrency(value || 0),
-                            },
-                            {
-                              title: 'Amount',
-                              key: 'amount',
-                              width: 100,
-                              align: 'right' as const,
-                              render: (_: any, record: InvoiceItem) => formatCurrency((record.quantity || 0) * (record.rate || 0)),
-                            },
-                            ...(taxMethod === 'percentage' ? [{
-                              title: (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  <span>Taxable</span>
-                                  <Tooltip title="Toggle all items in this section">
-                                    <Switch
-                                      size="small"
-                                      checked={section.items.every(item => item.taxable !== false)}
-                                      onChange={(checked) => {
-                                        const newSections = [...sections];
-                                        newSections[sectionIndex].items = newSections[sectionIndex].items.map(item => ({
-                                          ...item,
-                                          taxable: checked
-                                        }));
-                                        newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
-                                        setSections(newSections);
-                                      }}
-                                    />
-                                  </Tooltip>
-                                </div>
-                              ),
-                              dataIndex: 'taxable',
-                              key: 'taxable',
-                              width: 120,
-                              align: 'center' as const,
-                              render: (value: boolean | undefined, record: InvoiceItem, recordIndex: number) => (
-                                <Switch
-                                  size="small"
-                                  checked={value !== false}
-                                  onChange={(checked) => {
-                                    const newSections = [...sections];
-                                    newSections[sectionIndex].items[recordIndex] = {
-                                      ...newSections[sectionIndex].items[recordIndex],
-                                      taxable: checked
-                                    };
-                                    newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
-                                    setSections(newSections);
-                                  }}
-                                />
-                              ),
-                            }] : []),
-                            {
-                              title: 'Actions',
-                              key: 'actions',
-                              width: 100,
-                              align: 'center' as const,
-                              render: (_: any, record: InvoiceItem, index: number) => (
-                                <Space size="small">
-                                  <Tooltip title="Edit item">
-                                    <Button
-                                      type="text"
-                                      size="small"
-                                      icon={<EditOutlined />}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setEditingSectionIndex(sectionIndex);
-                                        setEditingItem(record);
-                                        setEditingIndex(index);
-                                        itemForm.setFieldsValue({
-                                          name: record.name,
-                                          description: record.description,
-                                          note: record.note || '',
-                                          quantity: record.quantity,
-                                          unit: record.unit,
-                                          rate: record.rate,
-                                          taxable: record.taxable !== false,
-                                        });
-                                        setItemModalVisible(true);
-                                      }}
-                                    />
-                                  </Tooltip>
-                                  <Tooltip title="Delete item">
-                                    <Popconfirm
-                                      title="Are you sure you want to delete this item?"
-                                      onConfirm={(e) => {
-                                        e?.stopPropagation();
-                                        const newSections = [...sections];
-                                        newSections[sectionIndex].items.splice(index, 1);
-                                        newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
-                                        setSections(newSections);
-                                        message.success('Item deleted successfully');
-                                      }}
-                                      okText="Yes"
-                                      cancelText="No"
-                                    >
-                                      <Button
-                                        type="text"
-                                        size="small"
-                                        icon={<DeleteOutlined />}
-                                        danger
-                                        onClick={(e) => e.stopPropagation()}
-                                      />
-                                    </Popconfirm>
-                                  </Tooltip>
-                                </Space>
-                              ),
-                            },
-                          ]}
-                        />
-                      )}
-                    </div>
-                  ),
-                }))}
-              />
+              <div className="sections-container">
+                {sections.map((section, sectionIndex) => (
+                  <SortableSectionItem key={section.id} id={section.id}>
+                    <SectionPanel
+                      section={section}
+                      sectionIndex={sectionIndex}
+                      isOpen={activeKeys.includes(section.id)}
+                      onToggle={() => {
+                        if (activeKeys.includes(section.id)) {
+                          setActiveKeys(activeKeys.filter(k => k !== section.id));
+                        } else {
+                          setActiveKeys([...activeKeys, section.id]);
+                        }
+                      }}
+                      onAddItem={() => {
+                        setEditingSectionIndex(sectionIndex);
+                        setEditingItem(null);
+                        setEditingIndex(null);
+                        itemForm.resetFields();
+                        itemForm.setFieldsValue({
+                          quantity: 1,
+                          unit: DEFAULT_UNIT,
+                          rate: 0,
+                          taxable: true,
+                        });
+                        setItemModalVisible(true);
+                      }}
+                      onApplyTemplate={() => {
+                        setTemplateTargetSectionIndex(sectionIndex);
+                        setTemplateSelectorVisible(true);
+                      }}
+                      onSaveAsTemplate={() => {
+                        const templateItems = section.items.map((item, index) => ({
+                          line_item_id: item.line_item_id,
+                          source_item_id: item.id,
+                          name: item.name,
+                          description: item.description,
+                          unit: item.unit,
+                          rate: Number(item.rate) || 0,
+                          quantity_multiplier: Number(item.quantity) || 1,
+                          order_index: index,
+                        }));
+                        const companyIdForTemplate = invoiceData?.company_id || selectedCompany?.id;
+                        saveSectionAsNewTemplate(section.title, templateItems, companyIdForTemplate);
+                      }}
+                      onEditSection={() => handleEditSection(section.id, section.title)}
+                      onDeleteSection={() => deleteSection(sectionIndex)}
+                      formatCurrency={formatCurrency}
+                      taxMethod={taxMethod}
+                      sections={sections}
+                      setSections={setSections}
+                      calculateSectionSubtotal={calculateSectionSubtotal}
+                      activeId={activeId}
+                      setEditingSectionIndex={setEditingSectionIndex}
+                      setEditingItem={setEditingItem}
+                      setEditingIndex={setEditingIndex}
+                      itemForm={itemForm}
+                      setItemModalVisible={setItemModalVisible}
+                    />
+                  </SortableSectionItem>
+                ))}
+              </div>
             </SortableContext>
 
             {/* Drag Overlay for unified drag and drop */}

@@ -362,7 +362,10 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
         'policy_number': estimate_data.policy_number,
         'deductible': estimate_data.deductible,
         'room_data': estimate_data.room_data,
-        'adjustments': [adj.dict() for adj in estimate_data.adjustments] if estimate_data.adjustments else [],
+        'adjustments': (
+            [adj.dict() if hasattr(adj, 'dict') else adj for adj in estimate_data.adjustments]
+            if hasattr(estimate_data, 'adjustments') and estimate_data.adjustments else []
+        ),
         'op_percent': estimate_data.op_percent if hasattr(estimate_data, 'op_percent') else 0,
         'tax_method': estimate_data.tax_method if hasattr(estimate_data, 'tax_method') else 'percentage',
         'tax_rate': estimate_data.tax_rate if hasattr(estimate_data, 'tax_rate') else 0,
@@ -370,20 +373,26 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
         'discount_amount': estimate_data.discount_amount if hasattr(estimate_data, 'discount_amount') else 0,
         'items': [
             {
-                'room': item.room,
-                'description': item.description,
+                'name': getattr(item, 'name', None),
+                'room': getattr(item, 'room', None),
+                # Use name as description if description is empty
+                'description': (
+                    item.description if item.description and item.description.strip()
+                    else (getattr(item, 'name', '') or 'Item')
+                ),
                 'quantity': item.quantity,
-                'unit': item.unit,
+                'unit': getattr(item, 'unit', 'ea'),
                 'rate': item.rate,
-                'category': item.category,
-                'primary_group': item.primary_group,
-                'secondary_group': item.secondary_group,
-                'sort_order': item.sort_order,
-                'note': item.note,
-                'depreciation_rate': item.depreciation_rate,
-                'depreciation_amount': item.depreciation_amount,
-                'acv_amount': item.acv_amount,
-                'rcv_amount': item.rcv_amount
+                'taxable': getattr(item, 'taxable', True),
+                'category': getattr(item, 'category', None),
+                'primary_group': getattr(item, 'primary_group', None),
+                'secondary_group': getattr(item, 'secondary_group', None),
+                'sort_order': getattr(item, 'sort_order', 0),
+                'note': getattr(item, 'note', None),
+                'depreciation_rate': getattr(item, 'depreciation_rate', 0.0),
+                'depreciation_amount': getattr(item, 'depreciation_amount', 0.0),
+                'acv_amount': getattr(item, 'acv_amount', 0.0),
+                'rcv_amount': getattr(item, 'rcv_amount', 0.0)
             }
             for item in estimate_data.items
         ]
@@ -492,6 +501,33 @@ async def update_estimate(
     logger.info(f"Raw update_dict: {update_dict}")
     logger.info(f"loss_date in update_dict: {update_dict.get('loss_date')}")
     logger.info(f"company_id in update_dict: {update_dict.get('company_id')}")
+    
+    # Handle company_id update - ensure it's always included if provided
+    if hasattr(estimate_data, 'company_id') and estimate_data.company_id is not None:
+        # Convert UUID to string if needed
+        company_id_value = str(estimate_data.company_id) if estimate_data.company_id else None
+        logger.info(f"Setting company_id to: {company_id_value} (type: {type(company_id_value)})")
+        update_dict['company_id'] = company_id_value
+    elif hasattr(estimate_data, 'company_id') and estimate_data.company_id is None:
+        # Explicitly set to None if provided as None
+        update_dict['company_id'] = None
+    
+    # Check if company_id changed and regenerate estimate_number if needed
+    existing_company_id = existing.get('company_id')
+    new_company_id = update_dict.get('company_id')
+    
+    if existing_company_id and new_company_id and str(existing_company_id) != str(new_company_id):
+        logger.info(f"Company changed: True (from {existing_company_id} to {new_company_id})")
+        # Regenerate estimate number for new company
+        try:
+            estimate_type = update_dict.get('estimate_type', existing.get('estimate_type', 'standard'))
+            new_estimate_number = service.generate_estimate_number(str(new_company_id), estimate_type)
+            update_dict['estimate_number'] = new_estimate_number.get('estimate_number', '')
+            logger.info(f"Generated new estimate number: {update_dict['estimate_number']}")
+        except Exception as e:
+            logger.error(f"Failed to generate estimate number: {e}")
+    else:
+        logger.info(f"Company changed: False (from {existing_company_id} to {new_company_id})")
     
     # Update estimate with items
     updated_estimate = service.update_with_items(estimate_id, update_dict)
@@ -812,13 +848,18 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
     database = get_database()
     service = EstimateService(database)
     
-    # Get estimate from database
+    # Get estimate from database with items and company info
+    # Use get_with_items to ensure we get the latest company info
     estimate = service.get_with_items(estimate_id)
     if not estimate:
         raise HTTPException(status_code=404, detail="Estimate not found")
 
-    # Get company info if company_id exists
-    if estimate.get('company_id'):
+    logger.info(f"PDF generation - estimate company_id: {estimate.get('company_id')}")
+    logger.info(f"PDF generation - estimate company_name: {estimate.get('company_name')}")
+    logger.info(f"PDF generation - estimate estimate_number: {estimate.get('estimate_number')}")
+
+    # Get company info if company_id exists but company info is missing
+    if estimate.get('company_id') and not estimate.get('company_name'):
         try:
             from app.domains.company.repository import get_company_repository
             company_repo = get_company_repository(db)

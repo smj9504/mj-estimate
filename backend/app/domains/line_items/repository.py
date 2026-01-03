@@ -126,12 +126,37 @@ class LineItemRepository:
                 LineItem.item.ilike(search_pattern)
             ))
         
+        # Apply sorting
+        if search.sort_by:
+            sort_field = None
+            if search.sort_by == 'item':
+                sort_field = LineItem.item
+            elif search.sort_by == 'description':
+                sort_field = LineItem.description
+            elif search.sort_by == 'cat':
+                sort_field = LineItem.cat
+            elif search.sort_by == 'unit':
+                sort_field = LineItem.unit
+            elif search.sort_by == 'rate':
+                # For rate, we need to handle both Xactimate and Custom items
+                # This is complex, so we'll sort by untaxed_unit_price for now
+                sort_field = LineItem.untaxed_unit_price
+            
+            if sort_field is not None:
+                if search.sort_order == 'desc':
+                    query = query.order_by(sort_field.desc().nulls_last())
+                else:
+                    query = query.order_by(sort_field.asc().nulls_last())
+        else:
+            # Default sorting by description
+            query = query.order_by(LineItem.description.asc().nulls_last())
+        
         # Get total count
         total = query.count()
         
         logger.info(
             f"Line items query - Type: {search.type}, "
-            f"Active: {search.is_active}, Total: {total}"
+            f"Active: {search.is_active}, Sort: {search.sort_by} {search.sort_order}, Total: {total}"
         )
         
         # Apply pagination

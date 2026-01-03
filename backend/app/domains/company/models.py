@@ -54,7 +54,8 @@ class Company(Base, BaseModel):
     sketches = relationship("Sketch", back_populates="company", cascade="all, delete-orphan", lazy='select')
     receipts = relationship("Receipt", back_populates="company", cascade="all, delete-orphan", lazy='select')
     receipt_templates = relationship("ReceiptTemplate", back_populates="company", cascade="all, delete-orphan", lazy='select')
-    
+    packout_analyses = relationship("PhotoAnalysisPackout", back_populates="company", cascade="all, delete-orphan", lazy='select')
+
     # Payment configuration relationships - temporarily commented out to resolve circular import
     # payment_method_ref = relationship("PaymentMethod", foreign_keys=[payment_method_id], lazy="joined")
     # payment_frequency_ref = relationship("PaymentFrequency", foreign_keys=[payment_frequency_id], lazy="joined")

@@ -119,7 +119,8 @@ class WaterMitigationService:
         if not job:
             return None
 
-        previous_status = job.status
+        # Handle both dict and model object (get_by_id returns dict)
+        previous_status = job.get('status') if isinstance(job, dict) else job.status
         new_status = status_update.status
 
         # Update job status

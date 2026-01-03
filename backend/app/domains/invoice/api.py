@@ -893,16 +893,22 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
             logger.error(traceback.format_exc())
 
     # Prepare data for HTML generation
-    # Group items by section (primary_group)
-    from collections import defaultdict
-    items_by_section_html = defaultdict(list)
+    # Group items by section (primary_group) while preserving order via sort_order
+    from collections import defaultdict, OrderedDict
     all_items_html = invoice.get('items', [])
-    
+
     logger.info(f"Processing {len(all_items_html)} items for HTML generation")
-    
-    for item in all_items_html:
+
+    # Sort items by sort_order to preserve section ordering
+    sorted_items_html = sorted(all_items_html, key=lambda x: x.get('sort_order', 0) or 0)
+
+    # Use OrderedDict to maintain section order based on first item appearance
+    items_by_section_html = OrderedDict()
+    for item in sorted_items_html:
         section_name = item.get('primary_group') or 'Items'
-        logger.info(f"Item: {item.get('name')} -> Section: {section_name}")
+        if section_name not in items_by_section_html:
+            items_by_section_html[section_name] = []
+        logger.info(f"Item: {item.get('name')} -> Section: {section_name}, sort_order: {item.get('sort_order')}")
         items_by_section_html[section_name].append({
             "name": item.get('name', ''),
             "description": item.get('description'),
@@ -912,8 +918,8 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
             "rate": item.get('rate', 0),
             "amount": item.get('quantity', 0) * item.get('rate', 0)
         })
-    
-    # Create sections with subtotals
+
+    # Create sections with subtotals (order is preserved from OrderedDict)
     sections_html = []
     for section_name, section_items in items_by_section_html.items():
         section_subtotal = sum(item['amount'] for item in section_items)
@@ -923,8 +929,8 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
             "subtotal": section_subtotal
         })
         logger.info(f"Section '{section_name}': {len(section_items)} items, subtotal: {section_subtotal}")
-    
-    logger.info(f"Created {len(sections_html)} sections for HTML")
+
+    logger.info(f"Created {len(sections_html)} sections for HTML (ordered by sort_order)")
     
     html_data = {
         "invoice_number": invoice.get('invoice_number', ''),
@@ -1036,16 +1042,22 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
             logger.error(traceback.format_exc())
 
     # Prepare data for PDF generation
-    # Group items by section (primary_group)
-    from collections import defaultdict
-    items_by_section = defaultdict(list)
+    # Group items by section (primary_group) while preserving order via sort_order
+    from collections import defaultdict, OrderedDict
     all_items = invoice.get('items', [])
-    
+
     logger.info(f"Processing {len(all_items)} items for PDF generation")
-    
-    for item in all_items:
+
+    # Sort items by sort_order to preserve section ordering
+    sorted_items = sorted(all_items, key=lambda x: x.get('sort_order', 0) or 0)
+
+    # Use OrderedDict to maintain section order based on first item appearance
+    items_by_section = OrderedDict()
+    for item in sorted_items:
         section_name = item.get('primary_group') or 'Items'
-        logger.info(f"Item: {item.get('name')} -> Section: {section_name}")
+        if section_name not in items_by_section:
+            items_by_section[section_name] = []
+        logger.info(f"Item: {item.get('name')} -> Section: {section_name}, sort_order: {item.get('sort_order')}")
         items_by_section[section_name].append({
             "name": item.get('name', ''),
             "description": item.get('description'),
@@ -1055,8 +1067,8 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
             "rate": item.get('rate', 0),
             "amount": item.get('quantity', 0) * item.get('rate', 0)
         })
-    
-    # Create sections with subtotals
+
+    # Create sections with subtotals (order is preserved from OrderedDict)
     sections = []
     for section_name, section_items in items_by_section.items():
         section_subtotal = sum(item['amount'] for item in section_items)
@@ -1066,8 +1078,8 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
             "subtotal": section_subtotal
         })
         logger.info(f"Section '{section_name}': {len(section_items)} items, subtotal: {section_subtotal}")
-    
-    logger.info(f"Created {len(sections)} sections for PDF")
+
+    logger.info(f"Created {len(sections)} sections for PDF (ordered by sort_order)")
     
     # Log company info before creating pdf_data
     company_name = invoice.get('company_name', '')

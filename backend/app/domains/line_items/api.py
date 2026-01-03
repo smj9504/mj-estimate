@@ -680,6 +680,8 @@ async def search_line_items(
     is_active: Optional[bool] = True,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    sort_by: Optional[str] = Query(None, description="Sort field: 'item', 'description', 'cat', 'unit', 'rate'"),
+    sort_order: Optional[str] = Query(None, description="Sort order: 'asc' or 'desc'"),
     db: Session = Depends(get_db),
     cache: CacheService = Depends(get_cache)
 ):
@@ -695,7 +697,9 @@ async def search_line_items(
         company_id=company_id,
         is_active=is_active,
         page=page,
-        page_size=page_size
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order
     )
 
     service = LineItemService(db, cache)

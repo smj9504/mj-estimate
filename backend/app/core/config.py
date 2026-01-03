@@ -173,6 +173,12 @@ class Settings(BaseSettings):
     MATERIAL_DETECTION_CONFIDENCE_THRESHOLD: float = float(os.getenv("MATERIAL_DETECTION_CONFIDENCE_THRESHOLD", "0.70"))
     MATERIAL_DETECTION_MAX_IMAGES_PER_JOB: int = int(os.getenv("MATERIAL_DETECTION_MAX_IMAGES_PER_JOB", "50"))
 
+    # Photo Analysis Settings (AI-powered room analysis)
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    PHOTO_ANALYSIS_CACHE_ENABLED: bool = os.getenv("PHOTO_ANALYSIS_CACHE_ENABLED", "true").lower() == "true"
+    PHOTO_ANALYSIS_CACHE_TTL_DAYS: int = int(os.getenv("PHOTO_ANALYSIS_CACHE_TTL_DAYS", "30"))
+    PHOTO_ANALYSIS_MODEL: str = os.getenv("PHOTO_ANALYSIS_MODEL", "gpt-4-vision-preview")
+
     # Storage Configuration
     STORAGE_PROVIDER: str = os.getenv("STORAGE_PROVIDER", "local")  # local, gdrive, gcs, s3, azure
     STORAGE_BASE_DIR: str = os.getenv("STORAGE_BASE_DIR", "uploads")

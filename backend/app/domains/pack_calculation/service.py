@@ -43,6 +43,17 @@ from .seed_item_mappings import (
     XACTIMATE_LINE_ITEMS  # Import comprehensive line items from seed data
 )
 
+# Constants for detecting "contents" in item names
+# These patterns specifically detect furniture+contents combinations OR standalone "contents" items
+# Standalone "contents" added to handle template-generated storage items like "Closet Contents"
+CONTENTS_KEYWORDS = [
+    '+ contents', '+contents',
+    'with contents',
+    '& contents',
+    'and contents',
+    ' contents',  # Added: matches "Closet Contents", "Dresser Drawers Contents", etc.
+]
+
 
 class PackCalculationService:
     """Service for pack-in/out calculations"""
@@ -181,9 +192,7 @@ class PackCalculationService:
                 
                 # Check if this is contents-only (no furniture wrapping needed)
                 item_name_lower = item_input.item_name.lower()
-                is_contents_only = any(keyword in item_name_lower for keyword in [
-                    '+ contents', '+contents', 'with contents', '& contents', 'and contents', ' contents'
-                ])
+                is_contents_only = any(keyword in item_name_lower for keyword in CONTENTS_KEYWORDS)
                 
                 # Only add wrapping consumables for furniture (not contents-only items)
                 if not is_contents_only:
@@ -507,7 +516,9 @@ class PackCalculationService:
                     item_input.floor_level,
                     FLOOR_MULTIPLIERS["MAIN_LEVEL"]
                 )
-                moving_hours *= floor_mult.get("moving", 1.0)
+                # Apply floor multipliers to both packing and moving hours
+                packing_hours *= floor_mult["packing"]
+                moving_hours *= floor_mult.get("moving_down", floor_mult.get("moving", 1.0))
 
                 # Accumulate room totals
                 room_packing_hours += packing_hours * item_input.quantity
@@ -1073,63 +1084,79 @@ class PackCalculationService:
     ) -> int:
         """
         Calculate crew size based on job size.
-        
+
+        IMPORTANT: Do NOT use hours to calculate crew size (circular dependency)
+        Hours are calculated PER PERSON, then multiplied by crew_size.
+        Using hours to determine crew_size creates a circular calculation.
+
         Rules:
         - Minimum crew_size = 2 (safety requirement)
         - Scale up based on:
-          - Total items: +1 crew per 20 items above 30
-          - Total boxes: +1 crew per 15 boxes above 25
-          - Total hours: +1 crew per 8 hours above 12
-          - Number of rooms: +1 crew per 5 rooms above 5
-          - Total floors: +1 crew if 3+ floors
-        
+          - Total boxes: Primary factor (realistic workload indicator)
+          - Total items: Secondary factor (complexity indicator)
+          - Number of rooms: Coordination overhead
+          - Total floors: Physical difficulty multiplier
+
         Args:
-            job_size: Dict with keys: total_items, total_boxes, total_hours_base, num_rooms, total_floors
+            job_size: Dict with keys: total_items, total_boxes, num_rooms, total_floors
             user_provided_crew_size: User-specified crew size (if provided, use as minimum)
-        
+
         Returns:
-            Recommended crew size (minimum 2)
+            Recommended crew size (minimum 2, maximum 6 for residential)
         """
-        # If user provided crew_size, use it as minimum
-        min_crew = 2
+        # If user provided crew_size, use it directly (override auto-calculation)
         if user_provided_crew_size is not None and user_provided_crew_size > 0:
-            min_crew = max(2, user_provided_crew_size)
-        
+            return max(2, user_provided_crew_size)
+
         total_items = job_size.get("total_items", 0)
         total_boxes = job_size.get("total_boxes", 0)
-        total_hours_base = job_size.get("total_hours_base", 0.0)
         num_rooms = job_size.get("num_rooms", 0)
         total_floors = job_size.get("total_floors", 1)
-        
+
+        self.logger.info(f"[CREW SIZE DEBUG] Input: total_items={total_items}, total_boxes={total_boxes}, num_rooms={num_rooms}, total_floors={total_floors}")
+
         # Start with minimum crew size
-        crew_size = min_crew
-        
-        # Add crew based on total items
-        if total_items > 30:
-            extra_items = total_items - 30
-            crew_size += max(0, extra_items // 20)
-        
-        # Add crew based on total boxes
-        if total_boxes > 25:
-            extra_boxes = total_boxes - 25
-            crew_size += max(0, extra_boxes // 15)
-        
-        # Add crew based on total hours (base hours)
-        if total_hours_base > 12:
-            extra_hours = total_hours_base - 12
-            crew_size += max(0, int(extra_hours // 8))
-        
-        # Add crew based on number of rooms
-        if num_rooms > 5:
-            extra_rooms = num_rooms - 5
-            crew_size += max(0, extra_rooms // 5)
-        
-        # Add crew for multi-floor jobs (stairs make it slower)
+        crew_size = 2
+        self.logger.info(f"[CREW SIZE DEBUG] Starting crew_size: {crew_size}")
+
+        # PRIMARY FACTOR: Total boxes (most realistic workload indicator)
+        # Professional crews can handle ~40-50 boxes per person per day
+        # For pack-out estimation: +1 crew per 60 boxes above base threshold
+        if total_boxes > 40:
+            extra_boxes = total_boxes - 40
+            box_crew_add = min(3, extra_boxes // 60)
+            crew_size += box_crew_add
+            self.logger.info(f"[CREW SIZE DEBUG] Boxes adjustment: extra_boxes={extra_boxes}, adding {box_crew_add}, crew_size now {crew_size}")
+
+        # SECONDARY FACTOR: Total items (complexity/variety indicator)
+        # Only add crew if items count suggests high complexity
+        if total_items > 50:
+            extra_items = total_items - 50
+            item_crew_add = min(1, extra_items // 40)
+            crew_size += item_crew_add
+            self.logger.info(f"[CREW SIZE DEBUG] Items adjustment: extra_items={extra_items}, adding {item_crew_add}, crew_size now {crew_size}")
+
+        # COORDINATION FACTOR: Number of rooms (parallel work opportunity)
+        # Multiple rooms allow parallel packing, but only up to a point
+        if num_rooms > 4:
+            crew_size += 1  # +1 for many rooms (parallel work)
+            self.logger.info(f"[CREW SIZE DEBUG] Rooms adjustment: num_rooms={num_rooms} > 4, adding 1, crew_size now {crew_size}")
+
+        # PHYSICAL DIFFICULTY: Multi-floor jobs (stairs slow down work)
+        # Note: Floor multipliers are already applied to hours, this is for crew sizing
         if total_floors >= 3:
-            crew_size += 1
-        
+            crew_size += 1  # +1 for 3+ floors
+            self.logger.info(f"[CREW SIZE DEBUG] Floors adjustment: total_floors={total_floors} >= 3, adding 1, crew_size now {crew_size}")
+
+        # Cap maximum crew size at 4 for residential jobs
+        # (More crew = coordination overhead, diminishing returns)
+        crew_size = min(4, crew_size)
+        self.logger.info(f"[CREW SIZE DEBUG] After cap at 4: crew_size={crew_size}")
+
         # Ensure minimum of 2
-        return max(2, crew_size)
+        final_crew_size = max(2, crew_size)
+        self.logger.info(f"[CREW SIZE DEBUG] FINAL crew_size={final_crew_size}")
+        return final_crew_size
 
     def _calculate_logistics_labor(self, rooms_data: List[Dict[str, Any]], all_materials: Dict[str, float]) -> tuple[float, float]:
         """
@@ -1355,9 +1382,7 @@ class PackCalculationService:
         normalized_input = item_name.lower().strip()
         
         # Skip matching if item has "contents" - contents should not match furniture
-        has_contents = any(keyword in normalized_input for keyword in [
-            '+ contents', '+contents', 'with contents', '& contents', 'and contents', ' contents'
-        ])
+        has_contents = any(keyword in normalized_input for keyword in CONTENTS_KEYWORDS)
         if has_contents:
             print(f"🚫 Skipping furniture matching for contents-only item: '{item_name}'")
             return None
@@ -1441,9 +1466,7 @@ class PackCalculationService:
         """Get Xactimate materials for an item"""
         # Check if item has "+ contents" or "with contents" (check at end or anywhere)
         item_name_lower = item_input.item_name.lower()
-        has_contents = any(keyword in item_name_lower for keyword in [
-            '+ contents', '+contents', 'with contents', '& contents', 'and contents', ' contents'
-        ])
+        has_contents = any(keyword in item_name_lower for keyword in CONTENTS_KEYWORDS)
         
         # Debug log
         if has_contents:
@@ -1586,11 +1609,9 @@ class PackCalculationService:
     ) -> tuple[float, float]:
         """Calculate packing and moving hours for an item"""
         item_name_lower = item_input.item_name.lower()
-        
+
         # Check if item has "contents" - if so, use ONLY contents labor, no furniture labor
-        has_contents = any(keyword in item_name_lower for keyword in [
-            '+ contents', '+contents', 'with contents', '& contents', 'and contents', ' contents'
-        ])
+        has_contents = any(keyword in item_name_lower for keyword in CONTENTS_KEYWORDS)
         
         if has_contents:
             # Contents-only: use contents packing hours only (no furniture moving hours)
@@ -1615,31 +1636,36 @@ class PackCalculationService:
         mapping = self.mapping_repo.get_by_item_name(item_input.item_name)
 
         if mapping:
-            packing_hours = mapping.get("packing_hours_base") or 0.3
-            moving_hours = mapping.get("moving_hours_base") or 0.2
+            packing_hours = mapping.get("packing_hours_base") or 0.1
+            moving_hours = mapping.get("moving_hours_base") or 0.05
         elif item_input.item_name in ITEM_MAPPINGS:
             # Try exact match in seed data
             item_data = ITEM_MAPPINGS[item_input.item_name]
-            packing_hours = item_data.get("packing_hours", 0.3)
-            moving_hours = item_data.get("moving_hours", 0.2)
+            packing_hours = item_data.get("packing_hours", 0.1)
+            moving_hours = item_data.get("moving_hours", 0.05)
         else:
             # Try fuzzy matching
             normalized_key = self._normalize_item_name(item_input.item_name)
             if normalized_key and normalized_key in ITEM_MAPPINGS:
                 item_data = ITEM_MAPPINGS[normalized_key]
                 print(f"✅ Found fuzzy labor mapping: '{item_input.item_name}' → '{normalized_key}'")
-                packing_hours = item_data.get("packing_hours", 0.3)
-                moving_hours = item_data.get("moving_hours", 0.2)
+                packing_hours = item_data.get("packing_hours", 0.1)
+                moving_hours = item_data.get("moving_hours", 0.05)
             else:
-                # Default fallback
-                packing_hours = 0.3
-                moving_hours = 0.2
+                # Default fallback - REDUCED for typical small kitchen/household items
+                # Original: 0.3h packing + 0.2h moving = 0.5h total (30 min) - too high for plates, cups, etc.
+                # Updated: 0.1h packing + 0.05h moving = 0.15h total (9 min) - realistic for small items
+                packing_hours = 0.1
+                moving_hours = 0.05
 
-        # Add contents packing hours if available (from contents estimator)
-        # This handles cases where furniture AND contents are both packed
-        if hasattr(item_input, '_contents_packing_hours'):
-            print(f"   Adding contents packing hours: {item_input._contents_packing_hours:.2f}h")
-            packing_hours += item_input._contents_packing_hours
+        # NOTE: This code is unreachable currently because has_contents returns early above (line 1616)
+        # Reserved for future feature: furniture + contents (e.g., "Desk with contents" packs BOTH desk AND contents)
+        # Currently, "+ contents" suffix triggers contents-ONLY calculation (no furniture)
+        #
+        # Future implementation: if furniture+contents is supported, uncomment below:
+        # if hasattr(item_input, '_contents_packing_hours'):
+        #     print(f"   Adding contents packing hours to furniture: {item_input._contents_packing_hours:.2f}h")
+        #     packing_hours += item_input._contents_packing_hours
 
         return (packing_hours, moving_hours)
 

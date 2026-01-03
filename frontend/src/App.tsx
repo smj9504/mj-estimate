@@ -65,6 +65,9 @@ const WaterMitigationDetail = lazy(() => import('./pages/WaterMitigationDetail')
 const DebrisCalculator = lazy(() => import('./pages/DebrisCalculator'));
 const MaterialDetectionPage = lazy(() => import('./pages/MaterialDetectionPage'));
 const PackCalculator = lazy(() => import('./pages/PackCalculator'));
+const PackCalculatorNew = lazy(() => import('./pages/PackCalculatorNew'));
+const PackCalculatorNewList = lazy(() => import('./pages/PackCalculatorNewList'));
+const PackCalculatorNewDetail = lazy(() => import('./pages/PackCalculatorNewDetail'));
 const PackCalculationList = lazy(() => import('./pages/PackCalculationList'));
 
 // ML & Training Pages
@@ -72,6 +75,9 @@ const MLTraining = lazy(() => import('./pages/MLTraining'));
 
 // Test & Dev Pages
 const SketchTest = lazy(() => import('./pages/SketchTest'));
+
+// PDF Editor Pages
+const PDFEditor = lazy(() => import('./pages/PDFEditor'));
 
 // Error Pages
 const NotFound = lazy(() => import('./pages/NotFound'));
@@ -82,12 +88,14 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const PageLoader = () => (
   <div style={{ 
     display: 'flex', 
+    flexDirection: 'column',
     justifyContent: 'center', 
     alignItems: 'center', 
     height: '100vh',
     width: '100%'
   }}>
-    <Spin size="large" tip="Loading..." />
+    <Spin size="large" />
+    <div style={{ marginTop: 16, color: '#999' }}>Loading...</div>
   </div>
 );
 
@@ -506,6 +514,42 @@ const router = createBrowserRouter([
     )
   },
   {
+    path: "/reconstruction-estimate/pack-calculator-new",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <PackCalculatorNew />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/reconstruction-estimate/pack-calculator-new/list",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <PackCalculatorNewList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/reconstruction-estimate/pack-calculator-new/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <PackCalculatorNewDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
     path: "/reconstruction-estimate/pack-calculator/:id",
     element: (
       <ProtectedRoute>
@@ -561,6 +605,19 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <SketchTest />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // PDF Editor Route
+  {
+    path: "/pdf-editor",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <PDFEditor />
           </Suspense>
         </Layout>
       </ProtectedRoute>

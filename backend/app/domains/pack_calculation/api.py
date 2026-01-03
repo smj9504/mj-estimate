@@ -20,6 +20,17 @@ from .schemas import (
     ItemMaterialMappingInput,
     ItemMaterialMappingResponse,
     MLMetricsResponse,
+    TemplateSummaryResponse,
+    TemplateDetailResponse,
+    TemplateItemResponse,
+    StorageMultiplierResponse,
+    DensityModifierResponse,
+    DensityEstimationRequest,
+    DensityEstimationResponse,
+    EstimatedItemResponse,
+    BulkTextParseRequest,
+    BulkTextParseResponse,
+    ParsedItemResponse,
 )
 from .repository import (
     PackCalculationRepository,
@@ -69,124 +80,182 @@ def get_seed_categories(
     return {"categories": categories}
 
 
-@router.get("/{calculation_id}", response_model=PackCalculationDetailResponse)
-def get_calculation(
-    calculation_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user),
-):
-    """Get pack calculation by ID with full details including rooms and items"""
-    logger.info(
-        f"[PackCalc] GET detail for calculation_id={calculation_id}"
-    )
-    repo = PackCalculationRepository(db)
-    calculation = repo.get_by_id_with_rooms(calculation_id)
-
-    if not calculation:
-        logger.warning(
-            f"[PackCalc] Calculation not found for id={calculation_id}"
-        )
-        raise HTTPException(status_code=404, detail="Calculation not found")
-
-    service = PackCalculationService(db)
-    return service.format_detail_response(calculation)
-
-
-@router.get("/", response_model=List[PackCalculationResult])
-def list_calculations(
-    skip: int = 0,
-    limit: int = 50,
-    db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user),
-):
-    """List all pack calculations"""
-    import logging
-    logger = logging.getLogger(__name__)
-
-    repo = PackCalculationRepository(db)
-    calculations = repo.get_all(offset=skip, limit=limit, order_by="-created_at")
-
-    logger.info(f"Found {len(calculations)} pack calculations")
-
-    service = PackCalculationService(db)
-    results = []
-    for calc in calculations:
-        try:
-            logger.info(f"Formatting calculation {calc.get('id')}")
-            result = service.format_calculation_response(calc)
-            results.append(result)
-        except Exception as e:
-            logger.error(f"Error formatting calculation {calc.get('id')}: {str(e)}")
-            logger.exception(e)
-            # Skip this calculation and continue with others
-            continue
-
-    logger.info(f"Successfully formatted {len(results)} calculations")
-    return results
-
-
-@router.post("/{calculation_id}/correct")
-def save_correction(
-    calculation_id: UUID,
-    correction: CorrectionInput,
-    db: Session = Depends(get_db),
+# Room Template endpoints
+@router.get("/templates", response_model=List[TemplateSummaryResponse])
+def list_templates(
     current_user: Staff = Depends(get_current_user),
 ):
     """
-    Save human corrections to improve ML model
-    Triggers retraining when enough corrections accumulated
+    List all available room templates
+    Returns template summaries with basic info
     """
-    service = PackCalculationService(db)
-    result = service.save_correction(
-        calculation_id,
-        correction,
-        current_user.id
-    )
-    return result
+    from .templates import template_registry
+
+    return template_registry.get_summary()
 
 
-@router.put("/{calculation_id}", response_model=PackCalculationResult)
-def update_calculation(
-    calculation_id: UUID,
-    request: PackCalculationRequest,
-    db: Session = Depends(get_db),
+@router.get("/templates/{room_type}", response_model=TemplateDetailResponse)
+def get_template(
+    room_type: str,
     current_user: Staff = Depends(get_current_user),
 ):
-    """Update pack calculation - recalculate with new inputs while preserving ID"""
-    service = PackCalculationService(db)
+    """
+    Get detailed template for a specific room type
+    Includes all base_items, storage_multipliers, and density_modifiers
+    """
+    from .templates import template_registry, RoomType
 
+    # Validate room type
     try:
-        logger.info(
-            f"[PackCalc] PUT update requested for calculation_id={calculation_id}"
+        room_type_enum = RoomType(room_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid room type: {room_type}. Valid types: {[rt.value for rt in RoomType]}"
         )
-        result = service.update(calculation_id, request, current_user.id)
-        logger.info(
-            f"[PackCalc] PUT update succeeded for calculation_id={calculation_id}"
+
+    template = template_registry.get(room_type_enum)
+    if not template:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No template found for room type: {room_type}"
         )
-        return result
-    except ValueError as e:
-        logger.warning(
-            f"[PackCalc] PUT update not found for calculation_id="
-            f"{calculation_id}: {e}"
-        )
-        raise HTTPException(status_code=404, detail=str(e))
+
+    # Convert template to response format
+    return TemplateDetailResponse(
+        id=template.id,
+        room_type=template.room_type.value,
+        name=template.name,
+        description=template.description,
+        base_items=[
+            TemplateItemResponse(
+                category=item.category,
+                subcategory=item.subcategory,
+                base_quantity=item.base_quantity,
+                variance_range=item.variance_range,
+                pack_size=item.pack_size,
+                is_optional=item.is_optional,
+                storage_type=item.storage_type,
+            )
+            for item in template.base_items
+        ],
+        storage_multipliers=[
+            StorageMultiplierResponse(
+                storage_type=sm.storage_type,
+                base_count=sm.base_count,
+                items_per_unit=sm.items_per_unit,
+                density_impact={k.value: v for k, v in sm.density_impact.items()},
+            )
+            for sm in template.storage_multipliers
+        ],
+        density_modifiers=[
+            DensityModifierResponse(
+                density_level=dm.density_level.value,
+                quantity_multiplier=dm.quantity_multiplier,
+                additional_categories=dm.additional_categories,
+            )
+            for dm in template.density_modifiers
+        ],
+    )
 
 
-@router.delete("/{calculation_id}")
-def delete_calculation(
-    calculation_id: UUID,
-    db: Session = Depends(get_db),
+# Density Estimation endpoint
+@router.post("/estimate/density", response_model=DensityEstimationResponse)
+def estimate_density(
+    request: DensityEstimationRequest,
     current_user: Staff = Depends(get_current_user),
 ):
-    """Delete pack calculation"""
-    repo = PackCalculationRepository(db)
-    calculation = repo.get_by_id(calculation_id)
+    """
+    Estimate pack items based on room type and density level
+    Uses AI-powered density estimation with template-based calculations
+    """
+    from .density_estimator import DensityEstimator
+    from .templates import RoomType, DensityLevel
+    import logging
 
-    if not calculation:
-        raise HTTPException(status_code=404, detail="Calculation not found")
+    logger = logging.getLogger(__name__)
+    logger.info(f"Density estimation request: room_type={request.room_type}, density_level={request.density_level}")
 
-    repo.delete(calculation_id)
-    return {"message": "Calculation deleted successfully"}
+    # Validate inputs
+    try:
+        room_type = RoomType(request.room_type)
+        density_level = DensityLevel(request.density_level)
+    except ValueError as e:
+        logger.error(f"Invalid enum value: {str(e)}")
+        logger.error(f"Valid RoomTypes: {[rt.value for rt in RoomType]}")
+        logger.error(f"Valid DensityLevels: {[dl.value for dl in DensityLevel]}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid input: {str(e)}. Valid room types: {[rt.value for rt in RoomType]}. Valid density levels: {[dl.value for dl in DensityLevel]}"
+        )
+
+    # Run estimation
+    estimator = DensityEstimator()
+    try:
+        # Extract room_size from request or use default
+        room_size = request.room_size or "medium"
+
+        result = estimator.estimate(
+            room_type=room_type,
+            density_level=density_level,
+            room_size=room_size,
+            custom_adjustments=request.custom_adjustments
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Convert to response format
+    return DensityEstimationResponse(
+        estimated_items=[
+            EstimatedItemResponse(
+                category=item["category"],
+                subcategory=item["subcategory"],
+                quantity=item["quantity"],
+                pack_size=item["pack_size"],
+                storage_type=item.get("storage_type"),
+            )
+            for item in result["estimated_items"]
+        ],
+        total_boxes=result["total_boxes"],
+        confidence=result["confidence"],
+        breakdown=result["breakdown"],
+        assumptions=result["assumptions"],
+    )
+
+
+# Bulk Text Parser endpoint
+@router.post("/parse/bulk-text", response_model=BulkTextParseResponse)
+def parse_bulk_text(
+    request: BulkTextParseRequest,
+    current_user: Staff = Depends(get_current_user),
+):
+    """
+    Parse bulk text input into structured pack items
+    Supports various text formats with intelligent category inference
+    """
+    from .bulk_text_parser import BulkTextParser
+
+    parser = BulkTextParser()
+    result = parser.parse(text=request.text)
+
+    # Convert to response format
+    return BulkTextParseResponse(
+        items=[
+            ParsedItemResponse(
+                category=item["category"],
+                subcategory=item["subcategory"],
+                quantity=item["quantity"],
+                pack_size=item["pack_size"],
+                original_text=item["original_text"],
+                confidence=item["confidence"],
+            )
+            for item in result["items"]
+        ],
+        unparsed_lines=result.get("unparsed_lines", []),
+        warnings=result.get("warnings", []),
+        confidence=result.get("confidence", 0.0),
+        summary=result.get("summary", {}),
+    )
 
 
 # Item Material Mapping endpoints (Admin)
@@ -347,3 +416,124 @@ def trigger_ml_retraining(
         "message": "ML retraining triggered successfully",
         "status": "queued"
     }
+
+
+# Generic calculation endpoints (MUST be at the end to avoid path conflicts)
+@router.get("/", response_model=List[PackCalculationResult])
+def list_calculations(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """List all pack calculations"""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    repo = PackCalculationRepository(db)
+    calculations = repo.get_all(offset=skip, limit=limit, order_by="-created_at")
+
+    logger.info(f"Found {len(calculations)} pack calculations")
+
+    service = PackCalculationService(db)
+    results = []
+    for calc in calculations:
+        try:
+            logger.info(f"Formatting calculation {calc.get('id')}")
+            result = service.format_calculation_response(calc)
+            results.append(result)
+        except Exception as e:
+            logger.error(f"Error formatting calculation {calc.get('id')}: {str(e)}")
+            logger.exception(e)
+            # Skip this calculation and continue with others
+            continue
+
+    logger.info(f"Successfully formatted {len(results)} calculations")
+    return results
+
+
+@router.get("/{calculation_id}", response_model=PackCalculationDetailResponse)
+def get_calculation(
+    calculation_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """Get pack calculation by ID with full details including rooms and items"""
+    logger.info(
+        f"[PackCalc] GET detail for calculation_id={calculation_id}"
+    )
+    repo = PackCalculationRepository(db)
+    calculation = repo.get_by_id_with_rooms(calculation_id)
+
+    if not calculation:
+        logger.warning(
+            f"[PackCalc] Calculation not found for id={calculation_id}"
+        )
+        raise HTTPException(status_code=404, detail="Calculation not found")
+
+    service = PackCalculationService(db)
+    return service.format_detail_response(calculation)
+
+
+@router.post("/{calculation_id}/correct")
+def save_correction(
+    calculation_id: UUID,
+    correction: CorrectionInput,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """
+    Save human corrections to improve ML model
+    Triggers retraining when enough corrections accumulated
+    """
+    service = PackCalculationService(db)
+    result = service.save_correction(
+        calculation_id,
+        correction,
+        current_user.id
+    )
+    return result
+
+
+@router.put("/{calculation_id}", response_model=PackCalculationResult)
+def update_calculation(
+    calculation_id: UUID,
+    request: PackCalculationRequest,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """Update pack calculation - recalculate with new inputs while preserving ID"""
+    service = PackCalculationService(db)
+
+    try:
+        logger.info(
+            f"[PackCalc] PUT update requested for calculation_id={calculation_id}"
+        )
+        result = service.update(calculation_id, request, current_user.id)
+        logger.info(
+            f"[PackCalc] PUT update succeeded for calculation_id={calculation_id}"
+        )
+        return result
+    except ValueError as e:
+        logger.warning(
+            f"[PackCalc] PUT update not found for calculation_id="
+            f"{calculation_id}: {e}"
+        )
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/{calculation_id}")
+def delete_calculation(
+    calculation_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """Delete pack calculation"""
+    repo = PackCalculationRepository(db)
+    calculation = repo.get_by_id(calculation_id)
+
+    if not calculation:
+        raise HTTPException(status_code=404, detail="Calculation not found")
+
+    repo.delete(calculation_id)
+    return {"message": "Calculation deleted successfully"}

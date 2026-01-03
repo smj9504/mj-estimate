@@ -50,6 +50,20 @@ const getItemPrice = (item: LineItemModalItem | LineItem): number => {
   return (item as LineItem).untaxed_unit_price || 0;
 };
 
+// Helper function to extract note/includes content from an item
+const getItemNote = (item: LineItemModalItem | LineItem): string => {
+  // First check for includes field (available in both types)
+  if ('includes' in item && item.includes) {
+    return item.includes;
+  }
+  // For LineItem type, also check notes array
+  if ('notes' in item && Array.isArray(item.notes) && item.notes.length > 0) {
+    // Combine all notes content with newlines
+    return item.notes.map((note: { content: string }) => note.content).join('\n');
+  }
+  return '';
+};
+
 const ItemCodeSelector: React.FC<ItemCodeSelectorProps> = ({
   value,
   onChange,
@@ -109,6 +123,7 @@ const ItemCodeSelector: React.FC<ItemCodeSelectorProps> = ({
       const itemDescription = getItemDescription(option.item);
       const itemUnit = getItemUnit(option.item);
       const itemPrice = getItemPrice(option.item);
+      const itemNote = getItemNote(option.item);
 
       const estimateItem: EstimateLineItem = {
         id: undefined,
@@ -123,7 +138,7 @@ const ItemCodeSelector: React.FC<ItemCodeSelectorProps> = ({
         primary_group: '',
         secondary_group: '',
         sort_order: 0,
-        note: '',
+        note: itemNote,
       };
 
       onLineItemAdd([estimateItem]);
@@ -147,6 +162,7 @@ const ItemCodeSelector: React.FC<ItemCodeSelectorProps> = ({
           const itemDescription = getItemDescription(item);
           const itemUnit = getItemUnit(item);
           const itemPrice = getItemPrice(item);
+          const itemNote = getItemNote(item);
 
           return {
             id: undefined,
@@ -161,7 +177,7 @@ const ItemCodeSelector: React.FC<ItemCodeSelectorProps> = ({
             primary_group: '',
             secondary_group: '',
             sort_order: 0,
-            note: '',
+            note: itemNote,
           };
         });
 

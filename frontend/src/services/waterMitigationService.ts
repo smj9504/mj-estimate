@@ -124,6 +124,32 @@ export const waterMitigationService = {
       return response.data;
     },
 
+    // Upload multiple photos to job
+    uploadMultiple: async (jobId: string, files: File[], category?: string): Promise<any[]> => {
+      const results: any[] = [];
+
+      // Upload files one by one to use the existing backend endpoint
+      for (const file of files) {
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          if (category) formData.append('category', category);
+
+          const response = await api.post(`${BASE_URL}/jobs/${jobId}/photos`, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            },
+          });
+          results.push(response.data);
+        } catch (error) {
+          console.error(`Failed to upload ${file.name}:`, error);
+          // Continue with other files even if one fails
+        }
+      }
+
+      return results;
+    },
+
     // Get all photos for a job with optional filtering
     getByJob: async (
       jobId: string,

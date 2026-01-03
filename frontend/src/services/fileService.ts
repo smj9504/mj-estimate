@@ -148,7 +148,10 @@ export const fileService = {
 
   // Get preview URL
   getPreviewUrl(fileId: string): string {
-    return `${api.defaults.baseURL}/api/files/preview/${fileId}`;
+    const baseURL = api.defaults.baseURL || window.location.origin;
+    // Remove trailing slash if present
+    const cleanBaseURL = baseURL.endsWith('/') ? baseURL.slice(0, -1) : baseURL;
+    return `${cleanBaseURL}/api/files/preview/${fileId}`;
   },
 
   // Search files

@@ -33,6 +33,13 @@ class InputMethodEnum(str):
     AI_INFERRED = "AI_INFERRED"
 
 
+class RoomSizeEnum(str):
+    """Room size categories based on square footage"""
+    SMALL = "small"     # 100-200 sqft
+    MEDIUM = "medium"   # 200-400 sqft
+    LARGE = "large"     # 400+ sqft
+
+
 # Input schemas
 class PackItemInput(BaseModel):
     """Input for a single pack item"""
@@ -274,3 +281,105 @@ class ItemMaterialMappingResponse(BaseModel):
     usage_count: int
     last_used_at: Optional[datetime]
     created_at: datetime
+
+
+# Room Template schemas
+class TemplateSummaryResponse(BaseModel):
+    """Summary of a room template"""
+    id: str
+    room_type: str
+    name: str
+    description: str
+    item_count: int
+    has_storage_multipliers: bool
+    supported_density_levels: List[str]
+
+
+class TemplateItemResponse(BaseModel):
+    """Template item detail"""
+    category: str
+    subcategory: Optional[str]
+    base_quantity: int
+    variance_range: tuple
+    pack_size: int
+    is_optional: bool
+    storage_type: Optional[str]
+
+
+class StorageMultiplierResponse(BaseModel):
+    """Storage multiplier detail"""
+    storage_type: str
+    base_count: int
+    items_per_unit: int
+    density_impact: Dict[str, float]
+
+
+class DensityModifierResponse(BaseModel):
+    """Density modifier detail"""
+    density_level: str
+    quantity_multiplier: float
+    additional_categories: List[str]
+
+
+class TemplateDetailResponse(BaseModel):
+    """Detailed template response"""
+    id: str
+    room_type: str
+    name: str
+    description: str
+    base_items: List[TemplateItemResponse]
+    storage_multipliers: List[StorageMultiplierResponse]
+    density_modifiers: List[DensityModifierResponse]
+
+
+# Density Estimation schemas
+class DensityEstimationRequest(BaseModel):
+    """Request for density-based estimation"""
+    room_type: str = Field(..., description="Room type (kitchen, bedroom, etc.)")
+    density_level: str = Field(..., description="Density level (minimal, moderate, full, packed)")
+    room_size: str = Field(default="medium", description="Room size (small, medium, large)")
+    custom_adjustments: Optional[Dict] = Field(default=None, description="Custom adjustment parameters")
+
+
+class EstimatedItemResponse(BaseModel):
+    """Estimated item from density calculation"""
+    category: str
+    subcategory: str
+    quantity: int
+    pack_size: int
+    storage_type: Optional[str]
+
+
+class DensityEstimationResponse(BaseModel):
+    """Response from density estimation"""
+    estimated_items: List[EstimatedItemResponse]
+    total_boxes: int
+    confidence: float
+    breakdown: Dict[str, int]  # By storage type
+    assumptions: List[str]
+
+
+# Bulk Text Parser schemas
+class BulkTextParseRequest(BaseModel):
+    """Request for bulk text parsing"""
+    text: str
+    options: Optional[Dict] = None
+
+
+class ParsedItemResponse(BaseModel):
+    """Parsed item response"""
+    category: str
+    subcategory: str
+    quantity: int
+    pack_size: int
+    original_text: str
+    confidence: float
+
+
+class BulkTextParseResponse(BaseModel):
+    """Response from bulk text parsing"""
+    items: List[ParsedItemResponse]
+    unparsed_lines: List[str]
+    warnings: List[str]
+    confidence: float
+    summary: Dict[str, int]  # Category counts

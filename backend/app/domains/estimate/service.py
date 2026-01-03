@@ -224,49 +224,45 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
 
             repository = self._get_repository_instance(session)
 
-            # Extract items and room_data
-            items_data = data.pop('items', [])
+            # Extract items and room_data (keep items in data for update_with_items)
+            items_data = data.get('items', [])
             room_data = data.get('room_data')
 
             # Convert room_data to JSON string if it's a dict
             if isinstance(room_data, dict):
                 data['room_data'] = json.dumps(room_data)
 
-            logger.info(f"Final data before repository.update: {list(data.keys())}")
-            logger.info(f"Final loss_date before repository.update: {data.get('loss_date')}")
-            logger.info(f"Final client_name before repository.update: {data.get('client_name')}")
+            logger.info(f"Final data before repository.update_with_items: {list(data.keys())}")
+            logger.info(f"Final loss_date before repository.update_with_items: {data.get('loss_date')}")
+            logger.info(f"Final client_name before repository.update_with_items: {data.get('client_name')}")
 
-            # Update estimate
-            updated_estimate = repository.update(estimate_id, data)
-            if not updated_estimate:
-                return None
-            
-            # Update items (simplified approach)
-            # In a production system, you might want to handle item updates more granularly
-            # Delete existing items
-            from app.domains.estimate.models import EstimateItem
-            repository.db_session.query(EstimateItem).filter(EstimateItem.estimate_id == estimate_id).delete()
-            
-            # Create new items
-            logger.info(f"Creating {len(items_data)} items for estimate {estimate_id}")
-            for idx, item_data in enumerate(items_data):
-                logger.info(f"Processing item {idx}: {item_data}")
-                logger.info(f"Item fields - name: {item_data.get('name')}, description: {item_data.get('description')}")
-
-                item_data['estimate_id'] = estimate_id
-                item_data['order_index'] = idx
-                # Calculate the amount for the item
-                quantity = float(item_data.get('quantity', 1))
-                rate = float(item_data.get('rate', 0))
-                item_data['amount'] = quantity * rate
-
-                # Create the item directly using SQLAlchemy
+            # Use update_with_items if repository has it, otherwise fall back to update
+            if hasattr(repository, 'update_with_items'):
+                updated_estimate = repository.update_with_items(estimate_id, data)
+            else:
+                # Fallback to old method
+                items_data = data.pop('items', [])
+                updated_estimate = repository.update(estimate_id, data)
+                if not updated_estimate:
+                    return None
+                
+                # Update items manually
                 from app.domains.estimate.models import EstimateItem
-                item_entity = EstimateItem(**item_data)
-                logger.info(f"Created EstimateItem entity: name={item_entity.name}, description={item_entity.description}")
-                repository.db_session.add(item_entity)
+                repository.db_session.query(EstimateItem).filter(EstimateItem.estimate_id == estimate_id).delete()
+                
+                for idx, item_data in enumerate(items_data):
+                    item_data['estimate_id'] = estimate_id
+                    item_data['order_index'] = idx
+                    quantity = float(item_data.get('quantity', 1))
+                    rate = float(item_data.get('rate', 0))
+                    item_data['amount'] = quantity * rate
+
+                    item_entity = EstimateItem(**item_data)
+                    repository.db_session.add(item_entity)
+                
+                updated_estimate = repository.get_with_items(estimate_id)
             
-            return repository.get_with_items(estimate_id)
+            return updated_estimate
         
         validated_data = self._validate_update_data(estimate_data)
         

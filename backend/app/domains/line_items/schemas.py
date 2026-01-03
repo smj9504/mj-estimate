@@ -2,12 +2,13 @@
 Line Items domain Pydantic schemas
 """
 
-from pydantic import BaseModel, Field, field_validator, model_validator, computed_field
-from typing import List, Optional, Dict, Any, Annotated
 from datetime import datetime
-from uuid import UUID
 from decimal import Decimal
 from enum import Enum
+from typing import Annotated, Any, Dict, List, Optional
+from uuid import UUID
+
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 
 class LineItemType(str, Enum):
@@ -197,6 +198,8 @@ class LineItemSearch(BaseModel):
     is_active: Optional[bool] = True
     page: int = Field(1, ge=1)
     page_size: int = Field(20, ge=1, le=100)
+    sort_by: Optional[str] = Field(None, description="Sort field: 'item', 'description', 'cat', 'unit', 'rate'")
+    sort_order: Optional[str] = Field(None, description="Sort order: 'asc' or 'desc'")
 
 
 # =====================================================
@@ -208,7 +211,9 @@ class EmbeddedItemData(BaseModel):
     This allows templates to store item information directly
     instead of requiring a line_item_id reference.
     """
-    item_code: str = Field(..., max_length=50, description="Item name/code (e.g., 'RDG', 'ITEM001')")
+    item_code: str = Field(
+        ..., max_length=500, description="Item name/code (e.g., 'RDG', 'ITEM001')"
+    )
     description: Optional[str] = Field(None, description="Item display name")
     includes: Optional[str] = Field(None, description="Work description/details")
     unit: Optional[str] = Field("EA", max_length=50, description="Measurement unit")

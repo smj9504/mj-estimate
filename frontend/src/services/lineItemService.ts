@@ -275,7 +275,8 @@ class LineItemService {
           act: item.type === 'XACTIMATE' ? '&' : '+', // "&" for Xactimate, "+" for custom
           unit_price: parseFloat(item.untaxed_unit_price || 0),
           category: item.cat || '',
-          type: item.type || 'CUSTOM'
+          type: item.type || 'CUSTOM',
+          includes: item.includes || '', // Work description/notes
         };
         
         console.log('lineItemService: Transformed item:', {
@@ -368,7 +369,8 @@ class LineItemService {
           act: item.type === 'XACTIMATE' ? '&' : '+',
           unit_price: parseFloat(item.untaxed_unit_price || 0),
           category: item.cat || '',
-          type: item.type || 'CUSTOM'
+          type: item.type || 'CUSTOM',
+          includes: item.includes || '', // Work description/notes
         };
         return modalItem;
       });

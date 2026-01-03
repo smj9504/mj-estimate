@@ -2,16 +2,16 @@
 Estimate domain repository implementations for different database providers.
 """
 
-from typing import Any, Dict, List, Optional
-import logging
-from datetime import datetime, date
-from decimal import Decimal
 import json
+import logging
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
 from app.common.base_repository import SQLAlchemyRepository, SupabaseRepository
+from app.core.config import settings
 from app.core.interfaces import DatabaseSession
 from app.domains.estimate.models import Estimate, EstimateItem
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +189,48 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
 
             estimate_dict['items'] = items_list
 
+            # Add company info if available
+            # Always fetch fresh company info from company_id
+            # to ensure it's up-to-date
+            self.db_session.refresh(estimate)
+            company_id = estimate_dict.get('company_id') or estimate.company_id
+            logger.info(f"get_with_items: estimate_id={estimate_id}, company_id={company_id}")
+            if company_id:
+                try:
+                    from app.domains.company.repository import get_company_repository
+                    company_repo = get_company_repository(self.db_session)
+                    company_info = company_repo.get_by_id(
+                        str(company_id)
+                    )
+                    logger.info(f"get_with_items: fetched company_info={company_info.get('name') if company_info else None}")
+                    if company_info:
+                        estimate_dict['company_name'] = (
+                            company_info.get('name', '')
+                        )
+                        estimate_dict['company_address'] = (
+                            company_info.get('address', '')
+                        )
+                        estimate_dict['company_city'] = (
+                            company_info.get('city', '')
+                        )
+                        estimate_dict['company_state'] = (
+                            company_info.get('state', '')
+                        )
+                        estimate_dict['company_zip'] = (
+                            company_info.get('zipcode', '')
+                        )
+                        estimate_dict['company_phone'] = (
+                            company_info.get('phone', '')
+                        )
+                        estimate_dict['company_email'] = (
+                            company_info.get('email', '')
+                        )
+                        estimate_dict['company_logo'] = (
+                            company_info.get('logo')
+                        )
+                except Exception as e:
+                    logger.error(f"Error fetching company info: {e}")
+
             # Normalize data (add missing fields)
             result = self._normalize_estimate_data(estimate_dict)
 
@@ -198,6 +240,164 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
         except Exception as e:
             logger.error(f"Error getting estimate with items: {e}")
             raise Exception(f"Failed to get estimate with items: {e}")
+    
+    def update_with_items(self, estimate_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update estimate with items, handling company_id updates properly"""
+        try:
+            from datetime import datetime
+
+            from sqlalchemy.orm.attributes import flag_modified
+
+            from app.domains.estimate.models import Estimate, EstimateItem
+            
+            # Extract items if provided
+            items_data = update_data.pop('items', None)
+            
+            # Update estimate fields (without items)
+            estimate = self.db_session.query(Estimate).filter(
+                Estimate.id == estimate_id
+            ).first()
+            
+            if not estimate:
+                raise Exception(f"Estimate {estimate_id} not found")
+            
+            # Update estimate fields
+            logger.info(f"Updating estimate fields: {list(update_data.keys())}")
+            if 'company_id' in update_data:
+                logger.info(f"Updating company_id from {estimate.company_id} to {update_data['company_id']}")
+            
+            for key, value in update_data.items():
+                if hasattr(estimate, key):
+                    old_value = getattr(estimate, key, None)
+                    
+                    # Handle company_id - UUIDType will handle conversion
+                    if key == 'company_id' and value is not None:
+                        if isinstance(value, str):
+                            try:
+                                import uuid
+                                uuid.UUID(value)
+                            except (ValueError, AttributeError):
+                                logger.warning(f"Invalid UUID format for company_id: {value}")
+                                value = None
+                    
+                    setattr(estimate, key, value)
+                    new_value = getattr(estimate, key, None)
+                    if key == 'company_id':
+                        logger.info(f"Set company_id: {old_value} -> {new_value} (type: {type(new_value)})")
+                        flag_modified(estimate, 'company_id')
+                else:
+                    logger.warning(f"Field {key} not found on Estimate model")
+            
+            # Update timestamp
+            if hasattr(estimate, 'updated_at'):
+                estimate.updated_at = datetime.utcnow()
+            
+            # Verify company_id was set correctly
+            logger.info(f"After update, estimate.company_id = {estimate.company_id}")
+            
+            # Explicitly ensure company_id is updated if it's in update_data
+            if 'company_id' in update_data:
+                company_id_value = update_data['company_id']
+                if isinstance(company_id_value, str):
+                    import uuid
+                    try:
+                        company_id_value = uuid.UUID(company_id_value)
+                    except (ValueError, AttributeError):
+                        pass
+                
+                current_company_id = estimate.company_id
+                if isinstance(current_company_id, str):
+                    try:
+                        current_company_id = uuid.UUID(current_company_id)
+                    except (ValueError, AttributeError):
+                        pass
+                
+                if str(current_company_id) != str(company_id_value):
+                    logger.info(f"Force updating company_id: {current_company_id} -> {company_id_value}")
+                    estimate.company_id = company_id_value
+                    flag_modified(estimate, 'company_id')
+                elif company_id_value is not None:
+                    logger.info(f"Company_id explicitly provided, ensuring it's in UPDATE")
+                    flag_modified(estimate, 'company_id')
+            
+            # Handle items if provided
+            if items_data is not None:
+                # Delete existing items
+                self.db_session.query(EstimateItem).filter(
+                    EstimateItem.estimate_id == estimate_id
+                ).delete()
+
+                # Create new items
+                for idx, item_data in enumerate(items_data):
+                    item_data['estimate_id'] = estimate_id
+                    item_data['order_index'] = idx
+                    # Calculate the amount for the item
+                    quantity = float(item_data.get('quantity', 1))
+                    rate = float(item_data.get('rate', 0))
+                    item_data['amount'] = quantity * rate
+
+                    item_entity = EstimateItem(**item_data)
+                    self.db_session.add(item_entity)
+            
+            # Before flush, ensure company_id is properly set if it was in update_data
+            if 'company_id' in update_data:
+                company_id_value = update_data['company_id']
+                if company_id_value is not None:
+                    if isinstance(company_id_value, str):
+                        import uuid
+                        try:
+                            company_id_value = uuid.UUID(company_id_value)
+                        except (ValueError, AttributeError):
+                            pass
+                    estimate.company_id = company_id_value
+                    flag_modified(estimate, 'company_id')
+                    logger.info(f"Before flush, forced company_id = {estimate.company_id}")
+                else:
+                    estimate.company_id = None
+                    flag_modified(estimate, 'company_id')
+                    logger.info(f"Before flush, forced company_id = None")
+            
+            self.db_session.flush()
+            
+            # Verify company_id before commit
+            if 'company_id' in update_data:
+                logger.info(f"Before commit, estimate.company_id = {estimate.company_id}")
+            
+            self.db_session.commit()
+            
+            # Verify company_id after commit
+            if 'company_id' in update_data:
+                saved_estimate = self.db_session.query(Estimate).filter(
+                    Estimate.id == estimate_id
+                ).first()
+                if saved_estimate:
+                    logger.info(f"After commit, saved_estimate.company_id = {saved_estimate.company_id}")
+
+            # Refresh session to reload relationships after commit
+            self.db_session.expire_all()
+            
+            # Explicitly expire company relationship if company_id was updated
+            if 'company_id' in update_data:
+                estimate = self.db_session.query(Estimate).filter(
+                    Estimate.id == estimate_id
+                ).first()
+                if estimate:
+                    logger.info(f"Before get_with_items, estimate.company_id = {estimate.company_id}")
+                    self.db_session.expire(estimate, ['company'])
+
+            # Return updated estimate with items
+            result = self.get_with_items(estimate_id)
+            if result and 'company_id' in update_data:
+                logger.info(f"get_with_items returned company_id = {result.get('company_id')}")
+                logger.info(f"get_with_items returned company_name = {result.get('company_name')}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error updating estimate with items: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            self.db_session.rollback()
+            raise Exception(f"Failed to update estimate with items: {e}")
     
     def create_with_items(self, estimate_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create estimate with items in a transaction"""
