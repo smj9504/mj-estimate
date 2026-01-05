@@ -254,14 +254,16 @@ export const waterMitigationService = {
       documentType: string,
       jobAddress: string,
       dateOfLoss?: string,
-      rotations?: Record<string, number>  // {photoId: degrees (0, 90, 180, 270)}
+      rotations?: Record<string, number>,  // {photoId: degrees (0, 90, 180, 270)}
+      customFilename?: string  // Custom filename for Custom document type
     ): Promise<{ id: string; filename: string; file_path: string; document_type: string }> => {
       const response = await api.post(`${BASE_URL}/jobs/${jobId}/documents/generate-pdf`, {
         photo_ids: photoIds,
         document_type: documentType,
         job_address: jobAddress,
         date_of_loss: dateOfLoss,
-        rotations: rotations
+        rotations: rotations,
+        custom_filename: customFilename
       });
       return response.data;
     },

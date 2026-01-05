@@ -475,6 +475,23 @@ class LineItemService {
   }
 
   /**
+   * Create or update a line item based on item code and company_id.
+   * If item code already exists, updates the existing item instead of creating a duplicate.
+   */
+  async upsertLineItem(lineItem: LineItemCreate): Promise<{ line_item: LineItem; is_created: boolean; message: string }> {
+    try {
+      const response = await apiClient.post('/api/line-items/upsert', lineItem);
+      return response.data;
+    } catch (error) {
+      throw new LineItemServiceError(
+        `Failed to save line item: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
+        error
+      );
+    }
+  }
+
+  /**
    * Update existing line item
    */
   async updateLineItem(id: string, updates: LineItemUpdate): Promise<LineItem> {

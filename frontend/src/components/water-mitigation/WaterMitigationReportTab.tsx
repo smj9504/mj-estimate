@@ -52,6 +52,9 @@ const { TextArea } = Input;
 interface WaterMitigationReportTabProps {
   jobId: string;
   jobAddress: string;
+  dateOfLoss?: string | null;
+  mitigationStartDate?: string | null;
+  mitigationEndDate?: string | null;
 }
 
 interface Photo {
@@ -65,9 +68,23 @@ interface Photo {
   preview_url?: string;    // Preview URL from API
 }
 
+// Helper function to format date for display
+const formatDateDisplay = (dateStr?: string | null): string | null => {
+  if (!dateStr) return null;
+  try {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+};
+
 const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   jobId,
-  jobAddress
+  jobAddress,
+  dateOfLoss,
+  mitigationStartDate,
+  mitigationEndDate
 }) => {
   // Use React Query for automatic caching - config query
   const {
@@ -102,16 +119,57 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     if (config) {
       setCoverTitle(config.cover_title || 'Water Mitigation Report');
       setCoverDescription(config.cover_description || '');
-      setSections(config.sections || []);
+      // Ensure all sections have required fields with defaults
+      const normalizedSections = (config.sections || []).map((section: any) => ({
+        ...section,
+        layout: section.layout || 'four', // Default layout if missing
+        photos: section.photos || [],
+        summary: section.summary || ''
+      }));
+      setSections(normalizedSections);
     } else {
       // Initialize default config if no config found
       initializeDefaultConfig();
     }
-  }, [config, jobAddress]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, jobAddress, dateOfLoss, mitigationStartDate, mitigationEndDate]);
 
   const initializeDefaultConfig = () => {
     setCoverTitle('Water Mitigation Report');
-    setCoverDescription(`Property: ${jobAddress || 'N/A'}\n\nThis report documents the water mitigation work performed at the above property.`);
+    
+    // Build cover description with property address and dates
+    let description = '';
+    
+    // Property Address
+    if (jobAddress) {
+      description += `Property: ${jobAddress}\n`;
+    }
+    
+    // Date of Loss
+    if (dateOfLoss) {
+      const formattedLoss = formatDateDisplay(dateOfLoss);
+      if (formattedLoss) {
+        description += `Date of Loss: ${formattedLoss}\n`;
+      }
+    }
+    
+    // Water Mitigation Period
+    if (mitigationStartDate || mitigationEndDate) {
+      const startFormatted = formatDateDisplay(mitigationStartDate);
+      const endFormatted = formatDateDisplay(mitigationEndDate);
+      
+      if (startFormatted && endFormatted) {
+        description += `Water Mitigation: ${startFormatted} ~ ${endFormatted}\n`;
+      } else if (startFormatted) {
+        description += `Water Mitigation Start: ${startFormatted}\n`;
+      } else if (endFormatted) {
+        description += `Water Mitigation End: ${endFormatted}\n`;
+      }
+    }
+    
+    description += `\nThis report documents the water mitigation work performed at the above property.`;
+    
+    setCoverDescription(description);
     setSections([]);
   };
 
@@ -155,22 +213,29 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
 
   const handleGeneratePDF = async () => {
     try {
+      // Check if configuration is saved
+      if (!config?.id) {
+        Modal.warning({
+          title: 'Configuration Not Saved',
+          content: 'Please save the report configuration before generating PDF. Click the "Save Configuration" button first.',
+          okText: 'OK'
+        });
+        return;
+      }
+
+      // Check if there are sections with photos
+      if (sections.length === 0 || sections.every(s => s.photos.length === 0)) {
+        Modal.warning({
+          title: 'No Photos Selected',
+          content: 'Please add at least one section with photos before generating the report.',
+          okText: 'OK'
+        });
+        return;
+      }
+
       message.loading('Generating PDF report...', 0);
 
-      const requestData = config?.id
-        ? { config_id: config.id }
-        : {
-            save_config: true,
-            config: {
-              job_id: jobId,
-              cover_title: coverTitle,
-              cover_description: coverDescription,
-              sections: sections.map((section, index) => ({
-                ...section,
-                display_order: index
-              }))
-            }
-          };
+      const requestData = { config_id: config.id };
 
       const blob = await waterMitigationService.report.generateReport(jobId, requestData);
 
@@ -457,7 +522,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                   </Form.Item>
                   <Form.Item label="Photo Layout">
                     <Select
-                      value={currentSection.layout}
+                      value={currentSection.layout || 'four'}
                       onChange={value => handleUpdateSection(currentSection.id, { layout: value })}
                       style={{ width: 200 }}
                     >

@@ -1340,7 +1340,7 @@ def generate_images_pdf(
 ) -> str:
     """
     Generate PDF from images with each image taking up one full page.
-    No margins - images fill the entire page.
+    Uses reportlab + pypdf instead of WeasyPrint to avoid GTK+ dependencies.
 
     Args:
         image_paths: List of paths to image files
@@ -1350,113 +1350,98 @@ def generate_images_pdf(
     Returns:
         Path to the generated PDF
     """
-    if not WEASYPRINT_AVAILABLE:
-        raise RuntimeError("WeasyPrint is not available")
+    if not PYPDF_AVAILABLE:
+        raise RuntimeError("pypdf and reportlab are required for PDF generation")
 
-    import base64
     import io
-
+    import logging
+    import tempfile
     from PIL import Image
 
-    # HTML template for each image - fill entire page with no margins
-    html_template = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            @page {{
-                size: letter;
-                margin: 0;
-            }}
-            body {{
-                margin: 0;
-                padding: 0;
-            }}
-            .page {{
-                width: 100%;
-                height: 100vh;
-                page-break-after: always;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                overflow: hidden;
-            }}
-            .page:last-child {{
-                page-break-after: auto;
-            }}
-            .page img {{
-                width: 100%;
-                height: 100%;
-                object-fit: contain;
-            }}
-        </style>
-    </head>
-    <body>
-    {pages}
-    </body>
-    </html>
-"""
+    logger = logging.getLogger(__name__)
+    logger.info(f"Starting PDF generation with {len(image_paths)} images using reportlab")
 
-    # Generate HTML for each image
-    pages_html = []
+    # Create PDF writer
+    writer = PdfWriter()
+
     for img_path in image_paths:
-        # Get rotation for this image (if any)
-        rotation = 0
-        if rotations:
-            # Try to match by photo_id (extracted from path or passed directly)
-            for photo_id, degrees in rotations.items():
-                if photo_id in img_path:
-                    rotation = degrees
-                    break
+        try:
+            # Get rotation for this image
+            rotation = 0
+            if rotations:
+                for photo_id, degrees in rotations.items():
+                    if photo_id in str(img_path):
+                        rotation = degrees
+                        break
 
-        # Load image with PIL for potential rotation
-        img = Image.open(img_path)
+            logger.info(f"Processing image: {img_path} (rotation: {rotation})")
 
-        # Apply rotation if needed
-        if rotation != 0:
-            # PIL's rotate is counter-clockwise, so we negate for clockwise rotation
-            # expand=True to resize canvas to fit rotated image
-            img = img.rotate(-rotation, expand=True)
+            # Load image with PIL
+            img = Image.open(img_path)
 
-        # Convert image to base64
-        img_buffer = io.BytesIO()
-        # Preserve original format or default to JPEG
-        img_format = img.format or 'JPEG'
-        if img_format.upper() == 'JPEG':
-            img.save(img_buffer, format='JPEG', quality=95)
-        else:
-            img.save(img_buffer, format=img_format)
-        img_buffer.seek(0)
-        img_data = base64.b64encode(img_buffer.read()).decode('utf-8')
+            # Resize large images
+            max_width = 2550
+            max_height = 3300
+            if img.width > max_width or img.height > max_height:
+                logger.info(f"Resizing image from {img.width}x{img.height}")
+                img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
 
-        # Determine image mime type
-        img_ext = Path(img_path).suffix.lower()
-        mime_types = {
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.png': 'image/png',
-            '.gif': 'image/gif',
-            '.webp': 'image/webp'
-        }
-        mime_type = mime_types.get(img_ext, 'image/jpeg')
+            # Apply rotation if needed
+            if rotation != 0:
+                logger.info(f"Rotating image by {rotation} degrees")
+                img = img.rotate(-rotation, expand=True)
+                # Save rotated image to temp file
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                img.save(temp_file.name, format='JPEG', quality=95)
+                img_path = temp_file.name
 
-        # Create page HTML
-        page_html = f'''
-        <div class="page">
-            <img src="data:{mime_type};base64,{img_data}" />
-        </div>
-        '''
-        pages_html.append(page_html)
+            img_width, img_height = img.size
 
-    # Combine all pages
-    html_content = html_template.format(pages='\n'.join(pages_html))
+            # Create PDF page with image
+            page_buffer = io.BytesIO()
+            c = canvas.Canvas(page_buffer, pagesize=letter)
 
-    # Generate PDF
+            # Calculate scaling to fit letter size while maintaining aspect ratio
+            page_width, page_height = letter
+            width_scale = page_width / img_width
+            height_scale = page_height / img_height
+            scale = min(width_scale, height_scale)
+
+            # Calculate centered position
+            scaled_width = img_width * scale
+            scaled_height = img_height * scale
+            x = (page_width - scaled_width) / 2
+            y = (page_height - scaled_height) / 2
+
+            # Draw image centered on page
+            c.drawImage(
+                str(img_path),
+                x, y,
+                width=scaled_width,
+                height=scaled_height,
+                preserveAspectRatio=True
+            )
+            c.save()
+            page_buffer.seek(0)
+
+            # Add page to writer
+            page_reader = PdfReader(page_buffer)
+            writer.add_page(page_reader.pages[0])
+
+            logger.info(f"Added image to PDF: {img_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to process image {img_path}: {e}")
+            raise RuntimeError(f"Failed to process image {img_path}: {str(e)}") from e
+
+    # Write final PDF
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    HTML(string=html_content).write_pdf(output_path)
+    with open(output_path, 'wb') as output_file:
+        writer.write(output_file)
 
+    logger.info(f"PDF generation completed: {output_path}")
     return str(output_path)
 
 
@@ -1510,6 +1495,37 @@ def generate_water_mitigation_report_pdf(
 
     env.filters['format_date'] = format_date_filter
 
+    # Format mitigation dates range
+    def format_date_display(date_val):
+        """Format a date for display (e.g., 'Oct 5, 2025')"""
+        if not date_val:
+            return None
+        try:
+            if isinstance(date_val, str):
+                dt = datetime.fromisoformat(date_val.replace('Z', '+00:00'))
+            elif isinstance(date_val, datetime):
+                dt = date_val
+            else:
+                return str(date_val)
+            return dt.strftime('%b %d, %Y')  # e.g., "Oct 5, 2025"
+        except (ValueError, TypeError):
+            return str(date_val) if date_val else None
+
+    mitigation_start = job_data.get('mitigation_start_date')
+    mitigation_end = job_data.get('mitigation_end_date')
+    mitigation_dates = None
+    
+    if mitigation_start or mitigation_end:
+        start_formatted = format_date_display(mitigation_start)
+        end_formatted = format_date_display(mitigation_end)
+        
+        if start_formatted and end_formatted:
+            mitigation_dates = f"{start_formatted} ~ {end_formatted}"
+        elif start_formatted:
+            mitigation_dates = f"{start_formatted} ~"
+        elif end_formatted:
+            mitigation_dates = f"~ {end_formatted}"
+
     # Prepare context
     context = {
         # Cover page
@@ -1518,6 +1534,7 @@ def generate_water_mitigation_report_pdf(
         'property_address': job_data.get('property_address', ''),
         'client_name': job_data.get('homeowner_name', ''),
         'date_of_loss': job_data.get('date_of_loss'),
+        'mitigation_dates': mitigation_dates,
         'report_date': datetime.now().isoformat(),
 
         # Company info

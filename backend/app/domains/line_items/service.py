@@ -78,6 +78,101 @@ class LineItemService:
         except IntegrityError as e:
             logger.error(f"Database error creating line item: {e}")
             raise BusinessError("Failed to create line item")
+
+    async def upsert_line_item(
+        self,
+        line_item: LineItemCreate,
+        user_id: UUID
+    ) -> tuple[LineItemResponse, bool]:
+        """
+        Create or update a line item based on item code and company_id.
+        
+        If a line item with the same item code and company_id exists:
+        - Update it with the new values
+        - Return (updated_item, False) where False indicates it was updated
+        
+        If no matching line item exists:
+        - Create a new one
+        - Return (created_item, True) where True indicates it was created
+        
+        Args:
+            line_item: The line item data to create or update
+            user_id: The user performing the action
+            
+        Returns:
+            Tuple of (LineItemResponse, is_created)
+        """
+        try:
+            # Validate line item type
+            self._validate_line_item_type(line_item)
+
+            # Auto-generate item code if not provided
+            item_code = line_item.item
+            if not item_code or not item_code.strip():
+                item_code = self._generate_item_code(line_item.description)
+                line_item.item = item_code
+
+            # Check for existing line item with same item code and company_id
+            existing = self.repository.find_by_item_code(
+                item_code=item_code,
+                company_id=line_item.company_id,
+                item_type=line_item.type.value if line_item.type else None
+            )
+
+            if existing:
+                # Update existing line item
+                logger.info(f"Found existing line item {existing.id} with item code '{item_code}', updating...")
+                
+                from app.domains.line_items.schemas import LineItemUpdate
+                update_data = LineItemUpdate(
+                    description=line_item.description,
+                    includes=line_item.includes,
+                    unit=line_item.unit,
+                    lab=line_item.lab,
+                    mat=line_item.mat,
+                    equ=line_item.equ,
+                    labor_burden=line_item.labor_burden,
+                    market_condition=line_item.market_condition,
+                    untaxed_unit_price=line_item.untaxed_unit_price,
+                    is_active=line_item.is_active if line_item.is_active is not None else True
+                )
+                
+                db_item = self.repository.update_line_item(existing.id, update_data)
+                
+                # Clear cache
+                self._invalidate_line_item_cache()
+                
+                # Create audit log
+                self.repository.create_audit_entry(
+                    line_item_id=db_item.id,
+                    action='UPDATE',
+                    old_values=existing.to_dict() if hasattr(existing, 'to_dict') else None,
+                    new_values=db_item.to_dict() if hasattr(db_item, 'to_dict') else None,
+                    changed_by=user_id
+                )
+                
+                return LineItemResponse.model_validate(db_item), False
+            else:
+                # Create new line item
+                logger.info(f"No existing line item found with item code '{item_code}', creating new...")
+                db_item = self.repository.create_line_item(line_item, user_id)
+                
+                # Clear cache
+                self._invalidate_line_item_cache()
+                
+                # Create audit log
+                self.repository.create_audit_entry(
+                    line_item_id=db_item.id,
+                    action='CREATE',
+                    new_values=db_item.to_dict() if hasattr(db_item, 'to_dict') else None,
+                    changed_by=user_id
+                )
+                
+                return LineItemResponse.model_validate(db_item), True
+
+        except IntegrityError as e:
+            logger.error(f"Database error in upsert_line_item: {e}")
+            raise BusinessError("Failed to save line item")
     
     async def get_line_item(self, line_item_id: UUID) -> Optional[LineItemResponse]:
         """Get a line item by ID with caching"""

@@ -611,6 +611,9 @@ const WaterMitigationDetail: React.FC = () => {
                 <WaterMitigationReportTab
                   jobId={id}
                   jobAddress={job.property_address || 'Unknown Address'}
+                  dateOfLoss={job.date_of_loss}
+                  mitigationStartDate={job.mitigation_start_date}
+                  mitigationEndDate={job.mitigation_end_date}
                 />
               ) : null
             },

@@ -168,17 +168,27 @@ const FileGallery: React.FC<FileGalleryProps> = ({
         : [selectedCategory];
 
       if (categoriesArray.length > 0 && !categoriesArray.includes('all')) {
-        // Handle 'uncategorized' filter
-        if (categoriesArray.includes('uncategorized') || categoriesArray.includes('')) {
-          filtered = filtered.filter(file =>
-            !file.category ||
-            file.category === '' ||
-            categoriesArray.includes(file.category)
-          );
-        } else {
-          // Normal category filtering
-          filtered = filtered.filter(file => categoriesArray.includes(file.category || ''));
-        }
+        // Normalize selected categories (lowercase, trimmed)
+        const normalizedCategories = categoriesArray.map(c => c.toLowerCase().trim());
+        const includesUncategorized = normalizedCategories.includes('uncategorized') || normalizedCategories.includes('');
+
+        filtered = filtered.filter(file => {
+          // Normalize file category (handle null, undefined, empty string, whitespace)
+          const fileCategory = (file.category || '').toLowerCase().trim();
+          const isUncategorized = !fileCategory || fileCategory === '';
+
+          if (includesUncategorized && isUncategorized) {
+            // File has no category and 'uncategorized' is selected
+            return true;
+          }
+
+          if (!isUncategorized) {
+            // File has a category - check if it's in the selected categories
+            return normalizedCategories.includes(fileCategory);
+          }
+
+          return false;
+        });
       }
     }
 

@@ -86,9 +86,20 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
   const filteredPhotos = useMemo(() => {
     let filtered = photos;
 
-    // Filter by category
+    // Filter by category (case-insensitive, handle uncategorized)
     if (selectedCategory !== 'all') {
-      filtered = filtered.filter(photo => photo.category === selectedCategory);
+      const normalizedSelected = selectedCategory.toLowerCase().trim();
+      const isSelectingUncategorized = normalizedSelected === 'uncategorized' || normalizedSelected === '';
+
+      filtered = filtered.filter(photo => {
+        const photoCategory = (photo.category || '').toLowerCase().trim();
+        const isUncategorized = !photoCategory || photoCategory === '';
+
+        if (isSelectingUncategorized) {
+          return isUncategorized;
+        }
+        return photoCategory === normalizedSelected;
+      });
     }
 
     // Filter by debounced search text

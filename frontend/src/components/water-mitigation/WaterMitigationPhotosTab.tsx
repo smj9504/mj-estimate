@@ -400,6 +400,64 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                 </Button>
               </Tooltip>
             </div>
+          ) : syncStatus.status === 'running' ? (
+            // Show Resume button when sync is running but UI lost connection (e.g., page refresh, server restart)
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Alert
+                message="Sync in progress"
+                description={
+                  <span>
+                    {syncStatus.synced_count !== undefined && (
+                      <>{syncStatus.synced_count} photos synced. </>
+                    )}
+                    Click Resume to monitor progress.
+                  </span>
+                }
+                type="info"
+                showIcon
+                icon={<SyncOutlined spin />}
+                style={{
+                  margin: 0,
+                  background: 'rgba(255,255,255,0.15)',
+                  border: '1px solid rgba(24,144,255,0.3)',
+                  color: 'white'
+                }}
+              />
+              <Button
+                type="primary"
+                icon={<SyncOutlined />}
+                onClick={() => {
+                  setIsSyncing(true);
+                  startPolling();
+                  message.info('Resuming sync monitoring...');
+                }}
+                style={{
+                  background: '#1890ff',
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                  fontWeight: 500
+                }}
+              >
+                Resume Monitoring
+              </Button>
+              <Tooltip title="Cancel sync">
+                <Button
+                  type="text"
+                  danger
+                  size="small"
+                  icon={<CloseCircleOutlined />}
+                  onClick={handleCancel}
+                  loading={cancelMutation.isPending}
+                  style={{
+                    color: '#ff7875',
+                    background: 'rgba(255,255,255,0.1)',
+                    border: 'none'
+                  }}
+                >
+                  Cancel
+                </Button>
+              </Tooltip>
+            </div>
           ) : (
             <Button
               type="primary"

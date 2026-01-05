@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { message } from 'antd';
 import { FileItem, FileContext, FileCategory } from '../types';
@@ -26,6 +26,66 @@ export const useFileGallery = ({
 }: UseFileGalleryProps) => {
   const queryClient = useQueryClient();
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+
+  // Batch category updates for better performance
+  const categoryBatchRef = useRef<Map<string, string>>(new Map());
+  const batchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (batchTimeoutRef.current) {
+        clearTimeout(batchTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Execute batched category updates
+  const executeBatchCategoryUpdate = useCallback(async () => {
+    const batch = categoryBatchRef.current;
+    if (batch.size === 0) return;
+
+    // Group by category for efficiency
+    const categoryGroups = new Map<string, string[]>();
+    batch.forEach((category, fileId) => {
+      if (!categoryGroups.has(category)) {
+        categoryGroups.set(category, []);
+      }
+      categoryGroups.get(category)!.push(fileId);
+    });
+
+    // Clear batch before processing
+    categoryBatchRef.current.clear();
+
+    try {
+      // Process each category group (use Array.from for ES5 compatibility)
+      const entries = Array.from(categoryGroups.entries());
+      for (const [category, fileIds] of entries) {
+        if (context === 'water-mitigation' && fileCategory === 'image') {
+          const { default: waterMitigationService } = await import('../../../../services/waterMitigationService');
+          await waterMitigationService.photos.bulkUpdateCategory(fileIds, category);
+        } else {
+          // For other contexts, use individual updates
+          await Promise.all(
+            fileIds.map((fileId: string) => fileService.updateFile(fileId, { category }))
+          );
+        }
+      }
+
+      // Invalidate and refetch files
+      await queryClient.invalidateQueries({
+        queryKey: ['files', context, contextId, fileCategory]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['files-infinite', context, contextId, fileCategory]
+      });
+
+      message.success(`Updated ${batch.size} photo${batch.size > 1 ? 's' : ''}`);
+    } catch (error: any) {
+      console.error('Batch category update failed:', error);
+      message.error(`Failed to update categories: ${error.message || 'Unknown error'}`);
+    }
+  }, [context, contextId, fileCategory, queryClient]);
 
   // Infinite scroll query for water-mitigation photos
   const infiniteQuery = useInfiniteQuery({
@@ -284,10 +344,21 @@ export const useFileGallery = ({
     deleteMutation.mutate(fileId);
   }, [deleteMutation]);
 
-  // Update file category function
+  // Update file category function with batching
   const updateFileCategory = useCallback(async (fileId: string, category: string) => {
-    categoryMutation.mutate({ fileId, category });
-  }, [categoryMutation]);
+    // Add to batch
+    categoryBatchRef.current.set(fileId, category);
+
+    // Clear existing timeout
+    if (batchTimeoutRef.current) {
+      clearTimeout(batchTimeoutRef.current);
+    }
+
+    // Set new timeout to execute batch after 300ms of inactivity
+    batchTimeoutRef.current = setTimeout(() => {
+      executeBatchCategoryUpdate();
+    }, 300);
+  }, [executeBatchCategoryUpdate]);
 
   return {
     files,

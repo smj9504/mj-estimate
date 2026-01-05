@@ -404,10 +404,15 @@ class WMDocumentResponse(WMDocumentBase):
 class GenerateDocumentRequest(BaseModel):
     """Request to generate document PDF"""
     photo_ids: List[str] = Field(..., description="List of photo IDs to include (EWA requires exactly 1 photo)")
-    document_type: str = Field(..., description="Document type (COS, EWA)")
+    document_type: str = Field(..., description="Document type (COS, EWA, Custom)")
     job_address: str = Field(..., description="Job address for document header")
     date_of_loss: Optional[str] = Field(None, description="Date of loss (required for EWA, format: YYYY-MM-DD)")
     rotations: Optional[Dict[str, int]] = Field(None, description="Photo rotations: {photo_id: degrees (0, 90, 180, 270)}")
+    custom_filename: Optional[str] = Field(
+        None,
+        max_length=200,
+        description="Custom filename for Custom document type (without .pdf extension)"
+    )
 
     @validator('photo_ids')
     def validate_photo_ids(cls, v, values):
@@ -425,6 +430,34 @@ class GenerateDocumentRequest(BaseModel):
         if document_type == 'EWA' and not v:
             raise ValueError('date_of_loss is required for EWA document')
         return v
+
+    @validator('custom_filename')
+    def validate_custom_filename(cls, v, values):
+        """Validate and sanitize custom filename"""
+        if not v:
+            return v
+
+        document_type = values.get('document_type')
+        if document_type != 'Custom':
+            return v
+
+        import re
+        # Remove invalid filename characters
+        sanitized = re.sub(r'[\\/:*?"<>|]', '', v)
+        sanitized = sanitized.strip()
+
+        # Remove .pdf extension if present
+        if sanitized.lower().endswith('.pdf'):
+            sanitized = sanitized[:-4]
+
+        # Validate not empty
+        if not sanitized:
+            raise ValueError('Custom filename cannot be empty')
+
+        if len(sanitized) > 200:
+            raise ValueError('Custom filename must be 200 characters or less')
+
+        return sanitized
 
 
 # Alias for CompanyCam integration

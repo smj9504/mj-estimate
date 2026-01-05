@@ -1718,10 +1718,17 @@ async def generate_document_pdf(
         # Generate filename
         doc_type_names = {
             'COS': 'Certificate of Satisfaction',
-            'EWA': 'Emergency Work Agreement & Authorization'
+            'EWA': 'Emergency Work Agreement & Authorization',
+            'Custom': 'Custom Document'
         }
-        doc_name = doc_type_names.get(request.document_type, request.document_type)
-        filename = f"{request.job_address} - {doc_name}.pdf"
+
+        # Use custom filename if provided for Custom type
+        if request.document_type == 'Custom' and request.custom_filename:
+            filename = f"{request.custom_filename}.pdf"
+            doc_name = 'Custom Document'
+        else:
+            doc_name = doc_type_names.get(request.document_type, request.document_type)
+            filename = f"{request.job_address} - {doc_name}.pdf"
 
         # Create output directory
         output_dir = Path("storage/water-mitigation/documents") / str(job_id)
@@ -2124,6 +2131,84 @@ async def generate_photo_report(
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Debug endpoint to check photo counts for a job
+@router.get("/jobs/{job_id}/photos/debug-count")
+async def debug_photo_count(
+    job_id: UUID,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Debug endpoint to analyze photo count discrepancies.
+
+    Returns detailed breakdown of photo counts for troubleshooting.
+    """
+    from sqlalchemy import func, distinct
+
+    # Total photos for this job
+    total = db.query(func.count(WMPhoto.id)).filter(WMPhoto.job_id == job_id).scalar()
+
+    # Non-trashed photos
+    non_trashed = db.query(func.count(WMPhoto.id)).filter(
+        WMPhoto.job_id == job_id,
+        WMPhoto.is_trashed.is_(False)
+    ).scalar()
+
+    # Trashed photos
+    trashed = db.query(func.count(WMPhoto.id)).filter(
+        WMPhoto.job_id == job_id,
+        WMPhoto.is_trashed.is_(True)
+    ).scalar()
+
+    # CompanyCam photos
+    companycam_total = db.query(func.count(WMPhoto.id)).filter(
+        WMPhoto.job_id == job_id,
+        WMPhoto.source == 'companycam'
+    ).scalar()
+
+    # Unique CompanyCam external_ids
+    unique_external_ids = db.query(func.count(distinct(WMPhoto.external_id))).filter(
+        WMPhoto.job_id == job_id,
+        WMPhoto.source == 'companycam'
+    ).scalar()
+
+    # Check for duplicates
+    duplicate_external_ids = db.query(
+        WMPhoto.external_id,
+        func.count(WMPhoto.id).label('count')
+    ).filter(
+        WMPhoto.job_id == job_id,
+        WMPhoto.source == 'companycam',
+        WMPhoto.external_id.isnot(None)
+    ).group_by(WMPhoto.external_id).having(func.count(WMPhoto.id) > 1).all()
+
+    # Photos by source
+    by_source = db.query(
+        WMPhoto.source,
+        func.count(WMPhoto.id).label('count')
+    ).filter(WMPhoto.job_id == job_id).group_by(WMPhoto.source).all()
+
+    return {
+        'job_id': str(job_id),
+        'total_photos': total,
+        'non_trashed': non_trashed,
+        'trashed': trashed,
+        'companycam_photos': {
+            'total': companycam_total,
+            'unique_external_ids': unique_external_ids,
+            'has_duplicates': len(duplicate_external_ids) > 0,
+            'duplicates': [
+                {'external_id': ext_id, 'count': count}
+                for ext_id, count in duplicate_external_ids
+            ] if duplicate_external_ids else []
+        },
+        'by_source': {
+            source: count for source, count in by_source
+        },
+        'count_by_job_result': service.photo_repo.count_by_job(job_id)
+    }
 
 
 # Admin/Migration endpoint to update thumbnail URLs for existing CompanyCam photos

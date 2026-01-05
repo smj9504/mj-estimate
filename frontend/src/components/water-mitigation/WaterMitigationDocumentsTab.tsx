@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip } from 'antd';
+import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input } from 'antd';
 import { FilePdfOutlined, PlusOutlined, RotateRightOutlined, CloseOutlined } from '@ant-design/icons';
 import FileGallery from '../common/FileGallery/FileGallery';
 import WMDocumentList from './WMDocumentList';
@@ -35,6 +35,11 @@ const DOCUMENT_TYPES: DocumentType[] = [
     value: 'EWA',
     label: 'Emergency Work Agreement & Authorization',
     description: 'Authorization for emergency mitigation work'
+  },
+  {
+    value: 'Custom',
+    label: 'Custom Document',
+    description: 'Custom document with user-defined filename'
   }
 ];
 
@@ -47,6 +52,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [selectedDocType, setSelectedDocType] = useState<string | null>(null);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
   const [photoRotations, setPhotoRotations] = useState<Record<string, number>>({});  // {photoId: degrees}
+  const [customFilename, setCustomFilename] = useState<string>('');
   const [creatingPdf, setCreatingPdf] = useState(false);
   const documentListRef = useRef<any>(null);
 
@@ -61,6 +67,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     setSelectedDocType(null);
     setSelectedPhotoIds([]);
     setPhotoRotations({});
+    setCustomFilename('');
   };
 
   // Rotate a photo by 90 degrees clockwise
@@ -129,6 +136,14 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
       }
     }
 
+    // Custom document validation
+    if (selectedDocType === 'Custom') {
+      if (!customFilename || !customFilename.trim()) {
+        message.error('Please enter a custom filename');
+        return;
+      }
+    }
+
     try {
       setCreatingPdf(true);
 
@@ -145,7 +160,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
         selectedDocType,
         jobAddress,
         dateOfLoss,  // Pass date of loss for EWA documents
-        Object.keys(rotations).length > 0 ? rotations : undefined
+        Object.keys(rotations).length > 0 ? rotations : undefined,
+        selectedDocType === 'Custom' ? customFilename.trim() : undefined
       );
 
       message.success(`PDF generated successfully: ${result.filename}`);
@@ -153,6 +169,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
       setSelectedPhotoIds([]);
       setSelectedDocType(null);
       setPhotoRotations({});
+      setCustomFilename('');
 
       // Refresh document list to show newly created document
       documentListRef.current?.refresh();
@@ -199,6 +216,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
           setCreateModalVisible(false);
           setSelectedPhotoIds([]);
           setSelectedDocType(null);
+          setPhotoRotations({});
+          setCustomFilename('');
         }}
         width={1000}
         footer={[
@@ -208,6 +227,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               setCreateModalVisible(false);
               setSelectedPhotoIds([]);
               setSelectedDocType(null);
+              setPhotoRotations({});
+              setCustomFilename('');
             }}
           >
             Cancel
@@ -232,13 +253,44 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               style={{ width: '100%' }}
               placeholder="Select document type"
               value={selectedDocType}
-              onChange={setSelectedDocType}
+              onChange={(value) => {
+                setSelectedDocType(value);
+                // Auto-fill custom filename with job address when Custom type is selected
+                if (value === 'Custom' && !customFilename) {
+                  setCustomFilename(jobAddress);
+                }
+              }}
               options={DOCUMENT_TYPES.map(dt => ({
                 value: dt.value,
                 label: dt.label
               }))}
             />
           </div>
+
+          {/* Custom Filename Input - only for Custom type */}
+          {selectedDocType === 'Custom' && (
+            <div>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                Custom Filename
+              </Text>
+              <Input
+                placeholder="Enter custom filename (without .pdf)"
+                value={customFilename}
+                onChange={(e) => setCustomFilename(e.target.value)}
+                maxLength={200}
+                showCount
+                style={{ marginBottom: 4 }}
+              />
+              <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                Extension .pdf will be added automatically
+              </Text>
+              {customFilename && (
+                <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
+                  Final filename: <strong>{customFilename}.pdf</strong>
+                </Text>
+              )}
+            </div>
+          )}
 
           {/* Photo Selection */}
           <div>
@@ -253,6 +305,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                     </span>
                   )}
                 </>
+              ) : selectedDocType === 'Custom' ? (
+                'Select one or more photos. Each photo will be one full page.'
               ) : (
                 'Select one or more photos. Each photo will be one full page in the PDF.'
               )}

@@ -326,10 +326,10 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
         await lineItemService.updateLineItem(lineItemId!, lineItemData);
         message.success('Line item updated successfully');
       } else {
-        // Create new line item
-        const createdItem = await lineItemService.createLineItem(lineItemData);
-        savedLineItemId = createdItem.id;
-        message.success('Line item created successfully');
+        // Create or update line item (upsert based on item code)
+        const result = await lineItemService.upsertLineItem(lineItemData);
+        savedLineItemId = result.line_item.id;
+        message.success(result.message);
       }
 
       // Handle notes

@@ -415,6 +415,33 @@ async def create_line_item(
     return await service.create_line_item(line_item, UUID(current_user.id))
 
 
+@router.post("/upsert", response_model=Dict[str, Any])
+async def upsert_line_item(
+    line_item: LineItemCreate,
+    db: Session = Depends(get_db),
+    cache: CacheService = Depends(get_cache),
+    current_user: Staff = Depends(get_current_user)
+):
+    """
+    Create or update a line item based on item code and company_id.
+    
+    If a line item with the same item code (and company_id) already exists,
+    it will be updated with the new values instead of creating a duplicate.
+    
+    Returns:
+        - line_item: The created or updated line item
+        - is_created: True if new item was created, False if existing item was updated
+    """
+    service = LineItemService(db, cache)
+    result, is_created = await service.upsert_line_item(line_item, UUID(current_user.id))
+    
+    return {
+        "line_item": result,
+        "is_created": is_created,
+        "message": "Line item created successfully" if is_created else "Line item updated successfully"
+    }
+
+
 @router.post("/bulk", response_model=List[LineItemResponse], status_code=status.HTTP_201_CREATED)
 async def bulk_create_line_items(
     bulk_create: BulkLineItemCreate,

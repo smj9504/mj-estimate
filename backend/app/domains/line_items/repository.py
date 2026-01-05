@@ -86,6 +86,47 @@ class LineItemRepository:
             .options(selectinload(LineItem.notes))\
             .filter(LineItem.id == line_item_id)\
             .first()
+
+    def find_by_item_code(
+        self,
+        item_code: str,
+        company_id: Optional[UUID] = None,
+        item_type: Optional[str] = None
+    ) -> Optional[LineItem]:
+        """
+        Find an existing line item by item code and company_id.
+        
+        Used for duplicate detection before creating new items.
+        
+        Args:
+            item_code: The item code (e.g., 'RDG', 'LBC', etc.)
+            company_id: The company ID (None for global items)
+            item_type: Optional item type filter (CUSTOM, XACTIMATE)
+        
+        Returns:
+            LineItem if found, None otherwise
+        """
+        if not item_code or not item_code.strip():
+            return None
+        
+        query = self.db.query(LineItem)\
+            .options(selectinload(LineItem.notes))\
+            .filter(
+                LineItem.item == item_code.strip(),
+                LineItem.is_active == True
+            )
+        
+        # Match company_id (including NULL for global items)
+        if company_id:
+            query = query.filter(LineItem.company_id == company_id)
+        else:
+            query = query.filter(LineItem.company_id.is_(None))
+        
+        # Filter by type if specified
+        if item_type:
+            query = query.filter(LineItem.type == item_type)
+        
+        return query.first()
     
     def get_line_items(self, search: LineItemSearch) -> Dict[str, Any]:
         """Search line items with pagination"""

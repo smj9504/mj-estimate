@@ -279,35 +279,18 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             # Only count on first page - this is the most expensive operation
             total = query.count()
 
-        # Apply sorting
+        # Apply sorting with secondary sort by id for deterministic ordering
+        # This ensures consistent pagination even when primary sort field has duplicates
         if sort_order.lower() == 'asc':
-            order_clause = getattr(WMPhoto, sort_by).asc()
+            order_clause = [getattr(WMPhoto, sort_by).asc(), WMPhoto.id.asc()]
         else:
-            order_clause = getattr(WMPhoto, sort_by).desc()
+            order_clause = [getattr(WMPhoto, sort_by).desc(), WMPhoto.id.desc()]
 
-        # Optimize pagination: use keyset pagination for pages > 3
-        # Offset pagination becomes slow for deep pages
-        if page > 3 and sort_by == 'captured_date':
-            # Use keyset pagination: get cursor from previous page's last item
-            # This is much faster than large offsets
-            prev_page_offset = (page - 2) * page_size
-            cursor_query = query.order_by(order_clause).limit(1).offset(prev_page_offset)
-            cursor_photo = cursor_query.first()
-            
-            if cursor_photo:
-                cursor_value = getattr(cursor_photo, sort_by)
-                # Filter photos after cursor (keyset pagination)
-                if sort_order.lower() == 'desc':
-                    query = query.filter(getattr(WMPhoto, sort_by) < cursor_value)
-                else:
-                    query = query.filter(getattr(WMPhoto, sort_by) > cursor_value)
-                photos = query.order_by(order_clause).limit(page_size).all()
-            else:
-                # Fallback to offset pagination if cursor not found
-                photos = query.order_by(order_clause).limit(page_size).offset((page - 1) * page_size).all()
-        else:
-            # Use standard offset pagination for early pages (page 1-3)
-            photos = query.order_by(order_clause).limit(page_size).offset((page - 1) * page_size).all()
+        # Use standard offset pagination
+        # Note: Offset pagination is simpler and more reliable than keyset pagination
+        # for fields like captured_date that can have duplicate values
+        offset = (page - 1) * page_size
+        photos = query.order_by(*order_clause).limit(page_size).offset(offset).all()
 
         return photos, total
 

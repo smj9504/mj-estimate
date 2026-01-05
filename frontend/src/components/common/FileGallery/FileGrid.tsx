@@ -72,7 +72,8 @@ const LazyImage: React.FC<LazyImageProps> = memo(({ src, fallbackSrc, alt, enabl
       }}
       loading={enableLazyLoading ? "lazy" : "eager"}
       decoding="async"
-      fetchPriority="low"
+      // @ts-ignore - fetchpriority is a valid HTML attribute
+      fetchpriority="low"
       onLoad={() => setIsLoaded(true)}
       onError={(e) => {
         // Fallback to full image if thumbnail fails

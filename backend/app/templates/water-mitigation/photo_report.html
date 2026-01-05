@@ -35,6 +35,12 @@
                     <span class="info-value">{{ date_of_loss|format_date }}</span>
                 </div>
                 {% endif %}
+                {% if mitigation_dates %}
+                <div class="info-row">
+                    <span class="info-label">Water Mitigation:</span>
+                    <span class="info-value">{{ mitigation_dates }}</span>
+                </div>
+                {% endif %}
                 <div class="info-row">
                     <span class="info-label">Report Date:</span>
                     <span class="info-value">{{ report_date|format_date }}</span>

@@ -844,10 +844,10 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
         };
 
         try {
-          const createdLineItem = await lineItemService.createLineItem(lineItemData);
-          lineItemId = createdLineItem.id;
-          console.log('Created line item with ID:', lineItemId);
-          message.success('Item saved to library successfully');
+          const result = await lineItemService.upsertLineItem(lineItemData);
+          lineItemId = result.line_item.id;
+          console.log('Saved line item with ID:', lineItemId, 'Created:', result.is_created);
+          message.success(result.message);
         } catch (error) {
           console.error('Failed to save line item to library:', error);
           message.warning('Item will be added to estimate but not saved to library');

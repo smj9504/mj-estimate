@@ -95,9 +95,10 @@ const CustomLineItemForm: React.FC<CustomLineItemFormProps> = ({
       let newItem: LineItem;
 
       if (saveToLib) {
-        // Save to line item library
-        newItem = await lineItemService.createLineItem(lineItemData);
-        message.success('Custom item created and saved to library');
+        // Save to line item library (upsert - update if item code exists)
+        const result = await lineItemService.upsertLineItem(lineItemData);
+        newItem = result.line_item;
+        message.success(result.message);
       } else {
         // Don't save to library - return item data without ID
         // Invoice/Estimate will save description directly without line_item_id reference
