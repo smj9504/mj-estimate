@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.core.database_factory import get_db
-from app.domains.auth.dependencies import get_current_user
+from app.domains.auth.dependencies import get_current_user, require_admin
 from app.domains.staff.models import Staff
 
 from .service import MaterialCategoryService, MaterialWeightService, DebrisCalculationService
@@ -34,38 +34,35 @@ def get_categories(
 
 
 @router.post("/categories", response_model=MaterialCategoryResponse, status_code=status.HTTP_201_CREATED)
-def create_category(
+async def create_category(
     data: MaterialCategoryCreate,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
+    current_user: Staff = Depends(require_admin)
 ):
     """Create new material category (admin only)"""
-    # TODO: Add admin role check
     service = MaterialCategoryService(db)
     return service.create(data, str(current_user.id) if current_user else "system")
 
 
 @router.put("/categories/{category_id}", response_model=MaterialCategoryResponse)
-def update_category(
+async def update_category(
     category_id: str,
     data: MaterialCategoryUpdate,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
+    current_user: Staff = Depends(require_admin)
 ):
     """Update material category (admin only)"""
-    # TODO: Add admin role check
     service = MaterialCategoryService(db)
     return service.update(category_id, data, str(current_user.id) if current_user else "system")
 
 
 @router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_category(
+async def delete_category(
     category_id: str,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
+    current_user: Staff = Depends(require_admin)
 ):
     """Delete material category (admin only)"""
-    # TODO: Add admin role check
     service = MaterialCategoryService(db)
     service.delete(category_id)
     return None
@@ -113,13 +110,12 @@ def get_material(
 
 
 @router.post("/materials", response_model=MaterialWeightResponse, status_code=status.HTTP_201_CREATED)
-def create_material(
+async def create_material(
     data: MaterialWeightCreate,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
+    current_user: Staff = Depends(require_admin)
 ):
     """Create new material (admin only)"""
-    # TODO: Add admin role check
     service = MaterialWeightService(db)
     material = service.create(data, str(current_user.id) if current_user else "system")
 
@@ -129,14 +125,13 @@ def create_material(
 
 
 @router.put("/materials/{material_id}", response_model=MaterialWeightResponse)
-def update_material(
+async def update_material(
     material_id: str,
     data: MaterialWeightUpdate,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
+    current_user: Staff = Depends(require_admin)
 ):
     """Update material (admin only)"""
-    # TODO: Add admin role check
     service = MaterialWeightService(db)
     material = service.update(material_id, data, str(current_user.id) if current_user else "system")
 
@@ -146,13 +141,12 @@ def update_material(
 
 
 @router.delete("/materials/{material_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_material(
+async def delete_material(
     material_id: str,
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
+    current_user: Staff = Depends(require_admin)
 ):
     """Delete material (admin only)"""
-    # TODO: Add admin role check
     service = MaterialWeightService(db)
     service.delete(material_id, str(current_user.id) if current_user else "system")
     return None
@@ -249,9 +243,9 @@ def delete_debris_calculation(
 
 # Database Seeding Endpoint (Admin only)
 @router.post("/admin/seed-materials")
-def seed_materials_database(
+async def seed_materials_database(
     db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
+    current_user: Staff = Depends(require_admin)
 ):
     """Seed database with comprehensive residential construction materials (Admin only)"""
     from .seed_materials import seed_materials

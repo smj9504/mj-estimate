@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Card, Typography, Space, Button, Empty, Spin, Alert, Modal, message, Select, Checkbox, DatePicker } from 'antd';
-import { AppstoreOutlined, UnorderedListOutlined, BorderOutlined, UploadOutlined, CheckSquareOutlined, DeleteOutlined, TagOutlined, CalendarOutlined } from '@ant-design/icons';
+import { Card, Typography, Space, Button, Empty, Spin, Alert, Modal, message, Select, Checkbox, DatePicker, Slider, Tooltip } from 'antd';
+import { AppstoreOutlined, UnorderedListOutlined, BorderOutlined, UploadOutlined, CheckSquareOutlined, DeleteOutlined, TagOutlined, CalendarOutlined, PlusOutlined, MinusOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { FileGalleryProps, ViewMode, FileItem, DateGroup } from './types';
 import { useFileGallery } from './hooks/useFileGallery';
@@ -28,6 +28,9 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   categories = ['general'],
   allowCategoryCreate = false,
   onCategoryCreate,
+  showBulkCategoryUpdate = true,
+  showBulkActions = true,
+  showSelectAll = true,
   defaultViewMode = 'grid',
   allowViewModeChange = true,
   showCategories = true,
@@ -61,6 +64,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const [dateChangeModalVisible, setDateChangeModalVisible] = useState(false);
   const [newDate, setNewDate] = useState<Dayjs | null>(null);
+  const [gridSize, setGridSize] = useState<number>(6); // Grid columns per row (2-8 range)
   // Use Set for O(1) lookup performance
   const [internalSelectedFiles, setInternalSelectedFiles] = useState<Set<string>>(new Set());
 
@@ -417,101 +421,201 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     };
   };
 
-  const renderHeader = () => (
-    <div className="file-gallery-header" style={{ marginBottom: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          {allowViewModeChange && (
-            <ViewModeSelector
-              value={viewMode}
-              onChange={setViewMode}
-            />
-          )}
-          {allowMultiSelect && filteredFiles.length > 0 && (
-            <Space>
+  const renderHeader = () => {
+    const filteredFileIds = filteredFiles.map(f => f.id);
+    const allFilteredSelected = filteredFileIds.length > 0 && filteredFileIds.every(id => currentSelectedFiles.includes(id));
+    const hasSelection = currentSelectedFiles.length > 0;
+
+    return (
+      <div className="file-gallery-header" style={{ marginBottom: 16 }}>
+        {/* Main Toolbar */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          {/* Left Section - View Mode & Selection */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            {allowViewModeChange && (
+              <ViewModeSelector
+                value={viewMode}
+                onChange={setViewMode}
+              />
+            )}
+
+            {/* Grid Size Control - only show for grid/card modes */}
+            {allowViewModeChange && (viewMode === 'grid' || viewMode === 'card') && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '4px 12px',
+                background: '#f5f5f5',
+                borderRadius: '6px',
+                border: '1px solid #d9d9d9'
+              }}>
+                <Tooltip title="Fewer larger images">
+                  <MinusOutlined style={{ fontSize: '12px', color: '#8c8c8c', cursor: 'pointer' }} onClick={() => setGridSize(Math.max(2, gridSize - 1))} />
+                </Tooltip>
+                <Slider
+                  min={2}
+                  max={8}
+                  value={gridSize}
+                  onChange={setGridSize}
+                  style={{ width: '100px', margin: 0 }}
+                  tooltip={{ formatter: (val) => `${val} per row` }}
+                />
+                <Tooltip title="More smaller images">
+                  <PlusOutlined style={{ fontSize: '12px', color: '#8c8c8c', cursor: 'pointer' }} onClick={() => setGridSize(Math.min(8, gridSize + 1))} />
+                </Tooltip>
+              </div>
+            )}
+
+            {allowMultiSelect && filteredFiles.length > 0 && showSelectAll && (
               <Button
                 icon={<CheckSquareOutlined />}
                 onClick={handleSelectAll}
+                type={allFilteredSelected ? 'primary' : 'default'}
+                ghost={allFilteredSelected}
+                style={{
+                  borderRadius: '6px',
+                  fontWeight: 500
+                }}
               >
-                {(() => {
-                  const filteredFileIds = filteredFiles.map(f => f.id);
-                  const allFilteredSelected = filteredFileIds.every(id => currentSelectedFiles.includes(id));
-                  return allFilteredSelected ? 'Deselect All' : 'Select All';
-                })()}
+                {allFilteredSelected ? 'Deselect All' : 'Select All'}
               </Button>
-              {currentSelectedFiles.length > 0 && (
-                <>
-                  <span style={{ color: '#1890ff', fontWeight: 500 }}>
-                    {currentSelectedFiles.length} selected
-                  </span>
-                  <Select
-                    placeholder="Set Category"
-                    style={{ width: 180 }}
-                    onChange={handleBulkCategoryUpdate}
-                    value={undefined}
-                    suffixIcon={<TagOutlined />}
-                  >
-                    <Select.Option key="uncategorized" value="">
-                      Clear Category
-                    </Select.Option>
-                    {categories.filter(cat => cat !== 'uncategorized').map(cat => (
-                      <Select.Option key={cat} value={cat}>
-                        {cat}
-                      </Select.Option>
-                    ))}
-                  </Select>
-                  {context === 'water-mitigation' && (
-                    <Button
-                      icon={<CalendarOutlined />}
-                      onClick={() => setDateChangeModalVisible(true)}
-                    >
-                      Change Date ({currentSelectedFiles.length})
-                    </Button>
-                  )}
-                  <Button
-                    danger
-                    icon={<DeleteOutlined />}
-                    onClick={handleBulkDelete}
-                  >
-                    Delete Selected
-                  </Button>
-                </>
-              )}
-            </Space>
-          )}
+            )}
+
+            {/* Selection Count Badge */}
+            {hasSelection && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                padding: '6px 14px',
+                borderRadius: '20px',
+                fontSize: '13px',
+                fontWeight: 600,
+                boxShadow: '0 2px 8px rgba(102, 126, 234, 0.35)'
+              }}>
+                <CheckSquareOutlined style={{ marginRight: 6 }} />
+                {currentSelectedFiles.length} selected
+              </div>
+            )}
+          </div>
+
+          {/* Right Section - Upload Button */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {allowUpload && mode !== 'select' && (
+              <Button
+                type="primary"
+                icon={<UploadOutlined />}
+                onClick={() => setUploadModalVisible(true)}
+                style={{
+                  borderRadius: '6px',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  border: 'none',
+                  fontWeight: 500,
+                  boxShadow: '0 2px 8px rgba(102, 126, 234, 0.35)'
+                }}
+              >
+                Upload {fileCategory === 'image' ? 'Photos' : fileCategory === 'document' ? 'Documents' : 'Files'}
+              </Button>
+            )}
+          </div>
         </div>
 
-        <div>
-          {allowUpload && mode !== 'select' && (
+        {/* Bulk Actions Bar - Shows when files are selected and showBulkActions is true */}
+        {hasSelection && showBulkActions && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            marginTop: '12px',
+            padding: '12px 16px',
+            background: '#f0f5ff',
+            borderRadius: '8px',
+            border: '1px solid #d6e4ff',
+            flexWrap: 'wrap'
+          }}>
+            <span style={{
+              fontSize: '13px',
+              color: '#1890ff',
+              fontWeight: 500,
+              marginRight: '8px'
+            }}>
+              Bulk Actions:
+            </span>
+
+            {showBulkCategoryUpdate && (
+              <Select
+                placeholder="📁 Set Category"
+                style={{ minWidth: 160 }}
+                onChange={handleBulkCategoryUpdate}
+                value={undefined}
+                suffixIcon={<TagOutlined style={{ color: '#667eea' }} />}
+              >
+                <Select.Option key="uncategorized" value="">
+                  📋 Clear Category
+                </Select.Option>
+                {categories.filter(cat => cat !== 'uncategorized').map(cat => (
+                  <Select.Option key={cat} value={cat}>
+                    {cat.charAt(0).toUpperCase() + cat.slice(1).replace(/-/g, ' ')}
+                  </Select.Option>
+                ))}
+              </Select>
+            )}
+
+            {context === 'water-mitigation' && (
+              <Button
+                icon={<CalendarOutlined />}
+                onClick={() => setDateChangeModalVisible(true)}
+                style={{
+                  borderRadius: '6px',
+                  borderColor: '#667eea',
+                  color: '#667eea'
+                }}
+              >
+                Change Date
+              </Button>
+            )}
+
             <Button
-              type="primary"
-              icon={<UploadOutlined />}
-              onClick={() => setUploadModalVisible(true)}
+              danger
+              icon={<DeleteOutlined />}
+              onClick={handleBulkDelete}
+              style={{
+                borderRadius: '6px'
+              }}
             >
-              Upload {fileCategory === 'image' ? 'Images' : fileCategory === 'document' ? 'Documents' : 'Files'}
+              Delete ({currentSelectedFiles.length})
             </Button>
-          )}
-        </div>
+          </div>
+        )}
+
+        {/* Category Filter */}
+        {showCategories && (
+          <CategoryManager
+            categories={['all', 'uncategorized', ...categories.filter(c => c !== 'uncategorized')]}
+            selectedCategory={selectedCategory}
+            onCategorySelect={setSelectedCategory}
+            allowCreate={allowCategoryCreate}
+            onCategoryCreate={onCategoryCreate}
+            multiSelect={context === 'water-mitigation'}
+          />
+        )}
 
         {enableDocumentSearch && (
-          <div style={{ width: 300 }}>
+          <div style={{ marginTop: 12, width: 300 }}>
             {/* Search component will be added here */}
           </div>
         )}
       </div>
-
-      {showCategories && (
-        <CategoryManager
-          categories={['all', 'uncategorized', ...categories.filter(c => c !== 'uncategorized')]}
-          selectedCategory={selectedCategory}
-          onCategorySelect={setSelectedCategory}
-          allowCreate={allowCategoryCreate}
-          onCategoryCreate={onCategoryCreate}
-          multiSelect={context === 'water-mitigation'}  // Enable multi-select for water mitigation
-        />
-      )}
-    </div>
-  );
+    );
+  };
 
   const handleUploadComplete = () => {
     // Delay closing modal slightly to show completion state
@@ -530,6 +634,15 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       );
     }
 
+    // Dynamic grid columns based on gridSize slider
+    const dynamicGridColumns = {
+      xs: Math.max(2, gridSize - 2),
+      sm: Math.max(2, gridSize - 1),
+      md: gridSize,
+      lg: gridSize,
+      xl: gridSize
+    };
+
     const commonProps = {
       selectedFiles: currentSelectedFiles,  // Still pass array for compatibility
       selectedFilesSet: currentSelectedSet,  // Also pass Set for O(1) lookup
@@ -545,40 +658,63 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       showDocumentPreview,
       showDocumentDetails,
       showPreviewPanel,
-      gridColumns,
-      enableLazyLoading
+      gridColumns: dynamicGridColumns,
+      enableLazyLoading,
+      listLayout
     };
 
     return (
       <>
         <div className="date-grouped-files">
-          {dateGroups.map((group) => (
-            <div key={group.date} className="date-group" style={{ marginBottom: 32 }}>
-              <div className="date-group-header" style={{
-                display: 'flex',
-                alignItems: 'center',
-                marginBottom: 16,
-                paddingBottom: 8,
-                borderBottom: '2px solid #f0f0f0'
-              }}>
-                {allowMultiSelect && (
-                  <Checkbox
-                    checked={isDateGroupSelected(group)}
-                    indeterminate={isDateGroupIndeterminate(group)}
-                    onChange={(e) => handleDateGroupSelect(group, e.target.checked)}
-                    style={{ marginRight: 12 }}
+          {dateGroups.map((group) => {
+            // Render content based on view mode
+            let groupContent;
+            switch (viewMode) {
+              case 'list':
+                groupContent = <FileList {...commonProps} files={group.files} />;
+                break;
+              case 'card':
+                groupContent = <FileCard {...commonProps} files={group.files} />;
+                break;
+              default:
+                groupContent = (
+                  <FileGrid
+                    {...commonProps}
+                    files={group.files}
+                    containerHeight={height === '100%' ? window.innerHeight - 300 : parseInt(height) || 600}
                   />
-                )}
-                <Typography.Title level={5} style={{ margin: 0, flex: 1 }}>
-                  {group.displayDate}
-                </Typography.Title>
-                <Typography.Text type="secondary" style={{ fontSize: 14 }}>
-                  {group.count} {group.count === 1 ? 'photo' : 'photos'}
-                </Typography.Text>
+                );
+                break;
+            }
+
+            return (
+              <div key={group.date} className="date-group" style={{ marginBottom: 32 }}>
+                <div className="date-group-header" style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  marginBottom: 16,
+                  paddingBottom: 8,
+                  borderBottom: '2px solid #f0f0f0'
+                }}>
+                  {allowMultiSelect && (
+                    <Checkbox
+                      checked={isDateGroupSelected(group)}
+                      indeterminate={isDateGroupIndeterminate(group)}
+                      onChange={(e) => handleDateGroupSelect(group, e.target.checked)}
+                      style={{ marginRight: 12 }}
+                    />
+                  )}
+                  <Typography.Title level={5} style={{ margin: 0, flex: 1 }}>
+                    {group.displayDate}
+                  </Typography.Title>
+                  <Typography.Text type="secondary" style={{ fontSize: 14 }}>
+                    {group.count} {group.count === 1 ? 'photo' : 'photos'}
+                  </Typography.Text>
+                </div>
+                {groupContent}
               </div>
-              <FileGrid {...commonProps} files={group.files} containerHeight={height === '100%' ? window.innerHeight - 300 : parseInt(height) || 600} />
-            </div>
-          ))}
+            );
+          })}
         </div>
         {/* Infinite scroll sentinel for date-grouped view */}
         {enableInfiniteScroll && (
@@ -629,6 +765,15 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       return renderDateGroupedView();
     }
 
+    // Dynamic grid columns based on gridSize slider
+    const dynamicGridColumns = {
+      xs: Math.max(2, gridSize - 2),
+      sm: Math.max(2, gridSize - 1),
+      md: gridSize,
+      lg: gridSize,
+      xl: gridSize
+    };
+
     const commonProps = {
       files: filteredFiles,
       selectedFiles: currentSelectedFiles,  // Still pass array for compatibility
@@ -658,7 +803,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       default:
         // Calculate container height for virtual scrolling
         const calculatedHeight = height === '100%' ? window.innerHeight - 300 : parseInt(height) || 600;
-        content = <FileGrid {...commonProps} gridColumns={gridColumns} enableLazyLoading={enableLazyLoading} containerHeight={calculatedHeight} />;
+        content = <FileGrid {...commonProps} gridColumns={dynamicGridColumns} enableLazyLoading={enableLazyLoading} containerHeight={calculatedHeight} />;
         break;
     }
 

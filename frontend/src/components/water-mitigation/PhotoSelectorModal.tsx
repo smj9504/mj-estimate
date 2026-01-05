@@ -35,7 +35,8 @@ interface Photo {
   category?: string;
   taken_date?: string;
   description?: string;
-  thumbnail_path?: string;
+  thumbnail_url?: string;  // CompanyCam CDN thumbnail URL (fast)
+  preview_url?: string;    // Preview URL from API
 }
 
 interface PhotoSelectorModalProps {
@@ -53,13 +54,16 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
   onOk,
   onCancel
 }) => {
-  // Use React Query for automatic caching and refetching
-  const { data: photos = [], isLoading: loading, isError } = useWaterMitigationPhotos(jobId, visible);
-
-  const [filteredPhotos, setFilteredPhotos] = useState<Photo[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [searchInput, setSearchInput] = useState('');  // Immediate input value
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  // Use React Query for automatic caching and refetching
+  // Fetch up to 200 photos (max allowed by API) to ensure all categories are available
+  const { data: photos = [], isLoading: loading, isError } = useWaterMitigationPhotos(jobId, {
+    enabled: visible,
+    pageSize: 200,  // Fetch more photos for document creation
+  });
 
   // Debounce search input to reduce filtering frequency
   const debouncedSearch = useDebouncedValue(searchInput, 300);
@@ -71,11 +75,6 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
     }
   }, [visible, selectedPhotos]);
 
-  // Update filtered photos when photos, debounced search, or category changes
-  useEffect(() => {
-    filterPhotos();
-  }, [photos, debouncedSearch, selectedCategory]);
-
   // Show error message if query failed
   useEffect(() => {
     if (isError && visible) {
@@ -83,7 +82,8 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
     }
   }, [isError, visible]);
 
-  const filterPhotos = () => {
+  // Filter photos by category and search - memoized for performance
+  const filteredPhotos = useMemo(() => {
     let filtered = photos;
 
     // Filter by category
@@ -101,8 +101,8 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
       );
     }
 
-    setFilteredPhotos(filtered);
-  };
+    return filtered;
+  }, [photos, debouncedSearch, selectedCategory]);
 
   // Get unique categories from photos
   const categories = useMemo(() => {
@@ -147,8 +147,12 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
   };
 
   const getImageUrl = (photo: Photo) => {
-    // Use water mitigation photo preview endpoint
-    return `/api/water-mitigation/photos/${photo.id}/preview`;
+    // Prefer CDN thumbnail URL (fastest) over preview endpoint
+    if (photo.thumbnail_url) {
+      return photo.thumbnail_url;
+    }
+    // Fallback to preview endpoint
+    return `/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`;
   };
 
   return (

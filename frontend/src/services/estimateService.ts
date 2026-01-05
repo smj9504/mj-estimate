@@ -1,4 +1,102 @@
+import { AxiosError } from 'axios';
 import { apiClient } from '../api/config';
+
+/**
+ * Backend response types for type-safe API handling
+ */
+interface BackendEstimateItem {
+  id: string;
+  name?: string;
+  description?: string;
+  quantity: number;
+  unit: string;
+  rate: number;
+  amount?: number;
+  acv_amount?: number;
+  taxable?: boolean;
+  room?: string;
+  category?: string;
+  primary_group?: string;
+  secondary_group?: string;
+  sort_order?: number;
+  note?: string;
+}
+
+interface BackendEstimateResponse {
+  id: string;
+  estimate_number: string;
+  estimate_type?: string;
+  company_id: string;
+  company_name?: string;
+  company_address?: string;
+  company_city?: string;
+  company_state?: string;
+  company_zipcode?: string;
+  company_phone?: string;
+  company_email?: string;
+  client_name: string;
+  client_address?: string;
+  client_city?: string;
+  client_state?: string;
+  client_zipcode?: string;
+  client_phone?: string;
+  client_email?: string;
+  estimate_date?: string;
+  loss_date?: string;
+  valid_until?: string;
+  status?: string;
+  subtotal?: number;
+  op_percent?: number;
+  op_amount?: number;
+  tax_method?: 'percentage' | 'specific';
+  tax_rate?: number;
+  tax_amount?: number;
+  discount_amount?: number;
+  total_amount?: number;
+  rcv_amount?: number;
+  claim_number?: string;
+  policy_number?: string;
+  insurance_company?: string;
+  deductible?: number;
+  adjuster_name?: string;
+  adjuster_phone?: string;
+  adjuster_email?: string;
+  notes?: string;
+  terms?: string;
+  created_at?: string;
+  updated_at?: string;
+  items?: BackendEstimateItem[];
+}
+
+/**
+ * Helper function to extract error message from unknown error type
+ */
+function getErrorMessage(error: unknown): string {
+  if (error instanceof AxiosError) {
+    return error.message;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+/**
+ * Helper function to check if error is an AxiosError with specific status
+ */
+function isAxiosErrorWithStatus(error: unknown, status: number): boolean {
+  return error instanceof AxiosError && error.response?.status === status;
+}
+
+/**
+ * Helper function to get error response data
+ */
+function getAxiosErrorData(error: unknown): unknown {
+  if (error instanceof AxiosError) {
+    return error.response?.data;
+  }
+  return undefined;
+}
 
 export interface EstimateLineItem {
   id?: string; // Estimate line item ID (for existing items)
@@ -180,7 +278,7 @@ class EstimateService {
   }
 
   // Transform backend item to frontend format
-  private transformItemFromBackend(item: any): EstimateLineItem {
+  private transformItemFromBackend(item: BackendEstimateItem): EstimateLineItem {
     // Handle legacy data compatibility
     // If name is empty/null but description looks like a code (uppercase, short), treat description as code
     let name = item.name || '';
@@ -304,7 +402,7 @@ class EstimateService {
   }
 
   // Transform backend response to frontend EstimateResponse format
-  private transformEstimateFromBackend(backendData: any): EstimateResponse {
+  private transformEstimateFromBackend(backendData: BackendEstimateResponse): EstimateResponse {
     return {
       id: backendData.id,
       estimate_number: backendData.estimate_number,
@@ -348,7 +446,7 @@ class EstimateService {
       terms: backendData.terms,
       created_at: backendData.created_at,
       updated_at: backendData.updated_at,
-      items: (backendData.items || []).map((item: any) => this.transformItemFromBackend(item))
+      items: (backendData.items || []).map((item) => this.transformItemFromBackend(item))
     };
   }
 
@@ -360,7 +458,7 @@ class EstimateService {
     estimate_type?: string;
   }): Promise<EstimateResponse[]> {
     const response = await apiClient.get('/api/estimates/', { params });
-    return response.data.map((item: any) => this.transformEstimateFromBackend(item));
+    return response.data.map((item: BackendEstimateResponse) => this.transformEstimateFromBackend(item));
   }
 
   async getEstimate(id: string): Promise<EstimateResponse> {
@@ -377,11 +475,13 @@ class EstimateService {
       
       const response = await apiClient.post('/api/estimates/', backendData);
       return this.transformEstimateFromBackend(response.data);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error creating estimate:', error);
-      if (error.response?.status === 422) {
-        console.error('Validation errors:', error.response.data);
-        throw new Error(`Validation failed: ${JSON.stringify(error.response.data.detail || error.response.data)}`);
+      if (isAxiosErrorWithStatus(error, 422)) {
+        const errorData = getAxiosErrorData(error);
+        console.error('Validation errors:', errorData);
+        const detail = (errorData as { detail?: unknown })?.detail ?? errorData;
+        throw new Error(`Validation failed: ${JSON.stringify(detail)}`);
       }
       throw error;
     }
@@ -391,14 +491,16 @@ class EstimateService {
     try {
       const backendData = this.transformEstimateToBackend(estimate);
       console.log('Updating estimate with data:', JSON.stringify(backendData, null, 2));
-      
+
       const response = await apiClient.put(`/api/estimates/${id}`, backendData);
       return this.transformEstimateFromBackend(response.data);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error updating estimate:', error);
-      if (error.response?.status === 422) {
-        console.error('Validation errors:', error.response.data);
-        throw new Error(`Validation failed: ${JSON.stringify(error.response.data.detail || error.response.data)}`);
+      if (isAxiosErrorWithStatus(error, 422)) {
+        const errorData = getAxiosErrorData(error);
+        console.error('Validation errors:', errorData);
+        const detail = (errorData as { detail?: unknown })?.detail ?? errorData;
+        throw new Error(`Validation failed: ${JSON.stringify(detail)}`);
       }
       throw error;
     }

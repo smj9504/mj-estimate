@@ -1,10 +1,11 @@
 import axios from 'axios';
+import { logger } from '../utils/logger';
 
 // API Base URL - will be replaced with environment variable
 // Use empty string to use relative URLs (for proxy to work)
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
-console.log('API Base URL configured:', API_BASE_URL || 'Using relative URLs (proxy mode)'); // Debug log
+logger.api('API Base URL configured:', API_BASE_URL || 'Using relative URLs (proxy mode)');
 
 // Create axios instance with default config
 export const apiClient = axios.create({
@@ -20,29 +21,29 @@ apiClient.interceptors.request.use(
   (config) => {
     // Force relative URLs to use proxy
     if (config.url && !config.url.startsWith('http')) {
-      console.log('Making request to:', config.url); // Debug log
-      console.log('Using proxy for relative URL'); // Debug log
+      logger.api('Making request to:', config.url);
+      logger.debug('Using proxy for relative URL');
     }
-    
+
     let token = localStorage.getItem('auth_token');
-    
+
     // Development mode: Create a temporary token if none exists
     if (!token && process.env.NODE_ENV === 'development') {
-      console.log('Development mode: No auth token found, creating temporary token');
+      logger.debug('Development mode: No auth token found, creating temporary token');
       // This is a temporary solution for development
       // In production, user must be properly authenticated
       token = 'dev-temp-token-' + Date.now();
       localStorage.setItem('auth_token', token);
-      console.log('Temporary token created:', token);
+      logger.debug('Temporary token created:', token);
     }
-    
+
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-      console.log('Added Authorization header with token'); // Debug log
+      logger.debug('Added Authorization header with token');
     } else {
-      console.log('No auth token available'); // Debug log
+      logger.debug('No auth token available');
     }
-    
+
     return config;
   },
   (error) => {

@@ -92,8 +92,8 @@ class PackCalculationService:
         self.fuzzy_matches = []
         self.contents_estimations = []
 
-        # For now, implement basic rule-based calculation
-        # TODO: Add strategy selection and AI integration
+        # Currently using rule-based calculation
+        # FUTURE: Add strategy selection and AI integration
 
         # Calculate total_floors from room floor_levels automatically
         floor_levels = set()

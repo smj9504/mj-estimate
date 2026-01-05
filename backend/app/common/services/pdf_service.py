@@ -177,12 +177,12 @@ class PDFService:
                 # Try YYYY-MM-DD format first
                 dt = datetime.strptime(value, "%Y-%m-%d")
                 return dt.strftime(format)
-            except:
+            except ValueError:
                 try:
                     # Try MM-DD-YYYY format
                     dt = datetime.strptime(value, "%m-%d-%Y")
                     return dt.strftime(format)
-                except:
+                except ValueError:
                     # Return as-is if neither format works
                     return value
         elif isinstance(value, datetime):
@@ -1153,7 +1153,7 @@ class PDFService:
                 try:
                     dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
                     return dt.strftime("%B %d, %Y")
-                except:
+                except (ValueError, TypeError):
                     return value
             return value
         
@@ -1333,7 +1333,11 @@ class PDFService:
             return str(date_str)
 
 
-def generate_images_pdf(image_paths: list[str], output_path: str) -> str:
+def generate_images_pdf(
+    image_paths: list[str],
+    output_path: str,
+    rotations: dict[str, int] | None = None
+) -> str:
     """
     Generate PDF from images with each image taking up one full page.
     No margins - images fill the entire page.
@@ -1341,12 +1345,16 @@ def generate_images_pdf(image_paths: list[str], output_path: str) -> str:
     Args:
         image_paths: List of paths to image files
         output_path: Path to save the generated PDF
+        rotations: Optional dict mapping photo_id to rotation degrees (0, 90, 180, 270)
 
     Returns:
         Path to the generated PDF
     """
     if not WEASYPRINT_AVAILABLE:
         raise RuntimeError("WeasyPrint is not available")
+
+    import base64
+    import io
 
     from PIL import Image
 
@@ -1387,15 +1395,39 @@ def generate_images_pdf(image_paths: list[str], output_path: str) -> str:
     {pages}
     </body>
     </html>
-    """
+"""
 
     # Generate HTML for each image
     pages_html = []
     for img_path in image_paths:
-        # Convert image to base64 for embedding
-        import base64
-        with open(img_path, 'rb') as img_file:
-            img_data = base64.b64encode(img_file.read()).decode('utf-8')
+        # Get rotation for this image (if any)
+        rotation = 0
+        if rotations:
+            # Try to match by photo_id (extracted from path or passed directly)
+            for photo_id, degrees in rotations.items():
+                if photo_id in img_path:
+                    rotation = degrees
+                    break
+
+        # Load image with PIL for potential rotation
+        img = Image.open(img_path)
+
+        # Apply rotation if needed
+        if rotation != 0:
+            # PIL's rotate is counter-clockwise, so we negate for clockwise rotation
+            # expand=True to resize canvas to fit rotated image
+            img = img.rotate(-rotation, expand=True)
+
+        # Convert image to base64
+        img_buffer = io.BytesIO()
+        # Preserve original format or default to JPEG
+        img_format = img.format or 'JPEG'
+        if img_format.upper() == 'JPEG':
+            img.save(img_buffer, format='JPEG', quality=95)
+        else:
+            img.save(img_buffer, format=img_format)
+        img_buffer.seek(0)
+        img_data = base64.b64encode(img_buffer.read()).decode('utf-8')
 
         # Determine image mime type
         img_ext = Path(img_path).suffix.lower()
@@ -1470,7 +1502,7 @@ def generate_water_mitigation_report_pdf(
             try:
                 dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
                 return dt.strftime(format)
-            except:
+            except (ValueError, TypeError):
                 return value
         elif isinstance(value, datetime):
             return value.strftime(format)
@@ -1613,7 +1645,8 @@ def generate_ewa_pdf(
     job_address: str,
     date_of_loss: str,
     photo_path: str,
-    output_path: str
+    output_path: str,
+    rotation: int = 0
 ) -> str:
     """
     Generate EWA (Emergency Work Agreement & Authorization) PDF
@@ -1627,6 +1660,7 @@ def generate_ewa_pdf(
         date_of_loss: Date of loss in ISO format (will be formatted as "January 23, 2025")
         photo_path: Path to photo file to append as second page
         output_path: Path to save the generated PDF
+        rotation: Rotation degrees for the photo (0, 90, 180, 270)
 
     Returns:
         Path to the generated PDF
@@ -1731,9 +1765,21 @@ def generate_ewa_pdf(
     photo_pdf_buffer = io.BytesIO()
     photo_canvas = canvas.Canvas(photo_pdf_buffer, pagesize=letter)
 
-    # Get image dimensions
+    # Load and optionally rotate image
     from PIL import Image
     img = Image.open(photo_path)
+
+    # Apply rotation if needed
+    if rotation != 0:
+        # PIL's rotate is counter-clockwise, so we negate for clockwise rotation
+        img = img.rotate(-rotation, expand=True)
+        # Save rotated image to a temporary buffer for reportlab
+        import tempfile
+        rotated_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+        img.save(rotated_temp.name, format='JPEG', quality=95)
+        photo_path = rotated_temp.name
+        logger.info(f"Rotated photo by {rotation} degrees, saved to: {photo_path}")
+
     img_width, img_height = img.size
 
     # Calculate scaling to fit letter size (612 x 792 points) while maintaining aspect ratio

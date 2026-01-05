@@ -37,7 +37,7 @@ class WMPhotoAdapter:
                         upload_date = datetime.fromisoformat(upload_date + 'T00:00:00')
                     else:
                         upload_date = datetime.fromisoformat(upload_date.replace('Z', '+00:00'))
-                except:
+                except (ValueError, TypeError):
                     upload_date = datetime.utcnow()
 
             photo_id = str(photo['id'])

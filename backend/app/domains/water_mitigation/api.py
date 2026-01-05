@@ -26,6 +26,7 @@ from app.core.database_factory import get_db_session
 from app.core.interfaces import DatabaseSession
 from app.domains.auth.dependencies import get_current_user
 
+from .models import WMPhoto
 from .schemas import (
     BulkUpdateDateRequest,
     CategoryCreate,
@@ -928,37 +929,68 @@ def bulk_update_category(
     service: WaterMitigationService = Depends(get_wm_service),
     db: DatabaseSession = Depends(get_db_session)
 ):
-    """Bulk update photo categories
+    """Bulk update photo categories (optimized single query)
 
     Args:
         request.photo_ids: List of photo IDs to update
-        request.category: Category to set (None or empty string to clear category)
+        request.category: Category to set (None or empty string to clear)
     """
     photo_ids = request.photo_ids
     category = request.category
     try:
-        updated_photos = []
         # If category is None or empty, set to empty string to clear category
         category_value = category if category else ''
 
-        for photo_id in photo_ids:
-            photo = service.photo_repo.get_by_id(photo_id)
-            if photo:
-                updated = service.photo_repo.update(
-                    photo_id,
-                    {"category": category_value}
-                )
-                updated_photos.append(service.photo_repo._convert_to_dict(updated))
+        # Use optimized bulk update (single UPDATE query)
+        updated_count = service.photo_repo.bulk_update_category(
+            photo_ids, category_value
+        )
 
         db.commit()
 
         return {
-            "updated_count": len(updated_photos),
-            "photos": updated_photos
+            "updated_count": updated_count,
+            "category": category_value
         }
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to bulk update categories: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/photos/duplicates")
+def find_duplicate_photos(
+    job_id: Optional[UUID] = Query(None, description="Job ID to check"),
+    service: WaterMitigationService = Depends(get_wm_service)
+):
+    """Find duplicate photos by external_id"""
+    try:
+        duplicates = service.photo_repo.find_duplicates_by_external_id(job_id)
+        return {
+            "duplicate_count": len(duplicates),
+            "duplicates": duplicates
+        }
+    except Exception as e:
+        logger.error(f"Failed to find duplicates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/photos/duplicates")
+def delete_duplicate_photos(
+    job_id: Optional[UUID] = Query(None, description="Job ID to clean"),
+    dry_run: bool = Query(True, description="If true, only report"),
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Delete duplicate photos, keeping the oldest one per external_id"""
+    try:
+        result = service.photo_repo.delete_duplicate_photos(job_id, dry_run)
+        if not dry_run:
+            db.commit()
+        return result
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to delete duplicates: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1359,8 +1391,8 @@ async def sync_companycam_photos(
                         "message": "Sync already in progress",
                         "status": "running"
                     }
-            except:
-                pass
+            except (json.JSONDecodeError, TypeError, KeyError) as e:
+                logger.warning(f"Failed to parse sync status: {e}")
 
         # Set initial status
         await cache.set(sync_key, json.dumps({
@@ -1470,7 +1502,8 @@ async def get_sync_status(job_id: UUID):
 
     try:
         return json.loads(status_json)
-    except:
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.warning(f"Failed to parse sync status JSON: {e}")
         return {
             'status': 'unknown',
             'message': 'Could not parse sync status'
@@ -1544,7 +1577,15 @@ async def generate_document_pdf(
     Document types:
     - COS: Certificate of Satisfaction (multiple photos, images only)
     - EWA: Emergency Work Agreement & Authorization (1 photo, template + overlay + photo)
+
+    Supports multiple storage sources:
+    - Local filesystem
+    - Google Cloud Storage (GCS)
+    - CompanyCam (remote download)
     """
+    import tempfile
+    temp_files = []  # Track temp files for cleanup
+
     try:
         import json
         import os
@@ -1554,21 +1595,125 @@ async def generate_document_pdf(
             generate_ewa_pdf,
             generate_images_pdf,
         )
+        from app.core.config import settings
+        from app.domains.storage.factory import StorageFactory
 
-        # Get photo file paths
+        # Get photo file paths and build rotation mapping
         photo_paths = []
+        path_to_id = {}  # Map file path to photo_id for rotation lookup
+
         for photo_id in request.photo_ids:
             photo = service.photo_repo.get_by_id(str(photo_id))
             if not photo:
                 raise HTTPException(status_code=404, detail=f"Photo {photo_id} not found")
 
             photo_dict = service.photo_repo._convert_to_dict(photo)
-            file_path = Path(photo_dict['file_path'])
+            file_path_str = photo_dict.get('file_path', '')
+            source = photo_dict.get('source', 'local')
+            external_id = photo_dict.get('external_id')
+            storage_provider = settings.STORAGE_PROVIDER
 
-            if not file_path.exists():
+            local_path = Path(file_path_str)
+            photo_added = False
+
+            # Check if local file exists first (absolute path)
+            if local_path.is_absolute() and local_path.exists():
+                photo_paths.append(str(local_path))
+                path_to_id[str(local_path)] = str(photo_id)
+                logger.debug(f"Using local file for photo {photo_id}: {local_path}")
+                photo_added = True
+
+            # Try cloud storage (GCS, GDrive, etc.)
+            elif storage_provider and storage_provider.lower() != 'local':
+                try:
+                    storage = StorageFactory.get_instance(storage_provider)
+                    logger.info(f"Downloading photo {photo_id} from {storage_provider}: {file_path_str}")
+                    photo_bytes = storage.download(file_path_str)
+
+                    if photo_bytes:
+                        mime_type = photo_dict.get('mime_type', 'image/jpeg')
+                        ext = '.jpg'
+                        if 'png' in mime_type:
+                            ext = '.png'
+                        elif 'webp' in mime_type:
+                            ext = '.webp'
+
+                        temp_fd, temp_path = tempfile.mkstemp(suffix=ext)
+                        os.write(temp_fd, photo_bytes)
+                        os.close(temp_fd)
+                        temp_files.append(temp_path)
+
+                        photo_paths.append(temp_path)
+                        path_to_id[temp_path] = str(photo_id)
+                        logger.info(f"Downloaded cloud photo to temp: {temp_path}")
+                        photo_added = True
+
+                except Exception as e:
+                    logger.error(f"Failed to download from {storage_provider}: {e}")
+
+            # Try CompanyCam for remote photos (fallback if cloud storage failed)
+            if not photo_added and source == 'companycam' and external_id:
+                if not settings.ENABLE_INTEGRATIONS or not settings.COMPANYCAM_API_KEY:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="CompanyCam integration not available"
+                    )
+
+                try:
+                    from app.core.cache import get_cache
+                    from ..integrations.companycam.client import CompanyCamClient
+
+                    cache = get_cache()
+                    companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
+
+                    cache_key = f"companycam:photo:url:{external_id}:original"
+                    photo_url = await cache.get(cache_key)
+
+                    if not photo_url:
+                        photo_data = await companycam_client.get_photo(int(external_id))
+                        if 'uris' in photo_data:
+                            uris = photo_data['uris']
+                            if isinstance(uris, list):
+                                for uri in uris:
+                                    if isinstance(uri, dict) and uri.get('type') == 'original':
+                                        photo_url = uri.get('uri') or uri.get('url')
+                                        if photo_url:
+                                            await cache.set(cache_key, photo_url, ttl=86400)
+                                        break
+
+                    if not photo_url:
+                        raise HTTPException(status_code=404, detail=f"No URL for CompanyCam photo: {photo_id}")
+
+                    logger.info(f"Downloading CompanyCam photo {external_id}")
+                    photo_bytes = await companycam_client.download_photo(photo_url)
+
+                    mime_type = photo_dict.get('mime_type', 'image/jpeg')
+                    ext = '.webp' if 'webp' in mime_type else '.png' if 'png' in mime_type else '.jpg'
+
+                    temp_fd, temp_path = tempfile.mkstemp(suffix=ext)
+                    os.write(temp_fd, photo_bytes)
+                    os.close(temp_fd)
+                    temp_files.append(temp_path)
+
+                    photo_paths.append(temp_path)
+                    path_to_id[temp_path] = str(photo_id)
+                    logger.info(f"Downloaded CompanyCam photo to: {temp_path}")
+                    photo_added = True
+
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    logger.error(f"Failed to download CompanyCam photo {photo_id}: {e}")
+                    raise HTTPException(status_code=500, detail=f"Failed to download photo: {photo_id}")
+
+            if not photo_added:
                 raise HTTPException(status_code=404, detail=f"Photo file not found: {photo_id}")
 
-            photo_paths.append(str(file_path))
+        # Build rotations dict using photo_id as key (to match paths in pdf_service)
+        rotations = None
+        if request.rotations:
+            rotations = {str(k): v for k, v in request.rotations.items()}
+            logger.info(f"Photo rotations requested: {rotations}")
 
         # Generate filename
         doc_type_names = {
@@ -1592,15 +1737,21 @@ async def generate_document_pdf(
                     detail="date_of_loss is required for EWA document generation"
                 )
 
+            # Get rotation for the EWA photo (if any)
+            ewa_rotation = 0
+            if rotations and request.photo_ids:
+                ewa_rotation = rotations.get(str(request.photo_ids[0]), 0)
+
             generate_ewa_pdf(
                 job_address=request.job_address,
                 date_of_loss=request.date_of_loss,
                 photo_path=photo_paths[0],  # EWA requires exactly 1 photo (validated in schema)
-                output_path=str(output_path)
+                output_path=str(output_path),
+                rotation=ewa_rotation
             )
         else:
             # COS: Images only (multiple photos)
-            generate_images_pdf(photo_paths, str(output_path))
+            generate_images_pdf(photo_paths, str(output_path), rotations=rotations)
 
         logger.info(f"Generated PDF: {output_path}")
 
@@ -1639,6 +1790,15 @@ async def generate_document_pdf(
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Clean up temp files
+        for temp_path in temp_files:
+            try:
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                    logger.debug(f"Cleaned up temp file: {temp_path}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup temp file {temp_path}: {e}")
 
 
 @router.get("/jobs/{job_id}/documents", response_model=List[WMDocumentResponse])
@@ -1964,3 +2124,134 @@ async def generate_photo_report(
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Admin/Migration endpoint to update thumbnail URLs for existing CompanyCam photos
+@router.post("/admin/migrate-thumbnail-urls")
+async def migrate_thumbnail_urls(
+    batch_size: int = Query(50, description="Number of photos to process per batch"),
+    dry_run: bool = Query(False, description="If true, only count photos without updating"),
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Migrate existing CompanyCam photos to use CDN thumbnail URLs.
+    
+    This endpoint fetches thumbnail URLs from CompanyCam API for photos
+    that don't have storage_thumbnail_url set.
+    
+    Args:
+        batch_size: Number of photos to process in one call
+        dry_run: If True, only count photos needing migration
+        
+    Returns:
+        Migration statistics
+    """
+    from app.core.config import settings
+    from app.domains.integrations.companycam.client import CompanyCamClient
+    
+    if not settings.ENABLE_INTEGRATIONS or not settings.COMPANYCAM_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="CompanyCam integration not enabled"
+        )
+    
+    # Find CompanyCam photos without thumbnail URL
+    photos_to_update = db.query(WMPhoto).filter(
+        WMPhoto.source == 'companycam',
+        WMPhoto.external_id.isnot(None),
+        (WMPhoto.storage_thumbnail_url.is_(None) | (WMPhoto.storage_thumbnail_url == ''))
+    ).limit(batch_size).all()
+    
+    if dry_run:
+        # Count total photos needing migration
+        total_count = db.query(WMPhoto).filter(
+            WMPhoto.source == 'companycam',
+            WMPhoto.external_id.isnot(None),
+            (WMPhoto.storage_thumbnail_url.is_(None) | (WMPhoto.storage_thumbnail_url == ''))
+        ).count()
+        
+        return {
+            'dry_run': True,
+            'photos_needing_migration': total_count,
+            'batch_size': batch_size,
+            'estimated_batches': (total_count + batch_size - 1) // batch_size if total_count > 0 else 0
+        }
+    
+    if not photos_to_update:
+        return {
+            'success': True,
+            'message': 'No photos need migration',
+            'updated': 0,
+            'failed': 0,
+            'remaining': 0
+        }
+    
+    # Initialize CompanyCam client
+    companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
+    
+    updated = 0
+    failed = 0
+    errors = []
+    
+    # Batch fetch photo data from CompanyCam
+    external_ids = [int(p.external_id) for p in photos_to_update if p.external_id]
+    
+    try:
+        photos_data = await companycam_client.get_photos_batch(external_ids)
+        
+        for photo in photos_to_update:
+            try:
+                external_id = int(photo.external_id)
+                photo_data = photos_data.get(external_id)
+                
+                if not photo_data or 'uris' not in photo_data:
+                    failed += 1
+                    errors.append(f"No data for photo {photo.id} (external_id: {external_id})")
+                    continue
+                
+                uris = photo_data['uris']
+                thumbnail_url = None
+                
+                if isinstance(uris, list):
+                    for uri in uris:
+                        if isinstance(uri, dict) and uri.get('type') == 'thumbnail':
+                            thumbnail_url = uri.get('uri')
+                            break
+                
+                if thumbnail_url:
+                    photo.storage_thumbnail_url = thumbnail_url
+                    updated += 1
+                    logger.info(f"Updated thumbnail URL for photo {photo.id}")
+                else:
+                    failed += 1
+                    errors.append(f"No thumbnail URL found for photo {photo.id}")
+                    
+            except Exception as e:
+                failed += 1
+                errors.append(f"Error processing photo {photo.id}: {str(e)}")
+                logger.error(f"Error migrating photo {photo.id}: {e}")
+        
+        # Commit changes
+        db.commit()
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Batch fetch failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch from CompanyCam: {str(e)}")
+    
+    # Count remaining photos
+    remaining = db.query(WMPhoto).filter(
+        WMPhoto.source == 'companycam',
+        WMPhoto.external_id.isnot(None),
+        (WMPhoto.storage_thumbnail_url.is_(None) | (WMPhoto.storage_thumbnail_url == ''))
+    ).count()
+    
+    return {
+        'success': True,
+        'message': f'Migrated {updated} photos, {failed} failed',
+        'updated': updated,
+        'failed': failed,
+        'remaining': remaining,
+        'errors': errors[:10] if errors else []
+    }

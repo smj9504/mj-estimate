@@ -12,11 +12,12 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database_factory import get_database
+from app.core.rate_limiter import limiter, RATE_LIMITS
 
 from .companycam.client import CompanyCamClient
 from .companycam.schemas import (
@@ -59,8 +60,10 @@ def get_db():
     status_code=status.HTTP_200_OK,
     summary="CompanyCam Webhook Receiver"
 )
+@limiter.limit(RATE_LIMITS["webhook"])
 async def companycam_webhook(
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):

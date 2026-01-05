@@ -14,7 +14,7 @@ from app.domains.invoice.models import Invoice, InvoiceItem
 from app.domains.estimate.models import Estimate, EstimateItem
 from app.domains.plumber_report.models import PlumberReport
 from app.domains.document.models import Document
-from app.document_types.models import DocumentType, Trade
+from app.domains.document_types.models import DocumentType, Trade
 
 # Simple authentication for admin panel (you can enhance this later)
 class AdminAuth(AuthenticationBackend):
@@ -277,16 +277,16 @@ class PlumberReportAdmin(ModelView, model=PlumberReport):
     name = "Plumber Report"
     name_plural = "Plumber Reports"
     icon = "fa-solid fa-wrench"
-    
+
     column_list = [
         PlumberReport.id,
         PlumberReport.report_number,
         PlumberReport.client_name,
-        PlumberReport.inspection_date,
+        PlumberReport.service_date,
         PlumberReport.status,
-        PlumberReport.water_source
+        PlumberReport.total_amount
     ]
-    
+
     column_labels = {
         "id": "ID",
         "report_number": "보고서 번호",
@@ -295,30 +295,27 @@ class PlumberReportAdmin(ModelView, model=PlumberReport):
         "client_address": "고객 주소",
         "client_phone": "고객 전화번호",
         "client_email": "고객 이메일",
-        "report_date": "보고서 날짜",
-        "inspection_date": "검사 날짜",
+        "service_date": "서비스 날짜",
         "status": "상태",
-        "water_source": "수원",
-        "water_pressure": "수압",
-        "main_line_size": "주관 크기",
-        "main_line_material": "주관 재질",
-        "findings": "발견사항",
+        "technician_name": "기술자 이름",
+        "cause_of_damage": "손상 원인",
+        "work_performed": "수행 작업",
         "recommendations": "권고사항",
-        "inspection_areas": "검사 구역",
-        "attachments": "첨부파일",
+        "total_amount": "총액",
         "created_at": "Created At",
         "updated_at": "Updated At"
     }
-    
+
     column_searchable_list = [PlumberReport.report_number, PlumberReport.client_name]
-    column_sortable_list = [PlumberReport.inspection_date, PlumberReport.status]
-    column_default_sort = [(PlumberReport.report_date, True)]
+    column_sortable_list = [PlumberReport.service_date, PlumberReport.status, PlumberReport.total_amount]
+    column_default_sort = [(PlumberReport.service_date, True)]
     column_formatters = {
         PlumberReport.status: lambda m, a: {
             "draft": "Draft",
-            "completed": "Completed",
-            "sent": "발송됨"
-        }.get(m.status, m.status)
+            "final": "Final",
+            "sent": "Sent"
+        }.get(m.status, m.status),
+        PlumberReport.total_amount: lambda m, a: f"${m.total_amount:,.2f}" if m.total_amount else "$0.00"
     }
     page_size = 50
 
@@ -370,7 +367,7 @@ class DocumentTypeAdmin(ModelView, model=DocumentType):
     name = "Document Type"
     name_plural = "Document Types"
     icon = "fa-solid fa-file-contract"
-    
+
     column_list = [
         DocumentType.id,
         DocumentType.name,
@@ -378,9 +375,9 @@ class DocumentTypeAdmin(ModelView, model=DocumentType):
         DocumentType.category,
         DocumentType.base_fee,
         DocumentType.is_active,
-        DocumentType.display_order
+        DocumentType.is_available_online
     ]
-    
+
     column_labels = {
         "id": "ID",
         "name": "문서 유형명",
@@ -388,28 +385,27 @@ class DocumentTypeAdmin(ModelView, model=DocumentType):
         "description": "Description",
         "category": "카테고리",
         "base_fee": "기본 가격",
-        "pricing_rules": "가격 규칙",
+        "fee_rules": "가격 규칙",
         "requires_measurement_report": "측정 보고서 필요",
         "measurement_report_providers": "측정 보고서 제공자",
         "template_name": "템플릿 이름",
         "is_active": "활성화",
         "is_available_online": "온라인 가능",
-        "display_order": "표시 순서",
         "created_at": "Created At",
         "updated_at": "Updated At",
         "created_by": "생성자",
         "updated_by": "수정자"
     }
-    
+
     column_searchable_list = [DocumentType.name, DocumentType.code]
-    column_sortable_list = [DocumentType.name, DocumentType.base_fee, DocumentType.display_order]
-    column_default_sort = [(DocumentType.display_order, False)]
+    column_sortable_list = [DocumentType.name, DocumentType.base_fee, DocumentType.is_active]
+    column_default_sort = [(DocumentType.name, False)]
     column_formatters = {
         DocumentType.base_fee: lambda m, a: f"${m.base_fee:,.2f}" if m.base_fee else "$0.00",
         DocumentType.is_active: lambda m, a: "활성" if m.is_active else "비활성"
     }
     page_size = 50
-    
+
     form_excluded_columns = ['created_at', 'updated_at']
     
 
@@ -417,7 +413,7 @@ class TradeAdmin(ModelView, model=Trade):
     name = "Trade"
     name_plural = "Trades"
     icon = "fa-solid fa-tools"
-    
+
     column_list = [
         Trade.id,
         Trade.name,
@@ -425,10 +421,9 @@ class TradeAdmin(ModelView, model=Trade):
         Trade.category,
         Trade.is_active,
         Trade.requires_license,
-        Trade.requires_insurance,
-        Trade.display_order
+        Trade.requires_insurance
     ]
-    
+
     column_labels = {
         "id": "ID",
         "name": "업종명",
@@ -439,23 +434,24 @@ class TradeAdmin(ModelView, model=Trade):
         "requires_license": "면허 필요",
         "requires_insurance": "보험 필요",
         "license_type": "면허 유형",
-        "display_order": "표시 순서",
+        "default_markup": "기본 마크업",
+        "default_hourly_rate": "기본 시간당 요금",
         "created_at": "Created At",
         "updated_at": "Updated At",
         "created_by": "생성자",
         "updated_by": "수정자"
     }
-    
+
     column_searchable_list = [Trade.name, Trade.code, Trade.category]
-    column_sortable_list = [Trade.name, Trade.category, Trade.display_order]
-    column_default_sort = [(Trade.display_order, False)]
+    column_sortable_list = [Trade.name, Trade.category, Trade.is_active]
+    column_default_sort = [(Trade.name, False)]
     column_formatters = {
         Trade.is_active: lambda m, a: "활성" if m.is_active else "비활성",
         Trade.requires_license: lambda m, a: "필요" if m.requires_license else "불필요",
         Trade.requires_insurance: lambda m, a: "필요" if m.requires_insurance else "불필요"
     }
     page_size = 50
-    
+
     form_excluded_columns = ['created_at', 'updated_at']
 
 
@@ -485,5 +481,7 @@ def setup_admin(app, engine):
     admin.add_view(EstimateItemAdmin)
     admin.add_view(PlumberReportAdmin)
     admin.add_view(DocumentAdmin)
-    
+    admin.add_view(DocumentTypeAdmin)
+    admin.add_view(TradeAdmin)
+
     return admin

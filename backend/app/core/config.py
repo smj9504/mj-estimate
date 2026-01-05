@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8000"))
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
+
+    # Production Safety Flag - Explicit production marker
+    # This flag must be explicitly set to "true" in production environments
+    # Used for additional safety checks on development-only features
+    IS_PRODUCTION: bool = os.getenv("IS_PRODUCTION", "false").lower() == "true"
     
     # CORS Settings - parse from env or use default list
     @property

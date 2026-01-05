@@ -80,6 +80,7 @@ class LocalStorageProvider(StorageProvider):
 
             return UploadResult(
                 file_id=file_id,
+                file_path=str(file_path),  # Absolute path to file
                 file_url=file_url,
                 thumbnail_url=thumbnail_url,
                 folder_path=folder_path,

@@ -100,8 +100,8 @@ const CacheMonitor: React.FC = () => {
     try {
       const response = await apiClient.get('/api/admin/cache/metrics');
       return response.data;
-    } catch (error) {
-      console.error('Failed to fetch backend metrics:', error);
+    } catch {
+      // Backend metrics endpoint may not be available
       return null;
     }
   };
@@ -170,8 +170,7 @@ const CacheMonitor: React.FC = () => {
       ];
       setCacheEntries(entries);
 
-    } catch (error) {
-      console.error('Failed to fetch metrics:', error);
+    } catch {
       message.error('Failed to load cache metrics');
     } finally {
       setLoading(false);

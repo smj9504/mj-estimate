@@ -2,7 +2,7 @@
 Water Mitigation repository
 """
 
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from uuid import UUID
 
 from sqlalchemy import and_, desc, func, or_
@@ -373,6 +373,146 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             WMPhoto.external_id.isnot(None)
         ).all()
         return {r[0] for r in results}
+
+    def get_all_external_ids(self, external_ids: List[str]) -> Set[str]:
+        """
+        Check which external_ids already exist in the database (any job).
+
+        Optimized batch query for duplicate detection during sync.
+
+        Args:
+            external_ids: List of external_ids to check
+
+        Returns:
+            Set of external_ids that already exist
+        """
+        if not external_ids:
+            return set()
+        results = self.db_session.query(WMPhoto.external_id).filter(
+            WMPhoto.external_id.in_(external_ids)
+        ).all()
+        return {r[0] for r in results}
+
+    def bulk_update_category(self, photo_ids: List[str], category: str) -> int:
+        """
+        Bulk update category for multiple photos in a single query.
+
+        Args:
+            photo_ids: List of photo IDs to update
+            category: Category value to set
+
+        Returns:
+            Number of photos updated
+        """
+        if not photo_ids:
+            return 0
+
+        # Convert string IDs to UUIDs if needed
+        from uuid import UUID as PyUUID
+        uuid_list = []
+        for pid in photo_ids:
+            if isinstance(pid, str):
+                uuid_list.append(PyUUID(pid))
+            else:
+                uuid_list.append(pid)
+
+        # Single UPDATE query for all photos
+        result = self.db_session.query(WMPhoto).filter(
+            WMPhoto.id.in_(uuid_list)
+        ).update(
+            {"category": category},
+            synchronize_session='fetch'
+        )
+
+        return result
+
+    def find_duplicates_by_external_id(
+        self, job_id: Optional[UUID] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Find duplicate photos by external_id.
+
+        Returns list of dicts with external_id, count, and photo_ids.
+        """
+        from sqlalchemy import func
+
+        query = self.db_session.query(
+            WMPhoto.external_id,
+            WMPhoto.job_id,
+            func.count(WMPhoto.id).label('count'),
+            func.array_agg(WMPhoto.id).label('photo_ids')
+        ).filter(
+            WMPhoto.external_id.isnot(None),
+            WMPhoto.is_trashed.is_(False)
+        )
+
+        if job_id:
+            query = query.filter(WMPhoto.job_id == job_id)
+
+        query = query.group_by(
+            WMPhoto.external_id, WMPhoto.job_id
+        ).having(
+            func.count(WMPhoto.id) > 1
+        )
+
+        results = query.all()
+        return [
+            {
+                'external_id': r.external_id,
+                'job_id': str(r.job_id),
+                'count': r.count,
+                'photo_ids': [str(pid) for pid in r.photo_ids]
+            }
+            for r in results
+        ]
+
+    def delete_duplicate_photos(
+        self, job_id: Optional[UUID] = None, dry_run: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Delete duplicate photos, keeping the oldest one.
+
+        Args:
+            job_id: Optional job ID to limit scope
+            dry_run: If True, only report what would be deleted
+
+        Returns:
+            Dict with deleted_count and details
+        """
+        duplicates = self.find_duplicates_by_external_id(job_id)
+
+        if not duplicates:
+            return {'deleted_count': 0, 'duplicates': []}
+
+        to_delete = []
+        for dup in duplicates:
+            # Keep first (oldest by ID), delete rest
+            photo_ids = dup['photo_ids']
+            if len(photo_ids) > 1:
+                to_delete.extend(photo_ids[1:])  # Skip first, delete rest
+
+        if dry_run:
+            return {
+                'deleted_count': len(to_delete),
+                'duplicates': duplicates,
+                'to_delete': to_delete,
+                'dry_run': True
+            }
+
+        # Actually delete
+        if to_delete:
+            from uuid import UUID as PyUUID
+            uuid_list = [PyUUID(pid) for pid in to_delete]
+            self.db_session.query(WMPhoto).filter(
+                WMPhoto.id.in_(uuid_list)
+            ).delete(synchronize_session='fetch')
+
+        return {
+            'deleted_count': len(to_delete),
+            'duplicates': duplicates,
+            'deleted_ids': to_delete,
+            'dry_run': False
+        }
 
 
 class WMJobStatusHistoryRepository(SQLAlchemyRepository[WMJobStatusHistory, UUID]):

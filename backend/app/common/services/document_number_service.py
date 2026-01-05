@@ -128,12 +128,13 @@ class DocumentNumberService:
             number_field = self._get_number_field(document_type)
             
             response = self.db.table(table_name).select('id').eq(
-                number_field, 
+                number_field,
                 document_number
             ).eq('is_latest', True).execute()
-            
+
             return bool(response.data)
-        except:
+        except Exception as e:
+            print(f"Error checking if document number exists: {e}")
             return False
     
     def get_latest_version(self, document_type: str, document_number: str) -> int:

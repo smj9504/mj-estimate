@@ -118,7 +118,7 @@ def parse_date_value(value: any) -> Optional[datetime]:
             # Google Sheets epoch: December 30, 1899
             excel_epoch = datetime(1899, 12, 30)
             return excel_epoch + timedelta(days=int(value))
-        except:
+        except (ValueError, OverflowError, TypeError):
             pass
 
     return None

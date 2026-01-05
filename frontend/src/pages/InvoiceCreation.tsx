@@ -602,7 +602,12 @@ const InvoiceCreation: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEditMode = !!id;
-  const [loading, setLoading] = useState(false);
+
+  // Loading states - separate for different operations
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isPreviewingReceipt, setIsPreviewingReceipt] = useState(false);
+
   const [formMounted, setFormMounted] = useState(false);
   
   // Local state for company selection to ensure Select updates immediately
@@ -1194,7 +1199,7 @@ const InvoiceCreation: React.FC = () => {
       setSpecificTaxAmount(0);
       setOpPercent(0);
       setSelectedCompany(null);
-      setLoading(false);
+      setIsSaving(false);
 
       // Reset form
       form.resetFields();
@@ -1730,8 +1735,8 @@ const InvoiceCreation: React.FC = () => {
 
   const handleSave = async (status: string = 'pending', skipNavigation: boolean = false) => {
     try {
+      setIsSaving(true);
       const values = await form.validateFields();
-      setLoading(true);
 
       const totals = calculateTotals();
 
@@ -1740,7 +1745,7 @@ const InvoiceCreation: React.FC = () => {
       const companyId = values.company_id || values.company_selection || selectedCompany?.id;
       if (!companyId) {
         message.error('Please select a company');
-        setLoading(false);
+        setIsSaving(false);
         return null;
       }
 
@@ -1859,19 +1864,19 @@ const InvoiceCreation: React.FC = () => {
       console.error(error);
       return null;
     } finally {
-      setLoading(false);
+      setIsSaving(false);
     }
   };
 
   const handlePreviewHTML = async () => {
     try {
-      setLoading(true);
+      setIsPreviewing(true);
       const values = await form.validateFields();
 
       // Validate company information
       if (!selectedCompany) {
         message.error('Please select a company');
-        setLoading(false);
+        setIsPreviewing(false);
         return;
       }
 
@@ -1951,7 +1956,7 @@ const InvoiceCreation: React.FC = () => {
       message.error('Failed to generate HTML preview');
       console.error(error);
     } finally {
-      setLoading(false);
+      setIsPreviewing(false);
     }
   };
 
@@ -2083,7 +2088,7 @@ const InvoiceCreation: React.FC = () => {
     }
 
     try {
-      setLoading(true);
+      setIsPreviewingReceipt(true);
 
       // Use existing invoiceData if available, only fetch if null
       let currentInvoiceData = invoiceData;
@@ -2135,7 +2140,7 @@ const InvoiceCreation: React.FC = () => {
       message.error(`Failed to preview receipt: ${error.response?.data?.detail || error.message}`);
       console.error('Receipt preview error:', error);
     } finally {
-      setLoading(false);
+      setIsPreviewingReceipt(false);
     }
   };
 
@@ -2197,7 +2202,7 @@ const InvoiceCreation: React.FC = () => {
     }
 
     try {
-      setLoading(true);
+      setIsPreviewingReceipt(true);
 
       // Use existing invoiceData if available, only fetch if null
       let currentInvoiceData = invoiceData;
@@ -2263,7 +2268,7 @@ const InvoiceCreation: React.FC = () => {
       message.error(`Failed to view receipt: ${error.response?.data?.detail || error.message}`);
       console.error('Receipt view error:', error);
     } finally {
-      setLoading(false);
+      setIsPreviewingReceipt(false);
     }
   };
 
@@ -3257,7 +3262,8 @@ const InvoiceCreation: React.FC = () => {
                             size="small"
                             icon={<EyeOutlined />}
                             onClick={() => handlePreviewPaymentReceipt(index)}
-                            disabled={loading || generatingReceipt}
+                            loading={isPreviewingReceipt}
+                            disabled={isSaving || isPreviewing || generatingReceipt}
                           >
                             Preview Receipt
                           </Button>
@@ -3269,7 +3275,8 @@ const InvoiceCreation: React.FC = () => {
                               type="primary"
                               icon={<FileTextOutlined />}
                               onClick={() => handleGeneratePaymentReceipt(index)}
-                              disabled={loading || generatingReceipt}
+                              loading={generatingReceipt}
+                              disabled={isSaving || isPreviewing || isPreviewingReceipt}
                               style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
                             >
                               Generate Receipt
@@ -3282,7 +3289,8 @@ const InvoiceCreation: React.FC = () => {
                               type="default"
                               icon={<FilePdfOutlined />}
                               onClick={() => handleViewPaymentReceipt(index)}
-                              disabled={loading}
+                              loading={isPreviewingReceipt}
+                              disabled={isSaving || isPreviewing || generatingReceipt}
                             >
                               View Receipt
                             </Button>
@@ -3386,14 +3394,14 @@ const InvoiceCreation: React.FC = () => {
               type="primary"
               icon={<SaveOutlined />}
               onClick={() => handleSave('sent')}
-              loading={loading}
+              loading={isSaving}
             >
               {isEditMode ? 'Update' : 'Save'}
             </Button>
             <Button
               icon={<EyeOutlined />}
               onClick={handlePreviewHTML}
-              loading={loading}
+              loading={isPreviewing}
             >
               Preview PDF
             </Button>

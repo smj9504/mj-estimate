@@ -43,10 +43,20 @@ async def get_current_staff(
         token[:20] if token else ""
     )
 
-    # Development mode: Allow temporary tokens
+    # Development mode: Allow temporary tokens with multi-condition security check
+    # This feature is ONLY available when ALL conditions are met:
+    # 1. ENVIRONMENT is explicitly "development"
+    # 2. DEBUG is True
+    # 3. IS_PRODUCTION is False (explicit production safety flag)
     if token and token.startswith('dev-temp-token-'):
         from app.core.config import settings
-        if settings.ENVIRONMENT == 'development':
+
+        # Multi-condition security check - ALL conditions must be True
+        is_dev_environment = settings.ENVIRONMENT == 'development'
+        is_debug_enabled = settings.DEBUG is True
+        is_not_production = settings.IS_PRODUCTION is False
+
+        if is_dev_environment and is_debug_enabled and is_not_production:
             # Create a mock staff for development
             class MockStaff:
                 def __init__(self):
@@ -64,6 +74,15 @@ async def get_current_staff(
                 token[:20] if token else ""
             )
             return MockStaff()
+        else:
+            # Log security warning if dev token is attempted in non-dev environment
+            logger.warning(
+                "Dev token authentication attempt blocked - "
+                "ENVIRONMENT=%s, DEBUG=%s, IS_PRODUCTION=%s",
+                settings.ENVIRONMENT,
+                settings.DEBUG,
+                settings.IS_PRODUCTION
+            )
 
     # Decode JWT token
     token_data = auth_service.decode_token(token)

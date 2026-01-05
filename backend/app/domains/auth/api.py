@@ -4,9 +4,10 @@ Authentication API endpoints
 import logging
 from typing import Any, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.core.database_factory import get_db_session as get_db
+from app.core.rate_limiter import limiter, RATE_LIMITS
 from app.domains.staff.models import Staff
 
 from .dependencies import get_current_staff, require_admin
@@ -67,7 +68,10 @@ async def register(
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit(RATE_LIMITS["auth"])
 async def login(
+    request: Request,
+    response: Response,
     login_request: LoginRequest,
     db: Any = Depends(get_db)
 ):
@@ -251,7 +255,10 @@ async def update_staff_member(
 
 
 @router.post("/init-admin", response_model=dict)
+@limiter.limit(RATE_LIMITS["init"])
 async def initialize_admin(
+    request: Request,
+    response: Response,
     db: Any = Depends(get_db)
 ):
     """
@@ -268,15 +275,18 @@ async def initialize_admin(
 
 
 @router.post("/password-reset/request", response_model=dict)
+@limiter.limit(RATE_LIMITS["password_reset"])
 async def request_password_reset(
-    request: PasswordResetRequest,
+    request: Request,
+    response: Response,
+    reset_request: PasswordResetRequest,
     db: Any = Depends(get_db)
 ):
     """Request a password reset token"""
     from app.core.config import settings
     from app.core.email_service import email_service
 
-    token = auth_service.create_password_reset_token(db, request.email)
+    token = auth_service.create_password_reset_token(db, reset_request.email)
 
     if not token:
         # Return success message even if email not found
@@ -292,7 +302,7 @@ async def request_password_reset(
     # Send email with reset link
     if settings.EMAIL_ENABLED:
         email_sent = email_service.send_password_reset_email(
-            request.email, token
+            reset_request.email, token
         )
         if not email_sent:
             raise HTTPException(
@@ -318,15 +328,18 @@ async def request_password_reset(
 
 
 @router.post("/password-reset/confirm", response_model=dict)
+@limiter.limit(RATE_LIMITS["password_reset"])
 async def confirm_password_reset(
-    request: PasswordResetConfirm,
+    request: Request,
+    response: Response,
+    confirm_request: PasswordResetConfirm,
     db: Any = Depends(get_db)
 ):
     """Reset password using a valid token"""
     success = auth_service.reset_password_with_token(
         db,
-        request.token,
-        request.new_password
+        confirm_request.token,
+        confirm_request.new_password
     )
 
     if not success:

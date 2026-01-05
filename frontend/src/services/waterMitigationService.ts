@@ -253,13 +253,15 @@ export const waterMitigationService = {
       photoIds: string[],
       documentType: string,
       jobAddress: string,
-      dateOfLoss?: string
+      dateOfLoss?: string,
+      rotations?: Record<string, number>  // {photoId: degrees (0, 90, 180, 270)}
     ): Promise<{ id: string; filename: string; file_path: string; document_type: string }> => {
       const response = await api.post(`${BASE_URL}/jobs/${jobId}/documents/generate-pdf`, {
         photo_ids: photoIds,
         document_type: documentType,
         job_address: jobAddress,
-        date_of_loss: dateOfLoss
+        date_of_loss: dateOfLoss,
+        rotations: rotations
       });
       return response.data;
     },

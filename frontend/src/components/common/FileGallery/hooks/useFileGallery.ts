@@ -55,23 +55,28 @@ export const useFileGallery = ({
         const items = data.items.map((photo: any) => {
           // Use preview_url from API response (already optimized by backend)
           // Fallback to thumbnail_url or default preview endpoint
-          const imageUrl = photo.preview_url 
+          const imageUrl = photo.preview_url
             ? (photo.preview_url.startsWith('http') ? photo.preview_url : `${baseURL}${photo.preview_url}`)
             : photo.thumbnail_url
             ? (photo.thumbnail_url.startsWith('http') ? photo.thumbnail_url : `${baseURL}${photo.thumbnail_url}`)
             : `${baseURL}/api/water-mitigation/photos/${photo.id}/preview?size=web`;
-          
+
           const thumbUrl = photo.thumbnail_url
             ? (photo.thumbnail_url.startsWith('http') ? photo.thumbnail_url : `${baseURL}${photo.thumbnail_url}`)
             : imageUrl;
+
+          // Original full-resolution URL for preview modal
+          const originalUrl = photo.url
+            ? (photo.url.startsWith('http') ? photo.url : `${baseURL}${photo.url}`)
+            : `${baseURL}/api/water-mitigation/photos/${photo.id}/preview?size=original`;
 
           return {
             id: photo.id,
             filename: photo.file_name,
             originalName: photo.file_name,
-            url: imageUrl,
-            fileUrl: imageUrl,
-            thumbnailUrl: thumbUrl,
+            url: imageUrl,  // Optimized web preview for grid display
+            fileUrl: originalUrl,  // Original high-res for modal preview
+            thumbnailUrl: thumbUrl,  // Small thumbnail
             contentType: photo.mime_type || 'image/jpeg',
             mimeType: photo.mime_type,
             size: photo.file_size || 0,

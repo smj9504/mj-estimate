@@ -600,7 +600,12 @@ class CompanyCamWaterMitigationHandler:
                     deleted_count += 1
 
             if deleted_count > 0:
-                self.db.commit()
+                try:
+                    self.db.commit()
+                except Exception as commit_error:
+                    logger.critical(f"Failed to commit deleted photos for project {companycam_project_id}: {commit_error}")
+                    self.db.rollback()
+                    raise
                 logger.info(f"✅ Marked {deleted_count} photo(s) as trashed for project {companycam_project_id}")
 
                 # Send Slack notification for deleted photos
@@ -1090,8 +1095,14 @@ class CompanyCamWaterMitigationHandler:
         )
 
         self.db.add(photo_data)
-        self.db.commit()
-        self.db.refresh(photo_data)
+
+        try:
+            self.db.commit()
+            self.db.refresh(photo_data)
+        except Exception as commit_error:
+            logger.critical(f"Failed to commit photo metadata for CompanyCam photo {companycam_photo_id}: {commit_error}")
+            self.db.rollback()
+            raise
 
         logger.info(f"Saved photo metadata: {photo_data.id}")
         return photo_data, True
@@ -1147,7 +1158,11 @@ class CompanyCamWaterMitigationHandler:
             if companycam_photo:
                 companycam_photo.is_synced = True
                 companycam_photo.synced_at = datetime.utcnow()
-                self.db.commit()
+                try:
+                    self.db.commit()
+                except Exception as commit_error:
+                    logger.critical(f"Failed to commit photo sync status for CompanyCam photo {companycam_photo_id}: {commit_error}")
+                    self.db.rollback()
 
         except Exception as e:
             logger.error(f"Failed to download and attach photo: {e}", exc_info=True)
@@ -1396,4 +1411,8 @@ class CompanyCamWaterMitigationHandler:
             if related_entity_id:
                 webhook_event.related_entity_id = related_entity_id
 
-            self.db.commit()
+            try:
+                self.db.commit()
+            except Exception as commit_error:
+                logger.critical(f"Failed to commit webhook event status update for webhook {webhook_event_id}: {commit_error}")
+                self.db.rollback()

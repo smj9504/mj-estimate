@@ -5,27 +5,72 @@
 
 import { useQuery } from '@tanstack/react-query';
 
-interface Photo {
+export interface WMPhoto {
   id: string;
   file_path: string;
   caption?: string;
   category?: string;
   taken_date?: string;
+  captured_date?: string;
   description?: string;
-  thumbnail_path?: string;
+  thumbnail_url?: string;  // CompanyCam CDN thumbnail URL (fast)
+  preview_url?: string;    // Preview URL from API
 }
 
-export const useWaterMitigationPhotos = (jobId: string, enabled: boolean = true) => {
-  return useQuery<Photo[]>({
-    queryKey: ['water-mitigation-photos', jobId],
+interface UseWaterMitigationPhotosOptions {
+  enabled?: boolean;
+  pageSize?: number;  // Default 50, max 200 - use higher for document creation
+  categoryFilter?: string;  // Filter by category
+}
+
+const mapPhotoResponse = (photo: any): WMPhoto => ({
+  id: photo.id,
+  file_path: photo.file_path,
+  caption: photo.title || photo.caption,
+  category: photo.category,
+  taken_date: photo.captured_date || photo.taken_date,
+  captured_date: photo.captured_date,
+  description: photo.description,
+  // Use thumbnail_url from API (CompanyCam CDN) - fastest option
+  thumbnail_url: photo.thumbnail_url || photo.storage_thumbnail_url,
+  preview_url: photo.preview_url,
+});
+
+export const useWaterMitigationPhotos = (
+  jobId: string, 
+  options: UseWaterMitigationPhotosOptions | boolean = true
+) => {
+  // Handle legacy boolean parameter for backwards compatibility
+  const opts: UseWaterMitigationPhotosOptions = typeof options === 'boolean' 
+    ? { enabled: options } 
+    : options;
+  
+  const { enabled = true, pageSize = 200, categoryFilter } = opts;
+
+  return useQuery<WMPhoto[]>({
+    queryKey: ['water-mitigation-photos', jobId, pageSize, categoryFilter],
     queryFn: async () => {
-      const response = await fetch(`/api/water-mitigation/jobs/${jobId}/photos`);
+      // Build query params
+      const params = new URLSearchParams({
+        page_size: pageSize.toString(),
+        page: '1',
+      });
+      
+      if (categoryFilter && categoryFilter !== 'all') {
+        params.append('category_filter', categoryFilter);
+      }
+
+      const response = await fetch(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
       if (!response.ok) {
         throw new Error(`Failed to load photos: ${response.status}`);
       }
       const data = await response.json();
-      // API returns array directly
-      return Array.isArray(data) ? data : (data.photos || []);
+      
+      // API returns { items: [...], total, page, ... } format
+      const items = data.items || data.photos || (Array.isArray(data) ? data : []);
+      
+      // Map response to include proper thumbnail URLs
+      return items.map(mapPhotoResponse);
     },
     staleTime: 5 * 60 * 1000,        // 5분간 신선한 데이터로 간주
     gcTime: 10 * 60 * 1000,          // 10분간 캐시 보관

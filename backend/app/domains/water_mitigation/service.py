@@ -184,7 +184,7 @@ class WaterMitigationService:
     def delete_job(self, job_id: UUID) -> bool:
         """
         Delete job and all associated files (photos and documents)
-        
+
         This method:
         1. Deletes all photo files from disk/storage
         2. Deletes all document files from disk/storage
@@ -193,11 +193,19 @@ class WaterMitigationService:
         # Get job first to verify it exists
         job = self.job_repo.get_by_id(job_id)
         if not job:
+            logger.warning(f"Job {job_id} not found for deletion")
             return False
-        
+
         # Get all photos for this job
         photos = self.photo_repo.find_by_job(job_id)
-        
+
+        logger.info(f"=== DELETING JOB {job_id} === (photos: {len(photos)})")
+
+        # Track deletion stats
+        photos_deleted = 0
+        photos_not_found = 0
+        photos_failed = 0
+
         # Delete photo files
         for photo in photos:
             try:
@@ -218,18 +226,18 @@ class WaterMitigationService:
                     photo.get('id') if isinstance(photo, dict)
                     else getattr(photo, 'id', None)
                 )
-                
+
                 # Delete based on storage provider
                 if storage_provider == 'local' and file_path_str:
                     # Delete local file
                     file_path = Path(file_path_str)
                     if file_path.exists():
                         file_path.unlink()
-                        logger.info(f"Deleted local photo file: {file_path_str}")
+                        photos_deleted += 1
+                        logger.debug(f"Deleted local photo: {file_path_str}")
                     else:
-                        logger.warning(
-                            f"Photo file not found: {file_path_str}"
-                        )
+                        photos_not_found += 1
+                        logger.debug(f"Photo file not found: {file_path_str}")
                 elif storage_provider != 'local' and storage_file_id:
                     # Delete from cloud storage
                     try:
@@ -237,32 +245,26 @@ class WaterMitigationService:
                         if hasattr(storage, 'delete'):
                             success = storage.delete(storage_file_id)
                             if success:
-                                logger.info(
-                                    f"Deleted {storage_provider} photo file: "
-                                    f"{storage_file_id}"
-                                )
+                                photos_deleted += 1
+                                logger.debug(f"Deleted {storage_provider} photo: {storage_file_id}")
                             else:
-                                logger.warning(
-                                    f"Failed to delete {storage_provider} "
-                                    f"photo: {storage_file_id}"
-                                )
+                                photos_not_found += 1
+                                logger.debug(f"Photo not found in {storage_provider}: {storage_file_id}")
                     except Exception as storage_error:
-                        logger.error(
-                            f"Failed to delete {storage_provider} photo "
-                            f"{storage_file_id}: {storage_error}",
-                            exc_info=True
-                        )
+                        photos_failed += 1
+                        logger.debug(f"Failed to delete {storage_provider} photo: {storage_error}")
             except Exception as e:
-                logger.error(
-                    f"Failed to delete photo file {photo_id}: {e}",
-                    exc_info=True
-                )
-        
+                photos_failed += 1
+                logger.debug(f"Failed to delete photo {photo_id}: {e}")
+
         # Get all documents for this job
         documents = self.document_repo.get_by_job(
             str(job_id), is_active=None
         )  # Get all, including inactive
-        
+
+        docs_deleted = 0
+        docs_not_found = 0
+
         # Delete document files
         for document in documents:
             try:
@@ -271,30 +273,34 @@ class WaterMitigationService:
                     document.get('file_path') if isinstance(document, dict)
                     else getattr(document, 'file_path', None)
                 )
-                document_id = (
-                    document.get('id') if isinstance(document, dict)
-                    else getattr(document, 'id', None)
-                )
-                
+
                 # Only delete local files
                 # For other storage providers, files are managed externally
                 if file_path_str:
                     file_path = Path(file_path_str)
                     if file_path.exists():
                         file_path.unlink()
-                        logger.info(f"Deleted document file: {file_path_str}")
+                        docs_deleted += 1
+                        logger.debug(f"Deleted document: {file_path_str}")
                     else:
-                        logger.warning(
-                            f"Document file not found: {file_path_str}"
-                        )
+                        docs_not_found += 1
+                        logger.debug(f"Document not found: {file_path_str}")
             except Exception as e:
-                logger.error(
-                    f"Failed to delete document file {document_id}: {e}",
-                    exc_info=True
-                )
-        
+                logger.debug(f"Failed to delete document: {e}")
+
         # Delete job (cascade delete will handle DB records for photos, documents, etc.)
-        return self.job_repo.delete(job_id)
+        result = self.job_repo.delete(job_id)
+
+        if result:
+            logger.info(
+                f"=== JOB {job_id} DELETED === "
+                f"Photos: {photos_deleted} deleted, {photos_not_found} not found, {photos_failed} failed | "
+                f"Docs: {docs_deleted} deleted, {docs_not_found} not found"
+            )
+        else:
+            logger.error(f"=== JOB {job_id} DELETE FAILED ===")
+
+        return result
 
     # Category operations
     def create_category(self, data: CategoryCreate, client_id: UUID) -> PhotoCategory:
@@ -499,7 +505,9 @@ class WaterMitigationService:
         mime_type: str = 'image/jpeg',
         title: Optional[str] = None,
         description: Optional[str] = None,
-        captured_date: Optional[datetime] = None
+        captured_date: Optional[datetime] = None,
+        companycam_thumbnail_url: Optional[str] = None,
+        companycam_web_url: Optional[str] = None
     ) -> WMPhoto:
         """
         Save CompanyCam photo to Water Mitigation job using configured storage provider
@@ -523,16 +531,16 @@ class WaterMitigationService:
             raise ValueError(f"Job {job_id} not found")
 
         # Prevent duplicate uploads for the same CompanyCam photo
+        # Check globally by external_id since same CompanyCam photo won't be in multiple jobs
         existing_photo = self.session.query(WMPhoto).filter(
-            WMPhoto.job_id == job_id,
             WMPhoto.external_id == companycam_photo_id
         ).first()
 
         if existing_photo:
             logger.info(
-                "CompanyCam photo %s already attached to job %s. Skipping re-upload.",
+                "CompanyCam photo %s already exists (job %s). Skipping re-upload.",
                 companycam_photo_id,
-                job_id,
+                existing_photo.job_id,
             )
             return existing_photo
 
@@ -594,6 +602,9 @@ class WaterMitigationService:
             raise
 
         # Create photo record
+        # Prefer CompanyCam CDN thumbnail URL over storage provider URL (faster loading)
+        thumbnail_url = companycam_thumbnail_url or upload_result.thumbnail_url
+        
         photo_data = {
             'job_id': job_id,
             'source': 'companycam',
@@ -609,16 +620,27 @@ class WaterMitigationService:
             'upload_status': 'completed',
             'storage_provider': storage_provider_type,
             'storage_file_id': upload_result.file_id,
-            'storage_thumbnail_url': upload_result.thumbnail_url,
+            'storage_thumbnail_url': thumbnail_url,
             'storage_folder_path': upload_result.folder_path
         }
 
-        created_photo = self.photo_repo.create(photo_data)
-        # Flush to ensure photo is saved even if sync is cancelled
-        self.session.flush()
-        logger.info(f"Created WMPhoto record for CompanyCam photo {companycam_photo_id}")
-
-        return created_photo
+        try:
+            created_photo = self.photo_repo.create(photo_data)
+            # Flush to ensure photo is saved even if sync is cancelled
+            self.session.flush()
+            logger.info(f"Created WMPhoto record for CompanyCam photo {companycam_photo_id}")
+            return created_photo
+        except Exception as e:
+            # Handle race condition: another sync may have created this photo
+            self.session.rollback()
+            if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+                existing = self.session.query(WMPhoto).filter(
+                    WMPhoto.external_id == companycam_photo_id
+                ).first()
+                if existing:
+                    logger.info(f"Photo {companycam_photo_id} already exists (race condition). Using existing.")
+                    return existing
+            raise
 
     def get_job_photos(self, job_id: UUID) -> List[WMPhoto]:
         """Get all photos for a job"""
@@ -648,11 +670,6 @@ class WaterMitigationService:
             return False
 
         from datetime import datetime
-        photo.is_trashed = True
-        photo.trashed_at = datetime.utcnow()
-        photo.trashed_by_id = trashed_by_id
-        photo.trash_reason = reason
-
         self.photo_repo.update(photo_id, {
             'is_trashed': True,
             'trashed_at': datetime.utcnow(),
@@ -905,11 +922,15 @@ class WaterMitigationService:
         from app.core.cache import get_cache
         cache = get_cache()
 
-        # Get existing photos by external_id (including trashed)
+        # Get existing photos by external_id (including trashed) for this job
+        # Also used to determine if photo is trashed for reporting purposes
         existing_photos = self.photo_repo.find_by_job_with_external_ids(
             job_id, include_trashed=True
         )
         existing_external_ids = set(existing_photos.keys())
+
+        # Note: We also check globally in save_companycam_photo to prevent duplicates
+        # across jobs and handle race conditions
 
         # Initialize counters
         synced_count = 0
@@ -931,8 +952,8 @@ class WaterMitigationService:
                     if is_cancelled_status:
                         logger.info(f"Cancellation detected for job {job_id}")
                     return is_cancelled_status
-                except:
-                    pass
+                except (json.JSONDecodeError, TypeError, KeyError) as e:
+                    logger.warning(f"Failed to parse sync status: {e}")
             return False
 
         # Helper to update progress (preserves cancelled status if set)
@@ -945,8 +966,8 @@ class WaterMitigationService:
                     status_data = json.loads(status_json)
                     if status_data.get('status') == 'cancelled':
                         current_status = 'cancelled'
-                except:
-                    pass
+                except (json.JSONDecodeError, TypeError, KeyError) as e:
+                    logger.warning(f"Failed to parse status for update: {e}")
 
             await cache.set(sync_key, json.dumps({
                 'status': current_status,
@@ -1032,44 +1053,57 @@ class WaterMitigationService:
 
                     batch = photos_to_sync[batch_start:batch_start + PARALLEL_BATCH_SIZE]
 
-                    async def download_photo_safe(cc_photo: Dict[str, Any]) -> tuple[str, Optional[bytes], Dict[str, Any], str]:
-                        """Download single photo, return (photo_id, photo_bytes, cc_photo, error_msg)"""
+                    async def download_photo_safe(cc_photo: Dict[str, Any]) -> tuple[str, Optional[bytes], Dict[str, Any], str, Optional[str], Optional[str]]:
+                        """Download single photo, return (photo_id, photo_bytes, cc_photo, error_msg, thumbnail_url, web_url)"""
                         photo_id = str(cc_photo.get('id'))
                         try:
                             # Extract photo URL from uris
                             uris = cc_photo.get('uris', [])
                             photo_url = None
+                            thumbnail_url = None
+                            web_url = None
 
                             if isinstance(uris, list):
                                 for uri in uris:
                                     if isinstance(uri, dict):
-                                        if uri.get('type') == 'original':
-                                            photo_url = uri.get('uri')
-                                            break
-                                        elif uri.get('type') == 'large' and not photo_url:
-                                            photo_url = uri.get('uri')
+                                        uri_type = uri.get('type')
+                                        uri_value = uri.get('uri')
+                                        
+                                        # Extract thumbnail and web URLs for fast loading
+                                        if uri_type == 'thumbnail':
+                                            thumbnail_url = uri_value
+                                        elif uri_type == 'web':
+                                            web_url = uri_value
+                                        
+                                        # Find best quality URL for download
+                                        if uri_type == 'original':
+                                            photo_url = uri_value
+                                        elif uri_type == 'large' and not photo_url:
+                                            photo_url = uri_value
                                 if not photo_url and uris:
                                     first_uri = uris[0]
                                     photo_url = first_uri.get('uri') if isinstance(first_uri, dict) else first_uri
                             elif isinstance(uris, dict):
                                 photo_url = uris.get('original') or uris.get('large') or uris.get('medium')
+                                thumbnail_url = uris.get('thumbnail')
+                                web_url = uris.get('web')
 
                             if not photo_url:
-                                return (photo_id, None, cc_photo, f"No photo URL found for {photo_id}")
+                                return (photo_id, None, cc_photo, f"No photo URL found for {photo_id}", None, None)
 
                             # Download photo (parallel safe - no DB access)
                             photo_bytes = await companycam_client.download_photo(photo_url)
-                            return (photo_id, photo_bytes, cc_photo, "")
+                            return (photo_id, photo_bytes, cc_photo, "", thumbnail_url, web_url)
                         except Exception as e:
                             error_msg = f"Failed to download photo {photo_id}: {str(e)}"
                             logger.error(error_msg, exc_info=True)
-                            return (photo_id, None, cc_photo, error_msg)
+                            return (photo_id, None, cc_photo, error_msg, None, None)
 
                     # Run downloads in parallel
                     download_results = await asyncio.gather(*[download_photo_safe(p) for p in batch])
 
                     # Save to DB sequentially (SQLAlchemy session is not thread-safe)
-                    for photo_id, photo_bytes, cc_photo, error_msg in download_results:
+                    for photo_id, photo_bytes, cc_photo, error_msg, thumbnail_url, web_url in download_results:
                         # Check cancellation during DB save loop
                         if await is_cancelled():
                             logger.info(f"Sync cancelled during save for job {job_id}")
@@ -1102,6 +1136,7 @@ class WaterMitigationService:
                             filename = f"companycam_{photo_id}.jpg"
 
                             # Save to storage and DB (sequential)
+                            # Pass CompanyCam CDN URLs for fast thumbnail loading
                             await self.save_companycam_photo(
                                 job_id=job_id,
                                 photo_bytes=photo_bytes,
@@ -1110,7 +1145,9 @@ class WaterMitigationService:
                                 mime_type='image/jpeg',
                                 title=cc_photo.get('title'),
                                 description=cc_photo.get('description'),
-                                captured_date=captured_date
+                                captured_date=captured_date,
+                                companycam_thumbnail_url=thumbnail_url,
+                                companycam_web_url=web_url
                             )
                             synced_count += 1
                             logger.info(f"Synced CompanyCam photo {photo_id}")
@@ -1207,22 +1244,35 @@ class WaterMitigationService:
         # Extract photo URL from uris
         uris = cc_photo.get('uris', [])
         photo_url = None
+        thumbnail_url = None
+        web_url = None
 
         if isinstance(uris, list):
-            # Find best quality URL
+            # Find best quality URL and extract thumbnail/web URLs
             for uri in uris:
                 if isinstance(uri, dict):
-                    if uri.get('type') == 'original':
-                        photo_url = uri.get('uri')
-                        break
-                    elif uri.get('type') == 'large' and not photo_url:
-                        photo_url = uri.get('uri')
+                    uri_type = uri.get('type')
+                    uri_value = uri.get('uri')
+                    
+                    # Extract thumbnail and web URLs for fast loading
+                    if uri_type == 'thumbnail':
+                        thumbnail_url = uri_value
+                    elif uri_type == 'web':
+                        web_url = uri_value
+                    
+                    # Find best quality URL for download
+                    if uri_type == 'original':
+                        photo_url = uri_value
+                    elif uri_type == 'large' and not photo_url:
+                        photo_url = uri_value
             # Fallback to first uri
             if not photo_url and uris:
                 first_uri = uris[0]
                 photo_url = first_uri.get('uri') if isinstance(first_uri, dict) else first_uri
         elif isinstance(uris, dict):
             photo_url = uris.get('original') or uris.get('large') or uris.get('medium')
+            thumbnail_url = uris.get('thumbnail')
+            web_url = uris.get('web')
 
         if not photo_url:
             raise ValueError(f"No photo URL found for CompanyCam photo {photo_id}")
@@ -1250,7 +1300,7 @@ class WaterMitigationService:
         # Generate filename
         filename = f"companycam_{photo_id}.jpg"
 
-        # Save photo using existing method
+        # Save photo using existing method with CompanyCam CDN URLs
         return await self.save_companycam_photo(
             job_id=job_id,
             photo_bytes=photo_bytes,
@@ -1259,5 +1309,7 @@ class WaterMitigationService:
             mime_type='image/jpeg',
             title=cc_photo.get('title'),
             description=cc_photo.get('description'),
-            captured_date=captured_date
+            captured_date=captured_date,
+            companycam_thumbnail_url=thumbnail_url,
+            companycam_web_url=web_url
         )

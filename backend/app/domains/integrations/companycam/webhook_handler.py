@@ -75,14 +75,18 @@ async def process_companycam_webhook(
             webhook_event.status = "ignored"
             webhook_event.error_message = f"Unsupported event type: {event_type}"
             webhook_event.processed_at = datetime.utcnow()
-            db.commit()
 
     except Exception as e:
         logger.error(f"Error processing webhook {webhook_event.id}: {e}", exc_info=True)
         webhook_event.status = "failed"
         webhook_event.error_message = str(e)
         webhook_event.processed_at = datetime.utcnow()
-        db.commit()
+    finally:
+        try:
+            db.commit()
+        except Exception as commit_error:
+            logger.critical(f"Failed to commit webhook status for webhook {webhook_event.id}: {commit_error}")
+            db.rollback()
 
 
 async def process_photo_created(
@@ -116,7 +120,13 @@ async def process_photo_created(
     )
 
     db.add(photo)
-    db.commit()
+
+    try:
+        db.commit()
+    except Exception as commit_error:
+        logger.critical(f"Failed to commit photo metadata for webhook {webhook_event_id}: {commit_error}")
+        db.rollback()
+        raise
 
     # Try to match with water mitigation job via backend
     # Backend will handle matching logic
@@ -139,7 +149,11 @@ async def process_photo_created(
     if webhook:
         webhook.status = "processed"
         webhook.processed_at = datetime.utcnow()
-        db.commit()
+        try:
+            db.commit()
+        except Exception as commit_error:
+            logger.critical(f"Failed to commit webhook status for webhook {webhook_event_id}: {commit_error}")
+            db.rollback()
 
     logger.info(f"Photo webhook processed successfully")
 
@@ -175,7 +189,11 @@ async def process_project_created(
     if webhook:
         webhook.status = "processed"
         webhook.processed_at = datetime.utcnow()
-        db.commit()
+        try:
+            db.commit()
+        except Exception as commit_error:
+            logger.critical(f"Failed to commit webhook status for project.created webhook {webhook_event_id}: {commit_error}")
+            db.rollback()
 
 
 async def process_project_updated(
@@ -208,4 +226,8 @@ async def process_project_updated(
     if webhook:
         webhook.status = "processed"
         webhook.processed_at = datetime.utcnow()
-        db.commit()
+        try:
+            db.commit()
+        except Exception as commit_error:
+            logger.critical(f"Failed to commit webhook status for project.updated webhook {webhook_event_id}: {commit_error}")
+            db.rollback()

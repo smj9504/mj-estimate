@@ -12,6 +12,8 @@ import logging
 import io
 
 from app.common.base_service import BaseService
+from app.common.utils.security import validate_file_path, PathTraversalError
+from app.core.config import settings
 from app.domains.storage import StorageFactory, StorageProvider
 from .repository import FileRepository
 from .models import File
@@ -431,10 +433,19 @@ class FileService(BaseService[File, str]):
             if not photo:
                 return False
 
-            # Remove file from filesystem
-            file_path = Path(photo.file_path)
-            if file_path.exists():
-                file_path.unlink()
+            # Validate and remove file from filesystem
+            try:
+                validated_path = validate_file_path(
+                    photo.file_path, settings.UPLOAD_DIR
+                )
+                if validated_path.exists():
+                    validated_path.unlink()
+            except PathTraversalError:
+                logger.warning(
+                    f"Security: Invalid file path for WM photo {photo_id}: "
+                    f"{photo.file_path}"
+                )
+                # Continue with database deletion even if file path is invalid
 
             # Delete from database
             self.repository.session.delete(photo)
@@ -454,16 +465,34 @@ class FileService(BaseService[File, str]):
             if not file_record:
                 return False
 
-            # Remove from filesystem
-            file_path = Path(file_record['url'])
-            if file_path.exists():
-                file_path.unlink()
+            # Validate and remove from filesystem
+            try:
+                validated_path = validate_file_path(
+                    file_record['url'], settings.UPLOAD_DIR
+                )
+                if validated_path.exists():
+                    validated_path.unlink()
+            except PathTraversalError:
+                logger.warning(
+                    f"Security: Invalid file path for file {file_id}: "
+                    f"{file_record['url']}"
+                )
+                # Continue with database deletion even if file path is invalid
 
-            # Remove thumbnail if exists
+            # Validate and remove thumbnail if exists
             if file_record.get('thumbnail_url'):
-                thumb_path = Path(file_record['thumbnail_url'])
-                if thumb_path.exists():
-                    thumb_path.unlink()
+                try:
+                    validated_thumb_path = validate_file_path(
+                        file_record['thumbnail_url'], settings.UPLOAD_DIR
+                    )
+                    if validated_thumb_path.exists():
+                        validated_thumb_path.unlink()
+                except PathTraversalError:
+                    logger.warning(
+                        f"Security: Invalid thumbnail path for file {file_id}: "
+                        f"{file_record['thumbnail_url']}"
+                    )
+                    # Continue with database deletion even if thumbnail path is invalid
 
             # Remove from database
             return self.repository.delete(file_id)

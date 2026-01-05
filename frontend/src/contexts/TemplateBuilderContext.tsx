@@ -246,9 +246,6 @@ export const TemplateBuilderProvider: React.FC<{ children: React.ReactNode }> = 
 
           // Otherwise, use embedded mode
           const itemRate = item.rate || 0;
-          if (itemRate <= 0) {
-            console.warn(`Item "${item.name}" has invalid rate: ${itemRate}. Using 1.0 as default.`);
-          }
 
           return {
             quantity_multiplier: item.quantity_multiplier || 1,
@@ -263,14 +260,10 @@ export const TemplateBuilderProvider: React.FC<{ children: React.ReactNode }> = 
         }),
       };
 
-      console.log('=== TEMPLATE DATA TO BE SENT ===');
-      console.log(JSON.stringify(templateData, null, 2));
-
       const newTemplate = await lineItemService.createTemplate(templateData);
       message.success(`Template "${newTemplate.name}" created successfully`);
       return newTemplate;
     } catch (error: any) {
-      console.error('Failed to create template:', error);
       message.error(error.message || 'Failed to create template');
       return null;
     }
@@ -401,9 +394,6 @@ export const TemplateBuilderProvider: React.FC<{ children: React.ReactNode }> = 
 
           // Otherwise, use embedded mode
           const itemRate = item.rate || 0;
-          if (itemRate <= 0) {
-            console.warn(`Item "${item.name}" has invalid rate: ${itemRate}. Using 1.0 as default.`);
-          }
 
           return {
             quantity_multiplier: item.quantity_multiplier,
@@ -417,9 +407,6 @@ export const TemplateBuilderProvider: React.FC<{ children: React.ReactNode }> = 
           };
         }),
       };
-
-      console.log('=== SAVE TEMPLATE DATA ===');
-      console.log(JSON.stringify(templateData, null, 2));
 
       const newTemplate = await lineItemService.createTemplate(templateData);
       message.success(`Template "${newTemplate.name}" saved successfully`);
@@ -454,9 +441,6 @@ export const TemplateBuilderProvider: React.FC<{ children: React.ReactNode }> = 
 
           // Otherwise, use embedded mode
           const itemRate = item.rate || 0;
-          if (itemRate <= 0) {
-            console.warn(`Item "${item.name}" has invalid rate: ${itemRate}. Using 1.0 as default.`);
-          }
 
           return {
             quantity_multiplier: item.quantity_multiplier,
@@ -470,9 +454,6 @@ export const TemplateBuilderProvider: React.FC<{ children: React.ReactNode }> = 
           };
         }),
       };
-
-      console.log('=== UPDATE TEMPLATE DATA ===');
-      console.log(JSON.stringify(updates, null, 2));
 
       const updatedTemplate = await lineItemService.updateTemplate(templateId, updates);
       message.success(`Template "${updatedTemplate.name}" updated successfully`);

@@ -44,6 +44,9 @@ export interface FileGalleryProps {
   categories?: string[];
   allowCategoryCreate?: boolean;
   onCategoryCreate?: (category: string) => void;
+  showBulkCategoryUpdate?: boolean;  // Show/hide bulk category update action (default: true)
+  showBulkActions?: boolean;  // Show/hide entire bulk actions bar (default: true)
+  showSelectAll?: boolean;  // Show/hide select all button (default: true)
 
   // View Options
   defaultViewMode?: ViewMode;

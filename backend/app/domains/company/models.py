@@ -60,6 +60,6 @@ class Company(Base, BaseModel):
     # payment_method_ref = relationship("PaymentMethod", foreign_keys=[payment_method_id], lazy="joined")
     # payment_frequency_ref = relationship("PaymentFrequency", foreign_keys=[payment_frequency_id], lazy="joined")
     
-    # TODO: Add these models when implementing license and insurance management
+    # FUTURE: License and insurance management relationships
     # licenses = relationship("CompanyLicense", back_populates="company", cascade="all, delete-orphan")
     # insurance_policies = relationship("CompanyInsurance", back_populates="company", cascade="all, delete-orphan")

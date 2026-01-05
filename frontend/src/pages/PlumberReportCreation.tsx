@@ -72,7 +72,12 @@ const PlumberReportCreation: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const [loading, setLoading] = useState(false);
+
+  // Loading states - separate for different operations
+  const [isDataLoading, setIsDataLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
@@ -151,7 +156,7 @@ const PlumberReportCreation: React.FC = () => {
     
     const loadReport = async () => {
       try {
-        setLoading(true);
+        setIsDataLoading(true);
         const report = await plumberReportService.getReport(id);
         
         // Check if property is different from client
@@ -207,10 +212,10 @@ const PlumberReportCreation: React.FC = () => {
         message.error('Failed to load report');
         console.error(error);
       } finally {
-        setLoading(false);
+        setIsDataLoading(false);
       }
     };
-    
+
     loadReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, companies.length]); // Only re-run when id changes or companies are loaded
@@ -365,8 +370,8 @@ const PlumberReportCreation: React.FC = () => {
 
   const handleSave = async () => {
     try {
+      setIsSaving(true);
       const values = await form.validateFields();
-      setLoading(true);
 
       const totals = calculateTotals();
       const reportData: PlumberReport = {
@@ -419,13 +424,13 @@ const PlumberReportCreation: React.FC = () => {
       message.error(`Failed to ${id ? 'update' : 'create'} report`);
       console.error(error);
     } finally {
-      setLoading(false);
+      setIsSaving(false);
     }
   };
 
   const handlePreviewPDF = async () => {
     try {
-      setLoading(true);
+      setIsPreviewing(true);
       const values = await form.validateFields();
       const totals = calculateTotals();
 
@@ -476,7 +481,7 @@ const PlumberReportCreation: React.FC = () => {
       message.error('Failed to generate PDF preview');
       console.error(error);
     } finally {
-      setLoading(false);
+      setIsPreviewing(false);
     }
   };
 
@@ -1120,19 +1125,22 @@ const PlumberReportCreation: React.FC = () => {
               type="primary"
               icon={<SaveOutlined />}
               onClick={handleSave}
-              loading={loading}
+              loading={isSaving}
+              disabled={isPreviewing || isDataLoading}
             >
               Save Report
             </Button>
             <Button
               icon={<EyeOutlined />}
               onClick={handlePreviewPDF}
-              loading={loading}
+              loading={isPreviewing}
+              disabled={isSaving || isDataLoading}
             >
               Preview PDF
             </Button>
             <Button
               onClick={() => navigate('/plumber-reports')}
+              disabled={isSaving || isPreviewing}
             >
               Cancel
             </Button>

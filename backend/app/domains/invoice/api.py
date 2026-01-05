@@ -12,6 +12,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 
 from app.common.services.pdf_service import pdf_service
+from app.common.utils.security import validate_file_path, PathTraversalError
+from app.common.utils.temp_file import temp_file_handler, get_temp_dir
 from app.core.database_factory import get_db_session as get_db
 from app.domains.invoice.schemas import (
     ClientInfo,
@@ -130,7 +132,7 @@ async def list_invoices(
                 import json
                 try:
                     payments = json.loads(payments)
-                except:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     payments = []
             elif payments is None:
                 payments = []
@@ -1138,34 +1140,37 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
     if not pdf_service:
         raise HTTPException(status_code=500, detail="PDF service not available")
 
-    # Create temporary file for PDF
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        output_path = tmp_file.name
+    # Use temp_file_handler for automatic cleanup
+    with temp_file_handler(suffix=".pdf", prefix="invoice_") as temp_path:
+        try:
+            # Generate PDF
+            pdf_path = pdf_service.generate_invoice_pdf(pdf_data, str(temp_path))
 
-    try:
-        # Generate PDF
-        pdf_path = pdf_service.generate_invoice_pdf(pdf_data, output_path)
+            # Validate the PDF path to prevent path traversal attacks
+            try:
+                validated_path = validate_file_path(pdf_path, get_temp_dir())
+            except PathTraversalError:
+                logger.error(
+                    f"Security: Path traversal attempt in invoice PDF: {pdf_path}"
+                )
+                raise HTTPException(status_code=400, detail="Invalid file path")
 
-        # Read PDF file
-        with open(pdf_path, "rb") as pdf_file:
-            pdf_content = pdf_file.read()
+            # Read PDF file using validated path
+            with open(validated_path, "rb") as pdf_file:
+                pdf_content = pdf_file.read()
 
-        # Clean up temp file
-        os.unlink(pdf_path)
-
-        # Return PDF as response
-        return Response(
-            content=pdf_content,
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename=invoice_{invoice.get('invoice_number', 'unknown')}.pdf"
-            }
-        )
-    except Exception as e:
-        # Clean up on error
-        if os.path.exists(output_path):
-            os.unlink(output_path)
-        raise HTTPException(status_code=500, detail=str(e))
+            # Return PDF as response (temp file auto-cleaned after context exits)
+            return Response(
+                content=pdf_content,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f"attachment; filename=invoice_{invoice.get('invoice_number', 'unknown')}.pdf"
+                }
+            )
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/preview-html")
@@ -1221,51 +1226,52 @@ async def preview_invoice_pdf(data: InvoicePDFRequest):
     if not pdf_service:
         raise HTTPException(status_code=500, detail="PDF service not available")
     
-    # Create temporary file for PDF
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        output_path = tmp_file.name
-    
-    try:
-        # Prepare data for PDF generation
-        pdf_data = data.dict()
-        logger.info(f"Generating PDF preview with data keys: {pdf_data.keys()}")
-        
-        # Log sections info
-        sections_data = pdf_data.get('sections', [])
-        logger.info(f"Sections field exists: {'sections' in pdf_data}, Sections length: {len(sections_data)}")
-        
-        if sections_data and len(sections_data) > 0:
-            logger.info(f"Sections in preview data: {len(sections_data)} sections")
-            for sec in sections_data:
-                logger.info(f"  - Section '{sec.get('title')}': {len(sec.get('items', []))} items, subtotal: {sec.get('subtotal')}")
-        else:
-            logger.warning(f"No valid sections in preview data - sections value: {sections_data}")
-        
-        # Generate PDF
-        pdf_path = pdf_service.generate_invoice_pdf(pdf_data, output_path)
-        
-        # Read PDF file
-        with open(pdf_path, "rb") as pdf_file:
-            pdf_content = pdf_file.read()
-        
-        # Clean up temp file
-        os.unlink(pdf_path)
-        
-        # Return PDF as response
-        return Response(
-            content=pdf_content,
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"inline; filename=preview_invoice.pdf"
-            }
-        )
-    except Exception as e:
-        # Clean up on error
-        logger.error(f"PDF generation error: {str(e)}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        if os.path.exists(output_path):
-            os.unlink(output_path)
-        raise HTTPException(status_code=500, detail=str(e))
+    # Use temp_file_handler for automatic cleanup (cross-platform compatible)
+    with temp_file_handler(suffix=".pdf", prefix="invoice_preview_") as temp_path:
+        try:
+            # Prepare data for PDF generation
+            pdf_data = data.dict()
+            logger.info(f"Generating PDF preview with data keys: {pdf_data.keys()}")
+
+            # Log sections info
+            sections_data = pdf_data.get('sections', [])
+            logger.info(f"Sections field exists: {'sections' in pdf_data}, Sections length: {len(sections_data)}")
+
+            if sections_data and len(sections_data) > 0:
+                logger.info(f"Sections in preview data: {len(sections_data)} sections")
+                for sec in sections_data:
+                    logger.info(f"  - Section '{sec.get('title')}': {len(sec.get('items', []))} items, subtotal: {sec.get('subtotal')}")
+            else:
+                logger.warning(f"No valid sections in preview data - sections value: {sections_data}")
+
+            # Generate PDF
+            pdf_path = pdf_service.generate_invoice_pdf(pdf_data, str(temp_path))
+
+            # Validate the PDF path to prevent path traversal attacks
+            try:
+                validated_path = validate_file_path(pdf_path, get_temp_dir())
+            except PathTraversalError:
+                logger.error(f"Security: Path traversal attempt in PDF preview: {pdf_path}")
+                raise HTTPException(status_code=400, detail="Invalid file path")
+
+            # Read PDF file using validated path
+            with open(validated_path, "rb") as pdf_file:
+                pdf_content = pdf_file.read()
+
+            # Return PDF as response (temp file auto-cleaned by context manager)
+            return Response(
+                content=pdf_content,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": "inline; filename=preview_invoice.pdf"
+                }
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"PDF generation error: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{invoice_id}/duplicate", response_model=InvoiceResponse)
@@ -1758,38 +1764,39 @@ async def generate_receipt_pdf(invoice_id: str, db=Depends(get_db)):
     if not pdf_service:
         raise HTTPException(status_code=500, detail="PDF service not available")
 
-    # Create temporary file for PDF
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        output_path = tmp_file.name
+    # Use temp_file_handler for automatic cleanup (cross-platform compatible)
+    with temp_file_handler(suffix=".pdf", prefix="invoice_receipt_") as temp_path:
+        try:
+            # Generate PDF receipt
+            pdf_path = pdf_service.generate_receipt_pdf(pdf_data, str(temp_path))
 
-    try:
-        # Generate PDF receipt
-        pdf_path = pdf_service.generate_receipt_pdf(pdf_data, output_path)
+            # Validate the PDF path to prevent path traversal attacks
+            try:
+                validated_path = validate_file_path(pdf_path, get_temp_dir())
+            except PathTraversalError:
+                logger.error(f"Security: Path traversal attempt in receipt PDF: {pdf_path}")
+                raise HTTPException(status_code=400, detail="Invalid file path")
 
-        # Update invoice with receipt generation timestamp
-        service.update(invoice_id, {
-            'has_receipt': True,
-            'receipt_generated_at': datetime.now()
-        })
+            # Update invoice with receipt generation timestamp
+            service.update(invoice_id, {
+                'has_receipt': True,
+                'receipt_generated_at': datetime.now()
+            })
 
-        # Read PDF file
-        with open(pdf_path, "rb") as pdf_file:
-            pdf_content = pdf_file.read()
+            # Read PDF file using validated path
+            with open(validated_path, "rb") as pdf_file:
+                pdf_content = pdf_file.read()
 
-        # Clean up temp file
-        os.unlink(pdf_path)
-
-        # Return PDF as response
-        return Response(
-            content=pdf_content,
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename=receipt_{invoice['invoice_number']}.pdf"
-            }
-        )
-    except Exception as e:
-        logger.error(f"Receipt PDF generation error: {str(e)}")
-        # Clean up on error
-        if os.path.exists(output_path):
-            os.unlink(output_path)
-        raise HTTPException(status_code=500, detail=str(e))
+            # Return PDF as response (temp file auto-cleaned by context manager)
+            return Response(
+                content=pdf_content,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f"attachment; filename=receipt_{invoice['invoice_number']}.pdf"
+                }
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Receipt PDF generation error: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))

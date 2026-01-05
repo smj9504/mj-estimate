@@ -11,10 +11,11 @@
  * - Invoice/Estimate integration
  */
 
+import { AxiosError } from 'axios';
 import { apiClient } from '../api/config';
-import { 
-  LineItem, 
-  LineItemCreate, 
+import {
+  LineItem,
+  LineItemCreate,
   LineItemUpdate,
   LineItemSearch,
   LineItemCategory,
@@ -27,7 +28,6 @@ import {
   EstimateLineItemCreate,
   AdvancedSearchParams,
   PaginatedResponse,
-  ApiResponse,
   TemplateApplicationResult,
   ImportResult,
   UsageStatistics,
@@ -37,12 +37,35 @@ import {
   LineItemModalItem
 } from '../types/lineItem';
 
+/**
+ * Helper function to extract error message from unknown error type
+ */
+function getErrorMessage(error: unknown): string {
+  if (error instanceof AxiosError) {
+    return error.message;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+/**
+ * Helper function to extract status code from error
+ */
+function getErrorStatus(error: unknown): number | undefined {
+  if (error instanceof AxiosError) {
+    return error.response?.status;
+  }
+  return undefined;
+}
+
 // Service Error types
 export class LineItemServiceError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
-    public originalError?: any
+    public originalError?: unknown
   ) {
     super(message);
     this.name = 'LineItemServiceError';
@@ -63,10 +86,10 @@ class LineItemService {
         params: { include_inactive: includeInactive }
       });
       return response.data.items || response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to fetch categories: ${error.message}`,
-        error.response?.status,
+        `Failed to fetch categories: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -81,10 +104,10 @@ class LineItemService {
         params: { q: searchTerm }
       });
       return response.data.items || response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to search categories: ${error.message}`,
-        error.response?.status,
+        `Failed to search categories: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -153,10 +176,10 @@ class LineItemService {
       // Clear cache to force reload
       this.categoryCache.clear();
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to create category: ${error.message}`,
-        error.response?.status,
+        `Failed to create category: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -171,10 +194,10 @@ class LineItemService {
       // Clear cache to force reload
       this.categoryCache.clear();
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to update category: ${error.message}`,
-        error.response?.status,
+        `Failed to update category: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -188,10 +211,10 @@ class LineItemService {
       await apiClient.delete(`/api/line-items/categories/${code}`);
       // Clear cache to force reload
       this.categoryCache.clear();
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to delete category: ${error.message}`,
-        error.response?.status,
+        `Failed to delete category: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -215,10 +238,10 @@ class LineItemService {
     try {
       const response = await apiClient.get('/api/line-items/', { params });
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to get line items: ${error.message}`,
-        error.response?.status,
+        `Failed to get line items: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -231,10 +254,10 @@ class LineItemService {
     try {
       const response = await apiClient.get('/api/line-items', { params });
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to search line items: ${error.message}`,
-        error.response?.status,
+        `Failed to search line items: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -410,10 +433,10 @@ class LineItemService {
     try {
       const response = await apiClient.get('/api/line-items/search', { params });
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to perform advanced search: ${error.message}`,
-        error.response?.status,
+        `Failed to perform advanced search: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -426,10 +449,10 @@ class LineItemService {
     try {
       const response = await apiClient.get(`/api/line-items/${id}`);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to fetch line item: ${error.message}`,
-        error.response?.status,
+        `Failed to fetch line item: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -442,10 +465,10 @@ class LineItemService {
     try {
       const response = await apiClient.post('/api/line-items/', lineItem);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to create line item: ${error.message}`,
-        error.response?.status,
+        `Failed to create line item: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -458,10 +481,10 @@ class LineItemService {
     try {
       const response = await apiClient.put(`/api/line-items/${id}`, updates);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to update line item: ${error.message}`,
-        error.response?.status,
+        `Failed to update line item: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -473,10 +496,10 @@ class LineItemService {
   async deleteLineItem(id: string): Promise<void> {
     try {
       await apiClient.delete(`/api/line-items/${id}`);
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to delete line item: ${error.message}`,
-        error.response?.status,
+        `Failed to delete line item: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -488,10 +511,10 @@ class LineItemService {
   async deleteLineItems(ids: string[]): Promise<void> {
     try {
       await apiClient.delete('/api/line-items/bulk', { data: ids });
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to bulk delete line items: ${error.message}`,
-        error.response?.status,
+        `Failed to bulk delete line items: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -504,10 +527,10 @@ class LineItemService {
     try {
       const response = await apiClient.post('/api/line-items/bulk', { items });
       return response.data.items || response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to bulk create line items: ${error.message}`,
-        error.response?.status,
+        `Failed to bulk create line items: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -520,10 +543,10 @@ class LineItemService {
     try {
       const response = await apiClient.put('/api/line-items/bulk', { updates });
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to bulk update line items: ${error.message}`,
-        error.response?.status,
+        `Failed to bulk update line items: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -535,10 +558,10 @@ class LineItemService {
   async bulkDeleteLineItems(ids: string[]): Promise<void> {
     try {
       await apiClient.delete('/api/line-items/bulk', { data: ids });
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to bulk delete line items: ${error.message}`,
-        error.response?.status,
+        `Failed to bulk delete line items: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -561,10 +584,10 @@ class LineItemService {
         }
       });
       return response.data.items || response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to fetch notes: ${error.message}`,
-        error.response?.status,
+        `Failed to fetch notes: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -577,10 +600,10 @@ class LineItemService {
     try {
       const response = await apiClient.get(`/api/line-items/notes/${id}`);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to fetch note: ${error.message}`,
-        error.response?.status,
+        `Failed to fetch note: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -593,10 +616,10 @@ class LineItemService {
     try {
       const response = await apiClient.post('/api/line-items/notes', note);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to create note: ${error.message}`,
-        error.response?.status,
+        `Failed to create note: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -609,10 +632,10 @@ class LineItemService {
     try {
       const response = await apiClient.put(`/api/line-items/notes/${id}`, updates);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to update note: ${error.message}`,
-        error.response?.status,
+        `Failed to update note: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -624,10 +647,10 @@ class LineItemService {
   async deleteNote(id: string): Promise<void> {
     try {
       await apiClient.delete(`/api/line-items/notes/${id}`);
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to delete note: ${error.message}`,
-        error.response?.status,
+        `Failed to delete note: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -647,8 +670,8 @@ class LineItemService {
         return [];
       }
       throw new LineItemServiceError(
-        `Failed to fetch line item notes: ${error.message}`,
-        error.response?.status,
+        `Failed to fetch line item notes: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -661,10 +684,10 @@ class LineItemService {
     try {
       const response = await apiClient.post(`/api/line-items/${lineItemId}/notes`, noteData);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to create line item note: ${error.message}`,
-        error.response?.status,
+        `Failed to create line item note: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -677,10 +700,10 @@ class LineItemService {
     try {
       const response = await apiClient.put(`/api/line-items/${lineItemId}/notes/${noteId}`, noteData);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to update line item note: ${error.message}`,
-        error.response?.status,
+        `Failed to update line item note: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -692,10 +715,10 @@ class LineItemService {
   async deleteLineItemNote(lineItemId: string, noteId: string): Promise<void> {
     try {
       await apiClient.delete(`/api/line-items/${lineItemId}/notes/${noteId}`);
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to delete line item note: ${error.message}`,
-        error.response?.status,
+        `Failed to delete line item note: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -707,10 +730,10 @@ class LineItemService {
   async reorderLineItemNotes(lineItemId: string, noteOrders: Array<{ id: string; order_index: number }>): Promise<void> {
     try {
       await apiClient.put(`/api/line-items/${lineItemId}/notes/reorder`, { note_orders: noteOrders });
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to reorder line item notes: ${error.message}`,
-        error.response?.status,
+        `Failed to reorder line item notes: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -722,10 +745,10 @@ class LineItemService {
   async associateNoteWithLineItem(lineItemId: string, noteId: string): Promise<void> {
     try {
       await apiClient.post(`/api/line-items/${lineItemId}/notes/${noteId}`);
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to associate note with line item: ${error.message}`,
-        error.response?.status,
+        `Failed to associate note with line item: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -737,10 +760,10 @@ class LineItemService {
   async removeNoteFromLineItem(lineItemId: string, noteId: string): Promise<void> {
     try {
       await apiClient.delete(`/api/line-items/${lineItemId}/notes/${noteId}`);
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to remove note from line item: ${error.message}`,
-        error.response?.status,
+        `Failed to remove note from line item: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -761,10 +784,10 @@ class LineItemService {
         params
       });
       return response.data.items || response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to fetch note templates: ${error.message}`,
-        error.response?.status,
+        `Failed to fetch note templates: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -783,10 +806,10 @@ class LineItemService {
         params: { company_id: companyId, category, is_active: isActive }
       });
       return response.data.items || response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to fetch templates: ${error.message}`,
-        error.response?.status,
+        `Failed to fetch templates: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -799,10 +822,10 @@ class LineItemService {
     try {
       const response = await apiClient.get(`/api/line-items/templates/${id}`);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to fetch template: ${error.message}`,
-        error.response?.status,
+        `Failed to fetch template: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -831,10 +854,10 @@ class LineItemService {
     try {
       const response = await apiClient.post('/api/line-items/templates', template);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to create template: ${error.message}`,
-        error.response?.status,
+        `Failed to create template: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -847,10 +870,10 @@ class LineItemService {
     try {
       const response = await apiClient.put(`/api/line-items/templates/${id}`, updates);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to update template: ${error.message}`,
-        error.response?.status,
+        `Failed to update template: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -862,10 +885,10 @@ class LineItemService {
   async deleteTemplate(id: string): Promise<void> {
     try {
       await apiClient.delete(`/api/line-items/templates/${id}`);
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to delete template: ${error.message}`,
-        error.response?.status,
+        `Failed to delete template: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -884,10 +907,10 @@ class LineItemService {
     try {
       const response = await apiClient.post('/api/line-items/templates/apply', params);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to apply template: ${error.message}`,
-        error.response?.status,
+        `Failed to apply template: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -903,10 +926,10 @@ class LineItemService {
         description: newDescription
       });
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to duplicate template: ${error.message}`,
-        error.response?.status,
+        `Failed to duplicate template: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -923,10 +946,10 @@ class LineItemService {
     try {
       const response = await apiClient.post('/api/line-items/tax/calculate', request);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to calculate tax: ${error.message}`,
-        error.response?.status,
+        `Failed to calculate tax: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -939,10 +962,10 @@ class LineItemService {
     try {
       const response = await apiClient.post('/api/line-items/tax/calculate/batch', { requests });
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to batch calculate tax: ${error.message}`,
-        error.response?.status,
+        `Failed to batch calculate tax: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -964,10 +987,10 @@ class LineItemService {
     try {
       const response = await apiClient.post(`/api/line-items/invoice/${invoiceId}/items`, item);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to add line item to invoice: ${error.message}`,
-        error.response?.status,
+        `Failed to add line item to invoice: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -985,10 +1008,10 @@ class LineItemService {
     try {
       const response = await apiClient.post(`/api/line-items/estimate/${estimateId}/items`, item);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to add line item to estimate: ${error.message}`,
-        error.response?.status,
+        `Failed to add line item to estimate: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -1001,10 +1024,10 @@ class LineItemService {
     try {
       const response = await apiClient.get(`/api/line-items/invoice/${invoiceId}/items/optimized`);
       return response.data.items || response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to fetch optimized invoice items: ${error.message}`,
-        error.response?.status,
+        `Failed to fetch optimized invoice items: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -1017,10 +1040,10 @@ class LineItemService {
     try {
       const response = await apiClient.get(`/api/line-items/estimate/${estimateId}/items/optimized`);
       return response.data.items || response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to fetch optimized estimate items: ${error.message}`,
-        error.response?.status,
+        `Failed to fetch optimized estimate items: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -1038,10 +1061,10 @@ class LineItemService {
     try {
       const response = await apiClient.put(`/api/line-items/${documentType}/${documentId}/items/${itemId}`, updates);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to update document line item: ${error.message}`,
-        error.response?.status,
+        `Failed to update document line item: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -1057,10 +1080,10 @@ class LineItemService {
   ): Promise<void> {
     try {
       await apiClient.delete(`/api/line-items/${documentType}/${documentId}/items/${itemId}`);
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to remove line item from document: ${error.message}`,
-        error.response?.status,
+        `Failed to remove line item from document: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -1080,10 +1103,10 @@ class LineItemService {
         responseType: 'blob'
       });
       return new Blob([response.data], { type: 'text/csv' });
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to export line items: ${error.message}`,
-        error.response?.status,
+        `Failed to export line items: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -1106,10 +1129,10 @@ class LineItemService {
         },
       });
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to import line items: ${error.message}`,
-        error.response?.status,
+        `Failed to import line items: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }
@@ -1122,10 +1145,10 @@ class LineItemService {
     try {
       const response = await apiClient.get(`/api/line-items/${lineItemId}/statistics`);
       return response.data;
-    } catch (error: any) {
+    } catch (error) {
       throw new LineItemServiceError(
-        `Failed to fetch usage statistics: ${error.message}`,
-        error.response?.status,
+        `Failed to fetch usage statistics: ${getErrorMessage(error)}`,
+        getErrorStatus(error),
         error
       );
     }

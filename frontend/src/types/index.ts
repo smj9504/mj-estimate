@@ -157,7 +157,7 @@ export interface WorkOrder {
   credits_applied: number;
   final_cost: number;
   cost_override?: number;
-  additional_costs?: any[];
+  additional_costs?: AdditionalCostItem[];
   apply_tax?: boolean;
   tax_amount?: number;
   tax_rate?: number;
@@ -197,7 +197,7 @@ export interface WorkOrderFormData {
   special_instructions?: string;
   consultation_notes?: string;
   cost_override?: number;
-  additional_costs?: any[];
+  additional_costs?: AdditionalCostItem[];
   apply_tax?: boolean;
   tax_rate?: number;
 }

@@ -333,18 +333,24 @@ class LineItemRepository:
         # Add line items to template
         if template.line_item_ids:
             for item in template.line_item_ids:
-                # Prepare embedded_data if provided
-                embedded_dict = None
-                if item.embedded_data:
-                    embedded_dict = _convert_decimal_to_float(item.embedded_data.dict())
+                # Build the template item data - only include embedded_data if it's actually provided
+                # This ensures SQL NULL is used instead of JSON null
+                template_item_kwargs = {
+                    "template_id": db_template.id,
+                    "quantity_multiplier": item.quantity_multiplier,
+                    "order_index": item.order_index
+                }
 
-                template_item = TemplateLineItem(
-                    template_id=db_template.id,
-                    line_item_id=item.line_item_id,  # Can be None for embedded mode
-                    embedded_data=embedded_dict,  # Can be None for reference mode
-                    quantity_multiplier=item.quantity_multiplier,
-                    order_index=item.order_index
-                )
+                # Only set one: either line_item_id (reference mode) or embedded_data (embedded mode)
+                if item.line_item_id:
+                    template_item_kwargs["line_item_id"] = item.line_item_id
+                    # Do NOT set embedded_data - let it remain as SQL NULL
+                elif item.embedded_data:
+                    embedded_dict = _convert_decimal_to_float(item.embedded_data.dict())
+                    template_item_kwargs["embedded_data"] = embedded_dict
+                    # Do NOT set line_item_id - let it remain as SQL NULL
+
+                template_item = TemplateLineItem(**template_item_kwargs)
                 self.db.add(template_item)
 
         self.db.commit()
@@ -413,18 +419,22 @@ class LineItemRepository:
 
             # Add new items
             for item in update.line_item_ids:
-                # Prepare embedded_data if provided
-                embedded_dict = None
-                if item.embedded_data:
-                    embedded_dict = _convert_decimal_to_float(item.embedded_data.dict())
+                # Build the template item data - only include embedded_data if it's actually provided
+                # This ensures SQL NULL is used instead of JSON null
+                template_item_kwargs = {
+                    "template_id": template_id,
+                    "quantity_multiplier": item.quantity_multiplier,
+                    "order_index": item.order_index
+                }
 
-                template_item = TemplateLineItem(
-                    template_id=template_id,
-                    line_item_id=item.line_item_id,  # Can be None for embedded mode
-                    embedded_data=embedded_dict,  # Can be None for reference mode
-                    quantity_multiplier=item.quantity_multiplier,
-                    order_index=item.order_index
-                )
+                # Only set one: either line_item_id (reference mode) or embedded_data (embedded mode)
+                if item.line_item_id:
+                    template_item_kwargs["line_item_id"] = item.line_item_id
+                elif item.embedded_data:
+                    embedded_dict = _convert_decimal_to_float(item.embedded_data.dict())
+                    template_item_kwargs["embedded_data"] = embedded_dict
+
+                template_item = TemplateLineItem(**template_item_kwargs)
                 self.db.add(template_item)
 
         self.db.commit()

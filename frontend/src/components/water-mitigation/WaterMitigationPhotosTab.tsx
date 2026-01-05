@@ -4,15 +4,15 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin } from 'antd';
-import { SyncOutlined, CloudDownloadOutlined, StopOutlined, LinkOutlined, SearchOutlined } from '@ant-design/icons';
+import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress } from 'antd';
+import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import api from '../../services/api';
 import waterMitigationService from '../../services/waterMitigationService';
 import type { CompanyCamSyncResult } from '../../types/waterMitigation';
 
-const { Text } = Typography;
+const { Text, Title } = Typography;
 
 // Sync status type
 interface SyncStatus {
@@ -313,122 +313,215 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   };
 
   return (
-    <div className="wm-photos-tab" style={{ height: 'calc(100vh - 180px)', padding: '16px' }}>
-      {/* Sync Controls - always visible */}
-      <div style={{ marginBottom: '12px' }}>
-        {/* Progress indicator when syncing */}
-        {isSyncing && progressInfo && (
-          <Alert
-            type="info"
-            showIcon
-            icon={<SyncOutlined spin />}
-            message={
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text>
-                    Syncing photos... Page {progressInfo.page} |
-                    Synced: {progressInfo.synced} | Skipped: {progressInfo.skipped}
-                  </Text>
-                  <Button
-                    danger
-                    size="small"
-                    icon={<StopOutlined />}
-                    onClick={handleCancel}
-                    loading={cancelMutation.isPending}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </Space>
-            }
-            style={{ marginBottom: '12px' }}
-          />
-        )}
-
-        {/* Sync button - always visible */}
-        {!isSyncing && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
+    <div className="wm-photos-tab" style={{
+      height: 'calc(100vh - 180px)',
+      display: 'flex',
+      flexDirection: 'column',
+      background: '#f5f7fa',
+      borderRadius: '12px',
+      overflow: 'hidden'
+    }}>
+      {/* Header Section */}
+      <div style={{
+        padding: '16px 20px',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        borderRadius: '12px 12px 0 0',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        boxShadow: '0 2px 8px rgba(102, 126, 234, 0.25)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <CameraOutlined style={{ fontSize: '24px', color: 'white' }} />
+          <div>
+            <Title level={5} style={{ margin: 0, color: 'white', fontWeight: 600 }}>
+              Photos
+            </Title>
             {currentProjectId && (
-              <Text type="secondary" style={{ fontSize: '12px' }}>
-                <LinkOutlined /> Project: {currentProjectId}
-              </Text>
+              <Tooltip title={`CompanyCam Project ID: ${currentProjectId}`}>
+                <Text style={{ fontSize: '12px', color: 'rgba(255,255,255,0.85)' }}>
+                  <CheckCircleOutlined style={{ marginRight: 4 }} />
+                  CompanyCam Linked
+                </Text>
+              </Tooltip>
             )}
-            <Button
-              icon={<SyncOutlined />}
-              onClick={handleSyncClick}
-            >
-              {currentProjectId ? 'Sync from CompanyCam' : 'Link & Sync CompanyCam'}
-            </Button>
           </div>
-        )}
+        </div>
+
+        {/* Sync Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {isSyncing && progressInfo ? (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px',
+              background: 'rgba(255,255,255,0.15)',
+              padding: '8px 16px',
+              borderRadius: '8px',
+              backdropFilter: 'blur(10px)'
+            }}>
+              <div style={{ minWidth: '180px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <Text style={{ color: 'white', fontSize: '12px' }}>
+                    <SyncOutlined spin style={{ marginRight: 6 }} />
+                    Syncing Page {progressInfo.page}
+                  </Text>
+                  <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: '12px' }}>
+                    {progressInfo.synced + progressInfo.skipped} photos
+                  </Text>
+                </div>
+                <Progress
+                  percent={100}
+                  status="active"
+                  showInfo={false}
+                  strokeColor={{
+                    '0%': '#52c41a',
+                    '100%': '#87d068',
+                  }}
+                  trailColor="rgba(255,255,255,0.2)"
+                  size="small"
+                />
+              </div>
+              <Tooltip title="Cancel sync">
+                <Button
+                  type="text"
+                  danger
+                  size="small"
+                  icon={<CloseCircleOutlined />}
+                  onClick={handleCancel}
+                  loading={cancelMutation.isPending}
+                  style={{
+                    color: '#ff7875',
+                    background: 'rgba(255,255,255,0.1)',
+                    border: 'none'
+                  }}
+                >
+                  Cancel
+                </Button>
+              </Tooltip>
+            </div>
+          ) : (
+            <Button
+              type="primary"
+              icon={currentProjectId ? <SyncOutlined /> : <LinkOutlined />}
+              onClick={handleSyncClick}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                fontWeight: 500
+              }}
+            >
+              {currentProjectId ? 'Sync from CompanyCam' : 'Link CompanyCam'}
+            </Button>
+          )}
+        </div>
       </div>
 
-      <FileGallery
-        context="water-mitigation"
-        mode="upload"
-        contextId={jobId}
+      {/* Sync Status Bar - shows when sync was recently completed */}
+      {syncStatus.status === 'completed' && syncStatus.synced_count !== undefined && (
+        <Alert
+          type="success"
+          showIcon
+          icon={<CheckCircleOutlined />}
+          message={
+            <span>
+              Sync completed! <strong>{syncStatus.synced_count}</strong> new photos added
+              {(syncStatus.skipped_existing || 0) > 0 && (
+                <span style={{ color: '#8c8c8c', marginLeft: '8px' }}>
+                  ({syncStatus.skipped_existing} skipped)
+                </span>
+              )}
+            </span>
+          }
+          closable
+          style={{
+            borderRadius: 0,
+            border: 'none',
+            borderBottom: '1px solid #b7eb8f'
+          }}
+        />
+      )}
 
-        // Image-specific settings
-        allowedTypes={['image/*']}
-        fileCategory="image"
+      {/* Main Content Area */}
+      <div style={{
+        flex: 1,
+        padding: '16px',
+        overflow: 'hidden',
+        background: 'white',
+        borderRadius: '0 0 12px 12px'
+      }}>
+        <FileGallery
+          context="water-mitigation"
+          mode="upload"
+          contextId={jobId}
 
-        // Full screen utilization
-        height="100%"
-        allowUpload={true}
-        allowCategoryCreate={true}
+          // Image-specific settings
+          allowedTypes={['image/*']}
+          fileCategory="image"
 
-        // Custom upload handler for Water Mitigation photos
-        onUpload={handleUpload}
+          // Full screen utilization
+          height="100%"
+          allowUpload={true}
+          allowCategoryCreate={true}
 
-        // Multi-select support
-        allowMultiSelect={true}
+          // Custom upload handler for Water Mitigation photos
+          onUpload={handleUpload}
 
-        // Water mitigation specific categories
-        categories={[
-          'uncategorized',
-          'damage-assessment',
-          'before-mitigation',
-          'during-mitigation',
-          'after-mitigation',
-          'equipment',
-          'moisture-readings',
-          'documentation',
-          'insurance',
-          'general'
-        ]}
-        defaultViewMode="grid"
-        allowViewModeChange={true}
+          // Multi-select support
+          allowMultiSelect={true}
 
-        // Image-specific functionality
-        showImagePreview={true}
-        enableImageZoom={true}
-        showImageInfo={true}
-        allowBulkUpload={true}
+          // Water mitigation specific categories
+          categories={[
+            'uncategorized',
+            'wet-area',
+            'pre-mitigation-moving',
+            'demolition',
+            'containment',
+            'protection',
+            'drying-process',
+            'day-1',
+            'day-2',
+            'day-3',
+            'documentation',
+          ]}
+          defaultViewMode="grid"
+          allowViewModeChange={true}
 
-        // Large image handling
-        maxFileSize={20 * 1024 * 1024} // 20MB
-        maxFiles={500} // Water mitigation jobs can have many photos
+          // Image-specific functionality
+          showImagePreview={true}
+          enableImageZoom={true}
+          showImageInfo={true}
+          allowBulkUpload={true}
 
-        // UI customization for images
-        gridColumns={{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }}
-        showThumbnails={true}
-        enableLazyLoading={true}
+          // Large image handling
+          maxFileSize={20 * 1024 * 1024} // 20MB
+          maxFiles={500} // Water mitigation jobs can have many photos
 
-        // Performance optimization: Enable infinite scroll
-        enableInfiniteScroll={true}
-        pageSize={20}  // Smaller initial load (20) for faster perceived performance, subsequent pages load 30
+          // UI customization for images
+          gridColumns={{ xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }}
+          showThumbnails={true}
+          enableLazyLoading={true}
 
-        // Upload configuration
-        uploadConfig={{
-          multiple: true,
-          showUploadList: false,
-          listType: 'picture-card',
-          accept: 'image/*'
-        }}
+          // Performance optimization: Enable infinite scroll
+          enableInfiniteScroll={true}
+          pageSize={20}  // Smaller initial load (20) for faster perceived performance, subsequent pages load 30
 
-        // Enable date grouping for water mitigation photos
-        enableDateGrouping={true}
-      />
+          // Upload configuration
+          uploadConfig={{
+            multiple: true,
+            showUploadList: false,
+            listType: 'picture-card',
+            accept: 'image/*'
+          }}
+
+          // Enable date grouping for water mitigation photos
+          enableDateGrouping={true}
+
+          // Enhanced styling
+          className="wm-photo-gallery"
+        />
+      </div>
 
       {/* Sync Confirmation Modal - when project is already linked */}
       <Modal

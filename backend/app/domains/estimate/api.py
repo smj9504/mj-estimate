@@ -8,11 +8,14 @@ import os
 import tempfile
 import traceback
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.common.services.pdf_service import pdf_service
+from app.common.utils.security import validate_file_path, PathTraversalError
+from app.common.utils.temp_file import temp_file_handler, get_temp_dir
 from app.core.database_factory import get_db_session as get_db
 from app.domains.estimate.schemas import (
     EstimateCreate,
@@ -328,8 +331,9 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
                     estimate_data.client_address,
                     company_code
                 )
-            except:
+            except (ImportError, AttributeError, Exception) as e:
                 # Fallback to timestamp-based number
+                logger.warning(f"Failed to generate location-based estimate number: {e}")
                 estimate_data.estimate_number = f"EST-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         else:
             # Fallback to timestamp-based number
@@ -949,34 +953,35 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
     if not pdf_service:
         raise HTTPException(status_code=500, detail="PDF service not available")
     
-    # Create temporary file for PDF
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        output_path = tmp_file.name
-    
-    try:
-        # Generate PDF
-        pdf_path = pdf_service.generate_estimate_pdf(pdf_data, output_path)
-        
-        # Read PDF file
-        with open(pdf_path, "rb") as pdf_file:
-            pdf_content = pdf_file.read()
-        
-        # Clean up temp file
-        os.unlink(pdf_path)
-        
-        # Return PDF as response
-        return Response(
-            content=pdf_content,
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename=estimate_{estimate.get('estimate_number', 'unknown')}.pdf"
-            }
-        )
-    except Exception as e:
-        # Clean up on error
-        if os.path.exists(output_path):
-            os.unlink(output_path)
-        raise HTTPException(status_code=500, detail=str(e))
+    # Use temp_file_handler for automatic cleanup (cross-platform compatible)
+    with temp_file_handler(suffix=".pdf", prefix="estimate_") as temp_path:
+        try:
+            # Generate PDF
+            pdf_path = pdf_service.generate_estimate_pdf(pdf_data, str(temp_path))
+
+            # Validate the PDF path to prevent path traversal attacks
+            try:
+                validated_path = validate_file_path(pdf_path, get_temp_dir())
+            except PathTraversalError:
+                logger.error(f"Security: Path traversal attempt in PDF generation: {pdf_path}")
+                raise HTTPException(status_code=400, detail="Invalid file path")
+
+            # Read PDF file using validated path
+            with open(validated_path, "rb") as pdf_file:
+                pdf_content = pdf_file.read()
+
+            # Return PDF as response (temp file auto-cleaned by context manager)
+            return Response(
+                content=pdf_content,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f"attachment; filename=estimate_{estimate.get('estimate_number', 'unknown')}.pdf"
+                }
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/preview-html")
@@ -1046,63 +1051,64 @@ async def preview_estimate_pdf(data: EstimatePDFRequest):
     if not pdf_service:
         raise HTTPException(status_code=500, detail="PDF service not available")
 
-    # Create temporary file for PDF
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-        output_path = tmp_file.name
+    # Use temp_file_handler for automatic cleanup (cross-platform compatible)
+    with temp_file_handler(suffix=".pdf", prefix="estimate_preview_") as temp_path:
+        try:
+            # Prepare data for PDF generation
+            pdf_data = data.dict()
+            logger.info(f"Generating PDF preview with data keys: {pdf_data.keys()}")
 
-    try:
-        # Prepare data for PDF generation
-        pdf_data = data.dict()
-        logger.info(f"Generating PDF preview with data keys: {pdf_data.keys()}")
+            # Extract template_type from data
+            template_type = pdf_data.get('template_type', 'estimate')
+            logger.info(f"Using template type: {template_type}")
 
-        # Extract template_type from data
-        template_type = pdf_data.get('template_type', 'estimate')
-        logger.info(f"Using template type: {template_type}")
+            # Generate sections from items before passing to PDF service
+            if 'items' in pdf_data:
+                sections_data = _group_items_into_sections(pdf_data.get('items', []))
+                pdf_data['sections'] = sections_data
+                logger.info(f"Generated {len(sections_data)} sections for PDF preview")
 
-        # Generate sections from items before passing to PDF service
-        if 'items' in pdf_data:
-            sections_data = _group_items_into_sections(pdf_data.get('items', []))
-            pdf_data['sections'] = sections_data
-            logger.info(f"Generated {len(sections_data)} sections for PDF preview")
+            # Generate PDF
+            pdf_path = pdf_service.generate_estimate_pdf(pdf_data, str(temp_path), template_type=template_type)
+            logger.info(f"PDF generated successfully at: {pdf_path}")
 
-        # Generate PDF
-        pdf_path = pdf_service.generate_estimate_pdf(pdf_data, output_path, template_type=template_type)
-        logger.info(f"PDF generated successfully at: {pdf_path}")
+            # Validate the PDF path to prevent path traversal attacks
+            try:
+                validated_path = validate_file_path(pdf_path, get_temp_dir())
+            except PathTraversalError:
+                logger.error(f"Security: Path traversal attempt in PDF preview: {pdf_path}")
+                raise HTTPException(status_code=400, detail="Invalid file path")
 
-        # Check if PDF file was actually created and has content
-        if not os.path.exists(pdf_path):
-            raise HTTPException(status_code=500, detail="PDF file was not created")
+            # Check if PDF file was actually created and has content
+            if not validated_path.exists():
+                raise HTTPException(status_code=500, detail="PDF file was not created")
 
-        file_size = os.path.getsize(pdf_path)
-        if file_size == 0:
-            raise HTTPException(status_code=500, detail="PDF file is empty")
+            file_size = validated_path.stat().st_size
+            if file_size == 0:
+                raise HTTPException(status_code=500, detail="PDF file is empty")
 
-        logger.info(f"PDF file size: {file_size} bytes")
+            logger.info(f"PDF file size: {file_size} bytes")
 
-        # Read PDF file
-        with open(pdf_path, "rb") as pdf_file:
-            pdf_content = pdf_file.read()
+            # Read PDF file using validated path
+            with open(validated_path, "rb") as pdf_file:
+                pdf_content = pdf_file.read()
 
-        logger.info(f"PDF content length: {len(pdf_content)} bytes")
+            logger.info(f"PDF content length: {len(pdf_content)} bytes")
 
-        # Clean up temp file
-        os.unlink(pdf_path)
-
-        # Return PDF as response with improved headers
-        return Response(
-            content=pdf_content,
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"inline; filename=preview_estimate.pdf",
-                "Content-Length": str(len(pdf_content)),
-                "Cache-Control": "no-cache",
-                "Accept-Ranges": "bytes"
-            }
-        )
-    except Exception as e:
-        # Clean up on error
-        logger.error(f"PDF generation error: {str(e)}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        if os.path.exists(output_path):
-            os.unlink(output_path)
-        raise HTTPException(status_code=500, detail=str(e))
+            # Return PDF as response (temp file auto-cleaned by context manager)
+            return Response(
+                content=pdf_content,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": f"inline; filename=preview_estimate.pdf",
+                    "Content-Length": str(len(pdf_content)),
+                    "Cache-Control": "no-cache",
+                    "Accept-Ranges": "bytes"
+                }
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"PDF generation error: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=str(e))

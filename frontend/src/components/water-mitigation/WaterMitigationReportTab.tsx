@@ -61,7 +61,8 @@ interface Photo {
   category?: string;
   taken_date?: string;
   description?: string;
-  thumbnail_path?: string;
+  thumbnail_url?: string;  // CompanyCam CDN thumbnail URL (fast)
+  preview_url?: string;    // Preview URL from API
 }
 
 const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
@@ -509,11 +510,11 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                             cover={
                               <div style={{ position: 'relative', height: 150, overflow: 'hidden' }}>
                                 <Image
-                                  src={`/api/water-mitigation/photos/${photo.id}/preview`}
+                                  src={photo.thumbnail_url || `/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`}
                                   alt={photo.caption || 'Photo'}
                                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                   preview={{
-                                    src: `/api/water-mitigation/photos/${photo.id}/preview`
+                                    src: photo.preview_url || `/api/water-mitigation/photos/${photo.id}/preview?size=web`
                                   }}
                                 />
                                 <Tooltip title="Remove from section">

@@ -71,11 +71,11 @@ class PlaywrightPDFService:
             try:
                 dt = datetime.strptime(value, "%Y-%m-%d")
                 return dt.strftime(format_str)
-            except:
+            except ValueError:
                 try:
                     dt = datetime.strptime(value, "%m-%d-%Y")
                     return dt.strftime(format_str)
-                except:
+                except ValueError:
                     return value
         elif isinstance(value, datetime):
             return value.strftime(format_str)

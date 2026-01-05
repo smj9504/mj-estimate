@@ -346,7 +346,10 @@ const FileGrid: React.FC<FileGridProps> = ({
 
   const handlePreview = (file: FileItem) => {
     if (fileCategory === 'image' && showImagePreview) {
-      setPreviewImage(file.url);
+      // Use original high-resolution image for preview modal
+      // fileUrl = original full resolution, url = optimized web preview
+      const previewUrl = file.fileUrl || file.url;
+      setPreviewImage(previewUrl);
       setPreviewTitle(file.originalName);
       setPreviewVisible(true);
     } else if (file.contentType === 'application/pdf') {

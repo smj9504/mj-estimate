@@ -36,7 +36,6 @@ import RichTextEditor from '../components/editor/RichTextEditor';
 import { Company } from '../types';
 
 const { Title, Text } = Typography;
-const { TextArea } = Input;
 const { Option } = Select;
 
 // Utility function to format number with thousand separators
@@ -59,9 +58,14 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEditMode = !!id;
-  
+
+  // Loading states - separate for different operations
+  const [isDataLoading, setIsDataLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // State management
-  const [loading, setLoading] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [items, setItems] = useState<EstimateLineItem[]>([]);
@@ -77,7 +81,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
     if (companies.length > 0) return companies; // Already loaded
 
     try {
-      setLoading(true);
+      setIsDataLoading(true);
       const companiesData = await companyService.getCompanies();
       setCompanies(companiesData);
       return companiesData;
@@ -86,7 +90,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
       console.error(error);
       return [];
     } finally {
-      setLoading(false);
+      setIsDataLoading(false);
     }
   }, [companies]);
 
@@ -96,7 +100,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
       if (!id) return; // No need to load anything for create mode
 
       try {
-        setLoading(true);
+        setIsDataLoading(true);
 
         // Load companies first for edit mode
         const companiesData = await loadCompanies();
@@ -207,7 +211,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
         message.error('Failed to load data');
         console.error(error);
       } finally {
-        setLoading(false);
+        setIsDataLoading(false);
       }
     };
 
@@ -246,7 +250,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
       console.log('completeValues.client_name:', completeValues.client_name);
       console.log('values.client_name:', values.client_name);
       console.log('allFormValues.client_name:', allFormValues.client_name);
-      setLoading(true);
+      setIsSaving(true);
 
       // Ensure selectedCompany is set if company_id is provided but selectedCompany is null
       let currentSelectedCompany = selectedCompany;
@@ -352,7 +356,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
       message.error(`Failed to ${id ? 'update' : 'create'} estimate`);
       console.error(error);
     } finally {
-      setLoading(false);
+      setIsSaving(false);
     }
   };
 
@@ -372,7 +376,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
     }
 
     try {
-      setLoading(true);
+      setIsDeleting(true);
       await estimateService.deleteEstimate(id);
       message.success('Estimate deleted successfully');
       navigate('/documents');
@@ -380,7 +384,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
       message.error('Failed to delete estimate');
       console.error('Delete estimate error:', error);
     } finally {
-      setLoading(false);
+      setIsDeleting(false);
     }
   };
 
@@ -391,7 +395,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
       const allFormValues = form.getFieldsValue();
       // Merge validated required fields with all form values
       const completeValues = { ...allFormValues, ...values };
-      setLoading(true);
+      setIsPreviewing(true);
       
       const totals = calculateTotals();
       // Generate estimate number if not provided
@@ -448,7 +452,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
       message.error('Failed to generate PDF');
       console.error(error);
     } finally {
-      setLoading(false);
+      setIsPreviewing(false);
     }
   };
 
@@ -561,7 +565,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
                 }}
                 showSearch
                 optionFilterProp="children"
-                loading={loading && companies.length === 0}
+                loading={isDataLoading && companies.length === 0}
                 notFoundContent={companies.length === 0 ? "Loading companies..." : "No companies found"}
               >
                 {companies.map(company => (
@@ -904,7 +908,8 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
               type="primary"
               icon={<SaveOutlined />}
               onClick={handleSave}
-              loading={loading}
+              loading={isSaving}
+              disabled={isPreviewing || isDeleting || isDataLoading}
               block
               size="large"
             >
@@ -913,7 +918,8 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
             <Button
               icon={<EyeOutlined />}
               onClick={handlePreviewPDF}
-              loading={loading}
+              loading={isPreviewing}
+              disabled={isSaving || isDeleting || isDataLoading}
               block
             >
               Preview PDF
@@ -922,14 +928,19 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
               <Button
                 icon={<DeleteOutlined />}
                 onClick={handleDelete}
-                loading={loading}
+                loading={isDeleting}
+                disabled={isSaving || isPreviewing || isDataLoading}
                 block
                 danger
               >
                 Delete Estimate
               </Button>
             )}
-            <Button block onClick={() => navigate('/documents')}>
+            <Button
+              block
+              onClick={() => navigate('/documents')}
+              disabled={isSaving || isPreviewing || isDeleting}
+            >
               Cancel
             </Button>
           </Space>
@@ -969,14 +980,16 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
               <Button
                 icon={<SaveOutlined />}
                 onClick={handleSave}
-                loading={loading}
+                loading={isSaving}
+                disabled={isPreviewing || isDeleting || isDataLoading}
               >
                 Save Draft
               </Button>
               <Button
                 icon={<EyeOutlined />}
                 onClick={handlePreviewPDF}
-                loading={loading}
+                loading={isPreviewing}
+                disabled={isSaving || isDeleting || isDataLoading}
               >
                 Preview PDF
               </Button>
@@ -984,7 +997,8 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
                 <Button
                   icon={<DeleteOutlined />}
                   onClick={handleDelete}
-                  loading={loading}
+                  loading={isDeleting}
+                  disabled={isSaving || isPreviewing || isDataLoading}
                   danger
                 >
                   Delete

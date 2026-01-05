@@ -62,6 +62,7 @@ import { DEFAULT_UNIT } from '../constants/units';
 import ItemCodeSelector from '../components/estimate/ItemCodeSelector';
 
 import { formatCurrency } from '../utils/formatUtils';
+
 const { Title } = Typography;
 
 interface Adjustment {
@@ -82,8 +83,12 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEditMode = !!id;
-  const [loading, setLoading] = useState(false);
-  
+
+  // Loading states - separate for different operations
+  const [isDataLoading, setIsDataLoading] = useState(false); // For initial data loading
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+
   // Section-based state
   const [sections, setSections] = useState<EstimateSection[]>([]);
   const [newSectionTitle, setNewSectionTitle] = useState('');
@@ -151,7 +156,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   const loadEstimate = useCallback(async (estimateData?: EstimateResponse) => {
     if (!id) return;
 
-    setLoading(true);
+    setIsDataLoading(true);
     try {
       const estimate = estimateData || await estimateService.getEstimate(id);
       
@@ -257,7 +262,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       console.error('Failed to load estimate:', error);
       message.error('Failed to load estimate');
     } finally {
-      setLoading(false);
+      setIsDataLoading(false);
     }
   }, [id, form, companies]);
 
@@ -982,19 +987,18 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
   const handleSave = async () => {
     try {
-      setLoading(true);
+      setIsSaving(true);
       const values = await form.validateFields();
 
       // Validate company information
       const companyValidationError = validateCompanySelection();
       if (companyValidationError) {
         message.error(companyValidationError);
-        setLoading(false);
         return;
       }
 
       const estimateData = createEstimateData(values);
-      
+
       // Ensure company_id from form is used (for edit mode company changes)
       const formCompanyId = form.getFieldValue('company_id') || form.getFieldValue('company_selection');
       if (formCompanyId && formCompanyId !== 'custom') {
@@ -1015,7 +1019,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       console.error('Failed to save estimate:', error);
       message.error('Failed to save estimate');
     } finally {
-      setLoading(false);
+      setIsSaving(false);
     }
   };
 
@@ -1073,14 +1077,13 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
   const handlePreviewPDF = async () => {
     try {
-      setLoading(true);
+      setIsPreviewing(true);
       const values = await form.validateFields();
 
       // Validate company information
       const companyValidationError = validateCompanySelection();
       if (companyValidationError) {
         message.error(companyValidationError);
-        setLoading(false);
         return;
       }
 
@@ -1101,7 +1104,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     } catch (error: any) {
       handlePdfPreviewError(error);
     } finally {
-      setLoading(false);
+      setIsPreviewing(false);
     }
   };
 
@@ -1142,10 +1145,22 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
               { value: 'estimate', label: 'Enhanced' }
             ]}
           />
-          <Button type="primary" icon={<EyeOutlined />} onClick={handlePreviewPDF}>
+          <Button
+            type="primary"
+            icon={<EyeOutlined />}
+            onClick={handlePreviewPDF}
+            loading={isPreviewing}
+            disabled={isSaving || isDataLoading}
+          >
             Preview PDF
           </Button>
-          <Button type="primary" icon={<SaveOutlined />} onClick={handleSave} loading={loading}>
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            onClick={handleSave}
+            loading={isSaving}
+            disabled={isPreviewing || isDataLoading}
+          >
             {isEditMode ? 'Update' : 'Save'} Estimate
           </Button>
         </Space>

@@ -6,6 +6,7 @@ Integrates with Roboflow API for construction material detection.
 
 from .base import MaterialDetectionProvider
 from app.core.config import settings
+from app.common.utils.temp_file import cleanup_temp_file
 import logging
 import time
 from typing import Dict, Any, Optional
@@ -118,13 +119,9 @@ class RoboflowProvider(MaterialDetectionProvider):
             logger.error(f"Roboflow detection failed: {e}", exc_info=True)
             raise
         finally:
-            # Clean up temporary file if we created one
-            if temp_file and os.path.exists(temp_file):
-                try:
-                    os.unlink(temp_file)
-                    logger.debug(f"Cleaned up temporary file: {temp_file}")
-                except Exception as cleanup_error:
-                    logger.warning(f"Failed to clean up temp file {temp_file}: {cleanup_error}")
+            # Clean up temporary file using cross-platform utility
+            if temp_file:
+                cleanup_temp_file(temp_file)
 
     def _parse_roboflow_response(
         self,

@@ -4,11 +4,12 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { Button, Modal, Select, Space, message, Spin, Typography } from 'antd';
-import { FilePdfOutlined, PlusOutlined } from '@ant-design/icons';
+import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip } from 'antd';
+import { FilePdfOutlined, PlusOutlined, RotateRightOutlined, CloseOutlined } from '@ant-design/icons';
 import FileGallery from '../common/FileGallery/FileGallery';
 import WMDocumentList from './WMDocumentList';
 import waterMitigationService from '../../services/waterMitigationService';
+import { useWaterMitigationPhotos } from '../../hooks/useWaterMitigationPhotos';
 
 const { Title, Text } = Typography;
 
@@ -45,13 +46,50 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [selectedDocType, setSelectedDocType] = useState<string | null>(null);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
+  const [photoRotations, setPhotoRotations] = useState<Record<string, number>>({});  // {photoId: degrees}
   const [creatingPdf, setCreatingPdf] = useState(false);
   const documentListRef = useRef<any>(null);
+
+  // Load photos for displaying selected photos with rotation controls
+  const { data: allPhotos = [] } = useWaterMitigationPhotos(jobId, {
+    enabled: createModalVisible,
+    pageSize: 200
+  });
 
   const handleCreateDocument = () => {
     setCreateModalVisible(true);
     setSelectedDocType(null);
     setSelectedPhotoIds([]);
+    setPhotoRotations({});
+  };
+
+  // Rotate a photo by 90 degrees clockwise
+  const handleRotatePhoto = (photoId: string) => {
+    setPhotoRotations(prev => {
+      const currentRotation = prev[photoId] || 0;
+      const newRotation = (currentRotation + 90) % 360;
+      return { ...prev, [photoId]: newRotation };
+    });
+  };
+
+  // Remove a photo from selection
+  const handleRemovePhoto = (photoId: string) => {
+    setSelectedPhotoIds(prev => prev.filter(id => id !== photoId));
+    setPhotoRotations(prev => {
+      const { [photoId]: _, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  // Get thumbnail URL for a photo
+  const getPhotoThumbnail = (photoId: string) => {
+    const photo = allPhotos.find((p: any) => p.id === photoId) as any;
+    // Try both naming conventions (snake_case from API, camelCase from hook mapping)
+    const thumbUrl = photo?.thumbnail_url || photo?.thumbnailUrl;
+    if (thumbUrl) {
+      return thumbUrl;
+    }
+    return `/api/water-mitigation/photos/${photoId}/preview?size=thumbnail`;
   };
 
   const handlePhotoSelection = (fileIds: string[]) => {
@@ -94,19 +132,27 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     try {
       setCreatingPdf(true);
 
-      // Generate PDF from selected photos
+      // Build rotations object (only include non-zero rotations)
+      const rotations = Object.entries(photoRotations).reduce((acc, [id, deg]) => {
+        if (deg !== 0) acc[id] = deg;
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Generate PDF from selected photos with rotations
       const result = await waterMitigationService.documents.generatePdf(
         jobId,
         selectedPhotoIds,
         selectedDocType,
         jobAddress,
-        dateOfLoss  // Pass date of loss for EWA documents
+        dateOfLoss,  // Pass date of loss for EWA documents
+        Object.keys(rotations).length > 0 ? rotations : undefined
       );
 
       message.success(`PDF generated successfully: ${result.filename}`);
       setCreateModalVisible(false);
       setSelectedPhotoIds([]);
       setSelectedDocType(null);
+      setPhotoRotations({});
 
       // Refresh document list to show newly created document
       documentListRef.current?.refresh();
@@ -213,10 +259,11 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
             </Text>
 
             <div style={{
-              height: '500px',
+              height: selectedPhotoIds.length > 0 ? '350px' : '500px',
               border: '1px solid #d9d9d9',
               borderRadius: 4,
-              overflow: 'hidden'
+              overflow: 'hidden',
+              transition: 'height 0.3s ease'
             }}>
               {creatingPdf ? (
                 <div style={{
@@ -235,23 +282,139 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                   allowedTypes={['image/*']}
                   fileCategory="image"
                   height="100%"
-                  allowUpload={true}
+                  allowUpload={false}  // No upload in document creation modal
                   allowMultiSelect={true}  // Always allow multi-select, handler will limit for EWA
                   selectedFiles={selectedPhotoIds}
                   onFileSelect={handlePhotoSelection}
-                  categories={['documentation']}
+                  categories={[
+                    'documentation',  // Documentation first for document creation
+                    'uncategorized',
+                    'wet-area',
+                    'pre-mitigation-moving',
+                    'demolition',
+                    'containment',
+                    'protection',
+                    'drying-process',
+                    'day-1',
+                    'day-2',
+                    'day-3',
+                  ]}
                   defaultViewMode="grid"
                   allowViewModeChange={false}
                   showImagePreview={true}
                   enableImageZoom={false}
                   showImageInfo={false}
                   gridColumns={{ xs: 2, sm: 3, md: 4 }}
-                  showCategories={false}
+                  showCategories={true}  // Show category filter
+                  allowCategoryCreate={false}  // No category creation in modal
+                  showBulkActions={false}  // Hide bulk actions in document creation modal
+                  showSelectAll={false}  // Hide select all button in document creation modal
                   enableDateGrouping={false}
+                  showBulkCategoryUpdate={false}  // Hide Set Category action in document creation modal
                 />
               )}
             </div>
           </div>
+
+          {/* Selected Photos with Rotation Controls */}
+          {selectedPhotoIds.length > 0 && !creatingPdf && (
+            <div>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                Selected Photos ({selectedPhotoIds.length}) - Click rotate to adjust orientation
+              </Text>
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '12px',
+                maxHeight: '140px',
+                overflowY: 'auto',
+                padding: '8px',
+                background: '#fafafa',
+                borderRadius: 8,
+                border: '1px solid #e8e8e8'
+              }}>
+                {selectedPhotoIds.map((photoId, index) => {
+                  const rotation = photoRotations[photoId] || 0;
+                  return (
+                    <Card
+                      key={photoId}
+                      size="small"
+                      style={{
+                        width: 100,
+                        padding: 0,
+                        overflow: 'hidden'
+                      }}
+                      bodyStyle={{ padding: 4 }}
+                    >
+                      <div style={{ position: 'relative' }}>
+                        <div style={{
+                          width: '100%',
+                          height: 70,
+                          overflow: 'hidden',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: '#f0f0f0',
+                          borderRadius: 4
+                        }}>
+                          <img
+                            src={getPhotoThumbnail(photoId)}
+                            alt={`Photo ${index + 1}`}
+                            style={{
+                              maxWidth: '100%',
+                              maxHeight: '100%',
+                              objectFit: 'contain',
+                              transform: `rotate(${rotation}deg)`,
+                              transition: 'transform 0.3s ease'
+                            }}
+                          />
+                        </div>
+                        {rotation !== 0 && (
+                          <div style={{
+                            position: 'absolute',
+                            top: 2,
+                            left: 2,
+                            background: 'rgba(24, 144, 255, 0.9)',
+                            color: 'white',
+                            fontSize: 10,
+                            padding: '1px 4px',
+                            borderRadius: 3
+                          }}>
+                            {rotation}°
+                          </div>
+                        )}
+                      </div>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        gap: 4,
+                        marginTop: 4
+                      }}>
+                        <Tooltip title="Rotate 90°">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<RotateRightOutlined />}
+                            onClick={() => handleRotatePhoto(photoId)}
+                            style={{ color: '#1890ff' }}
+                          />
+                        </Tooltip>
+                        <Tooltip title="Remove">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<CloseOutlined />}
+                            onClick={() => handleRemovePhoto(photoId)}
+                            style={{ color: '#ff4d4f' }}
+                          />
+                        </Tooltip>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </Space>
       </Modal>
     </div>

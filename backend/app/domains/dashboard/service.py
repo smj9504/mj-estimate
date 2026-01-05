@@ -370,7 +370,7 @@ class DashboardService:
                 completed_today=member_completed_today,
                 completed_this_week=member_completed_week,
                 pending_revisions=len(member_revisions),
-                average_completion_time_hours=None  # TODO: Calculate this
+                average_completion_time_hours=None  # Requires tracking completion timestamps
             ))
             
             # Update team totals

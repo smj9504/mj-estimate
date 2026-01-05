@@ -10,12 +10,13 @@ MJ Estimate is an enterprise-grade management system built specifically for insu
 
 - **📋 Estimate & Invoice Management** - Create professional estimates and invoices with customizable templates
 - **🏗️ Work Order System** - Complete work order lifecycle management with staff assignment and tracking
-- **💧 Water Mitigation** - Specialized water damage assessment and mitigation workflow
+- **💧 Water Mitigation** - Specialized water damage assessment and mitigation workflow with photo management
 - **🔨 Reconstruction Estimates** - Material detection, pack-out calculations, and debris estimation
 - **📐 Interior Sketching** - Interactive canvas-based floor plan and interior sketching tool
+- **📸 AI Photo Analysis** - Intelligent room analysis and item detection from photos
 - **🔗 External Integrations** - CompanyCam, Google Sheets, and Slack integrations
 - **📊 Analytics & Reporting** - Comprehensive dashboard with business insights
-- **👥 Multi-user Support** - Role-based access control (Admin, Manager, User)
+- **👥 Multi-user Support** - Role-based access control (Admin, Manager, Staff)
 
 ## 🏗️ Architecture
 
@@ -26,23 +27,24 @@ MJ Estimate is an enterprise-grade management system built specifically for insu
 - **Database**: PostgreSQL with SQLAlchemy ORM
 - **Architecture**: Domain-Driven Design (DDD)
 - **Authentication**: JWT with bcrypt password hashing
-- **File Storage**: Google Cloud Storage / Google Drive / Local
+- **File Storage**: Google Drive / Google Cloud Storage / Local
 - **API Documentation**: Auto-generated OpenAPI (Swagger)
 
 #### Frontend
 - **Framework**: React 18.3+ with TypeScript 4.9+
 - **UI Library**: Ant Design 5.27+
 - **State Management**: Zustand + TanStack React Query
-- **Routing**: React Router v6
+- **Routing**: React Router v7
 - **Canvas Drawing**: Konva.js & React-Konva
 - **Charts**: Recharts & Ant Design Charts
 - **Build Tool**: Create React App with CRACO
+- **Performance**: React Lazy Loading + Code Splitting
 
 #### External Integrations
-- **Photo Management**: CompanyCam API
-- **Spreadsheets**: Google Sheets API
+- **Photo Management**: CompanyCam API (webhook-based photo sync)
+- **Spreadsheets**: Google Sheets API (bidirectional sync)
 - **Notifications**: Slack Webhooks
-- **Material Detection**: Google Vision AI (Optional)
+- **AI Analysis**: Google Vision AI / Custom ML Models
 
 ### System Architecture
 
@@ -65,10 +67,10 @@ MJ Estimate is an enterprise-grade management system built specifically for insu
 │  │               Domain Layer (Business Logic)          │  │
 │  ├──────────┬──────────┬──────────┬──────────┬─────────┤  │
 │  │  Auth    │ Company  │ Estimate │  Work    │  Water  │  │
-│  │          │          │ Invoice  │  Order   │  Mitigation│
+│  │          │          │ Invoice  │  Order   │  Mitig. │  │
 │  ├──────────┼──────────┼──────────┼──────────┼─────────┤  │
-│  │ Material │   Pack   │ Interior │ Document │ Integra-│  │
-│  │Detection │  Calc    │ Sketch   │ Types    │ tions   │  │
+│  │  Pack    │  Photo   │ Material │ Interior │ Integra-│  │
+│  │  Calc    │ Analysis │Detection │ Sketch   │ tions   │  │
 │  └──────────┴──────────┴──────────┴──────────┴─────────┘  │
 │                              ↕                               │
 │  ┌──────────────────────────────────────────────────────┐  │
@@ -96,7 +98,8 @@ mj-react-app/
 │   │   │   ├── database_factory.py  # Database abstraction
 │   │   │   └── logging_config.py    # Logging setup
 │   │   ├── common/            # Shared components
-│   │   │   └── base_repository.py   # Repository pattern base
+│   │   │   ├── base_repository.py   # Repository pattern base
+│   │   │   └── services/      # Common services (PDF, etc.)
 │   │   ├── domains/           # Business domains (DDD)
 │   │   │   ├── auth/          # Authentication & authorization
 │   │   │   ├── company/       # Company & client management
@@ -104,8 +107,9 @@ mj-react-app/
 │   │   │   ├── estimate/      # Estimate workflows
 │   │   │   ├── work_order/    # Work order lifecycle
 │   │   │   ├── water_mitigation/  # Water damage projects
-│   │   │   ├── reconstruction_estimate/  # Reconstruction estimates
+│   │   │   ├── reconstruction_estimate/  # Reconstruction
 │   │   │   ├── pack_calculation/  # Pack-out calculations
+│   │   │   ├── photo_analysis/    # AI photo analysis
 │   │   │   ├── material_detection/  # AI material detection
 │   │   │   ├── sketch/        # Interior sketching
 │   │   │   ├── integrations/  # External service integrations
@@ -117,14 +121,18 @@ mj-react-app/
 │   │   │   ├── staff/         # Staff & permissions
 │   │   │   ├── payment/       # Payment tracking
 │   │   │   ├── document/      # Document management
+│   │   │   ├── file/          # File storage management
+│   │   │   ├── storage/       # Multi-provider storage
 │   │   │   └── dashboard/     # Analytics & dashboard
 │   │   ├── templates/         # Jinja2 PDF templates
 │   │   └── main.py           # FastAPI application entry
 │   ├── alembic/              # Database migrations
 │   ├── tests/                # Backend tests
 │   ├── scripts/              # Utility scripts
+│   ├── docs/                 # Backend documentation
 │   ├── requirements.txt      # Python dependencies
-│   └── .env.development      # Development environment vars
+│   ├── .env.development      # Development environment vars
+│   └── .env.production       # Production environment vars
 │
 ├── frontend/                  # React Frontend
 │   ├── src/
@@ -135,13 +143,9 @@ mj-react-app/
 │   │   │   ├── invoice/      # Invoice-specific components
 │   │   │   ├── work-order/   # Work order components
 │   │   │   ├── water-mitigation/  # Water mitigation UI
+│   │   │   ├── pack-calculation/  # Pack calculation UI
 │   │   │   └── sketch/       # Canvas drawing components
 │   │   ├── pages/            # Main application pages
-│   │   │   ├── Login.tsx
-│   │   │   ├── Dashboard.tsx
-│   │   │   ├── EstimateCreation.tsx
-│   │   │   ├── WorkOrderList.tsx
-│   │   │   └── ...
 │   │   ├── services/         # API integration layer
 │   │   ├── contexts/         # React Context providers
 │   │   ├── hooks/            # Custom React hooks
@@ -152,11 +156,251 @@ mj-react-app/
 │   ├── package.json          # Node dependencies
 │   └── tsconfig.json         # TypeScript configuration
 │
-├── docs/                     # Documentation (gitignored)
+├── docs/                     # Project documentation
 ├── docker-compose.yml        # Production Docker setup
 ├── docker-compose.dev.yml    # Development Docker setup
 └── README.md                 # This file
 ```
+
+## 📚 Complete Feature List
+
+### Backend API Features
+
+#### 1. Authentication & Authorization (`/api/auth`)
+- JWT-based authentication with refresh tokens
+- User registration and login
+- Password reset functionality
+- Role-based access control (Admin, Manager, Staff)
+- Staff management with hierarchical permissions
+
+#### 2. Company Management (`/api/companies`)
+- Company profile creation and management
+- Company-specific numbering sequences
+- Logo upload and management
+- Contact information and address tracking
+- Multi-tenant support
+
+#### 3. Estimate Management (`/api/estimates`)
+- Full CRUD operations for estimates
+- Multiple estimate types (Standard, Insurance)
+- Auto-generate estimate numbers per company
+- Line items with taxes and discounts
+- Room-based organization
+- PDF generation with custom templates
+- Estimate to invoice conversion
+- Duplicate/clone functionality
+- Acceptance/rejection workflows
+- Insurance estimate support:
+  - Claim numbers and policy details
+  - Deductible tracking
+  - Depreciation calculations
+  - ACV/RCV calculations
+
+#### 4. Invoice Management (`/api/invoices`)
+- Full invoice lifecycle management
+- Auto-generated invoice numbers
+- Flexible line items with tax calculations
+- Client-specific and company-specific invoices
+- Payment tracking with multiple payment records
+- Adjustments and line-item grouping
+- HTML and PDF generation
+- Invoice duplication
+- Receipt generation (HTML/PDF)
+- Tax methods (percentage/specific amount)
+- Operational percent (OP) handling
+- Discount management
+- Payment history tracking
+
+#### 5. Work Order System (`/api/work-orders`)
+- Complete work order lifecycle
+- Status tracking with multiple states
+- Staff assignment and creation tracking
+- Trade-based cost calculation
+- Priority levels (Low, Medium, High, Urgent)
+- Additional costs management
+- Batch operations
+- Company filtering
+- Staff-specific work order retrieval
+- Dashboard statistics
+- File attachment with counting
+- Cost breakdown calculations
+
+#### 6. Water Mitigation (`/api/water-mitigation`)
+- Job creation and management
+- Photo attachment and organization by date
+- Job status tracking with history
+- Photo categorization
+- Bulk date operations
+- Report generation (multiple formats)
+- Report templates and configuration
+- CompanyCam webhook integration for photo sync
+- Cloud storage support
+- Photo soft delete (trash/restore)
+- Optimized batch photo loading
+
+#### 7. Pack Calculation (`/api/pack-calculation`)
+- AI-powered room analysis via photo
+- Template-based room inventory calculation
+- Storage multiplier calculations
+- Density modifiers for items
+- Bulk text parsing for item entry
+- Item material mapping
+- ML training data management
+- Analysis caching for performance
+- Multiple input methods (structured, text, image)
+
+#### 8. Photo Analysis (`/api/photo-analysis`)
+- AI vision-powered room photo analysis
+- Item detection and categorization
+- Room type classification
+- Multi-photo support (1-10 photos)
+- Analysis caching
+- Confidence scoring
+
+#### 9. Reconstruction Estimate (`/api/reconstruction-estimate`)
+- Debris calculation
+- Material estimation
+- Content packout analysis
+- Multi-room support
+- Cost aggregation
+
+#### 10. Material Detection (`/api/material-detection`)
+- Background job processing
+- Multiple provider support (Roboflow, Google Vision)
+- Confidence threshold configuration
+- Image analysis pipeline
+- Job status tracking
+- Health monitoring
+
+#### 11. Line Items (`/api/line-items`)
+- Predefined line item library
+- Category and subcategory organization
+- Xactimate integration
+- Pricing templates
+- Usage tracking
+
+#### 12. Payment System (`/api/payments`, `/api/payment-config`)
+- Payment method configuration
+- Payment tracking and recording
+- Tax configuration
+- Discount management
+- Payment terms setup
+
+#### 13. PDF Editor (`/api/pdf-editor`)
+- Template-based PDF generation
+- Custom field mapping
+- Form generation
+- Document preview
+- Export functionality
+
+#### 14. File & Document Management (`/api/files`, `/api/documents`)
+- Multi-storage provider support:
+  - Local filesystem
+  - Google Drive (30GB free)
+  - Google Cloud Storage
+  - AWS S3 (extensible)
+  - Azure Blob (extensible)
+- File upload/download
+- File organization by context
+- Document type classification
+- Document search
+
+#### 15. Dashboard & Analytics (`/api/dashboard`, `/api/analytics`)
+- Real-time dashboard statistics
+- Company metrics
+- Work order analytics
+- Financial reporting
+- API usage metrics
+
+#### 16. External Integrations (`/api/integrations`)
+
+**CompanyCam Integration:**
+- Webhook-based photo sync (photo.created, photo.deleted)
+- Project search and auto-match by address
+- Batch photo loading optimization
+- Real-time photo updates
+
+**Google Sheets Integration:**
+- Bidirectional sync (read/write)
+- Auto-scheduled sync (every 5 minutes during business hours)
+- Duplicate lead prevention via street address matching
+- Lead import automation
+
+**Slack Integration:**
+- Notification templates
+- Real-time alerts for work order updates
+- Batch notification grouping
+
+### Frontend Features
+
+#### Authentication & Security
+- Login page with email/password
+- Forgot password flow
+- Password reset functionality
+- Protected route system with role-based access
+
+#### Dashboard
+- Role-based dashboards (Admin/Manager/Staff)
+- Company overview
+- Quick statistics
+- Recent activity feed
+- Work order summary
+
+#### Estimate Management
+- Estimate creation form with line item builder
+- Room-based grouping
+- Real-time tax calculation
+- Insurance estimate support with ACV/RCV
+- PDF preview and generation
+- Save and continue functionality
+- Estimate editing
+
+#### Invoice Management
+- Full invoice creation workflow
+- Real-time line item calculation
+- Tax configuration
+- Payment tracking
+- Adjustments support
+- Section grouping
+- PDF/HTML preview
+- Invoice duplication
+- Edit existing invoices
+
+#### Work Orders
+- Work order creation with staff assignment
+- Status tracking and updates
+- Cost calculation by trade
+- Priority assignment
+- File attachment with gallery view
+- List view with filtering and search
+- Detail view with full information
+
+#### Water Mitigation
+- Job creation and management
+- Photo gallery with date-based categorization
+- Multi-select and bulk operations
+- Status tracking with history
+- Report generation with templates
+- Photo organization tools
+- Search and filter capabilities
+
+#### Pack Calculator
+- Room photo upload
+- AI-powered room analysis
+- Item list generation with quantities
+- Material mapping
+- Template-based calculation
+- Bulk text parsing for fast entry
+- History and list view
+
+#### Admin Features
+- Admin dashboard with system metrics
+- API usage monitoring
+- System configuration
+- User management
+- Material management
+- Document types management
+- Cache monitoring
 
 ## 🚀 Quick Start
 
@@ -240,6 +484,7 @@ docker-compose up
 | Backend API | http://localhost:8000 | FastAPI REST API |
 | API Docs (Swagger) | http://localhost:8000/docs | Interactive API documentation |
 | API Docs (ReDoc) | http://localhost:8000/redoc | Alternative API documentation |
+| PgAdmin (Docker) | http://localhost:8080 | Database management UI |
 
 ## 🔐 Environment Configuration
 
@@ -248,18 +493,20 @@ docker-compose up
 ```bash
 # Database
 DATABASE_URL=postgresql://user:password@localhost:5432/mjestimate_dev
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-supabase-key
+DATABASE_TYPE=postgresql
 
 # Security
 SECRET_KEY=your-secret-key-here
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 
-# Storage (choose one)
-STORAGE_BACKEND=gcs  # Options: local, google_drive, gcs
-GOOGLE_CLOUD_PROJECT=your-project-id
-GOOGLE_APPLICATION_CREDENTIALS=secrets/service-account-key.json
+# Storage (choose one provider)
+STORAGE_PROVIDER=local  # Options: local, gdrive, gcs, s3
+STORAGE_BASE_DIR=uploads
+
+# Google Drive (if using gdrive)
+GDRIVE_SERVICE_ACCOUNT_FILE=./secrets/service-account-key.json
+GDRIVE_ROOT_FOLDER_ID=your_folder_id
 
 # External Integrations (optional)
 ENABLE_INTEGRATIONS=true
@@ -268,16 +515,8 @@ COMPANYCAM_WEBHOOK_TOKEN=your-webhook-token
 SLACK_WEBHOOK_URL=your-slack-webhook-url
 GOOGLE_SHEETS_ENABLED=true
 
-# Email (optional)
-EMAIL_ENABLED=true
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=your-email@example.com
-SMTP_PASSWORD=your-app-password
-
-# Material Detection (optional)
-ENABLE_MATERIAL_DETECTION=false
-GOOGLE_VISION_API_KEY=your-vision-api-key
+# AI Features (optional)
+OPENAI_API_KEY=your-openai-key
 ```
 
 ### Frontend (.env)
@@ -287,128 +526,49 @@ REACT_APP_API_URL=http://localhost:8000
 REACT_APP_ENV=development
 ```
 
-## 📚 Key Features Deep Dive
+## 📦 Production Deployment
 
-### 1. Estimate & Invoice Management
+### Recommended Stack
+```
+Frontend: Vercel (Free)
+Backend:  Render ($7/month for always-on)
+Database: NeonDB (Free tier - 0.5GB)
+Storage:  Google Drive (30GB free)
+```
 
-- **Rich Text Editor** for detailed descriptions
-- **Line Item System** with drag-and-drop ordering
-- **Template System** for customizable layouts
-- **PDF Generation** with company branding
-- **Email Integration** for direct sending
-- **Duplicate & Clone** functionality
+**Total Cost**: ~$7/month for stable production
 
-### 2. Work Order System
+### Deployment Architecture
+```
+┌─────────────┐      ┌──────────────┐      ┌──────────────┐
+│   Vercel    │ ───> │    Render    │ ───> │   NeonDB     │
+│  (Frontend) │      │  (Backend)   │      │ (PostgreSQL) │
+│    Free     │      │    $7/mo     │      │     Free     │
+└─────────────┘      └──────────────┘      └──────────────┘
+        │                    │
+        │                    ├──> Google Drive (File Storage)
+        │                    ├──> Google Sheets (Scheduled Sync)
+        │                    ├──> CompanyCam (Webhooks)
+        │                    └──> Slack (Notifications)
+```
 
-- **Complete Lifecycle** management (Draft → In Progress → Completed)
-- **Staff Assignment** with role-based permissions
-- **Photo Gallery** with drag-and-drop upload
-- **Payment Tracking** with multiple payment methods
-- **Credit/Discount** management
-- **Status Timeline** with activity history
-
-### 3. Water Mitigation
-
-- **CompanyCam Integration** - Auto-sync photos from projects
-- **Date-based Grouping** - Photos organized by date
-- **Equipment Tracking** - Monitor dehumidifiers, fans, etc.
-- **Moisture Readings** - Track daily measurements
-- **Report Generation** - Professional PDF reports
-- **Real-time Updates** via webhooks
-
-### 4. Reconstruction Estimates
-
-- **Material Detection** - AI-powered material identification from photos
-- **Debris Calculator** - Calculate debris volume and disposal costs
-- **Pack-Out Calculator** - Intelligent furniture content estimation
-  - Fuzzy input processing ("medium bookshelf + contents")
-  - Automatic box type selection based on furniture
-  - Labor hours calculation
-- **Interior Sketching** - Canvas-based floor plan drawing
-  - Wall, door, window tools
-  - Fixture placement (toilets, sinks, tubs)
-  - Area measurement
-  - Export to image
-
-### 5. External Integrations
-
-#### CompanyCam
-- **Webhook Events** - photo.created, project.created
-- **Auto Photo Sync** - Automatically download photos to water mitigation jobs
-- **Address Matching** - Smart address matching with existing projects
-- **Batch Notifications** - Grouped Slack alerts
-
-#### Google Sheets
-- **Scheduled Sync** - Business hours only (9 AM - 5 PM, Mon-Fri)
-- **Invoice Export** - Auto-export invoice data
-- **Conflict Detection** - Prevent duplicate entries
-- **Rate Limiting** - Respect API quotas
-
-#### Slack
-- **Event Notifications** - Work order updates, photo uploads
-- **Formatted Messages** - Rich message formatting
-- **Error Alerts** - Critical system alerts
-
-### 6. Analytics & Reporting
-
-- **Revenue Metrics** - Monthly/quarterly revenue tracking
-- **Status Distribution** - Work order status breakdown
-- **Recent Activity** - Real-time activity feed
-- **Custom Dashboards** - Role-based dashboard views
+📖 **Full deployment guide**: See [DEPLOYMENT.md](./DEPLOYMENT.md)
 
 ## 🛠️ Development Guide
 
-### Backend Development
+### Adding a New Domain (Backend)
 
-#### Adding a New Domain
-
-1. Create domain directory structure:
+1. Create domain directory:
 ```bash
 mkdir -p backend/app/domains/new_domain
-cd backend/app/domains/new_domain
 ```
 
-2. Create domain files:
-```python
-# models.py - Database models
-from sqlalchemy import Column, String
-from app.core.database import Base
-
-class NewModel(Base):
-    __tablename__ = "new_models"
-    id = Column(String, primary_key=True)
-    name = Column(String, nullable=False)
-
-# schemas.py - Pydantic schemas
-from pydantic import BaseModel
-
-class NewModelCreate(BaseModel):
-    name: str
-
-# repository.py - Data access layer
-from app.common.base_repository import BaseRepository
-
-class NewModelRepository(BaseRepository[NewModel]):
-    pass
-
-# service.py - Business logic
-class NewModelService:
-    def __init__(self, db: Session):
-        self.repo = NewModelRepository(db)
-    
-    def create(self, data: NewModelCreate):
-        return self.repo.create(data.dict())
-
-# api.py - REST endpoints
-from fastapi import APIRouter, Depends
-
-router = APIRouter()
-
-@router.post("/")
-async def create_new_model(data: NewModelCreate):
-    # Implementation
-    pass
-```
+2. Create domain files following the DDD pattern:
+- `models.py` - Database models
+- `schemas.py` - Pydantic schemas
+- `repository.py` - Data access layer
+- `service.py` - Business logic
+- `api.py` - REST endpoints
 
 3. Register router in `main.py`:
 ```python
@@ -416,46 +576,26 @@ from app.domains.new_domain.api import router as new_domain_router
 app.include_router(new_domain_router, prefix="/api/new-domain", tags=["New Domain"])
 ```
 
-#### Database Migrations
-
-```bash
-# Create a new migration
-alembic revision --autogenerate -m "Add new table"
-
-# Apply migrations
-alembic upgrade head
-
-# Rollback
-alembic downgrade -1
-```
-
-### Frontend Development
-
-#### Adding a New Page with Lazy Loading
+### Adding a New Page (Frontend)
 
 1. Create page component:
 ```typescript
 // src/pages/NewPage.tsx
 import React from 'react';
-import { Typography } from 'antd';
 
 const NewPage: React.FC = () => {
-  return (
-    <div>
-      <Typography.Title>New Page</Typography.Title>
-    </div>
-  );
+  return <div>New Page Content</div>;
 };
 
 export default NewPage;
 ```
 
-2. Add to router in `App.tsx`:
+2. Add lazy import and route in `App.tsx`:
 ```typescript
 // Add lazy import at top
 const NewPage = lazy(() => import('./pages/NewPage'));
 
-// Add route
+// Add route (MUST wrap in Suspense)
 {
   path: "/new-page",
   element: (
@@ -470,162 +610,35 @@ const NewPage = lazy(() => import('./pages/NewPage'));
 }
 ```
 
-#### Adding a New API Service
+### Database Migrations
 
-```typescript
-// src/services/newService.ts
-import api from './api';
+```bash
+# Create a new migration
+alembic revision --autogenerate -m "Add new table"
 
-export const newService = {
-  getAll: async () => {
-    const response = await api.get('/api/new-domain');
-    return response.data;
-  },
-  
-  create: async (data: any) => {
-    const response = await api.post('/api/new-domain', data);
-    return response.data;
-  }
-};
+# Apply migrations
+alembic upgrade head
+
+# Rollback
+alembic downgrade -1
 ```
-
-### Code Style Guidelines
-
-#### Backend (Python)
-- Follow PEP 8
-- Use type hints
-- Maximum line length: 100 characters
-- Use descriptive variable names
-- Add docstrings to all public functions
-
-#### Frontend (TypeScript)
-- Use functional components with hooks
-- Prefer `const` over `let`
-- Use TypeScript interfaces for props
-- Keep components focused (Single Responsibility)
-- Use React Query for API state
 
 ## 🧪 Testing
 
 ### Backend Tests
-
 ```bash
 cd backend
-
-# Run all tests
-pytest
-
-# Run specific test file
-pytest tests/test_estimate_service.py
-
-# Run with coverage
-pytest --cov=app tests/
+pytest                           # Run all tests
+pytest tests/test_estimates.py   # Run specific test file
+pytest --cov=app tests/          # Run with coverage
 ```
 
 ### Frontend Tests
-
 ```bash
 cd frontend
-
-# Run tests
-npm test
-
-# Run with coverage
-npm test -- --coverage
+npm test                         # Run tests
+npm test -- --coverage           # Run with coverage
 ```
-
-## 📦 Production Deployment
-
-### Docker Deployment
-
-1. **Build images:**
-```bash
-docker-compose build
-```
-
-2. **Configure production environment:**
-```bash
-# Create production .env files
-cp backend/.env.example backend/.env.production
-cp frontend/.env.example frontend/.env.production
-# Edit with production values
-```
-
-3. **Deploy:**
-```bash
-docker-compose up -d
-```
-
-### Manual Deployment
-
-#### Backend (FastAPI)
-
-```bash
-# Install production dependencies
-pip install -r requirements.txt
-
-# Run with Gunicorn
-gunicorn app.main:app \
-  --workers 4 \
-  --worker-class uvicorn.workers.UvicornWorker \
-  --bind 0.0.0.0:8000
-```
-
-#### Frontend (React)
-
-```bash
-# Build for production
-npm run build
-
-# Serve with nginx or similar
-# Copy build/ directory to web server
-```
-
-### Environment Checklist
-
-- [ ] Set `DEBUG=False` in backend
-- [ ] Configure production database
-- [ ] Set up SSL/TLS certificates
-- [ ] Configure firewall rules
-- [ ] Set up backup system
-- [ ] Configure monitoring (Sentry, etc.)
-- [ ] Set up logging aggregation
-- [ ] Configure rate limiting
-- [ ] Set up CDN for static assets
-- [ ] Enable database connection pooling
-
-## 📖 API Documentation
-
-Once the backend is running, comprehensive API documentation is available at:
-
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-### Key API Endpoints
-
-#### Authentication
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User login
-- `POST /api/auth/refresh` - Refresh access token
-
-#### Estimates
-- `GET /api/estimates` - List estimates
-- `POST /api/estimates` - Create estimate
-- `GET /api/estimates/{id}` - Get estimate details
-- `PUT /api/estimates/{id}` - Update estimate
-- `GET /api/estimates/{id}/pdf` - Generate PDF
-
-#### Work Orders
-- `GET /api/work-orders` - List work orders
-- `POST /api/work-orders` - Create work order
-- `PUT /api/work-orders/{id}` - Update work order
-- `POST /api/work-orders/{id}/photos` - Upload photos
-
-#### Water Mitigation
-- `GET /api/water-mitigation` - List water mitigation jobs
-- `POST /api/water-mitigation` - Create new job
-- `GET /api/water-mitigation/{id}` - Get job details
-- `POST /api/water-mitigation/{id}/photos` - Upload photos
 
 ## 🔧 Troubleshooting
 
@@ -660,22 +673,14 @@ curl http://localhost:8000/api/integrations/health
 
 # View recent webhooks
 curl http://localhost:8000/api/integrations/webhook-events?service_name=companycam
-
-# Run diagnostic script
-cd backend
-python scripts/quick_check.py
 ```
 
-#### Database migration fails
-```bash
-# Reset database (CAUTION: destroys data)
-alembic downgrade base
-alembic upgrade head
+## 📖 API Documentation
 
-# Check migration history
-alembic history
-alembic current
-```
+Once the backend is running, comprehensive API documentation is available at:
+
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
 
 ## 📝 Contributing
 
@@ -685,27 +690,7 @@ alembic current
 - `feature/*` - Feature branches
 - `hotfix/*` - Emergency fixes
 
-### Commit Message Format
-```
-<type>(<scope>): <subject>
-
-<body>
-
-<footer>
-```
-
 Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
-
-Example:
-```
-feat(water-mitigation): add CompanyCam auto-sync
-
-- Implement webhook handler for photo.created events
-- Add address matching algorithm
-- Add Slack notifications for new photos
-
-Closes #123
-```
 
 ## 📄 License
 

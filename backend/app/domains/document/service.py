@@ -199,9 +199,8 @@ class DocumentService:
         if not document:
             return b''
         
-        # TODO: Implement actual PDF generation
-        # This would involve using WeasyPrint or similar library
-        # For now, return empty bytes
+        # PDF generation is handled by dedicated PDF templates in invoice/estimate domains
+        # This method is a fallback that returns empty bytes
         return b''
     
     def send_document(self, document_id: str, email: str) -> bool:
@@ -211,9 +210,7 @@ class DocumentService:
         if not document:
             return False
         
-        # TODO: Implement email sending functionality
-        # This would involve setting up email configuration
-        # For now, just return True to indicate success
+        # Email functionality not yet implemented - placeholder returns success
         return True
     
     def export_to_excel(self, filter_params: DocumentFilter) -> bytes:
@@ -221,6 +218,5 @@ class DocumentService:
         # Get all documents with the filter
         documents = self.get_documents(filter_params, 1, 10000)  # Get all documents
         
-        # TODO: Implement Excel export using pandas or openpyxl
-        # For now, return empty bytes
+        # Excel export not yet implemented - placeholder returns empty bytes
         return b''

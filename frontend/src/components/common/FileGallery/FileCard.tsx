@@ -69,7 +69,10 @@ const FileCard: React.FC<FileCardProps> = ({
   const handlePreview = (file: FileItem) => {
     const contentType = file.contentType || file.mimeType || '';
     if (contentType.startsWith('image/') && showImagePreview) {
-      setPreviewImage(file.url);
+      // Use original high-resolution image for preview modal
+      // fileUrl = original full resolution, url = optimized web preview
+      const previewUrl = file.fileUrl || file.url;
+      setPreviewImage(previewUrl);
       setPreviewTitle(file.originalName);
       setPreviewVisible(true);
     } else if (contentType === 'application/pdf') {

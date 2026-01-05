@@ -27,28 +27,65 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+
+from app.core.rate_limiter import limiter, rate_limit_exceeded_handler
 
 # Conditional model imports (only if Material Detection enabled)
 from app.core.config import settings as _early_settings
 
-# Import Company AFTER its dependencies
-from app.domains.company.models import *
-from app.domains.packout.models import *
-from app.domains.photo_analysis.models import *
-from app.domains.receipt.models import *
-from app.domains.reconstruction_estimate.models import *
-from app.domains.sketch.models import *
+# =============================================================================
+# Model Imports for SQLAlchemy Relationship Registration
+# =============================================================================
+# These models are imported to ensure SQLAlchemy relationships are properly
+# registered before the app starts. They must be imported for ORM integrity.
+# =============================================================================
 
-# Import all models first to ensure SQLAlchemy relationships are properly set up
-# This prevents circular dependency issues
-# Import dependent models BEFORE Company model
-from app.domains.staff.models import *
-from app.domains.water_mitigation.models import *
+# Staff/Authentication system models (imported first as other models depend on it)
+from app.domains.staff.models import (
+    StaffRole, PermissionLevel, Staff, StaffPermission,
+    StaffSession, AuditLog
+)
 
+# Water Mitigation system models
+from app.domains.water_mitigation.models import (
+    WaterMitigationJob, PhotoCategory, WMPhoto, WMDocument,
+    WMPhotoCategory, WMJobStatusHistory, WMSyncLog, WMReportConfig
+)
+
+# Company model (imported after its dependencies)
+from app.domains.company.models import Company
+
+# Packout system models
+from app.domains.packout.models import (
+    XactimateCategory, ItemSize, FragilityLevel, XactimateCode, PackingRule,
+    ItemXactimateMapping, PhotoAnalysisPackout, PackoutTemplate
+)
+
+# Photo Analysis system models
+from app.domains.photo_analysis.models import PhotoAnalysisCache, PhotoAnalysis
+
+# Receipt system models
+from app.domains.receipt.models import Receipt, ReceiptTemplate
+
+# Reconstruction Estimate system models
+from app.domains.reconstruction_estimate.models import (
+    MoistureLevel, UnitType, MaterialCategory, MaterialWeight,
+    DebrisCalculation, DebrisItem
+)
+
+# Interior Sketch system models
+from app.domains.sketch.models import Sketch, Room, Wall, Fixture, Measurement
+
+# Material Detection system models (conditional - only if enabled)
 if getattr(_early_settings, 'ENABLE_MATERIAL_DETECTION', False):
     try:
-        from app.domains.material_detection.models import *
+        from app.domains.material_detection.models import (
+            JobStatus, MaterialDetectionJob, DetectedMaterial
+        )
     except ImportError:
         pass  # Material Detection dependencies not installed
 
@@ -200,6 +237,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add rate limiter to app state (required by slowapi)
+app.state.limiter = limiter
+
+# Add rate limit exceeded exception handler
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+# Add SlowAPI middleware for rate limiting
+app.add_middleware(SlowAPIMiddleware)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -216,17 +262,27 @@ app.add_middleware(
 )
 
 
-# Request logging middleware
+# Request logging middleware with Request ID tracking
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Log all incoming requests with timing"""
+    """Log all incoming requests with timing and Request ID tracking"""
     import time
+    import uuid
 
     start_time = time.time()
 
+    # Generate or use existing Request ID for tracing
+    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+
+    # Store request_id in request state for access in handlers
+    request.state.request_id = request_id
+
     # Log incoming request (skip health checks)
     if "/health" not in request.url.path:
-        app_logger.info(f"→ {request.method} {request.url.path} from {request.client.host if request.client else 'unknown'}")
+        app_logger.info(
+            f"→ [{request_id[:8]}] {request.method} {request.url.path} "
+            f"from {request.client.host if request.client else 'unknown'}"
+        )
 
     try:
         response = await call_next(request)
@@ -237,39 +293,49 @@ async def log_requests(request: Request, call_next):
         # Log response (skip health checks)
         if "/health" not in request.url.path:
             app_logger.info(
-                f"← {request.method} {request.url.path} "
+                f"← [{request_id[:8]}] {request.method} {request.url.path} "
                 f"Status: {response.status_code} "
                 f"Time: {process_time:.2f}ms"
             )
 
-        # Add timing header
+        # Add timing and request ID headers
         response.headers["X-Process-Time"] = str(process_time)
+        response.headers["X-Request-ID"] = request_id
         return response
 
     except Exception as e:
-        # Log errors
+        # Log errors with request ID
         error_logger.error(
-            f"✗ {request.method} {request.url.path} "
+            f"✗ [{request_id[:8]}] {request.method} {request.url.path} "
             f"Error: {str(e)}"
         )
         raise
+
+
+# Helper to get request_id from request state
+def _get_request_id(request: Request) -> str:
+    """Get request ID from request state, or generate new one"""
+    return getattr(request.state, 'request_id', 'unknown')
 
 
 # Exception handlers
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Custom handler for validation errors to provide more details"""
-    logger.error(f"Validation error on {request.url}: {exc.errors()}")
-    logger.error(f"Request body: {exc.body}")
-    
+    request_id = _get_request_id(request)
+    logger.error(f"[{request_id[:8]}] Validation error on {request.url}: {exc.errors()}")
+    logger.error(f"[{request_id[:8]}] Request body: {exc.body}")
+
     return JSONResponse(
         status_code=422,
         content={
             "detail": exc.errors(),
             "body": str(exc.body),
             "message": "Request validation failed",
-            "timestamp": datetime.utcnow().isoformat()
-        }
+            "timestamp": datetime.utcnow().isoformat(),
+            "request_id": request_id
+        },
+        headers={"X-Request-ID": request_id}
     )
 
 
@@ -277,96 +343,83 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def database_exception_handler(request: Request, exc: DatabaseException):
     """Custom handler for database errors"""
     import traceback
-    logger.error(f"Database error on {request.url}: {exc}")
-    logger.error(f"Full traceback: {traceback.format_exc()}")
-    
-    # Include the actual error message
+    request_id = _get_request_id(request)
+    logger.error(f"[{request_id[:8]}] Database error on {request.url}: {exc}")
+    logger.error(f"[{request_id[:8]}] Full traceback: {traceback.format_exc()}")
+
+    # Only include traceback in debug mode (security: hide internals in production)
+    content = {
+        "message": "Database error occurred",
+        "detail": str(exc) if settings.DEBUG else "An internal error occurred",
+        "error_type": str(type(exc).__name__),
+        "timestamp": datetime.utcnow().isoformat(),
+        "type": "database_error",
+        "request_id": request_id
+    }
+
+    # Only include traceback in development/debug mode
+    if settings.DEBUG:
+        content["traceback"] = traceback.format_exc()
+
     return JSONResponse(
         status_code=500,
-        content={
-            "message": "Database error occurred",
-            "detail": str(exc),
-            "error_type": str(type(exc).__name__),
-            "traceback": traceback.format_exc(),
-            "timestamp": datetime.utcnow().isoformat(),
-            "type": "database_error"
-        }
+        content=content,
+        headers={"X-Request-ID": request_id}
     )
 
 
 @app.exception_handler(ConnectionError)
 async def connection_exception_handler(request: Request, exc: ConnectionError):
     """Custom handler for connection errors"""
-    logger.error(f"Connection error on {request.url}: {exc}")
-    
+    request_id = _get_request_id(request)
+    logger.error(f"[{request_id[:8]}] Connection error on {request.url}: {exc}")
+
     return JSONResponse(
         status_code=503,
         content={
             "message": "Database connection error",
             "detail": "Service temporarily unavailable",
             "timestamp": datetime.utcnow().isoformat(),
-            "type": "connection_error"
-        }
+            "type": "connection_error",
+            "request_id": request_id
+        },
+        headers={"X-Request-ID": request_id}
     )
 
 
 @app.exception_handler(ConfigurationError)
 async def configuration_exception_handler(request: Request, exc: ConfigurationError):
     """Custom handler for configuration errors"""
-    logger.error(f"Configuration error on {request.url}: {exc}")
-    
+    request_id = _get_request_id(request)
+    logger.error(f"[{request_id[:8]}] Configuration error on {request.url}: {exc}")
+
     return JSONResponse(
         status_code=500,
         content={
             "message": "Configuration error",
             "detail": "Service misconfigured",
             "timestamp": datetime.utcnow().isoformat(),
-            "type": "configuration_error"
-        }
+            "type": "configuration_error",
+            "request_id": request_id
+        },
+        headers={"X-Request-ID": request_id}
     )
 
 
 # Setup SQLAdmin directly on the FastAPI app
 # This must happen AFTER middleware setup
-# Temporarily disabled due to SQLAlchemy model compatibility issues
-# database = get_database()
-# if hasattr(database, 'engine'):
-#     try:
-#         from sqladmin import Admin
-#         from app.admin import (
-#             AdminAuth, CompanyAdmin, InvoiceAdmin, InvoiceItemAdmin, 
-#             EstimateAdmin, EstimateItemAdmin, PlumberReportAdmin, DocumentAdmin,
-#             DocumentTypeAdmin, TradeAdmin
-#         )
-#         
-#         # Create authentication backend
-#         authentication_backend = AdminAuth(secret_key=settings.SECRET_KEY)
-#         
-#         # Create admin instance directly on the FastAPI app
-#         # Do NOT specify base_url parameter
-#         admin = Admin(
-#             app, 
-#             database.engine,
-#             title="MJ Estimate Database Admin",
-#             authentication_backend=authentication_backend
-#         )
-#         
-#         # Add all model views
-#         admin.add_view(CompanyAdmin)
-#         admin.add_view(InvoiceAdmin)
-#         admin.add_view(InvoiceItemAdmin)
-#         admin.add_view(EstimateAdmin)
-#         admin.add_view(EstimateItemAdmin)
-#         admin.add_view(PlumberReportAdmin)
-#         admin.add_view(DocumentAdmin)
-#         admin.add_view(DocumentTypeAdmin)
-#         admin.add_view(TradeAdmin)
-#         
-#         logger.info("SQLAdmin successfully initialized at /admin")
-#     except Exception as e:
-#         logger.error(f"Failed to initialize SQLAdmin: {e}", exc_info=True)
-# else:
-#     logger.warning("Database does not have engine attribute - SQLAdmin not initialized")
+database = get_database()
+if hasattr(database, 'engine'):
+    try:
+        from app.admin import setup_admin
+        setup_admin(app, database.engine)
+        logger.info("SQLAdmin successfully initialized at /admin")
+    except ImportError as e:
+        logger.warning(f"SQLAdmin not available (missing dependency): {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize SQLAdmin: {e}", exc_info=True)
+else:
+    logger.warning("Database does not have engine attribute - SQLAdmin not initialized")
 
 # Include routers AFTER SQLAdmin setup
 # Authentication endpoints
@@ -486,6 +539,66 @@ async def health_check(request: Request):
     }
 
 
+async def _check_external_services() -> dict:
+    """
+    Check health of external integrations.
+    Returns status for each configured external service.
+    """
+    external_services = {}
+
+    # Only check if integrations are enabled
+    if not settings.ENABLE_INTEGRATIONS:
+        return {"status": "disabled", "message": "Integrations not enabled"}
+
+    # Check Google Sheets
+    try:
+        if settings.GOOGLE_SHEETS_CREDENTIALS_FILE:
+            external_services["google_sheets"] = {
+                "status": "configured",
+                "healthy": True,
+                "credentials_file": bool(settings.GOOGLE_SHEETS_CREDENTIALS_FILE)
+            }
+        else:
+            external_services["google_sheets"] = {
+                "status": "not_configured",
+                "healthy": None
+            }
+    except Exception as e:
+        external_services["google_sheets"] = {
+            "status": "error",
+            "healthy": False,
+            "error": str(e)
+        }
+
+    # Check CompanyCam
+    try:
+        if settings.COMPANYCAM_API_KEY:
+            external_services["companycam"] = {
+                "status": "configured",
+                "healthy": True,
+                "api_key_set": bool(settings.COMPANYCAM_API_KEY)
+            }
+        else:
+            external_services["companycam"] = {"status": "not_configured", "healthy": None}
+    except Exception as e:
+        external_services["companycam"] = {"status": "error", "healthy": False, "error": str(e)}
+
+    # Check Slack
+    try:
+        if settings.SLACK_WEBHOOK_URL:
+            external_services["slack"] = {
+                "status": "configured",
+                "healthy": True,
+                "webhook_set": bool(settings.SLACK_WEBHOOK_URL)
+            }
+        else:
+            external_services["slack"] = {"status": "not_configured", "healthy": None}
+    except Exception as e:
+        external_services["slack"] = {"status": "error", "healthy": False, "error": str(e)}
+
+    return external_services
+
+
 @app.get("/health/detailed")
 async def detailed_health_check(request: Request):
     """
@@ -496,12 +609,22 @@ async def detailed_health_check(request: Request):
         database = get_database()
         db_healthy = database.health_check()
 
-        # Services are domain-based now
-        service_info = {"status": "domain-based", "healthy": True}
+        # Check external services
+        external_services = await _check_external_services()
+
+        # Determine overall external services health
+        external_healthy = all(
+            svc.get("healthy", True) is not False
+            for svc in external_services.values()
+            if isinstance(svc, dict)
+        )
+
+        # Overall status
+        overall_healthy = db_healthy and external_healthy
 
         # Detailed response
         return {
-            "status": "healthy" if db_healthy else "degraded",
+            "status": "healthy" if overall_healthy else "degraded",
             "timestamp": datetime.utcnow().isoformat(),
             "service": "mj-estimate-api",
             "version": "2.0.0",
@@ -511,11 +634,11 @@ async def detailed_health_check(request: Request):
                 "healthy": db_healthy,
                 "info": db_factory.get_database_info()
             },
-            "services": service_info,
+            "external_services": external_services,
             "components": {
                 "api": "healthy",
                 "database": "healthy" if db_healthy else "unhealthy",
-                "services": "healthy"
+                "external_integrations": "healthy" if external_healthy else "degraded"
             }
         }
     except Exception as e:

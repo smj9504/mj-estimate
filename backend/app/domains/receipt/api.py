@@ -24,6 +24,7 @@ from app.domains.receipt.schemas import (
     ReceiptTemplateResponse
 )
 from app.common.services.pdf_service import pdf_service
+from app.common.utils.temp_file import temp_file_handler, get_temp_dir
 from app.domains.receipt.service import ReceiptService, ReceiptTemplateService
 
 logger = logging.getLogger(__name__)
@@ -824,34 +825,26 @@ async def generate_receipt_pdf(
         if not pdf_service:
             raise HTTPException(status_code=500, detail="PDF service not available")
 
-        # Create temporary file for PDF
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            output_path = tmp_file.name
+        # Use temp_file_handler for automatic cleanup (cross-platform compatible)
+        with temp_file_handler(suffix=".pdf", prefix="receipt_") as temp_path:
+            try:
+                # Generate PDF
+                pdf_path = pdf_service.generate_receipt_pdf(pdf_data, str(temp_path))
 
-        try:
-            # Generate PDF
-            pdf_path = pdf_service.generate_receipt_pdf(pdf_data, output_path)
+                # Read PDF file
+                with open(pdf_path, "rb") as pdf_file:
+                    pdf_content = pdf_file.read()
 
-            # Read PDF file
-            with open(pdf_path, "rb") as pdf_file:
-                pdf_content = pdf_file.read()
-
-            # Clean up temp file
-            os.unlink(pdf_path)
-
-            # Return PDF as response
-            return Response(
-                content=pdf_content,
-                media_type="application/pdf",
-                headers={
-                    "Content-Disposition": f"attachment; filename=receipt_{receipt['receipt_number']}.pdf"
-                }
-            )
-        except Exception as e:
-            # Clean up on error
-            if os.path.exists(output_path):
-                os.unlink(output_path)
-            raise
+                # Return PDF as response (temp file auto-cleaned by context manager)
+                return Response(
+                    content=pdf_content,
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f"attachment; filename=receipt_{receipt['receipt_number']}.pdf"
+                    }
+                )
+            except Exception:
+                raise
 
     except Exception as e:
         logger.error(f"Receipt PDF generation error: {str(e)}")
@@ -1122,31 +1115,21 @@ async def preview_receipt_pdf(
         if not pdf_service:
             raise HTTPException(status_code=500, detail="PDF service not available")
 
-        import tempfile
-        import os
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            output_path = tmp_file.name
-
-        try:
-            pdf_path = pdf_service.generate_receipt_pdf(preview_data, output_path)
-            with open(pdf_path, "rb") as pdf_file:
-                pdf_content = pdf_file.read()
+        # Use temp_file_handler for automatic cleanup (cross-platform compatible)
+        with temp_file_handler(suffix=".pdf", prefix="receipt_preview_") as temp_path:
             try:
-                os.unlink(pdf_path)
-            except:
-                pass
+                pdf_path = pdf_service.generate_receipt_pdf(preview_data, str(temp_path))
+                with open(pdf_path, "rb") as pdf_file:
+                    pdf_content = pdf_file.read()
 
-            return Response(
-                content=pdf_content,
-                media_type="application/pdf",
-                headers={"Content-Disposition": "inline; filename=receipt_preview.pdf"}
-            )
-        except Exception as e:
-            try:
-                os.unlink(output_path)
-            except:
-                pass
-            raise
+                # Return PDF as response (temp file auto-cleaned by context manager)
+                return Response(
+                    content=pdf_content,
+                    media_type="application/pdf",
+                    headers={"Content-Disposition": "inline; filename=receipt_preview.pdf"}
+                )
+            except Exception:
+                raise
 
     except Exception as e:
         logger.error(f"Receipt PDF preview error: {str(e)}")

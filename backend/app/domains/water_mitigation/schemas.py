@@ -3,7 +3,7 @@ Water Mitigation domain Pydantic schemas
 """
 
 from datetime import date, datetime
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field, validator
@@ -407,6 +407,7 @@ class GenerateDocumentRequest(BaseModel):
     document_type: str = Field(..., description="Document type (COS, EWA)")
     job_address: str = Field(..., description="Job address for document header")
     date_of_loss: Optional[str] = Field(None, description="Date of loss (required for EWA, format: YYYY-MM-DD)")
+    rotations: Optional[Dict[str, int]] = Field(None, description="Photo rotations: {photo_id: degrees (0, 90, 180, 270)}")
 
     @validator('photo_ids')
     def validate_photo_ids(cls, v, values):

@@ -7,6 +7,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { TemplateBuilderProvider } from './contexts/TemplateBuilderContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Layout from './components/common/Layout';
+import ErrorBoundary from './components/common/ErrorBoundary';
 import 'antd/dist/reset.css';
 
 // =====================================================
@@ -81,6 +82,7 @@ const PDFEditor = lazy(() => import('./pages/PDFEditor'));
 
 // Error Pages
 const NotFound = lazy(() => import('./pages/NotFound'));
+const Unauthorized = lazy(() => import('./pages/Unauthorized'));
 
 // =====================================================
 // LOADING COMPONENT
@@ -623,6 +625,15 @@ const router = createBrowserRouter([
       </ProtectedRoute>
     )
   },
+  // Unauthorized route - access denied page
+  {
+    path: "/unauthorized",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <Unauthorized />
+      </Suspense>
+    )
+  },
   // 404 Not Found - catch all undefined routes
   {
     path: "*",
@@ -636,15 +647,17 @@ const router = createBrowserRouter([
 
 function App() {
   return (
-    <QueryProvider>
-      <ConfigProvider locale={enUS}>
-        <AuthProvider>
-          <TemplateBuilderProvider>
-            <RouterProvider router={router} />
-          </TemplateBuilderProvider>
-        </AuthProvider>
-      </ConfigProvider>
-    </QueryProvider>
+    <ErrorBoundary>
+      <QueryProvider>
+        <ConfigProvider locale={enUS}>
+          <AuthProvider>
+            <TemplateBuilderProvider>
+              <RouterProvider router={router} />
+            </TemplateBuilderProvider>
+          </AuthProvider>
+        </ConfigProvider>
+      </QueryProvider>
+    </ErrorBoundary>
   );
 }
 

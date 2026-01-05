@@ -7,6 +7,7 @@ Supports fine-tuning on custom datasets for improved accuracy.
 
 from .base import MaterialDetectionProvider
 from app.core.config import settings
+from app.common.utils.temp_file import cleanup_temp_file
 import logging
 import time
 from typing import Dict, Any, Optional, List
@@ -230,7 +231,7 @@ class CustomViTProvider(MaterialDetectionProvider):
             blob.download_to_filename(temp_path)
 
             image = self.Image.open(temp_path).convert('RGB')
-            os.unlink(temp_path)  # Cleanup
+            cleanup_temp_file(temp_path)  # Cross-platform cleanup
 
         elif image_path.startswith(('http://', 'https://')):
             # Download from URL
