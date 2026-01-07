@@ -30,25 +30,6 @@ const getCategoryColor = (category: string): string => {
   return colorMap[category] || '#1890ff';
 };
 
-// Category icon/emoji mapping
-const getCategoryIcon = (category: string): string => {
-  const iconMap: Record<string, string> = {
-    'all': '📁',
-    'uncategorized': '📋',
-    'wet-area': '💧',
-    'pre-mitigation-moving': '📦',
-    'demolition': '🔨',
-    'containment': '🛡️',
-    'protection': '🔒',
-    'drying-process': '🌬️',
-    'day-1': '1️⃣',
-    'day-2': '2️⃣',
-    'day-3': '3️⃣',
-    'documentation': '📄',
-  };
-  return iconMap[category] || '📌';
-};
-
 const CategoryManager: React.FC<CategoryManagerProps> = ({
   categories,
   selectedCategory,
@@ -258,46 +239,40 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
           {categories.map(category => {
             const selected = isSelected(category);
             const color = getCategoryColor(category);
-            const icon = getCategoryIcon(category);
 
             return (
-              <Tooltip
+              <Tag
                 key={category}
-                title={multiSelect && category !== 'all' ? 'Click to toggle' : undefined}
+                color={selected ? color : 'default'}
+                style={{
+                  cursor: 'pointer',
+                  borderRadius: '16px',
+                  padding: '6px 14px',
+                  fontSize: '12px',
+                  fontWeight: selected ? 600 : 400,
+                  border: selected ? `2px solid ${color}` : '1px solid #d9d9d9',
+                  background: selected ? `${color}15` : 'white',
+                  color: selected ? color : '#595959',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.2s ease',
+                  boxShadow: selected ? `0 2px 8px ${color}25` : 'none'
+                }}
+                onClick={() => handleCategoryClick(category)}
               >
-                <Tag
-                  color={selected ? color : 'default'}
-                  style={{
-                    cursor: 'pointer',
-                    borderRadius: '16px',
-                    padding: '6px 14px',
-                    fontSize: '12px',
-                    fontWeight: selected ? 600 : 400,
-                    border: selected ? `2px solid ${color}` : '1px solid #d9d9d9',
-                    background: selected ? `${color}15` : 'white',
-                    color: selected ? color : '#595959',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    whiteSpace: 'nowrap',
-                    transition: 'all 0.2s ease',
-                    boxShadow: selected ? `0 2px 8px ${color}25` : 'none'
-                  }}
-                  onClick={() => handleCategoryClick(category)}
-                >
-                  {multiSelect && category !== 'all' && (
-                    <Checkbox
-                      checked={selected}
-                      style={{
-                        marginRight: 0,
-                        pointerEvents: 'none'
-                      }}
-                    />
-                  )}
-                  <span style={{ fontSize: '14px' }}>{icon}</span>
-                  {getCategoryDisplayName(category)}
-                </Tag>
-              </Tooltip>
+                {multiSelect && category !== 'all' && (
+                  <Checkbox
+                    checked={selected}
+                    style={{
+                      marginRight: 0,
+                      pointerEvents: 'none'
+                    }}
+                  />
+                )}
+                {getCategoryDisplayName(category)}
+              </Tag>
             );
           })}
         </div>

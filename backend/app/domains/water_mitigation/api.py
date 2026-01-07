@@ -369,6 +369,7 @@ async def list_photos(
     page_size: int = 50,
     sort_by: str = 'captured_date',
     sort_order: str = 'desc',
+    skip: Optional[int] = None,
     service: WaterMitigationService = Depends(get_wm_service)
 ):
     """List photos for job with pagination and optional category filtering
@@ -381,6 +382,7 @@ async def list_photos(
         page_size: Number of items per page (default: 50, max: 200)
         sort_by: Field to sort by (default: captured_date)
         sort_order: Sort order 'asc' or 'desc' (default: desc)
+        skip: Optional explicit offset (overrides page-based calculation)
     """
     from app.core.cache import get_cache
     
@@ -395,6 +397,11 @@ async def list_photos(
         if not categories:
             categories = None
 
+    # Debug: Log category counts before filtering (only on page 1)
+    if page == 1 and categories:
+        all_category_counts = service.photo_repo.get_category_counts(job_id)
+        logger.info(f"📸 All categories for job {job_id}: {all_category_counts}")
+
     # Get paginated photos with filters applied at database level (more efficient)
     photos, total = service.photo_repo.find_by_job_paginated(
         job_id=job_id,
@@ -403,7 +410,8 @@ async def list_photos(
         sort_by=sort_by,
         sort_order=sort_order,
         category_filter=categories,
-        uncategorized_only=uncategorized_only
+        uncategorized_only=uncategorized_only,
+        skip=skip  # Optional explicit offset for variable page sizes
     )
 
     # Calculate total pages (handle None total for performance optimization)
@@ -411,6 +419,13 @@ async def list_photos(
         total_pages = math.ceil(total / page_size)
     else:
         total_pages = None
+
+    # Debug: Log results
+    if page == 1:
+        logger.info(
+            f"📸 Photo list result: filter={categories}, "
+            f"total={total}, page_size={page_size}, total_pages={total_pages}"
+        )
 
     # Batch fetch CompanyCam URLs from cache or API
     cache = get_cache()
@@ -2210,13 +2225,14 @@ async def generate_photo_report(
         output_path = output_dir / filename
 
         # Generate PDF
-        logger.info(f"Generating photo report for job {job_id}")
+        logger.info(f"Generating photo report for job {job_id}, compress={request.compress}")
         generate_water_mitigation_report_pdf(
             job_data=job,
             config=config_dict,
             photos=photos_list,
             output_path=str(output_path),
-            company_data=company_data
+            company_data=company_data,
+            compress=request.compress
         )
 
         logger.info(f"Report generated: {output_path}")

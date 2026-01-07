@@ -1451,7 +1451,8 @@ def generate_water_mitigation_report_pdf(
     config: Dict[str, Any],
     photos: List[Dict[str, Any]],
     output_path: str,
-    company_data: Optional[Dict[str, Any]] = None
+    company_data: Optional[Dict[str, Any]] = None,
+    compress: bool = False
 ) -> str:
     """
     Generate professional Water Mitigation photo report PDF using ReportLab
@@ -1468,6 +1469,7 @@ def generate_water_mitigation_report_pdf(
         photos: List of all photos for the job
         output_path: Path to save the PDF
         company_data: Company information (name, logo, etc.) - if not provided, will use job.company
+        compress: If True, compress images for smaller file size (lower quality)
 
     Returns:
         Path to the generated PDF
@@ -1493,6 +1495,21 @@ def generate_water_mitigation_report_pdf(
 
     logger = logging.getLogger(__name__)
     logger.info(f"Generating photo report for job {job_data.get('id', 'unknown')}")
+    logger.info(f"Compression enabled: {compress}")
+
+    # Image quality settings based on compression flag
+    # Original quality: High quality, larger file size
+    # Compressed: Lower quality, smaller file size (useful for email attachments)
+    if compress:
+        IMAGE_QUALITY = 50  # JPEG quality (0-100)
+        IMAGE_MAX_WIDTH = 1200  # Max width in pixels
+        IMAGE_MAX_HEIGHT = 1600  # Max height in pixels
+        logger.info("Using compressed image settings: quality=50, max=1200x1600")
+    else:
+        IMAGE_QUALITY = 95  # High quality
+        IMAGE_MAX_WIDTH = 2550  # ~300 DPI for letter size
+        IMAGE_MAX_HEIGHT = 3300
+        logger.info("Using original image settings: quality=95, max=2550x3300")
 
     # Get storage provider from settings
     from app.core.config import settings
@@ -1511,7 +1528,8 @@ def generate_water_mitigation_report_pdf(
 
     # Page settings
     page_width, page_height = letter
-    margin = 0.5 * inch  # Compact margin for more content space
+    margin = 0.4 * inch  # Reduced margin for wider photo display area
+    cover_margin = 0.7 * inch  # Larger margin for cover page (cleaner look)
 
     # Professional grayscale color palette
     COLOR_BLACK = colors.HexColor('#000000')
@@ -1563,7 +1581,7 @@ def generate_water_mitigation_report_pdf(
                     logo_h = logo_h * (inch / 100)
 
                 logo_x = (page_width - logo_width) / 2
-                logo_y = page_height - margin - logo_h - 0.5 * inch
+                logo_y = page_height - cover_margin - logo_h - 0.5 * inch
 
                 # Save grayscale logo to temp file
                 temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
@@ -1575,12 +1593,12 @@ def generate_water_mitigation_report_pdf(
                 logger.warning(f"Failed to load company logo: {e}")
 
     # Clean top section
-    y_position = page_height - margin - logo_height - 0.5 * inch
+    y_position = page_height - cover_margin - logo_height - 0.5 * inch
 
     # Title with sophisticated typography
     title = config.get('cover_title', 'Water Mitigation Report')
     c.setFillColor(COLOR_BLACK)
-    c.setFont("Helvetica-Bold", 32)
+    c.setFont("Helvetica-Bold", 24)
     c.drawCentredString(page_width / 2, y_position, title)
     y_position -= 0.25 * inch
 
@@ -1640,11 +1658,11 @@ def generate_water_mitigation_report_pdf(
 
     # Section header with subtle background
     c.setFillColor(COLOR_VERY_LIGHT_GRAY)
-    c.rect(margin - 0.1 * inch, y_position, page_width - 2 * margin + 0.2 * inch, 0.4 * inch, fill=1, stroke=0)
+    c.rect(cover_margin - 0.1 * inch, y_position, page_width - 2 * cover_margin + 0.2 * inch, 0.4 * inch, fill=1, stroke=0)
 
     c.setFillColor(COLOR_BLACK)
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(margin + 0.1 * inch, y_position + 0.12 * inch, "JOB INFORMATION")
+    c.drawString(cover_margin + 0.1 * inch, y_position + 0.12 * inch, "JOB INFORMATION")
     y_position -= 0.3 * inch
 
     # Professional table layout for job info
@@ -1697,15 +1715,15 @@ def generate_water_mitigation_report_pdf(
             ('RIGHTPADDING', (1, 0), (1, -1), 0),
         ]))
 
-        # Draw table - left aligned at margin
+        # Draw table - left aligned at cover margin
         table_width, table_height = table.wrapOn(c, page_width, page_height)
-        table.drawOn(c, margin, y_position - table_height)
+        table.drawOn(c, cover_margin, y_position - table_height)
         y_position -= table_height
 
         # Draw bottom line matching the gray header width
         c.setStrokeColor(COLOR_LIGHT_GRAY)
         c.setLineWidth(1)
-        c.line(margin - 0.1 * inch, y_position, page_width - margin + 0.1 * inch, y_position)
+        c.line(cover_margin - 0.1 * inch, y_position, page_width - cover_margin + 0.1 * inch, y_position)
         y_position -= 0.6 * inch
 
     # Company info section - clean and minimal
@@ -1726,7 +1744,7 @@ def generate_water_mitigation_report_pdf(
     footer_y = 0.8 * inch
     c.setStrokeColor(COLOR_LIGHT_GRAY)
     c.setLineWidth(0.5)
-    c.line(margin, footer_y, page_width - margin, footer_y)
+    c.line(cover_margin, footer_y, page_width - cover_margin, footer_y)
 
     # Footer text
     c.setFillColor(COLOR_MEDIUM_GRAY)
@@ -1893,91 +1911,129 @@ def generate_water_mitigation_report_pdf(
                 # Add divider line below section name
                 c.setStrokeColor(COLOR_LIGHT_GRAY)
                 c.setLineWidth(0.5)
-                c.line(margin, page_height - margin - 0.35 * inch, page_width - margin, page_height - margin - 0.35 * inch)
+                divider_y = page_height - margin - 0.35 * inch
+                c.line(margin, divider_y, page_width - margin, divider_y)
 
-                header_height = 0.45 * inch
+                # Calculate header height same as first page: from top to divider
+                header_height = page_height - divider_y
 
             # Calculate photo grid dimensions
-            # Footer is at 0.65 inch from bottom, so reserve that space plus a small buffer
-            footer_reserve = 0.85 * inch  # Footer at 0.65" + 0.2" buffer
+            # Minimize reserved space to maximize photo area
+            footer_reserve = 0.7 * inch  # Reduced footer reserve
             content_height = page_height - header_height - margin - footer_reserve
             content_width = page_width - 2 * margin
 
-            photo_width = content_width / cols - 0.1 * inch
-            photo_height = content_height / rows - 0.5 * inch  # Extra space for captions
+            # Minimal horizontal gap for wider photos
+            h_gap = 0.1 * inch  # Reduced gap between columns
+            photo_width = (content_width - h_gap * (cols - 1)) / cols  # Full width minus gaps
+            photo_height = content_height / rows - 0.15 * inch  # Reduced vertical gap for more height per photo
 
             # Draw photos in grid
             for idx, photo_item in enumerate(page_photos):
                 row = idx // cols
                 col = idx % cols
 
-                # Calculate position
-                x = margin + col * (photo_width + 0.1 * inch)
-                # Use 0.2 inch spacing between divider and first photo (tighter spacing)
-                y = page_height - header_height - 0.2 * inch - (row + 1) * (photo_height + 0.5 * inch)
+                # Calculate position with minimal horizontal gap
+                x = margin + col * (photo_width + h_gap)
+                # Tighter vertical spacing
+                y = page_height - header_height - 0.15 * inch - (row + 1) * (photo_height + 0.25 * inch)
 
-                # Draw photo (NO border) - LEFT aligned with text on RIGHT
+                # Draw photo with caption below and date overlay at bottom-right
                 try:
                     img = Image.open(photo_item['file_path'])
+
+                    # Apply compression/resize if enabled
+                    # Resize large images to reduce file size
+                    if img.width > IMAGE_MAX_WIDTH or img.height > IMAGE_MAX_HEIGHT:
+                        img.thumbnail((IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT), Image.Resampling.LANCZOS)
+
+                    # If compression is enabled, save to temp file with lower quality
+                    if compress:
+                        temp_compressed = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                        # Convert to RGB if necessary (for PNG with alpha)
+                        if img.mode in ('RGBA', 'P'):
+                            img = img.convert('RGB')
+                        img.save(temp_compressed.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True)
+                        temp_compressed.close()
+                        photo_item['file_path'] = temp_compressed.name
+
                     img_width, img_height = img.size
 
-                    # Photo takes 65% of cell width, text area takes 35%
-                    photo_area_width = photo_width * 0.65
-                    text_area_width = photo_width * 0.35 - 0.15 * inch  # Text area with spacing
+                    # All photos use full cell width for maximum size
+                    # This ensures portrait and landscape photos have the same width
+                    target_photo_width = photo_width
 
-                    # Calculate scaling to fit photo area
-                    width_scale = photo_area_width / img_width
-                    height_scale = photo_height / img_height
-                    scale = min(width_scale, height_scale)
+                    # Reserve space for caption below image
+                    caption_reserve = 0.35 * inch
+                    available_photo_height = photo_height - caption_reserve
 
+                    # Calculate scaling to fit within available space while maintaining aspect ratio
+                    width_scale = target_photo_width / img_width
+                    height_scale = available_photo_height / img_height
+                    scale = min(width_scale, height_scale)  # Use smaller scale to fit both dimensions
+
+                    # Calculate actual scaled dimensions (preserves aspect ratio)
                     scaled_width = img_width * scale
                     scaled_height = img_height * scale
 
-                    # Left-align image in cell
-                    img_x = x
-                    img_y = y + (photo_height - scaled_height) / 2  # Vertically center
+                    # Center image horizontally within cell, position at top of available space
+                    img_x = x + (photo_width - scaled_width) / 2
+                    img_y = y + caption_reserve + (available_photo_height - scaled_height) / 2
 
                     c.drawImage(
                         photo_item['file_path'],
                         img_x, img_y,
                         width=scaled_width,
                         height=scaled_height,
-                        preserveAspectRatio=True
+                        preserveAspectRatio=True,
+                        mask='auto'
                     )
 
-                    # Text area on the RIGHT side of photo - adaptive spacing
-                    # For portrait images (narrow), text starts right after actual image width
-                    # For landscape images (wide), text uses fixed photo area boundary
-                    is_portrait = img_height > img_width
+                    # Draw date overlay at bottom-right of image (if enabled)
+                    if photo_item.get('show_date') and photo_item.get('captured_date'):
+                        date_str = format_date(photo_item['captured_date'])
+                        date_text = f"Captured: {date_str}"
 
-                    if is_portrait:
-                        # Portrait: text starts right after the actual scaled image width
-                        text_x = x + scaled_width + 0.15 * inch  # Tighter spacing for portrait
-                        text_y_start = y + photo_height - 0.15 * inch  # Start from cell top
-                    else:
-                        # Landscape: text starts at photo area boundary
-                        text_x = x + photo_area_width + 0.1 * inch
-                        # Align text to actual image top (not cell top) for consistency
-                        text_y_start = img_y + scaled_height - 0.15 * inch  # Start from image top
+                        # Date overlay styling
+                        c.setFont("Helvetica", 7)
+                        date_text_width = c.stringWidth(date_text, "Helvetica", 7)
 
-                    line_height = 0.14 * inch
-                    current_y = text_y_start
+                        # Position at bottom-right corner of actual image
+                        date_padding = 4  # padding in points
+                        date_bg_width = date_text_width + date_padding * 2
+                        date_bg_height = 12  # height in points
 
-                    # Line 1: Caption/Description (primary text)
+                        date_x = img_x + scaled_width - date_bg_width - 3
+                        date_y = img_y + 3  # 3 points from bottom of image
+
+                        # Draw semi-transparent dark background
+                        c.setFillColor(colors.Color(0, 0, 0, alpha=0.6))
+                        c.rect(date_x, date_y, date_bg_width, date_bg_height, fill=1, stroke=0)
+
+                        # Draw date text in white
+                        c.setFillColor(COLOR_WHITE)
+                        c.drawString(date_x + date_padding, date_y + 3, date_text)
+
+                    # Caption below image (centered under the image)
                     caption_text = photo_item.get('caption', '') or photo_item.get('description', '')
                     if caption_text:
                         c.setFillColor(COLOR_BLACK)
                         c.setFont("Helvetica", 8)
 
-                        # Wrap text to fit text area
+                        # Calculate caption area
+                        caption_y = y + caption_reserve - 0.12 * inch
+                        line_height = 0.12 * inch
+                        max_caption_width = scaled_width + 0.3 * inch  # Slightly wider than image
+
+                        # Wrap text to fit
                         words = caption_text.split()
                         lines = []
                         current_line = []
                         for word in words:
                             current_line.append(word)
                             test_line = ' '.join(current_line)
-                            # Rough estimate: 6 pixels per character at 8pt
-                            if len(test_line) * 6 > text_area_width * 72:  # Convert to points
+                            # Estimate text width (approx 5 points per char at 8pt)
+                            if len(test_line) * 5 > max_caption_width * 72 / inch:
                                 if len(current_line) > 1:
                                     current_line.pop()
                                     lines.append(' '.join(current_line))
@@ -1988,25 +2044,12 @@ def generate_water_mitigation_report_pdf(
                         if current_line:
                             lines.append(' '.join(current_line))
 
-                        # Draw caption lines (max 3 lines)
-                        for line in lines[:3]:
-                            c.drawString(text_x, current_y, line)
-                            current_y -= line_height
-
-                    # Line: Category (if exists)
-                    category = photo_item.get('category', '')
-                    if category and photo_item.get('show_description'):
-                        c.setFillColor(COLOR_DARK_GRAY)
-                        c.setFont("Helvetica", 8)  # Changed from 7 to 8 to match footer
-                        c.drawString(text_x, current_y, f"Category: {category}")
-                        current_y -= line_height * 0.9
-
-                    # Line: Date (if exists and enabled)
-                    if photo_item.get('show_date') and photo_item.get('captured_date'):
-                        date_str = format_date(photo_item['captured_date'])
-                        c.setFont("Helvetica", 8)  # Changed from 7 to 8 to match footer
-                        c.setFillColor(COLOR_MEDIUM_GRAY)
-                        c.drawString(text_x, current_y, date_str)
+                        # Draw caption lines (max 2 lines), centered under image
+                        for line in lines[:2]:
+                            line_width = c.stringWidth(line, "Helvetica", 8)
+                            line_x = img_x + (scaled_width - line_width) / 2
+                            c.drawString(line_x, caption_y, line)
+                            caption_y -= line_height
 
                 except Exception as e:
                     logger.error(f"Failed to draw photo: {e}")

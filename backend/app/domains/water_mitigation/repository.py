@@ -2,6 +2,7 @@
 Water Mitigation repository
 """
 
+import logging
 from typing import Any, Dict, List, Optional, Set
 from uuid import UUID
 
@@ -10,6 +11,8 @@ from sqlalchemy.orm import joinedload
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
+
+logger = logging.getLogger(__name__)
 
 from .models import (
     PhotoCategory,
@@ -251,9 +254,10 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         super().__init__(session, WMPhoto)
 
     def find_by_job(self, job_id: UUID) -> List[WMPhoto]:
-        """Find all photos for a job"""
+        """Find all photos for a job (excludes trashed photos)"""
         return self.db_session.query(WMPhoto).filter(
-            WMPhoto.job_id == job_id
+            WMPhoto.job_id == job_id,
+            WMPhoto.is_trashed.is_(False)
         ).order_by(desc(WMPhoto.captured_date)).all()
 
     def find_by_job_paginated(
@@ -264,9 +268,14 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         sort_by: str = 'captured_date',
         sort_order: str = 'desc',
         category_filter: Optional[List[str]] = None,
-        uncategorized_only: bool = False
+        uncategorized_only: bool = False,
+        skip: Optional[int] = None
     ) -> tuple[List[WMPhoto], Optional[int]]:
         """Find photos for a job with pagination and optional category filtering
+
+        Args:
+            skip: Optional explicit offset. If provided, overrides page-based calculation.
+                  Useful when client uses variable page sizes.
 
         Returns:
             Tuple of (photos, total_count)
@@ -286,8 +295,25 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
                 )
             )
         elif category_filter:
-            # Filter by multiple categories (OR logic)
-            query = query.filter(WMPhoto.category.in_(category_filter))
+            # Filter by multiple categories (OR logic) with case-insensitive matching
+            # Normalize both DB values and filter values for comparison
+            # This handles variations like "Day 3" vs "day-3" vs "day_3"
+            normalized_conditions = []
+            for cat in category_filter:
+                # Normalize filter value: lowercase, replace spaces/underscores with hyphens
+                normalized_cat = cat.lower().strip().replace(' ', '-').replace('_', '-')
+                # Match against normalized DB value
+                normalized_conditions.append(
+                    func.lower(func.replace(func.replace(WMPhoto.category, ' ', '-'), '_', '-')) == normalized_cat
+                )
+            query = query.filter(or_(*normalized_conditions))
+            normalized_cats = [
+                c.lower().strip().replace(' ', '-').replace('_', '-')
+                for c in category_filter
+            ]
+            logger.info(
+                f"📸 Category filter: {category_filter} → {normalized_cats}"
+            )
 
         # Get total count (after filters) - only for first page
         # Skip count for later pages to significantly improve performance
@@ -295,6 +321,8 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         if page == 1:
             # Only count on first page - this is the most expensive operation
             total = query.count()
+            if category_filter:
+                logger.info(f"📸 Total matching '{category_filter}': {total}")
 
         # Apply sorting with secondary sort by id for deterministic ordering
         # This ensures consistent pagination even when primary sort field has duplicates
@@ -306,19 +334,30 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         # Use standard offset pagination
         # Note: Offset pagination is simpler and more reliable than keyset pagination
         # for fields like captured_date that can have duplicate values
-        offset = (page - 1) * page_size
+        # If skip is provided, use it; otherwise calculate from page number
+        offset = skip if skip is not None else (page - 1) * page_size
         photos = query.order_by(*order_clause).limit(page_size).offset(offset).all()
 
         return photos, total
 
-    def find_by_ids(self, photo_ids: List[UUID]) -> List[WMPhoto]:
-        """Find multiple photos by their IDs in a single query (optimized for batch operations)"""
+    def find_by_ids(self, photo_ids: List[UUID], include_trashed: bool = False) -> List[WMPhoto]:
+        """Find multiple photos by their IDs in a single query (optimized for batch operations)
+
+        Args:
+            photo_ids: List of photo UUIDs to fetch
+            include_trashed: If False (default), excludes trashed photos
+        """
         if not photo_ids:
             return []
-        
-        return self.db_session.query(WMPhoto).filter(
+
+        query = self.db_session.query(WMPhoto).filter(
             WMPhoto.id.in_(photo_ids)
-        ).all()
+        )
+
+        if not include_trashed:
+            query = query.filter(WMPhoto.is_trashed.is_(False))
+
+        return query.all()
 
     def count_by_job(self, job_id: UUID) -> int:
         """Count photos for a job (exclude trashed)"""
@@ -326,6 +365,26 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             WMPhoto.job_id == job_id,
             WMPhoto.is_trashed.is_(False)
         ).count()
+
+    def get_category_counts(self, job_id: UUID) -> Dict[str, int]:
+        """Get count of photos per category for debugging
+
+        Returns:
+            Dict mapping category name -> count
+        """
+        from collections import defaultdict
+
+        photos = self.db_session.query(WMPhoto.category).filter(
+            WMPhoto.job_id == job_id,
+            WMPhoto.is_trashed.is_(False)
+        ).all()
+
+        counts: Dict[str, int] = defaultdict(int)
+        for (category,) in photos:
+            cat = category if category else 'uncategorized'
+            counts[cat] += 1
+
+        return dict(counts)
 
     def find_by_job_with_external_ids(
         self,

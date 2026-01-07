@@ -37,7 +37,8 @@ import {
   CloseCircleOutlined,
   AppstoreAddOutlined,
   ThunderboltOutlined,
-  CalendarOutlined
+  CalendarOutlined,
+  LayoutOutlined
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import waterMitigationService from '../../services/waterMitigationService';
@@ -127,6 +128,8 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [updatingPhotoDates, setUpdatingPhotoDates] = useState(false);
+  const [pdfQuality, setPdfQuality] = useState<'original' | 'compressed'>('original');
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   // React Query client for cache invalidation
   const queryClient = useQueryClient();
@@ -176,7 +179,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
       // Also replace placeholders in summaries when loading config
       const normalizedSections = (config.sections || []).map((section: any) => ({
         ...section,
-        layout: section.layout || 'four', // Default layout if missing
+        layout: section.layout || 'two', // Default layout if missing
         photos: section.photos || [],
         summary: replacePlaceholders(section.summary || '')  // Replace placeholders on load
       }));
@@ -303,7 +306,6 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
       console.log('Blob URL created:', url);
       setPdfBlobUrl(url);
       setPdfPreviewVisible(true);
-      console.log('Modal visibility set to true');
 
       message.destroy();
       message.success('PDF report generated successfully');
@@ -341,6 +343,15 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     ));
   };
 
+  const handleApplyLayoutToAll = (layout: 'single' | 'two' | 'three' | 'four' | 'six') => {
+    if (sections.length === 0) {
+      message.warning('No sections to apply layout to');
+      return;
+    }
+    setSections(sections.map(s => ({ ...s, layout })));
+    message.success(`Layout "${layout === 'single' ? '1 photo' : layout === 'two' ? '2 photos' : layout === 'three' ? '3 photos' : layout === 'four' ? '4 photos' : '6 photos'} per page" applied to all ${sections.length} sections`);
+  };
+
   const handleOpenPhotoSelector = () => {
     setPhotoSelectorVisible(true);
   };
@@ -367,16 +378,55 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     message.success('Photo removed from section');
   };
 
-  const handleDownloadPdf = () => {
-    if (!pdfBlobUrl) return;
+  const handleDownloadPdf = async () => {
+    if (!config?.id) return;
 
-    const link = document.createElement('a');
-    link.href = pdfBlobUrl;
-    link.download = `water-mitigation-report-${jobId}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    message.success('PDF downloaded successfully');
+    // If downloading with different quality than preview, regenerate PDF
+    const needsRegeneration = pdfQuality === 'compressed';
+
+    if (needsRegeneration) {
+      try {
+        setDownloadingPdf(true);
+        message.loading('Generating compressed PDF...', 0);
+
+        const requestData = {
+          config_id: config.id,
+          compress: true
+        };
+
+        const blob = await waterMitigationService.report.generateReport(jobId, requestData);
+
+        // Create download link
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `water-mitigation-report-${jobId}-compressed.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+
+        message.destroy();
+        message.success('Compressed PDF downloaded successfully');
+      } catch (error) {
+        message.destroy();
+        console.error('Failed to generate compressed PDF:', error);
+        message.error('Failed to download compressed PDF');
+      } finally {
+        setDownloadingPdf(false);
+      }
+    } else {
+      // Use the preview blob URL for original quality
+      if (!pdfBlobUrl) return;
+
+      const link = document.createElement('a');
+      link.href = pdfBlobUrl;
+      link.download = `water-mitigation-report-${jobId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      message.success('PDF downloaded successfully');
+    }
   };
 
   const handleClosePdfPreview = () => {
@@ -385,6 +435,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
       setPdfBlobUrl(null);
     }
     setPdfPreviewVisible(false);
+    setPdfQuality('original');  // Reset quality selection
   };
 
   const handleUseTemplate = () => {
@@ -470,10 +521,26 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   /**
    * Check if a section title matches a photo category
    * Returns true if any normalized token matches
+   * STRICT MATCHING: For "Day X" patterns, only exact day number matches are allowed
    */
   const matchesSectionToCategory = (sectionTitle: string, photoCategory: string): boolean => {
     if (!sectionTitle || !photoCategory) return false;
 
+    // First, check for "Day X" patterns - these require EXACT number match
+    const sectionDayMatch = sectionTitle.match(/day\s*[-_]?\s*(\d+)/i);
+    const categoryDayMatch = photoCategory.match(/day\s*[-_]?\s*(\d+)/i);
+
+    // If BOTH have day patterns, they MUST match exactly
+    if (sectionDayMatch && categoryDayMatch) {
+      return sectionDayMatch[1] === categoryDayMatch[1];
+    }
+
+    // If section has day pattern but category doesn't, no match
+    if (sectionDayMatch && !categoryDayMatch) {
+      return false;
+    }
+
+    // For non-day patterns, use token matching
     const sectionTokens = normalizeForMatching(sectionTitle);
     const categoryTokens = normalizeForMatching(photoCategory);
 
@@ -483,9 +550,8 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
         // Exact match
         if (sToken === cToken) return true;
 
-        // Partial match - category token is contained in section token or vice versa
-        // But only if the token is at least 3 characters to avoid false positives
-        if (sToken.length >= 3 && cToken.length >= 3) {
+        // Partial match - only for non-numeric tokens to avoid "3" matching "30"
+        if (sToken.length >= 3 && cToken.length >= 3 && !/^\d+$/.test(sToken) && !/^\d+$/.test(cToken)) {
           if (sToken.includes(cToken) || cToken.includes(sToken)) return true;
         }
       }
@@ -497,10 +563,30 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   /**
    * Calculate match score between section title and photo category
    * Higher score = better match
+   * STRICT MATCHING: For "Day X" patterns, only exact day number matches are allowed
    */
   const calculateMatchScore = (sectionTitle: string, photoCategory: string): number => {
     if (!sectionTitle || !photoCategory) return 0;
 
+    // First, check for "Day X" patterns - these require EXACT number match
+    const sectionDayMatch = sectionTitle.match(/day\s*[-_]?\s*(\d+)/i);
+    const categoryDayMatch = photoCategory.match(/day\s*[-_]?\s*(\d+)/i);
+
+    // If BOTH have day patterns, they MUST match exactly
+    if (sectionDayMatch && categoryDayMatch) {
+      if (sectionDayMatch[1] === categoryDayMatch[1]) {
+        return 300; // Strong match for exact day number
+      } else {
+        return 0; // REJECT: Day numbers don't match (e.g., "Day 3" vs "Day 30")
+      }
+    }
+
+    // If section has day pattern but category doesn't (or vice versa), no match for day sections
+    if (sectionDayMatch && !categoryDayMatch) {
+      return 0; // Section expects a day pattern, but category doesn't have one
+    }
+
+    // For non-day patterns, use token matching
     const sectionTokens = normalizeForMatching(sectionTitle);
     const categoryTokens = normalizeForMatching(photoCategory);
 
@@ -512,8 +598,8 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
         if (sToken === cToken) {
           score += 100;
         }
-        // Partial match - lower score
-        else if (sToken.length >= 3 && cToken.length >= 3) {
+        // Partial match - only for non-numeric tokens to avoid "3" matching "30"
+        else if (sToken.length >= 3 && cToken.length >= 3 && !/^\d+$/.test(sToken) && !/^\d+$/.test(cToken)) {
           if (sToken.includes(cToken)) {
             score += 50;
           } else if (cToken.includes(sToken)) {
@@ -521,13 +607,6 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
           }
         }
       }
-    }
-
-    // Bonus for exact "Day X" pattern match
-    const sectionDayMatch = sectionTitle.match(/day\s*(\d+)/i);
-    const categoryDayMatch = photoCategory.match(/day\s*(\d+)/i);
-    if (sectionDayMatch && categoryDayMatch && sectionDayMatch[1] === categoryDayMatch[1]) {
-      score += 200; // Strong bonus for exact day number match
     }
 
     return score;
@@ -551,6 +630,17 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     setAutoAssigning(true);
 
     try {
+      // Debug: Log available photos and their categories
+      console.log('🔍 Auto-assign debug:', {
+        totalPhotos: availablePhotos.length,
+        categoryCounts: availablePhotos.reduce((acc, p) => {
+          const cat = p.category || 'uncategorized';
+          acc[cat] = (acc[cat] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>),
+        sections: sections.map(s => s.title)
+      });
+
       // Build new sections with assigned photos
       const newSections = sections.map(section => ({
         ...section,
@@ -558,6 +648,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
       }));
 
       let totalAssigned = 0;
+      const assignmentLog: Record<string, string[]> = {};  // section title -> photo categories
 
       // For each photo, find the BEST matching section
       for (const photo of availablePhotos) {
@@ -586,8 +677,24 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
           };
           bestSection.photos.push(photoMeta);
           totalAssigned++;
+
+          // Log assignment for debugging
+          if (!assignmentLog[bestSection.title]) {
+            assignmentLog[bestSection.title] = [];
+          }
+          assignmentLog[bestSection.title].push(category);
         }
       }
+
+      // Debug: Log assignment results
+      console.log('📊 Assignment results:', {
+        totalAssigned,
+        bySection: Object.entries(assignmentLog).map(([title, categories]) => ({
+          section: title,
+          count: categories.length,
+          categories: Array.from(new Set(categories))
+        }))
+      });
 
       // Count sections that received photos
       const sectionsWithPhotos = newSections.filter(s => s.photos.length > 0).length;
@@ -628,15 +735,17 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     }
 
     // Count photos by category for display
+    // Normalize category: lowercase, remove spaces and hyphens for matching
+    const normalizeCategory = (cat: string) => cat.toLowerCase().replace(/[\s-]/g, '');
     const categorizedPhotos = availablePhotos.filter(p => p.category);
     const day2Photos = categorizedPhotos.filter(p =>
-      p.category?.toLowerCase().replace(/\s/g, '').includes('day2')
+      normalizeCategory(p.category || '').includes('day2')
     );
     const day3Photos = categorizedPhotos.filter(p =>
-      p.category?.toLowerCase().replace(/\s/g, '').includes('day3')
+      normalizeCategory(p.category || '').includes('day3')
     );
     const otherPhotos = categorizedPhotos.filter(p => {
-      const cat = p.category?.toLowerCase().replace(/\s/g, '') || '';
+      const cat = normalizeCategory(p.category || '');
       return !cat.includes('day2') && !cat.includes('day3');
     });
 
@@ -779,6 +888,21 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                 >
                   Update Photo Dates
                 </Button>
+              </Tooltip>
+              <Tooltip title="Apply selected layout to all sections">
+                <Select
+                  placeholder={<span><LayoutOutlined /> Apply Layout to All</span>}
+                  style={{ width: 180 }}
+                  onChange={handleApplyLayoutToAll}
+                  value={undefined}
+                  disabled={sections.length === 0}
+                >
+                  <Select.Option value="single">1 photo per page</Select.Option>
+                  <Select.Option value="two">2 photos per page</Select.Option>
+                  <Select.Option value="three">3 photos per page</Select.Option>
+                  <Select.Option value="four">4 photos per page</Select.Option>
+                  <Select.Option value="six">6 photos per page</Select.Option>
+                </Select>
               </Tooltip>
               <Button
                 type="primary"
@@ -939,7 +1063,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                   </Form.Item>
                   <Form.Item label="Photo Layout">
                     <Select
-                      value={currentSection.layout || 'four'}
+                      value={currentSection.layout || 'two'}
                       onChange={value => handleUpdateSection(currentSection.id, { layout: value })}
                       style={{ width: 200 }}
                     >
@@ -1074,21 +1198,32 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
           <Button key="close" onClick={handleClosePdfPreview}>
             Close
           </Button>,
-          <Button
-            key="download"
-            type="primary"
-            icon={<DownloadOutlined />}
-            onClick={handleDownloadPdf}
-          >
-            Download PDF
-          </Button>
+          <Space key="download-group">
+            <Select
+              value={pdfQuality}
+              onChange={setPdfQuality}
+              style={{ width: 200 }}
+              options={[
+                { value: 'original', label: 'Original Quality' },
+                { value: 'compressed', label: 'Compressed' }
+              ]}
+            />
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={handleDownloadPdf}
+              loading={downloadingPdf}
+            >
+              Download PDF
+            </Button>
+          </Space>
         ]}
         styles={{ body: { height: 'calc(90vh - 110px)', padding: 0 } }}
       >
         {pdfBlobUrl ? (
-          <embed
+          <iframe
             src={pdfBlobUrl}
-            type="application/pdf"
+            title="PDF Preview"
             width="100%"
             height="100%"
             style={{ border: 'none' }}

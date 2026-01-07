@@ -1,6 +1,9 @@
 /**
  * React Query hook for Water Mitigation photos
  * Provides automatic caching and refetching for photo data
+ *
+ * This hook fetches ALL photos (not just first page) to ensure consistency
+ * with Photos tab which uses infinite scroll.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -19,7 +22,7 @@ export interface WMPhoto {
 
 interface UseWaterMitigationPhotosOptions {
   enabled?: boolean;
-  pageSize?: number;  // Default 50, max 200 - use higher for document creation
+  pageSize?: number;  // Page size for each request (default 200)
   categoryFilter?: string;  // Filter by category
 }
 
@@ -37,40 +40,57 @@ const mapPhotoResponse = (photo: any): WMPhoto => ({
 });
 
 export const useWaterMitigationPhotos = (
-  jobId: string, 
+  jobId: string,
   options: UseWaterMitigationPhotosOptions | boolean = true
 ) => {
   // Handle legacy boolean parameter for backwards compatibility
-  const opts: UseWaterMitigationPhotosOptions = typeof options === 'boolean' 
-    ? { enabled: options } 
+  const opts: UseWaterMitigationPhotosOptions = typeof options === 'boolean'
+    ? { enabled: options }
     : options;
-  
+
   const { enabled = true, pageSize = 200, categoryFilter } = opts;
 
   return useQuery<WMPhoto[]>({
     queryKey: ['water-mitigation-photos', jobId, pageSize, categoryFilter],
     queryFn: async () => {
-      // Build query params
-      const params = new URLSearchParams({
-        page_size: pageSize.toString(),
-        page: '1',
-      });
-      
-      if (categoryFilter && categoryFilter !== 'all') {
-        params.append('category_filter', categoryFilter);
+      const allPhotos: WMPhoto[] = [];
+      let currentPage = 1;
+      let hasMorePages = true;
+
+      // Fetch all pages to ensure we get all photos (consistent with Photos tab)
+      while (hasMorePages) {
+        // Build query params
+        const params = new URLSearchParams({
+          page_size: pageSize.toString(),
+          page: currentPage.toString(),
+        });
+
+        if (categoryFilter && categoryFilter !== 'all') {
+          params.append('category_filter', categoryFilter);
+        }
+
+        const response = await fetch(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
+        if (!response.ok) {
+          throw new Error(`Failed to load photos: ${response.status}`);
+        }
+        const data = await response.json();
+
+        // API returns { items: [...], total, page, page_size, total_pages } format
+        const items = data.items || data.photos || (Array.isArray(data) ? data : []);
+
+        // Map response and add to all photos
+        allPhotos.push(...items.map(mapPhotoResponse));
+
+        // Check if there are more pages
+        const totalPages = data.total_pages;
+        if (totalPages && currentPage < totalPages) {
+          currentPage++;
+        } else {
+          hasMorePages = false;
+        }
       }
 
-      const response = await fetch(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
-      if (!response.ok) {
-        throw new Error(`Failed to load photos: ${response.status}`);
-      }
-      const data = await response.json();
-      
-      // API returns { items: [...], total, page, ... } format
-      const items = data.items || data.photos || (Array.isArray(data) ? data : []);
-      
-      // Map response to include proper thumbnail URLs
-      return items.map(mapPhotoResponse);
+      return allPhotos;
     },
     staleTime: 5 * 60 * 1000,        // 5분간 신선한 데이터로 간주
     gcTime: 10 * 60 * 1000,          // 10분간 캐시 보관

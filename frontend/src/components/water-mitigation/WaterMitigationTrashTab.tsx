@@ -70,6 +70,8 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
       queryClient.invalidateQueries({ queryKey: ['trashed-photos', jobId] });
       queryClient.invalidateQueries({ queryKey: ['files', 'water-mitigation', jobId, 'image'] });
       queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId, 'image'] });
+      // Also invalidate water-mitigation-photos query used by Report tab
+      queryClient.invalidateQueries({ queryKey: ['water-mitigation-photos', jobId] });
       setSelectedPhotos(new Set());
       message.success('Photos restored successfully');
     },
@@ -85,6 +87,8 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['trashed-photos', jobId] });
+      // Also invalidate water-mitigation-photos query used by Report tab
+      queryClient.invalidateQueries({ queryKey: ['water-mitigation-photos', jobId] });
       setSelectedPhotos(new Set());
       message.success('Photos permanently deleted');
     },

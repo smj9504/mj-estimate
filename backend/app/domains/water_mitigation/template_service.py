@@ -167,6 +167,9 @@ class WMReportTemplateService:
 
         update_data = data.dict(exclude_unset=True)
 
+        # Extract sections before updating template (sections is not a template field)
+        sections_data = update_data.pop('sections', None)
+
         # If setting as default, ensure only one default per type per company
         if update_data.get('is_default'):
             # Handle both dict and object return types from get_by_id
@@ -179,7 +182,28 @@ class WMReportTemplateService:
                 exclude_template_id=template_id
             )
 
-        updated_template = self.template_repo.update(template_id, update_data)
+        # Update template fields (if any)
+        if update_data:
+            self.template_repo.update(template_id, update_data)
+
+        # Update sections if provided (replace all sections)
+        if sections_data is not None:
+            # Delete existing sections
+            existing_sections = self.section_repo.find_by_template(template_id)
+            for section in existing_sections:
+                section_id = section['id'] if isinstance(section, dict) else section.id
+                self.section_repo.delete(section_id)
+
+            # Create new sections
+            for idx, section in enumerate(sections_data):
+                section_dict = section if isinstance(section, dict) else section.dict()
+                section_dict['template_id'] = template_id
+                section_dict['display_order'] = idx
+                # Map 'layout' to 'photo_layout' if needed
+                if 'layout' in section_dict and 'photo_layout' not in section_dict:
+                    section_dict['photo_layout'] = section_dict.pop('layout')
+                self.section_repo.create(section_dict)
+
         return self.get_template(template_id)
 
     def delete_template(self, template_id: UUID) -> bool:

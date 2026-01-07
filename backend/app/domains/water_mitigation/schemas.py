@@ -384,6 +384,7 @@ class GenerateReportRequest(BaseModel):
     config_id: Optional[UUID] = None  # Use saved config
     save_config: bool = False  # Save current config
     config: Optional[ReportConfigCreate] = None  # Inline config
+    compress: bool = False  # Compress PDF (reduce image quality for smaller file size)
 
 
 class GenerateReportResponse(BaseModel):
@@ -631,6 +632,7 @@ class ReportTemplateUpdate(BaseModel):
     template_type: Optional[str] = Field(None, max_length=50)
     is_default: Optional[bool] = None
     is_active: Optional[bool] = None
+    sections: Optional[List[TemplateSectionCreate]] = None  # Sections to replace (deletes old, creates new)
 
     @validator('template_type')
     def validate_template_type(cls, v):

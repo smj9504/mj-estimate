@@ -315,6 +315,7 @@ export interface GenerateReportRequest {
   config_id?: string;
   save_config?: boolean;
   config?: ReportConfigCreate;
+  compress?: boolean;  // Compress PDF (reduce image quality for smaller file size)
 }
 
 export interface GenerateReportResponse {
