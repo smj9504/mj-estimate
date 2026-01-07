@@ -17,6 +17,7 @@ from app.domains.integrations.google_sheets.utils import (
     addresses_match,
     parse_boolean_value,
     parse_date_value,
+    parse_mitigation_period,
     parse_numeric_value,
 )
 from app.domains.water_mitigation.models import WaterMitigationJob, WMSyncLog
@@ -351,6 +352,27 @@ class GoogleSheetsSyncService:
                 parsed_date = parse_date_value(row_data[field])
                 if parsed_date:
                     update_data[field] = parsed_date
+
+        # Parse mitigation_period string into start/end dates
+        # This handles formats like "12/25-12/27 (3)" from Google Sheets
+        if "mitigation_period" in row_data and row_data["mitigation_period"]:
+            period_str = str(row_data["mitigation_period"]).strip()
+
+            # Determine reference year from date_of_loss if available
+            reference_year = None
+            if "date_of_loss" in update_data and update_data["date_of_loss"]:
+                reference_year = update_data["date_of_loss"].year
+
+            # Parse the period string
+            start_date, end_date = parse_mitigation_period(period_str, reference_year)
+
+            if start_date:
+                update_data["mitigation_start_date"] = start_date
+                logger.info(f"Parsed mitigation_start_date: {start_date} from '{period_str}'")
+
+            if end_date:
+                update_data["mitigation_end_date"] = end_date
+                logger.info(f"Parsed mitigation_end_date: {end_date} from '{period_str}'")
 
         # Boolean fields
         if "mitigation_flag" in row_data:

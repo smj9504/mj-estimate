@@ -5,7 +5,7 @@ Water Mitigation service layer
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -1220,6 +1220,85 @@ class WaterMitigationService:
             'total_companycam': total_companycam,
             'errors': errors[:10],
             'cancelled': cancelled
+        }
+
+    def bulk_update_photo_dates_by_category(
+        self,
+        job_id: UUID,
+        start_date: date,
+        end_date: date
+    ) -> Dict[str, Any]:
+        """
+        Bulk update photo captured dates based on category name matching.
+
+        Date mapping rules:
+        - Day 2 category photos -> start_date + 1 day
+        - Day 3 category photos -> end_date
+        - All other categories -> start_date
+
+        Args:
+            job_id: Water mitigation job ID
+            start_date: Mitigation start date
+            end_date: Mitigation end date
+
+        Returns:
+            Dict with update statistics
+        """
+        from datetime import datetime, timedelta, time
+
+        # Calculate target dates (set time to noon for consistency)
+        noon = time(12, 0, 0)
+        day1_datetime = datetime.combine(start_date, noon)
+        day2_datetime = datetime.combine(start_date + timedelta(days=1), noon)
+        day3_datetime = datetime.combine(end_date, noon)
+
+        logger.info(
+            f"Bulk updating photo dates for job {job_id}: "
+            f"Day1={day1_datetime.date()}, Day2={day2_datetime.date()}, Day3={day3_datetime.date()}"
+        )
+
+        # Update Day 2 photos (pattern matches "day2", "Day 2", "day-2", etc.)
+        # Pattern: %day%2% (case-insensitive, spaces removed)
+        day2_count = self.photo_repo.bulk_update_captured_date_by_category(
+            job_id=job_id,
+            category_pattern='%day%2%',
+            new_date=day2_datetime
+        )
+        logger.info(f"Updated {day2_count} Day 2 photos to {day2_datetime.date()}")
+
+        # Update Day 3 photos
+        day3_count = self.photo_repo.bulk_update_captured_date_by_category(
+            job_id=job_id,
+            category_pattern='%day%3%',
+            new_date=day3_datetime
+        )
+        logger.info(f"Updated {day3_count} Day 3 photos to {day3_datetime.date()}")
+
+        # Update all other categorized photos to Day 1 (start date)
+        # Exclude Day 2 and Day 3 patterns
+        other_count = self.photo_repo.bulk_update_captured_date_for_other_categories(
+            job_id=job_id,
+            exclude_patterns=['%day%2%', '%day%3%'],
+            new_date=day1_datetime
+        )
+        logger.info(f"Updated {other_count} other category photos to {day1_datetime.date()}")
+
+        total_updated = day2_count + day3_count + other_count
+
+        message = (
+            f"Updated {total_updated} photos: "
+            f"{day2_count} Day 2 (to {day2_datetime.date()}), "
+            f"{day3_count} Day 3 (to {day3_datetime.date()}), "
+            f"{other_count} others (to {day1_datetime.date()})"
+        )
+
+        return {
+            'success': True,
+            'total_updated': total_updated,
+            'day2_count': day2_count,
+            'day3_count': day3_count,
+            'other_count': other_count,
+            'message': message
         }
 
     async def _sync_single_companycam_photo(

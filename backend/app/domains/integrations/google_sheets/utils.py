@@ -176,3 +176,60 @@ def parse_numeric_value(value: any) -> Optional[float]:
 
 
 from datetime import timedelta
+from typing import Tuple
+
+
+def parse_mitigation_period(period_str: str, reference_year: Optional[int] = None) -> Tuple[Optional[datetime], Optional[datetime]]:
+    """
+    Parse mitigation period string into start and end dates
+
+    Supports formats:
+    - "12/25-12/27 (3)" -> December 25 to December 27
+    - "12/25 - 12/27" -> December 25 to December 27
+    - "12/25-12/27" -> December 25 to December 27
+    - "12/25" -> Only start date
+
+    Args:
+        period_str: Mitigation period string
+        reference_year: Year to use (defaults to current year)
+
+    Returns:
+        Tuple of (start_date, end_date) or (None, None) if parsing fails
+    """
+    if not period_str or not isinstance(period_str, str):
+        return (None, None)
+
+    # Use current year if not provided
+    if reference_year is None:
+        reference_year = datetime.now().year
+
+    # Clean up the string - remove parenthetical content and extra whitespace
+    period_str = re.sub(r'\([^)]*\)', '', period_str).strip()
+
+    # Try to extract date range (MM/DD-MM/DD or MM/DD - MM/DD)
+    # Pattern: month/day - month/day (with optional spaces around dash)
+    pattern = r'(\d{1,2})/(\d{1,2})\s*-\s*(\d{1,2})/(\d{1,2})'
+    match = re.search(pattern, period_str)
+
+    if match:
+        start_month, start_day, end_month, end_day = match.groups()
+        try:
+            start_date = datetime(reference_year, int(start_month), int(start_day))
+            end_date = datetime(reference_year, int(end_month), int(end_day))
+            return (start_date, end_date)
+        except ValueError:
+            pass
+
+    # Try single date format (MM/DD)
+    single_pattern = r'(\d{1,2})/(\d{1,2})'
+    match = re.search(single_pattern, period_str)
+
+    if match:
+        month, day = match.groups()
+        try:
+            start_date = datetime(reference_year, int(month), int(day))
+            return (start_date, None)
+        except ValueError:
+            pass
+
+    return (None, None)

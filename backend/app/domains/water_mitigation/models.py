@@ -27,11 +27,21 @@ class WaterMitigationJob(Base, BaseModel):
     __tablename__ = "water_mitigation_jobs"
     __table_args__ = (
         Index('ix_wm_jobs_active_status', 'active', 'status'),
+        Index('ix_wm_jobs_company', 'company_id'),
+        Index('ix_wm_jobs_company_status', 'company_id', 'status'),
         {'extend_existing': True}
     )
 
-    # Client relationship
+    # Client relationship (the customer/homeowner if they have a company)
     client_id = Column(UUIDType(), ForeignKey("companies.id"))
+
+    # Company assignment (the service provider company responsible for this job)
+    company_id = Column(
+        UUIDType(),
+        ForeignKey("companies.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Company responsible for/assigned to this job"
+    )
 
     # Status management
     active = Column(Boolean, default=True, nullable=False)
@@ -90,10 +100,32 @@ class WaterMitigationJob(Base, BaseModel):
     updated_by_id = Column(UUIDType(), ForeignKey("staff.id"))
 
     # Relationships
-    photos = relationship("WMPhoto", back_populates="job", cascade="all, delete-orphan")
-    documents = relationship("WMDocument", back_populates="job", cascade="all, delete-orphan")
-    status_history = relationship("WMJobStatusHistory", back_populates="job", cascade="all, delete-orphan")
-    report_config = relationship("WMReportConfig", back_populates="job", uselist=False, cascade="all, delete-orphan")
+    company = relationship(
+        "Company",
+        foreign_keys=[company_id],
+        lazy="joined"
+    )
+    photos = relationship(
+        "WMPhoto",
+        back_populates="job",
+        cascade="all, delete-orphan"
+    )
+    documents = relationship(
+        "WMDocument",
+        back_populates="job",
+        cascade="all, delete-orphan"
+    )
+    status_history = relationship(
+        "WMJobStatusHistory",
+        back_populates="job",
+        cascade="all, delete-orphan"
+    )
+    report_config = relationship(
+        "WMReportConfig",
+        back_populates="job",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
 
 
 class PhotoCategory(Base, BaseModel):
@@ -265,15 +297,113 @@ class WMSyncLog(Base, BaseModel):
     completed_at = Column(DateTime(timezone=True))
 
 
+class WMReportTemplate(Base, BaseModel):
+    """
+    Water mitigation photo report templates.
+
+    Templates define reusable report structures with predefined sections.
+    Each template can have multiple sections with specific layouts and descriptions.
+    """
+    __tablename__ = "wm_report_templates"
+    __table_args__ = (
+        Index('ix_wm_report_templates_type', 'template_type'),
+        Index('ix_wm_report_templates_company', 'company_id'),
+        Index('ix_wm_report_templates_default', 'template_type', 'is_default'),
+        {'extend_existing': True}
+    )
+
+    # Template identification
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    template_type = Column(String(50), nullable=False, default='photo_report')  # 'photo_report', 'damage_assessment', etc.
+
+    # Default template flag (only one default per type per company)
+    is_default = Column(Boolean, default=False, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    # Company ownership (for multi-company support)
+    # NULL means system-wide template
+    company_id = Column(
+        UUIDType(),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=True,
+        comment="Company that owns this template (NULL for system templates)"
+    )
+
+    # Audit fields
+    created_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+
+    # Relationships
+    company = relationship("Company", foreign_keys=[company_id])
+    sections = relationship(
+        "WMReportTemplateSection",
+        back_populates="template",
+        cascade="all, delete-orphan",
+        order_by="WMReportTemplateSection.display_order"
+    )
+
+
+class WMReportTemplateSection(Base, BaseModel):
+    """
+    Sections within a report template.
+
+    Each section defines a part of the report with:
+    - Title and optional prefilled description/summary
+    - Photo layout configuration
+    - Display order for sorting
+    """
+    __tablename__ = "wm_report_template_sections"
+    __table_args__ = (
+        Index('ix_wm_template_sections_template', 'template_id'),
+        Index('ix_wm_template_sections_order', 'template_id', 'display_order'),
+        {'extend_existing': True}
+    )
+
+    template_id = Column(
+        UUIDType(),
+        ForeignKey("wm_report_templates.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    # Section content
+    title = Column(String(255), nullable=False)  # e.g., "Wet Area", "Pre-Mitigation Moving", "Demolition"
+    summary = Column(Text)  # Optional prefilled description/summary
+
+    # Layout configuration
+    # 'single' = 1 photo/page, 'two' = 2 photos/page, etc.
+    photo_layout = Column(String(20), nullable=False, default='four')
+    default_photos_per_page = Column(Integer, nullable=False, default=2)
+
+    # Display order for section sequencing
+    display_order = Column(Integer, nullable=False, default=0)
+
+    # Optional: dynamic placeholder markers for summary
+    # e.g., "{{monitoring_dates}}" can be replaced when creating report config
+    # Stored as JSON: {"monitoring_dates": "Monitoring performed on {dates}"}
+    placeholders = Column(JSONB, default=dict)
+
+    # Relationships
+    template = relationship("WMReportTemplate", back_populates="sections")
+
+
 class WMReportConfig(Base, BaseModel):
     """Water mitigation photo report configuration"""
     __tablename__ = "wm_report_configs"
     __table_args__ = (
         Index('ix_wm_report_configs_job', 'job_id'),
+        Index('ix_wm_report_configs_template', 'template_id'),
         {'extend_existing': True}
     )
 
     job_id = Column(UUIDType(), ForeignKey("water_mitigation_jobs.id", ondelete="CASCADE"), nullable=False, unique=True)
+
+    # Optional reference to the template this config was created from
+    template_id = Column(
+        UUIDType(),
+        ForeignKey("wm_report_templates.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Template this config was created from (for tracking/updates)"
+    )
 
     # Cover Page
     cover_title = Column(String(255), default='Water Mitigation Report')
@@ -304,3 +434,4 @@ class WMReportConfig(Base, BaseModel):
 
     # Relationships
     job = relationship("WaterMitigationJob")
+    template = relationship("WMReportTemplate", foreign_keys=[template_id])

@@ -61,6 +61,7 @@ const LineItemManagement = lazy(() => import('./pages/LineItemManagement'));
 // Water Mitigation Pages
 const WaterMitigationList = lazy(() => import('./pages/WaterMitigationList'));
 const WaterMitigationDetail = lazy(() => import('./pages/WaterMitigationDetail'));
+const WaterMitigationTemplateList = lazy(() => import('./pages/WaterMitigationTemplateList'));
 
 // Reconstruction Estimate Pages
 const DebrisCalculator = lazy(() => import('./pages/DebrisCalculator'));
@@ -461,6 +462,18 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <WaterMitigationDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/water-mitigation/templates",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <WaterMitigationTemplateList />
           </Suspense>
         </Layout>
       </ProtectedRoute>

@@ -174,7 +174,7 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
       onCancel={onCancel}
       width={1000}
       style={{ top: 20 }}
-      bodyStyle={{ maxHeight: '70vh', overflowY: 'auto' }}
+      styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
     >
       <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
         <Row gutter={[8, 8]} align="middle">
@@ -246,7 +246,7 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
                     border: isSelected ? '2px solid #1890ff' : '1px solid #d9d9d9',
                     position: 'relative'
                   }}
-                  bodyStyle={{ padding: 8 }}
+                  styles={{ body: { padding: 8 } }}
                   cover={
                     <div style={{ position: 'relative', height: 150, overflow: 'hidden' }}>
                       <Image

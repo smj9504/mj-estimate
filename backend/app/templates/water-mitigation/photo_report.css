@@ -38,7 +38,7 @@ body {
 /* Cover Page */
 .cover-page {
     width: 100%;
-    height: 100vh;
+    height: 10in;  /* Fixed height instead of 100vh for WeasyPrint compatibility */
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -244,9 +244,9 @@ body {
     line-height: 1.4;
     overflow: hidden;
     text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+    /* Removed -webkit-box for WeasyPrint compatibility */
+    /* Use max-height instead for text truncation */
+    max-height: 2.8em;  /* ~2 lines at 1.4 line-height */
 }
 
 /* Page Footer */

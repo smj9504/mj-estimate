@@ -173,7 +173,7 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
         style={{ marginBottom: 16 }}
       >
         <p className="ant-upload-drag-icon">
-          <InboxOutlined />
+          <InboxOutlined style={{}} />
         </p>
         <p className="ant-upload-text">
           {getDragText()}

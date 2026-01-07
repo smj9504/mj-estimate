@@ -182,6 +182,17 @@ const WaterMitigationList: React.FC = () => {
       )
     },
     {
+      title: 'Company',
+      dataIndex: 'company',
+      key: 'company',
+      width: 120,
+      ellipsis: true,
+      render: (company: { id: string; name: string; company_code?: string } | undefined) =>
+        company ? (
+          <Tag color="blue">{company.company_code || company.name}</Tag>
+        ) : null
+    },
+    {
       title: 'Homeowner',
       dataIndex: 'homeowner_name',
       key: 'homeowner_name',

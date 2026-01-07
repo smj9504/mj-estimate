@@ -189,10 +189,10 @@ const FileList: React.FC<FileListProps> = ({
     const isImage = contentType.startsWith('image/');
 
     const actions = [
-      <Tooltip title="Preview">
+      <Tooltip title="Preview" key="preview">
         <Button
           type="text"
-          icon={<EyeOutlined />}
+          icon={<EyeOutlined style={{}} />}
           onClick={(e) => {
             e.stopPropagation();
             handlePreview(file);
@@ -200,10 +200,10 @@ const FileList: React.FC<FileListProps> = ({
           size="small"
         />
       </Tooltip>,
-      <Tooltip title="Download">
+      <Tooltip title="Download" key="download">
         <Button
           type="text"
-          icon={<DownloadOutlined />}
+          icon={<DownloadOutlined style={{}} />}
           onClick={(e) => {
             e.stopPropagation();
             handleDownload(file);
@@ -215,11 +215,11 @@ const FileList: React.FC<FileListProps> = ({
 
     if (onDelete) {
       actions.push(
-        <Tooltip title="Delete">
+        <Tooltip title="Delete" key="delete">
           <Button
             type="text"
             danger
-            icon={<DeleteOutlined />}
+            icon={<DeleteOutlined style={{}} />}
             onClick={(e) => {
               e.stopPropagation();
               handleDelete(file);

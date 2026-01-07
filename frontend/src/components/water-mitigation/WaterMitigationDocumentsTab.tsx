@@ -344,6 +344,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                     'documentation',  // Documentation first for document creation
                     'uncategorized',
                     'wet-area',
+                    'personal-properties',
                     'pre-mitigation-moving',
                     'demolition',
                     'containment',
@@ -398,7 +399,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                         padding: 0,
                         overflow: 'hidden'
                       }}
-                      bodyStyle={{ padding: 4 }}
+                      styles={{ body: { padding: 4 } }}
                     >
                       <div style={{ position: 'relative' }}>
                         <div style={{

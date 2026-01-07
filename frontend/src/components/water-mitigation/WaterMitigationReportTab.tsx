@@ -34,16 +34,20 @@ import {
   DownloadOutlined,
   EditOutlined,
   FileImageOutlined,
-  CloseCircleOutlined
+  CloseCircleOutlined,
+  AppstoreAddOutlined,
+  ThunderboltOutlined,
+  CalendarOutlined
 } from '@ant-design/icons';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import waterMitigationService from '../../services/waterMitigationService';
 import { useWaterMitigationPhotos } from '../../hooks/useWaterMitigationPhotos';
 import PhotoSelectorModal from './PhotoSelectorModal';
 import type {
   ReportConfig,
   ReportSection,
-  PhotoMetadata
+  PhotoMetadata,
+  ReportTemplate
 } from '../../types/waterMitigation';
 
 const { Title, Text, Paragraph } = Typography;
@@ -101,6 +105,12 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   // Use React Query for photos (shared cache with other components)
   const { data: availablePhotos = [], isLoading: loadingPhotos } = useWaterMitigationPhotos(jobId);
 
+  // Fetch templates
+  const { data: templatesData } = useQuery({
+    queryKey: ['wm-templates'],
+    queryFn: waterMitigationService.templates.list
+  });
+
   const loading = loadingConfig || loadingPhotos;
 
   const [saving, setSaving] = useState(false);
@@ -113,6 +123,49 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   const [photoSelectorVisible, setPhotoSelectorVisible] = useState(false);
   const [pdfPreviewVisible, setPdfPreviewVisible] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [templateSelectorVisible, setTemplateSelectorVisible] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [autoAssigning, setAutoAssigning] = useState(false);
+  const [updatingPhotoDates, setUpdatingPhotoDates] = useState(false);
+
+  // React Query client for cache invalidation
+  const queryClient = useQueryClient();
+
+  /**
+   * Replace placeholders in template text with actual dates
+   */
+  const replacePlaceholders = (text: string): string => {
+    if (!text) return '';
+
+    let result = text;
+
+    // Replace {{start_date}} with mitigation start date
+    if (mitigationStartDate) {
+      const formattedStartDate = formatDateDisplay(mitigationStartDate);
+      result = result.replace(/\{\{start_date\}\}/g, formattedStartDate || mitigationStartDate);
+    }
+
+    // Replace {{end_date}} with mitigation end date
+    if (mitigationEndDate) {
+      const formattedEndDate = formatDateDisplay(mitigationEndDate);
+      result = result.replace(/\{\{end_date\}\}/g, formattedEndDate || mitigationEndDate);
+    }
+
+    // Replace {{start_date_plus_one}} with start date + 1 day
+    if (mitigationStartDate) {
+      try {
+        const startDate = new Date(mitigationStartDate);
+        const plusOneDate = new Date(startDate);
+        plusOneDate.setDate(plusOneDate.getDate() + 1);
+        const formattedPlusOne = formatDateDisplay(plusOneDate.toISOString());
+        result = result.replace(/\{\{start_date_plus_one\}\}/g, formattedPlusOne || plusOneDate.toLocaleDateString());
+      } catch (e) {
+        console.warn('Failed to calculate start_date_plus_one:', e);
+      }
+    }
+
+    return result;
+  };
 
   // Initialize form data when config loads
   useEffect(() => {
@@ -120,11 +173,12 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
       setCoverTitle(config.cover_title || 'Water Mitigation Report');
       setCoverDescription(config.cover_description || '');
       // Ensure all sections have required fields with defaults
+      // Also replace placeholders in summaries when loading config
       const normalizedSections = (config.sections || []).map((section: any) => ({
         ...section,
         layout: section.layout || 'four', // Default layout if missing
         photos: section.photos || [],
-        summary: section.summary || ''
+        summary: replacePlaceholders(section.summary || '')  // Replace placeholders on load
       }));
       setSections(normalizedSections);
     } else {
@@ -239,10 +293,17 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
 
       const blob = await waterMitigationService.report.generateReport(jobId, requestData);
 
+      // Debug: Check blob
+      console.log('PDF Blob received:', blob);
+      console.log('Blob size:', blob.size);
+      console.log('Blob type:', blob.type);
+
       // Create blob URL for preview
       const url = window.URL.createObjectURL(blob);
+      console.log('Blob URL created:', url);
       setPdfBlobUrl(url);
       setPdfPreviewVisible(true);
+      console.log('Modal visibility set to true');
 
       message.destroy();
       message.success('PDF report generated successfully');
@@ -259,7 +320,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
       title: `Section ${sections.length + 1}`,
       summary: '',
       photos: [],
-      layout: 'four',
+      layout: 'two',
       display_order: sections.length
     };
     setSections([...sections, newSection]);
@@ -326,6 +387,332 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     setPdfPreviewVisible(false);
   };
 
+  const handleUseTemplate = () => {
+    setTemplateSelectorVisible(true);
+  };
+
+  const handleApplyTemplate = async () => {
+    if (!selectedTemplateId) {
+      message.warning('Please select a template');
+      return;
+    }
+
+    try {
+      const template = templatesData?.items.find(t => t.id === selectedTemplateId);
+      if (!template) {
+        message.error('Template not found');
+        return;
+      }
+
+      // Apply template sections with placeholder replacement
+      const templateSections = template.sections.map((section, index) => ({
+        id: `section-${Date.now()}-${index}`,
+        title: section.title,
+        summary: replacePlaceholders(section.summary || ''),
+        photos: [] as PhotoMetadata[],
+        layout: section.layout,
+        display_order: index
+      }));
+
+      setSections(templateSections);
+      setTemplateSelectorVisible(false);
+      setSelectedTemplateId('');
+      message.success(`Template "${template.name}" applied successfully`);
+    } catch (error) {
+      console.error('Failed to apply template:', error);
+      message.error('Failed to apply template');
+    }
+  };
+
+  /**
+   * Normalize a string for matching by:
+   * 1. Converting to lowercase
+   * 2. Removing special characters
+   * 3. Splitting into tokens
+   * 4. Creating variations (with/without spaces, hyphens)
+   */
+  const normalizeForMatching = (text: string): string[] => {
+    if (!text) return [];
+
+    const lower = text.toLowerCase().trim();
+    const tokens: string[] = [];
+
+    // Add original lowercase
+    tokens.push(lower);
+
+    // Split by common separators and add individual tokens
+    const parts = lower.split(/[\s\-_:,]+/).filter(p => p.length > 0);
+    tokens.push(...parts);
+
+    // Create combined versions without separators
+    const noSeparators = lower.replace(/[\s\-_:,]+/g, '');
+    if (noSeparators !== lower) {
+      tokens.push(noSeparators);
+    }
+
+    // Create space-only version
+    const spacedOnly = lower.replace(/[-_:,]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (spacedOnly !== lower) {
+      tokens.push(spacedOnly);
+    }
+
+    // Handle "Day X" patterns specially
+    const dayMatch = lower.match(/day\s*(\d+)/i);
+    if (dayMatch) {
+      tokens.push(`day ${dayMatch[1]}`);
+      tokens.push(`day${dayMatch[1]}`);
+    }
+
+    // Return unique tokens
+    return Array.from(new Set(tokens));
+  };
+
+  /**
+   * Check if a section title matches a photo category
+   * Returns true if any normalized token matches
+   */
+  const matchesSectionToCategory = (sectionTitle: string, photoCategory: string): boolean => {
+    if (!sectionTitle || !photoCategory) return false;
+
+    const sectionTokens = normalizeForMatching(sectionTitle);
+    const categoryTokens = normalizeForMatching(photoCategory);
+
+    // Check for any exact token match
+    for (const sToken of sectionTokens) {
+      for (const cToken of categoryTokens) {
+        // Exact match
+        if (sToken === cToken) return true;
+
+        // Partial match - category token is contained in section token or vice versa
+        // But only if the token is at least 3 characters to avoid false positives
+        if (sToken.length >= 3 && cToken.length >= 3) {
+          if (sToken.includes(cToken) || cToken.includes(sToken)) return true;
+        }
+      }
+    }
+
+    return false;
+  };
+
+  /**
+   * Calculate match score between section title and photo category
+   * Higher score = better match
+   */
+  const calculateMatchScore = (sectionTitle: string, photoCategory: string): number => {
+    if (!sectionTitle || !photoCategory) return 0;
+
+    const sectionTokens = normalizeForMatching(sectionTitle);
+    const categoryTokens = normalizeForMatching(photoCategory);
+
+    let score = 0;
+
+    for (const sToken of sectionTokens) {
+      for (const cToken of categoryTokens) {
+        // Exact match - highest score
+        if (sToken === cToken) {
+          score += 100;
+        }
+        // Partial match - lower score
+        else if (sToken.length >= 3 && cToken.length >= 3) {
+          if (sToken.includes(cToken)) {
+            score += 50;
+          } else if (cToken.includes(sToken)) {
+            score += 50;
+          }
+        }
+      }
+    }
+
+    // Bonus for exact "Day X" pattern match
+    const sectionDayMatch = sectionTitle.match(/day\s*(\d+)/i);
+    const categoryDayMatch = photoCategory.match(/day\s*(\d+)/i);
+    if (sectionDayMatch && categoryDayMatch && sectionDayMatch[1] === categoryDayMatch[1]) {
+      score += 200; // Strong bonus for exact day number match
+    }
+
+    return score;
+  };
+
+  /**
+   * Auto-assign photos to sections based on category name matching
+   * Each photo is assigned to ONLY the best matching section (no duplicates)
+   */
+  const handleAutoAssignPhotos = async () => {
+    if (sections.length === 0) {
+      message.info('Please add sections first before auto-assigning photos');
+      return;
+    }
+
+    if (availablePhotos.length === 0) {
+      message.info('No photos available for assignment');
+      return;
+    }
+
+    setAutoAssigning(true);
+
+    try {
+      // Build new sections with assigned photos
+      const newSections = sections.map(section => ({
+        ...section,
+        photos: [] as PhotoMetadata[]  // Clear existing photos for re-assignment
+      }));
+
+      let totalAssigned = 0;
+
+      // For each photo, find the BEST matching section
+      for (const photo of availablePhotos) {
+        const category = photo.category;
+        if (!category) continue;  // Skip photos without categories
+
+        let bestSection = null;
+        let bestScore = 0;
+
+        // Calculate match score for each section
+        for (const section of newSections) {
+          const score = calculateMatchScore(section.title, category);
+          if (score > bestScore) {
+            bestScore = score;
+            bestSection = section;
+          }
+        }
+
+        // Assign photo to the best matching section (if any match found)
+        if (bestSection && bestScore > 0) {
+          const photoMeta: PhotoMetadata = {
+            photo_id: photo.id,
+            caption: photo.caption || '',
+            show_date: true,
+            show_description: true
+          };
+          bestSection.photos.push(photoMeta);
+          totalAssigned++;
+        }
+      }
+
+      // Count sections that received photos
+      const sectionsWithPhotos = newSections.filter(s => s.photos.length > 0).length;
+
+      // Update sections state
+      setSections(newSections);
+
+      // Show results
+      if (totalAssigned === 0) {
+        message.info('No matching photos found. Make sure photo categories match section titles.');
+      } else {
+        message.success(`${totalAssigned} photos assigned to ${sectionsWithPhotos} sections (no duplicates)`);
+      }
+    } catch (error) {
+      console.error('Failed to auto-assign photos:', error);
+      message.error('Failed to auto-assign photos');
+    } finally {
+      setAutoAssigning(false);
+    }
+  };
+
+  /**
+   * Update photo dates based on category matching
+   * Day 2 -> mitigation_start_date + 1
+   * Day 3 -> mitigation_end_date
+   * Others -> mitigation_start_date
+   */
+  const handleUpdatePhotoDates = async () => {
+    // Validate dates are available
+    if (!mitigationStartDate || !mitigationEndDate) {
+      message.warning('Please set mitigation start and end dates before updating photo dates.');
+      return;
+    }
+
+    if (availablePhotos.length === 0) {
+      message.info('No photos available to update.');
+      return;
+    }
+
+    // Count photos by category for display
+    const categorizedPhotos = availablePhotos.filter(p => p.category);
+    const day2Photos = categorizedPhotos.filter(p =>
+      p.category?.toLowerCase().replace(/\s/g, '').includes('day2')
+    );
+    const day3Photos = categorizedPhotos.filter(p =>
+      p.category?.toLowerCase().replace(/\s/g, '').includes('day3')
+    );
+    const otherPhotos = categorizedPhotos.filter(p => {
+      const cat = p.category?.toLowerCase().replace(/\s/g, '') || '';
+      return !cat.includes('day2') && !cat.includes('day3');
+    });
+
+    // Format dates for display
+    const formatDate = (dateStr: string) => {
+      try {
+        const d = new Date(dateStr);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      } catch {
+        return dateStr;
+      }
+    };
+
+    // Calculate Day 2 date (start + 1)
+    const startDate = new Date(mitigationStartDate);
+    const day2Date = new Date(startDate);
+    day2Date.setDate(day2Date.getDate() + 1);
+
+    Modal.confirm({
+      title: 'Update Photo Dates by Category',
+      width: 500,
+      content: (
+        <div style={{ marginTop: 16 }}>
+          <p>This will update photo dates based on their categories:</p>
+          <ul style={{ marginTop: 12, marginBottom: 16 }}>
+            <li>
+              <strong>Day 2</strong> photos ({day2Photos.length}): {formatDate(day2Date.toISOString())}
+            </li>
+            <li>
+              <strong>Day 3</strong> photos ({day3Photos.length}): {formatDate(mitigationEndDate)}
+            </li>
+            <li>
+              <strong>Other</strong> categorized photos ({otherPhotos.length}): {formatDate(mitigationStartDate)}
+            </li>
+          </ul>
+          <p style={{ color: '#666', fontSize: 13 }}>
+            Total: {categorizedPhotos.length} photos will be updated.
+            <br />
+            Photos without categories will not be affected.
+          </p>
+        </div>
+      ),
+      okText: 'Update Dates',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setUpdatingPhotoDates(true);
+        try {
+          // Format dates as YYYY-MM-DD
+          const formatDateForApi = (dateStr: string) => {
+            const d = new Date(dateStr);
+            return d.toISOString().split('T')[0];
+          };
+
+          const result = await waterMitigationService.photos.bulkUpdateDatesByCategory(
+            jobId,
+            formatDateForApi(mitigationStartDate),
+            formatDateForApi(mitigationEndDate)
+          );
+
+          if (result.success) {
+            message.success(result.message);
+            // Invalidate photos cache to refresh the data
+            queryClient.invalidateQueries({ queryKey: ['water-mitigation-photos', jobId] });
+          } else {
+            message.error('Failed to update photo dates');
+          }
+        } catch (error) {
+          console.error('Failed to update photo dates:', error);
+          message.error('Failed to update photo dates');
+        } finally {
+          setUpdatingPhotoDates(false);
+        }
+      }
+    });
+  };
+
   // Create a Map for O(1) photo lookup (fixes N+1 pattern)
   const photoMap = useMemo(() => {
     const map = new Map<string, Photo>();
@@ -363,6 +750,36 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
           </Col>
           <Col>
             <Space>
+              <Button
+                icon={<AppstoreAddOutlined />}
+                onClick={handleUseTemplate}
+              >
+                Use Template
+              </Button>
+              <Tooltip title="Auto-assign photos to sections based on category names">
+                <Button
+                  icon={<ThunderboltOutlined />}
+                  onClick={handleAutoAssignPhotos}
+                  loading={autoAssigning}
+                  disabled={sections.length === 0 || availablePhotos.length === 0}
+                >
+                  Auto-Assign Photos
+                </Button>
+              </Tooltip>
+              <Tooltip title={
+                !mitigationStartDate || !mitigationEndDate
+                  ? "Set mitigation start/end dates first"
+                  : "Update photo dates based on category (Day 2, Day 3, etc.)"
+              }>
+                <Button
+                  icon={<CalendarOutlined />}
+                  onClick={handleUpdatePhotoDates}
+                  loading={updatingPhotoDates}
+                  disabled={!mitigationStartDate || !mitigationEndDate || availablePhotos.length === 0}
+                >
+                  Update Photo Dates
+                </Button>
+              </Tooltip>
               <Button
                 type="primary"
                 icon={<SaveOutlined />}
@@ -571,16 +988,16 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                         <Col key={photoMeta.photo_id} xs={12} sm={8} md={6} lg={4}>
                           <Card
                             hoverable
-                            bodyStyle={{ padding: 8 }}
+                            styles={{ body: { padding: 8 } }}
                             cover={
                               <div style={{ position: 'relative', height: 150, overflow: 'hidden' }}>
                                 <Image
                                   src={photo.thumbnail_url || `/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`}
                                   alt={photo.caption || 'Photo'}
                                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                  preview={{
+                                  preview={photo ? {
                                     src: photo.preview_url || `/api/water-mitigation/photos/${photo.id}/preview?size=web`
-                                  }}
+                                  } : false}
                                 />
                                 <Tooltip title="Remove from section">
                                   <Button
@@ -666,18 +1083,71 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
             Download PDF
           </Button>
         ]}
-        bodyStyle={{ height: 'calc(90vh - 110px)', padding: 0 }}
+        styles={{ body: { height: 'calc(90vh - 110px)', padding: 0 } }}
       >
-        {pdfBlobUrl && (
-          <iframe
+        {pdfBlobUrl ? (
+          <embed
             src={pdfBlobUrl}
-            style={{
-              width: '100%',
-              height: '100%',
-              border: 'none'
-            }}
-            title="PDF Preview"
+            type="application/pdf"
+            width="100%"
+            height="100%"
+            style={{ border: 'none' }}
           />
+        ) : (
+          <div style={{ textAlign: 'center', padding: 50 }}>
+            <Spin size="large" />
+            <div>Loading PDF...</div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Template Selector Modal */}
+      <Modal
+        title="Select Template"
+        open={templateSelectorVisible}
+        onOk={handleApplyTemplate}
+        onCancel={() => {
+          setTemplateSelectorVisible(false);
+          setSelectedTemplateId('');
+        }}
+        okText="Apply Template"
+        cancelText="Cancel"
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Text>Choose a template to populate the report sections:</Text>
+        </div>
+        <Select
+          style={{ width: '100%' }}
+          placeholder="Select a template"
+          value={selectedTemplateId}
+          onChange={setSelectedTemplateId}
+        >
+          {templatesData?.items.map(template => (
+            <Select.Option key={template.id} value={template.id}>
+              <div>
+                <div>
+                  <Space>
+                    {template.is_default && <Tag color="gold">Default</Tag>}
+                    <span>{template.name}</span>
+                    <Tag color="blue">{template.sections.length} sections</Tag>
+                  </Space>
+                </div>
+                {template.description && (
+                  <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                    {template.description}
+                  </div>
+                )}
+              </div>
+            </Select.Option>
+          ))}
+        </Select>
+        {selectedTemplateId && (
+          <div style={{ marginTop: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
+            <Text type="secondary">
+              <strong>Note:</strong> This will replace all current sections with the template sections.
+              Photos will need to be added to each section after applying the template.
+            </Text>
+          </div>
         )}
       </Modal>
     </div>

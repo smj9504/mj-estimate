@@ -23,6 +23,7 @@ const { Meta } = Card;
 interface FileCardProps {
   files: FileItem[];
   selectedFiles?: string[];
+  selectedFilesSet?: Set<string>; // O(1) lookup Set
   allowMultiSelect?: boolean;
   onFileSelect?: (fileIds: string[]) => void;
   onFileClick?: (file: FileItem) => void;
@@ -36,6 +37,7 @@ interface FileCardProps {
 const FileCard: React.FC<FileCardProps> = ({
   files,
   selectedFiles = [],
+  selectedFilesSet,
   allowMultiSelect = false,
   onFileSelect,
   onFileClick,
@@ -47,6 +49,12 @@ const FileCard: React.FC<FileCardProps> = ({
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
   const [previewTitle, setPreviewTitle] = useState<string>('');
+
+  // Use Set if provided, otherwise fallback to array
+  const currentSelectedSet = React.useMemo(
+    () => selectedFilesSet || new Set(selectedFiles),
+    [selectedFilesSet, selectedFiles]
+  );
 
   const handleFileSelect = (fileId: string, selected: boolean) => {
     if (!onFileSelect) return;
@@ -147,23 +155,24 @@ const FileCard: React.FC<FileCardProps> = ({
   };
 
   const renderFileCard = (file: FileItem) => {
-    const isSelected = selectedFiles.includes(file.id);
+    // Use Set for O(1) lookup instead of Array.includes() which is O(n)
+    const isSelected = currentSelectedSet.has(file.id);
     const contentType = file.contentType || file.mimeType || '';
     const isImage = contentType.startsWith('image/');
 
     const actions = [
-      <Tooltip title="Preview">
-        <EyeOutlined onClick={() => handlePreview(file)} />
+      <Tooltip title="Preview" key="preview">
+        <EyeOutlined style={{}} onClick={() => handlePreview(file)} />
       </Tooltip>,
-      <Tooltip title="Download">
-        <DownloadOutlined onClick={(e) => handleDownload(file, e)} />
+      <Tooltip title="Download" key="download">
+        <DownloadOutlined style={{}} onClick={(e) => handleDownload(file, e)} />
       </Tooltip>
     ];
 
     if (onDelete) {
       actions.push(
-        <Tooltip title="Delete">
-          <DeleteOutlined onClick={(e) => handleDelete(file, e)} />
+        <Tooltip title="Delete" key="delete">
+          <DeleteOutlined style={{}} onClick={(e) => handleDelete(file, e)} />
         </Tooltip>
       );
     }

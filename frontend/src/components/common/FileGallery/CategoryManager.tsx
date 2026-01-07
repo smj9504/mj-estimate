@@ -231,7 +231,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
           <Button
             type="text"
             size="small"
-            icon={<LeftOutlined />}
+            icon={<LeftOutlined style={{}} />}
             onClick={() => scroll('left')}
             disabled={!canScrollLeft}
             style={{
@@ -307,7 +307,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
           <Button
             type="text"
             size="small"
-            icon={<RightOutlined />}
+            icon={<RightOutlined style={{}} />}
             onClick={() => scroll('right')}
             disabled={!canScrollRight}
             style={{
@@ -343,7 +343,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
                 <Button
                   size="small"
                   type="dashed"
-                  icon={<PlusOutlined />}
+                  icon={<PlusOutlined style={{}} />}
                   onClick={() => setIsCreating(true)}
                   style={{
                     borderRadius: '16px',

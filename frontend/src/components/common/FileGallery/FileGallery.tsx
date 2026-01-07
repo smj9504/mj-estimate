@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useTransition, useCallback } from 'react';
 import { Card, Typography, Space, Button, Empty, Spin, Alert, Modal, message, Select, Checkbox, DatePicker, Slider, Tooltip } from 'antd';
-import { AppstoreOutlined, UnorderedListOutlined, BorderOutlined, UploadOutlined, CheckSquareOutlined, DeleteOutlined, TagOutlined, CalendarOutlined, PlusOutlined, MinusOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, UnorderedListOutlined, BorderOutlined, UploadOutlined, CheckSquareOutlined, DeleteOutlined, TagOutlined, CalendarOutlined, PlusOutlined, MinusOutlined, LoadingOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { FileGalleryProps, ViewMode, FileItem, DateGroup } from './types';
 import { useFileGallery } from './hooks/useFileGallery';
@@ -67,6 +67,17 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   const [gridSize, setGridSize] = useState<number>(6); // Grid columns per row (2-8 range)
   // Use Set for O(1) lookup performance
   const [internalSelectedFiles, setInternalSelectedFiles] = useState<Set<string>>(new Set());
+
+  // Use transition for non-urgent state updates (category filter changes)
+  // This keeps the UI responsive during heavy filtering operations
+  const [isPending, startTransition] = useTransition();
+
+  // Optimized category selection handler with transition
+  const handleCategorySelect = useCallback((category: string | string[]) => {
+    startTransition(() => {
+      setSelectedCategory(category);
+    });
+  }, []);
 
   const {
     files,
@@ -485,7 +496,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
 
             {allowMultiSelect && filteredFiles.length > 0 && showSelectAll && (
               <Button
-                icon={<CheckSquareOutlined />}
+                icon={<CheckSquareOutlined style={{}} />}
                 onClick={handleSelectAll}
                 type={allFilteredSelected ? 'primary' : 'default'}
                 ghost={allFilteredSelected}
@@ -522,7 +533,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
             {allowUpload && mode !== 'select' && (
               <Button
                 type="primary"
-                icon={<UploadOutlined />}
+                icon={<UploadOutlined style={{}} />}
                 onClick={() => setUploadModalVisible(true)}
                 style={{
                   borderRadius: '6px',
@@ -581,7 +592,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
 
             {context === 'water-mitigation' && (
               <Button
-                icon={<CalendarOutlined />}
+                icon={<CalendarOutlined style={{}} />}
                 onClick={() => setDateChangeModalVisible(true)}
                 style={{
                   borderRadius: '6px',
@@ -595,7 +606,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
 
             <Button
               danger
-              icon={<DeleteOutlined />}
+              icon={<DeleteOutlined style={{}} />}
               onClick={handleBulkDelete}
               style={{
                 borderRadius: '6px'
@@ -608,14 +619,33 @@ const FileGallery: React.FC<FileGalleryProps> = ({
 
         {/* Category Filter */}
         {showCategories && (
-          <CategoryManager
-            categories={['all', 'uncategorized', ...categories.filter(c => c !== 'uncategorized')]}
-            selectedCategory={selectedCategory}
-            onCategorySelect={setSelectedCategory}
-            allowCreate={allowCategoryCreate}
-            onCategoryCreate={onCategoryCreate}
-            multiSelect={context === 'water-mitigation'}
-          />
+          <div style={{ position: 'relative' }}>
+            <CategoryManager
+              categories={['all', 'uncategorized', ...categories.filter(c => c !== 'uncategorized')]}
+              selectedCategory={selectedCategory}
+              onCategorySelect={handleCategorySelect}
+              allowCreate={allowCategoryCreate}
+              onCategoryCreate={onCategoryCreate}
+              multiSelect={context === 'water-mitigation'}
+            />
+            {/* Loading indicator during filter transition */}
+            {isPending && (
+              <div style={{
+                position: 'absolute',
+                top: '50%',
+                right: 16,
+                transform: 'translateY(-50%)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                color: '#667eea',
+                fontSize: 12
+              }}>
+                <LoadingOutlined style={{ animation: 'spin 1s linear infinite' }} />
+                <span>Filtering...</span>
+              </div>
+            )}
+          </div>
         )}
 
         {enableDocumentSearch && (
@@ -653,9 +683,18 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       xl: gridSize
     };
 
-    const commonProps = {
-      selectedFiles: currentSelectedFiles,  // Still pass array for compatibility
-      selectedFilesSet: currentSelectedSet,  // Also pass Set for O(1) lookup
+    // Determine image quality based on grid size (photos per row)
+    // - 2-3 per row (large images): use original full resolution
+    // - 4-5 per row (medium images): use web quality (400px)
+    // - 6+ per row (small images): use thumbnail (250px) for faster loading
+    const imageQuality: 'original' | 'web' | 'thumbnail' =
+      gridSize <= 3 ? 'original' :
+      gridSize <= 5 ? 'web' :
+      'thumbnail';
+
+    // Base props shared by all view components (FileList, FileCard, FileGrid)
+    const baseProps = {
+      selectedFiles: currentSelectedFiles,
       allowMultiSelect,
       onFileSelect: handleFileSelectionChange,
       onFileClick,
@@ -663,14 +702,28 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       onCategoryChange: updateFileCategory,
       fileCategory,
       showImagePreview,
+      showDocumentDetails
+    };
+
+    // FileList-specific props
+    const fileListProps = {
+      ...baseProps,
+      listLayout
+    };
+
+    // FileCard-specific props (same as base)
+    const fileCardProps = {
+      ...baseProps
+    };
+
+    // FileGrid-specific props (includes all extra props)
+    const fileGridProps = {
+      ...baseProps,
       enableImageZoom,
       showImageInfo,
-      showDocumentPreview,
-      showDocumentDetails,
-      showPreviewPanel,
       gridColumns: dynamicGridColumns,
       enableLazyLoading,
-      listLayout
+      imageQuality
     };
 
     return (
@@ -681,15 +734,15 @@ const FileGallery: React.FC<FileGalleryProps> = ({
             let groupContent;
             switch (viewMode) {
               case 'list':
-                groupContent = <FileList {...commonProps} files={group.files} />;
+                groupContent = <FileList {...fileListProps} files={group.files} />;
                 break;
               case 'card':
-                groupContent = <FileCard {...commonProps} files={group.files} />;
+                groupContent = <FileCard {...fileCardProps} files={group.files} />;
                 break;
               default:
                 groupContent = (
                   <FileGrid
-                    {...commonProps}
+                    {...fileGridProps}
                     files={group.files}
                     containerHeight={height === '100%' ? window.innerHeight - 300 : parseInt(height) || 600}
                   />
@@ -784,10 +837,16 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       xl: gridSize
     };
 
-    const commonProps = {
+    // Determine image quality based on grid size (photos per row)
+    const imageQuality: 'original' | 'web' | 'thumbnail' = 
+      gridSize <= 3 ? 'original' : 
+      gridSize <= 5 ? 'web' :
+      'thumbnail';
+
+    // Base props shared by all view components (FileList, FileCard, FileGrid)
+    const baseProps = {
       files: filteredFiles,
-      selectedFiles: currentSelectedFiles,  // Still pass array for compatibility
-      selectedFilesSet: currentSelectedSet,  // Also pass Set for O(1) lookup
+      selectedFiles: currentSelectedFiles,
       allowMultiSelect,
       onFileSelect: handleFileSelectionChange,
       onFileClick,
@@ -795,25 +854,31 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       onCategoryChange: updateFileCategory,
       fileCategory,
       showImagePreview,
-      enableImageZoom,
-      showImageInfo,
-      showDocumentPreview,
-      showDocumentDetails,
-      showPreviewPanel
+      showDocumentDetails
     };
 
     let content;
     switch (viewMode) {
       case 'list':
-        content = <FileList {...commonProps} listLayout={listLayout} />;
+        content = <FileList {...baseProps} listLayout={listLayout} />;
         break;
       case 'card':
-        content = <FileCard {...commonProps} />;
+        content = <FileCard {...baseProps} />;
         break;
       default:
         // Calculate container height for virtual scrolling
         const calculatedHeight = height === '100%' ? window.innerHeight - 300 : parseInt(height) || 600;
-        content = <FileGrid {...commonProps} gridColumns={dynamicGridColumns} enableLazyLoading={enableLazyLoading} containerHeight={calculatedHeight} />;
+        content = (
+          <FileGrid
+            {...baseProps}
+            enableImageZoom={enableImageZoom}
+            showImageInfo={showImageInfo}
+            gridColumns={dynamicGridColumns}
+            enableLazyLoading={enableLazyLoading}
+            containerHeight={calculatedHeight}
+            imageQuality={imageQuality}
+          />
+        );
         break;
     }
 

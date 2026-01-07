@@ -69,12 +69,14 @@ const searchCompanyCamProjects = async (jobId: string, query?: string): Promise<
 
 interface WaterMitigationPhotosTabProps {
   jobId: string;
+  clientId?: string;  // Client ID for category management
   companycamProjectId?: string;
   onProjectIdUpdated?: (projectId: string) => void;
 }
 
 const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   jobId,
+  clientId,
   companycamProjectId,
   onProjectIdUpdated
 }) => {
@@ -114,6 +116,34 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       throw error;
     }
   }, [jobId, queryClient]);
+
+  // Handle category creation
+  const handleCategoryCreate = useCallback(async (categoryName: string): Promise<void> => {
+    if (!clientId) {
+      message.warning('Cannot create category: Client ID not available.');
+      console.warn('Category creation attempted without client_id');
+      return;
+    }
+
+    try {
+      await api.post('/api/water-mitigation/categories', {
+        category_name: categoryName,
+        category_type: 'custom',
+        color_code: '#1890ff'
+      }, {
+        params: { client_id: clientId }
+      });
+
+      message.success(`Category "${categoryName}" created successfully!`);
+
+      // Note: Category list will auto-refresh on next component mount or
+      // you can add category refresh logic here if needed
+    } catch (error: any) {
+      console.error('Failed to create category:', error);
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to create category';
+      message.error(errorMsg);
+    }
+  }, [clientId]);
 
   // Poll for sync status using setTimeout (waits for previous request to complete)
   const pollStatus = async () => {
@@ -525,6 +555,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
           // Custom upload handler for Water Mitigation photos
           onUpload={handleUpload}
+          onCategoryCreate={handleCategoryCreate}
 
           // Multi-select support
           allowMultiSelect={true}
@@ -533,6 +564,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           categories={[
             'uncategorized',
             'wet-area',
+            'personal-properties',
             'pre-mitigation-moving',
             'demolition',
             'containment',

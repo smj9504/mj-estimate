@@ -17,13 +17,13 @@ const ViewModeSelector: React.FC<ViewModeSelectorProps> = ({ value, onChange }) 
       size="small"
     >
       <Radio.Button value="grid">
-        <AppstoreOutlined /> Grid
+        <AppstoreOutlined style={{}} /> Grid
       </Radio.Button>
       <Radio.Button value="list">
-        <UnorderedListOutlined /> List
+        <UnorderedListOutlined style={{}} /> List
       </Radio.Button>
       <Radio.Button value="card">
-        <BorderOutlined /> Card
+        <BorderOutlined style={{}} /> Card
       </Radio.Button>
     </Radio.Group>
   );

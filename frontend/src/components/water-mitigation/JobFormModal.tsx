@@ -8,6 +8,8 @@ import dayjs from 'dayjs';
 import type { WaterMitigationJob, JobCreateRequest } from '../../types/waterMitigation';
 import { JOB_STATUS_OPTIONS } from '../../types/waterMitigation';
 import waterMitigationService from '../../services/waterMitigationService';
+import { companyService } from '../../services/companyService';
+import type { Company } from '../../types';
 
 const { TextArea } = Input;
 const { Option } = Select;
@@ -27,7 +29,16 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
 }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = React.useState(false);
+  const [companies, setCompanies] = React.useState<Company[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = React.useState(false);
   const isEditing = !!job;
+
+  // Load companies when modal opens
+  useEffect(() => {
+    if (visible) {
+      loadCompanies();
+    }
+  }, [visible]);
 
   // Reset form when modal opens with job data
   useEffect(() => {
@@ -35,6 +46,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
       if (job) {
         // Edit mode - populate form with job data
         form.setFieldsValue({
+          company_id: job.company_id,
           property_address: job.property_address,
           companycam_project_id: job.companycam_project_id,
           homeowner_name: job.homeowner_name,
@@ -74,6 +86,19 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
       }
     }
   }, [visible, job, form]);
+
+  const loadCompanies = async () => {
+    try {
+      setLoadingCompanies(true);
+      const companiesData = await companyService.getCompanies();
+      setCompanies(companiesData);
+    } catch (error) {
+      console.error('Failed to load companies:', error);
+      message.error('Failed to load companies');
+    } finally {
+      setLoadingCompanies(false);
+    }
+  };
 
   const handleSubmit = async () => {
     try {
@@ -139,6 +164,30 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
           rules={[{ required: true, message: 'Please enter property address' }]}
         >
           <TextArea rows={2} placeholder="123 Main St, City, State ZIP" />
+        </Form.Item>
+
+        {/* Company Assignment */}
+        <Form.Item
+          label="Assigned Company"
+          name="company_id"
+          tooltip="Optional: Assign this job to a company"
+        >
+          <Select
+            placeholder="Select a company (optional)"
+            allowClear
+            loading={loadingCompanies}
+            showSearch
+            filterOption={(input, option) => {
+              const label = String(option?.label || '');
+              return label.toLowerCase().includes(input.toLowerCase());
+            }}
+          >
+            {companies.map(company => (
+              <Option key={company.id} value={company.id} label={`${company.name} ${company.company_code ? `(${company.company_code})` : ''}`}>
+                {company.name} {company.company_code ? `(${company.company_code})` : ''}
+              </Option>
+            ))}
+          </Select>
         </Form.Item>
 
         {/* CompanyCam Integration */}

@@ -121,7 +121,7 @@
     .line-row {
       display: flex;
       padding: 4px 0;
-      font-size: 13px;
+      font-size: 14px;
     }
     .line-header + .line-row {
       padding-top: 6px;
@@ -212,9 +212,10 @@
       font-weight: 500;
     }
     .note, .disclaimer {
-      font-size: 13px;
-      color: #555;
+      font-size: 14px;
+      color: #333;
       margin-top: 10px;
+      line-height: 1.5;
     }
   </style>
 </head>
@@ -282,7 +283,7 @@
 </div>
 
 {% if notes %}
-<p class="note" style="font-size: 13px;">{{ notes }}</p>
+<p class="note">{{ notes }}</p>
 {% endif %}
 
 <!-- Check sections first (with subtotals), then fall back to serviceSections -->

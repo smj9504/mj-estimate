@@ -21,16 +21,20 @@ import {
   Modal,
   Input,
   DatePicker,
-  InputNumber
+  InputNumber,
+  Tooltip
 } from 'antd';
 import dayjs from 'dayjs';
 import {
   ArrowLeftOutlined,
   EditOutlined,
-  SwapOutlined
+  SwapOutlined,
+  InfoCircleOutlined
 } from '@ant-design/icons';
 import waterMitigationService from '../services/waterMitigationService';
+import { companyService } from '../services/companyService';
 import type { WaterMitigationJob, JobStatusHistory, JobStatus } from '../types/waterMitigation';
+import type { Company } from '../types';
 import { JOB_STATUS_OPTIONS } from '../types/waterMitigation';
 import JobFormModal from '../components/water-mitigation/JobFormModal';
 import WaterMitigationPhotosTab from '../components/water-mitigation/WaterMitigationPhotosTab';
@@ -50,13 +54,15 @@ const WaterMitigationDetail: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState<JobStatus | null>(null);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [statusChangeNote, setStatusChangeNote] = useState('');
+  const [companies, setCompanies] = useState<Company[]>([]);
 
   // Edit form states for each section
   const [jobInfoForm, setJobInfoForm] = useState({
     property_address: '',
     homeowner_name: '',
     homeowner_phone: '',
-    homeowner_email: ''
+    homeowner_email: '',
+    company_id: null as string | null
   });
 
   const [insuranceForm, setInsuranceForm] = useState({
@@ -64,7 +70,8 @@ const WaterMitigationDetail: React.FC = () => {
     insurance_policy_number: '',
     claim_number: '',
     date_of_loss: null as string | null,
-    mitigation_period: ''
+    mitigation_start_date: null as string | null,
+    mitigation_end_date: null as string | null
   });
 
   const [financialForm, setFinancialForm] = useState({
@@ -84,6 +91,16 @@ const WaterMitigationDetail: React.FC = () => {
       setShowEditModal(true);
     }
   }, []);
+
+  // Load companies for selection
+  const loadCompanies = async () => {
+    try {
+      const companiesData = await companyService.getCompanies();
+      setCompanies(companiesData);
+    } catch (error) {
+      console.error('Failed to load companies:', error);
+    }
+  };
 
   // Load job data
   const loadJob = async () => {
@@ -107,6 +124,7 @@ const WaterMitigationDetail: React.FC = () => {
 
   useEffect(() => {
     loadJob();
+    loadCompanies();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -117,7 +135,8 @@ const WaterMitigationDetail: React.FC = () => {
         property_address: job.property_address || '',
         homeowner_name: job.homeowner_name || '',
         homeowner_phone: job.homeowner_phone || '',
-        homeowner_email: job.homeowner_email || ''
+        homeowner_email: job.homeowner_email || '',
+        company_id: job.company_id || null
       });
 
       setInsuranceForm({
@@ -125,7 +144,8 @@ const WaterMitigationDetail: React.FC = () => {
         insurance_policy_number: job.insurance_policy_number || '',
         claim_number: job.claim_number || '',
         date_of_loss: job.date_of_loss || null,
-        mitigation_period: job.mitigation_period || ''
+        mitigation_start_date: job.mitigation_start_date || null,
+        mitigation_end_date: job.mitigation_end_date || null
       });
 
       setFinancialForm({
@@ -197,33 +217,96 @@ const WaterMitigationDetail: React.FC = () => {
   // Handle section save
   const handleSaveJobInfo = async () => {
     if (!id) return;
-    await waterMitigationService.updateJob(id, jobInfoForm);
+    const updateData = {
+      ...jobInfoForm,
+      company_id: jobInfoForm.company_id || undefined
+    };
+    await waterMitigationService.updateJob(id, updateData);
     await loadJob();
   };
 
   const handleSaveInsurance = async () => {
     if (!id) return;
-    // Convert null to undefined for API compatibility
-    const updateData = {
-      ...insuranceForm,
-      date_of_loss: insuranceForm.date_of_loss || undefined
+
+    // Validate mitigation dates
+    if (insuranceForm.mitigation_start_date && insuranceForm.mitigation_end_date) {
+      const startDate = dayjs(insuranceForm.mitigation_start_date);
+      const endDate = dayjs(insuranceForm.mitigation_end_date);
+      if (endDate.isBefore(startDate)) {
+        message.error('Mitigation end date must be after start date');
+        return;
+      }
+    }
+
+    // Convert dates to YYYY-MM-DD format for API
+    const formatDateForApi = (dateStr: string | null): string | undefined => {
+      if (!dateStr) return undefined;
+      return dayjs(dateStr).format('YYYY-MM-DD');
     };
-    await waterMitigationService.updateJob(id, updateData);
-    await loadJob();
+
+    const updateData = {
+      insurance_company: insuranceForm.insurance_company || undefined,
+      insurance_policy_number: insuranceForm.insurance_policy_number || undefined,
+      claim_number: insuranceForm.claim_number || undefined,
+      date_of_loss: formatDateForApi(insuranceForm.date_of_loss),
+      mitigation_start_date: formatDateForApi(insuranceForm.mitigation_start_date),
+      mitigation_end_date: formatDateForApi(insuranceForm.mitigation_end_date)
+    };
+
+    try {
+      await waterMitigationService.updateJob(id, updateData);
+      message.success('Insurance information updated successfully');
+      await loadJob();
+    } catch (error) {
+      message.error('Failed to update insurance information');
+      console.error('Update error:', error);
+    }
   };
 
   const handleSaveFinancial = async () => {
     if (!id) return;
-    // Convert null to undefined for API compatibility
+
+    // Convert dates to YYYY-MM-DD format for API
+    const formatDateForApi = (dateStr: string | null): string | undefined => {
+      if (!dateStr) return undefined;
+      return dayjs(dateStr).format('YYYY-MM-DD');
+    };
+
     const updateData = {
-      ...financialForm,
-      documents_sent_date: financialForm.documents_sent_date || undefined,
+      documents_sent_date: formatDateForApi(financialForm.documents_sent_date),
+      invoice_number: financialForm.invoice_number || undefined,
       invoice_amount: financialForm.invoice_amount ?? undefined,
-      check_date: financialForm.check_date || undefined,
+      check_number: financialForm.check_number || undefined,
+      check_date: formatDateForApi(financialForm.check_date),
       check_amount: financialForm.check_amount ?? undefined
     };
-    await waterMitigationService.updateJob(id, updateData);
-    await loadJob();
+
+    try {
+      await waterMitigationService.updateJob(id, updateData);
+      message.success('Financial information updated successfully');
+      await loadJob();
+    } catch (error) {
+      message.error('Failed to update financial information');
+      console.error('Update error:', error);
+    }
+  };
+
+  // Helper function to format mitigation period display
+  const formatMitigationPeriod = (): string => {
+    if (!job) return '-';
+
+    const startDate = job.mitigation_start_date;
+    const endDate = job.mitigation_end_date;
+
+    if (startDate && endDate) {
+      return `${dayjs(startDate).format('YYYY-MM-DD')} to ${dayjs(endDate).format('YYYY-MM-DD')}`;
+    } else if (startDate) {
+      return `From ${dayjs(startDate).format('YYYY-MM-DD')}`;
+    } else if (endDate) {
+      return `Until ${dayjs(endDate).format('YYYY-MM-DD')}`;
+    }
+
+    return '-';
   };
 
   if (loading) {
@@ -326,6 +409,39 @@ const WaterMitigationDetail: React.FC = () => {
                       job.property_address
                     )}
                   </Descriptions.Item>
+                  <Descriptions.Item label="Assigned Company" span={2}>
+                    {isEditing ? (
+                      <Select
+                        value={jobInfoForm.company_id}
+                        onChange={(value) => setJobInfoForm({ ...jobInfoForm, company_id: value })}
+                        placeholder="Select a company"
+                        style={{ width: '100%' }}
+                        allowClear
+                        showSearch
+                        optionFilterProp="children"
+                        filterOption={(input, option) =>
+                          (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                        }
+                        options={companies.map(company => ({
+                          value: company.id,
+                          label: company.name + (company.company_code ? ` (${company.company_code})` : '')
+                        }))}
+                      />
+                    ) : (
+                      job.company ? (
+                        <span>
+                          {job.company.name}
+                          {job.company.company_code && (
+                            <Tag color="blue" style={{ marginLeft: 8 }}>
+                              {job.company.company_code}
+                            </Tag>
+                          )}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#999' }}>Not assigned</span>
+                      )
+                    )}
+                  </Descriptions.Item>
                   <Descriptions.Item label="Homeowner Name">
                     {isEditing ? (
                       <Input
@@ -413,26 +529,69 @@ const WaterMitigationDetail: React.FC = () => {
                   <Descriptions.Item label="Date of Loss">
                     {isEditing ? (
                       <DatePicker
-                        value={insuranceForm.date_of_loss ? dayjs(insuranceForm.date_of_loss) : null}
-                        onChange={(date) => setInsuranceForm({ ...insuranceForm, date_of_loss: date ? date.toISOString() : null })}
+                        value={insuranceForm.date_of_loss ? dayjs(insuranceForm.date_of_loss) : undefined}
+                        onChange={(date) => setInsuranceForm({ ...insuranceForm, date_of_loss: date ? date.format('YYYY-MM-DD') : null })}
                         format="YYYY-MM-DD"
                         style={{ width: '100%' }}
+                        disabledDate={(current) => current && current > dayjs().endOf('day')}
+                        placeholder="Select date of loss"
                       />
                     ) : (
                       job.date_of_loss ? dayjs(job.date_of_loss).format('YYYY-MM-DD') : '-'
                     )}
                   </Descriptions.Item>
-                  <Descriptions.Item label="Mitigation Period">
+                  <Descriptions.Item
+                    label={
+                      <Space>
+                        Mitigation Start Date
+                        <Tooltip title="Start date of the water mitigation work. Used for photo report and photo date bulk update.">
+                          <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                      </Space>
+                    }
+                  >
                     {isEditing ? (
-                      <Input
-                        value={insuranceForm.mitigation_period}
-                        onChange={(e) => setInsuranceForm({ ...insuranceForm, mitigation_period: e.target.value })}
-                        placeholder="Enter mitigation period"
-                        maxLength={100}
+                      <DatePicker
+                        value={insuranceForm.mitigation_start_date ? dayjs(insuranceForm.mitigation_start_date) : undefined}
+                        onChange={(date) => setInsuranceForm({ ...insuranceForm, mitigation_start_date: date ? date.format('YYYY-MM-DD') : null })}
+                        format="YYYY-MM-DD"
+                        style={{ width: '100%' }}
+                        placeholder="Select start date"
                       />
                     ) : (
-                      job.mitigation_period || '-'
+                      job.mitigation_start_date ? dayjs(job.mitigation_start_date).format('YYYY-MM-DD') : '-'
                     )}
+                  </Descriptions.Item>
+                  <Descriptions.Item
+                    label={
+                      <Space>
+                        Mitigation End Date
+                        <Tooltip title="End date of the water mitigation work. Used for photo report and photo date bulk update.">
+                          <InfoCircleOutlined style={{ color: '#1890ff' }} />
+                        </Tooltip>
+                      </Space>
+                    }
+                  >
+                    {isEditing ? (
+                      <DatePicker
+                        value={insuranceForm.mitigation_end_date ? dayjs(insuranceForm.mitigation_end_date) : undefined}
+                        onChange={(date) => setInsuranceForm({ ...insuranceForm, mitigation_end_date: date ? date.format('YYYY-MM-DD') : null })}
+                        format="YYYY-MM-DD"
+                        style={{ width: '100%' }}
+                        placeholder="Select end date"
+                        disabledDate={(current) => {
+                          if (!insuranceForm.mitigation_start_date) return false;
+                          return current && current < dayjs(insuranceForm.mitigation_start_date).startOf('day');
+                        }}
+                      />
+                    ) : (
+                      job.mitigation_end_date ? dayjs(job.mitigation_end_date).format('YYYY-MM-DD') : '-'
+                    )}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Mitigation Period" span={2}>
+                    <Tag color={job.mitigation_start_date && job.mitigation_end_date ? 'green' : 'default'}>
+                      {formatMitigationPeriod()}
+                    </Tag>
                   </Descriptions.Item>
                 </Descriptions>
               )}
@@ -447,8 +606,8 @@ const WaterMitigationDetail: React.FC = () => {
                   <Descriptions.Item label="Documents Sent Date" span={2}>
                     {isEditing ? (
                       <DatePicker
-                        value={financialForm.documents_sent_date ? dayjs(financialForm.documents_sent_date) : null}
-                        onChange={(date) => setFinancialForm({ ...financialForm, documents_sent_date: date ? date.toISOString() : null })}
+                        value={financialForm.documents_sent_date ? dayjs(financialForm.documents_sent_date) : undefined}
+                        onChange={(date) => setFinancialForm({ ...financialForm, documents_sent_date: date ? date.format('YYYY-MM-DD') : null })}
                         format="YYYY-MM-DD"
                         style={{ width: '100%' }}
                       />
@@ -497,8 +656,8 @@ const WaterMitigationDetail: React.FC = () => {
                   <Descriptions.Item label="Check Date">
                     {isEditing ? (
                       <DatePicker
-                        value={financialForm.check_date ? dayjs(financialForm.check_date) : null}
-                        onChange={(date) => setFinancialForm({ ...financialForm, check_date: date ? date.toISOString() : null })}
+                        value={financialForm.check_date ? dayjs(financialForm.check_date) : undefined}
+                        onChange={(date) => setFinancialForm({ ...financialForm, check_date: date ? date.format('YYYY-MM-DD') : null })}
                         format="YYYY-MM-DD"
                         style={{ width: '100%' }}
                       />
@@ -589,6 +748,7 @@ const WaterMitigationDetail: React.FC = () => {
               children: id ? (
                 <WaterMitigationPhotosTab
                   jobId={id}
+                  clientId={job.client_id}
                   companycamProjectId={job.companycam_project_id}
                 />
               ) : null
@@ -619,7 +779,7 @@ const WaterMitigationDetail: React.FC = () => {
             },
             {
               key: 'trash',
-              label: '🗑️ Trash',
+              label: 'Trash',
               children: id ? <WaterMitigationTrashTab jobId={id} /> : null
             }
           ]}

@@ -29,6 +29,8 @@ from app.domains.auth.dependencies import get_current_user
 from .models import WMPhoto
 from .schemas import (
     BulkUpdateDateRequest,
+    BulkUpdatePhotoDatesByCategoryRequest,
+    BulkUpdatePhotoDatesByCategoryResponse,
     CategoryCreate,
     CategoryResponse,
     GenerateDocumentRequest,
@@ -48,10 +50,14 @@ from .schemas import (
     WMDocumentResponse,
 )
 from .service import WaterMitigationService
+from .template_api import router as template_router
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/water-mitigation", tags=["Water Mitigation"])
+
+# Include template router as sub-router
+router.include_router(template_router)
 
 
 def get_wm_service(db: DatabaseSession = Depends(get_db_session)) -> WaterMitigationService:
@@ -259,6 +265,46 @@ def list_categories(
     """List categories for client"""
     categories = service.get_categories(client_id)
     return [service.category_repo._convert_to_dict(category) for category in categories]
+
+
+@router.put("/categories/{category_id}", response_model=CategoryResponse)
+def update_category(
+    category_id: UUID,
+    category_name: Optional[str] = None,
+    color_code: Optional[str] = None,
+    display_order: Optional[int] = None,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Update category"""
+    try:
+        category = service.get_category(category_id)
+        if not category:
+            raise HTTPException(status_code=404, detail="Category not found")
+
+        # Build update data from provided parameters
+        update_data = {}
+        if category_name is not None:
+            update_data['category_name'] = category_name
+        if color_code is not None:
+            update_data['color_code'] = color_code
+        if display_order is not None:
+            update_data['display_order'] = display_order
+
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields provided for update")
+
+        updated_category = service.category_repo.update(category_id, update_data)
+
+        # Commit the transaction
+        db.commit()
+
+        return service.category_repo._convert_to_dict(updated_category)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update category: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/categories/{category_id}")
@@ -742,44 +788,61 @@ async def preview_photo(
             else:
                 logger.debug(f"Using cached photo URL for {external_id}")
 
-            # For thumbnail/web sizes, try to redirect directly to CompanyCam CDN
-            # This is much faster than proxying through our server
-            if size in ("thumbnail", "web") and photo_url:
-                # Check if we have size-specific URL cached
-                cache_key_size_url = f"companycam:photo:url:{external_id}:{size}"
-                size_url = await cache.get(cache_key_size_url)
-                
-                if not size_url:
-                    # Try to get size-specific URL from API
-                    companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
-                    try:
-                        photo_data = await companycam_client.get_photo(int(external_id))
-                        if 'uris' in photo_data:
-                            uris = photo_data['uris']
-                            if isinstance(uris, list):
-                                for uri_item in uris:
-                                    if isinstance(uri_item, dict) and uri_item.get('type') == size:
+            # Try to get size-specific URL from CompanyCam CDN (faster than proxying)
+            # Check if we have size-specific URL cached
+            cache_key_size_url = f"companycam:photo:url:{external_id}:{size}"
+            size_url = await cache.get(cache_key_size_url)
+            
+            if not size_url:
+                # Try to get size-specific URL from API
+                companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
+                try:
+                    photo_data = await companycam_client.get_photo(int(external_id))
+                    if 'uris' in photo_data:
+                        uris = photo_data['uris']
+                        # Handle dict format: {original: url, large: url, thumbnail: url}
+                        if isinstance(uris, dict):
+                            size_url = uris.get(size) or uris.get('original') or uris.get('large')
+                            if size_url:
+                                await cache.set(cache_key_size_url, size_url, ttl=86400)
+                                logger.debug(f"Using {size} size URL (dict) for {external_id}")
+                        # Handle list format: [{type: 'original', uri: url}, ...]
+                        elif isinstance(uris, list):
+                            for uri_item in uris:
+                                if isinstance(uri_item, dict):
+                                    uri_type = uri_item.get('type') or uri_item.get('size')
+                                    if uri_type == size:
                                         size_url = uri_item.get('uri') or uri_item.get('url')
                                         if size_url:
-                                            # Cache size-specific URL
                                             await cache.set(cache_key_size_url, size_url, ttl=86400)
-                                            logger.debug(f"Using {size} size URL for {external_id}")
+                                            logger.debug(f"Using {size} size URL (list) for {external_id}")
                                             break
-                    except Exception as e:
-                        logger.warning(f"Failed to get size-specific URL: {e}")
-                
-                # If we have a size-specific URL, redirect directly (faster)
-                if size_url:
-                    from fastapi.responses import RedirectResponse
-                    return RedirectResponse(
-                        url=size_url,
-                        status_code=302,
-                        headers={
-                            "Cache-Control": "public, max-age=86400"
-                        }
-                    )
+                            # If original not found, try to get the largest available
+                            if not size_url and size == 'original':
+                                for uri_item in uris:
+                                    if isinstance(uri_item, dict):
+                                        uri_type = uri_item.get('type') or uri_item.get('size')
+                                        if uri_type in ('original', 'large', 'full'):
+                                            size_url = uri_item.get('uri') or uri_item.get('url')
+                                            if size_url:
+                                                await cache.set(cache_key_size_url, size_url, ttl=86400)
+                                                logger.debug(f"Using {uri_type} size URL as fallback for {external_id}")
+                                                break
+                except Exception as e:
+                    logger.warning(f"Failed to get size-specific URL: {e}")
+            
+            # If we have a size-specific URL, redirect directly (faster)
+            if size_url:
+                from fastapi.responses import RedirectResponse
+                return RedirectResponse(
+                    url=size_url,
+                    status_code=302,
+                    headers={
+                        "Cache-Control": "public, max-age=86400"
+                    }
+                )
 
-            # For original or if size-specific URL not available, proxy through server
+            # Fallback: proxy through server using default photo_url
             logger.info(f"Proxying CompanyCam photo {external_id} from URL: {photo_url}")
             companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
             photo_bytes = await companycam_client.download_photo(photo_url)
@@ -1061,6 +1124,54 @@ def bulk_update_date(
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to bulk update dates: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put(
+    "/jobs/{job_id}/photos/bulk-update-dates-by-category",
+    response_model=BulkUpdatePhotoDatesByCategoryResponse
+)
+def bulk_update_photo_dates_by_category(
+    job_id: UUID,
+    request: BulkUpdatePhotoDatesByCategoryRequest,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Bulk update photo dates based on category matching.
+
+    Date mapping rules:
+    - Day 2 category photos -> mitigation_start_date + 1 day
+    - Day 3 category photos -> mitigation_end_date
+    - All other categorized photos -> mitigation_start_date
+
+    Photos without categories are not updated.
+    """
+    try:
+        # Verify job exists
+        job = service.job_repo.get_by_id(str(job_id))
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # Call service method to perform bulk update
+        result = service.bulk_update_photo_dates_by_category(
+            job_id=job_id,
+            start_date=request.mitigation_start_date,
+            end_date=request.mitigation_end_date
+        )
+
+        # Commit the transaction
+        db.commit()
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to bulk update photo dates by category: {e}")
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
@@ -2051,9 +2162,32 @@ async def generate_photo_report(
         photos = service.get_job_photos(job_id)
         photos_list = [service.photo_repo._convert_to_dict(p) for p in photos]
 
-        # Get company data (if available)
+        # Get company data - prioritize assigned company, fall back to client company
         company_data = None
-        if job.get('client_id'):
+
+        # Check if job has company relationship already loaded
+        if job.get('company'):
+            # Company relationship is loaded (from lazy="joined" in model)
+            company_obj = job['company']
+            company_data = {
+                'name': company_obj.get('name', '') if isinstance(company_obj, dict) else getattr(company_obj, 'name', ''),
+                'logo': company_obj.get('logo', '') if isinstance(company_obj, dict) else getattr(company_obj, 'logo', '')
+            }
+            logger.info(f"Using job's assigned company: {company_data['name']}")
+        elif job.get('company_id'):
+            # Fetch assigned company if not loaded
+            from app.domains.company.repository import CompanyRepository
+            company_repo = CompanyRepository(db)
+            company = company_repo.get_by_id(job['company_id'])
+            if company:
+                company_dict = company_repo._convert_to_dict(company)
+                company_data = {
+                    'name': company_dict.get('name', ''),
+                    'logo': company_dict.get('logo', '')
+                }
+                logger.info(f"Fetched assigned company: {company_data['name']}")
+        elif job.get('client_id'):
+            # Fall back to client company for backwards compatibility
             from app.domains.company.repository import CompanyRepository
             company_repo = CompanyRepository(db)
             company = company_repo.get_by_id(job['client_id'])
@@ -2063,6 +2197,7 @@ async def generate_photo_report(
                     'name': company_dict.get('name', ''),
                     'logo': company_dict.get('logo', '')
                 }
+                logger.info(f"Using client company: {company_data['name']}")
 
         # Generate filename
         property_address = job.get('property_address', 'Property')

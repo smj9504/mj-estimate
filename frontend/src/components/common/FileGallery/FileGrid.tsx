@@ -1,18 +1,17 @@
 import React, { useState, memo, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Card, Image, Button, Typography, Space, Tooltip, Modal, Checkbox } from 'antd';
+import { Card, Image, Typography, Modal, Checkbox, Tag } from 'antd';
 import { Grid } from 'react-window';
 import {
   EyeOutlined,
   DownloadOutlined,
   DeleteOutlined,
-  FileOutlined,
-  PictureOutlined
+  FileOutlined
 } from '@ant-design/icons';
 import { FileItem, FileCategory } from './types';
 import { fileService } from '../../../services/fileService';
+import dayjs from 'dayjs';
 
 const { Text } = Typography;
-const { Meta } = Card;
 
 // Optimized lazy loading image component with Intersection Observer
 interface LazyImageProps {
@@ -58,35 +57,64 @@ const LazyImage: React.FC<LazyImageProps> = memo(({ src, fallbackSrc, alt, enabl
   }, [src, enableLazyLoading]);
 
   return (
-    <img
-      ref={imgRef}
-      src={imageSrc || undefined}
-      alt={alt}
-      style={{
-        width: '100%',
-        height: '100%',
-        objectFit: 'cover',
-        display: 'block',
-        opacity: isLoaded ? 1 : 0,
-        transition: 'opacity 0.2s ease'
-      }}
-      loading={enableLazyLoading ? "lazy" : "eager"}
-      decoding="async"
-      // @ts-ignore - fetchpriority is a valid HTML attribute
-      fetchpriority="low"
-      onLoad={() => setIsLoaded(true)}
-      onError={(e) => {
-        // Fallback to full image if thumbnail fails
-        const img = e.target as HTMLImageElement;
-        if (img.src !== fallbackSrc && imageSrc !== fallbackSrc) {
-          setImageSrc(fallbackSrc);
+    <div style={{
+      width: '100%',
+      height: '100%',
+      position: 'relative',
+      backgroundColor: '#f0f0f0',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }}>
+      {/* Loading placeholder - shows skeleton while image loads */}
+      {!isLoaded && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)',
+          backgroundSize: '200% 100%',
+          animation: 'shimmer 1.5s infinite'
+        }} />
+      )}
+      <img
+        ref={imgRef}
+        src={imageSrc || undefined}
+        alt={alt}
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          display: 'block',
+          opacity: isLoaded ? 1 : 0,
+          transition: 'opacity 0.15s ease'
+        }}
+        loading={enableLazyLoading ? "lazy" : "eager"}
+        decoding="async"
+        // @ts-ignore - fetchpriority is a valid HTML attribute
+        fetchpriority="low"
+        onLoad={() => setIsLoaded(true)}
+        onError={(e) => {
+          // Fallback to full image if thumbnail fails
+          const img = e.target as HTMLImageElement;
+          if (img.src !== fallbackSrc && imageSrc !== fallbackSrc) {
+            setImageSrc(fallbackSrc);
+          }
+        }}
+      />
+      <style>{`
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
         }
-      }}
-    />
+      `}</style>
+    </div>
   );
 });
 
 LazyImage.displayName = 'LazyImage';
+
+// Image quality levels based on display size
+type ImageQuality = 'original' | 'web' | 'thumbnail';
 
 // Memoized individual file card component to prevent unnecessary re-renders
 interface FileCardItemProps {
@@ -97,6 +125,7 @@ interface FileCardItemProps {
   showImagePreview: boolean;
   showImageInfo: boolean;
   enableLazyLoading: boolean;
+  imageQuality: ImageQuality; // Changed from useHighQualityThumbnails
   onSelect: (fileId: string, selected: boolean) => void;
   onPreview: (file: FileItem) => void;
   onDownload: (file: FileItem) => void;
@@ -112,28 +141,30 @@ const FileCardItem = memo<FileCardItemProps>(({
   showImagePreview,
   showImageInfo,
   enableLazyLoading,
+  imageQuality,
   onSelect,
   onPreview,
   onDownload,
   onDelete,
   onCardClick
 }) => {
-  const contentType = file.contentType || file.mimeType || '';
-  const isImage = contentType.startsWith('image/');
+  // Critical: Guard against undefined file during virtual scroll remount
+  if (!file || !file.id) {
+    return null;
+  }
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+  const contentType = file.contentType || file.mimeType || '';
+  // Determine if file is an image: use contentType OR fileCategory prop
+  const isImage = contentType.startsWith('image/') || fileCategory === 'image';
+
+  // Ensure imageQuality has a default value
+  const quality = imageQuality || 'web';
 
   return (
     <Card
       key={file.id}
       className="file-grid-item"
-      bodyStyle={{ padding: 0 }}
+      styles={{ body: { padding: 0 } }}
       onClick={(e) => {
         const target = e.target as HTMLElement;
         // Ignore clicks on buttons and checkboxes
@@ -146,63 +177,83 @@ const FileCardItem = memo<FileCardItemProps>(({
           {isImage ? (
             <>
               <LazyImage
-                src={file.thumbnailUrl || file.url}
-                fallbackSrc={file.url}
+                src={
+                  quality === 'original'
+                    ? (file.fileUrl || file.url || file.thumbnailUrl || '')
+                    : quality === 'web'
+                    ? (file.url || file.thumbnailUrl || '')
+                    : (file.thumbnailUrl || file.url || '')
+                }
+                fallbackSrc={file.url || file.thumbnailUrl || ''}
                 alt={file.originalName}
                 enableLazyLoading={enableLazyLoading}
               />
+              {/* Date and Category overlay - always visible at bottom */}
+              <div style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
+                padding: '20px 8px 6px 8px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                gap: '4px'
+              }}>
+                <Text style={{ color: '#fff', fontSize: '11px' }}>
+                  {dayjs(file.uploadDate || file.createdAt).format('MMM D, YYYY')}
+                </Text>
+                {file.category && (
+                  <Tag 
+                    color="blue" 
+                    style={{ 
+                      margin: 0, 
+                      fontSize: '10px',
+                      padding: '0 4px',
+                      lineHeight: '18px'
+                    }}
+                  >
+                    {file.category}
+                  </Tag>
+                )}
+              </div>
+              {/* Action buttons overlay - visible on hover */}
               <div className="file-overlay">
-                <Space direction="vertical" align="center" style={{ width: '100%' }}>
-                  {showImageInfo && (
-                    <div style={{
-                      backgroundColor: 'rgba(0, 0, 0, 0.75)',
-                      padding: '8px 12px',
-                      borderRadius: '4px',
-                      textAlign: 'center',
-                      marginBottom: '8px'
-                    }}>
-                      <Text style={{ color: '#fff', fontSize: '12px', display: 'block' }}>
-                        {file.originalName}
-                      </Text>
-                      {file.size && (
-                        <Text style={{ color: '#bbb', fontSize: '11px', display: 'block' }}>
-                          {formatFileSize(file.size)}
-                        </Text>
-                      )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div
+                    className="overlay-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (file) onPreview(file);
+                    }}
+                    title="Preview"
+                  >
+                    <EyeOutlined style={{ color: '#fff', fontSize: 16 }} />
+                  </div>
+                  <div
+                    className="overlay-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (file) onDownload(file);
+                    }}
+                    title="Download"
+                  >
+                    <DownloadOutlined style={{ color: '#fff', fontSize: 16 }} />
+                  </div>
+                  {onDelete && (
+                    <div
+                      className="overlay-btn overlay-btn-danger"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (file) onDelete(file, e);
+                      }}
+                      title="Delete"
+                    >
+                      <DeleteOutlined style={{ color: '#fff', fontSize: 16 }} />
                     </div>
                   )}
-                  <Space>
-                    <Button
-                      type="primary"
-                      shape="circle"
-                      icon={<EyeOutlined />}
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onPreview(file);
-                      }}
-                    />
-                    <Button
-                      type="primary"
-                      shape="circle"
-                      icon={<DownloadOutlined />}
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDownload(file);
-                      }}
-                    />
-                    {onDelete && (
-                      <Button
-                        danger
-                        shape="circle"
-                        icon={<DeleteOutlined />}
-                        size="small"
-                        onClick={(e) => onDelete(file, e)}
-                      />
-                    )}
-                  </Space>
-                </Space>
+                </div>
               </div>
             </>
           ) : (
@@ -227,24 +278,26 @@ const FileCardItem = memo<FileCardItemProps>(({
               <Checkbox
                 checked={isSelected}
                 onChange={(e) => {
-                  onSelect(file.id, e.target.checked);
+                  if (file && file.id) {
+                    onSelect(file.id, e.target.checked);
+                  }
                 }}
               />
             </div>
           )}
         </div>
       }
-      actions={!isImage ? [
-        <Tooltip title="Preview">
-          <EyeOutlined onClick={() => onPreview(file)} />
-        </Tooltip>,
-        <Tooltip title="Download">
-          <DownloadOutlined onClick={() => onDownload(file)} />
-        </Tooltip>,
+      actions={!isImage && file ? [
+        <span key="preview" onClick={() => onPreview(file)} title="Preview">
+          <EyeOutlined style={{}} />
+        </span>,
+        <span key="download" onClick={() => onDownload(file)} title="Download">
+          <DownloadOutlined style={{}} />
+        </span>,
         ...(onDelete ? [
-          <Tooltip title="Delete">
-            <DeleteOutlined onClick={(e) => onDelete(file, e as any)} />
-          </Tooltip>
+          <span key="delete" onClick={(e) => onDelete(file, e as any)} title="Delete">
+            <DeleteOutlined style={{}} />
+          </span>
         ] : [])
       ] : undefined}
       size="small"
@@ -259,6 +312,12 @@ const FileCardItem = memo<FileCardItemProps>(({
 }, (prevProps, nextProps) => {
   // Custom comparison function for memo
   // Only re-render if these props change
+
+  // Guard against undefined during virtual scroll
+  if (!prevProps.file || !nextProps.file) {
+    return false; // Force re-render if either is undefined
+  }
+
   return (
     prevProps.file.id === nextProps.file.id &&
     prevProps.isSelected === nextProps.isSelected &&
@@ -284,6 +343,7 @@ interface FileGridProps {
   gridColumns?: Record<string, number>;
   enableLazyLoading?: boolean;
   containerHeight?: number; // Height for virtual scrolling
+  imageQuality?: ImageQuality; // Image quality: 'original' (full res), 'web' (400px), 'thumbnail' (250px)
 }
 
 const FileGrid: React.FC<FileGridProps> = ({
@@ -300,7 +360,8 @@ const FileGrid: React.FC<FileGridProps> = ({
   showImageInfo = true,
   gridColumns = { xs: 3, sm: 4, md: 5, lg: 6, xl: 8 },
   enableLazyLoading = true,
-  containerHeight = 600
+  containerHeight = 600,
+  imageQuality = 'thumbnail'
 }) => {
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
@@ -345,7 +406,7 @@ const FileGrid: React.FC<FileGridProps> = ({
     onFileSelect(newSelection);
   }, [allowMultiSelect, onFileSelect]);
 
-  const handlePreview = (file: FileItem) => {
+  const handlePreview = useCallback((file: FileItem) => {
     if (fileCategory === 'image' && showImagePreview) {
       // Use original high-resolution image for preview modal
       // fileUrl = original full resolution, url = optimized web preview
@@ -359,38 +420,59 @@ const FileGrid: React.FC<FileGridProps> = ({
     } else if (onFileClick) {
       onFileClick(file);
     }
-  };
+  }, [fileCategory, showImagePreview, onFileClick]);
 
-  const handleDownload = (file: FileItem) => {
+  const handleDownload = useCallback((file: FileItem) => {
     const link = document.createElement('a');
     link.href = fileService.getDownloadUrl(file.id);
     link.download = file.originalName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
+  }, []);
 
-  const handleDelete = async (file: FileItem, e: React.MouseEvent) => {
+  const handleDelete = useCallback(async (file: FileItem, e: React.MouseEvent) => {
     e.stopPropagation();
     if (onDelete) {
       await onDelete(file.id);
     }
-  };
+  }, [onDelete]);
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+  // Get the appropriate column count based on screen size and gridColumns prop
+  const getResponsiveColumnCount = useCallback(() => {
+    // Guard against undefined gridColumns
+    const cols = gridColumns || { xs: 2, sm: 3, md: 4, lg: 5, xl: 6 };
+    const width = window.innerWidth;
+    if (width < 576) return cols.xs || 2;
+    if (width < 768) return cols.sm || 3;
+    if (width < 992) return cols.md || 4;
+    if (width < 1200) return cols.lg || 5;
+    return cols.xl || 6;
+  }, [gridColumns]);
+
+  const [responsiveColumns, setResponsiveColumns] = useState(() => getResponsiveColumnCount());
+
+  // Update columns on window resize
+  useEffect(() => {
+    const handleResize = () => {
+      setResponsiveColumns(getResponsiveColumnCount());
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [getResponsiveColumnCount]);
+
+  // Update columns when gridColumns prop changes
+  useEffect(() => {
+    setResponsiveColumns(getResponsiveColumnCount());
+  }, [gridColumns, getResponsiveColumnCount]);
 
   const getGridStyle = () => {
     return `
       .file-grid {
         display: grid;
         gap: 12px;
-        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        grid-template-columns: repeat(${responsiveColumns}, 1fr);
       }
 
       .file-grid-item {
@@ -427,6 +509,30 @@ const FileGrid: React.FC<FileGridProps> = ({
         opacity: 1;
       }
 
+      .overlay-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #1890ff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.2s ease;
+      }
+
+      .overlay-btn:hover {
+        background: #40a9ff;
+      }
+
+      .overlay-btn-danger {
+        background: #ff4d4f;
+      }
+
+      .overlay-btn-danger:hover {
+        background: #ff7875;
+      }
+
       .file-document-icon {
         width: 100%;
         aspect-ratio: 1;
@@ -440,7 +546,7 @@ const FileGrid: React.FC<FileGridProps> = ({
     `;
   };
 
-  const handleCardClick = (file: FileItem, e: React.MouseEvent) => {
+  const handleCardClick = useCallback((file: FileItem, e: React.MouseEvent) => {
     // Handle Ctrl+Click for multi-select
     if (allowMultiSelect && e.ctrlKey && onFileSelect) {
       e.preventDefault();
@@ -450,18 +556,18 @@ const FileGrid: React.FC<FileGridProps> = ({
       // Normal click without Ctrl - preview
       handlePreview(file);
     }
-  };
+  }, [allowMultiSelect, onFileSelect, handleFileSelect, handlePreview]);
 
   // Memoized handler to prevent recreation
   const handleFileSelectMemo = React.useCallback((fileId: string, selected: boolean) => {
     handleFileSelect(fileId, selected);
   }, [handleFileSelect]);
 
-  // Use virtual scrolling for large lists (200+ items) to improve performance
+  // Use virtual scrolling for large lists (50+ items) to improve performance
   // Increased threshold to reduce issues with scroll position tracking
-  const useVirtualScrolling = files.length > 200;
+  // TEMPORARILY DISABLED for debugging icon error
+  const useVirtualScrolling = false; // files.length > 50;
   const containerRef = useRef<HTMLDivElement>(null);
-  const gridRef = useRef<any>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const scrollPositionRef = useRef<{ scrollTop: number; scrollLeft: number } | null>(null);
 
@@ -513,12 +619,12 @@ const FileGrid: React.FC<FileGridProps> = ({
     }
   }, [files.length, useVirtualScrolling]);
 
-  // Calculate columns based on container width
+  // Calculate columns based on gridColumns prop (use responsive value)
   const columnCount = useMemo(() => {
-    if (!useVirtualScrolling || containerWidth === 0) return 6;
-    // Calculate columns: ~150px per item
-    return Math.max(3, Math.floor(containerWidth / 150));
-  }, [useVirtualScrolling, containerWidth]);
+    if (!useVirtualScrolling || containerWidth === 0) return responsiveColumns;
+    // Use the responsive column count from gridColumns prop
+    return responsiveColumns;
+  }, [useVirtualScrolling, containerWidth, responsiveColumns]);
 
   const itemSize = 150; // Fixed item size for virtual scrolling
   const rowCount = Math.ceil(files.length / columnCount);
@@ -529,6 +635,12 @@ const FileGrid: React.FC<FileGridProps> = ({
     if (index >= files.length) return null;
 
     const file = files[index];
+
+    // Critical: Validate file exists before rendering (prevents undefined during scroll remount)
+    if (!file || !file.id) {
+      return null;
+    }
+
     return (
       <div style={style}>
         <FileCardItem
@@ -540,6 +652,7 @@ const FileGrid: React.FC<FileGridProps> = ({
           showImagePreview={showImagePreview}
           showImageInfo={showImageInfo}
           enableLazyLoading={enableLazyLoading}
+          imageQuality={imageQuality}
           onSelect={handleFileSelectMemo}
           onPreview={handlePreview}
           onDownload={handleDownload}
@@ -548,7 +661,7 @@ const FileGrid: React.FC<FileGridProps> = ({
         />
       </div>
     );
-  }, [files, currentSelectedSet, allowMultiSelect, fileCategory, showImagePreview, showImageInfo, enableLazyLoading, handleFileSelectMemo, handlePreview, handleDownload, handleDelete, handleCardClick, columnCount, onDelete]);
+  }, [files, currentSelectedSet, allowMultiSelect, fileCategory, showImagePreview, showImageInfo, enableLazyLoading, imageQuality, handleFileSelectMemo, handlePreview, handleDownload, handleDelete, handleCardClick, columnCount, onDelete]);
 
   return (
     <>
@@ -559,29 +672,16 @@ const FileGrid: React.FC<FileGridProps> = ({
         style={useVirtualScrolling ? { height: '100%', width: '100%' } : {}}
       >
         {useVirtualScrolling && containerWidth > 0 ? (
-          React.createElement(
-            Grid as any,
-            {
-              ref: gridRef,
-              columnCount,
-              columnWidth: containerWidth / columnCount,
-              height: containerHeight,
-              rowCount,
-              rowHeight: itemSize + 12, // item size + gap
-              width: containerWidth,
-              style: { overflowX: 'hidden' },
-              children: Cell,
-              onScroll: (e: any) => {
-                // Update scroll position ref
-                if (containerRef.current) {
-                  scrollPositionRef.current = {
-                    scrollTop: containerRef.current.scrollTop,
-                    scrollLeft: containerRef.current.scrollLeft
-                  };
-                }
-              }
-            }
-          )
+          React.createElement(Grid as any, {
+            columnCount,
+            columnWidth: containerWidth / columnCount,
+            height: containerHeight,
+            rowCount,
+            rowHeight: itemSize + 12,
+            width: containerWidth,
+            style: { overflowX: 'hidden' },
+            children: Cell
+          })
         ) : (
           files.map((file) => (
             <FileCardItem
@@ -593,6 +693,7 @@ const FileGrid: React.FC<FileGridProps> = ({
               showImagePreview={showImagePreview}
               showImageInfo={showImageInfo}
               enableLazyLoading={enableLazyLoading}
+              imageQuality={imageQuality}
               onSelect={handleFileSelectMemo}
               onPreview={handlePreview}
               onDownload={handleDownload}

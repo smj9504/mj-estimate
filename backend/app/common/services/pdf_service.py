@@ -1356,6 +1356,7 @@ def generate_images_pdf(
     import io
     import logging
     import tempfile
+
     from PIL import Image
 
     logger = logging.getLogger(__name__)
@@ -1453,122 +1454,298 @@ def generate_water_mitigation_report_pdf(
     company_data: Optional[Dict[str, Any]] = None
 ) -> str:
     """
-    Generate professional Water Mitigation photo report PDF
+    Generate professional Water Mitigation photo report PDF using ReportLab
+
+    Creates a comprehensive report with:
+    - Cover page with job/company information
+    - Section pages with titles and summaries
+    - Photo grids with captions and dates
+    - Page footers with numbers and generation date
 
     Args:
-        job_data: Water mitigation job data
+        job_data: Water mitigation job data (may include 'company' relationship)
         config: Report configuration (cover page, sections)
         photos: List of all photos for the job
         output_path: Path to save the PDF
-        company_data: Company information (name, logo, etc.)
+        company_data: Company information (name, logo, etc.) - if not provided, will use job.company
 
     Returns:
         Path to the generated PDF
     """
-    if not WEASYPRINT_AVAILABLE:
-        raise RuntimeError("WeasyPrint is not available")
+    if not PYPDF_AVAILABLE:
+        raise RuntimeError("pypdf and reportlab are required for PDF generation")
 
     import base64
+    import io
     import logging
+    import tempfile
     from datetime import datetime
 
+    from PIL import Image
+    from pypdf import PdfReader, PdfWriter
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import inch
+    from reportlab.pdfgen import canvas as pdf_canvas
+    from reportlab.platypus import Paragraph, Table, TableStyle
+
     logger = logging.getLogger(__name__)
+    logger.info(f"Generating photo report for job {job_data.get('id', 'unknown')}")
 
-    # Setup template environment
-    template_dir = TEMPLATE_DIR / "water-mitigation"
-    env = Environment(loader=FileSystemLoader(str(template_dir)))
+    # Get storage provider from settings
+    from app.core.config import settings
+    storage_provider = settings.STORAGE_PROVIDER
+    logger.info(f"Using storage provider: {storage_provider}")
 
-    # Register filters
-    def format_date_filter(value, format="%B %d, %Y"):
-        """Format date string"""
-        if not value:
+    # Use job's assigned company if available, otherwise use provided company_data
+    if not company_data and job_data.get('company'):
+        logger.info("Using job's assigned company data for report")
+        company_obj = job_data['company']
+        company_data = {
+            'name': company_obj.get('name', '') if isinstance(company_obj, dict) else getattr(company_obj, 'name', ''),
+            'logo': company_obj.get('logo', '') if isinstance(company_obj, dict) else getattr(company_obj, 'logo', '')
+        }
+        logger.info(f"Company name: {company_data['name']}, Logo: {company_data.get('logo', 'N/A')}")
+
+    # Page settings
+    page_width, page_height = letter
+    margin = 0.5 * inch  # Compact margin for more content space
+
+    # Professional grayscale color palette
+    COLOR_BLACK = colors.HexColor('#000000')
+    COLOR_DARK_GRAY = colors.HexColor('#333333')
+    COLOR_MEDIUM_GRAY = colors.HexColor('#666666')
+    COLOR_LIGHT_GRAY = colors.HexColor('#CCCCCC')
+    COLOR_VERY_LIGHT_GRAY = colors.HexColor('#F5F5F5')
+    COLOR_WHITE = colors.white
+
+    # Create PDF writer
+    writer = PdfWriter()
+
+    # Format dates
+    def format_date(date_value):
+        if not date_value:
             return ""
-        if isinstance(value, str):
-            try:
-                dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
-                return dt.strftime(format)
-            except (ValueError, TypeError):
-                return value
-        elif isinstance(value, datetime):
-            return value.strftime(format)
-        return str(value)
-
-    env.filters['format_date'] = format_date_filter
-
-    # Format mitigation dates range
-    def format_date_display(date_val):
-        """Format a date for display (e.g., 'Oct 5, 2025')"""
-        if not date_val:
-            return None
         try:
-            if isinstance(date_val, str):
-                dt = datetime.fromisoformat(date_val.replace('Z', '+00:00'))
-            elif isinstance(date_val, datetime):
-                dt = date_val
+            if isinstance(date_value, str):
+                dt = datetime.fromisoformat(date_value.replace('Z', '+00:00'))
             else:
-                return str(date_val)
-            return dt.strftime('%b %d, %Y')  # e.g., "Oct 5, 2025"
-        except (ValueError, TypeError):
-            return str(date_val) if date_val else None
+                dt = date_value
+            return dt.strftime("%B %d, %Y")
+        except Exception:
+            return str(date_value)
 
-    mitigation_start = job_data.get('mitigation_start_date')
-    mitigation_end = job_data.get('mitigation_end_date')
-    mitigation_dates = None
-    
-    if mitigation_start or mitigation_end:
-        start_formatted = format_date_display(mitigation_start)
-        end_formatted = format_date_display(mitigation_end)
-        
-        if start_formatted and end_formatted:
-            mitigation_dates = f"{start_formatted} ~ {end_formatted}"
-        elif start_formatted:
-            mitigation_dates = f"{start_formatted} ~"
-        elif end_formatted:
-            mitigation_dates = f"~ {end_formatted}"
+    report_date = format_date(datetime.now())
 
-    # Prepare context
-    context = {
-        # Cover page
-        'cover_title': config.get('cover_title', 'Water Mitigation Report'),
-        'cover_description': config.get('cover_description', ''),
-        'property_address': job_data.get('property_address', ''),
-        'client_name': job_data.get('homeowner_name', ''),
-        'date_of_loss': job_data.get('date_of_loss'),
-        'mitigation_dates': mitigation_dates,
-        'report_date': datetime.now().isoformat(),
+    # ===== COVER PAGE =====
+    logger.info("Creating cover page")
+    cover_buffer = io.BytesIO()
+    c = pdf_canvas.Canvas(cover_buffer, pagesize=letter)
 
-        # Company info
-        'company_name': company_data.get('name', '') if company_data else '',
-        'company_logo': None,  # Will be set below if available
-
-        # Sections
-        'sections': []
-    }
-
-    # Process company logo
+    # Company logo (if available) - converted to grayscale
+    logo_height = 0
     if company_data and company_data.get('logo'):
-        logo_path = company_data['logo']
-        if Path(logo_path).exists():
+        logo_path = Path(company_data['logo'])
+        if logo_path.exists():
             try:
-                with open(logo_path, 'rb') as f:
-                    logo_data = base64.b64encode(f.read()).decode('utf-8')
-                    logo_ext = Path(logo_path).suffix.lower()
-                    mime_types = {
-                        '.jpg': 'image/jpeg',
-                        '.jpeg': 'image/jpeg',
-                        '.png': 'image/png',
-                        '.gif': 'image/gif'
-                    }
-                    mime_type = mime_types.get(logo_ext, 'image/png')
-                    context['company_logo'] = f"data:{mime_type};base64,{logo_data}"
+                logo_img = Image.open(logo_path).convert('L')  # Convert to grayscale
+                logo_width, logo_h = logo_img.size
+                # Scale logo to fit width (max 2.5 inches for more refined look)
+                max_logo_width = 2.5 * inch
+                if logo_width > max_logo_width:
+                    scale = max_logo_width / logo_width
+                    logo_width = max_logo_width
+                    logo_h = logo_h * scale
+                else:
+                    logo_width = logo_width * (inch / 100)  # Convert to reasonable size
+                    logo_h = logo_h * (inch / 100)
+
+                logo_x = (page_width - logo_width) / 2
+                logo_y = page_height - margin - logo_h - 0.5 * inch
+
+                # Save grayscale logo to temp file
+                temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                logo_img.save(temp_logo.name, 'JPEG')
+                c.drawImage(temp_logo.name, logo_x, logo_y, width=logo_width, height=logo_h)
+                temp_logo.close()
+                logo_height = logo_h + 1.2 * inch
             except Exception as e:
                 logger.warning(f"Failed to load company logo: {e}")
 
+    # Clean top section
+    y_position = page_height - margin - logo_height - 0.5 * inch
+
+    # Title with sophisticated typography
+    title = config.get('cover_title', 'Water Mitigation Report')
+    c.setFillColor(COLOR_BLACK)
+    c.setFont("Helvetica-Bold", 32)
+    c.drawCentredString(page_width / 2, y_position, title)
+    y_position -= 0.25 * inch
+
+    # Single elegant line under title
+    c.setStrokeColor(COLOR_MEDIUM_GRAY)
+    c.setLineWidth(0.5)
+    line_margin = 2 * inch
+    c.line(line_margin, y_position, page_width - line_margin, y_position)
+    y_position -= 0.6 * inch
+
+    # Description (if provided) - dark gray, with newline support
+    description = config.get('cover_description', '')
+    if description:
+        c.setFillColor(COLOR_DARK_GRAY)
+        c.setFont("Helvetica", 11)
+
+        # Split by newlines first to preserve user's line breaks
+        paragraphs = description.split('\n')
+        all_lines = []
+
+        for paragraph in paragraphs:
+            paragraph = paragraph.strip()
+            if not paragraph:
+                # Empty line - add spacing
+                all_lines.append('')
+                continue
+
+            # Wrap long paragraphs
+            if len(paragraph) > 80:
+                words = paragraph.split()
+                current_line = []
+                for word in words:
+                    current_line.append(word)
+                    if len(' '.join(current_line)) > 80:
+                        if len(current_line) > 1:
+                            current_line.pop()
+                            all_lines.append(' '.join(current_line))
+                            current_line = [word]
+                        else:
+                            all_lines.append(word)
+                            current_line = []
+                if current_line:
+                    all_lines.append(' '.join(current_line))
+            else:
+                all_lines.append(paragraph)
+
+        # Draw all lines
+        for line in all_lines:
+            if line:  # Non-empty line
+                c.drawCentredString(page_width / 2, y_position, line)
+            y_position -= 0.22 * inch
+
+        y_position -= 0.3 * inch  # Extra spacing after description
+
+    # Job information section
+    y_position -= 0.6 * inch
+
+    # Section header with subtle background
+    c.setFillColor(COLOR_VERY_LIGHT_GRAY)
+    c.rect(margin - 0.1 * inch, y_position, page_width - 2 * margin + 0.2 * inch, 0.4 * inch, fill=1, stroke=0)
+
+    c.setFillColor(COLOR_BLACK)
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(margin + 0.1 * inch, y_position + 0.12 * inch, "JOB INFORMATION")
+    y_position -= 0.3 * inch
+
+    # Professional table layout for job info
+    # Format mitigation period
+    mitigation_start = job_data.get('mitigation_start_date')
+    mitigation_end = job_data.get('mitigation_end_date')
+
+    mitigation_period = ''
+    if mitigation_start or mitigation_end:
+        start_str = format_date(mitigation_start) if mitigation_start else 'N/A'
+        end_str = format_date(mitigation_end) if mitigation_end else 'N/A'
+        mitigation_period = f"{start_str} - {end_str}"
+
+    job_info = [
+        ("Property Address:", job_data.get('property_address', 'N/A')),
+        ("Client Name:", job_data.get('homeowner_name', 'N/A')),
+        ("Date of Loss:", format_date(job_data.get('date_of_loss'))),
+    ]
+
+    # Add mitigation period only if at least one date exists
+    if mitigation_period:
+        job_info.append(("Water Mitigation Period:", mitigation_period))
+
+    # Filter out empty values (but keep mitigation_period if it exists)
+    job_info = [(label, value) for label, value in job_info if value and value != 'N/A']
+
+    if job_info:
+        # Calculate table dimensions - left aligned
+        table_data = [[label, value] for label, value in job_info]
+        col_widths = [2.2 * inch, 4 * inch]
+
+        # Create table with professional styling - all left aligned
+        table = Table(table_data, colWidths=col_widths)
+        table.setStyle(TableStyle([
+            # Header row styling
+            ('FONT', (0, 0), (0, -1), 'Helvetica-Bold', 10),
+            ('FONT', (1, 0), (1, -1), 'Helvetica', 10),
+            ('TEXTCOLOR', (0, 0), (0, -1), COLOR_DARK_GRAY),
+            ('TEXTCOLOR', (1, 0), (1, -1), COLOR_DARK_GRAY),
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),  # Changed from RIGHT to LEFT
+            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            # Borders - only between rows, not at bottom
+            ('LINEBELOW', (0, 0), (-1, -2), 0.5, COLOR_VERY_LIGHT_GRAY),
+            # Padding - reduced top padding for first row
+            ('TOPPADDING', (0, 0), (-1, 0), 4),  # Tighter spacing for first row after divider
+            ('TOPPADDING', (0, 1), (-1, -1), 8),  # Normal spacing for other rows
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (0, -1), 0),
+            ('RIGHTPADDING', (1, 0), (1, -1), 0),
+        ]))
+
+        # Draw table - left aligned at margin
+        table_width, table_height = table.wrapOn(c, page_width, page_height)
+        table.drawOn(c, margin, y_position - table_height)
+        y_position -= table_height
+
+        # Draw bottom line matching the gray header width
+        c.setStrokeColor(COLOR_LIGHT_GRAY)
+        c.setLineWidth(1)
+        c.line(margin - 0.1 * inch, y_position, page_width - margin + 0.1 * inch, y_position)
+        y_position -= 0.6 * inch
+
+    # Company info section - clean and minimal
+    if company_data and company_data.get('name'):
+        y_position -= 0.8 * inch
+
+        # "Prepared By" with refined typography
+        c.setFillColor(COLOR_MEDIUM_GRAY)
+        c.setFont("Helvetica", 10)
+        c.drawCentredString(page_width / 2, y_position, "PREPARED BY")
+        y_position -= 0.3 * inch
+
+        c.setFillColor(COLOR_BLACK)
+        c.setFont("Helvetica-Bold", 13)
+        c.drawCentredString(page_width / 2, y_position, company_data['name'])
+
+    # Simple footer with single line
+    footer_y = 0.8 * inch
+    c.setStrokeColor(COLOR_LIGHT_GRAY)
+    c.setLineWidth(0.5)
+    c.line(margin, footer_y, page_width - margin, footer_y)
+
+    # Footer text
+    c.setFillColor(COLOR_MEDIUM_GRAY)
+    c.setFont("Helvetica", 9)
+    c.drawCentredString(page_width / 2, 0.4 * inch, f"Report Generated: {report_date}")
+
+    c.save()
+    cover_buffer.seek(0)
+
+    # Add cover page to writer
+    cover_reader = PdfReader(cover_buffer)
+    writer.add_page(cover_reader.pages[0])
+
+    # ===== PHOTO SECTIONS =====
     # Create photo lookup dictionary
     photo_dict = {photo['id']: photo for photo in photos}
 
-    # Define photos per page for each layout
-    photos_per_page = {
+    # Photos per page layout mapping
+    photos_per_page_map = {
         'single': 1,
         'two': 2,
         'three': 3,
@@ -1576,85 +1753,310 @@ def generate_water_mitigation_report_pdf(
         'six': 6
     }
 
-    # Process sections
+    # Grid layouts (rows, cols)
+    grid_layouts = {
+        'single': (1, 1),
+        'two': (2, 1),
+        'three': (3, 1),
+        'four': (2, 2),
+        'six': (3, 2)
+    }
+
+    total_pages = 1  # Start at 1 for cover page
+
     for section_data in config.get('sections', []):
         section_title = section_data.get('title', 'Section')
         section_summary = section_data.get('summary', '')
         layout = section_data.get('layout', 'four')
-        max_photos = photos_per_page.get(layout, 4)
+        max_photos = photos_per_page_map.get(layout, 4)
+        rows, cols = grid_layouts.get(layout, (2, 2))
+
+        logger.info(f"Processing section: {section_title} (layout: {layout})")
 
         # Collect all photos for this section
-        all_photos = []
+        section_photos = []
         for photo_meta in section_data.get('photos', []):
             photo_id = photo_meta.get('photo_id')
             if photo_id not in photo_dict:
                 continue
 
             photo = photo_dict[photo_id]
-            photo_file_path = Path(photo['file_path'])
+            file_path_str = photo.get('file_path', '')
 
-            if not photo_file_path.exists():
-                logger.warning(f"Photo file not found: {photo_file_path}")
-                continue
+            # Get photo file (local or cloud storage)
+            photo_file_path = None
+            temp_files = []  # Track temp files for cleanup
 
-            # Embed photo as base64
-            try:
-                with open(photo_file_path, 'rb') as f:
-                    img_data = base64.b64encode(f.read()).decode('utf-8')
+            if storage_provider and storage_provider.lower() == 'local':
+                local_path = Path(file_path_str)
+                if local_path.exists():
+                    photo_file_path = str(local_path)
+                else:
+                    logger.warning(f"Local file not found: {local_path}")
+                    continue
+            else:
+                # Cloud storage: download to temp file
+                try:
+                    from app.domains.storage.factory import StorageFactory
+                    storage = StorageFactory.get_instance(storage_provider)
+                    photo_data = storage.download(file_path_str)
+                    if photo_data:
+                        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                        temp_file.write(photo_data)
+                        temp_file.close()
+                        photo_file_path = temp_file.name
+                        temp_files.append(temp_file.name)
+                    else:
+                        continue
+                except Exception as e:
+                    logger.error(f"Failed to download photo: {e}")
+                    continue
 
-                mime_type = photo.get('mime_type', 'image/jpeg')
-                embedded_path = f"data:{mime_type};base64,{img_data}"
-
-                all_photos.append({
-                    'file_path': embedded_path,
+            if photo_file_path:
+                section_photos.append({
+                    'file_path': photo_file_path,
                     'caption': photo_meta.get('caption', ''),
-                    'title': photo.get('title', ''),
-                    'description': photo.get('description', ''),
                     'captured_date': photo.get('captured_date'),
                     'show_date': photo_meta.get('show_date', True),
-                    'show_description': photo_meta.get('show_description', True)
-                })
-            except Exception as e:
-                logger.error(f"Failed to process photo {photo_id}: {e}")
-
-        # Split photos into multiple pages if needed
-        if all_photos:
-            for page_num, i in enumerate(range(0, len(all_photos), max_photos), start=1):
-                page_photos = all_photos[i:i + max_photos]
-                page_title = section_title
-                if len(all_photos) > max_photos:
-                    page_title = f"{section_title} (Page {page_num})"
-
-                context['sections'].append({
-                    'title': page_title,
-                    'summary': section_summary if page_num == 1 else '',  # Only show summary on first page
-                    'layout': layout,
-                    'photos': page_photos
                 })
 
-    logger.info(f"Generating report with {len(context['sections'])} sections")
+        if not section_photos:
+            logger.warning(f"No photos found for section: {section_title}")
+            continue
 
-    # Load template
-    template = env.get_template('photo_report.html')
-    html_content = template.render(**context)
+        # Split photos into pages
+        for page_num, i in enumerate(range(0, len(section_photos), max_photos), start=1):
+            page_photos = section_photos[i:i + max_photos]
 
-    # Load CSS
-    css_path = template_dir / 'photo_report.css'
-    stylesheets = []
-    if css_path.exists():
-        with open(css_path, 'r', encoding='utf-8') as f:
-            stylesheets.append(CSS(string=f.read()))
+            # Create page
+            page_buffer = io.BytesIO()
+            c = pdf_canvas.Canvas(page_buffer, pagesize=letter)
 
-    # Generate PDF
+            # Simple header with section name (small, top)
+            header_height = 0.3 * inch
+
+            # Only show section header with description on first page of each section
+            if page_num == 1:
+                # Section title - larger, prominent
+                c.setFillColor(COLOR_BLACK)
+                c.setFont("Helvetica-Bold", 16)
+                c.drawString(margin, page_height - margin - 0.25 * inch, section_title)
+
+                # Section description (if exists)
+                if section_summary:
+                    c.setFillColor(COLOR_DARK_GRAY)
+                    c.setFont("Helvetica", 10)
+
+                    # Wrap summary text
+                    summary_lines = []
+                    words = section_summary.split()
+                    current_line = []
+                    max_chars = 100
+                    for word in words:
+                        current_line.append(word)
+                        if len(' '.join(current_line)) > max_chars:
+                            if len(current_line) > 1:
+                                current_line.pop()
+                                summary_lines.append(' '.join(current_line))
+                                current_line = [word]
+                            else:
+                                summary_lines.append(word)
+                                current_line = []
+                    if current_line:
+                        summary_lines.append(' '.join(current_line))
+
+                    y_pos = page_height - margin - 0.5 * inch
+                    for line in summary_lines[:3]:  # Max 3 lines
+                        c.drawString(margin, y_pos, line)
+                        y_pos -= 0.15 * inch
+
+                    # Add separator line
+                    separator_y = y_pos - 0.1 * inch
+                    c.setStrokeColor(COLOR_LIGHT_GRAY)
+                    c.setLineWidth(0.5)
+                    c.line(margin, separator_y, page_width - margin, separator_y)
+
+                    # Calculate header height correctly: from top of page to separator line
+                    header_height = page_height - separator_y
+                else:
+                    # Just separator line after title
+                    c.setStrokeColor(COLOR_LIGHT_GRAY)
+                    c.setLineWidth(0.5)
+                    c.line(margin, page_height - margin - 0.35 * inch, page_width - margin, page_height - margin - 0.35 * inch)
+                    header_height = 0.5 * inch
+            else:
+                # Continuation pages: section name with divider
+                c.setFillColor(COLOR_DARK_GRAY)
+                c.setFont("Helvetica", 11)  # Larger font for better visibility
+                c.drawString(margin, page_height - margin - 0.25 * inch, section_title)
+
+                # Add divider line below section name
+                c.setStrokeColor(COLOR_LIGHT_GRAY)
+                c.setLineWidth(0.5)
+                c.line(margin, page_height - margin - 0.35 * inch, page_width - margin, page_height - margin - 0.35 * inch)
+
+                header_height = 0.45 * inch
+
+            # Calculate photo grid dimensions
+            # Footer is at 0.65 inch from bottom, so reserve that space plus a small buffer
+            footer_reserve = 0.85 * inch  # Footer at 0.65" + 0.2" buffer
+            content_height = page_height - header_height - margin - footer_reserve
+            content_width = page_width - 2 * margin
+
+            photo_width = content_width / cols - 0.1 * inch
+            photo_height = content_height / rows - 0.5 * inch  # Extra space for captions
+
+            # Draw photos in grid
+            for idx, photo_item in enumerate(page_photos):
+                row = idx // cols
+                col = idx % cols
+
+                # Calculate position
+                x = margin + col * (photo_width + 0.1 * inch)
+                # Use 0.2 inch spacing between divider and first photo (tighter spacing)
+                y = page_height - header_height - 0.2 * inch - (row + 1) * (photo_height + 0.5 * inch)
+
+                # Draw photo (NO border) - LEFT aligned with text on RIGHT
+                try:
+                    img = Image.open(photo_item['file_path'])
+                    img_width, img_height = img.size
+
+                    # Photo takes 65% of cell width, text area takes 35%
+                    photo_area_width = photo_width * 0.65
+                    text_area_width = photo_width * 0.35 - 0.15 * inch  # Text area with spacing
+
+                    # Calculate scaling to fit photo area
+                    width_scale = photo_area_width / img_width
+                    height_scale = photo_height / img_height
+                    scale = min(width_scale, height_scale)
+
+                    scaled_width = img_width * scale
+                    scaled_height = img_height * scale
+
+                    # Left-align image in cell
+                    img_x = x
+                    img_y = y + (photo_height - scaled_height) / 2  # Vertically center
+
+                    c.drawImage(
+                        photo_item['file_path'],
+                        img_x, img_y,
+                        width=scaled_width,
+                        height=scaled_height,
+                        preserveAspectRatio=True
+                    )
+
+                    # Text area on the RIGHT side of photo - adaptive spacing
+                    # For portrait images (narrow), text starts right after actual image width
+                    # For landscape images (wide), text uses fixed photo area boundary
+                    is_portrait = img_height > img_width
+
+                    if is_portrait:
+                        # Portrait: text starts right after the actual scaled image width
+                        text_x = x + scaled_width + 0.15 * inch  # Tighter spacing for portrait
+                        text_y_start = y + photo_height - 0.15 * inch  # Start from cell top
+                    else:
+                        # Landscape: text starts at photo area boundary
+                        text_x = x + photo_area_width + 0.1 * inch
+                        # Align text to actual image top (not cell top) for consistency
+                        text_y_start = img_y + scaled_height - 0.15 * inch  # Start from image top
+
+                    line_height = 0.14 * inch
+                    current_y = text_y_start
+
+                    # Line 1: Caption/Description (primary text)
+                    caption_text = photo_item.get('caption', '') or photo_item.get('description', '')
+                    if caption_text:
+                        c.setFillColor(COLOR_BLACK)
+                        c.setFont("Helvetica", 8)
+
+                        # Wrap text to fit text area
+                        words = caption_text.split()
+                        lines = []
+                        current_line = []
+                        for word in words:
+                            current_line.append(word)
+                            test_line = ' '.join(current_line)
+                            # Rough estimate: 6 pixels per character at 8pt
+                            if len(test_line) * 6 > text_area_width * 72:  # Convert to points
+                                if len(current_line) > 1:
+                                    current_line.pop()
+                                    lines.append(' '.join(current_line))
+                                    current_line = [word]
+                                else:
+                                    lines.append(word)
+                                    current_line = []
+                        if current_line:
+                            lines.append(' '.join(current_line))
+
+                        # Draw caption lines (max 3 lines)
+                        for line in lines[:3]:
+                            c.drawString(text_x, current_y, line)
+                            current_y -= line_height
+
+                    # Line: Category (if exists)
+                    category = photo_item.get('category', '')
+                    if category and photo_item.get('show_description'):
+                        c.setFillColor(COLOR_DARK_GRAY)
+                        c.setFont("Helvetica", 8)  # Changed from 7 to 8 to match footer
+                        c.drawString(text_x, current_y, f"Category: {category}")
+                        current_y -= line_height * 0.9
+
+                    # Line: Date (if exists and enabled)
+                    if photo_item.get('show_date') and photo_item.get('captured_date'):
+                        date_str = format_date(photo_item['captured_date'])
+                        c.setFont("Helvetica", 8)  # Changed from 7 to 8 to match footer
+                        c.setFillColor(COLOR_MEDIUM_GRAY)
+                        c.drawString(text_x, current_y, date_str)
+
+                except Exception as e:
+                    logger.error(f"Failed to draw photo: {e}")
+                    # Draw professional placeholder
+                    c.setStrokeColor(COLOR_LIGHT_GRAY)
+                    c.setFillColor(COLOR_VERY_LIGHT_GRAY)
+                    c.rect(x, y + 0.3 * inch, photo_width, photo_height - 0.3 * inch, fill=1)
+                    c.setFillColor(COLOR_MEDIUM_GRAY)
+                    c.setFont("Helvetica", 10)
+                    c.drawCentredString(x + photo_width / 2, y + photo_height / 2, "Image not available")
+                    c.setFillColor(COLOR_BLACK)
+
+            # Professional page footer - compact
+            total_pages += 1
+
+            # Footer separator line (thin)
+            footer_y = 0.65 * inch  # Reduced spacing
+            c.setStrokeColor(COLOR_LIGHT_GRAY)
+            c.setLineWidth(0.5)
+            c.line(margin, footer_y, page_width - margin, footer_y)
+
+            # Footer text - closer to divider
+            footer_text_y = 0.4 * inch  # Reduced gap from divider
+            c.setFillColor(COLOR_MEDIUM_GRAY)
+            c.setFont("Helvetica", 8)
+            c.drawString(margin, footer_text_y, f"Page {total_pages}")
+
+            # Center text - section title (increased font size to match other footer text)
+            c.setFont("Helvetica", 8)  # Changed from 7 to 8
+            c.drawCentredString(page_width / 2, footer_text_y, section_title)
+
+            # Right text - date
+            c.setFont("Helvetica", 8)
+            c.drawRightString(page_width - margin, footer_text_y, report_date)
+
+            c.save()
+            page_buffer.seek(0)
+
+            # Add page to writer
+            page_reader = PdfReader(page_buffer)
+            writer.add_page(page_reader.pages[0])
+
+    # ===== WRITE FINAL PDF =====
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    HTML(string=html_content).write_pdf(
-        output_path,
-        stylesheets=stylesheets
-    )
+    with open(output_path, 'wb') as output_file:
+        writer.write(output_file)
 
-    logger.info(f"Report PDF generated: {output_path}")
+    logger.info(f"Report PDF generated successfully: {output_path} ({total_pages} pages)")
     return str(output_path)
 
 

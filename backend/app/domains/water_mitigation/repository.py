@@ -27,6 +27,23 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
     def __init__(self, session: DatabaseSession):
         super().__init__(session, WaterMitigationJob)
 
+    def _convert_to_dict(self, entity: Any, visited: Optional[Set] = None) -> Dict[str, Any]:
+        """Convert job entity to dictionary, including company relationship"""
+        # Get base conversion
+        result = super()._convert_to_dict(entity, visited)
+
+        # Add company relationship if loaded
+        if hasattr(entity, 'company') and entity.company is not None:
+            # Create a minimal company dict to avoid circular references
+            result['company'] = {
+                'id': str(entity.company.id),
+                'name': entity.company.name,
+                'company_code': entity.company.company_code if hasattr(entity.company, 'company_code') else None,
+                'logo': entity.company.logo if hasattr(entity.company, 'logo') else None
+            }
+
+        return result
+
     def find_with_photos(self, job_id: UUID) -> Optional[WaterMitigationJob]:
         """Find job with photos eagerly loaded"""
         query = self.db_session.query(WaterMitigationJob).options(
@@ -496,6 +513,90 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             'deleted_ids': to_delete,
             'dry_run': False
         }
+
+    def bulk_update_captured_date_by_category(
+        self,
+        job_id: UUID,
+        category_pattern: str,
+        new_date: Any
+    ) -> int:
+        """
+        Bulk update captured_date for photos matching a category pattern.
+
+        Uses case-insensitive LIKE matching to handle variations like:
+        - "Day 2", "day 2", "Day2", "day2"
+
+        Args:
+            job_id: Water mitigation job ID
+            category_pattern: SQL LIKE pattern (e.g., '%day%2%')
+            new_date: New date to set (datetime object)
+
+        Returns:
+            Number of photos updated
+        """
+        from datetime import datetime
+        from sqlalchemy import func
+
+        # Use LOWER() for case-insensitive matching
+        # Also remove spaces for normalized matching
+        result = self.db_session.query(WMPhoto).filter(
+            WMPhoto.job_id == job_id,
+            WMPhoto.is_trashed.is_(False),
+            WMPhoto.category.isnot(None),
+            WMPhoto.category != '',
+            # Case-insensitive LIKE match
+            func.lower(func.replace(WMPhoto.category, ' ', '')).like(
+                category_pattern.lower().replace(' ', '')
+            )
+        ).update(
+            {"captured_date": new_date},
+            synchronize_session='fetch'
+        )
+
+        return result
+
+    def bulk_update_captured_date_for_other_categories(
+        self,
+        job_id: UUID,
+        exclude_patterns: List[str],
+        new_date: Any
+    ) -> int:
+        """
+        Bulk update captured_date for photos NOT matching specified category patterns.
+
+        Args:
+            job_id: Water mitigation job ID
+            exclude_patterns: List of SQL LIKE patterns to exclude (e.g., ['%day%2%', '%day%3%'])
+            new_date: New date to set (datetime object)
+
+        Returns:
+            Number of photos updated
+        """
+        from datetime import datetime
+        from sqlalchemy import func, not_, and_
+
+        # Build exclude conditions
+        exclude_conditions = []
+        for pattern in exclude_patterns:
+            exclude_conditions.append(
+                func.lower(func.replace(WMPhoto.category, ' ', '')).like(
+                    pattern.lower().replace(' ', '')
+                )
+            )
+
+        # Photos with categories that DON'T match exclude patterns
+        result = self.db_session.query(WMPhoto).filter(
+            WMPhoto.job_id == job_id,
+            WMPhoto.is_trashed.is_(False),
+            WMPhoto.category.isnot(None),
+            WMPhoto.category != '',
+            not_(or_(*exclude_conditions)) if exclude_conditions else True
+        ).update(
+            {"captured_date": new_date},
+            synchronize_session='fetch'
+        )
+
+        return result
 
 
 class WMJobStatusHistoryRepository(SQLAlchemyRepository[WMJobStatusHistory, UUID]):

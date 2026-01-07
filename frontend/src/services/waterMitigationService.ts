@@ -18,7 +18,11 @@ import type {
   ReportConfigCreate,
   ReportConfigUpdate,
   GenerateReportRequest,
-  CompanyCamSyncResult
+  CompanyCamSyncResult,
+  ReportTemplate,
+  TemplateCreate,
+  TemplateUpdate,
+  TemplateListResponse
 } from '../types/waterMitigation';
 
 const BASE_URL = '/api/water-mitigation';
@@ -242,6 +246,30 @@ export const waterMitigationService = {
     syncFromCompanyCam: async (jobId: string): Promise<CompanyCamSyncResult> => {
       const response = await api.post(`${BASE_URL}/jobs/${jobId}/sync-companycam-photos`);
       return response.data;
+    },
+
+    // Bulk update photo dates based on category
+    // Day 2 -> start_date + 1, Day 3 -> end_date, Others -> start_date
+    bulkUpdateDatesByCategory: async (
+      jobId: string,
+      mitigationStartDate: string,  // YYYY-MM-DD format
+      mitigationEndDate: string     // YYYY-MM-DD format
+    ): Promise<{
+      success: boolean;
+      total_updated: number;
+      day2_count: number;
+      day3_count: number;
+      other_count: number;
+      message: string;
+    }> => {
+      const response = await api.put(
+        `${BASE_URL}/jobs/${jobId}/photos/bulk-update-dates-by-category`,
+        {
+          mitigation_start_date: mitigationStartDate,
+          mitigation_end_date: mitigationEndDate
+        }
+      );
+      return response.data;
     }
   },
 
@@ -328,6 +356,56 @@ export const waterMitigationService = {
       const response = await api.post(`${BASE_URL}/jobs/${jobId}/generate-report`, request, {
         responseType: 'blob'
       });
+      return response.data;
+    }
+  },
+
+  // Template Management
+  templates: {
+    // List all templates
+    list: async (): Promise<TemplateListResponse> => {
+      const response = await api.get(`${BASE_URL}/templates`);
+      return response.data;
+    },
+
+    // Get template by ID
+    get: async (templateId: string): Promise<ReportTemplate> => {
+      const response = await api.get(`${BASE_URL}/templates/${templateId}`);
+      return response.data;
+    },
+
+    // Create new template
+    create: async (data: TemplateCreate): Promise<ReportTemplate> => {
+      const response = await api.post(`${BASE_URL}/templates`, data);
+      return response.data;
+    },
+
+    // Update template
+    update: async (templateId: string, data: TemplateUpdate): Promise<ReportTemplate> => {
+      const response = await api.put(`${BASE_URL}/templates/${templateId}`, data);
+      return response.data;
+    },
+
+    // Delete template
+    delete: async (templateId: string): Promise<void> => {
+      await api.delete(`${BASE_URL}/templates/${templateId}`);
+    },
+
+    // Clone template
+    clone: async (templateId: string, newName: string): Promise<ReportTemplate> => {
+      const response = await api.post(`${BASE_URL}/templates/${templateId}/clone`, { name: newName });
+      return response.data;
+    },
+
+    // Get default template
+    getDefault: async (): Promise<ReportTemplate> => {
+      const response = await api.get(`${BASE_URL}/templates/default`);
+      return response.data;
+    },
+
+    // Create report config from template
+    createConfigFromTemplate: async (templateId: string, jobId: string): Promise<ReportConfig> => {
+      const response = await api.post(`${BASE_URL}/templates/${templateId}/create-config`, { job_id: jobId });
       return response.data;
     }
   }

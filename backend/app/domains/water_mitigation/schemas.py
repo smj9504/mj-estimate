@@ -81,18 +81,22 @@ class JobBase(BaseModel):
 class JobCreate(JobBase):
     """Create job request"""
     client_id: Optional[UUID] = None
+    company_id: Optional[UUID] = None  # Assigned company (service provider)
     active: bool = True
     status: str = Field(JobStatus.LEAD, max_length=50)
 
     @validator('status')
     def validate_status(cls, v):
         if v not in JobStatus.all_statuses():
-            raise ValueError(f'Invalid status. Must be one of: {JobStatus.all_statuses()}')
+            raise ValueError(
+                f'Invalid status. Must be one of: {JobStatus.all_statuses()}'
+            )
         return v
 
 
 class JobUpdate(BaseModel):
     """Update job request (all fields optional)"""
+    company_id: Optional[UUID] = None  # Assigned company (service provider)
     property_address: Optional[str] = Field(None, max_length=500)
     property_street: Optional[str] = Field(None, max_length=255)
     property_city: Optional[str] = Field(None, max_length=100)
@@ -153,10 +157,22 @@ class JobStatusUpdate(BaseModel):
         return v
 
 
+class CompanyBrief(BaseModel):
+    """Brief company info for job response"""
+    id: UUID
+    name: str
+    company_code: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class JobResponse(JobBase):
     """Job response schema"""
     id: UUID
     client_id: Optional[UUID] = None
+    company_id: Optional[UUID] = None  # Assigned company ID
+    company: Optional[CompanyBrief] = None  # Assigned company details
     active: bool
     status: str
 
@@ -354,6 +370,7 @@ class ReportConfigResponse(ReportConfigBase):
     """Report config response"""
     id: UUID
     job_id: UUID
+    template_id: Optional[UUID] = None  # Template this config was created from
     created_at: datetime
     updated_at: Optional[datetime] = None
     created_by_id: Optional[UUID] = None
@@ -480,3 +497,197 @@ class CompanyCamSyncResult(BaseModel):
 class CompanyCamSyncRequest(BaseModel):
     """Request to sync CompanyCam photos (optional params)"""
     force_refresh: bool = Field(False, description="Re-download even if photo exists")
+
+
+# Bulk Photo Date Update by Category
+class BulkUpdatePhotoDatesByCategoryRequest(BaseModel):
+    """
+    Request to bulk update photo dates based on category matching.
+
+    Date mapping rules:
+    - Day 2 category photos -> mitigation_start_date + 1 day
+    - Day 3 category photos -> mitigation_end_date
+    - All other categories -> mitigation_start_date
+    """
+    mitigation_start_date: date = Field(..., description="Mitigation start date")
+    mitigation_end_date: date = Field(..., description="Mitigation end date")
+
+
+class BulkUpdatePhotoDatesByCategoryResponse(BaseModel):
+    """Response from bulk photo date update by category"""
+    success: bool = Field(True, description="Whether operation succeeded")
+    total_updated: int = Field(0, description="Total number of photos updated")
+    day2_count: int = Field(0, description="Number of Day 2 photos updated")
+    day3_count: int = Field(0, description="Number of Day 3 photos updated")
+    other_count: int = Field(0, description="Number of other category photos updated")
+    message: str = Field("", description="Summary message")
+
+
+# ============================================================================
+# Report Template Schemas
+# ============================================================================
+
+class PhotoLayoutType:
+    """Valid photo layout types"""
+    SINGLE = "single"   # 1 photo per page
+    TWO = "two"         # 2 photos per page
+    THREE = "three"     # 3 photos per page
+    FOUR = "four"       # 4 photos per page (default)
+    SIX = "six"         # 6 photos per page
+
+    @classmethod
+    def all_layouts(cls):
+        return [cls.SINGLE, cls.TWO, cls.THREE, cls.FOUR, cls.SIX]
+
+
+class TemplateType:
+    """Valid template types"""
+    PHOTO_REPORT = "photo_report"
+    DAMAGE_ASSESSMENT = "damage_assessment"
+    MONITORING_REPORT = "monitoring_report"
+
+    @classmethod
+    def all_types(cls):
+        return [cls.PHOTO_REPORT, cls.DAMAGE_ASSESSMENT, cls.MONITORING_REPORT]
+
+
+# Template Section Schemas
+class TemplateSectionBase(BaseModel):
+    """Base template section schema"""
+    title: str = Field(..., max_length=255, description="Section title (e.g., 'Wet Area', 'Demolition')")
+    summary: Optional[str] = Field(None, description="Optional prefilled description/summary")
+    photo_layout: str = Field(
+        "four",
+        pattern="^(single|two|three|four|six)$",
+        description="Photo layout: single, two, three, four, six"
+    )
+    default_photos_per_page: int = Field(2, ge=1, le=6, description="Default photos per page")
+    display_order: int = Field(0, ge=0, description="Display order for sorting")
+    placeholders: Optional[Dict[str, str]] = Field(
+        None,
+        description="Dynamic placeholders for summary (e.g., {'monitoring_dates': 'Monitoring on {dates}'})"
+    )
+
+
+class TemplateSectionCreate(TemplateSectionBase):
+    """Create template section request"""
+    pass
+
+
+class TemplateSectionUpdate(BaseModel):
+    """Update template section request (all fields optional)"""
+    title: Optional[str] = Field(None, max_length=255)
+    summary: Optional[str] = None
+    photo_layout: Optional[str] = Field(None, pattern="^(single|two|three|four|six)$")
+    default_photos_per_page: Optional[int] = Field(None, ge=1, le=6)
+    display_order: Optional[int] = Field(None, ge=0)
+    placeholders: Optional[Dict[str, str]] = None
+
+
+class TemplateSectionResponse(TemplateSectionBase):
+    """Template section response"""
+    id: UUID
+    template_id: UUID
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Template Schemas
+class ReportTemplateBase(BaseModel):
+    """Base report template schema"""
+    name: str = Field(..., max_length=255, description="Template name")
+    description: Optional[str] = Field(None, description="Template description")
+    template_type: str = Field(
+        "photo_report",
+        max_length=50,
+        description="Template type: photo_report, damage_assessment, monitoring_report"
+    )
+    is_default: bool = Field(False, description="Is this the default template for this type?")
+    is_active: bool = Field(True, description="Is this template active?")
+
+
+class ReportTemplateCreate(ReportTemplateBase):
+    """Create report template request"""
+    company_id: Optional[UUID] = Field(None, description="Company ID (NULL for system templates)")
+    sections: List[TemplateSectionCreate] = Field(
+        default_factory=list,
+        description="Initial sections to create with the template"
+    )
+
+    @validator('template_type')
+    def validate_template_type(cls, v):
+        if v not in TemplateType.all_types():
+            raise ValueError(f'Invalid template_type. Must be one of: {TemplateType.all_types()}')
+        return v
+
+
+class ReportTemplateUpdate(BaseModel):
+    """Update report template request (all fields optional)"""
+    name: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = None
+    template_type: Optional[str] = Field(None, max_length=50)
+    is_default: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+    @validator('template_type')
+    def validate_template_type(cls, v):
+        if v is not None and v not in TemplateType.all_types():
+            raise ValueError(f'Invalid template_type. Must be one of: {TemplateType.all_types()}')
+        return v
+
+
+class ReportTemplateResponse(ReportTemplateBase):
+    """Report template response"""
+    id: UUID
+    company_id: Optional[UUID] = None
+    created_by_id: Optional[UUID] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    sections: List[TemplateSectionResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ReportTemplateListResponse(BaseModel):
+    """Paginated template list response"""
+    items: List[ReportTemplateResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class ReportTemplateBrief(BaseModel):
+    """Brief template info for dropdowns/selectors"""
+    id: UUID
+    name: str
+    template_type: str
+    is_default: bool
+    section_count: int
+
+    class Config:
+        from_attributes = True
+
+
+# Template Clone Request
+class ReportTemplateCloneRequest(BaseModel):
+    """Request to clone/duplicate a template"""
+    new_name: str = Field(..., max_length=255, description="Name for the cloned template")
+    company_id: Optional[UUID] = Field(None, description="Target company (NULL for system template)")
+    include_sections: bool = Field(True, description="Include sections in the clone")
+
+
+# Create Report Config from Template
+class CreateConfigFromTemplateRequest(BaseModel):
+    """Request to create a report config from a template"""
+    template_id: UUID = Field(..., description="Template ID to use")
+    placeholder_values: Optional[Dict[str, str]] = Field(
+        None,
+        description="Values for placeholders (e.g., {'monitoring_dates': 'Jan 1, Jan 5, Jan 10'})"
+    )
+    cover_title: Optional[str] = Field(None, max_length=255, description="Override cover title")
+    cover_description: Optional[str] = Field(None, description="Override cover description")

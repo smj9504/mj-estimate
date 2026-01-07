@@ -28,6 +28,8 @@ module.exports = {
         changeOrigin: true,
         secure: false,
         logLevel: 'debug',
+        timeout: 300000, // 5 minutes timeout for PDF generation
+        proxyTimeout: 300000, // 5 minutes proxy timeout
         onProxyReq: (proxyReq, req, res) => {
           console.log('Proxying:', req.method, req.url, '->', 'http://localhost:8000' + req.url);
         },

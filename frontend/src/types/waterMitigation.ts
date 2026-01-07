@@ -45,6 +45,7 @@ export interface CategoryCreate {
 export interface WaterMitigationJob {
   id: string;
   client_id?: string;
+  company_id?: string; // Optional company assignment
   active: boolean;
   status: JobStatus;
 
@@ -98,11 +99,19 @@ export interface WaterMitigationJob {
   updated_at?: string;
   created_by_id?: string;
   updated_by_id?: string;
+
+  // Populated company data
+  company?: {
+    id: string;
+    name: string;
+    company_code?: string;
+  };
 }
 
 // Request Types
 export interface JobCreateRequest {
   client_id?: string;
+  company_id?: string; // Optional company assignment
   active?: boolean;
   status?: JobStatus;
 
@@ -151,6 +160,7 @@ export interface JobCreateRequest {
 export type JobCreate = JobCreateRequest;
 
 export interface JobUpdate {
+  company_id?: string; // Optional company assignment
   active?: boolean;
   status?: JobStatus;
 
@@ -333,4 +343,57 @@ export interface CompanyCamSyncResult {
   errors: string[];
   message: string;
   cancelled?: boolean;
+}
+
+// Template Types
+export enum TemplateType {
+  STANDARD = 'standard',
+  CUSTOM = 'custom'
+}
+
+export const TEMPLATE_TYPE_OPTIONS = [
+  { value: TemplateType.STANDARD, label: 'Standard' },
+  { value: TemplateType.CUSTOM, label: 'Custom' }
+] as const;
+
+export interface TemplateSection {
+  id?: string;
+  title: string;
+  summary?: string;
+  layout: 'single' | 'two' | 'three' | 'four' | 'six';
+  photos_per_page?: number;
+  display_order: number;
+}
+
+export interface ReportTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  template_type: TemplateType;
+  is_default: boolean;
+  sections: TemplateSection[];
+  created_at: string;
+  updated_at: string;
+  created_by_id?: string;
+}
+
+export interface TemplateCreate {
+  name: string;
+  description?: string;
+  template_type?: TemplateType;
+  is_default?: boolean;
+  sections: TemplateSection[];
+}
+
+export interface TemplateUpdate {
+  name?: string;
+  description?: string;
+  template_type?: TemplateType;
+  is_default?: boolean;
+  sections?: TemplateSection[];
+}
+
+export interface TemplateListResponse {
+  items: ReportTemplate[];
+  total: number;
 }
