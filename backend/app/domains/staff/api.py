@@ -11,7 +11,11 @@ from .schemas import (
     Staff, StaffCreate, StaffUpdate, StaffResponse, StaffListResponse,
     StaffPermission, StaffPermissionCreate, StaffPermissionUpdate, StaffPermissionResponse,
     AuditLog, AuditLogResponse, StaffFilter, AuditLogFilter,
-    LoginRequest, LoginResponse, ChangePasswordRequest
+    LoginRequest, LoginResponse, ChangePasswordRequest,
+    GoogleDriveSettingsUpdate, GoogleDriveSettingsResponse, GoogleDriveTestResponse,
+    GoogleOAuthInitResponse, GoogleOAuthCallbackRequest, GoogleOAuthCallbackResponse,
+    GoogleOAuthStatusResponse, GoogleDriveFolderListResponse, GoogleDriveFolderResponse,
+    GoogleDriveFolderCreateRequest, GoogleDriveFolderSelectRequest
 )
 from .service import StaffService
 from .models import StaffRole
@@ -287,6 +291,483 @@ async def generate_staff_number(
     try:
         staff_number = service.generate_staff_number(company_id)
         return {"staff_number": staff_number}
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating staff number: {str(e)}")
+
+
+# ========== Google Drive Settings Endpoints ==========
+
+@router.get("/{staff_id}/gdrive-settings", response_model=GoogleDriveSettingsResponse)
+async def get_gdrive_settings(
+    staff_id: UUID,
+    service: StaffService = Depends(get_staff_service)
+):
+    """Get Google Drive settings for a staff member (excludes sensitive credentials)"""
+    try:
+        staff = service.get_by_id(staff_id)
+        if not staff:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+
+        return GoogleDriveSettingsResponse(
+            gdrive_enabled=staff.get('gdrive_enabled', False),
+            gdrive_root_folder_id=staff.get('gdrive_root_folder_id'),
+            gdrive_configured=bool(staff.get('gdrive_service_account_json')),
+            message="Settings retrieved successfully"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving Google Drive settings: {str(e)}")
+
+
+@router.put("/{staff_id}/gdrive-settings", response_model=GoogleDriveSettingsResponse)
+async def update_gdrive_settings(
+    staff_id: UUID,
+    settings_data: GoogleDriveSettingsUpdate,
+    service: StaffService = Depends(get_staff_service),
+    cache: CacheService = Depends(get_cache)
+):
+    """Update Google Drive settings for a staff member"""
+    from app.core.encryption import encrypt_text
+
+    try:
+        staff = service.get_by_id(staff_id)
+        if not staff:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+
+        update_data = {}
+
+        # Encrypt service account JSON if provided
+        if settings_data.gdrive_service_account_json is not None:
+            if settings_data.gdrive_service_account_json:
+                # Validate JSON format
+                import json
+                try:
+                    json.loads(settings_data.gdrive_service_account_json)
+                except json.JSONDecodeError:
+                    raise HTTPException(status_code=400, detail="Invalid JSON format for service account key")
+
+                # Encrypt and store
+                update_data['gdrive_service_account_json'] = encrypt_text(settings_data.gdrive_service_account_json)
+            else:
+                # Clear the service account JSON
+                update_data['gdrive_service_account_json'] = None
+
+        if settings_data.gdrive_root_folder_id is not None:
+            update_data['gdrive_root_folder_id'] = settings_data.gdrive_root_folder_id or None
+
+        if settings_data.gdrive_enabled is not None:
+            update_data['gdrive_enabled'] = settings_data.gdrive_enabled
+
+        if update_data:
+            updated_staff = service.update(staff_id, update_data)
+            if not updated_staff:
+                raise HTTPException(status_code=404, detail="Failed to update staff member")
+
+            # Invalidate cache
+            invalidate_staff_cache(str(staff_id), cache)
+
+        # Return updated settings
+        return GoogleDriveSettingsResponse(
+            gdrive_enabled=update_data.get('gdrive_enabled', staff.get('gdrive_enabled', False)),
+            gdrive_root_folder_id=update_data.get('gdrive_root_folder_id', staff.get('gdrive_root_folder_id')),
+            gdrive_configured=bool(update_data.get('gdrive_service_account_json', staff.get('gdrive_service_account_json'))),
+            message="Google Drive settings updated successfully"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error updating Google Drive settings: {str(e)}")
+
+
+@router.post("/{staff_id}/gdrive-settings/test", response_model=GoogleDriveTestResponse)
+async def test_gdrive_connection(
+    staff_id: UUID,
+    service: StaffService = Depends(get_staff_service)
+):
+    """Test Google Drive connection with stored credentials"""
+    from app.core.encryption import decrypt_text
+
+    try:
+        staff = service.get_by_id(staff_id)
+        if not staff:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+
+        encrypted_json = staff.get('gdrive_service_account_json')
+        folder_id = staff.get('gdrive_root_folder_id')
+
+        if not encrypted_json:
+            return GoogleDriveTestResponse(
+                success=False,
+                message="Service account JSON is not configured"
+            )
+
+        if not folder_id:
+            return GoogleDriveTestResponse(
+                success=False,
+                message="Root folder ID is not configured"
+            )
+
+        # Decrypt service account JSON
+        try:
+            service_account_json = decrypt_text(encrypted_json)
+        except Exception:
+            return GoogleDriveTestResponse(
+                success=False,
+                message="Failed to decrypt service account credentials"
+            )
+
+        # Test Google Drive connection
+        try:
+            import json
+            from google.oauth2 import service_account
+            from googleapiclient.discovery import build
+
+            credentials_info = json.loads(service_account_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_info,
+                scopes=['https://www.googleapis.com/auth/drive']
+            )
+
+            drive_service = build('drive', 'v3', credentials=credentials)
+
+            # Try to get folder info
+            folder = drive_service.files().get(
+                fileId=folder_id,
+                fields='id, name, webViewLink'
+            ).execute()
+
+            return GoogleDriveTestResponse(
+                success=True,
+                message="Successfully connected to Google Drive",
+                folder_name=folder.get('name'),
+                folder_url=folder.get('webViewLink')
+            )
+
+        except Exception as e:
+            return GoogleDriveTestResponse(
+                success=False,
+                message=f"Connection failed: {str(e)}"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error testing Google Drive connection: {str(e)}")
+
+
+# ========== Google OAuth 2.0 Endpoints ==========
+
+@router.get("/{staff_id}/gdrive-oauth/status", response_model=GoogleOAuthStatusResponse)
+async def get_gdrive_oauth_status(
+    staff_id: UUID,
+    service: StaffService = Depends(get_staff_service)
+):
+    """Get Google Drive OAuth connection status"""
+    try:
+        staff = service.get_by_id(staff_id)
+        if not staff:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+
+        # Check OAuth connection
+        has_oauth = bool(staff.get('gdrive_oauth_refresh_token'))
+        has_service_account = bool(staff.get('gdrive_service_account_json'))
+
+        if has_oauth:
+            auth_type = 'oauth'
+            email = staff.get('gdrive_oauth_email')
+            connected = True
+        elif has_service_account:
+            auth_type = 'service_account'
+            email = None
+            connected = True
+        else:
+            auth_type = 'none'
+            email = None
+            connected = False
+
+        return GoogleOAuthStatusResponse(
+            connected=connected,
+            auth_type=auth_type,
+            email=email,
+            gdrive_enabled=staff.get('gdrive_enabled', False),
+            gdrive_root_folder_id=staff.get('gdrive_root_folder_id'),
+            message="Status retrieved successfully"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting OAuth status: {str(e)}")
+
+
+@router.post("/{staff_id}/gdrive-oauth/init", response_model=GoogleOAuthInitResponse)
+async def init_gdrive_oauth(
+    staff_id: UUID,
+    service: StaffService = Depends(get_staff_service)
+):
+    """Initialize Google OAuth flow - returns authorization URL"""
+    from .google_oauth_service import GoogleOAuthService
+    import secrets
+
+    try:
+        staff = service.get_by_id(staff_id)
+        if not staff:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+
+        oauth_service = GoogleOAuthService()
+
+        # Generate state parameter with staff_id for security
+        state = f"{staff_id}:{secrets.token_urlsafe(32)}"
+
+        authorization_url, returned_state = oauth_service.get_authorization_url(state=state)
+
+        return GoogleOAuthInitResponse(
+            authorization_url=authorization_url,
+            state=returned_state
+        )
+
+    except ValueError as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error initializing OAuth: {type(e).__name__}: {str(e)}")
+
+
+@router.post("/{staff_id}/gdrive-oauth/callback", response_model=GoogleOAuthCallbackResponse)
+async def gdrive_oauth_callback(
+    staff_id: UUID,
+    callback_data: GoogleOAuthCallbackRequest,
+    service: StaffService = Depends(get_staff_service),
+    cache: CacheService = Depends(get_cache)
+):
+    """Handle OAuth callback - exchange code for tokens and save"""
+    from .google_oauth_service import GoogleOAuthService, encrypt_tokens
+    from app.core.encryption import encrypt_text
+
+    try:
+        staff = service.get_by_id(staff_id)
+        if not staff:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+
+        oauth_service = GoogleOAuthService()
+
+        # Exchange authorization code for tokens
+        tokens = oauth_service.exchange_code_for_tokens(callback_data.code)
+
+        # Encrypt and prepare update data
+        update_data = encrypt_tokens(tokens)
+        update_data['gdrive_enabled'] = True
+
+        # Clear legacy service account if switching to OAuth
+        update_data['gdrive_service_account_json'] = None
+
+        # Update staff record
+        updated_staff = service.update(staff_id, update_data)
+        if not updated_staff:
+            raise HTTPException(status_code=500, detail="Failed to save OAuth tokens")
+
+        # Invalidate cache
+        invalidate_staff_cache(str(staff_id), cache)
+
+        return GoogleOAuthCallbackResponse(
+            success=True,
+            message="Successfully connected to Google Drive",
+            email=tokens.get('email')
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing OAuth callback: {str(e)}")
+
+
+@router.post("/{staff_id}/gdrive-oauth/disconnect")
+async def disconnect_gdrive_oauth(
+    staff_id: UUID,
+    service: StaffService = Depends(get_staff_service),
+    cache: CacheService = Depends(get_cache)
+):
+    """Disconnect Google Drive OAuth"""
+    from .google_oauth_service import GoogleOAuthService
+
+    try:
+        staff = service.get_by_id(staff_id)
+        if not staff:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+
+        # Try to revoke access if we have credentials
+        if staff.get('gdrive_oauth_refresh_token'):
+            try:
+                oauth_service = GoogleOAuthService()
+                credentials = oauth_service.get_credentials_from_staff(staff)
+                if credentials:
+                    oauth_service.revoke_access(credentials)
+            except Exception as e:
+                # Log but don't fail - still clear local tokens
+                pass
+
+        # Clear OAuth tokens
+        update_data = {
+            'gdrive_oauth_access_token': None,
+            'gdrive_oauth_refresh_token': None,
+            'gdrive_oauth_token_expiry': None,
+            'gdrive_oauth_email': None,
+            'gdrive_enabled': False,
+            'gdrive_root_folder_id': None,
+        }
+
+        updated_staff = service.update(staff_id, update_data)
+        if not updated_staff:
+            raise HTTPException(status_code=500, detail="Failed to disconnect")
+
+        # Invalidate cache
+        invalidate_staff_cache(str(staff_id), cache)
+
+        return {"message": "Successfully disconnected from Google Drive"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error disconnecting: {str(e)}")
+
+
+@router.get("/{staff_id}/gdrive-oauth/folders", response_model=GoogleDriveFolderListResponse)
+async def list_gdrive_folders(
+    staff_id: UUID,
+    parent_id: str = Query("root", description="Parent folder ID"),
+    service: StaffService = Depends(get_staff_service)
+):
+    """List folders in Google Drive for folder selection"""
+    from .google_oauth_service import GoogleOAuthService
+
+    try:
+        staff = service.get_by_id(staff_id)
+        if not staff:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+
+        oauth_service = GoogleOAuthService()
+        credentials = oauth_service.get_credentials_from_staff(staff)
+
+        if not credentials:
+            raise HTTPException(status_code=400, detail="Google Drive not connected. Please connect first.")
+
+        folders = oauth_service.list_folders(credentials, parent_id)
+
+        return GoogleDriveFolderListResponse(
+            folders=[GoogleDriveFolderResponse(**f) for f in folders],
+            current_folder_id=parent_id
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error listing folders: {str(e)}")
+
+
+@router.post("/{staff_id}/gdrive-oauth/folders", response_model=GoogleDriveFolderResponse)
+async def create_gdrive_folder(
+    staff_id: UUID,
+    folder_data: GoogleDriveFolderCreateRequest,
+    service: StaffService = Depends(get_staff_service)
+):
+    """Create a new folder in Google Drive"""
+    from .google_oauth_service import GoogleOAuthService
+
+    try:
+        staff = service.get_by_id(staff_id)
+        if not staff:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+
+        oauth_service = GoogleOAuthService()
+        credentials = oauth_service.get_credentials_from_staff(staff)
+
+        if not credentials:
+            raise HTTPException(status_code=400, detail="Google Drive not connected. Please connect first.")
+
+        folder = oauth_service.create_folder(
+            credentials,
+            folder_data.name,
+            folder_data.parent_id or "root"
+        )
+
+        if not folder:
+            raise HTTPException(status_code=500, detail="Failed to create folder")
+
+        return GoogleDriveFolderResponse(**folder)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating folder: {str(e)}")
+
+
+@router.post("/{staff_id}/gdrive-oauth/select-folder")
+async def select_gdrive_folder(
+    staff_id: UUID,
+    folder_data: GoogleDriveFolderSelectRequest,
+    service: StaffService = Depends(get_staff_service),
+    cache: CacheService = Depends(get_cache)
+):
+    """Select a folder as the root folder for exports"""
+    from .google_oauth_service import GoogleOAuthService
+    from googleapiclient.discovery import build
+
+    try:
+        staff = service.get_by_id(staff_id)
+        if not staff:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+
+        oauth_service = GoogleOAuthService()
+        credentials = oauth_service.get_credentials_from_staff(staff)
+
+        if not credentials:
+            raise HTTPException(status_code=400, detail="Google Drive not connected. Please connect first.")
+
+        drive_service = build('drive', 'v3', credentials=credentials)
+
+        # Handle "root" specially - it's an alias for My Drive root
+        if folder_data.folder_id == 'root':
+            # Get the actual root folder info
+            about = drive_service.about().get(fields='user').execute()
+            folder = {
+                'id': 'root',
+                'name': 'My Drive',
+                'webViewLink': 'https://drive.google.com/drive/my-drive'
+            }
+        else:
+            # Verify the folder exists and get its info
+            folder = drive_service.files().get(
+                fileId=folder_data.folder_id,
+                fields='id, name, webViewLink'
+            ).execute()
+
+        # Update staff record with selected folder
+        update_data = {
+            'gdrive_root_folder_id': folder_data.folder_id
+        }
+
+        updated_staff = service.update(staff_id, update_data)
+        if not updated_staff:
+            raise HTTPException(status_code=500, detail="Failed to save folder selection")
+
+        # Invalidate cache
+        invalidate_staff_cache(str(staff_id), cache)
+
+        return {
+            "message": f"Folder '{folder.get('name')}' selected as export destination",
+            "folder_id": folder.get('id'),
+            "folder_name": folder.get('name'),
+            "folder_url": folder.get('webViewLink')
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error selecting folder: {str(e)}")

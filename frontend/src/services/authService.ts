@@ -108,6 +108,119 @@ class AuthService {
     const response = await api.post(`${API_BASE_URL}/init-admin`);
     return response.data;
   }
+
+  // Google Drive Settings
+  async getGoogleDriveSettings(staffId: string): Promise<{
+    gdrive_enabled: boolean;
+    gdrive_root_folder_id: string | null;
+    gdrive_configured: boolean;
+    message?: string;
+  }> {
+    const response = await api.get(`/api/staff/${staffId}/gdrive-settings`);
+    return response.data;
+  }
+
+  async updateGoogleDriveSettings(staffId: string, data: {
+    gdrive_service_account_json?: string;
+    gdrive_root_folder_id?: string;
+    gdrive_enabled?: boolean;
+  }): Promise<{
+    gdrive_enabled: boolean;
+    gdrive_root_folder_id: string | null;
+    gdrive_configured: boolean;
+    message?: string;
+  }> {
+    const response = await api.put(`/api/staff/${staffId}/gdrive-settings`, data);
+    return response.data;
+  }
+
+  async testGoogleDriveConnection(staffId: string): Promise<{
+    success: boolean;
+    message: string;
+    folder_name?: string;
+    folder_url?: string;
+  }> {
+    const response = await api.post(`/api/staff/${staffId}/gdrive-settings/test`);
+    return response.data;
+  }
+
+  // Google OAuth 2.0 Methods
+  async getGoogleOAuthStatus(staffId: string): Promise<{
+    connected: boolean;
+    auth_type: 'oauth' | 'service_account' | 'none';
+    email: string | null;
+    gdrive_enabled: boolean;
+    gdrive_root_folder_id: string | null;
+    message?: string;
+  }> {
+    const response = await api.get(`/api/staff/${staffId}/gdrive-oauth/status`);
+    return response.data;
+  }
+
+  async initGoogleOAuth(staffId: string): Promise<{
+    authorization_url: string;
+    state: string;
+  }> {
+    const response = await api.post(`/api/staff/${staffId}/gdrive-oauth/init`);
+    return response.data;
+  }
+
+  async completeGoogleOAuth(staffId: string, code: string, state?: string): Promise<{
+    success: boolean;
+    message: string;
+    email?: string;
+  }> {
+    const response = await api.post(`/api/staff/${staffId}/gdrive-oauth/callback`, {
+      code,
+      state,
+    });
+    return response.data;
+  }
+
+  async disconnectGoogleOAuth(staffId: string): Promise<{
+    message: string;
+  }> {
+    const response = await api.post(`/api/staff/${staffId}/gdrive-oauth/disconnect`);
+    return response.data;
+  }
+
+  async listGoogleDriveFolders(staffId: string, parentId: string = 'root'): Promise<{
+    folders: Array<{
+      id: string;
+      name: string;
+      webViewLink?: string;
+    }>;
+    current_folder_id: string;
+  }> {
+    const response = await api.get(`/api/staff/${staffId}/gdrive-oauth/folders`, {
+      params: { parent_id: parentId },
+    });
+    return response.data;
+  }
+
+  async createGoogleDriveFolder(staffId: string, name: string, parentId: string = 'root'): Promise<{
+    id: string;
+    name: string;
+    webViewLink?: string;
+  }> {
+    const response = await api.post(`/api/staff/${staffId}/gdrive-oauth/folders`, {
+      name,
+      parent_id: parentId,
+    });
+    return response.data;
+  }
+
+  async selectGoogleDriveFolder(staffId: string, folderId: string): Promise<{
+    message: string;
+    folder_id: string;
+    folder_name: string;
+    folder_url?: string;
+  }> {
+    const response = await api.post(`/api/staff/${staffId}/gdrive-oauth/select-folder`, {
+      folder_id: folderId,
+    });
+    return response.data;
+  }
 }
 
 export default new AuthService();

@@ -85,6 +85,9 @@ const PDFEditor = lazy(() => import('./pages/PDFEditor'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const Unauthorized = lazy(() => import('./pages/Unauthorized'));
 
+// OAuth Pages
+const OAuthCallback = lazy(() => import('./pages/OAuthCallback'));
+
 // =====================================================
 // LOADING COMPONENT
 // =====================================================
@@ -148,6 +151,15 @@ const router = createBrowserRouter([
     element: (
       <Suspense fallback={<PageLoader />}>
         <ResetPassword />
+      </Suspense>
+    )
+  },
+  // OAuth callback routes (인증 불필요 - popup에서 처리)
+  {
+    path: "/oauth/google/callback",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <OAuthCallback />
       </Suspense>
     )
   },

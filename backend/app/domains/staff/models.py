@@ -100,7 +100,19 @@ class Staff(Base):
     timezone = Column(String(100), default="UTC")
     language = Column(String(10), default="en")
     notification_preferences = Column(Text)  # JSON
-    
+
+    # Google Drive Integration (encrypted)
+    # Service Account JSON key content (encrypted using Fernet) - Legacy support
+    gdrive_service_account_json = Column(Text)  # Encrypted JSON content
+    gdrive_root_folder_id = Column(String(255))  # Google Drive root folder ID
+    gdrive_enabled = Column(Boolean, default=False)  # Is Google Drive integration enabled
+
+    # Google Drive OAuth 2.0 Integration (User Authentication)
+    gdrive_oauth_access_token = Column(Text)  # Encrypted OAuth access token
+    gdrive_oauth_refresh_token = Column(Text)  # Encrypted OAuth refresh token
+    gdrive_oauth_token_expiry = Column(DateTime)  # Token expiry time
+    gdrive_oauth_email = Column(String(255))  # Google account email used for OAuth
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

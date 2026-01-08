@@ -270,6 +270,43 @@ export const waterMitigationService = {
         }
       );
       return response.data;
+    },
+
+    // Export CompanyCam photos to Google Drive
+    exportToGoogleDrive: async (jobId: string): Promise<{
+      success: boolean;
+      message: string;
+      status: string;
+      total_photos?: number;
+    }> => {
+      const response = await api.post(`${BASE_URL}/jobs/${jobId}/export-to-drive`);
+      return response.data;
+    },
+
+    // Get Google Drive export status
+    getExportStatus: async (jobId: string): Promise<{
+      status: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
+      message?: string;
+      total_photos?: number;
+      uploaded_count?: number;
+      skipped_count?: number;
+      error_count?: number;
+      current_photo?: number;
+      current_filename?: string;
+      drive_folder_url?: string;
+      errors?: string[];
+    }> => {
+      const response = await api.get(`${BASE_URL}/jobs/${jobId}/export-to-drive/status`);
+      return response.data;
+    },
+
+    // Cancel Google Drive export
+    cancelExport: async (jobId: string): Promise<{
+      success: boolean;
+      message: string;
+    }> => {
+      const response = await api.post(`${BASE_URL}/jobs/${jobId}/export-to-drive/cancel`);
+      return response.data;
     }
   },
 

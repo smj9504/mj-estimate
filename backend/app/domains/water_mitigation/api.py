@@ -6,7 +6,7 @@ import logging
 import math
 from datetime import date, datetime, time
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import (
@@ -2491,3 +2491,336 @@ async def migrate_thumbnail_urls(
         'remaining': remaining,
         'errors': errors[:10] if errors else []
     }
+
+
+# =============================================================================
+# Google Drive Export Endpoints
+# =============================================================================
+
+@router.post("/jobs/{job_id}/export-to-drive")
+async def export_photos_to_gdrive(
+    job_id: UUID,
+    background_tasks: BackgroundTasks,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session),
+    current_user = Depends(get_current_user)
+):
+    """
+    Export CompanyCam photos to Google Drive.
+
+    Photos are organized in: CompanyCam/{job_address}/
+
+    This endpoint:
+    - Starts a background task to export photos
+    - Returns immediately with status 'started'
+    - Poll GET /export-to-drive/status for progress
+
+    Only exports photos with source='companycam' (excludes manual uploads).
+    Duplicate filenames in target folder are skipped.
+
+    Returns:
+        Confirmation that export has started
+    """
+    import json
+
+    from app.core.cache import get_cache
+
+    from .gdrive_export_service import GDriveExportService
+
+    try:
+        # Check if job exists
+        job = service.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        # Get job address
+        job_address = (
+            job.get('property_address') if isinstance(job, dict)
+            else getattr(job, 'property_address', None)
+        )
+        if not job_address:
+            raise HTTPException(
+                status_code=400,
+                detail="Job has no address set. Cannot create Drive folder."
+            )
+
+        # Get current user's Google Drive settings
+        from app.core.config import settings
+        from app.core.encryption import decrypt_text
+        from app.domains.staff.service import StaffService
+
+        # StaffService needs to be called without arguments to use the default DatabaseProvider
+        # The 'db' parameter is a SQLAlchemy Session, not a DatabaseProvider
+        staff_service = StaffService()
+        staff = staff_service.get_by_id(current_user.id) if current_user else None
+        logger.info(f"Retrieved staff: {staff is not None}, staff_id: {current_user.id if current_user else None}")
+
+        # Initialize credential variables
+        user_gdrive_json = None
+        user_gdrive_folder_id = None
+        oauth_tokens = None  # For OAuth authentication
+
+        if staff:
+            user_gdrive_folder_id = staff.get('gdrive_root_folder_id')
+            gdrive_enabled = staff.get('gdrive_enabled', False)
+            logger.info(f"Staff GDrive settings: enabled={gdrive_enabled}, folder_id={user_gdrive_folder_id}")
+
+            if gdrive_enabled and user_gdrive_folder_id:
+                # Priority 1: Check for OAuth tokens
+                encrypted_refresh_token = staff.get('gdrive_oauth_refresh_token')
+                logger.info(f"OAuth refresh token present: {bool(encrypted_refresh_token)}")
+                if encrypted_refresh_token:
+                    try:
+                        oauth_tokens = {
+                            'access_token': decrypt_text(staff.get('gdrive_oauth_access_token') or ''),
+                            'refresh_token': decrypt_text(encrypted_refresh_token),
+                            'token_expiry': staff.get('gdrive_oauth_token_expiry'),
+                        }
+                        logger.info(f"Successfully decrypted OAuth tokens, expiry: {oauth_tokens.get('token_expiry')}")
+                    except Exception as e:
+                        logger.warning(f"Failed to decrypt user OAuth tokens: {e}")
+
+                # Priority 2: Check for Service Account JSON
+                if not oauth_tokens:
+                    encrypted_json = staff.get('gdrive_service_account_json')
+                    if encrypted_json:
+                        try:
+                            user_gdrive_json = decrypt_text(encrypted_json)
+                        except Exception as e:
+                            logger.warning(f"Failed to decrypt user GDrive credentials: {e}")
+
+        # Fall back to environment variables if user settings not available
+        has_env_config = (
+            settings.GDRIVE_SERVICE_ACCOUNT_FILE and
+            settings.GDRIVE_ROOT_FOLDER_ID
+        )
+
+        if not oauth_tokens and not user_gdrive_json and not has_env_config:
+            raise HTTPException(
+                status_code=503,
+                detail="Google Drive is not configured. "
+                       "Please set up Google Drive in your Profile settings."
+            )
+
+        # Check if export is already running
+        cache = get_cache()
+        export_key = f"{GDriveExportService.CACHE_KEY_PREFIX}:{job_id}"
+        status_json = await cache.get(export_key)
+        if status_json:
+            try:
+                status = json.loads(status_json)
+                if status.get('status') == 'running':
+                    return {
+                        "success": False,
+                        "message": "Export already in progress",
+                        "status": "running"
+                    }
+            except (json.JSONDecodeError, TypeError, KeyError) as e:
+                logger.warning(f"Failed to parse export status: {e}")
+
+        # Count CompanyCam photos
+        companycam_count = db.query(WMPhoto).filter(
+            WMPhoto.job_id == job_id,
+            WMPhoto.is_trashed.is_(False),
+            WMPhoto.source == 'companycam'
+        ).count()
+
+        if companycam_count == 0:
+            return {
+                "success": False,
+                "message": "No CompanyCam photos to export",
+                "status": "idle"
+            }
+
+        # Set initial status
+        await cache.set(export_key, json.dumps({
+            'status': 'running',
+            'total_photos': companycam_count,
+            'uploaded_count': 0,
+            'skipped_count': 0,
+            'error_count': 0,
+            'current_photo': 0,
+            'current_filename': '',
+            'errors': [],
+            'message': 'Starting export to Google Drive...',
+            'drive_folder_url': None
+        }), ttl=3600)
+
+        # Start background task with user credentials
+        logger.info(f"Starting export with: oauth_tokens={bool(oauth_tokens)}, service_account={bool(user_gdrive_json)}, folder_id={user_gdrive_folder_id}")
+        background_tasks.add_task(
+            run_gdrive_export_in_background,
+            job_id=job_id,
+            service_account_json=user_gdrive_json,
+            root_folder_id=user_gdrive_folder_id,
+            oauth_tokens=oauth_tokens
+        )
+
+        return {
+            "success": True,
+            "message": f"Export started for {companycam_count} CompanyCam photos",
+            "status": "running",
+            "total_photos": companycam_count
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start Google Drive export for job {job_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def run_gdrive_export_in_background(
+    job_id: UUID,
+    service_account_json: Optional[str] = None,
+    root_folder_id: Optional[str] = None,
+    oauth_tokens: Optional[Dict[str, Any]] = None
+):
+    """Background task to run Google Drive export (sync wrapper for async)"""
+    import asyncio
+    logger.info(f"Background Google Drive export task starting for job {job_id}")
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_run_gdrive_export_async(
+            job_id,
+            service_account_json=service_account_json,
+            root_folder_id=root_folder_id,
+            oauth_tokens=oauth_tokens
+        ))
+    finally:
+        try:
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True)
+                )
+        finally:
+            loop.close()
+
+
+async def _run_gdrive_export_async(
+    job_id: UUID,
+    service_account_json: Optional[str] = None,
+    root_folder_id: Optional[str] = None,
+    oauth_tokens: Optional[Dict[str, Any]] = None
+):
+    """Actual async export implementation"""
+    from app.core.database_factory import get_database
+
+    from .gdrive_export_service import GDriveExportService
+
+    logger.info(f"Background Google Drive export started for job {job_id}")
+
+    database = get_database()
+    db_session = database.get_session()
+    try:
+        # Build OAuth credentials if tokens provided
+        oauth_credentials = None
+        if oauth_tokens and oauth_tokens.get('refresh_token'):
+            try:
+                from google.oauth2.credentials import Credentials
+                from google.auth.transport.requests import Request
+                from app.core.config import settings
+
+                # Convert token_expiry to datetime if it's a string
+                token_expiry = oauth_tokens.get('token_expiry')
+                if token_expiry and isinstance(token_expiry, str):
+                    from dateutil.parser import parse as parse_datetime
+                    token_expiry = parse_datetime(token_expiry)
+
+                oauth_credentials = Credentials(
+                    token=oauth_tokens.get('access_token'),
+                    refresh_token=oauth_tokens.get('refresh_token'),
+                    token_uri="https://oauth2.googleapis.com/token",
+                    client_id=settings.GOOGLE_OAUTH_CLIENT_ID,
+                    client_secret=settings.GOOGLE_OAUTH_CLIENT_SECRET,
+                    expiry=token_expiry,
+                )
+
+                # Refresh token if expired
+                if oauth_credentials.expired and oauth_credentials.refresh_token:
+                    oauth_credentials.refresh(Request())
+                    logger.info("OAuth token refreshed during export")
+
+                logger.info(f"Successfully built OAuth credentials for export")
+
+            except Exception as e:
+                logger.error(f"Failed to build OAuth credentials: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+
+        export_service = GDriveExportService(
+            db_session,
+            service_account_json=service_account_json,
+            root_folder_id=root_folder_id,
+            oauth_credentials=oauth_credentials
+        )
+        result = await export_service.export_to_gdrive(job_id)
+        db_session.commit()
+        logger.info(f"Background export completed for job {job_id}: {result}")
+    except Exception as e:
+        logger.error(f"Background export failed for job {job_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        db_session.rollback()
+    finally:
+        db_session.close()
+
+
+@router.get("/jobs/{job_id}/export-to-drive/status")
+async def get_gdrive_export_status(job_id: UUID):
+    """
+    Get current status of Google Drive photo export.
+
+    Returns:
+        Export status with progress information including:
+        - status: 'idle', 'running', 'completed', 'cancelled', 'failed'
+        - total_photos: Total CompanyCam photos to export
+        - uploaded_count: Successfully uploaded count
+        - skipped_count: Skipped due to duplicate filename
+        - error_count: Failed uploads
+        - current_photo: Current processing index
+        - current_filename: Current file being processed
+        - drive_folder_url: Google Drive folder URL (after first upload)
+        - errors: List of last 10 error messages
+    """
+    from .gdrive_export_service import get_gdrive_export_status as get_status
+
+    status = await get_status(job_id)
+    if not status:
+        return {
+            'status': 'idle',
+            'message': 'No export in progress'
+        }
+
+    return status
+
+
+@router.post("/jobs/{job_id}/export-to-drive/cancel")
+async def cancel_gdrive_export(job_id: UUID):
+    """
+    Cancel an ongoing Google Drive photo export.
+
+    Returns:
+        Confirmation message
+    """
+    from .gdrive_export_service import cancel_gdrive_export as cancel_export
+
+    success = await cancel_export(job_id)
+
+    if success:
+        return {
+            'success': True,
+            'message': 'Cancellation requested. Export will stop after current photo.'
+        }
+    else:
+        return {
+            'success': False,
+            'message': 'No export in progress to cancel or already completed'
+        }

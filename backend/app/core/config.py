@@ -197,6 +197,11 @@ class Settings(BaseSettings):
     GDRIVE_SERVICE_ACCOUNT_FILE: Optional[str] = os.getenv("GDRIVE_SERVICE_ACCOUNT_FILE")
     GDRIVE_ROOT_FOLDER_ID: Optional[str] = os.getenv("GDRIVE_ROOT_FOLDER_ID")
 
+    # Google OAuth 2.0 Settings (for user-level Google Drive access)
+    GOOGLE_OAUTH_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+    GOOGLE_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+    GOOGLE_OAUTH_REDIRECT_URI: str = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:3000/oauth/google/callback")
+
     # Redis Cache Settings
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
     REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))

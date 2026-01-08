@@ -345,3 +345,82 @@ class AuditLogFilter(BaseModel):
     success: Optional[bool] = None
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
+
+
+# Google Drive Integration Schemas
+class GoogleDriveSettingsUpdate(BaseModel):
+    """Schema for updating Google Drive settings"""
+    gdrive_service_account_json: Optional[str] = None  # JSON string of service account key
+    gdrive_root_folder_id: Optional[str] = None  # Google Drive folder ID
+    gdrive_enabled: Optional[bool] = None
+
+
+class GoogleDriveSettingsResponse(BaseModel):
+    """Schema for Google Drive settings response (excludes sensitive data)"""
+    gdrive_enabled: bool = False
+    gdrive_root_folder_id: Optional[str] = None
+    gdrive_configured: bool = False  # True if service account is configured
+    message: Optional[str] = None
+
+
+class GoogleDriveTestResponse(BaseModel):
+    """Schema for Google Drive connection test response"""
+    success: bool
+    message: str
+    folder_name: Optional[str] = None
+    folder_url: Optional[str] = None
+
+
+# Google OAuth 2.0 Schemas
+class GoogleOAuthInitResponse(BaseModel):
+    """Response for OAuth initialization - returns authorization URL"""
+    authorization_url: str
+    state: str
+
+
+class GoogleOAuthCallbackRequest(BaseModel):
+    """Request for OAuth callback - contains authorization code"""
+    code: str
+    state: Optional[str] = None
+
+
+class GoogleOAuthCallbackResponse(BaseModel):
+    """Response for OAuth callback - confirms connection"""
+    success: bool
+    message: str
+    email: Optional[str] = None
+    display_name: Optional[str] = None
+
+
+class GoogleOAuthStatusResponse(BaseModel):
+    """Response for OAuth status check"""
+    connected: bool
+    auth_type: str  # 'oauth' or 'service_account' or 'none'
+    email: Optional[str] = None
+    gdrive_enabled: bool = False
+    gdrive_root_folder_id: Optional[str] = None
+    message: Optional[str] = None
+
+
+class GoogleDriveFolderResponse(BaseModel):
+    """Response for folder listing"""
+    id: str
+    name: str
+    webViewLink: Optional[str] = None
+
+
+class GoogleDriveFolderListResponse(BaseModel):
+    """Response for folder list"""
+    folders: list[GoogleDriveFolderResponse]
+    current_folder_id: Optional[str] = None
+
+
+class GoogleDriveFolderCreateRequest(BaseModel):
+    """Request to create a new folder"""
+    name: str
+    parent_id: Optional[str] = "root"
+
+
+class GoogleDriveFolderSelectRequest(BaseModel):
+    """Request to select a folder as root"""
+    folder_id: str
