@@ -22,6 +22,7 @@ const { Meta } = Card;
 
 interface FileCardProps {
   files: FileItem[];
+  context?: string;  // Context for context-aware download URLs
   selectedFiles?: string[];
   selectedFilesSet?: Set<string>; // O(1) lookup Set
   allowMultiSelect?: boolean;
@@ -36,6 +37,7 @@ interface FileCardProps {
 
 const FileCard: React.FC<FileCardProps> = ({
   files,
+  context,
   selectedFiles = [],
   selectedFilesSet,
   allowMultiSelect = false,
@@ -94,7 +96,12 @@ const FileCard: React.FC<FileCardProps> = ({
   const handleDownload = (file: FileItem, e: React.MouseEvent) => {
     e.stopPropagation();
     const link = document.createElement('a');
-    link.href = fileService.getDownloadUrl(file.id);
+    // Use context-aware download URL
+    if (context === 'water-mitigation') {
+      link.href = `/api/water-mitigation/photos/${file.id}/download`;
+    } else {
+      link.href = fileService.getDownloadUrl(file.id);
+    }
     link.download = file.originalName;
     document.body.appendChild(link);
     link.click();

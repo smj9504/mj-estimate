@@ -398,3 +398,264 @@ export interface TemplateListResponse {
   items: ReportTemplate[];
   total: number;
 }
+
+// ============================================================================
+// Scope of Work Types
+// ============================================================================
+
+// Moisture levels for debris calculation
+export enum MoistureLevel {
+  DRY = 'dry',
+  DAMP = 'damp',
+  WET = 'wet',
+  SATURATED = 'saturated'
+}
+
+export const MOISTURE_LEVEL_OPTIONS = [
+  { value: MoistureLevel.DRY, label: 'Dry', multiplier: 1.0 },
+  { value: MoistureLevel.DAMP, label: 'Damp', multiplier: 1.2 },
+  { value: MoistureLevel.WET, label: 'Wet', multiplier: 1.5 },
+  { value: MoistureLevel.SATURATED, label: 'Saturated', multiplier: 2.0 }
+] as const;
+
+// Scope item types
+export enum ScopeItemType {
+  STANDARD = 'standard',
+  DEMOLITION = 'demolition',
+  CUSTOM = 'custom'
+}
+
+export const SCOPE_ITEM_TYPE_OPTIONS = [
+  { value: ScopeItemType.STANDARD, label: 'Standard' },
+  { value: ScopeItemType.DEMOLITION, label: 'Demolition' },
+  { value: ScopeItemType.CUSTOM, label: 'Custom' }
+] as const;
+
+// Unit types
+export enum UnitType {
+  SF = 'SF',
+  LF = 'LF',
+  EA = 'EA'
+}
+
+export const UNIT_TYPE_OPTIONS = [
+  { value: UnitType.SF, label: 'SF (Square Feet)' },
+  { value: UnitType.LF, label: 'LF (Linear Feet)' },
+  { value: UnitType.EA, label: 'EA (Each)' }
+] as const;
+
+// Standard scope items
+export const STANDARD_SCOPE_ITEMS = [
+  { name: 'Floor Protection', unit: UnitType.SF, item_type: ScopeItemType.STANDARD },
+  { name: 'Content Protection', unit: UnitType.SF, item_type: ScopeItemType.STANDARD },
+  { name: 'Containment', unit: UnitType.SF, item_type: ScopeItemType.STANDARD },
+  { name: 'Air Mover', unit: UnitType.EA, item_type: ScopeItemType.STANDARD },
+  { name: 'Air Scrubber', unit: UnitType.EA, item_type: ScopeItemType.STANDARD },
+  { name: 'Dehumidifier', unit: UnitType.EA, item_type: ScopeItemType.STANDARD }
+] as const;
+
+// Material weight brief (for demolition type reference)
+export interface MaterialWeightBrief {
+  id: string;
+  material_type: string;
+  category_name?: string;
+  dry_weight_per_unit: number;
+  unit: string;
+}
+
+// Demolition Type
+export interface DemolitionType {
+  id: string;
+  name: string;
+  category?: string;
+  description?: string;
+  default_unit: UnitType;
+  material_weight_id?: string;
+  material_weight?: MaterialWeightBrief;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string;
+  created_by_id?: string;
+  updated_by_id?: string;
+}
+
+export interface DemolitionTypeCreate {
+  name: string;
+  category?: string;
+  description?: string;
+  default_unit?: UnitType;
+  material_weight_id?: string;
+  display_order?: number;
+  is_active?: boolean;
+}
+
+export interface DemolitionTypeUpdate {
+  name?: string;
+  category?: string;
+  description?: string;
+  default_unit?: UnitType;
+  material_weight_id?: string;
+  display_order?: number;
+  is_active?: boolean;
+}
+
+export interface DemolitionTypeListResponse {
+  items: DemolitionType[];
+  total: number;
+}
+
+// Scope Location
+export interface ScopeLocation {
+  id: string;
+  job_id: string;
+  name: string;
+  floor?: string;
+  room_type?: string;
+  description?: string;
+  display_order: number;
+  created_at: string;
+  updated_at?: string;
+  scope_items: ScopeItem[];
+}
+
+export interface ScopeLocationCreate {
+  job_id: string;
+  name: string;
+  floor?: string;
+  room_type?: string;
+  description?: string;
+  display_order?: number;
+}
+
+export interface ScopeLocationUpdate {
+  name?: string;
+  floor?: string;
+  room_type?: string;
+  description?: string;
+  display_order?: number;
+}
+
+export interface ScopeLocationListResponse {
+  items: ScopeLocation[];
+  total: number;
+}
+
+// Demolition type brief for scope items
+export interface DemolitionTypeBrief {
+  id: string;
+  name: string;
+  category?: string;
+  default_unit: string;
+  material_weight_id?: string;
+}
+
+// Scope Item
+export interface ScopeItem {
+  id: string;
+  location_id: string;
+  item_type: ScopeItemType;
+  name: string;
+  description?: string;
+  quantity?: number;
+  quantity_formula?: string;
+  unit: UnitType;
+  demolition_type_id?: string;
+  demolition_type?: DemolitionTypeBrief;
+  include_in_debris: boolean;
+  moisture_level: MoistureLevel;
+  display_order: number;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface ScopeItemCreate {
+  location_id: string;
+  item_type?: ScopeItemType;
+  name: string;
+  description?: string;
+  quantity?: number;
+  quantity_formula?: string;
+  unit?: UnitType;
+  demolition_type_id?: string;
+  include_in_debris?: boolean;
+  moisture_level?: MoistureLevel;
+  display_order?: number;
+}
+
+export interface ScopeItemUpdate {
+  item_type?: ScopeItemType;
+  name?: string;
+  description?: string;
+  quantity?: number;
+  quantity_formula?: string;
+  unit?: UnitType;
+  demolition_type_id?: string;
+  include_in_debris?: boolean;
+  moisture_level?: MoistureLevel;
+  display_order?: number;
+}
+
+// Debris Calculation
+export interface DebrisItemDetail {
+  item_id: string;
+  item_name: string;
+  demolition_type_name?: string;
+  material_type?: string;
+  quantity: number;
+  unit: string;
+  moisture_level: string;
+  dry_weight_per_unit?: number;
+  moisture_multiplier: number;
+  weight_lb: number;
+  weight_ton: number;
+}
+
+export interface CategoryBreakdown {
+  category_name: string;
+  weight_lb: number;
+  weight_ton: number;
+  item_count: number;
+}
+
+export interface DumpsterRecommendation {
+  size: string;
+  capacity_tons: number;
+  count: number;
+  total_capacity_tons: number;
+}
+
+export interface WMDebrisCalculation {
+  id: string;
+  job_id: string;
+  total_weight_lb: number;
+  total_weight_ton: number;
+  category_breakdown: CategoryBreakdown[];
+  dumpster_recommendation?: DumpsterRecommendation;
+  item_details: DebrisItemDetail[];
+  calculated_at: string;
+  calculated_by_id?: string;
+}
+
+export interface CalculateDebrisRequest {
+  save_result?: boolean;
+}
+
+export interface CalculateDebrisResponse {
+  success: boolean;
+  calculation?: WMDebrisCalculation;
+  message: string;
+  warnings: string[];
+}
+
+// Formula calculation
+export interface CalculateFormulaRequest {
+  formula: string;
+}
+
+export interface CalculateFormulaResponse {
+  success: boolean;
+  formula: string;
+  result?: number;
+  error?: string;
+}

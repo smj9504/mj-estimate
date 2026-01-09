@@ -82,13 +82,6 @@ export const useFileGallery = ({
         queryKey: ['files-infinite', context, contextId, fileCategory]
       });
 
-      // Invalidate water-mitigation-photos query used by Report tab
-      if (context === 'water-mitigation') {
-        await queryClient.invalidateQueries({
-          queryKey: ['water-mitigation-photos', contextId]
-        });
-      }
-
       message.success(`Updated ${batch.size} photo${batch.size > 1 ? 's' : ''}`);
     } catch (error: any) {
       console.error('Batch category update failed:', error);
@@ -99,30 +92,22 @@ export const useFileGallery = ({
   // Normalize category filter for API
   const normalizedCategoryFilter = categoryFilter === 'all' ? undefined : categoryFilter;
 
-  // Page param type for infinite query
-  type PageParam = { page: number; skip: number };
-
   // Infinite scroll query for water-mitigation photos
-  // pageParam is { page: number, skip: number } to support variable page sizes
   const infiniteQuery = useInfiniteQuery({
     queryKey: ['files-infinite', context, contextId, fileCategory, pageSize, normalizedCategoryFilter],
-    queryFn: async ({ pageParam }: { pageParam: PageParam }) => {
-      // Default page param for first page
-      const { page = 1, skip = 0 } = pageParam;
-
-      if (!contextId) return { items: [], total: 0, page: 1, page_size: pageSize, total_pages: 1, skip: 0 };
+    queryFn: async ({ pageParam = 1 }) => {
+      if (!contextId) return { items: [], total: 0, page: 1, page_size: pageSize, total_pages: 1 };
 
       // Use pagination API for water-mitigation photos
       if (context === 'water-mitigation' && fileCategory === 'image') {
         // Dynamic page size: smaller for first page (faster initial load), larger for subsequent pages
-        const dynamicPageSize = page === 1 ? 20 : 30;
+        const dynamicPageSize = pageParam === 1 ? 20 : 30;
 
         const params: Record<string, any> = {
-          page: page,
+          page: pageParam,
           page_size: dynamicPageSize,
           sort_by: 'captured_date',
-          sort_order: 'desc',
-          skip: skip  // Explicit offset to handle variable page sizes correctly
+          sort_order: 'desc'
         };
 
         // Add category filter if specified
@@ -178,9 +163,8 @@ export const useFileGallery = ({
           items,
           total: data.total,
           page: data.page,
-          page_size: dynamicPageSize,
-          total_pages: data.total_pages,
-          skip: skip  // Track current skip for next page calculation
+          page_size: data.page_size,
+          total_pages: data.total_pages
         };
       }
 
@@ -191,34 +175,21 @@ export const useFileGallery = ({
         total: result.length,
         page: 1,
         page_size: result.length,
-        total_pages: 1,
-        skip: 0
+        total_pages: 1
       };
     },
     getNextPageParam: (lastPage) => {
-      // Calculate next skip value based on current skip + items returned
-      const nextSkip = (lastPage.skip || 0) + lastPage.items.length;
-
       // If total_pages is None (performance optimization), continue loading
       // until we get an empty page
       if (lastPage.total_pages === null || lastPage.total_pages === undefined) {
-        return lastPage.items.length > 0
-          ? { page: lastPage.page + 1, skip: nextSkip }
-          : undefined;
+        return lastPage.items.length > 0 ? lastPage.page + 1 : undefined;
       }
-
-      // Check if we've loaded all items based on total count
-      if (lastPage.total && nextSkip >= lastPage.total) {
-        return undefined;  // All items loaded
-      }
-
-      // Continue if there are more pages
       if (lastPage.page < lastPage.total_pages) {
-        return { page: lastPage.page + 1, skip: nextSkip };
+        return lastPage.page + 1;
       }
       return undefined;
     },
-    initialPageParam: { page: 1, skip: 0 },
+    initialPageParam: 1,
     enabled: !!contextId && enableInfiniteScroll,
     staleTime: 5 * 60 * 1000, // 5 minutes - data is fresh for longer
     gcTime: 10 * 60 * 1000, // 10 minutes - keep cache longer to preserve scroll position
@@ -246,41 +217,6 @@ export const useFileGallery = ({
     staleTime: 30 * 1000, // 30 seconds
     gcTime: 5 * 60 * 1000, // 5 minutes
   });
-
-  // Auto-load all pages when category filter is applied
-  // This ensures filtered results show the complete count, not just first page
-  const { hasNextPage, isFetchingNextPage, isLoading, fetchNextPage, data } = infiniteQuery;
-  const pagesLoaded = data?.pages?.length ?? 0;
-
-  useEffect(() => {
-    // Only auto-fetch when:
-    // 1. Infinite scroll is enabled
-    // 2. Category filter is active (not 'all')
-    // 3. There are more pages to load
-    // 4. Not currently fetching
-    // 5. Initial load is complete
-    if (
-      enableInfiniteScroll &&
-      normalizedCategoryFilter &&
-      hasNextPage &&
-      !isFetchingNextPage &&
-      !isLoading
-    ) {
-      // Small delay to prevent rapid successive calls
-      const timer = setTimeout(() => {
-        fetchNextPage();
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [
-    enableInfiniteScroll,
-    normalizedCategoryFilter,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-    fetchNextPage,
-    pagesLoaded  // Re-trigger when a new page is loaded
-  ]);
 
   // Select the appropriate query based on mode
   // For infinite scroll, keep all loaded pages to preserve scroll position
@@ -372,13 +308,6 @@ export const useFileGallery = ({
         queryKey: ['trashed-photos', contextId]
       });
 
-      // Invalidate water-mitigation-photos query used by Report tab
-      if (context === 'water-mitigation') {
-        queryClient.invalidateQueries({
-          queryKey: ['water-mitigation-photos', contextId]
-        });
-      }
-
       message.success('File moved to trash');
     },
     onError: (error: any) => {
@@ -404,13 +333,6 @@ export const useFileGallery = ({
       await queryClient.invalidateQueries({
         queryKey: ['files', context, contextId, fileCategory]
       });
-
-      // Invalidate water-mitigation-photos query used by Report tab
-      if (context === 'water-mitigation') {
-        await queryClient.invalidateQueries({
-          queryKey: ['water-mitigation-photos', contextId]
-        });
-      }
 
       // Force refetch to ensure UI updates
       await refetch();

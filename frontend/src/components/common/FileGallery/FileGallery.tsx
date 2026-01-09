@@ -14,14 +14,6 @@ import './FileGallery.css';
 
 const { Title } = Typography;
 
-/**
- * Normalize category for consistent matching (same logic as backend)
- * Converts "Day 3", "day_3", "Day-3" all to "day-3"
- */
-const normalizeCategory = (category: string): string => {
-  return category.toLowerCase().trim().replace(/\s+/g, '-').replace(/_/g, '-');
-};
-
 const FileGallery: React.FC<FileGalleryProps> = ({
   context,
   mode = 'view',
@@ -105,8 +97,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     onUpload,
     onDelete,
     enableInfiniteScroll,
-    pageSize,
-    categoryFilter: selectedCategory  // Pass category filter to API for server-side filtering
+    pageSize
   });
 
   // Intersection Observer for infinite scroll
@@ -188,14 +179,14 @@ const FileGallery: React.FC<FileGalleryProps> = ({
         : [selectedCategory];
 
       if (categoriesArray.length > 0 && !categoriesArray.includes('all')) {
-        // Normalize selected categories (same as backend: lowercase, spaces/underscores → hyphens)
-        const normalizedCategories = categoriesArray.map(normalizeCategory);
+        // Normalize selected categories (lowercase, trimmed)
+        const normalizedCategories = categoriesArray.map(c => c.toLowerCase().trim());
         const includesUncategorized = normalizedCategories.includes('uncategorized') || normalizedCategories.includes('');
 
         filtered = filtered.filter(file => {
           // Normalize file category (handle null, undefined, empty string, whitespace)
-          const rawCategory = (file.category || '').trim();
-          const isUncategorized = !rawCategory;
+          const fileCategory = (file.category || '').toLowerCase().trim();
+          const isUncategorized = !fileCategory || fileCategory === '';
 
           if (includesUncategorized && isUncategorized) {
             // File has no category and 'uncategorized' is selected
@@ -203,9 +194,8 @@ const FileGallery: React.FC<FileGalleryProps> = ({
           }
 
           if (!isUncategorized) {
-            // Normalize file category same way as backend for consistent matching
-            const normalizedFileCategory = normalizeCategory(rawCategory);
-            return normalizedCategories.includes(normalizedFileCategory);
+            // File has a category - check if it's in the selected categories
+            return normalizedCategories.includes(fileCategory);
           }
 
           return false;
@@ -638,35 +628,23 @@ const FileGallery: React.FC<FileGalleryProps> = ({
               onCategoryCreate={onCategoryCreate}
               multiSelect={context === 'water-mitigation'}
             />
-            {/* Photo count and loading indicator */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              marginTop: 8,
-              fontSize: 13,
-              color: '#666'
-            }}>
-              {/* Show filtered count when category is selected */}
-              {selectedCategory !== 'all' && (
-                <span>
-                  <strong>{filteredFiles.length}</strong> photos
-                  {isFetchingNextPage && ' (loading more...)'}
-                </span>
-              )}
-              {/* Loading indicator during filter transition */}
-              {isPending && (
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  color: '#667eea'
-                }}>
-                  <LoadingOutlined style={{ animation: 'spin 1s linear infinite' }} />
-                  <span>Filtering...</span>
-                </div>
-              )}
-            </div>
+            {/* Loading indicator during filter transition */}
+            {isPending && (
+              <div style={{
+                position: 'absolute',
+                top: '50%',
+                right: 16,
+                transform: 'translateY(-50%)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                color: '#667eea',
+                fontSize: 12
+              }}>
+                <LoadingOutlined style={{ animation: 'spin 1s linear infinite' }} />
+                <span>Filtering...</span>
+              </div>
+            )}
           </div>
         )}
 

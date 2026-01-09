@@ -12,13 +12,15 @@ interface EditableSectionProps {
   children: (isEditing: boolean) => React.ReactNode;
   onSave: () => Promise<void>;
   style?: React.CSSProperties;
+  className?: string;
 }
 
 const EditableSection: React.FC<EditableSectionProps> = ({
   title,
   children,
   onSave,
-  style
+  style,
+  className = 'compact-card'
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -74,7 +76,7 @@ const EditableSection: React.FC<EditableSectionProps> = ({
   );
 
   return (
-    <Card title={title} extra={extra} style={style}>
+    <Card title={title} extra={extra} style={style} className={className}>
       {children(isEditing)}
     </Card>
   );

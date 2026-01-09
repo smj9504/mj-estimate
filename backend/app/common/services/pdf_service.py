@@ -1451,8 +1451,7 @@ def generate_water_mitigation_report_pdf(
     config: Dict[str, Any],
     photos: List[Dict[str, Any]],
     output_path: str,
-    company_data: Optional[Dict[str, Any]] = None,
-    compress: bool = False
+    company_data: Optional[Dict[str, Any]] = None
 ) -> str:
     """
     Generate professional Water Mitigation photo report PDF using ReportLab
@@ -1469,7 +1468,6 @@ def generate_water_mitigation_report_pdf(
         photos: List of all photos for the job
         output_path: Path to save the PDF
         company_data: Company information (name, logo, etc.) - if not provided, will use job.company
-        compress: If True, compress images for smaller file size (lower quality)
 
     Returns:
         Path to the generated PDF
@@ -1495,21 +1493,6 @@ def generate_water_mitigation_report_pdf(
 
     logger = logging.getLogger(__name__)
     logger.info(f"Generating photo report for job {job_data.get('id', 'unknown')}")
-    logger.info(f"Compression enabled: {compress}")
-
-    # Image quality settings based on compression flag
-    # Original quality: High quality, larger file size
-    # Compressed: Lower quality, smaller file size (useful for email attachments)
-    if compress:
-        IMAGE_QUALITY = 50  # JPEG quality (0-100)
-        IMAGE_MAX_WIDTH = 1200  # Max width in pixels
-        IMAGE_MAX_HEIGHT = 1600  # Max height in pixels
-        logger.info("Using compressed image settings: quality=50, max=1200x1600")
-    else:
-        IMAGE_QUALITY = 95  # High quality
-        IMAGE_MAX_WIDTH = 2550  # ~300 DPI for letter size
-        IMAGE_MAX_HEIGHT = 3300
-        logger.info("Using original image settings: quality=95, max=2550x3300")
 
     # Get storage provider from settings
     from app.core.config import settings
@@ -1529,7 +1512,6 @@ def generate_water_mitigation_report_pdf(
     # Page settings
     page_width, page_height = letter
     margin = 0.4 * inch  # Reduced margin for wider photo display area
-    cover_margin = 0.7 * inch  # Larger margin for cover page (cleaner look)
 
     # Professional grayscale color palette
     COLOR_BLACK = colors.HexColor('#000000')
@@ -1581,7 +1563,7 @@ def generate_water_mitigation_report_pdf(
                     logo_h = logo_h * (inch / 100)
 
                 logo_x = (page_width - logo_width) / 2
-                logo_y = page_height - cover_margin - logo_h - 0.5 * inch
+                logo_y = page_height - margin - logo_h - 0.5 * inch
 
                 # Save grayscale logo to temp file
                 temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
@@ -1593,12 +1575,12 @@ def generate_water_mitigation_report_pdf(
                 logger.warning(f"Failed to load company logo: {e}")
 
     # Clean top section
-    y_position = page_height - cover_margin - logo_height - 0.5 * inch
+    y_position = page_height - margin - logo_height - 0.5 * inch
 
     # Title with sophisticated typography
     title = config.get('cover_title', 'Water Mitigation Report')
     c.setFillColor(COLOR_BLACK)
-    c.setFont("Helvetica-Bold", 24)
+    c.setFont("Helvetica-Bold", 32)
     c.drawCentredString(page_width / 2, y_position, title)
     y_position -= 0.25 * inch
 
@@ -1658,11 +1640,11 @@ def generate_water_mitigation_report_pdf(
 
     # Section header with subtle background
     c.setFillColor(COLOR_VERY_LIGHT_GRAY)
-    c.rect(cover_margin - 0.1 * inch, y_position, page_width - 2 * cover_margin + 0.2 * inch, 0.4 * inch, fill=1, stroke=0)
+    c.rect(margin - 0.1 * inch, y_position, page_width - 2 * margin + 0.2 * inch, 0.4 * inch, fill=1, stroke=0)
 
     c.setFillColor(COLOR_BLACK)
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(cover_margin + 0.1 * inch, y_position + 0.12 * inch, "JOB INFORMATION")
+    c.drawString(margin + 0.1 * inch, y_position + 0.12 * inch, "JOB INFORMATION")
     y_position -= 0.3 * inch
 
     # Professional table layout for job info
@@ -1715,15 +1697,15 @@ def generate_water_mitigation_report_pdf(
             ('RIGHTPADDING', (1, 0), (1, -1), 0),
         ]))
 
-        # Draw table - left aligned at cover margin
+        # Draw table - left aligned at margin
         table_width, table_height = table.wrapOn(c, page_width, page_height)
-        table.drawOn(c, cover_margin, y_position - table_height)
+        table.drawOn(c, margin, y_position - table_height)
         y_position -= table_height
 
         # Draw bottom line matching the gray header width
         c.setStrokeColor(COLOR_LIGHT_GRAY)
         c.setLineWidth(1)
-        c.line(cover_margin - 0.1 * inch, y_position, page_width - cover_margin + 0.1 * inch, y_position)
+        c.line(margin - 0.1 * inch, y_position, page_width - margin + 0.1 * inch, y_position)
         y_position -= 0.6 * inch
 
     # Company info section - clean and minimal
@@ -1744,7 +1726,7 @@ def generate_water_mitigation_report_pdf(
     footer_y = 0.8 * inch
     c.setStrokeColor(COLOR_LIGHT_GRAY)
     c.setLineWidth(0.5)
-    c.line(cover_margin, footer_y, page_width - cover_margin, footer_y)
+    c.line(margin, footer_y, page_width - margin, footer_y)
 
     # Footer text
     c.setFillColor(COLOR_MEDIUM_GRAY)
@@ -1941,22 +1923,6 @@ def generate_water_mitigation_report_pdf(
                 # Draw photo with caption below and date overlay at bottom-right
                 try:
                     img = Image.open(photo_item['file_path'])
-
-                    # Apply compression/resize if enabled
-                    # Resize large images to reduce file size
-                    if img.width > IMAGE_MAX_WIDTH or img.height > IMAGE_MAX_HEIGHT:
-                        img.thumbnail((IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT), Image.Resampling.LANCZOS)
-
-                    # If compression is enabled, save to temp file with lower quality
-                    if compress:
-                        temp_compressed = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-                        # Convert to RGB if necessary (for PNG with alpha)
-                        if img.mode in ('RGBA', 'P'):
-                            img = img.convert('RGB')
-                        img.save(temp_compressed.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True)
-                        temp_compressed.close()
-                        photo_item['file_path'] = temp_compressed.name
-
                     img_width, img_height = img.size
 
                     # All photos use full cell width for maximum size

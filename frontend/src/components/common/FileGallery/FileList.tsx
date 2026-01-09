@@ -19,6 +19,7 @@ const { Text } = Typography;
 
 interface FileListProps {
   files: FileItem[];
+  context?: string;  // Context for context-aware download URLs
   selectedFiles?: string[];
   selectedFilesSet?: Set<string>;  // O(1) lookup Set
   allowMultiSelect?: boolean;
@@ -34,6 +35,7 @@ interface FileListProps {
 
 const FileList: React.FC<FileListProps> = ({
   files,
+  context,
   selectedFiles = [],
   selectedFilesSet,
   allowMultiSelect = false,
@@ -101,7 +103,12 @@ const FileList: React.FC<FileListProps> = ({
 
   const handleDownload = (file: FileItem) => {
     const link = document.createElement('a');
-    link.href = fileService.getDownloadUrl(file.id);
+    // Use context-aware download URL
+    if (context === 'water-mitigation') {
+      link.href = `/api/water-mitigation/photos/${file.id}/download`;
+    } else {
+      link.href = fileService.getDownloadUrl(file.id);
+    }
     link.download = file.originalName;
     document.body.appendChild(link);
     link.click();

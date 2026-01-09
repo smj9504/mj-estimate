@@ -302,10 +302,16 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             for cat in category_filter:
                 # Normalize filter value: lowercase, replace spaces/underscores with hyphens
                 normalized_cat = cat.lower().strip().replace(' ', '-').replace('_', '-')
-                # Match against normalized DB value
-                normalized_conditions.append(
-                    func.lower(func.replace(func.replace(WMPhoto.category, ' ', '-'), '_', '-')) == normalized_cat
-                )
+
+                # Special handling for 'uncategorized' - match NULL and empty strings
+                if normalized_cat == 'uncategorized':
+                    normalized_conditions.append(WMPhoto.category.is_(None))
+                    normalized_conditions.append(WMPhoto.category == '')
+                else:
+                    # Match against normalized DB value
+                    normalized_conditions.append(
+                        func.lower(func.replace(func.replace(WMPhoto.category, ' ', '-'), '_', '-')) == normalized_cat
+                    )
             query = query.filter(or_(*normalized_conditions))
             normalized_cats = [
                 c.lower().strip().replace(' ', '-').replace('_', '-')
@@ -432,6 +438,24 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             WMPhoto.external_id.isnot(None)
         ).all()
         return {r[0] for r in results}
+
+    def find_companycam_photos(self, job_id: UUID) -> List[WMPhoto]:
+        """
+        Find all CompanyCam photos for a job (excludes trashed and manual uploads).
+
+        Used for Google Drive export to only export photos sourced from CompanyCam.
+
+        Args:
+            job_id: Water mitigation job ID
+
+        Returns:
+            List of WMPhoto objects with source='companycam'
+        """
+        return self.db_session.query(WMPhoto).filter(
+            WMPhoto.job_id == job_id,
+            WMPhoto.is_trashed.is_(False),
+            WMPhoto.source == 'companycam'
+        ).order_by(WMPhoto.captured_date.asc()).all()
 
     def get_all_external_ids(self, external_ids: List[str]) -> Set[str]:
         """

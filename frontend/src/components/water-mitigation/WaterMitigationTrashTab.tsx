@@ -211,7 +211,7 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
   return (
     <div style={{ padding: '16px' }}>
       {/* Header with actions */}
-      <Card size="small" style={{ marginBottom: '16px' }}>
+      <Card size="small" className="compact-card-sm" style={{ marginBottom: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Space>
             <DeleteOutlined style={{ color: '#ff4d4f' }} />
@@ -269,6 +269,7 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
               <Card
                 hoverable
                 size="small"
+                className="compact-card-sm"
                 style={{
                   border: selectedPhotos.has(photo.id) ? '2px solid #1890ff' : undefined,
                   opacity: 0.85

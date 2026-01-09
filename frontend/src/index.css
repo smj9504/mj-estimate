@@ -11,3 +11,18 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Compact card variant - use className="compact-card" */
+.compact-card .ant-card-body {
+  padding: 12px !important;
+}
+
+/* Extra compact card variant - use className="compact-card-sm" */
+.compact-card-sm .ant-card-body {
+  padding: 8px !important;
+}
+
+/* No padding card variant - use className="no-padding-card" */
+.no-padding-card .ant-card-body {
+  padding: 0 !important;
+}

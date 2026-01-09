@@ -384,7 +384,6 @@ class GenerateReportRequest(BaseModel):
     config_id: Optional[UUID] = None  # Use saved config
     save_config: bool = False  # Save current config
     config: Optional[ReportConfigCreate] = None  # Inline config
-    compress: bool = False  # Compress PDF (reduce image quality for smaller file size)
 
 
 class GenerateReportResponse(BaseModel):

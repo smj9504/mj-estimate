@@ -126,6 +126,18 @@ class WaterMitigationJob(Base, BaseModel):
         uselist=False,
         cascade="all, delete-orphan"
     )
+    scope_locations = relationship(
+        "WMScopeLocation",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        order_by="WMScopeLocation.display_order"
+    )
+    debris_calculation = relationship(
+        "WMDebrisCalculation",
+        back_populates="job",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
 
 
 class PhotoCategory(Base, BaseModel):
@@ -384,6 +396,164 @@ class WMReportTemplateSection(Base, BaseModel):
 
     # Relationships
     template = relationship("WMReportTemplate", back_populates="sections")
+
+
+class WMDemolitionType(Base, BaseModel):
+    """
+    Water Mitigation Demolition Type Reference.
+
+    Stores predefined demolition types that can be reused across jobs.
+    Each type can be mapped to a MaterialWeight for debris calculation.
+    """
+    __tablename__ = "wm_demolition_types"
+    __table_args__ = (
+        Index('ix_wm_demolition_types_active', 'is_active'),
+        Index('ix_wm_demolition_types_category', 'category'),
+        {'extend_existing': True}
+    )
+
+    # Basic information
+    name = Column(String(255), nullable=False, unique=True)  # e.g., "Carpet", "Drywall 2ft from floor"
+    category = Column(String(100))  # e.g., "Flooring", "Wall", "Trim"
+    description = Column(Text)
+
+    # Unit configuration
+    default_unit = Column(String(20), nullable=False, default='SF')  # SF, LF, EA
+
+    # Material mapping for debris calculation (optional link to MaterialWeight)
+    material_weight_id = Column(
+        UUIDType(),
+        ForeignKey("material_weights.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Link to MaterialWeight for automatic debris calculation"
+    )
+
+    # Display
+    display_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+
+    # Audit
+    created_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+    updated_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+
+
+class WMScopeLocation(Base, BaseModel):
+    """
+    Water Mitigation Scope Location (Room/Area).
+
+    Represents a physical location within a property where mitigation work is performed.
+    Examples: "1st Floor - Bathroom", "Basement", "2nd Floor - Master Bedroom"
+    """
+    __tablename__ = "wm_scope_locations"
+    __table_args__ = (
+        Index('ix_wm_scope_locations_job', 'job_id'),
+        Index('ix_wm_scope_locations_order', 'job_id', 'display_order'),
+        {'extend_existing': True}
+    )
+
+    job_id = Column(UUIDType(), ForeignKey("water_mitigation_jobs.id", ondelete="CASCADE"), nullable=False)
+
+    # Location information
+    name = Column(String(255), nullable=False)  # e.g., "1st Floor - Bathroom"
+    floor = Column(String(50))  # e.g., "1st Floor", "2nd Floor", "Basement"
+    room_type = Column(String(100))  # e.g., "Bathroom", "Kitchen", "Bedroom"
+    description = Column(Text)
+
+    # Display
+    display_order = Column(Integer, default=0)
+
+    # Relationships
+    job = relationship("WaterMitigationJob", back_populates="scope_locations")
+    scope_items = relationship(
+        "WMScopeItem",
+        back_populates="location",
+        cascade="all, delete-orphan",
+        order_by="WMScopeItem.display_order"
+    )
+
+
+class WMScopeItem(Base, BaseModel):
+    """
+    Water Mitigation Scope of Work Item.
+
+    Individual work items within a location. Can be:
+    - Standard items: Floor Protection, Content Protection, Containment, Air Mover, etc.
+    - Demolition items: Linked to WMDemolitionType
+    - Custom items: User-defined work items
+    """
+    __tablename__ = "wm_scope_items"
+    __table_args__ = (
+        Index('ix_wm_scope_items_location', 'location_id'),
+        Index('ix_wm_scope_items_type', 'item_type'),
+        {'extend_existing': True}
+    )
+
+    location_id = Column(UUIDType(), ForeignKey("wm_scope_locations.id", ondelete="CASCADE"), nullable=False)
+
+    # Item type classification
+    item_type = Column(String(50), nullable=False)  # 'standard', 'demolition', 'custom'
+
+    # Item details
+    name = Column(String(255), nullable=False)  # e.g., "Floor Protection", "Carpet Demolition"
+    description = Column(Text)
+
+    # Measurement
+    quantity = Column(DECIMAL(12, 4))  # Can store calculated result
+    quantity_formula = Column(String(500))  # e.g., "10*12+5*8" - stores the original formula
+    unit = Column(String(20), nullable=False, default='SF')  # SF, LF, EA
+
+    # For demolition items - link to demolition type
+    demolition_type_id = Column(
+        UUIDType(),
+        ForeignKey("wm_demolition_types.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    # For debris calculation
+    include_in_debris = Column(Boolean, default=True)  # Whether to include in debris calculation
+    moisture_level = Column(String(20), default='dry')  # dry, damp, wet, saturated
+
+    # Display
+    display_order = Column(Integer, default=0)
+
+    # Relationships
+    location = relationship("WMScopeLocation", back_populates="scope_items")
+    demolition_type = relationship("WMDemolitionType")
+
+
+class WMDebrisCalculation(Base, BaseModel):
+    """
+    Water Mitigation Job Debris Calculation Summary.
+
+    Stores the calculated debris totals for a job based on scope items.
+    """
+    __tablename__ = "wm_debris_calculations"
+    __table_args__ = (
+        Index('ix_wm_debris_calc_job', 'job_id'),
+        {'extend_existing': True}
+    )
+
+    job_id = Column(UUIDType(), ForeignKey("water_mitigation_jobs.id", ondelete="CASCADE"), nullable=False, unique=True)
+
+    # Calculation results
+    total_weight_lb = Column(DECIMAL(12, 2))
+    total_weight_ton = Column(DECIMAL(10, 4))
+
+    # Breakdown by category (JSON)
+    category_breakdown = Column(JSONB, default=dict)  # {category_name: {weight_lb, weight_ton}}
+
+    # Dumpster recommendation
+    dumpster_recommendation = Column(JSONB)  # {size: "20 yard", capacity_tons: 3, count: 1}
+
+    # Item details (JSON) - snapshot of items used in calculation
+    item_details = Column(JSONB, default=list)  # [{item_id, name, quantity, unit, weight_lb, weight_ton}]
+
+    # Calculation metadata
+    calculated_at = Column(DateTime(timezone=True), default=func.now())
+    calculated_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+
+    # Relationships
+    job = relationship("WaterMitigationJob", back_populates="debris_calculation")
 
 
 class WMReportConfig(Base, BaseModel):
