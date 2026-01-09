@@ -53,9 +53,7 @@ import type {
   DemolitionType,
   WMDebrisCalculation,
   CalculateDebrisResponse,
-  ScopeItemType,
-  MoistureLevel,
-  UnitType
+  ScopeItemType
 } from '../../types/waterMitigation';
 import {
   STANDARD_SCOPE_ITEMS,

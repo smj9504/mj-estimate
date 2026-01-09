@@ -22,7 +22,19 @@ import type {
   ReportTemplate,
   TemplateCreate,
   TemplateUpdate,
-  TemplateListResponse
+  TemplateListResponse,
+  ScopeLocation,
+  ScopeLocationCreate,
+  ScopeLocationUpdate,
+  ScopeLocationListResponse,
+  ScopeItem,
+  ScopeItemCreate,
+  ScopeItemUpdate,
+  DemolitionType,
+  DemolitionTypeListResponse,
+  WMDebrisCalculation,
+  CalculateDebrisResponse,
+  CalculateFormulaResponse
 } from '../types/waterMitigation';
 
 const BASE_URL = '/api/water-mitigation';
@@ -406,6 +418,110 @@ export const waterMitigationService = {
     // Create report config from template
     createConfigFromTemplate: async (templateId: string, jobId: string): Promise<ReportConfig> => {
       const response = await api.post(`${BASE_URL}/templates/${templateId}/create-config`, { job_id: jobId });
+      return response.data;
+    }
+  },
+
+  // Scope of Work Management
+  scope: {
+    // Location Management
+    locations: {
+      // List locations for a job
+      listByJob: async (jobId: string, includeItems: boolean = true): Promise<ScopeLocationListResponse> => {
+        const response = await api.get(`${BASE_URL}/scope/jobs/${jobId}/locations`, {
+          params: { include_items: includeItems }
+        });
+        return response.data;
+      },
+
+      // Create location
+      create: async (data: ScopeLocationCreate): Promise<ScopeLocation> => {
+        const response = await api.post(`${BASE_URL}/scope/locations`, data);
+        return response.data;
+      },
+
+      // Update location
+      update: async (locationId: string, data: ScopeLocationUpdate): Promise<ScopeLocation> => {
+        const response = await api.put(`${BASE_URL}/scope/locations/${locationId}`, data);
+        return response.data;
+      },
+
+      // Delete location
+      delete: async (locationId: string): Promise<void> => {
+        await api.delete(`${BASE_URL}/scope/locations/${locationId}`);
+      },
+
+      // Add standard items to location
+      addStandardItems: async (locationId: string): Promise<ScopeItem[]> => {
+        const response = await api.post(`${BASE_URL}/scope/locations/${locationId}/add-standard-items`);
+        return response.data;
+      }
+    },
+
+    // Item Management
+    items: {
+      // Create item
+      create: async (data: ScopeItemCreate): Promise<ScopeItem> => {
+        const response = await api.post(`${BASE_URL}/scope/items`, data);
+        return response.data;
+      },
+
+      // Update item
+      update: async (itemId: string, data: ScopeItemUpdate): Promise<ScopeItem> => {
+        const response = await api.put(`${BASE_URL}/scope/items/${itemId}`, data);
+        return response.data;
+      },
+
+      // Delete item
+      delete: async (itemId: string): Promise<void> => {
+        await api.delete(`${BASE_URL}/scope/items/${itemId}`);
+      }
+    },
+
+    // Demolition Type Management
+    demolitionTypes: {
+      // List demolition types
+      list: async (activeOnly: boolean = true): Promise<DemolitionTypeListResponse> => {
+        const response = await api.get(`${BASE_URL}/scope/demolition-types`, {
+          params: { active_only: activeOnly }
+        });
+        return response.data;
+      },
+
+      // Seed default demolition types
+      seed: async (): Promise<DemolitionType[]> => {
+        const response = await api.post(`${BASE_URL}/scope/demolition-types/seed`);
+        return response.data;
+      }
+    },
+
+    // Debris Calculation
+    debris: {
+      // Get debris calculation for a job
+      get: async (jobId: string): Promise<WMDebrisCalculation | null> => {
+        try {
+          const response = await api.get(`${BASE_URL}/scope/jobs/${jobId}/debris-calculation`);
+          return response.data;
+        } catch (error: any) {
+          if (error?.response?.status === 404) {
+            return null;
+          }
+          throw error;
+        }
+      },
+
+      // Calculate debris for a job
+      calculate: async (jobId: string, saveResult: boolean = true): Promise<CalculateDebrisResponse> => {
+        const response = await api.post(`${BASE_URL}/scope/jobs/${jobId}/calculate-debris`, {
+          save_result: saveResult
+        });
+        return response.data;
+      }
+    },
+
+    // Formula Calculation
+    calculateFormula: async (formula: string): Promise<CalculateFormulaResponse> => {
+      const response = await api.post(`${BASE_URL}/scope/calculate-formula`, { formula });
       return response.data;
     }
   }
