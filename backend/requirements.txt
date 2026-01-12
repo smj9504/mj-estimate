@@ -31,6 +31,7 @@ Pillow>=11.0.0  # Updated for inference-sdk compatibility (requires >=11.0)
 
 # AI/ML - Photo Analysis
 openai==1.54.0  # OpenAI GPT-4 Vision for room photo analysis
+google-generativeai==0.8.6  # Gemini Vision for water mitigation photo classification
 
 # Google Drive Integration
 google-auth==2.23.4

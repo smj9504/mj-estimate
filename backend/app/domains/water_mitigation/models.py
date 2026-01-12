@@ -556,6 +556,50 @@ class WMDebrisCalculation(Base, BaseModel):
     job = relationship("WaterMitigationJob", back_populates="debris_calculation")
 
 
+class PhotoAnalysisCache(Base, BaseModel):
+    """
+    AI photo classification analysis cache.
+
+    Stores AI analysis results and user corrections for Water Mitigation photos.
+    Used to:
+    - Cache expensive AI Vision API calls
+    - Track user corrections for analytics
+    - Provide pattern analysis data
+    """
+    __tablename__ = "photo_analysis_cache"
+    __table_args__ = (
+        Index('ix_photo_analysis_photo', 'photo_id'),
+        Index('ix_photo_analysis_corrected', 'user_corrected'),
+        {'extend_existing': True}
+    )
+
+    photo_id = Column(UUIDType(), ForeignKey("wm_photos.id", ondelete="CASCADE"), nullable=False, unique=True)
+
+    # AI Analysis Result (JSON structure)
+    # {
+    #   "category": "wet-area",
+    #   "confidence": 0.85,
+    #   "metadata": {
+    #     "meter_visible": true,
+    #     "meter_color": "red",
+    #     "is_demolished": false,
+    #     "equipment_count": 0,
+    #     "equipment_status": null,
+    #     "mold_visible": false
+    #   },
+    #   "rule_applied": "meter_color_red_no_demo",
+    #   "original_category": "day-1",  # Before rule correction
+    #   "analyzed_at": "2024-01-15T10:30:00Z"
+    # }
+    ai_result = Column(JSONB, nullable=False)
+
+    # User correction tracking (for analytics, not Few-shot learning)
+    user_corrected = Column(Boolean, default=False)
+
+    # Relationships
+    photo = relationship("WMPhoto")
+
+
 class WMReportConfig(Base, BaseModel):
     """Water mitigation photo report configuration"""
     __tablename__ = "wm_report_configs"

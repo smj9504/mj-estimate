@@ -184,6 +184,11 @@ class Settings(BaseSettings):
     PHOTO_ANALYSIS_CACHE_TTL_DAYS: int = int(os.getenv("PHOTO_ANALYSIS_CACHE_TTL_DAYS", "30"))
     PHOTO_ANALYSIS_MODEL: str = os.getenv("PHOTO_ANALYSIS_MODEL", "gpt-4-vision-preview")
 
+    # Gemini Vision API Settings (AI-powered photo classification)
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    ENABLE_AI_PHOTO_CLASSIFICATION: bool = os.getenv("ENABLE_AI_PHOTO_CLASSIFICATION", "true").lower() == "true"
+
     # Storage Configuration
     STORAGE_PROVIDER: str = os.getenv("STORAGE_PROVIDER", "local")  # local, gdrive, gcs, s3, azure
     STORAGE_BASE_DIR: str = os.getenv("STORAGE_BASE_DIR", "uploads")

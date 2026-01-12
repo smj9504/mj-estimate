@@ -2476,3 +2476,316 @@ async def migrate_thumbnail_urls(
         'remaining': remaining,
         'errors': errors[:10] if errors else []
     }
+
+
+# =============================================================================
+# AI Photo Classification Endpoints
+# =============================================================================
+
+class AIClassifyRequest(BaseModel):
+    """Request for AI classification"""
+    photo_ids: List[str]
+    force_refresh: bool = False
+
+
+class AIClassifyResponse(BaseModel):
+    """Response for AI classification"""
+    success: bool
+    classified: int
+    failed: int
+    results: List[dict]
+
+
+@router.post("/photos/ai-classify", response_model=AIClassifyResponse)
+async def ai_classify_photos(
+    request: AIClassifyRequest,
+    background_tasks: BackgroundTasks,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Classify photos using AI (Gemini Vision).
+
+    This endpoint analyzes photos and suggests categories based on:
+    - Moisture meter color (red/yellow/green)
+    - Demolition state
+    - Equipment presence and status
+    - Mold detection
+
+    Args:
+        request.photo_ids: List of photo IDs to classify
+        request.force_refresh: If True, re-classify even if cached result exists
+
+    Returns:
+        Classification results for each photo
+    """
+    from app.core.config import settings
+    from .ai_classification_service import ai_classification_service
+
+    if not settings.ENABLE_AI_PHOTO_CLASSIFICATION:
+        raise HTTPException(
+            status_code=400,
+            detail="AI photo classification is disabled"
+        )
+
+    if not settings.GEMINI_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="GEMINI_API_KEY is not configured"
+        )
+
+    results = []
+    classified = 0
+    failed = 0
+
+    for photo_id in request.photo_ids:
+        try:
+            # Get photo from database
+            photo = service.photo_repo.get_by_id(photo_id)
+            if not photo:
+                results.append({
+                    "photo_id": photo_id,
+                    "error": "Photo not found"
+                })
+                failed += 1
+                continue
+
+            # Check cache first (unless force refresh)
+            if not request.force_refresh:
+                cached = ai_classification_service.get_cached_result(db, photo_id)
+                if cached:
+                    results.append({
+                        "photo_id": photo_id,
+                        "cached": True,
+                        **cached
+                    })
+                    classified += 1
+                    continue
+
+            # Get photo file path and read image
+            photo_dict = service.photo_repo._convert_to_dict(photo)
+            file_path = photo_dict.get('file_path')
+
+            if not file_path:
+                results.append({
+                    "photo_id": photo_id,
+                    "error": "Photo file path not found"
+                })
+                failed += 1
+                continue
+
+            # Read image data
+            try:
+                # Handle different storage providers
+                storage_provider = photo_dict.get('storage_provider', 'local')
+
+                if storage_provider == 'local':
+                    from app.core.config import settings as app_settings
+                    base_dir = Path(app_settings.STORAGE_BASE_DIR)
+                    local_path = base_dir / file_path
+
+                    if not local_path.exists():
+                        results.append({
+                            "photo_id": photo_id,
+                            "error": f"Local file not found: {file_path}"
+                        })
+                        failed += 1
+                        continue
+
+                    with open(local_path, 'rb') as f:
+                        image_data = f.read()
+
+                    mime_type = photo_dict.get('mime_type', 'image/jpeg')
+                else:
+                    # For cloud storage, use URL
+                    result = await ai_classification_service.classify_photo_from_url(file_path)
+                    if "error" not in result:
+                        ai_classification_service.save_result(db, photo_id, result)
+                        results.append({
+                            "photo_id": photo_id,
+                            "cached": False,
+                            **result
+                        })
+                        classified += 1
+                    else:
+                        results.append({
+                            "photo_id": photo_id,
+                            **result
+                        })
+                        failed += 1
+                    continue
+
+            except Exception as e:
+                results.append({
+                    "photo_id": photo_id,
+                    "error": f"Failed to read image: {str(e)}"
+                })
+                failed += 1
+                continue
+
+            # Classify photo
+            result = await ai_classification_service.classify_photo(
+                image_data,
+                mime_type
+            )
+
+            if "error" not in result:
+                # Save to cache
+                ai_classification_service.save_result(db, photo_id, result)
+                results.append({
+                    "photo_id": photo_id,
+                    "cached": False,
+                    **result
+                })
+                classified += 1
+            else:
+                results.append({
+                    "photo_id": photo_id,
+                    **result
+                })
+                failed += 1
+
+        except Exception as e:
+            logger.error(f"AI classification failed for photo {photo_id}: {e}")
+            results.append({
+                "photo_id": photo_id,
+                "error": str(e)
+            })
+            failed += 1
+
+    return AIClassifyResponse(
+        success=failed == 0,
+        classified=classified,
+        failed=failed,
+        results=results
+    )
+
+
+@router.post("/photos/{photo_id}/ai-classify")
+async def ai_classify_single_photo(
+    photo_id: UUID,
+    force_refresh: bool = Query(False, description="Force re-classification even if cached"),
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Classify a single photo using AI.
+
+    Returns the AI-suggested category and metadata without changing the photo's category.
+    Use PATCH /photos/{photo_id}/category to actually update the category.
+    """
+    request = AIClassifyRequest(
+        photo_ids=[str(photo_id)],
+        force_refresh=force_refresh
+    )
+    response = await ai_classify_photos(
+        request=request,
+        background_tasks=BackgroundTasks(),
+        service=service,
+        db=db
+    )
+
+    if response.results:
+        return response.results[0]
+    else:
+        raise HTTPException(status_code=500, detail="Classification failed")
+
+
+@router.post("/photos/{photo_id}/ai-apply")
+async def apply_ai_classification(
+    photo_id: UUID,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Apply AI classification result to a photo.
+
+    This will:
+    1. Get the AI classification result (from cache or run new classification)
+    2. Update the photo's category to the AI-suggested category
+
+    Returns the updated photo.
+    """
+    from .ai_classification_service import ai_classification_service
+
+    # Get cached result
+    cached = ai_classification_service.get_cached_result(db, str(photo_id))
+
+    if not cached:
+        # Run classification first
+        classify_response = await ai_classify_single_photo(
+            photo_id=photo_id,
+            force_refresh=False,
+            service=service,
+            db=db
+        )
+        if "error" in classify_response:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Classification failed: {classify_response.get('error')}"
+            )
+        cached = classify_response
+
+    # Get suggested category
+    suggested_category = cached.get("category", "uncategorized")
+
+    # Update photo category
+    photo = service.photo_repo.get_by_id(str(photo_id))
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    updated = service.photo_repo.update(
+        str(photo_id),
+        {"category": suggested_category}
+    )
+    db.commit()
+
+    return {
+        "success": True,
+        "photo_id": str(photo_id),
+        "applied_category": suggested_category,
+        "ai_confidence": cached.get("confidence"),
+        "rule_applied": cached.get("rule_applied"),
+        "photo": service.photo_repo._convert_to_dict(updated)
+    }
+
+
+@router.patch("/photos/{photo_id}/category-correction")
+def correct_photo_category(
+    photo_id: UUID,
+    category: str = Form(..., description="User-corrected category"),
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Correct a photo's category (marks as user-corrected for analytics).
+
+    Use this endpoint when:
+    - User disagrees with AI classification and wants to set a different category
+    - User wants to manually categorize a photo
+
+    This tracks the correction for pattern analysis (not used for training).
+    """
+    from .ai_classification_service import ai_classification_service
+
+    photo = service.photo_repo.get_by_id(str(photo_id))
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    # Mark as user corrected in cache (for analytics)
+    ai_classification_service.mark_user_corrected(db, str(photo_id), category)
+
+    # Update photo category
+    updated = service.photo_repo.update(
+        str(photo_id),
+        {"category": category}
+    )
+    db.commit()
+
+    return {
+        "success": True,
+        "photo_id": str(photo_id),
+        "category": category,
+        "user_corrected": True,
+        "photo": service.photo_repo._convert_to_dict(updated)
+    }
