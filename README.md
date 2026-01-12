@@ -1,24 +1,27 @@
-# MJ Estimate - Professional Insurance Estimate & Work Order Management System
+# MJ Estimate - Professional Insurance Estimate and Work Order Management System
 
-> A comprehensive full-stack application for insurance restoration contractors to manage estimates, invoices, work orders, and water mitigation projects.
+A comprehensive full-stack application for insurance restoration contractors to manage estimates, invoices, work orders, and water mitigation projects.
 
-## 🎯 Overview
+## Overview
 
 MJ Estimate is an enterprise-grade management system built specifically for insurance restoration contractors. It streamlines the entire workflow from initial estimate creation through water mitigation, reconstruction, and final invoicing.
 
 ### Key Capabilities
 
-- **📋 Estimate & Invoice Management** - Create professional estimates and invoices with customizable templates
-- **🏗️ Work Order System** - Complete work order lifecycle management with staff assignment and tracking
-- **💧 Water Mitigation** - Specialized water damage assessment and mitigation workflow with photo management
-- **🔨 Reconstruction Estimates** - Material detection, pack-out calculations, and debris estimation
-- **📐 Interior Sketching** - Interactive canvas-based floor plan and interior sketching tool
-- **📸 AI Photo Analysis** - Intelligent room analysis and item detection from photos
-- **🔗 External Integrations** - CompanyCam, Google Sheets, and Slack integrations
-- **📊 Analytics & Reporting** - Comprehensive dashboard with business insights
-- **👥 Multi-user Support** - Role-based access control (Admin, Manager, Staff)
+- **Estimate and Invoice Management** - Create professional estimates and invoices with customizable templates
+- **Work Order System** - Complete work order lifecycle management with staff assignment and tracking
+- **Water Mitigation** - Specialized water damage assessment and mitigation workflow with photo management
+- **AI Photo Classification** - Automatic photo categorization using Gemini Vision API with rule-based validation
+- **Scope of Work Management** - Room-based scope items, demolition tracking, and debris calculation
+- **Reconstruction Estimates** - Material detection, pack-out calculations, and debris estimation
+- **Interior Sketching** - Interactive canvas-based floor plan and interior sketching tool
+- **AI Photo Analysis** - Intelligent room analysis and item detection from photos
+- **External Integrations** - CompanyCam, Google Sheets, and Slack integrations
+- **Google Drive Export** - OAuth 2.0 integration for user-level Google Drive file export
+- **Analytics and Reporting** - Comprehensive dashboard with business insights
+- **Multi-user Support** - Role-based access control (Admin, Manager, Staff)
 
-## 🏗️ Architecture
+## Architecture
 
 ### Technology Stack
 
@@ -35,8 +38,8 @@ MJ Estimate is an enterprise-grade management system built specifically for insu
 - **UI Library**: Ant Design 5.27+
 - **State Management**: Zustand + TanStack React Query
 - **Routing**: React Router v7
-- **Canvas Drawing**: Konva.js & React-Konva
-- **Charts**: Recharts & Ant Design Charts
+- **Canvas Drawing**: Konva.js and React-Konva
+- **Charts**: Recharts and Ant Design Charts
 - **Build Tool**: Create React App with CRACO
 - **Performance**: React Lazy Loading + Code Splitting
 
@@ -44,56 +47,57 @@ MJ Estimate is an enterprise-grade management system built specifically for insu
 - **Photo Management**: CompanyCam API (webhook-based photo sync)
 - **Spreadsheets**: Google Sheets API (bidirectional sync)
 - **Notifications**: Slack Webhooks
-- **AI Analysis**: Google Vision AI / Custom ML Models
+- **AI Classification**: Google Gemini Vision API (photo categorization)
+- **AI Analysis**: OpenAI GPT-4 Vision (room item detection)
 
 ### System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Frontend (React)                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │Dashboard │  │Estimates │  │Work      │  │Water     │   │
-│  │          │  │& Invoices│  │Orders    │  │Mitigation│   │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
-│       ↓              ↓              ↓              ↓        │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │        React Query (API State Management)           │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                              ↕ HTTP/REST API
-┌─────────────────────────────────────────────────────────────┐
-│                    Backend (FastAPI)                        │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │               Domain Layer (Business Logic)          │  │
-│  ├──────────┬──────────┬──────────┬──────────┬─────────┤  │
-│  │  Auth    │ Company  │ Estimate │  Work    │  Water  │  │
-│  │          │          │ Invoice  │  Order   │  Mitig. │  │
-│  ├──────────┼──────────┼──────────┼──────────┼─────────┤  │
-│  │  Pack    │  Photo   │ Material │ Interior │ Integra-│  │
-│  │  Calc    │ Analysis │Detection │ Sketch   │ tions   │  │
-│  └──────────┴──────────┴──────────┴──────────┴─────────┘  │
-│                              ↕                               │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │          Repository Layer (Data Access)              │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                              ↕
-┌─────────────────────────────────────────────────────────────┐
-│                PostgreSQL Database                          │
-│  ┌──────────┬──────────┬──────────┬──────────┬─────────┐  │
-│  │  Users   │Companies │Estimates │  Work    │  Photos │  │
-│  │  Roles   │Licenses  │Invoices  │  Orders  │  Files  │  │
-│  └──────────┴──────────┴──────────┴──────────┴─────────┘  │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|                     Frontend (React)                         |
+|  +----------+  +----------+  +----------+  +----------+     |
+|  |Dashboard |  |Estimates |  |Work      |  |Water     |     |
+|  |          |  |& Invoices|  |Orders    |  |Mitigation|     |
+|  +----------+  +----------+  +----------+  +----------+     |
+|       |              |              |              |         |
+|  +----------------------------------------------------------+
+|  |        React Query (API State Management)                |
+|  +----------------------------------------------------------+
++-------------------------------------------------------------+
+                              | HTTP/REST API
++-------------------------------------------------------------+
+|                    Backend (FastAPI)                         |
+|  +----------------------------------------------------------+
+|  |               Domain Layer (Business Logic)              |
+|  +----------+----------+----------+----------+--------------+
+|  |  Auth    | Company  | Estimate |  Work    |  Water       |
+|  |          |          | Invoice  |  Order   |  Mitigation  |
+|  +----------+----------+----------+----------+--------------+
+|  |  Pack    |  Photo   | Material | Interior | Integration  |
+|  |  Calc    | Analysis |Detection | Sketch   | (External)   |
+|  +----------+----------+----------+----------+--------------+
+|                              |                               |
+|  +----------------------------------------------------------+
+|  |          Repository Layer (Data Access)                  |
+|  +----------------------------------------------------------+
++-------------------------------------------------------------+
+                              |
++-------------------------------------------------------------+
+|                PostgreSQL Database                           |
+|  +----------+----------+----------+----------+----------+   |
+|  |  Users   |Companies |Estimates |  Work    |  Photos  |   |
+|  |  Roles   |Licenses  |Invoices  |  Orders  |  Files   |   |
+|  +----------+----------+----------+----------+----------+   |
++-------------------------------------------------------------+
 ```
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 mj-react-app/
 ├── backend/                    # FastAPI Backend
 │   ├── app/
-│   │   ├── core/              # Core configuration & database
+│   │   ├── core/              # Core configuration and database
 │   │   │   ├── config.py      # Environment settings
 │   │   │   ├── database_factory.py  # Database abstraction
 │   │   │   └── logging_config.py    # Logging setup
@@ -101,12 +105,14 @@ mj-react-app/
 │   │   │   ├── base_repository.py   # Repository pattern base
 │   │   │   └── services/      # Common services (PDF, etc.)
 │   │   ├── domains/           # Business domains (DDD)
-│   │   │   ├── auth/          # Authentication & authorization
-│   │   │   ├── company/       # Company & client management
-│   │   │   ├── invoice/       # Invoice creation & management
+│   │   │   ├── auth/          # Authentication and authorization
+│   │   │   ├── company/       # Company and client management
+│   │   │   ├── invoice/       # Invoice creation and management
 │   │   │   ├── estimate/      # Estimate workflows
 │   │   │   ├── work_order/    # Work order lifecycle
 │   │   │   ├── water_mitigation/  # Water damage projects
+│   │   │   │   ├── ai_classification_service.py  # Gemini Vision AI
+│   │   │   │   └── ...
 │   │   │   ├── reconstruction_estimate/  # Reconstruction
 │   │   │   ├── pack_calculation/  # Pack-out calculations
 │   │   │   ├── photo_analysis/    # AI photo analysis
@@ -118,12 +124,12 @@ mj-react-app/
 │   │   │   │   └── slack/         # Slack notifications
 │   │   │   ├── line_items/    # Line item catalog
 │   │   │   ├── receipt/       # Receipt management
-│   │   │   ├── staff/         # Staff & permissions
+│   │   │   ├── staff/         # Staff and permissions
 │   │   │   ├── payment/       # Payment tracking
 │   │   │   ├── document/      # Document management
 │   │   │   ├── file/          # File storage management
 │   │   │   ├── storage/       # Multi-provider storage
-│   │   │   └── dashboard/     # Analytics & dashboard
+│   │   │   └── dashboard/     # Analytics and dashboard
 │   │   ├── templates/         # Jinja2 PDF templates
 │   │   └── main.py           # FastAPI application entry
 │   ├── alembic/              # Database migrations
@@ -162,11 +168,11 @@ mj-react-app/
 └── README.md                 # This file
 ```
 
-## 📚 Complete Feature List
+## Complete Feature List
 
 ### Backend API Features
 
-#### 1. Authentication & Authorization (`/api/auth`)
+#### 1. Authentication and Authorization (`/api/auth`)
 - JWT-based authentication with refresh tokens
 - User registration and login
 - Password reset functionality
@@ -230,6 +236,16 @@ mj-react-app/
 - Photo attachment and organization by date
 - Job status tracking with history
 - Photo categorization
+- **AI Photo Classification** (Gemini Vision):
+  - Automatic photo categorization
+  - Categories: wet-area, pre-mitigation-moving, demolition, containment, drying-process, day-1, day-2, day-3, documentation, uncategorized
+  - Rule-based post-processing (meter color, demolition state, equipment status)
+  - User correction tracking for analytics
+- **Scope of Work Management**:
+  - Scope locations (rooms/areas)
+  - Scope items (work items with formulas)
+  - Demolition type tracking
+  - Debris calculation with dumpster recommendations
 - Bulk date operations
 - Report generation (multiple formats)
 - Report templates and configuration
@@ -292,20 +308,22 @@ mj-react-app/
 - Form generation
 - Document preview
 - Export functionality
+- PDF compression option
 
-#### 14. File & Document Management (`/api/files`, `/api/documents`)
+#### 14. File and Document Management (`/api/files`, `/api/documents`)
 - Multi-storage provider support:
   - Local filesystem
   - Google Drive (30GB free)
   - Google Cloud Storage
   - AWS S3 (extensible)
   - Azure Blob (extensible)
+- Google OAuth 2.0 for user-level Drive access
 - File upload/download
 - File organization by context
 - Document type classification
 - Document search
 
-#### 15. Dashboard & Analytics (`/api/dashboard`, `/api/analytics`)
+#### 15. Dashboard and Analytics (`/api/dashboard`, `/api/analytics`)
 - Real-time dashboard statistics
 - Company metrics
 - Work order analytics
@@ -333,10 +351,11 @@ mj-react-app/
 
 ### Frontend Features
 
-#### Authentication & Security
+#### Authentication and Security
 - Login page with email/password
 - Forgot password flow
 - Password reset functionality
+- Google OAuth callback handling
 - Protected route system with role-based access
 
 #### Dashboard
@@ -378,8 +397,13 @@ mj-react-app/
 #### Water Mitigation
 - Job creation and management
 - Photo gallery with date-based categorization
+- AI-powered photo classification with confidence display
 - Multi-select and bulk operations
 - Status tracking with history
+- Scope of Work management:
+  - Location/room management
+  - Scope item entry with formula support
+  - Debris calculation with breakdown
 - Report generation with templates
 - Photo organization tools
 - Search and filter capabilities
@@ -402,7 +426,7 @@ mj-react-app/
 - Document types management
 - Cache monitoring
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -476,7 +500,7 @@ docker-compose -f docker-compose.dev.yml up
 docker-compose up
 ```
 
-## 🌐 Application URLs
+## Application URLs
 
 | Service | URL | Description |
 |---------|-----|-------------|
@@ -486,7 +510,7 @@ docker-compose up
 | API Docs (ReDoc) | http://localhost:8000/redoc | Alternative API documentation |
 | PgAdmin (Docker) | http://localhost:8080 | Database management UI |
 
-## 🔐 Environment Configuration
+## Environment Configuration
 
 ### Backend (.env.development)
 
@@ -508,15 +532,23 @@ STORAGE_BASE_DIR=uploads
 GDRIVE_SERVICE_ACCOUNT_FILE=./secrets/service-account-key.json
 GDRIVE_ROOT_FOLDER_ID=your_folder_id
 
+# Google OAuth 2.0 (for user-level Drive access)
+GOOGLE_OAUTH_CLIENT_ID=your_client_id
+GOOGLE_OAUTH_CLIENT_SECRET=your_client_secret
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:3000/oauth/google/callback
+
 # External Integrations (optional)
 ENABLE_INTEGRATIONS=true
 COMPANYCAM_API_KEY=your-companycam-key
 COMPANYCAM_WEBHOOK_TOKEN=your-webhook-token
 SLACK_WEBHOOK_URL=your-slack-webhook-url
-GOOGLE_SHEETS_ENABLED=true
+GOOGLE_SHEETS_WATER_MITIGATION_ID=your_spreadsheet_id
 
-# AI Features (optional)
+# AI Features
 OPENAI_API_KEY=your-openai-key
+GEMINI_API_KEY=your-gemini-key
+ENABLE_AI_PHOTO_CLASSIFICATION=true
+GEMINI_MODEL=gemini-1.5-flash
 ```
 
 ### Frontend (.env)
@@ -526,7 +558,7 @@ REACT_APP_API_URL=http://localhost:8000
 REACT_APP_ENV=development
 ```
 
-## 📦 Production Deployment
+## Production Deployment
 
 ### Recommended Stack
 ```
@@ -540,21 +572,21 @@ Storage:  Google Drive (30GB free)
 
 ### Deployment Architecture
 ```
-┌─────────────┐      ┌──────────────┐      ┌──────────────┐
-│   Vercel    │ ───> │    Render    │ ───> │   NeonDB     │
-│  (Frontend) │      │  (Backend)   │      │ (PostgreSQL) │
-│    Free     │      │    $7/mo     │      │     Free     │
-└─────────────┘      └──────────────┘      └──────────────┘
-        │                    │
-        │                    ├──> Google Drive (File Storage)
-        │                    ├──> Google Sheets (Scheduled Sync)
-        │                    ├──> CompanyCam (Webhooks)
-        │                    └──> Slack (Notifications)
++-------------+      +--------------+      +--------------+
+|   Vercel    | ---> |    Render    | ---> |   NeonDB     |
+|  (Frontend) |      |  (Backend)   |      | (PostgreSQL) |
+|    Free     |      |    $7/mo     |      |     Free     |
++-------------+      +--------------+      +--------------+
+        |                    |
+        |                    +---> Google Drive (File Storage)
+        |                    +---> Google Sheets (Scheduled Sync)
+        |                    +---> CompanyCam (Webhooks)
+        |                    +---> Slack (Notifications)
 ```
 
-📖 **Full deployment guide**: See [DEPLOYMENT.md](./DEPLOYMENT.md)
+Full deployment guide: See [DEPLOYMENT.md](./DEPLOYMENT.md)
 
-## 🛠️ Development Guide
+## Development Guide
 
 ### Adding a New Domain (Backend)
 
@@ -623,7 +655,7 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
-## 🧪 Testing
+## Testing
 
 ### Backend Tests
 ```bash
@@ -640,7 +672,7 @@ npm test                         # Run tests
 npm test -- --coverage           # Run with coverage
 ```
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -675,14 +707,14 @@ curl http://localhost:8000/api/integrations/health
 curl http://localhost:8000/api/integrations/webhook-events?service_name=companycam
 ```
 
-## 📖 API Documentation
+## API Documentation
 
 Once the backend is running, comprehensive API documentation is available at:
 
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 
-## 📝 Contributing
+## Contributing
 
 ### Branch Strategy
 - `main` - Production-ready code
@@ -692,14 +724,14 @@ Once the backend is running, comprehensive API documentation is available at:
 
 Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 
-## 📄 License
+## License
 
-Copyright © 2024 MJ Estimate. All rights reserved.
+Copyright 2024 MJ Estimate. All rights reserved.
 
-## 🤝 Support
+## Support
 
 For support, please contact the development team or create an issue in the repository.
 
 ---
 
-**Built with ❤️ for insurance restoration contractors**
+**Built for insurance restoration contractors**
