@@ -59,6 +59,7 @@ class GoogleSheetsSyncService:
             "processed": 0,
             "created": 0,
             "updated": 0,
+            "skipped": 0,
             "failed": 0,
             "sheets_synced": [],
             "errors": []
@@ -73,13 +74,15 @@ class GoogleSheetsSyncService:
                 combined_stats["processed"] += stats.get("processed", 0)
                 combined_stats["created"] += stats.get("created", 0)
                 combined_stats["updated"] += stats.get("updated", 0)
+                combined_stats["skipped"] += stats.get("skipped", 0)
                 combined_stats["failed"] += stats.get("failed", 0)
                 combined_stats["sheets_synced"].append({
                     "sheet_name": sheet_name,
                     "status": stats.get("status", "success"),
                     "processed": stats.get("processed", 0),
                     "created": stats.get("created", 0),
-                    "updated": stats.get("updated", 0)
+                    "updated": stats.get("updated", 0),
+                    "skipped": stats.get("skipped", 0)
                 })
 
                 if stats.get("errors"):
@@ -111,7 +114,8 @@ class GoogleSheetsSyncService:
             f"Multi-sheet sync completed: sheets={len(sheet_names)}, "
             f"processed={combined_stats['processed']}, "
             f"created={combined_stats['created']}, "
-            f"updated={combined_stats['updated']}"
+            f"updated={combined_stats['updated']}, "
+            f"skipped={combined_stats['skipped']}"
         )
 
         return combined_stats
@@ -164,6 +168,7 @@ class GoogleSheetsSyncService:
                 "processed": 0,
                 "created": 0,
                 "updated": 0,
+                "skipped": 0,
                 "failed": 0,
                 "errors": []
             }
@@ -171,18 +176,21 @@ class GoogleSheetsSyncService:
             # Process each row
             for row_idx, row in enumerate(data_rows, start=start_row + 1):
                 try:
-                    result = self._process_row(row, row_idx)
+                    result = self._process_row(row, row_idx, sheet_name)
                     if result:
                         if result.get("created"):
                             stats["created"] += 1
                         elif result.get("updated"):
                             stats["updated"] += 1
+                        elif result.get("skipped"):
+                            stats["skipped"] += 1
                         stats["processed"] += 1
                 except Exception as e:
-                    logger.error(f"Failed to sync row {row_idx}: {str(e)}", exc_info=True)
+                    logger.error(f"Failed to sync row {row_idx} in sheet {sheet_name}: {str(e)}", exc_info=True)
                     stats["failed"] += 1
                     stats["errors"].append({
                         "row": row_idx,
+                        "sheet_name": sheet_name,
                         "error": str(e)
                     })
 
@@ -203,6 +211,7 @@ class GoogleSheetsSyncService:
                 "processed": stats["processed"],
                 "created": stats["created"],
                 "updated": stats["updated"],
+                "skipped": stats["skipped"],
                 "failed": stats["failed"],
                 "errors": stats.get("errors", [])
             }
@@ -218,7 +227,8 @@ class GoogleSheetsSyncService:
     async def sync_single_row(
         self,
         row: List[Any],
-        row_number: int
+        row_number: int,
+        sheet_name: str = "Sheet1"
     ) -> Optional[WaterMitigationJob]:
         """
         Sync a single row from Google Sheets
@@ -226,28 +236,32 @@ class GoogleSheetsSyncService:
         Args:
             row: Row data (list of cell values)
             row_number: Row number in the sheet (1-based)
+            sheet_name: Name of the sheet tab
 
         Returns:
             Updated or created job, or None if row is empty
         """
-        return await self._process_row(row, row_number)
+        result = self._process_row(row, row_number, sheet_name)
+        return result.get("job") if result else None
 
     def _process_row(
         self,
         row: List[Any],
-        row_number: int
+        row_number: int,
+        sheet_name: str = "Sheet1"
     ) -> Optional[Dict[str, Any]]:
         """
         Process a single row and update/create job
 
         Matching strategy:
-        1. First, try to find job by google_sheet_row_number (most accurate, active/inactive agnostic)
+        1. First, try to find job by google_sheet_row_number + sheet_name (most accurate, active/inactive agnostic)
         2. If not found, try to find by street address (fuzzy match, active_only=True)
         3. If still not found, create new job
 
         Args:
             row: Row data
             row_number: Row number in sheet
+            sheet_name: Name of the sheet tab
 
         Returns:
             Dict with 'job', 'created', and 'updated' keys, or None if row is empty
@@ -263,9 +277,9 @@ class GoogleSheetsSyncService:
         # Prepare update data
         update_data = self._prepare_job_data(row_data)
 
-        # Step 1: Try to find job by google_sheet_row_number (most accurate)
+        # Step 1: Try to find job by google_sheet_row_number + sheet_name (most accurate)
         # This matches the exact row that was previously synced, regardless of active status
-        existing_job = self._find_job_by_row_number(row_number)
+        existing_job = self._find_job_by_row_number(row_number, sheet_name)
 
         # Step 2: If not found by row number, try address matching (fallback for new rows)
         if not existing_job:
@@ -292,35 +306,67 @@ class GoogleSheetsSyncService:
 
         # Step 3: Update existing job or create new one
         if existing_job:
-            # Update existing job
-            job = self._update_job(existing_job, update_data, row_number)
+            # Skip update if job is inactive (soft-deleted or archived)
+            if not existing_job.active:
+                logger.info(
+                    f"Skipping update for inactive job {existing_job.id} "
+                    f"(row {row_number}, sheet {sheet_name})"
+                )
+                return {"job": existing_job, "created": False, "updated": False, "skipped": True}
+
+            # Update existing active job
+            job = self._update_job(existing_job, update_data, row_number, sheet_name)
             return {"job": job, "created": False, "updated": True}
         else:
             # Create new job
-            job = self._create_job(update_data, row_number)
+            job = self._create_job(update_data, row_number, sheet_name)
             return {"job": job, "created": True, "updated": False}
 
     def _find_job_by_row_number(
         self,
-        row_number: int
+        row_number: int,
+        sheet_name: str
     ) -> Optional[WaterMitigationJob]:
         """
-        Find job by Google Sheets row number
-        
+        Find job by Google Sheets row number and sheet name
+
         This is the most accurate matching method because it directly links
         a sheet row to a specific job, regardless of active status.
-        
+
         Args:
             row_number: Google Sheets row number (1-based)
-            
+            sheet_name: Name of the sheet tab
+
         Returns:
             Matching job or None
         """
+        from sqlalchemy import or_
+
+        # First, try to find by exact match (row_number + sheet_name)
         query = select(WaterMitigationJob).where(
-            WaterMitigationJob.google_sheet_row_number == row_number
+            WaterMitigationJob.google_sheet_row_number == row_number,
+            WaterMitigationJob.google_sheet_name == sheet_name
         )
         result = self.db.execute(query)
-        return result.scalar_one_or_none()
+        job = result.scalar_one_or_none()
+
+        if job:
+            return job
+
+        # Fallback: Find jobs with matching row_number but NULL sheet_name (legacy data)
+        # This handles existing jobs that were synced before sheet_name was added
+        query = select(WaterMitigationJob).where(
+            WaterMitigationJob.google_sheet_row_number == row_number,
+            WaterMitigationJob.google_sheet_name.is_(None)
+        )
+        result = self.db.execute(query)
+        legacy_job = result.scalar_one_or_none()
+
+        if legacy_job:
+            logger.info(f"Found legacy job (no sheet_name) for row {row_number}, will update with sheet_name '{sheet_name}'")
+            return legacy_job
+
+        return None
 
     def _find_job_by_street_address(
         self,
@@ -331,39 +377,43 @@ class GoogleSheetsSyncService:
     ) -> Optional[WaterMitigationJob]:
         """
         Find job by street address, city, and state using fuzzy matching
-        
+
         This method prevents duplicate leads by matching addresses even when:
         - States are in different formats (Maryland vs MD, Virginia vs VA)
         - Zipcodes are present or missing
         - Address formatting differs slightly
-        
+        - Street suffix present/missing (Street, St, Ave, etc.)
+
         Args:
             street: Street address
             city: City name
             state: State name or abbreviation
             full_address: Full address string (used as fallback if street is not available)
-            
+
         Returns:
             Matching job or None
         """
         from app.domains.water_mitigation.service import WaterMitigationService
-        
+
         # Use WaterMitigationService with existing DB session
         wm_service = WaterMitigationService(self.db)
-        
-        # If we have street address, use the improved matching
+
+        # If we have street address, try the improved matching first
         if street:
-            return wm_service.get_by_street_address(
+            job = wm_service.get_by_street_address(
                 street=street,
                 city=city,
                 state=state,
                 active_only=True
             )
-        
-        # Fallback: If no street address, use full address matching (legacy)
+            if job:
+                return job
+
+        # Always try full address matching as fallback
+        # This handles jobs where property_street is NULL but property_address exists
         if full_address:
             return self._find_job_by_address(full_address)
-        
+
         return None
 
     def _find_job_by_address(self, address: str) -> Optional[WaterMitigationJob]:
@@ -472,7 +522,8 @@ class GoogleSheetsSyncService:
         self,
         job: WaterMitigationJob,
         update_data: Dict[str, Any],
-        row_number: int
+        row_number: int,
+        sheet_name: str
     ) -> WaterMitigationJob:
         """
         Update existing job with new data
@@ -481,6 +532,7 @@ class GoogleSheetsSyncService:
             job: Existing job
             update_data: New data
             row_number: Sheet row number
+            sheet_name: Name of the sheet tab
 
         Returns:
             Updated job
@@ -491,6 +543,7 @@ class GoogleSheetsSyncService:
 
         # Update sync metadata
         job.google_sheet_row_number = row_number
+        job.google_sheet_name = sheet_name
         job.sheets_last_sync = datetime.utcnow()
 
         self.db.commit()
@@ -501,7 +554,8 @@ class GoogleSheetsSyncService:
     def _create_job(
         self,
         job_data: Dict[str, Any],
-        row_number: int
+        row_number: int,
+        sheet_name: str
     ) -> WaterMitigationJob:
         """
         Create new job from sheet data
@@ -509,12 +563,14 @@ class GoogleSheetsSyncService:
         Args:
             job_data: Job data
             row_number: Sheet row number
+            sheet_name: Name of the sheet tab
 
         Returns:
             Created job
         """
         # Add sync metadata
         job_data["google_sheet_row_number"] = row_number
+        job_data["google_sheet_name"] = sheet_name
         job_data["sheets_last_sync"] = datetime.utcnow()
         job_data["active"] = True
         job_data["status"] = "Lead"

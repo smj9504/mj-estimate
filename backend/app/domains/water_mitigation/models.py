@@ -90,6 +90,7 @@ class WaterMitigationJob(Base, BaseModel):
     # External integration references
     companycam_project_id = Column(String(255), unique=True, index=True)
     google_sheet_row_number = Column(Integer, index=True)
+    google_sheet_name = Column(String(100), index=True)  # Sheet tab name (e.g., "Angel", "Vanessa")
 
     # Sync timestamps
     companycam_last_sync = Column(DateTime(timezone=True))

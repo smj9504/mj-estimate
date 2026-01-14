@@ -94,12 +94,12 @@ def create_job(
 def list_jobs(
     search: Optional[str] = None,
     status: Optional[str] = None,
-    active: Optional[bool] = None,
+    active: Optional[bool] = True,  # Default to True - only show active jobs
     page: int = 1,
     page_size: int = 50,
     service: WaterMitigationService = Depends(get_wm_service)
 ):
-    """List water mitigation jobs with filters"""
+    """List water mitigation jobs with filters (active jobs only by default)"""
     try:
         # Parse status filter (comma-separated)
         status_list = status.split(',') if status else None

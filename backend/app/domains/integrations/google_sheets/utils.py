@@ -38,12 +38,121 @@ def normalize_address(address: str) -> str:
     return normalized
 
 
+# Common street suffix variations to remove for matching
+STREET_SUFFIXES = [
+    'street', 'st', 'st.',
+    'avenue', 'ave', 'ave.',
+    'road', 'rd', 'rd.',
+    'drive', 'dr', 'dr.',
+    'lane', 'ln', 'ln.',
+    'court', 'ct', 'ct.',
+    'place', 'pl', 'pl.',
+    'boulevard', 'blvd', 'blvd.',
+    'circle', 'cir', 'cir.',
+    'way', 'terrace', 'ter', 'ter.',
+    'trail', 'trl', 'trl.',
+    'highway', 'hwy', 'hwy.',
+    'parkway', 'pkwy', 'pkwy.',
+]
+
+# State name to abbreviation mapping
+STATE_ABBREVIATIONS = {
+    'alabama': 'al', 'alaska': 'ak', 'arizona': 'az', 'arkansas': 'ar',
+    'california': 'ca', 'colorado': 'co', 'connecticut': 'ct', 'delaware': 'de',
+    'florida': 'fl', 'georgia': 'ga', 'hawaii': 'hi', 'idaho': 'id',
+    'illinois': 'il', 'indiana': 'in', 'iowa': 'ia', 'kansas': 'ks',
+    'kentucky': 'ky', 'louisiana': 'la', 'maine': 'me', 'maryland': 'md',
+    'massachusetts': 'ma', 'michigan': 'mi', 'minnesota': 'mn', 'mississippi': 'ms',
+    'missouri': 'mo', 'montana': 'mt', 'nebraska': 'ne', 'nevada': 'nv',
+    'new hampshire': 'nh', 'new jersey': 'nj', 'new mexico': 'nm', 'new york': 'ny',
+    'north carolina': 'nc', 'north dakota': 'nd', 'ohio': 'oh', 'oklahoma': 'ok',
+    'oregon': 'or', 'pennsylvania': 'pa', 'rhode island': 'ri', 'south carolina': 'sc',
+    'south dakota': 'sd', 'tennessee': 'tn', 'texas': 'tx', 'utah': 'ut',
+    'vermont': 'vt', 'virginia': 'va', 'washington': 'wa', 'west virginia': 'wv',
+    'wisconsin': 'wi', 'wyoming': 'wy', 'district of columbia': 'dc'
+}
+
+
+def normalize_address_for_matching(address: str) -> str:
+    """
+    Aggressively normalize address for fuzzy matching.
+
+    Handles variations like:
+    - "12312 La Plata, Silver Spring MD 20904"
+    - "12312 La Plata Street, Silver Spring, MD 20904"
+
+    Args:
+        address: Raw address string
+
+    Returns:
+        Normalized address string for comparison
+    """
+    if not address:
+        return ""
+
+    # Convert to lowercase
+    normalized = address.lower().strip()
+
+    # Remove all punctuation and special characters
+    normalized = re.sub(r'[^\w\s]', ' ', normalized)
+
+    # Replace multiple spaces with single space
+    normalized = re.sub(r'\s+', ' ', normalized)
+
+    # Split into words for processing
+    words = normalized.split()
+
+    # Remove common street suffixes
+    filtered_words = []
+    for word in words:
+        if word not in STREET_SUFFIXES:
+            filtered_words.append(word)
+
+    # Normalize state names to abbreviations
+    result_words = []
+    skip_next = False
+    for i, word in enumerate(filtered_words):
+        if skip_next:
+            skip_next = False
+            continue
+
+        # Check for two-word state names (e.g., "new york")
+        if i < len(filtered_words) - 1:
+            two_word = f"{word} {filtered_words[i+1]}"
+            if two_word in STATE_ABBREVIATIONS:
+                result_words.append(STATE_ABBREVIATIONS[two_word])
+                skip_next = True
+                continue
+
+        # Check for single-word state names
+        if word in STATE_ABBREVIATIONS:
+            result_words.append(STATE_ABBREVIATIONS[word])
+        else:
+            result_words.append(word)
+
+    return ' '.join(result_words)
+
+
+def extract_street_number(address: str) -> Optional[str]:
+    """Extract the street number from an address."""
+    if not address:
+        return None
+    match = re.match(r'^(\d+)', address.strip())
+    return match.group(1) if match else None
+
+
 def addresses_match(address1: str, address2: str) -> bool:
     """
     Compare two addresses with fuzzy matching
     - Case insensitive
     - Whitespace insensitive
     - Special character tolerant
+    - Street suffix tolerant (Street, St, Ave, etc.)
+    - State name/abbreviation tolerant (Maryland vs MD)
+
+    Examples that should match:
+    - "12312 La Plata, Silver Spring MD 20904"
+    - "12312 La Plata Street, Silver Spring, MD 20904"
 
     Args:
         address1: First address
@@ -55,10 +164,39 @@ def addresses_match(address1: str, address2: str) -> bool:
     if not address1 or not address2:
         return False
 
-    normalized1 = normalize_address(address1)
-    normalized2 = normalize_address(address2)
+    # Quick check: street numbers must match
+    num1 = extract_street_number(address1)
+    num2 = extract_street_number(address2)
+    if num1 and num2 and num1 != num2:
+        return False
 
-    return normalized1 == normalized2
+    # Normalize both addresses
+    normalized1 = normalize_address_for_matching(address1)
+    normalized2 = normalize_address_for_matching(address2)
+
+    # Exact match after normalization
+    if normalized1 == normalized2:
+        return True
+
+    # Check if one is a subset of the other (handles missing components)
+    words1 = set(normalized1.split())
+    words2 = set(normalized2.split())
+
+    # Calculate similarity - at least 80% of shorter address should be in longer
+    smaller = words1 if len(words1) < len(words2) else words2
+    larger = words2 if len(words1) < len(words2) else words1
+
+    if not smaller:
+        return False
+
+    common_words = smaller.intersection(larger)
+    similarity = len(common_words) / len(smaller)
+
+    # Street number must be in common words
+    if num1 and num1 not in common_words:
+        return False
+
+    return similarity >= 0.8
 
 
 def parse_date_value(value: any) -> Optional[datetime]:

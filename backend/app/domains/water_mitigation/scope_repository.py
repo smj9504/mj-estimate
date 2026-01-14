@@ -1,7 +1,7 @@
 """
 Water Mitigation Scope of Work Repository
 
-Data access layer for scope locations, scope items, and demolition types.
+Data access layer for scope locations and scope items.
 """
 
 from typing import List, Optional
@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session, selectinload, joinedload
 from app.domains.water_mitigation.models import (
     WMScopeLocation,
     WMScopeItem,
-    WMDemolitionType,
     WMDebrisCalculation,
 )
 from app.domains.reconstruction_estimate.models import MaterialWeight
@@ -24,85 +23,6 @@ class ScopeRepository:
 
     def __init__(self, db: Session):
         self.db = db
-
-    # =========================================================================
-    # Demolition Type Operations
-    # =========================================================================
-
-    def get_demolition_types(
-        self,
-        active_only: bool = True,
-        category: Optional[str] = None
-    ) -> List[WMDemolitionType]:
-        """Get all demolition types with optional filters"""
-        query = select(WMDemolitionType)
-
-        if active_only:
-            query = query.where(WMDemolitionType.is_active.is_(True))
-
-        if category:
-            query = query.where(WMDemolitionType.category == category)
-
-        query = query.order_by(
-            WMDemolitionType.category,
-            WMDemolitionType.display_order,
-            WMDemolitionType.name
-        )
-
-        result = self.db.execute(query)
-        return list(result.scalars().all())
-
-    def get_demolition_type_by_id(
-        self, demolition_type_id: UUID
-    ) -> Optional[WMDemolitionType]:
-        """Get demolition type by ID"""
-        query = select(WMDemolitionType).where(
-            WMDemolitionType.id == demolition_type_id
-        )
-        result = self.db.execute(query)
-        return result.scalar_one_or_none()
-
-    def get_demolition_type_by_name(
-        self, name: str
-    ) -> Optional[WMDemolitionType]:
-        """Get demolition type by name"""
-        query = select(WMDemolitionType).where(
-            WMDemolitionType.name == name
-        )
-        result = self.db.execute(query)
-        return result.scalar_one_or_none()
-
-    def create_demolition_type(
-        self, data: dict, user_id: Optional[UUID] = None
-    ) -> WMDemolitionType:
-        """Create a new demolition type"""
-        demolition_type = WMDemolitionType(**data)
-        if user_id:
-            demolition_type.created_by_id = user_id
-        self.db.add(demolition_type)
-        self.db.flush()
-        return demolition_type
-
-    def update_demolition_type(
-        self,
-        demolition_type: WMDemolitionType,
-        data: dict,
-        user_id: Optional[UUID] = None
-    ) -> WMDemolitionType:
-        """Update a demolition type"""
-        for key, value in data.items():
-            if hasattr(demolition_type, key):
-                setattr(demolition_type, key, value)
-        if user_id:
-            demolition_type.updated_by_id = user_id
-        self.db.flush()
-        return demolition_type
-
-    def delete_demolition_type(self, demolition_type: WMDemolitionType) -> bool:
-        """Delete a demolition type (soft delete by setting is_active=False)"""
-        demolition_type.is_active = False
-        self.db.flush()
-        return True
 
     # =========================================================================
     # Scope Location Operations
@@ -120,9 +40,7 @@ class ScopeRepository:
 
         if include_items:
             query = query.options(
-                selectinload(WMScopeLocation.scope_items).selectinload(
-                    WMScopeItem.demolition_type
-                )
+                selectinload(WMScopeLocation.scope_items)
             )
 
         query = query.order_by(WMScopeLocation.display_order)
@@ -142,9 +60,7 @@ class ScopeRepository:
 
         if include_items:
             query = query.options(
-                selectinload(WMScopeLocation.scope_items).selectinload(
-                    WMScopeItem.demolition_type
-                )
+                selectinload(WMScopeLocation.scope_items)
             )
 
         result = self.db.execute(query)
@@ -193,7 +109,6 @@ class ScopeRepository:
         query = (
             select(WMScopeItem)
             .where(WMScopeItem.location_id == location_id)
-            .options(joinedload(WMScopeItem.demolition_type))
             .order_by(WMScopeItem.display_order)
         )
 
@@ -207,7 +122,6 @@ class ScopeRepository:
         query = (
             select(WMScopeItem)
             .where(WMScopeItem.id == item_id)
-            .options(joinedload(WMScopeItem.demolition_type))
         )
 
         result = self.db.execute(query)
@@ -268,7 +182,7 @@ class ScopeRepository:
                 WMScopeItem.include_in_debris.is_(True)
             )
             .options(
-                joinedload(WMScopeItem.demolition_type),
+                joinedload(WMScopeItem.material_weight),
                 joinedload(WMScopeItem.location)
             )
         )
