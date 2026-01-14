@@ -62,6 +62,8 @@ const LineItemManagement = lazy(() => import('./pages/LineItemManagement'));
 const WaterMitigationList = lazy(() => import('./pages/WaterMitigationList'));
 const WaterMitigationDetail = lazy(() => import('./pages/WaterMitigationDetail'));
 const WaterMitigationTemplateList = lazy(() => import('./pages/WaterMitigationTemplateList'));
+const StandardScopeItemsManagement = lazy(() => import('./pages/StandardScopeItemsManagement'));
+const ScopeItemCategoriesManagement = lazy(() => import('./pages/ScopeItemCategoriesManagement'));
 
 // Reconstruction Estimate Pages
 const DebrisCalculator = lazy(() => import('./pages/DebrisCalculator'));
@@ -486,6 +488,30 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <WaterMitigationTemplateList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/water-mitigation/standard-scope-items",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <StandardScopeItemsManagement />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/water-mitigation/scope-item-categories",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <ScopeItemCategoriesManagement />
           </Suspense>
         </Layout>
       </ProtectedRoute>

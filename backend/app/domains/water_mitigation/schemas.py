@@ -60,7 +60,7 @@ class JobBase(BaseModel):
     inspection_date: Optional[Union[datetime, date]] = None
     inspection_time: Optional[str] = Field(None, max_length=20)
     plumbers_report: Optional[str] = Field(None, max_length=100)
-    mitigation_flag: bool = False
+    mitigation_flag: Optional[bool] = None
 
     # Financial/Documents Information
     documents_sent_date: Optional[Union[datetime, date]] = None
@@ -718,8 +718,8 @@ STANDARD_SCOPE_ITEMS = [
 class MaterialWeightBrief(BaseModel):
     """Brief material weight info for scope item response"""
     id: UUID
-    material_name: str
-    weight_per_unit: float
+    material_type: str  # Maps to MaterialWeight.material_type
+    dry_weight_per_unit: float  # Maps to MaterialWeight.dry_weight_per_unit
     unit: str
 
     class Config:
@@ -895,6 +895,156 @@ class CalculateFormulaRequest(BaseModel):
 
 class CalculateFormulaResponse(BaseModel):
     """Response for formula calculation"""
+    success: bool
     formula: str
-    result: float
-    formatted: str  # e.g., "120.00 SF"
+    result: Optional[float] = None
+    error: Optional[str] = None
+
+
+# =============================================================================
+# Scope Item Category Schemas
+# =============================================================================
+
+class ScopeItemCategoryBase(BaseModel):
+    """Base schema for scope item categories"""
+    name: str = Field(..., max_length=100, description="Category name (e.g., 'Equipment', 'Protection')")
+    description: Optional[str] = Field(None, description="Category description")
+    color: str = Field('#1890ff', max_length=7, description="Hex color code for UI display")
+    icon: Optional[str] = Field(None, max_length=50, description="Icon identifier for UI")
+    display_order: int = Field(0, ge=0, description="Display order in UI")
+
+
+class ScopeItemCategoryCreate(ScopeItemCategoryBase):
+    """Create scope item category request"""
+    company_id: Optional[UUID] = Field(
+        None,
+        description="Company ID (NULL for system-wide categories)"
+    )
+
+
+class ScopeItemCategoryUpdate(BaseModel):
+    """Update scope item category request (all fields optional)"""
+    name: Optional[str] = Field(None, max_length=100)
+    description: Optional[str] = None
+    color: Optional[str] = Field(None, max_length=7)
+    icon: Optional[str] = Field(None, max_length=50)
+    display_order: Optional[int] = Field(None, ge=0)
+    is_active: Optional[bool] = None
+
+
+class ScopeItemCategoryResponse(ScopeItemCategoryBase):
+    """Scope item category response"""
+    id: UUID
+    company_id: Optional[UUID] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ScopeItemCategoryListResponse(BaseModel):
+    """Paginated scope item category list response"""
+    items: List[ScopeItemCategoryResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class ScopeItemCategoryBrief(BaseModel):
+    """Brief category info for dropdowns/selectors"""
+    id: UUID
+    name: str
+    color: str
+    display_order: int
+
+    class Config:
+        from_attributes = True
+
+
+# =============================================================================
+# Standard Scope Item Schemas
+# =============================================================================
+
+class StandardScopeItemBase(BaseModel):
+    """Base schema for standard scope items"""
+    name: str = Field(..., max_length=255, description="Item name (e.g., 'Floor Protection')")
+    description: Optional[str] = Field(None, description="Detailed description")
+    item_type: str = Field(
+        'standard',
+        description="Item type: standard, demolition, custom"
+    )
+    unit: str = Field(
+        'SF',
+        description="Default unit: SF, LF, EA"
+    )
+    default_quantity: Optional[float] = Field(None, ge=0, description="Default quantity")
+    default_include_in_debris: bool = Field(False, description="Include in debris calculation by default")
+    display_order: int = Field(0, ge=0, description="Display order in UI")
+
+
+class StandardScopeItemCreate(StandardScopeItemBase):
+    """Create standard scope item request"""
+    company_id: Optional[UUID] = Field(
+        None,
+        description="Company ID (NULL for system-wide templates)"
+    )
+    category_id: Optional[UUID] = Field(
+        None,
+        description="Category ID for grouping"
+    )
+    material_weight_id: Optional[UUID] = Field(
+        None,
+        description="Link to MaterialWeight for debris calculation"
+    )
+
+
+class StandardScopeItemUpdate(BaseModel):
+    """Update standard scope item request (all fields optional)"""
+    name: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = None
+    item_type: Optional[str] = None
+    category_id: Optional[UUID] = None
+    unit: Optional[str] = None
+    default_quantity: Optional[float] = Field(None, ge=0)
+    material_weight_id: Optional[UUID] = None
+    default_include_in_debris: Optional[bool] = None
+    display_order: Optional[int] = Field(None, ge=0)
+    is_active: Optional[bool] = None
+
+
+class StandardScopeItemResponse(StandardScopeItemBase):
+    """Standard scope item response"""
+    id: UUID
+    company_id: Optional[UUID] = None
+    category_id: Optional[UUID] = None
+    category: Optional[ScopeItemCategoryBrief] = None  # Nested category info
+    material_weight_id: Optional[UUID] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class StandardScopeItemListResponse(BaseModel):
+    """Paginated standard scope item list response"""
+    items: List[StandardScopeItemResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class StandardScopeItemBrief(BaseModel):
+    """Brief standard scope item info for dropdowns/selectors"""
+    id: UUID
+    name: str
+    item_type: str
+    unit: str
+    category_id: Optional[UUID] = None
+    display_order: int
+
+    class Config:
+        from_attributes = True

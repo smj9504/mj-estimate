@@ -22,6 +22,8 @@ import {
   ExperimentOutlined,
   RocketOutlined,
   FilePdfOutlined,
+  AppstoreAddOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -112,6 +114,23 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         key: '/water-mitigation',
         icon: <DropboxOutlined />,
         label: 'Water Mitigation',
+        children: [
+          {
+            key: '/water-mitigation',
+            icon: <UnorderedListOutlined />,
+            label: 'Jobs',
+          },
+          {
+            key: '/water-mitigation/templates',
+            icon: <FilePdfOutlined />,
+            label: 'Report Templates',
+          },
+          {
+            key: '/water-mitigation/standard-scope-items',
+            icon: <AppstoreAddOutlined />,
+            label: 'Standard Scope Items',
+          },
+        ],
       },
       {
         key: '/reconstruction-estimate',

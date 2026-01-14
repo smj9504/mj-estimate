@@ -54,7 +54,8 @@ from app.domains.staff.models import (
 from app.domains.water_mitigation.models import (
     WaterMitigationJob, PhotoCategory, WMPhoto, WMDocument,
     WMPhotoCategory, WMJobStatusHistory, WMSyncLog, WMReportConfig,
-    WMDemolitionType, WMScopeLocation, WMScopeItem, WMDebrisCalculation
+    WMDemolitionType, WMScopeLocation, WMScopeItem, WMDebrisCalculation,
+    WMScopeItemCategory, WMStandardScopeItem
 )
 
 # Company model (imported after its dependencies)
@@ -122,6 +123,8 @@ from app.domains.sketch.api import router as sketch_router
 from app.domains.staff.api import router as staff_router
 from app.domains.water_mitigation.api import router as water_mitigation_router
 from app.domains.water_mitigation.scope_api import router as wm_scope_router
+from app.domains.water_mitigation.standard_scope_api import router as wm_standard_scope_router
+from app.domains.water_mitigation.scope_category_api import router as wm_scope_category_router
 from app.domains.work_order.api import router as work_order_router
 from app.domains.xactimate.api import router as xactimate_router
 
@@ -470,6 +473,8 @@ app.include_router(receipt_router, prefix="/api/receipts", tags=["Receipts & Tem
 # Water Mitigation System endpoints
 app.include_router(water_mitigation_router, prefix="/api")
 app.include_router(wm_scope_router, prefix="/api/water-mitigation")
+app.include_router(wm_standard_scope_router, prefix="/api/water-mitigation")
+app.include_router(wm_scope_category_router, prefix="/api/water-mitigation")
 
 # Reconstruction Estimate System endpoints
 app.include_router(reconstruction_estimate_router)

@@ -38,9 +38,9 @@ import {
   ToolOutlined,
   AppstoreAddOutlined,
   ReloadOutlined,
-  InfoCircleOutlined,
   CheckCircleOutlined,
-  WarningOutlined
+  WarningOutlined,
+  QuestionCircleOutlined
 } from '@ant-design/icons';
 import waterMitigationService from '../../services/waterMitigationService';
 import type {
@@ -52,10 +52,11 @@ import type {
   ScopeItemUpdate,
   WMDebrisCalculation,
   CalculateDebrisResponse,
-  ScopeItemType
+  ScopeItemType,
+  StandardScopeItem,
+  MaterialWeight
 } from '../../types/waterMitigation';
 import {
-  STANDARD_SCOPE_ITEMS,
   SCOPE_ITEM_TYPE_OPTIONS,
   UNIT_TYPE_OPTIONS
 } from '../../types/waterMitigation';
@@ -100,6 +101,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
   const [locations, setLocations] = useState<ScopeLocation[]>([]);
   const [debrisCalculation, setDebrisCalculation] = useState<WMDebrisCalculation | null>(null);
   const [calculatingDebris, setCalculatingDebris] = useState(false);
+  const [standardScopeItems, setStandardScopeItems] = useState<StandardScopeItem[]>([]);
 
   // Modal states
   const [locationModalVisible, setLocationModalVisible] = useState(false);
@@ -114,6 +116,14 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
 
   // Formula validation state
   const [formulaResult, setFormulaResult] = useState<{ valid: boolean; result?: number; error?: string } | null>(null);
+
+  // Standard item selection mode
+  const [showStandardItemSelector, setShowStandardItemSelector] = useState(false);
+  const [selectedStandardItem, setSelectedStandardItem] = useState<StandardScopeItem | null>(null);
+
+  // Material weights for debris calculation
+  const [materialWeights, setMaterialWeights] = useState<MaterialWeight[]>([]);
+  const [loadingMaterials, setLoadingMaterials] = useState(false);
 
   // Inline editing state
   const [editingQuantity, setEditingQuantity] = useState<{ itemId: string; value: number | null } | null>(null);
@@ -143,10 +153,40 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     }
   }, [jobId]);
 
+  const loadStandardScopeItems = useCallback(async () => {
+    try {
+      const response = await waterMitigationService.standardScopeItems.list({
+        is_active: true,
+        page_size: 100
+      });
+      setStandardScopeItems(response.items);
+    } catch (error) {
+      console.error('Failed to load standard scope items:', error);
+      // Fallback to empty array if API not available
+      setStandardScopeItems([]);
+    }
+  }, []);
+
+  // Load material weights for debris calculation
+  const loadMaterialWeights = useCallback(async () => {
+    try {
+      setLoadingMaterials(true);
+      const response = await waterMitigationService.materialWeights.list({ active_only: true });
+      setMaterialWeights(response.materials);
+    } catch (error) {
+      console.error('Failed to load material weights:', error);
+      setMaterialWeights([]);
+    } finally {
+      setLoadingMaterials(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadLocations();
     loadDebrisCalculation();
-  }, [loadLocations, loadDebrisCalculation]);
+    loadStandardScopeItems();
+    loadMaterialWeights();
+  }, [loadLocations, loadDebrisCalculation, loadStandardScopeItems, loadMaterialWeights]);
 
   // Location handlers
   const handleAddLocation = () => {
@@ -213,6 +253,8 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
   const handleAddItem = (locationId: string, itemType: ScopeItemType = 'custom' as ScopeItemType) => {
     setSelectedLocationId(locationId);
     setEditingItem(null);
+    setSelectedStandardItem(null);
+    setShowStandardItemSelector(false);
     itemForm.resetFields();
     itemForm.setFieldsValue({
       item_type: itemType,
@@ -221,6 +263,35 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     });
     setFormulaResult(null);
     setItemModalVisible(true);
+  };
+
+  // Add item from Standard Scope Items
+  const handleAddFromStandard = (locationId: string) => {
+    setSelectedLocationId(locationId);
+    setEditingItem(null);
+    setSelectedStandardItem(null);
+    setShowStandardItemSelector(true);
+    itemForm.resetFields();
+    setFormulaResult(null);
+    setItemModalVisible(true);
+  };
+
+  // When a standard item is selected, pre-fill the form
+  const handleStandardItemSelect = (itemId: string) => {
+    const item = standardScopeItems.find(i => i.id === itemId);
+    if (item) {
+      setSelectedStandardItem(item);
+      setShowStandardItemSelector(false);
+      itemForm.setFieldsValue({
+        item_type: item.item_type,
+        name: item.name,
+        description: item.description || '',
+        unit: item.unit,
+        quantity: item.default_quantity || undefined,
+        include_in_debris: item.default_include_in_debris || false,
+        material_weight_id: item.material_weight_id || undefined
+      });
+    }
   };
 
   const handleEditItem = (item: ScopeItem) => {
@@ -319,27 +390,6 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     setEditingQuantity(null);
   };
 
-  // Formula validation
-  const validateFormula = async (formula: string) => {
-    if (!formula || formula.trim() === '') {
-      setFormulaResult(null);
-      return;
-    }
-    try {
-      const result = await waterMitigationService.scope.calculateFormula(formula);
-      setFormulaResult({
-        valid: result.success,
-        result: result.result,
-        error: result.error
-      });
-    } catch (error) {
-      setFormulaResult({
-        valid: false,
-        error: 'Failed to validate formula'
-      });
-    }
-  };
-
   // Debris calculation
   const handleCalculateDebris = async () => {
     try {
@@ -392,7 +442,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
           <Text strong>{name}</Text>
           {record.material_weight && (
             <Text type="secondary" style={{ fontSize: '12px' }}>
-              {record.material_weight.material_name} ({record.material_weight.weight_per_unit} lb/{record.material_weight.unit})
+              {record.material_weight.material_type} ({record.material_weight.dry_weight_per_unit} lb/{record.material_weight.unit})
             </Text>
           )}
         </Space>
@@ -633,23 +683,19 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
 
       {/* Calculate Debris Button (if no calculation yet) */}
       {!debrisCalculation && locations.some(l => l.scope_items?.some(i => i.include_in_debris)) && (
-        <Alert
-          message="Debris calculation available"
-          description="You have demolition items marked for debris calculation. Click the button to calculate total debris weight."
-          type="info"
-          showIcon
-          action={
-            <Button
-              type="primary"
-              icon={<CalculatorOutlined />}
-              onClick={handleCalculateDebris}
-              loading={calculatingDebris}
-            >
-              Calculate Debris
-            </Button>
-          }
-          style={{ marginBottom: 16 }}
-        />
+        <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Button
+            type="primary"
+            icon={<CalculatorOutlined />}
+            onClick={handleCalculateDebris}
+            loading={calculatingDebris}
+          >
+            Calculate Debris
+          </Button>
+          <Tooltip title="You have demolition items marked for debris calculation. Click to calculate total debris weight.">
+            <QuestionCircleOutlined style={{ color: '#1890ff', cursor: 'help' }} />
+          </Tooltip>
+        </div>
       )}
 
       {/* Locations */}
@@ -683,25 +729,25 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                 />
               )}
 
-              <Space style={{ marginBottom: 16 }}>
+              <Space style={{ marginBottom: 16 }} wrap>
                 <Button
                   type="primary"
+                  icon={<AppstoreAddOutlined />}
+                  onClick={() => handleAddFromStandard(location.id)}
+                >
+                  From Templates
+                </Button>
+                <Button
                   icon={<PlusOutlined />}
                   onClick={() => handleAddItem(location.id, 'custom' as ScopeItemType)}
                 >
-                  Add Item
-                </Button>
-                <Button
-                  icon={<AppstoreAddOutlined />}
-                  onClick={() => handleAddStandardItems(location.id)}
-                >
-                  Add Standard Items
+                  Custom Item
                 </Button>
                 <Button
                   icon={<ToolOutlined />}
                   onClick={() => handleAddItem(location.id, 'demolition' as ScopeItemType)}
                 >
-                  Add Demolition
+                  Demolition
                 </Button>
               </Space>
 
@@ -774,98 +820,156 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
 
       {/* Item Modal */}
       <Modal
-        title={editingItem ? 'Edit Scope Item' : 'Add Scope Item'}
+        title={
+          showStandardItemSelector
+            ? 'Select from Templates'
+            : editingItem
+              ? 'Edit Scope Item'
+              : selectedStandardItem
+                ? `Add: ${selectedStandardItem.name}`
+                : 'Add Scope Item'
+        }
         open={itemModalVisible}
-        onCancel={() => setItemModalVisible(false)}
-        onOk={() => itemForm.submit()}
+        onCancel={() => {
+          setItemModalVisible(false);
+          setShowStandardItemSelector(false);
+          setSelectedStandardItem(null);
+        }}
+        onOk={() => {
+          if (showStandardItemSelector) {
+            message.warning('Please select an item from the list');
+          } else {
+            itemForm.submit();
+          }
+        }}
+        okText={showStandardItemSelector ? 'Close' : 'Save'}
         width={600}
       >
-        <Form
-          form={itemForm}
-          layout="vertical"
-          onFinish={handleSaveItem}
-          initialValues={{
-            item_type: 'custom',
-            unit: 'SF',
-            include_in_debris: false
-          }}
-        >
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="item_type"
-                label="Item Type"
-                rules={[{ required: true }]}
-              >
-                <Select options={SCOPE_ITEM_TYPE_OPTIONS.map(o => ({ value: o.value, label: o.label }))} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="unit"
-                label="Unit"
-                rules={[{ required: true }]}
-              >
-                <Select options={UNIT_TYPE_OPTIONS.map(o => ({ value: o.value, label: o.label }))} />
-              </Form.Item>
-            </Col>
-          </Row>
+        {/* Standard Item Selector */}
+        {showStandardItemSelector ? (
+          <div>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+              Select a template item to add. Values can be modified after selection.
+            </Text>
+            {standardScopeItems.length === 0 ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  <span>
+                    No template items available.<br />
+                    <Text type="secondary">Add items in Standard Scope Items management page.</Text>
+                  </span>
+                }
+              />
+            ) : (
+              <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+                {/* Group by category */}
+                {(() => {
+                  const grouped = standardScopeItems.reduce((acc, item) => {
+                    const categoryName = item.category?.name || 'Uncategorized';
+                    if (!acc[categoryName]) {
+                      acc[categoryName] = [];
+                    }
+                    acc[categoryName].push(item);
+                    return acc;
+                  }, {} as Record<string, StandardScopeItem[]>);
 
-          <Form.Item
-            noStyle
-            shouldUpdate={(prev, curr) => prev.item_type !== curr.item_type}
-          >
-            {({ getFieldValue }) => {
-              const itemType = getFieldValue('item_type');
-
-              if (itemType === 'standard') {
-                return (
-                  <Form.Item
-                    name="name"
-                    label="Standard Item"
-                    rules={[{ required: true, message: 'Please select an item' }]}
-                  >
-                    <Select
-                      placeholder="Select standard item"
-                      options={STANDARD_SCOPE_ITEMS.map(item => ({
-                        value: item.name,
-                        label: `${item.name} (${item.unit})`
-                      }))}
-                      onChange={(value) => {
-                        const item = STANDARD_SCOPE_ITEMS.find(i => i.name === value);
-                        if (item) {
-                          itemForm.setFieldValue('unit', item.unit);
-                        }
-                      }}
-                    />
-                  </Form.Item>
-                );
-              }
-
-              if (itemType === 'demolition') {
-                return (
-                  <Form.Item
-                    name="name"
-                    label="Demolition Item Name"
-                    rules={[{ required: true, message: 'Please enter item name' }]}
-                  >
-                    <Input placeholder="e.g., Carpet, Drywall 2ft, Baseboard" />
-                  </Form.Item>
-                );
-              }
-
-              // Custom item type
-              return (
-                <Form.Item
-                  name="name"
-                  label="Item Name"
-                  rules={[{ required: true, message: 'Please enter item name' }]}
-                >
-                  <Input placeholder="Enter custom item name" />
-                </Form.Item>
-              );
+                  return Object.entries(grouped).map(([categoryName, items]) => (
+                    <div key={categoryName} style={{ marginBottom: 16 }}>
+                      <Text strong style={{ display: 'block', marginBottom: 8, color: '#1890ff' }}>
+                        {categoryName}
+                      </Text>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {items.map(item => (
+                          <Button
+                            key={item.id}
+                            onClick={() => handleStandardItemSelect(item.id)}
+                            style={{
+                              height: 'auto',
+                              padding: '8px 12px',
+                              textAlign: 'left',
+                              whiteSpace: 'normal'
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontWeight: 500 }}>{item.name}</div>
+                              <div style={{ fontSize: 11, color: '#888' }}>
+                                <Tag color={getItemTypeColor(item.item_type)} style={{ marginRight: 4, fontSize: 10 }}>
+                                  {item.item_type}
+                                </Tag>
+                                {item.unit}
+                                {item.default_quantity && ` • Default: ${item.default_quantity}`}
+                              </div>
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            )}
+            <Divider />
+            <div style={{ textAlign: 'center' }}>
+              <Button onClick={() => setShowStandardItemSelector(false)}>
+                Or enter custom item manually
+              </Button>
+            </div>
+          </div>
+        ) : (
+          /* Regular Item Form */
+          <Form
+            form={itemForm}
+            layout="vertical"
+            onFinish={handleSaveItem}
+            initialValues={{
+              item_type: 'custom',
+              unit: 'SF',
+              include_in_debris: false
             }}
-          </Form.Item>
+          >
+            {selectedStandardItem && (
+              <Alert
+                message={`Based on template: ${selectedStandardItem.name}`}
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+                action={
+                  <Button size="small" onClick={() => setShowStandardItemSelector(true)}>
+                    Change
+                  </Button>
+                }
+              />
+            )}
+
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="item_type"
+                  label="Item Type"
+                  rules={[{ required: true }]}
+                >
+                  <Select options={SCOPE_ITEM_TYPE_OPTIONS.map(o => ({ value: o.value, label: o.label }))} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="unit"
+                  label="Unit"
+                  rules={[{ required: true }]}
+                >
+                  <Select options={UNIT_TYPE_OPTIONS.map(o => ({ value: o.value, label: o.label }))} />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Form.Item
+              name="name"
+              label="Item Name"
+              rules={[{ required: true, message: 'Please enter item name' }]}
+            >
+              <Input placeholder="e.g., Floor Protection, Carpet Removal" />
+            </Form.Item>
 
           <Form.Item name="description" label="Description">
             <TextArea rows={2} placeholder="Additional notes" />
@@ -873,59 +977,66 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
 
           <Divider />
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="quantity"
-                label={
-                  <Space>
-                    Quantity
-                    <Tooltip title="Enter directly or use formula below">
-                      <InfoCircleOutlined style={{ color: '#1890ff' }} />
-                    </Tooltip>
-                  </Space>
+          <Form.Item
+            name="quantity"
+            label={
+              <Space>
+                Quantity
+                <Tooltip title="Enter a number or formula (e.g., 10*12+5*8)">
+                  <CalculatorOutlined style={{ color: '#1890ff' }} />
+                </Tooltip>
+              </Space>
+            }
+          >
+            <Input
+              style={{ width: '100%' }}
+              placeholder="e.g., 120 or 10*12+5*8"
+              onBlur={async (e) => {
+                const value = e.target.value?.trim();
+                if (!value) {
+                  setFormulaResult(null);
+                  return;
                 }
-              >
-                <InputNumber
-                  style={{ width: '100%' }}
-                  placeholder="e.g., 120"
-                  min={0}
-                  precision={2}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="quantity_formula"
-                label={
-                  <Space>
-                    Formula (optional)
-                    <Tooltip title="Use formula like '10*12+5*8' to auto-calculate quantity">
-                      <CalculatorOutlined style={{ color: '#1890ff' }} />
-                    </Tooltip>
-                  </Space>
+                // Check if it contains operators (is a formula)
+                if (/[\+\-\*\/]/.test(value)) {
+                  try {
+                    const result = await waterMitigationService.scope.calculateFormula(value);
+                    if (result.success && result.result !== undefined) {
+                      setFormulaResult({ valid: true, result: result.result });
+                      itemForm.setFieldsValue({
+                        quantity: result.result,
+                        quantity_formula: value
+                      });
+                    } else {
+                      setFormulaResult({ valid: false, error: result.error || 'Invalid formula' });
+                    }
+                  } catch (error) {
+                    setFormulaResult({ valid: false, error: 'Failed to calculate' });
+                  }
+                } else {
+                  // Plain number
+                  const num = parseFloat(value);
+                  if (!isNaN(num)) {
+                    itemForm.setFieldsValue({ quantity: num, quantity_formula: undefined });
+                    setFormulaResult(null);
+                  }
                 }
-              >
-                <Input
-                  placeholder="e.g., 10*12+5*8"
-                  onBlur={(e) => validateFormula(e.target.value)}
-                />
-              </Form.Item>
-              {formulaResult && (
-                <div style={{ marginTop: -16, marginBottom: 8 }}>
-                  {formulaResult.valid ? (
-                    <Text type="success">
-                      <CheckCircleOutlined /> = {formulaResult.result?.toLocaleString()}
-                    </Text>
-                  ) : (
-                    <Text type="danger">
-                      <WarningOutlined /> {formulaResult.error}
-                    </Text>
-                  )}
-                </div>
+              }}
+            />
+          </Form.Item>
+          {formulaResult && (
+            <div style={{ marginTop: -16, marginBottom: 8 }}>
+              {formulaResult.valid ? (
+                <Text type="success">
+                  <CheckCircleOutlined /> = {formulaResult.result?.toLocaleString()}
+                </Text>
+              ) : (
+                <Text type="danger">
+                  <WarningOutlined /> {formulaResult.error}
+                </Text>
               )}
-            </Col>
-          </Row>
+            </div>
+          )}
 
           <Form.Item
             name="include_in_debris"
@@ -938,7 +1049,87 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
               ]}
             />
           </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) =>
+              prevValues.include_in_debris !== currentValues.include_in_debris
+            }
+          >
+            {({ getFieldValue }) => {
+              const includeInDebris = getFieldValue('include_in_debris');
+
+              if (!includeInDebris) return null;
+
+              // Group all materials by category (no unit filtering - user may have items like "drywall- up to 2 ft" with LF unit)
+              const groupedMaterials = materialWeights.reduce((acc, material) => {
+                const categoryName = material.category_name || 'Other';
+                if (!acc[categoryName]) {
+                  acc[categoryName] = [];
+                }
+                acc[categoryName].push(material);
+                return acc;
+              }, {} as Record<string, MaterialWeight[]>);
+
+              return (
+                <Form.Item
+                  name="material_weight_id"
+                  label={
+                    <Space>
+                      Material Type
+                      <Tooltip title="Select the material type for accurate debris weight calculation. All material types are shown regardless of unit.">
+                        <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                      </Tooltip>
+                    </Space>
+                  }
+                  rules={[
+                    {
+                      required: includeInDebris,
+                      message: 'Please select material type for debris calculation'
+                    }
+                  ]}
+                >
+                  <Select
+                    placeholder="Select material type..."
+                    allowClear
+                    showSearch
+                    optionFilterProp="children"
+                    loading={loadingMaterials}
+                    notFoundContent={
+                      loadingMaterials ? (
+                        <Spin size="small" />
+                      ) : materialWeights.length === 0 ? (
+                        <Empty
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          description="No materials available"
+                        />
+                      ) : null
+                    }
+                  >
+                    {Object.entries(groupedMaterials).map(([categoryName, materials]) => (
+                      <Select.OptGroup label={categoryName} key={categoryName}>
+                        {materials.map(material => (
+                          <Select.Option
+                            key={material.id}
+                            value={material.id}
+                          >
+                            <Space>
+                              <span>{material.material_type}</span>
+                              <Text type="secondary" style={{ fontSize: 11 }}>
+                                ({material.dry_weight_per_unit} lb/{material.unit})
+                              </Text>
+                            </Space>
+                          </Select.Option>
+                        ))}
+                      </Select.OptGroup>
+                    ))}
+                  </Select>
+                </Form.Item>
+              );
+            }}
+          </Form.Item>
         </Form>
+        )}
       </Modal>
 
       {/* Inline styles for editable quantity hover effect */}

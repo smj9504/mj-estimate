@@ -59,6 +59,7 @@ class GoogleSheetsSyncService:
             "processed": 0,
             "created": 0,
             "updated": 0,
+            "cleared": 0,
             "skipped": 0,
             "failed": 0,
             "sheets_synced": [],
@@ -74,6 +75,7 @@ class GoogleSheetsSyncService:
                 combined_stats["processed"] += stats.get("processed", 0)
                 combined_stats["created"] += stats.get("created", 0)
                 combined_stats["updated"] += stats.get("updated", 0)
+                combined_stats["cleared"] += stats.get("cleared", 0)
                 combined_stats["skipped"] += stats.get("skipped", 0)
                 combined_stats["failed"] += stats.get("failed", 0)
                 combined_stats["sheets_synced"].append({
@@ -82,6 +84,7 @@ class GoogleSheetsSyncService:
                     "processed": stats.get("processed", 0),
                     "created": stats.get("created", 0),
                     "updated": stats.get("updated", 0),
+                    "cleared": stats.get("cleared", 0),
                     "skipped": stats.get("skipped", 0)
                 })
 
@@ -115,6 +118,7 @@ class GoogleSheetsSyncService:
             f"processed={combined_stats['processed']}, "
             f"created={combined_stats['created']}, "
             f"updated={combined_stats['updated']}, "
+            f"cleared={combined_stats['cleared']}, "
             f"skipped={combined_stats['skipped']}"
         )
 
@@ -168,6 +172,7 @@ class GoogleSheetsSyncService:
                 "processed": 0,
                 "created": 0,
                 "updated": 0,
+                "cleared": 0,
                 "skipped": 0,
                 "failed": 0,
                 "errors": []
@@ -182,6 +187,8 @@ class GoogleSheetsSyncService:
                             stats["created"] += 1
                         elif result.get("updated"):
                             stats["updated"] += 1
+                        elif result.get("cleared"):
+                            stats["cleared"] += 1
                         elif result.get("skipped"):
                             stats["skipped"] += 1
                         stats["processed"] += 1
@@ -211,6 +218,7 @@ class GoogleSheetsSyncService:
                 "processed": stats["processed"],
                 "created": stats["created"],
                 "updated": stats["updated"],
+                "cleared": stats["cleared"],
                 "skipped": stats["skipped"],
                 "failed": stats["failed"],
                 "errors": stats.get("errors", [])
@@ -257,6 +265,7 @@ class GoogleSheetsSyncService:
         1. First, try to find job by google_sheet_row_number + sheet_name (most accurate, active/inactive agnostic)
         2. If not found, try to find by street address (fuzzy match, active_only=True)
         3. If still not found, create new job
+        4. If row is empty but job exists by row_number + sheet_name, clear its synced fields
 
         Args:
             row: Row data
@@ -264,7 +273,7 @@ class GoogleSheetsSyncService:
             sheet_name: Name of the sheet tab
 
         Returns:
-            Dict with 'job', 'created', and 'updated' keys, or None if row is empty
+            Dict with 'job', 'created', 'updated', and 'cleared' keys, or None if row is truly empty
         """
         # Parse row data
         row_data = self.client.parse_row_to_dict(row, WM_HEADER_MAPPING)
@@ -272,6 +281,16 @@ class GoogleSheetsSyncService:
         # Check if row has address (required field)
         address = row_data.get("property_address")
         if not address or not address.strip():
+            # Row is empty - check if there's an existing job linked to this row
+            # If so, clear its Google Sheet-synced fields to NULL
+            existing_job = self._find_job_by_row_number(row_number, sheet_name)
+            if existing_job:
+                job = self._clear_job_sheet_fields(existing_job)
+                logger.info(
+                    f"Cleared Google Sheet fields for job {job.id} "
+                    f"(row {row_number} in sheet {sheet_name} is now empty)"
+                )
+                return {"job": job, "created": False, "updated": False, "cleared": True}
             return None
 
         # Prepare update data
@@ -333,6 +352,10 @@ class GoogleSheetsSyncService:
         This is the most accurate matching method because it directly links
         a sheet row to a specific job, regardless of active status.
 
+        IMPORTANT: Each sheet (e.g., "Angel", "Vanessa") has its own row numbering.
+        Row 4 in "Angel" sheet is a DIFFERENT job from Row 4 in "Vanessa" sheet.
+        Therefore, we MUST match both row_number AND sheet_name together.
+
         Args:
             row_number: Google Sheets row number (1-based)
             sheet_name: Name of the sheet tab
@@ -340,9 +363,9 @@ class GoogleSheetsSyncService:
         Returns:
             Matching job or None
         """
-        from sqlalchemy import or_
-
-        # First, try to find by exact match (row_number + sheet_name)
+        # Find by exact match (row_number + sheet_name)
+        # We do NOT fall back to row_number-only matching because different sheets
+        # have independent row numbering (Angel row 4 != Vanessa row 4)
         query = select(WaterMitigationJob).where(
             WaterMitigationJob.google_sheet_row_number == row_number,
             WaterMitigationJob.google_sheet_name == sheet_name
@@ -350,23 +373,7 @@ class GoogleSheetsSyncService:
         result = self.db.execute(query)
         job = result.scalar_one_or_none()
 
-        if job:
-            return job
-
-        # Fallback: Find jobs with matching row_number but NULL sheet_name (legacy data)
-        # This handles existing jobs that were synced before sheet_name was added
-        query = select(WaterMitigationJob).where(
-            WaterMitigationJob.google_sheet_row_number == row_number,
-            WaterMitigationJob.google_sheet_name.is_(None)
-        )
-        result = self.db.execute(query)
-        legacy_job = result.scalar_one_or_none()
-
-        if legacy_job:
-            logger.info(f"Found legacy job (no sheet_name) for row {row_number}, will update with sheet_name '{sheet_name}'")
-            return legacy_job
-
-        return None
+        return job
 
     def _find_job_by_street_address(
         self,
@@ -445,17 +452,22 @@ class GoogleSheetsSyncService:
 
     def _prepare_job_data(self, row_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Prepare job data from row data with type conversion
+        Prepare job data from row data with type conversion.
+
+        IMPORTANT: Empty fields in Sheet are explicitly set to None so they
+        will be cleared in the database. This ensures that when a field is
+        emptied in the Sheet, the corresponding DB field is also cleared.
 
         Args:
             row_data: Raw row data dictionary
 
         Returns:
-            Cleaned and typed job data
+            Cleaned and typed job data (includes None for empty fields)
         """
         update_data = {}
 
         # String fields (direct mapping)
+        # Empty strings are converted to None to clear DB fields
         string_fields = [
             "property_address", "property_street", "property_city",
             "property_state", "property_zipcode", "homeowner_name",
@@ -466,28 +478,31 @@ class GoogleSheetsSyncService:
             "check_number"
         ]
         for field in string_fields:
-            if field in row_data and row_data[field]:
-                update_data[field] = str(row_data[field]).strip()
+            value = row_data.get(field)
+            if value and str(value).strip():
+                update_data[field] = str(value).strip()
+            else:
+                # Explicitly set to None to clear the field in DB
+                update_data[field] = None
 
-        # Date fields
+        # Date fields - empty values become None
         date_fields = [
             "date_of_loss", "mitigation_start_date", "mitigation_end_date",
             "inspection_date", "documents_sent_date", "check_date"
         ]
         for field in date_fields:
-            if field in row_data:
-                parsed_date = parse_date_value(row_data[field])
-                if parsed_date:
-                    update_data[field] = parsed_date
+            value = row_data.get(field)
+            parsed_date = parse_date_value(value) if value else None
+            update_data[field] = parsed_date
 
         # Parse mitigation_period string into start/end dates
         # This handles formats like "12/25-12/27 (3)" from Google Sheets
-        if "mitigation_period" in row_data and row_data["mitigation_period"]:
+        if row_data.get("mitigation_period") and str(row_data["mitigation_period"]).strip():
             period_str = str(row_data["mitigation_period"]).strip()
 
             # Determine reference year from date_of_loss if available
             reference_year = None
-            if "date_of_loss" in update_data and update_data["date_of_loss"]:
+            if update_data.get("date_of_loss"):
                 reference_year = update_data["date_of_loss"].year
 
             # Parse the period string
@@ -501,22 +516,84 @@ class GoogleSheetsSyncService:
                 update_data["mitigation_end_date"] = end_date
                 logger.info(f"Parsed mitigation_end_date: {end_date} from '{period_str}'")
 
-        # Boolean fields
-        if "mitigation_flag" in row_data:
-            update_data["mitigation_flag"] = parse_boolean_value(row_data["mitigation_flag"])
+        # Boolean fields - empty values become None
+        value = row_data.get("mitigation_flag")
+        if value is not None and str(value).strip():
+            update_data["mitigation_flag"] = parse_boolean_value(value)
+        else:
+            update_data["mitigation_flag"] = None
 
-        # Numeric fields
+        # Numeric fields - empty values become None
         numeric_fields = [
             ("invoice_amount", "invoice_amount"),
             ("check_amount", "check_amount")
         ]
         for source_field, target_field in numeric_fields:
-            if source_field in row_data:
-                parsed_value = parse_numeric_value(row_data[source_field])
-                if parsed_value is not None:
-                    update_data[target_field] = parsed_value
+            value = row_data.get(source_field)
+            if value is not None and str(value).strip():
+                parsed_value = parse_numeric_value(value)
+                update_data[target_field] = parsed_value
+            else:
+                update_data[target_field] = None
 
         return update_data
+
+    def _clear_job_sheet_fields(self, job: WaterMitigationJob) -> WaterMitigationJob:
+        """
+        Clear Google Sheet-synced fields when the corresponding sheet row is empty.
+
+        This handles the case where a job was previously synced from a Sheet row,
+        but that row's data has been cleared/deleted. We clear the synced fields
+        to NULL to remove the corrupted/stale data.
+
+        Note: We keep the job record intact (don't delete) and preserve:
+        - job.id (primary key)
+        - job.active (status)
+        - job.status (workflow status)
+        - job.google_sheet_row_number (link to the sheet row)
+        - job.google_sheet_name (link to the sheet tab)
+        - job.created_at, job.updated_at (timestamps)
+        - CompanyCam data (companycam_project_id, companycam_last_sync, etc.)
+
+        Args:
+            job: Job to clear
+
+        Returns:
+            Updated job with cleared fields
+        """
+        # Fields synced from Google Sheets that should be cleared
+        # These are the fields populated by _prepare_job_data()
+        clearable_fields = [
+            # Address fields
+            "property_address", "property_street", "property_city",
+            "property_state", "property_zipcode",
+            # Homeowner fields
+            "homeowner_name", "homeowner_phone", "homeowner_email",
+            # Insurance fields
+            "insurance_company", "insurance_policy_number", "claim_number",
+            "adjuster_name", "adjuster_phone", "adjuster_email",
+            # Date fields
+            "date_of_loss", "mitigation_start_date", "mitigation_end_date",
+            "inspection_date", "documents_sent_date", "check_date",
+            # Other fields
+            "mitigation_period", "mitigation_flag",
+            "inspection_time", "plumbers_report",
+            "invoice_number", "invoice_amount",
+            "check_number", "check_amount"
+        ]
+
+        # Clear all synced fields to NULL
+        for field in clearable_fields:
+            if hasattr(job, field):
+                setattr(job, field, None)
+
+        # Update sync timestamp to indicate we processed this row
+        job.sheets_last_sync = datetime.utcnow()
+
+        self.db.commit()
+        self.db.refresh(job)
+
+        return job
 
     def _update_job(
         self,

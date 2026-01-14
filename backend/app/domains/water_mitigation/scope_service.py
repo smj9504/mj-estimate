@@ -317,7 +317,7 @@ class ScopeService:
                 "item_id": str(item.id),
                 "item_name": item.name,
                 "material_name": (
-                    material.material_name if material else None
+                    material.material_type if material else None
                 ),
                 "quantity": float(item.quantity),
                 "unit": item.unit,

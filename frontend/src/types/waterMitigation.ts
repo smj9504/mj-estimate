@@ -443,8 +443,8 @@ export const STANDARD_SCOPE_ITEMS = [
 // Material weight brief (for scope item reference)
 export interface MaterialWeightBrief {
   id: string;
-  material_name: string;
-  weight_per_unit: number;
+  material_type: string;  // Maps to MaterialWeight.material_type
+  dry_weight_per_unit: number;  // Maps to MaterialWeight.dry_weight_per_unit
   unit: string;
 }
 
@@ -586,4 +586,164 @@ export interface CalculateFormulaResponse {
   formula: string;
   result?: number;
   error?: string;
+}
+
+// ============================================================================
+// Scope Item Categories (DB-managed categories for Standard Scope Items)
+// ============================================================================
+
+export interface ScopeItemCategory {
+  id: string;
+  company_id?: string | null;
+  name: string;
+  description?: string | null;
+  color: string;
+  icon?: string | null;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface ScopeItemCategoryBrief {
+  id: string;
+  name: string;
+  color: string;
+  display_order: number;
+}
+
+export interface ScopeItemCategoryCreate {
+  name: string;
+  description?: string;
+  color?: string;
+  icon?: string;
+  display_order?: number;
+  company_id?: string;
+}
+
+export interface ScopeItemCategoryUpdate {
+  name?: string;
+  description?: string;
+  color?: string;
+  icon?: string;
+  display_order?: number;
+  is_active?: boolean;
+}
+
+export interface ScopeItemCategoryListResponse {
+  items: ScopeItemCategory[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ScopeItemCategoryFilters {
+  company_id?: string;
+  is_active?: boolean;
+  search?: string;
+  include_system?: boolean;
+  page?: number;
+  page_size?: number;
+}
+
+// ============================================================================
+// Standard Scope Items (Template Items for Scope of Work)
+// ============================================================================
+
+export interface StandardScopeItem {
+  id: string;
+  company_id?: string | null;
+  item_type: 'standard' | 'demolition' | 'custom';
+  category_id?: string | null;
+  category?: ScopeItemCategoryBrief | null;  // Nested category info
+  name: string;
+  description?: string | null;
+  unit: string;
+  default_quantity?: number | null;
+  material_weight_id?: string | null;
+  default_include_in_debris: boolean;
+  display_order: number;
+  is_active: boolean;
+  created_by_id?: string | null;
+  updated_by_id?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+  material_weight?: {
+    id: string;
+    material_type: string;
+    dry_weight_per_unit: number;
+    unit: string;
+  } | null;
+}
+
+export interface StandardScopeItemCreate {
+  name: string;
+  description?: string;
+  item_type?: 'standard' | 'demolition' | 'custom';
+  category_id?: string;
+  unit?: string;
+  default_quantity?: number;
+  material_weight_id?: string;
+  default_include_in_debris?: boolean;
+  display_order?: number;
+  company_id?: string;
+}
+
+export interface StandardScopeItemUpdate {
+  name?: string;
+  description?: string;
+  item_type?: 'standard' | 'demolition' | 'custom';
+  category_id?: string;
+  unit?: string;
+  default_quantity?: number;
+  material_weight_id?: string;
+  default_include_in_debris?: boolean;
+  display_order?: number;
+  is_active?: boolean;
+}
+
+export interface StandardScopeItemListResponse {
+  items: StandardScopeItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface StandardScopeItemFilters {
+  company_id?: string;
+  item_type?: string;
+  category_id?: string;
+  is_active?: boolean;
+  search?: string;
+  include_system?: boolean;
+  page?: number;
+  page_size?: number;
+}
+
+// Material Weight types (from reconstruction_estimate module)
+export interface MaterialCategory {
+  id: string;
+  category_name: string;
+  description?: string | null;
+  display_order: number;
+  active: boolean;
+}
+
+export interface MaterialWeight {
+  id: string;
+  material_type: string;
+  category_id: string;
+  category_name?: string | null;
+  description?: string | null;
+  dry_weight_per_unit: number;
+  unit: string;  // SF, LF, EA
+  damp_multiplier: number;
+  wet_multiplier: number;
+  saturated_multiplier: number;
+  active: boolean;
+}
+
+export interface MaterialWeightListResponse {
+  materials: MaterialWeight[];
+  total: number;
 }

@@ -41,6 +41,7 @@ class ScopeRepository:
         if include_items:
             query = query.options(
                 selectinload(WMScopeLocation.scope_items)
+                .joinedload(WMScopeItem.material_weight)
             )
 
         query = query.order_by(WMScopeLocation.display_order)
@@ -61,6 +62,7 @@ class ScopeRepository:
         if include_items:
             query = query.options(
                 selectinload(WMScopeLocation.scope_items)
+                .joinedload(WMScopeItem.material_weight)
             )
 
         result = self.db.execute(query)
@@ -105,23 +107,25 @@ class ScopeRepository:
     def get_items_by_location(
         self, location_id: UUID
     ) -> List[WMScopeItem]:
-        """Get all scope items for a location"""
+        """Get all scope items for a location with material_weight relationship"""
         query = (
             select(WMScopeItem)
             .where(WMScopeItem.location_id == location_id)
+            .options(joinedload(WMScopeItem.material_weight))
             .order_by(WMScopeItem.display_order)
         )
 
         result = self.db.execute(query)
-        return list(result.scalars().all())
+        return list(result.unique().scalars().all())
 
     def get_item_by_id(
         self, item_id: UUID
     ) -> Optional[WMScopeItem]:
-        """Get scope item by ID"""
+        """Get scope item by ID with material_weight relationship"""
         query = (
             select(WMScopeItem)
             .where(WMScopeItem.id == item_id)
+            .options(joinedload(WMScopeItem.material_weight))
         )
 
         result = self.db.execute(query)

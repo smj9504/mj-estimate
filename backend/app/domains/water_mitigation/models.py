@@ -599,6 +599,147 @@ class PhotoAnalysisCache(Base, BaseModel):
     photo = relationship("WMPhoto")
 
 
+class WMScopeItemCategory(Base, BaseModel):
+    """
+    Water Mitigation Scope Item Category.
+
+    Manages categories for grouping standard scope items.
+    Categories can be system-wide (company_id NULL) or company-specific.
+
+    Examples: "Equipment", "Protection", "Demolition", "Flooring"
+    """
+    __tablename__ = "wm_scope_item_categories"
+    __table_args__ = (
+        Index('ix_wm_scope_item_categories_active', 'is_active'),
+        Index('ix_wm_scope_item_categories_company', 'company_id'),
+        Index('ix_wm_scope_item_categories_order', 'display_order'),
+        {'extend_existing': True}
+    )
+
+    # Company ownership (NULL = system-wide category)
+    company_id = Column(
+        UUIDType(),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=True,
+        comment="Company that owns this category (NULL for system-wide categories)"
+    )
+
+    # Category details
+    name = Column(String(100), nullable=False, comment="Category name (e.g., 'Equipment')")
+    description = Column(Text, comment="Description of the category")
+    color = Column(String(7), default='#1890ff', comment="Hex color code for UI display")
+    icon = Column(String(50), comment="Icon identifier for UI display")
+
+    # UI/Display configuration
+    display_order = Column(Integer, default=0, comment="Order in UI lists")
+
+    # Status
+    is_active = Column(Boolean, default=True, nullable=False, comment="Soft delete flag")
+
+    # Audit fields
+    created_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+    updated_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+
+    # Relationships
+    company = relationship("Company", foreign_keys=[company_id])
+    scope_items = relationship("WMStandardScopeItem", back_populates="category_rel")
+
+
+class WMStandardScopeItem(Base, BaseModel):
+    """
+    Water Mitigation Standard Scope Item Template.
+
+    Stores predefined/template scope items that can be reused across jobs.
+    Admins can manage these items dynamically instead of hardcoding.
+
+    Features:
+    - Company-specific items (company_id set) or system-wide items (company_id NULL)
+    - Soft delete via is_active flag
+    - Ordering via display_order
+    - Category grouping for UI organization (via FK to WMScopeItemCategory)
+    """
+    __tablename__ = "wm_standard_scope_items"
+    __table_args__ = (
+        Index('ix_wm_standard_scope_items_active', 'is_active'),
+        Index('ix_wm_standard_scope_items_company', 'company_id'),
+        Index('ix_wm_standard_scope_items_type', 'item_type'),
+        Index('ix_wm_standard_scope_items_category', 'category_id'),
+        Index('ix_wm_standard_scope_items_order', 'display_order'),
+        {'extend_existing': True}
+    )
+
+    # Company ownership (NULL = system-wide template available to all companies)
+    company_id = Column(
+        UUIDType(),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=True,
+        comment="Company that owns this item (NULL for system-wide templates)"
+    )
+
+    # Item classification
+    item_type = Column(
+        String(50),
+        nullable=False,
+        default='standard',
+        comment="Item type: 'standard', 'demolition', 'custom'"
+    )
+
+    # Category FK (replaces string category field)
+    category_id = Column(
+        UUIDType(),
+        ForeignKey("wm_scope_item_categories.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Foreign key to WMScopeItemCategory"
+    )
+
+    # Item details
+    name = Column(String(255), nullable=False, comment="Item name (e.g., 'Floor Protection')")
+    description = Column(Text, comment="Detailed description of the item")
+
+    # Unit configuration
+    unit = Column(
+        String(20),
+        nullable=False,
+        default='SF',
+        comment="Default unit: 'SF', 'LF', 'EA'"
+    )
+
+    # Default values (can be overridden when adding to a location)
+    default_quantity = Column(
+        DECIMAL(12, 4),
+        nullable=True,
+        comment="Default quantity (if applicable)"
+    )
+
+    # Material mapping for demolition items (debris calculation)
+    material_weight_id = Column(
+        UUIDType(),
+        ForeignKey("material_weights.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Link to MaterialWeight for debris calculation"
+    )
+    default_include_in_debris = Column(
+        Boolean,
+        default=False,
+        comment="Default setting for debris inclusion"
+    )
+
+    # UI/Display configuration
+    display_order = Column(Integer, default=0, comment="Order in UI lists")
+
+    # Status
+    is_active = Column(Boolean, default=True, nullable=False, comment="Soft delete flag")
+
+    # Audit fields
+    created_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+    updated_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+
+    # Relationships
+    company = relationship("Company", foreign_keys=[company_id])
+    material_weight = relationship("MaterialWeight", foreign_keys=[material_weight_id])
+    category_rel = relationship("WMScopeItemCategory", back_populates="scope_items")
+
+
 class WMReportConfig(Base, BaseModel):
     """Water mitigation photo report configuration"""
     __tablename__ = "wm_report_configs"
