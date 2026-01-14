@@ -2,7 +2,7 @@
  * Water Mitigation Document List Component
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { List, Button, Popconfirm, message, Tag, Typography, Checkbox, Space } from 'antd';
 import { FilePdfOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
 import waterMitigationService from '../../services/waterMitigationService';
@@ -31,28 +31,28 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [bulkDeleting, setBulkDeleting] = useState(false);
 
-    const fetchDocuments = async () => {
-    setLoading(true);
-    try {
-      const docs = await waterMitigationService.documents.getByJob(jobId);
-      setDocuments(docs);
-      setSelectedIds([]); // Clear selection when documents refresh
-    } catch (error) {
-      console.error('Failed to fetch documents:', error);
-      message.error('Failed to load documents');
-    } finally {
-      setLoading(false);
-    }
-  };
+    const fetchDocuments = useCallback(async () => {
+      setLoading(true);
+      try {
+        const docs = await waterMitigationService.documents.getByJob(jobId);
+        setDocuments(docs);
+        setSelectedIds([]); // Clear selection when documents refresh
+      } catch (error) {
+        console.error('Failed to fetch documents:', error);
+        message.error('Failed to load documents');
+      } finally {
+        setLoading(false);
+      }
+    }, [jobId]);
 
   useEffect(() => {
     fetchDocuments();
-  }, [jobId]);
+  }, [fetchDocuments]);
 
   // Expose refresh method via ref
   React.useImperativeHandle(ref, () => ({
     refresh: fetchDocuments
-  }));
+  }), [fetchDocuments]);
 
   const handleDownload = (documentId: string, filename: string) => {
     const downloadUrl = waterMitigationService.documents.getDownloadUrl(documentId);
