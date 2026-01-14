@@ -50,14 +50,12 @@ import type {
   ScopeItem,
   ScopeItemCreate,
   ScopeItemUpdate,
-  DemolitionType,
   WMDebrisCalculation,
   CalculateDebrisResponse,
   ScopeItemType
 } from '../../types/waterMitigation';
 import {
   STANDARD_SCOPE_ITEMS,
-  MOISTURE_LEVEL_OPTIONS,
   SCOPE_ITEM_TYPE_OPTIONS,
   UNIT_TYPE_OPTIONS
 } from '../../types/waterMitigation';
@@ -100,7 +98,6 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
   // State
   const [loading, setLoading] = useState(false);
   const [locations, setLocations] = useState<ScopeLocation[]>([]);
-  const [demolitionTypes, setDemolitionTypes] = useState<DemolitionType[]>([]);
   const [debrisCalculation, setDebrisCalculation] = useState<WMDebrisCalculation | null>(null);
   const [calculatingDebris, setCalculatingDebris] = useState(false);
 
@@ -118,6 +115,10 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
   // Formula validation state
   const [formulaResult, setFormulaResult] = useState<{ valid: boolean; result?: number; error?: string } | null>(null);
 
+  // Inline editing state
+  const [editingQuantity, setEditingQuantity] = useState<{ itemId: string; value: number | null } | null>(null);
+  const [savingQuantity, setSavingQuantity] = useState(false);
+
   // Load data
   const loadLocations = useCallback(async () => {
     try {
@@ -132,16 +133,6 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     }
   }, [jobId]);
 
-  const loadDemolitionTypes = useCallback(async () => {
-    try {
-      const response = await waterMitigationService.scope.demolitionTypes.list(true);
-      setDemolitionTypes(response.items);
-    } catch (error) {
-      message.error('Failed to load demolition types');
-      console.error('Load demolition types error:', error);
-    }
-  }, []);
-
   const loadDebrisCalculation = useCallback(async () => {
     try {
       const result = await waterMitigationService.scope.debris.get(jobId);
@@ -154,9 +145,8 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
 
   useEffect(() => {
     loadLocations();
-    loadDemolitionTypes();
     loadDebrisCalculation();
-  }, [loadLocations, loadDemolitionTypes, loadDebrisCalculation]);
+  }, [loadLocations, loadDebrisCalculation]);
 
   // Location handlers
   const handleAddLocation = () => {
@@ -227,8 +217,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     itemForm.setFieldsValue({
       item_type: itemType,
       unit: 'SF',
-      include_in_debris: itemType === 'demolition',
-      moisture_level: 'dry'
+      include_in_debris: itemType === 'demolition'
     });
     setFormulaResult(null);
     setItemModalVisible(true);
@@ -244,9 +233,8 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       quantity: item.quantity,
       quantity_formula: item.quantity_formula,
       unit: item.unit,
-      demolition_type_id: item.demolition_type_id,
-      include_in_debris: item.include_in_debris,
-      moisture_level: item.moisture_level
+      material_weight_id: item.material_weight_id,
+      include_in_debris: item.include_in_debris
     });
     setFormulaResult(null);
     setItemModalVisible(true);
@@ -294,6 +282,43 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     }
   };
 
+  // Inline quantity editing handlers
+  const handleQuantityClick = (item: ScopeItem) => {
+    setEditingQuantity({ itemId: item.id, value: item.quantity ?? null });
+  };
+
+  const handleQuantityChange = (value: number | null) => {
+    if (editingQuantity) {
+      setEditingQuantity({ ...editingQuantity, value });
+    }
+  };
+
+  const handleQuantitySave = async (itemId: string) => {
+    if (!editingQuantity || editingQuantity.value === null) {
+      setEditingQuantity(null);
+      return;
+    }
+
+    try {
+      setSavingQuantity(true);
+      await waterMitigationService.scope.items.update(itemId, {
+        quantity: editingQuantity.value,
+        quantity_formula: undefined  // Clear formula when directly setting quantity
+      } as ScopeItemUpdate);
+      message.success('Quantity updated');
+      loadLocations();
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || 'Failed to update quantity');
+    } finally {
+      setSavingQuantity(false);
+      setEditingQuantity(null);
+    }
+  };
+
+  const handleQuantityCancel = () => {
+    setEditingQuantity(null);
+  };
+
   // Formula validation
   const validateFormula = async (formula: string) => {
     if (!formula || formula.trim() === '') {
@@ -337,18 +362,6 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     }
   };
 
-  // Seed default demolition types
-  const handleSeedDemolitionTypes = async () => {
-    try {
-      await waterMitigationService.scope.demolitionTypes.seed();
-      message.success('Default demolition types created');
-      loadDemolitionTypes();
-    } catch (error: any) {
-      message.error(error?.response?.data?.detail || 'Failed to create demolition types');
-      console.error('Seed demolition types error:', error);
-    }
-  };
-
   // Item type color
   const getItemTypeColor = (type: string) => {
     switch (type) {
@@ -377,9 +390,9 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       render: (name: string, record: ScopeItem) => (
         <Space direction="vertical" size={0}>
           <Text strong>{name}</Text>
-          {record.demolition_type && (
+          {record.material_weight && (
             <Text type="secondary" style={{ fontSize: '12px' }}>
-              {record.demolition_type.name}
+              {record.material_weight.material_name} ({record.material_weight.weight_per_unit} lb/{record.material_weight.unit})
             </Text>
           )}
         </Space>
@@ -388,29 +401,55 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     {
       title: 'Quantity',
       key: 'quantity',
-      width: 150,
-      render: (_: any, record: ScopeItem) => (
-        <Space direction="vertical" size={0}>
-          <Text>{record.quantity?.toLocaleString(undefined, { maximumFractionDigits: 2 })} {record.unit}</Text>
-          {record.quantity_formula && (
-            <Tooltip title={`Formula: ${record.quantity_formula}`}>
-              <Text type="secondary" style={{ fontSize: '11px' }}>
-                <CalculatorOutlined /> {record.quantity_formula}
+      width: 180,
+      render: (_: any, record: ScopeItem) => {
+        const isEditing = editingQuantity?.itemId === record.id;
+
+        if (isEditing) {
+          return (
+            <Space size={4}>
+              <InputNumber
+                size="small"
+                value={editingQuantity.value}
+                onChange={handleQuantityChange}
+                onPressEnter={() => handleQuantitySave(record.id)}
+                onBlur={() => handleQuantitySave(record.id)}
+                autoFocus
+                min={0}
+                step={0.01}
+                style={{ width: 80 }}
+                disabled={savingQuantity}
+              />
+              <Text type="secondary">{record.unit}</Text>
+            </Space>
+          );
+        }
+
+        return (
+          <Space direction="vertical" size={0}>
+            <Tooltip title="Click to edit">
+              <Text
+                onClick={() => handleQuantityClick(record)}
+                style={{
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  transition: 'background 0.2s'
+                }}
+                className="editable-quantity"
+              >
+                {record.quantity?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '-'} {record.unit}
               </Text>
             </Tooltip>
-          )}
-        </Space>
-      )
-    },
-    {
-      title: 'Moisture',
-      dataIndex: 'moisture_level',
-      key: 'moisture_level',
-      width: 100,
-      render: (level: string) => {
-        const option = MOISTURE_LEVEL_OPTIONS.find(o => o.value === level);
-        const color = level === 'dry' ? 'green' : level === 'damp' ? 'gold' : level === 'wet' ? 'orange' : 'red';
-        return <Tag color={color}>{option?.label || level}</Tag>;
+            {record.quantity_formula && (
+              <Tooltip title={`Formula: ${record.quantity_formula}`}>
+                <Text type="secondary" style={{ fontSize: '11px' }}>
+                  <CalculatorOutlined /> {record.quantity_formula}
+                </Text>
+              </Tooltip>
+            )}
+          </Space>
+        );
       }
     },
     {
@@ -503,14 +542,6 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
           </Col>
           <Col>
             <Space>
-              {demolitionTypes.length === 0 && (
-                <Button
-                  onClick={handleSeedDemolitionTypes}
-                  icon={<ReloadOutlined />}
-                >
-                  Initialize Demolition Types
-                </Button>
-              )}
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
@@ -756,8 +787,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
           initialValues={{
             item_type: 'custom',
             unit: 'SF',
-            include_in_debris: false,
-            moisture_level: 'dry'
+            include_in_debris: false
           }}
         >
           <Row gutter={16}>
@@ -814,40 +844,13 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
 
               if (itemType === 'demolition') {
                 return (
-                  <>
-                    <Form.Item
-                      name="demolition_type_id"
-                      label="Demolition Type"
-                      rules={[{ required: true, message: 'Please select demolition type' }]}
-                    >
-                      <Select
-                        placeholder="Select demolition type"
-                        showSearch
-                        optionFilterProp="children"
-                        options={demolitionTypes.map(dt => ({
-                          value: dt.id,
-                          label: `${dt.name}${dt.category ? ` (${dt.category})` : ''}`
-                        }))}
-                        onChange={(value) => {
-                          const dt = demolitionTypes.find(d => d.id === value);
-                          if (dt) {
-                            itemForm.setFieldsValue({
-                              name: dt.name,
-                              unit: dt.default_unit,
-                              include_in_debris: true
-                            });
-                          }
-                        }}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      name="name"
-                      label="Item Name"
-                      rules={[{ required: true, message: 'Please enter item name' }]}
-                    >
-                      <Input placeholder="Auto-filled from demolition type or enter custom name" />
-                    </Form.Item>
-                  </>
+                  <Form.Item
+                    name="name"
+                    label="Demolition Item Name"
+                    rules={[{ required: true, message: 'Please enter item name' }]}
+                  >
+                    <Input placeholder="e.g., Carpet, Drywall 2ft, Baseboard" />
+                  </Form.Item>
                 );
               }
 
@@ -924,37 +927,26 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
             </Col>
           </Row>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="moisture_level"
-                label="Moisture Level"
-              >
-                <Select
-                  options={MOISTURE_LEVEL_OPTIONS.map(o => ({
-                    value: o.value,
-                    label: `${o.label} (×${o.multiplier})`
-                  }))}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="include_in_debris"
-                label="Include in Debris Calculation"
-                valuePropName="checked"
-              >
-                <Select
-                  options={[
-                    { value: true, label: 'Yes - Include in debris weight' },
-                    { value: false, label: 'No - Exclude from calculation' }
-                  ]}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="include_in_debris"
+            label="Include in Debris Calculation"
+          >
+            <Select
+              options={[
+                { value: true, label: 'Yes - Include in debris weight' },
+                { value: false, label: 'No - Exclude from calculation' }
+              ]}
+            />
+          </Form.Item>
         </Form>
       </Modal>
+
+      {/* Inline styles for editable quantity hover effect */}
+      <style>{`
+        .editable-quantity:hover {
+          background-color: #f0f5ff;
+        }
+      `}</style>
     </div>
   );
 };

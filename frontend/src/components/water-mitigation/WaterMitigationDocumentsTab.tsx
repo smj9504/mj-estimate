@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input } from 'antd';
+import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox } from 'antd';
 import { FilePdfOutlined, PlusOutlined, RotateRightOutlined, CloseOutlined } from '@ant-design/icons';
 import FileGallery from '../common/FileGallery/FileGallery';
 import WMDocumentList from './WMDocumentList';
@@ -16,7 +16,8 @@ const { Title, Text } = Typography;
 interface WaterMitigationDocumentsTabProps {
   jobId: string;
   jobAddress: string;
-  dateOfLoss?: string;  // Date of loss from job data (required for EWA)
+  dateOfLoss?: string;  // Date of loss from job data
+  mitigationStartDate?: string;  // Mitigation start date (required for EWA)
 }
 
 interface DocumentType {
@@ -46,13 +47,15 @@ const DOCUMENT_TYPES: DocumentType[] = [
 const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = ({
   jobId,
   jobAddress,
-  dateOfLoss
+  dateOfLoss,
+  mitigationStartDate
 }) => {
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [selectedDocType, setSelectedDocType] = useState<string | null>(null);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
   const [photoRotations, setPhotoRotations] = useState<Record<string, number>>({});  // {photoId: degrees}
   const [customFilename, setCustomFilename] = useState<string>('');
+  const [compressPdf, setCompressPdf] = useState<boolean>(false);  // Compress PDF option
   const [creatingPdf, setCreatingPdf] = useState(false);
   const documentListRef = useRef<any>(null);
 
@@ -68,6 +71,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     setSelectedPhotoIds([]);
     setPhotoRotations({});
     setCustomFilename('');
+    setCompressPdf(false);
   };
 
   // Rotate a photo by 90 degrees clockwise
@@ -130,8 +134,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
         return;
       }
 
-      if (!dateOfLoss) {
-        message.error('Date of Loss is required for EWA document. Please update the job information.');
+      if (!mitigationStartDate) {
+        message.error('Mitigation Start Date is required for EWA document. Please update the job information.');
         return;
       }
     }
@@ -159,9 +163,11 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
         selectedPhotoIds,
         selectedDocType,
         jobAddress,
-        dateOfLoss,  // Pass date of loss for EWA documents
+        dateOfLoss,
+        mitigationStartDate,  // Pass mitigation start date for EWA documents
         Object.keys(rotations).length > 0 ? rotations : undefined,
-        selectedDocType === 'Custom' ? customFilename.trim() : undefined
+        selectedDocType === 'Custom' ? customFilename.trim() : undefined,
+        compressPdf  // Pass compress option
       );
 
       message.success(`PDF generated successfully: ${result.filename}`);
@@ -170,6 +176,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
       setSelectedDocType(null);
       setPhotoRotations({});
       setCustomFilename('');
+      setCompressPdf(false);
 
       // Refresh document list to show newly created document
       documentListRef.current?.refresh();
@@ -218,6 +225,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
           setSelectedDocType(null);
           setPhotoRotations({});
           setCustomFilename('');
+          setCompressPdf(false);
         }}
         width={1000}
         footer={[
@@ -229,6 +237,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               setSelectedDocType(null);
               setPhotoRotations({});
               setCustomFilename('');
+              setCompressPdf(false);
             }}
           >
             Cancel
@@ -292,6 +301,19 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
             </div>
           )}
 
+          {/* Compress PDF Option */}
+          <div>
+            <Checkbox
+              checked={compressPdf}
+              onChange={(e) => setCompressPdf(e.target.checked)}
+            >
+              <Text>Compress PDF</Text>
+            </Checkbox>
+            <Text type="secondary" style={{ display: 'block', fontSize: 12, marginLeft: 24 }}>
+              Reduce file size by compressing images (lower quality)
+            </Text>
+          </div>
+
           {/* Photo Selection */}
           <div>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>Select Photos</Text>
@@ -299,9 +321,9 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               {selectedDocType === 'EWA' ? (
                 <>
                   <strong>EWA requires exactly 1 photo.</strong>
-                  {!dateOfLoss && (
+                  {!mitigationStartDate && (
                     <span style={{ color: '#ff4d4f', display: 'block', marginTop: 4 }}>
-                      ⚠️ Date of Loss is missing. Please update job information before generating EWA.
+                      ⚠️ Mitigation Start Date is missing. Please update job information before generating EWA.
                     </span>
                   )}
                 </>

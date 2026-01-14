@@ -316,6 +316,7 @@ export interface GenerateReportRequest {
   save_config?: boolean;
   config?: ReportConfigCreate;
   compress?: boolean;  // Compress PDF (reduce image quality for smaller file size)
+  report_date?: string;  // Custom report date (ISO format: YYYY-MM-DD)
 }
 
 export interface GenerateReportResponse {
@@ -403,21 +404,6 @@ export interface TemplateListResponse {
 // Scope of Work Types
 // ============================================================================
 
-// Moisture levels for debris calculation
-export enum MoistureLevel {
-  DRY = 'dry',
-  DAMP = 'damp',
-  WET = 'wet',
-  SATURATED = 'saturated'
-}
-
-export const MOISTURE_LEVEL_OPTIONS = [
-  { value: MoistureLevel.DRY, label: 'Dry', multiplier: 1.0 },
-  { value: MoistureLevel.DAMP, label: 'Damp', multiplier: 1.2 },
-  { value: MoistureLevel.WET, label: 'Wet', multiplier: 1.5 },
-  { value: MoistureLevel.SATURATED, label: 'Saturated', multiplier: 2.0 }
-] as const;
-
 // Scope item types
 export enum ScopeItemType {
   STANDARD = 'standard',
@@ -454,55 +440,12 @@ export const STANDARD_SCOPE_ITEMS = [
   { name: 'Dehumidifier', unit: UnitType.EA, item_type: ScopeItemType.STANDARD }
 ] as const;
 
-// Material weight brief (for demolition type reference)
+// Material weight brief (for scope item reference)
 export interface MaterialWeightBrief {
   id: string;
-  material_type: string;
-  category_name?: string;
-  dry_weight_per_unit: number;
+  material_name: string;
+  weight_per_unit: number;
   unit: string;
-}
-
-// Demolition Type
-export interface DemolitionType {
-  id: string;
-  name: string;
-  category?: string;
-  description?: string;
-  default_unit: UnitType;
-  material_weight_id?: string;
-  material_weight?: MaterialWeightBrief;
-  display_order: number;
-  is_active: boolean;
-  created_at: string;
-  updated_at?: string;
-  created_by_id?: string;
-  updated_by_id?: string;
-}
-
-export interface DemolitionTypeCreate {
-  name: string;
-  category?: string;
-  description?: string;
-  default_unit?: UnitType;
-  material_weight_id?: string;
-  display_order?: number;
-  is_active?: boolean;
-}
-
-export interface DemolitionTypeUpdate {
-  name?: string;
-  category?: string;
-  description?: string;
-  default_unit?: UnitType;
-  material_weight_id?: string;
-  display_order?: number;
-  is_active?: boolean;
-}
-
-export interface DemolitionTypeListResponse {
-  items: DemolitionType[];
-  total: number;
 }
 
 // Scope Location
@@ -541,15 +484,6 @@ export interface ScopeLocationListResponse {
   total: number;
 }
 
-// Demolition type brief for scope items
-export interface DemolitionTypeBrief {
-  id: string;
-  name: string;
-  category?: string;
-  default_unit: string;
-  material_weight_id?: string;
-}
-
 // Scope Item
 export interface ScopeItem {
   id: string;
@@ -560,10 +494,9 @@ export interface ScopeItem {
   quantity?: number;
   quantity_formula?: string;
   unit: UnitType;
-  demolition_type_id?: string;
-  demolition_type?: DemolitionTypeBrief;
+  material_weight_id?: string;
+  material_weight?: MaterialWeightBrief;
   include_in_debris: boolean;
-  moisture_level: MoistureLevel;
   display_order: number;
   created_at: string;
   updated_at?: string;
@@ -577,9 +510,8 @@ export interface ScopeItemCreate {
   quantity?: number;
   quantity_formula?: string;
   unit?: UnitType;
-  demolition_type_id?: string;
+  material_weight_id?: string;
   include_in_debris?: boolean;
-  moisture_level?: MoistureLevel;
   display_order?: number;
 }
 
@@ -590,9 +522,8 @@ export interface ScopeItemUpdate {
   quantity?: number;
   quantity_formula?: string;
   unit?: UnitType;
-  demolition_type_id?: string;
+  material_weight_id?: string;
   include_in_debris?: boolean;
-  moisture_level?: MoistureLevel;
   display_order?: number;
 }
 
@@ -600,13 +531,10 @@ export interface ScopeItemUpdate {
 export interface DebrisItemDetail {
   item_id: string;
   item_name: string;
-  demolition_type_name?: string;
-  material_type?: string;
+  material_name?: string;
   quantity: number;
   unit: string;
-  moisture_level: string;
-  dry_weight_per_unit?: number;
-  moisture_multiplier: number;
+  weight_per_unit: number;
   weight_lb: number;
   weight_ton: number;
 }

@@ -2,7 +2,7 @@
 Water Mitigation Scope of Work Service
 
 Business logic layer for scope locations, scope items,
-demolition types, and debris calculation.
+and debris calculation.
 """
 
 import re
@@ -17,7 +17,6 @@ from app.domains.water_mitigation.scope_repository import ScopeRepository
 from app.domains.water_mitigation.models import (
     WMScopeLocation,
     WMScopeItem,
-    WMDemolitionType,
     WMDebrisCalculation,
 )
 from app.domains.water_mitigation.schemas import (
@@ -25,22 +24,11 @@ from app.domains.water_mitigation.schemas import (
     ScopeLocationUpdate,
     ScopeItemCreate,
     ScopeItemUpdate,
-    DemolitionTypeCreate,
-    DemolitionTypeUpdate,
     STANDARD_SCOPE_ITEMS,
     DebrisItemDetail,
     CategoryBreakdown,
     DumpsterRecommendation,
 )
-
-
-# Moisture multipliers (same as reconstruction_estimate)
-MOISTURE_MULTIPLIERS = {
-    "dry": Decimal("1.0"),
-    "damp": Decimal("1.2"),
-    "wet": Decimal("1.5"),
-    "saturated": Decimal("2.0"),
-}
 
 # Dumpster sizes (weight in tons)
 DUMPSTER_SIZES = [
@@ -57,80 +45,6 @@ class ScopeService:
     def __init__(self, db: Session):
         self.db = db
         self.repository = ScopeRepository(db)
-
-    # =========================================================================
-    # Demolition Type Operations
-    # =========================================================================
-
-    def get_all_demolition_types(
-        self,
-        active_only: bool = True,
-        category: Optional[str] = None
-    ) -> List[WMDemolitionType]:
-        """Get all demolition types"""
-        return self.repository.get_demolition_types(
-            active_only=active_only,
-            category=category
-        )
-
-    def get_demolition_type(
-        self, demolition_type_id: UUID
-    ) -> Optional[WMDemolitionType]:
-        """Get demolition type by ID"""
-        return self.repository.get_demolition_type_by_id(demolition_type_id)
-
-    def create_demolition_type(
-        self,
-        data: DemolitionTypeCreate,
-        user_id: Optional[UUID] = None
-    ) -> WMDemolitionType:
-        """Create a new demolition type"""
-        # Check if name already exists
-        existing = self.repository.get_demolition_type_by_name(data.name)
-        if existing:
-            raise ValueError(f"Demolition type '{data.name}' already exists")
-
-        return self.repository.create_demolition_type(
-            data.dict(exclude_unset=True),
-            user_id
-        )
-
-    def update_demolition_type(
-        self,
-        demolition_type_id: UUID,
-        data: DemolitionTypeUpdate,
-        user_id: Optional[UUID] = None
-    ) -> WMDemolitionType:
-        """Update a demolition type"""
-        demolition_type = self.repository.get_demolition_type_by_id(
-            demolition_type_id
-        )
-        if not demolition_type:
-            raise ValueError("Demolition type not found")
-
-        # Check if new name conflicts with existing
-        if data.name and data.name != demolition_type.name:
-            existing = self.repository.get_demolition_type_by_name(data.name)
-            if existing:
-                raise ValueError(f"Demolition type '{data.name}' already exists")
-
-        return self.repository.update_demolition_type(
-            demolition_type,
-            data.dict(exclude_unset=True),
-            user_id
-        )
-
-    def delete_demolition_type(
-        self, demolition_type_id: UUID
-    ) -> bool:
-        """Delete (deactivate) a demolition type"""
-        demolition_type = self.repository.get_demolition_type_by_id(
-            demolition_type_id
-        )
-        if not demolition_type:
-            raise ValueError("Demolition type not found")
-
-        return self.repository.delete_demolition_type(demolition_type)
 
     # =========================================================================
     # Scope Location Operations
@@ -358,14 +272,14 @@ class ScopeService:
                 )
                 continue
 
-            # Get material weight info
+            # Get material weight info directly from scope item
             material = None
-            dry_weight = None
+            dry_weight = Decimal("0")
             category_name = "Uncategorized"
 
-            if item.demolition_type and item.demolition_type.material_weight_id:
+            if item.material_weight_id:
                 material = self.repository.get_material_weight_by_id(
-                    item.demolition_type.material_weight_id
+                    item.material_weight_id
                 )
 
             if material:
@@ -378,15 +292,10 @@ class ScopeService:
                     f"Item '{item.name}' has no material weight mapping, "
                     "weight set to 0"
                 )
-                dry_weight = Decimal("0")
 
-            # Calculate weight
-            moisture_mult = MOISTURE_MULTIPLIERS.get(
-                item.moisture_level, Decimal("1.0")
-            )
+            # Calculate weight (no moisture multiplier - simplified)
             quantity = Decimal(str(item.quantity))
-
-            weight_lb = quantity * dry_weight * moisture_mult
+            weight_lb = quantity * dry_weight
             weight_ton = weight_lb / Decimal("2000")
 
             total_weight_lb += weight_lb
@@ -407,17 +316,12 @@ class ScopeService:
             item_details.append({
                 "item_id": str(item.id),
                 "item_name": item.name,
-                "demolition_type_name": (
-                    item.demolition_type.name if item.demolition_type else None
-                ),
-                "material_type": (
-                    material.material_type if material else None
+                "material_name": (
+                    material.material_name if material else None
                 ),
                 "quantity": float(item.quantity),
                 "unit": item.unit,
-                "moisture_level": item.moisture_level,
-                "dry_weight_per_unit": float(dry_weight) if dry_weight else None,
-                "moisture_multiplier": float(moisture_mult),
+                "weight_per_unit": float(dry_weight),
                 "weight_lb": float(weight_lb),
                 "weight_ton": float(weight_ton),
             })
@@ -490,72 +394,3 @@ class ScopeService:
     ) -> Optional[WMDebrisCalculation]:
         """Get saved debris calculation for a job"""
         return self.repository.get_debris_calculation_by_job(job_id)
-
-    # =========================================================================
-    # Helper: Seed Default Demolition Types
-    # =========================================================================
-
-    def seed_default_demolition_types(
-        self, user_id: Optional[UUID] = None
-    ) -> List[WMDemolitionType]:
-        """Seed default demolition types"""
-        default_types = [
-            # Flooring
-            {"name": "Carpet", "category": "Flooring", "default_unit": "SF"},
-            {"name": "Carpet Pad", "category": "Flooring", "default_unit": "SF"},
-            {"name": "Laminate Floor", "category": "Flooring", "default_unit": "SF"},
-            {"name": "Hardwood Floor", "category": "Flooring", "default_unit": "SF"},
-            {
-                "name": "Glue-Down Hardwood Floor",
-                "category": "Flooring",
-                "default_unit": "SF"
-            },
-            {"name": "Tile", "category": "Flooring", "default_unit": "SF"},
-            {"name": "Vinyl Floor", "category": "Flooring", "default_unit": "SF"},
-            {"name": "Vinyl Plank", "category": "Flooring", "default_unit": "SF"},
-            # Drywall
-            {"name": "Drywall", "category": "Wall", "default_unit": "SF"},
-            {
-                "name": "Drywall 2ft from Floor",
-                "category": "Wall",
-                "default_unit": "LF"
-            },
-            {
-                "name": "Drywall 4ft from Floor",
-                "category": "Wall",
-                "default_unit": "LF"
-            },
-            {"name": "Wood Panel", "category": "Wall", "default_unit": "SF"},
-            # Insulation
-            {"name": "Insulation", "category": "Insulation", "default_unit": "SF"},
-            {
-                "name": "Wall Insulation",
-                "category": "Insulation",
-                "default_unit": "SF"
-            },
-            # Trim
-            {"name": "Baseboard", "category": "Trim", "default_unit": "LF"},
-            {"name": "Door Trim", "category": "Trim", "default_unit": "LF"},
-            {"name": "Window Trim", "category": "Trim", "default_unit": "LF"},
-            {"name": "Crown Molding", "category": "Trim", "default_unit": "LF"},
-            # Cabinets/Fixtures
-            {"name": "Base Cabinet", "category": "Cabinets", "default_unit": "LF"},
-            {"name": "Upper Cabinet", "category": "Cabinets", "default_unit": "LF"},
-            {"name": "Vanity", "category": "Cabinets", "default_unit": "EA"},
-        ]
-
-        created = []
-        for type_data in default_types:
-            existing = self.repository.get_demolition_type_by_name(
-                type_data["name"]
-            )
-            if not existing:
-                demo_type = self.repository.create_demolition_type(
-                    type_data, user_id
-                )
-                created.append(demo_type)
-
-        if created:
-            self.db.commit()
-
-        return created

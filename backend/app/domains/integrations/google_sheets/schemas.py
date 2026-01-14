@@ -17,7 +17,8 @@ class GoogleSheetConfig(BaseModel):
 class SyncRequest(BaseModel):
     """Request to trigger sync"""
     spreadsheet_id: str = Field(..., description="Google Sheets spreadsheet ID")
-    sheet_name: str = Field("Sheet1", description="Sheet name to sync")
+    sheet_name: str = Field("Sheet1", description="Sheet name to sync (single sheet)")
+    sheet_names: Optional[List[str]] = Field(None, description="Multiple sheet names to sync (e.g., ['Angel', 'Vanessa'])")
     sync_type: str = Field("full", description="Sync type: full or incremental")
 
 
@@ -35,6 +36,7 @@ class SyncStats(BaseModel):
     created: int = Field(0, description="Number of jobs created")
     updated: int = Field(0, description="Number of jobs updated")
     failed: int = Field(0, description="Number of rows failed")
+    sheets_synced: Optional[List[str]] = Field(default=[], description="List of sheet names synced")
     errors: Optional[List[Dict[str, Any]]] = Field(default=[], description="List of errors")
 
 

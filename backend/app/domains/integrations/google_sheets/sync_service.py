@@ -39,6 +39,83 @@ class GoogleSheetsSyncService:
         self.db = db
         self.client = GoogleSheetsClient(spreadsheet_id)
 
+    async def sync_multiple_sheets(
+        self,
+        sheet_names: List[str],
+        skip_header: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Sync all rows from multiple Google Sheets tabs
+
+        Args:
+            sheet_names: List of sheet tab names to sync (e.g., ["Angel", "Vanessa"])
+            skip_header: Skip first row (header)
+
+        Returns:
+            Combined sync statistics dictionary
+        """
+        combined_stats = {
+            "status": "success",
+            "processed": 0,
+            "created": 0,
+            "updated": 0,
+            "failed": 0,
+            "sheets_synced": [],
+            "errors": []
+        }
+
+        for sheet_name in sheet_names:
+            try:
+                logger.info(f"Syncing sheet: {sheet_name}")
+                stats = await self.sync_all_rows(sheet_name=sheet_name, skip_header=skip_header)
+
+                # Aggregate stats
+                combined_stats["processed"] += stats.get("processed", 0)
+                combined_stats["created"] += stats.get("created", 0)
+                combined_stats["updated"] += stats.get("updated", 0)
+                combined_stats["failed"] += stats.get("failed", 0)
+                combined_stats["sheets_synced"].append({
+                    "sheet_name": sheet_name,
+                    "status": stats.get("status", "success"),
+                    "processed": stats.get("processed", 0),
+                    "created": stats.get("created", 0),
+                    "updated": stats.get("updated", 0)
+                })
+
+                if stats.get("errors"):
+                    for error in stats["errors"]:
+                        error["sheet_name"] = sheet_name
+                    combined_stats["errors"].extend(stats["errors"])
+
+            except Exception as e:
+                logger.error(f"Failed to sync sheet {sheet_name}: {e}", exc_info=True)
+                combined_stats["failed"] += 1
+                combined_stats["sheets_synced"].append({
+                    "sheet_name": sheet_name,
+                    "status": "failed",
+                    "error": str(e)
+                })
+                combined_stats["errors"].append({
+                    "sheet_name": sheet_name,
+                    "error": str(e)
+                })
+
+        # Determine overall status
+        if combined_stats["failed"] > 0:
+            if combined_stats["processed"] > 0:
+                combined_stats["status"] = "partial"
+            else:
+                combined_stats["status"] = "failed"
+
+        logger.info(
+            f"Multi-sheet sync completed: sheets={len(sheet_names)}, "
+            f"processed={combined_stats['processed']}, "
+            f"created={combined_stats['created']}, "
+            f"updated={combined_stats['updated']}"
+        )
+
+        return combined_stats
+
     async def sync_all_rows(
         self,
         sheet_name: str = "Sheet1",

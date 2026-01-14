@@ -41,6 +41,7 @@ import WaterMitigationPhotosTab from '../components/water-mitigation/WaterMitiga
 import WaterMitigationDocumentsTab from '../components/water-mitigation/WaterMitigationDocumentsTab';
 import WaterMitigationReportTab from '../components/water-mitigation/WaterMitigationReportTab';
 import WaterMitigationTrashTab from '../components/water-mitigation/WaterMitigationTrashTab';
+import WaterMitigationScopeTab from '../components/water-mitigation/WaterMitigationScopeTab';
 import EditableSection from '../components/water-mitigation/EditableSection';
 
 const WaterMitigationDetail: React.FC = () => {
@@ -761,8 +762,14 @@ const WaterMitigationDetail: React.FC = () => {
                   jobId={id}
                   jobAddress={job.property_address || 'Unknown Address'}
                   dateOfLoss={job.date_of_loss}
+                  mitigationStartDate={job.mitigation_start_date}
                 />
               ) : null
+            },
+            {
+              key: 'scope',
+              label: 'Scope of Work',
+              children: id ? <WaterMitigationScopeTab jobId={id} /> : null
             },
             {
               key: 'report',

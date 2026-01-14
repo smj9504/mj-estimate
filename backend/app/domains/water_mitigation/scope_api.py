@@ -2,7 +2,7 @@
 Water Mitigation Scope of Work API
 
 REST API endpoints for scope locations, scope items,
-demolition types, and debris calculation.
+and debris calculation.
 """
 
 from typing import List, Optional
@@ -16,12 +16,6 @@ from app.domains.auth.dependencies import get_current_user
 from app.domains.staff.models import Staff
 from app.domains.water_mitigation.scope_service import ScopeService
 from app.domains.water_mitigation.schemas import (
-    # Demolition Type schemas
-    DemolitionTypeCreate,
-    DemolitionTypeUpdate,
-    DemolitionTypeResponse,
-    DemolitionTypeListResponse,
-    MaterialWeightBrief,
     # Location schemas
     ScopeLocationCreate,
     ScopeLocationUpdate,
@@ -48,143 +42,6 @@ from app.domains.water_mitigation.schemas import (
 )
 
 router = APIRouter(prefix="/scope", tags=["Water Mitigation - Scope of Work"])
-
-
-# =============================================================================
-# Demolition Type Endpoints
-# =============================================================================
-
-@router.get(
-    "/demolition-types",
-    response_model=DemolitionTypeListResponse,
-    summary="Get all demolition types"
-)
-def get_demolition_types(
-    active_only: bool = Query(True, description="Only return active types"),
-    category: Optional[str] = Query(None, description="Filter by category"),
-    db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
-):
-    """Get all demolition types with optional filters"""
-    service = ScopeService(db)
-    types = service.get_all_demolition_types(
-        active_only=active_only,
-        category=category
-    )
-
-    # Convert to response with material weight info
-    items = []
-    for dt in types:
-        response = DemolitionTypeResponse.from_orm(dt)
-        # Add material weight info if linked
-        if dt.material_weight_id:
-            material = service.repository.get_material_weight_by_id(
-                dt.material_weight_id
-            )
-            if material:
-                response.material_weight = MaterialWeightBrief(
-                    id=material.id,
-                    material_type=material.material_type,
-                    category_name=(
-                        material.category.category_name
-                        if material.category else None
-                    ),
-                    dry_weight_per_unit=float(material.dry_weight_per_unit),
-                    unit=material.unit.value
-                )
-        items.append(response)
-
-    return DemolitionTypeListResponse(
-        items=items,
-        total=len(items)
-    )
-
-
-@router.post(
-    "/demolition-types",
-    response_model=DemolitionTypeResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a new demolition type"
-)
-def create_demolition_type(
-    data: DemolitionTypeCreate,
-    db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
-):
-    """Create a new demolition type"""
-    service = ScopeService(db)
-    try:
-        demolition_type = service.create_demolition_type(data, current_user.id)
-        db.commit()
-        return DemolitionTypeResponse.from_orm(demolition_type)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-
-
-@router.put(
-    "/demolition-types/{demolition_type_id}",
-    response_model=DemolitionTypeResponse,
-    summary="Update a demolition type"
-)
-def update_demolition_type(
-    demolition_type_id: UUID,
-    data: DemolitionTypeUpdate,
-    db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
-):
-    """Update a demolition type"""
-    service = ScopeService(db)
-    try:
-        demolition_type = service.update_demolition_type(
-            demolition_type_id, data, current_user.id
-        )
-        db.commit()
-        return DemolitionTypeResponse.from_orm(demolition_type)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-
-
-@router.delete(
-    "/demolition-types/{demolition_type_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete (deactivate) a demolition type"
-)
-def delete_demolition_type(
-    demolition_type_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
-):
-    """Delete (deactivate) a demolition type"""
-    service = ScopeService(db)
-    try:
-        service.delete_demolition_type(demolition_type_id)
-        db.commit()
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
-
-
-@router.post(
-    "/demolition-types/seed",
-    response_model=List[DemolitionTypeResponse],
-    summary="Seed default demolition types"
-)
-def seed_demolition_types(
-    db: Session = Depends(get_db),
-    current_user: Staff = Depends(get_current_user)
-):
-    """Seed default demolition types (admin only)"""
-    service = ScopeService(db)
-    created = service.seed_default_demolition_types(current_user.id)
-    return [DemolitionTypeResponse.from_orm(dt) for dt in created]
 
 
 # =============================================================================

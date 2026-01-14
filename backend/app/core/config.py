@@ -141,6 +141,16 @@ class Settings(BaseSettings):
     # Multiple Google Sheets support
     GOOGLE_SHEETS_WATER_MITIGATION_ID: Optional[str] = os.getenv("GOOGLE_SHEETS_WATER_MITIGATION_ID")
     GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAME: str = os.getenv("GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAME", "Sheet1")
+    # Multiple sheet tabs support (comma-separated, e.g., "Angel,Vanessa")
+    GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAMES: str = os.getenv("GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAMES", "")
+
+    @property
+    def water_mitigation_sheet_names(self) -> list:
+        """Get list of Water Mitigation sheet names to sync"""
+        if self.GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAMES:
+            return [name.strip() for name in self.GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAMES.split(",") if name.strip()]
+        # Fallback to single sheet name
+        return [self.GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAME]
 
     GOOGLE_SHEETS_WORK_ORDER_ID: Optional[str] = os.getenv("GOOGLE_SHEETS_WORK_ORDER_ID")
     GOOGLE_SHEETS_WORK_ORDER_SHEET_NAME: str = os.getenv("GOOGLE_SHEETS_WORK_ORDER_SHEET_NAME", "Sheet1")

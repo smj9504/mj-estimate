@@ -61,7 +61,7 @@ async def sync_google_sheets_job():
 
 async def _run_sync_in_background(is_business: bool):
     """
-    백그라운드에서 실제 동기화 실행
+    백그라운드에서 실제 동기화 실행 (다중 시트 지원)
 
     Args:
         is_business: 근무 시간 여부
@@ -69,7 +69,12 @@ async def _run_sync_in_background(is_business: bool):
     try:
         us_time = datetime.now(US_EASTERN_TZ)
         schedule_type = "business hours (15min)" if is_business else "off-hours (3hr)"
-        logger.info(f"Starting scheduled Google Sheets sync [{schedule_type}] - US Time: {us_time.strftime('%I:%M %p')}")
+        sheet_names = settings.water_mitigation_sheet_names
+        logger.info(
+            f"Starting scheduled Google Sheets sync [{schedule_type}] - "
+            f"US Time: {us_time.strftime('%I:%M %p')}, "
+            f"Sheets: {sheet_names}"
+        )
 
         # 데이터베이스 세션 생성
         database = get_database()
@@ -82,14 +87,15 @@ async def _run_sync_in_background(is_business: bool):
                 settings.GOOGLE_SHEETS_WATER_MITIGATION_ID
             )
 
-            # 동기화 실행
-            stats = await sync_service.sync_all_rows(
-                sheet_name=settings.GOOGLE_SHEETS_WATER_MITIGATION_SHEET_NAME,
+            # 다중 시트 동기화 실행
+            stats = await sync_service.sync_multiple_sheets(
+                sheet_names=sheet_names,
                 skip_header=True
             )
 
             logger.info(
                 f"Scheduled sync completed [{schedule_type}]: "
+                f"sheets={len(sheet_names)}, "
                 f"processed={stats['processed']}, "
                 f"created={stats['created']}, "
                 f"updated={stats['updated']}, "

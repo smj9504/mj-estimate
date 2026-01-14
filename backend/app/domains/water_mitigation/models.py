@@ -478,7 +478,7 @@ class WMScopeItem(Base, BaseModel):
 
     Individual work items within a location. Can be:
     - Standard items: Floor Protection, Content Protection, Containment, Air Mover, etc.
-    - Demolition items: Linked to WMDemolitionType
+    - Demolition items: Items with material_weight for debris calculation
     - Custom items: User-defined work items
     """
     __tablename__ = "wm_scope_items"
@@ -494,7 +494,7 @@ class WMScopeItem(Base, BaseModel):
     item_type = Column(String(50), nullable=False)  # 'standard', 'demolition', 'custom'
 
     # Item details
-    name = Column(String(255), nullable=False)  # e.g., "Floor Protection", "Carpet Demolition"
+    name = Column(String(255), nullable=False)  # e.g., "Floor Protection", "Carpet"
     description = Column(Text)
 
     # Measurement
@@ -502,23 +502,21 @@ class WMScopeItem(Base, BaseModel):
     quantity_formula = Column(String(500))  # e.g., "10*12+5*8" - stores the original formula
     unit = Column(String(20), nullable=False, default='SF')  # SF, LF, EA
 
-    # For demolition items - link to demolition type
-    demolition_type_id = Column(
+    # For debris calculation - direct link to MaterialWeight
+    material_weight_id = Column(
         UUIDType(),
-        ForeignKey("wm_demolition_types.id", ondelete="SET NULL"),
-        nullable=True
+        ForeignKey("material_weights.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Link to MaterialWeight for debris calculation"
     )
-
-    # For debris calculation
     include_in_debris = Column(Boolean, default=True)  # Whether to include in debris calculation
-    moisture_level = Column(String(20), default='dry')  # dry, damp, wet, saturated
 
     # Display
     display_order = Column(Integer, default=0)
 
     # Relationships
     location = relationship("WMScopeLocation", back_populates="scope_items")
-    demolition_type = relationship("WMDemolitionType")
+    material_weight = relationship("MaterialWeight")
 
 
 class WMDebrisCalculation(Base, BaseModel):

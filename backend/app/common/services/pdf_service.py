@@ -60,19 +60,64 @@ TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
 # Letter size: 612 x 792 points
 # Project root is backend/app/common/services -> ../../../../.. -> mj-react-app
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
-EWA_TEMPLATE_CONFIG = {
-    "template_path": PROJECT_ROOT / "reference" / "EWA - Enter Construction Inc.pdf",
-    # Address field: top section "property located at ___________"
-    "address_x": 270,
-    "address_y": 635,
-    # Date fields: "on or about _____________, 20____"
-    "date_month_day_x": 278,   # "October 25" part
-    "date_month_day_y": 625,
-    "date_year_x": 375,         # "25" (year) part after "20"
-    "date_year_y": 625,
-    "font_size": 8.5,
-    "font_name": "Helvetica"
+EWA_TEMPLATES_DIR = PROJECT_ROOT / "reference" / "ewa_templates"
+
+# Company-specific EWA template configurations
+# Each company can have different template PDF and field positions
+EWA_TEMPLATE_CONFIGS = {
+    # Enter Construction (default)
+    "ENTER": {
+        "template_path": EWA_TEMPLATES_DIR / "ENTER.pdf",
+        "address_x": 270,
+        "address_y": 635,
+        "date_month_day_x": 278,
+        "date_month_day_y": 625,
+        "date_year_x": 375,
+        "date_year_y": 625,
+        "font_size": 8.5,
+        "font_name": "Helvetica"
+    },
+    # Bethany Construction (company_code: BEYM)
+    "BEYM": {
+        "template_path": EWA_TEMPLATES_DIR / "BETHANY.pdf",
+        "address_x": 270,  # Adjust coordinates as needed for Bethany template
+        "address_y": 635,
+        "date_month_day_x": 278,
+        "date_month_day_y": 625,
+        "date_year_x": 375,
+        "date_year_y": 625,
+        "font_size": 8.5,
+        "font_name": "Helvetica"
+    },
 }
+
+# Default template config (fallback to Enter Construction)
+EWA_DEFAULT_COMPANY_CODE = "ENTER"
+
+def get_ewa_template_config(company_code: Optional[str] = None) -> dict:
+    """
+    Get EWA template configuration for a specific company.
+
+    Args:
+        company_code: Company code (e.g., "ENTER", "BETHANY")
+                     If None or not found, returns default template config.
+
+    Returns:
+        Template configuration dictionary
+    """
+    if company_code and company_code.upper() in EWA_TEMPLATE_CONFIGS:
+        config = EWA_TEMPLATE_CONFIGS[company_code.upper()]
+        # Verify template file exists
+        if config["template_path"].exists():
+            return config
+        else:
+            logging.warning(f"EWA template not found for {company_code}: {config['template_path']}, using default")
+
+    # Return default template
+    return EWA_TEMPLATE_CONFIGS[EWA_DEFAULT_COMPANY_CODE]
+
+# Legacy compatibility - single template config (for backward compatibility)
+EWA_TEMPLATE_CONFIG = EWA_TEMPLATE_CONFIGS[EWA_DEFAULT_COMPANY_CODE]
 
 
 class PDFService:
@@ -1451,7 +1496,9 @@ def generate_water_mitigation_report_pdf(
     config: Dict[str, Any],
     photos: List[Dict[str, Any]],
     output_path: str,
-    company_data: Optional[Dict[str, Any]] = None
+    company_data: Optional[Dict[str, Any]] = None,
+    report_date: Optional[str] = None,
+    compress: bool = False
 ) -> str:
     """
     Generate professional Water Mitigation photo report PDF using ReportLab
@@ -1468,6 +1515,8 @@ def generate_water_mitigation_report_pdf(
         photos: List of all photos for the job
         output_path: Path to save the PDF
         company_data: Company information (name, logo, etc.) - if not provided, will use job.company
+        report_date: Custom report date in ISO format (YYYY-MM-DD). If not provided, uses current date.
+        compress: If True, compress images for smaller file size (quality=50, max 1200px)
 
     Returns:
         Path to the generated PDF
@@ -1492,7 +1541,15 @@ def generate_water_mitigation_report_pdf(
     from reportlab.platypus import Paragraph, Table, TableStyle
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Generating photo report for job {job_data.get('id', 'unknown')}")
+    logger.info(f"Generating photo report for job {job_data.get('id', 'unknown')} (compress={compress})")
+
+    # Compression settings - balanced quality and file size
+    if compress:
+        IMAGE_QUALITY = 50  # Balanced quality (25=low, 95=original)
+        IMAGE_MAX_SIZE = 1200  # Maximum dimension in pixels
+    else:
+        IMAGE_QUALITY = 95  # High quality for original
+        IMAGE_MAX_SIZE = None  # No resizing
 
     # Get storage provider from settings
     from app.core.config import settings
@@ -1537,7 +1594,15 @@ def generate_water_mitigation_report_pdf(
         except Exception:
             return str(date_value)
 
-    report_date = format_date(datetime.now())
+    # Use custom report_date if provided, otherwise use current date
+    if report_date:
+        try:
+            custom_date = datetime.fromisoformat(report_date.replace('Z', '+00:00'))
+            report_date_formatted = format_date(custom_date)
+        except (ValueError, AttributeError):
+            report_date_formatted = format_date(datetime.now())
+    else:
+        report_date_formatted = format_date(datetime.now())
 
     # ===== COVER PAGE =====
     logger.info("Creating cover page")
@@ -1580,7 +1645,7 @@ def generate_water_mitigation_report_pdf(
     # Title with sophisticated typography
     title = config.get('cover_title', 'Water Mitigation Report')
     c.setFillColor(COLOR_BLACK)
-    c.setFont("Helvetica-Bold", 32)
+    c.setFont("Helvetica-Bold", 24)
     c.drawCentredString(page_width / 2, y_position, title)
     y_position -= 0.25 * inch
 
@@ -1731,7 +1796,7 @@ def generate_water_mitigation_report_pdf(
     # Footer text
     c.setFillColor(COLOR_MEDIUM_GRAY)
     c.setFont("Helvetica", 9)
-    c.drawCentredString(page_width / 2, 0.4 * inch, f"Report Generated: {report_date}")
+    c.drawCentredString(page_width / 2, 0.4 * inch, f"Report Generated: {report_date_formatted}")
 
     c.save()
     cover_buffer.seek(0)
@@ -1923,6 +1988,27 @@ def generate_water_mitigation_report_pdf(
                 # Draw photo with caption below and date overlay at bottom-right
                 try:
                     img = Image.open(photo_item['file_path'])
+
+                    # Apply compression if enabled (resize and reduce quality)
+                    actual_photo_path = photo_item['file_path']
+                    if compress and IMAGE_MAX_SIZE:
+                        original_size = f"{img.width}x{img.height}"
+                        # Resize if image is larger than max size
+                        if img.width > IMAGE_MAX_SIZE or img.height > IMAGE_MAX_SIZE:
+                            img.thumbnail((IMAGE_MAX_SIZE, IMAGE_MAX_SIZE), Image.Resampling.LANCZOS)
+                            logger.debug(f"Resized image from {original_size} to {img.width}x{img.height}")
+
+                        # Save compressed image to temp file with aggressive compression
+                        compressed_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+                        # Convert to RGB if necessary (for PNG with alpha)
+                        if img.mode in ('RGBA', 'P'):
+                            img = img.convert('RGB')
+                        # subsampling='4:2:0' for maximum compression
+                        img.save(compressed_temp.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True, subsampling='4:2:0')
+                        compressed_temp.close()
+                        actual_photo_path = compressed_temp.name
+                        temp_files.append(compressed_temp.name)
+
                     img_width, img_height = img.size
 
                     # All photos use full cell width for maximum size
@@ -1947,7 +2033,7 @@ def generate_water_mitigation_report_pdf(
                     img_y = y + caption_reserve + (available_photo_height - scaled_height) / 2
 
                     c.drawImage(
-                        photo_item['file_path'],
+                        actual_photo_path,
                         img_x, img_y,
                         width=scaled_width,
                         height=scaled_height,
@@ -2049,7 +2135,7 @@ def generate_water_mitigation_report_pdf(
 
             # Right text - date
             c.setFont("Helvetica", 8)
-            c.drawRightString(page_width - margin, footer_text_y, report_date)
+            c.drawRightString(page_width - margin, footer_text_y, report_date_formatted)
 
             c.save()
             page_buffer.seek(0)
@@ -2065,6 +2151,14 @@ def generate_water_mitigation_report_pdf(
     with open(output_path, 'wb') as output_file:
         writer.write(output_file)
 
+    # Cleanup temporary files (compressed images)
+    for temp_file_path in temp_files:
+        try:
+            import os
+            os.unlink(temp_file_path)
+        except Exception as e:
+            logger.warning(f"Failed to cleanup temp file {temp_file_path}: {e}")
+
     logger.info(f"Report PDF generated successfully: {output_path} ({total_pages} pages)")
     return str(output_path)
 
@@ -2074,7 +2168,9 @@ def generate_ewa_pdf(
     date_of_loss: str,
     photo_path: str,
     output_path: str,
-    rotation: int = 0
+    rotation: int = 0,
+    company_code: Optional[str] = None,
+    compress: bool = False
 ) -> str:
     """
     Generate EWA (Emergency Work Agreement & Authorization) PDF
@@ -2089,6 +2185,9 @@ def generate_ewa_pdf(
         photo_path: Path to photo file to append as second page
         output_path: Path to save the generated PDF
         rotation: Rotation degrees for the photo (0, 90, 180, 270)
+        company_code: Company code to select company-specific template (e.g., "ENTER", "BETHANY")
+                     If None, uses default template (Enter Construction)
+        compress: If True, compress the photo to reduce file size
 
     Returns:
         Path to the generated PDF
@@ -2103,8 +2202,12 @@ def generate_ewa_pdf(
     import logging
     logger = logging.getLogger(__name__)
 
+    # Get company-specific template configuration
+    template_config = get_ewa_template_config(company_code)
+    template_path = template_config["template_path"]
+    logger.info(f"Using EWA template for company '{company_code or 'default'}': {template_path}")
+
     # Validate template exists
-    template_path = EWA_TEMPLATE_CONFIG["template_path"]
     if not template_path.exists():
         raise FileNotFoundError(f"EWA template not found: {template_path}")
 
@@ -2137,34 +2240,34 @@ def generate_ewa_pdf(
     overlay_buffer = io.BytesIO()
     c = canvas.Canvas(overlay_buffer, pagesize=letter)
 
-    # Set font and text color
-    c.setFont(EWA_TEMPLATE_CONFIG["font_name"], EWA_TEMPLATE_CONFIG["font_size"])
+    # Set font and text color using company-specific config
+    c.setFont(template_config["font_name"], template_config["font_size"])
     c.setFillColorRGB(0, 0, 0)  # Black color
     c.setStrokeColorRGB(0, 0, 0)
 
     # Log what we're drawing
-    logger.info(f"Drawing address at ({EWA_TEMPLATE_CONFIG['address_x']}, {EWA_TEMPLATE_CONFIG['address_y']}): '{job_address}'")
-    logger.info(f"Drawing date (month/day) at ({EWA_TEMPLATE_CONFIG['date_month_day_x']}, {EWA_TEMPLATE_CONFIG['date_month_day_y']}): '{date_month_day}'")
-    logger.info(f"Drawing date (year) at ({EWA_TEMPLATE_CONFIG['date_year_x']}, {EWA_TEMPLATE_CONFIG['date_year_y']}): '{date_year}'")
+    logger.info(f"Drawing address at ({template_config['address_x']}, {template_config['address_y']}): '{job_address}'")
+    logger.info(f"Drawing date (month/day) at ({template_config['date_month_day_x']}, {template_config['date_month_day_y']}): '{date_month_day}'")
+    logger.info(f"Drawing date (year) at ({template_config['date_year_x']}, {template_config['date_year_y']}): '{date_year}'")
 
     # Draw address
     c.drawString(
-        EWA_TEMPLATE_CONFIG["address_x"],
-        EWA_TEMPLATE_CONFIG["address_y"],
+        template_config["address_x"],
+        template_config["address_y"],
         job_address
     )
 
     # Draw date - month and day part (e.g., "October 25")
     c.drawString(
-        EWA_TEMPLATE_CONFIG["date_month_day_x"],
-        EWA_TEMPLATE_CONFIG["date_month_day_y"],
+        template_config["date_month_day_x"],
+        template_config["date_month_day_y"],
         date_month_day
     )
 
     # Draw date - year part (e.g., "25" for 2025)
     c.drawString(
-        EWA_TEMPLATE_CONFIG["date_year_x"],
-        EWA_TEMPLATE_CONFIG["date_year_y"],
+        template_config["date_year_x"],
+        template_config["date_year_y"],
         date_year
     )
 
@@ -2197,16 +2300,42 @@ def generate_ewa_pdf(
     from PIL import Image
     img = Image.open(photo_path)
 
-    # Apply rotation if needed
-    if rotation != 0:
-        # PIL's rotate is counter-clockwise, so we negate for clockwise rotation
-        img = img.rotate(-rotation, expand=True)
-        # Save rotated image to a temporary buffer for reportlab
+    # Compression settings - balanced quality and file size
+    if compress:
+        IMAGE_QUALITY = 50  # Balanced quality (25=low, 95=original)
+        IMAGE_MAX_SIZE = 1200  # Maximum dimension in pixels
+        logger.info("Compression enabled: quality=50, max_size=1200px")
+    else:
+        IMAGE_QUALITY = 95  # High quality for original
+        IMAGE_MAX_SIZE = None  # No resizing
+
+    # Apply rotation and/or compression
+    needs_save = rotation != 0 or compress
+    if needs_save:
         import tempfile
-        rotated_temp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-        img.save(rotated_temp.name, format='JPEG', quality=95)
-        photo_path = rotated_temp.name
-        logger.info(f"Rotated photo by {rotation} degrees, saved to: {photo_path}")
+        # Apply rotation if needed
+        if rotation != 0:
+            # PIL's rotate is counter-clockwise, so we negate for clockwise rotation
+            img = img.rotate(-rotation, expand=True)
+            logger.info(f"Rotated photo by {rotation} degrees")
+
+        # Apply compression (resize if needed)
+        if compress and IMAGE_MAX_SIZE:
+            original_size = f"{img.width}x{img.height}"
+            if img.width > IMAGE_MAX_SIZE or img.height > IMAGE_MAX_SIZE:
+                img.thumbnail((IMAGE_MAX_SIZE, IMAGE_MAX_SIZE), Image.Resampling.LANCZOS)
+                logger.info(f"Resized image from {original_size} to {img.width}x{img.height}")
+
+        # Convert to RGB if necessary (for PNG with alpha)
+        if img.mode in ('RGBA', 'P'):
+            img = img.convert('RGB')
+
+        # Save to temp file with aggressive compression
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+        # subsampling='4:2:0' for maximum compression
+        img.save(temp_file.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True, subsampling='4:2:0')
+        photo_path = temp_file.name
+        logger.info(f"Saved compressed photo to: {photo_path}")
 
     img_width, img_height = img.size
 

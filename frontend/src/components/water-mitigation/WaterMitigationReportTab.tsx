@@ -24,7 +24,9 @@ import {
   Tooltip,
   Divider,
   Menu,
-  Modal
+  Modal,
+  DatePicker,
+  Dropdown
 } from 'antd';
 import {
   PlusOutlined,
@@ -38,9 +40,11 @@ import {
   AppstoreAddOutlined,
   ThunderboltOutlined,
   CalendarOutlined,
-  LayoutOutlined
+  LayoutOutlined,
+  DownOutlined
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import dayjs from 'dayjs';
 import waterMitigationService from '../../services/waterMitigationService';
 import { useWaterMitigationPhotos } from '../../hooks/useWaterMitigationPhotos';
 import PhotoSelectorModal from './PhotoSelectorModal';
@@ -128,6 +132,14 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [updatingPhotoDates, setUpdatingPhotoDates] = useState(false);
+  const [reportDate, setReportDate] = useState<dayjs.Dayjs | null>(dayjs()); // Default to today
+
+  // Generate default filename: {address}-{report title}
+  const getDefaultFilename = () => {
+    const addressPart = jobAddress ? jobAddress.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '-') : '';
+    const titlePart = coverTitle ? coverTitle.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '-') : 'Report';
+    return `${addressPart}-${titlePart}`;
+  };
 
   // React Query client for cache invalidation
   const queryClient = useQueryClient();
@@ -290,7 +302,10 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
 
       message.loading('Generating PDF report...', 0);
 
-      const requestData = { config_id: config.id };
+      const requestData = {
+        config_id: config.id,
+        report_date: reportDate ? reportDate.format('YYYY-MM-DD') : undefined
+      };
 
       const blob = await waterMitigationService.report.generateReport(jobId, requestData);
 
@@ -376,16 +391,42 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     message.success('Photo removed from section');
   };
 
-  const handleDownloadPdf = () => {
-    if (!pdfBlobUrl) return;
+  const handleDownloadPdf = async (compress: boolean = false) => {
+    if (!config?.id) return;
 
-    const link = document.createElement('a');
-    link.href = pdfBlobUrl;
-    link.download = `water-mitigation-report-${jobId}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    message.success('PDF downloaded successfully');
+    try {
+      message.loading(compress ? 'Generating compressed PDF...' : 'Generating original PDF...', 0);
+
+      const requestData = {
+        config_id: config.id,
+        report_date: reportDate ? reportDate.format('YYYY-MM-DD') : undefined,
+        compress: compress
+      };
+
+      const blob = await waterMitigationService.report.generateReport(jobId, requestData);
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+
+      // Use default filename: {address}-{report title}
+      const suffix = compress ? '-compressed' : '';
+      const baseFilename = getDefaultFilename();
+      link.download = `${baseFilename}${suffix}.pdf`;
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      message.destroy();
+      message.success('PDF downloaded successfully');
+    } catch (error) {
+      message.destroy();
+      console.error('Failed to download PDF:', error);
+      message.error('Failed to download PDF');
+    }
   };
 
   const handleClosePdfPreview = () => {
@@ -812,6 +853,16 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
               >
                 Save Configuration
               </Button>
+              <Tooltip title="Set the date to display on the PDF report">
+                <DatePicker
+                  value={reportDate}
+                  onChange={(date) => setReportDate(date)}
+                  format="YYYY-MM-DD"
+                  allowClear={false}
+                  style={{ width: 140 }}
+                  placeholder="Report Date"
+                />
+              </Tooltip>
               <Button
                 type="default"
                 icon={<FileImageOutlined />}
@@ -1098,14 +1149,27 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
           <Button key="close" onClick={handleClosePdfPreview}>
             Close
           </Button>,
-          <Button
+          <Dropdown
             key="download"
-            type="primary"
-            icon={<DownloadOutlined />}
-            onClick={handleDownloadPdf}
+            menu={{
+              items: [
+                {
+                  key: 'original',
+                  label: 'Original Quality (Best for printing)',
+                  onClick: () => handleDownloadPdf(false)
+                },
+                {
+                  key: 'compressed',
+                  label: 'Compressed (Smaller file size)',
+                  onClick: () => handleDownloadPdf(true)
+                }
+              ]
+            }}
           >
-            Download PDF
-          </Button>
+            <Button type="primary" icon={<DownloadOutlined />}>
+              Download PDF <DownOutlined />
+            </Button>
+          </Dropdown>
         ]}
         styles={{ body: { height: 'calc(90vh - 110px)', padding: 0 } }}
       >

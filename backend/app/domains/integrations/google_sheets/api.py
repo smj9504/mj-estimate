@@ -31,20 +31,31 @@ async def sync_google_sheets(
     Trigger full sync from Google Sheets
 
     This will:
-    1. Read all rows from the specified sheet
+    1. Read all rows from the specified sheet(s)
     2. Match rows to existing jobs by address (fuzzy matching)
     3. Update existing jobs or create new ones
+
+    Supports both single sheet and multiple sheets:
+    - Single sheet: Use sheet_name parameter
+    - Multiple sheets: Use sheet_names parameter (e.g., ["Angel", "Vanessa"])
     """
     sync_service = GoogleSheetsSyncService(db, request.spreadsheet_id)
 
     # Run sync in background for large sheets
     if request.sync_type == "full":
-        # For now, run synchronously for testing
-        # In production, consider using background_tasks
-        stats = await sync_service.sync_all_rows(
-            sheet_name=request.sheet_name,
-            skip_header=True
-        )
+        # Check if multiple sheets requested
+        if request.sheet_names and len(request.sheet_names) > 0:
+            # Multi-sheet sync
+            stats = await sync_service.sync_multiple_sheets(
+                sheet_names=request.sheet_names,
+                skip_header=True
+            )
+        else:
+            # Single sheet sync (backward compatible)
+            stats = await sync_service.sync_all_rows(
+                sheet_name=request.sheet_name,
+                skip_header=True
+            )
         return stats
     else:
         raise HTTPException(

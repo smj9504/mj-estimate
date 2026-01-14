@@ -384,6 +384,8 @@ class GenerateReportRequest(BaseModel):
     config_id: Optional[UUID] = None  # Use saved config
     save_config: bool = False  # Save current config
     config: Optional[ReportConfigCreate] = None  # Inline config
+    report_date: Optional[str] = None  # Custom report date (ISO format: YYYY-MM-DD)
+    compress: bool = False  # Compress PDF (reduce image quality for smaller file size)
 
 
 class GenerateReportResponse(BaseModel):
@@ -423,13 +425,15 @@ class GenerateDocumentRequest(BaseModel):
     photo_ids: List[str] = Field(..., description="List of photo IDs to include (EWA requires exactly 1 photo)")
     document_type: str = Field(..., description="Document type (COS, EWA, Custom)")
     job_address: str = Field(..., description="Job address for document header")
-    date_of_loss: Optional[str] = Field(None, description="Date of loss (required for EWA, format: YYYY-MM-DD)")
+    date_of_loss: Optional[str] = Field(None, description="Date of loss (format: YYYY-MM-DD)")
+    mitigation_start_date: Optional[str] = Field(None, description="Mitigation start date (used for EWA, format: YYYY-MM-DD)")
     rotations: Optional[Dict[str, int]] = Field(None, description="Photo rotations: {photo_id: degrees (0, 90, 180, 270)}")
     custom_filename: Optional[str] = Field(
         None,
         max_length=200,
         description="Custom filename for Custom document type (without .pdf extension)"
     )
+    compress: bool = Field(False, description="Compress PDF to reduce file size")
 
     @validator('photo_ids')
     def validate_photo_ids(cls, v, values):
@@ -692,3 +696,205 @@ class CreateConfigFromTemplateRequest(BaseModel):
     )
     cover_title: Optional[str] = Field(None, max_length=255, description="Override cover title")
     cover_description: Optional[str] = Field(None, description="Override cover description")
+
+
+# =============================================================================
+# Scope of Work Schemas
+# =============================================================================
+
+# Standard scope items template
+STANDARD_SCOPE_ITEMS = [
+    {"name": "Floor Protection", "item_type": "standard", "unit": "SF"},
+    {"name": "Content Protection", "item_type": "standard", "unit": "SF"},
+    {"name": "Containment", "item_type": "standard", "unit": "SF"},
+    {"name": "Air Mover", "item_type": "standard", "unit": "EA"},
+    {"name": "Dehumidifier", "item_type": "standard", "unit": "EA"},
+    {"name": "Air Scrubber", "item_type": "standard", "unit": "EA"},
+]
+
+
+# --- Material Weight Brief (for ScopeItem response) ---
+
+class MaterialWeightBrief(BaseModel):
+    """Brief material weight info for scope item response"""
+    id: UUID
+    material_name: str
+    weight_per_unit: float
+    unit: str
+
+    class Config:
+        from_attributes = True
+
+
+# --- Scope Location Schemas ---
+
+class ScopeLocationCreate(BaseModel):
+    """Create scope location request"""
+    job_id: UUID
+    name: str = Field(..., max_length=255)
+    floor: Optional[str] = Field(None, max_length=50)
+    room_type: Optional[str] = Field(None, max_length=100)
+    description: Optional[str] = None
+    display_order: int = 0
+
+
+class ScopeLocationUpdate(BaseModel):
+    """Update scope location request"""
+    name: Optional[str] = Field(None, max_length=255)
+    floor: Optional[str] = Field(None, max_length=50)
+    room_type: Optional[str] = Field(None, max_length=100)
+    description: Optional[str] = None
+    display_order: Optional[int] = None
+
+
+class ScopeItemResponse(BaseModel):
+    """Scope item response (used in location response)"""
+    id: UUID
+    location_id: UUID
+    item_type: str
+    name: str
+    description: Optional[str] = None
+    quantity: Optional[float] = None
+    quantity_formula: Optional[str] = None
+    unit: str
+    material_weight_id: Optional[UUID] = None
+    material_weight: Optional[MaterialWeightBrief] = None
+    include_in_debris: bool
+    display_order: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ScopeLocationResponse(BaseModel):
+    """Scope location response"""
+    id: UUID
+    job_id: UUID
+    name: str
+    floor: Optional[str] = None
+    room_type: Optional[str] = None
+    description: Optional[str] = None
+    display_order: int
+    scope_items: List[ScopeItemResponse] = []
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ScopeLocationListResponse(BaseModel):
+    """Scope location list response"""
+    items: List[ScopeLocationResponse]
+    total: int
+
+
+# --- Scope Item Schemas ---
+
+class ScopeItemCreate(BaseModel):
+    """Create scope item request"""
+    location_id: UUID
+    item_type: str = Field("standard", max_length=50)  # standard, demolition, custom
+    name: str = Field(..., max_length=255)
+    description: Optional[str] = None
+    quantity: Optional[float] = None
+    quantity_formula: Optional[str] = Field(None, max_length=500)
+    unit: str = Field("SF", max_length=20)
+    material_weight_id: Optional[UUID] = None
+    include_in_debris: bool = True
+    display_order: int = 0
+
+
+class ScopeItemUpdate(BaseModel):
+    """Update scope item request"""
+    item_type: Optional[str] = Field(None, max_length=50)
+    name: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = None
+    quantity: Optional[float] = None
+    quantity_formula: Optional[str] = Field(None, max_length=500)
+    unit: Optional[str] = Field(None, max_length=20)
+    material_weight_id: Optional[UUID] = None
+    include_in_debris: Optional[bool] = None
+    display_order: Optional[int] = None
+
+
+# --- Debris Calculation Schemas ---
+
+class DebrisItemDetail(BaseModel):
+    """Detail for each item in debris calculation"""
+    item_id: str
+    item_name: str
+    material_name: Optional[str] = None
+    quantity: float
+    unit: str
+    weight_per_unit: float
+    weight_lb: float
+    weight_ton: float
+
+
+class CategoryBreakdown(BaseModel):
+    """Breakdown by category"""
+    category_name: str
+    weight_lb: float
+    weight_ton: float
+    item_count: int
+
+
+class DumpsterRecommendation(BaseModel):
+    """Dumpster size recommendation"""
+    size: str
+    capacity_tons: float
+    count: int
+    total_capacity_tons: float
+
+
+class WMDebrisCalculationResponse(BaseModel):
+    """Debris calculation response"""
+    id: UUID
+    job_id: UUID
+    total_weight_lb: float
+    total_weight_ton: float
+    category_breakdown: List[CategoryBreakdown] = []
+    dumpster_recommendation: Optional[DumpsterRecommendation] = None
+    item_details: List[DebrisItemDetail] = []
+    calculated_at: datetime
+    calculated_by_id: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CalculateDebrisRequest(BaseModel):
+    """Request to calculate debris for a job"""
+    save_result: bool = True  # Whether to save calculation to database
+
+
+class CalculateDebrisResponse(BaseModel):
+    """Response for debris calculation"""
+    success: bool
+    calculation: Optional[WMDebrisCalculationResponse] = None
+    message: str
+    warnings: List[str] = []
+
+
+# --- Bulk Operations ---
+
+class AddStandardItemsRequest(BaseModel):
+    """Request to add standard items to a location"""
+    item_names: Optional[List[str]] = None  # If None, add all standard items
+
+
+# --- Formula Calculation ---
+
+class CalculateFormulaRequest(BaseModel):
+    """Request to calculate a quantity formula"""
+    formula: str = Field(..., max_length=500, description="Math formula like '10*12+5*8'")
+
+
+class CalculateFormulaResponse(BaseModel):
+    """Response for formula calculation"""
+    formula: str
+    result: float
+    formatted: str  # e.g., "120.00 SF"

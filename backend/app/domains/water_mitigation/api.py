@@ -1709,6 +1709,18 @@ async def generate_document_pdf(
         from app.core.config import settings
         from app.domains.storage.factory import StorageFactory
 
+        # Get job to retrieve company_code for template selection
+        job_dict = service.get_job(job_id)
+        company_code = None
+        if job_dict:
+            logger.info(f"Job found: {job_dict.get('property_address')}")
+            logger.info(f"Job company data: {job_dict.get('company')}")
+            if job_dict.get('company'):
+                company_code = job_dict['company'].get('company_code')
+                logger.info(f"EWA generation using company_code: {company_code}")
+            else:
+                logger.warning(f"No company assigned to job {job_id}")
+
         # Get photo file paths and build rotation mapping
         photo_paths = []
         path_to_id = {}  # Map file path to photo_id for rotation lookup
@@ -1850,10 +1862,11 @@ async def generate_document_pdf(
         # Generate PDF based on document type
         if request.document_type == 'EWA':
             # EWA: Template with overlay + 1 photo
-            if not request.date_of_loss:
+            # EWA uses mitigation_start_date for the date field
+            if not request.mitigation_start_date:
                 raise HTTPException(
                     status_code=400,
-                    detail="date_of_loss is required for EWA document generation"
+                    detail="mitigation_start_date is required for EWA document generation"
                 )
 
             # Get rotation for the EWA photo (if any)
@@ -1863,10 +1876,12 @@ async def generate_document_pdf(
 
             generate_ewa_pdf(
                 job_address=request.job_address,
-                date_of_loss=request.date_of_loss,
+                date_of_loss=request.mitigation_start_date,  # EWA uses start date, not date_of_loss
                 photo_path=photo_paths[0],  # EWA requires exactly 1 photo (validated in schema)
                 output_path=str(output_path),
-                rotation=ewa_rotation
+                rotation=ewa_rotation,
+                company_code=company_code,
+                compress=request.compress
             )
         else:
             # COS: Images only (multiple photos)
@@ -2211,13 +2226,15 @@ async def generate_photo_report(
         output_path = output_dir / filename
 
         # Generate PDF
-        logger.info(f"Generating photo report for job {job_id}")
+        logger.info(f"Generating photo report for job {job_id} (compress={request.compress})")
         generate_water_mitigation_report_pdf(
             job_data=job,
             config=config_dict,
             photos=photos_list,
             output_path=str(output_path),
-            company_data=company_data
+            company_data=company_data,
+            report_date=request.report_date,
+            compress=request.compress
         )
 
         logger.info(f"Report generated: {output_path}")
