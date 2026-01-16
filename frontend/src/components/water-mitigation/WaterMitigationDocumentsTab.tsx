@@ -4,10 +4,11 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox } from 'antd';
-import { FilePdfOutlined, PlusOutlined, RotateRightOutlined, CloseOutlined } from '@ant-design/icons';
+import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Tabs } from 'antd';
+import { FilePdfOutlined, PlusOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined } from '@ant-design/icons';
 import FileGallery from '../common/FileGallery/FileGallery';
 import WMDocumentList from './WMDocumentList';
+import WMInvoiceList from './WMInvoiceList';
 import waterMitigationService from '../../services/waterMitigationService';
 import { useWaterMitigationPhotos } from '../../hooks/useWaterMitigationPhotos';
 
@@ -57,7 +58,9 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [customFilename, setCustomFilename] = useState<string>('');
   const [compressPdf, setCompressPdf] = useState<boolean>(false);  // Compress PDF option
   const [creatingPdf, setCreatingPdf] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>('documents');
   const documentListRef = useRef<any>(null);
+  const invoiceListRef = useRef<any>(null);
 
   // Load photos for displaying selected photos with rotation controls
   const { data: allPhotos = [] } = useWaterMitigationPhotos(jobId, {
@@ -195,26 +198,60 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
 
   return (
     <div className="wm-documents-tab" style={{ height: 'calc(100vh - 180px)', padding: '16px' }}>
-      <div style={{ marginBottom: 16 }}>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={handleCreateDocument}
-        >
-          Create Document
-        </Button>
-      </div>
-
-      {/* Document List */}
-      <div style={{ height: 'calc(100% - 60px)', overflow: 'auto' }}>
-        <WMDocumentList
-          ref={documentListRef}
-          jobId={jobId}
-          onDelete={() => {
-            // Refresh list after delete
-          }}
-        />
-      </div>
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
+          {
+            key: 'documents',
+            label: (
+              <span>
+                <FileTextOutlined />
+                Documents
+              </span>
+            ),
+            children: (
+              <div>
+                <div style={{ marginBottom: 16 }}>
+                  <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={handleCreateDocument}
+                  >
+                    Create Document
+                  </Button>
+                </div>
+                <div style={{ height: 'calc(100vh - 300px)', overflow: 'auto' }}>
+                  <WMDocumentList
+                    ref={documentListRef}
+                    jobId={jobId}
+                    onDelete={() => {
+                      // Refresh list after delete
+                    }}
+                  />
+                </div>
+              </div>
+            ),
+          },
+          {
+            key: 'invoices',
+            label: (
+              <span>
+                <DollarOutlined />
+                Invoices
+              </span>
+            ),
+            children: (
+              <div style={{ height: 'calc(100vh - 260px)', overflow: 'auto' }}>
+                <WMInvoiceList
+                  ref={invoiceListRef}
+                  jobId={jobId}
+                />
+              </div>
+            ),
+          },
+        ]}
+      />
 
       <Modal
         title="Create Document"

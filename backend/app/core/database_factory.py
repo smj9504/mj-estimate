@@ -133,6 +133,16 @@ class SQLAlchemySession(DatabaseSession):
         if not self._closed:
             self._session.refresh(instance)
 
+    def expire(self, instance, attribute_names=None):
+        """Expire instance attributes to force reload from database"""
+        if not self._closed:
+            self._session.expire(instance, attribute_names)
+
+    def expire_all(self):
+        """Expire all instances in the session to force reload from database"""
+        if not self._closed:
+            self._session.expire_all()
+
     def execute(self, statement, parameters=None, execution_options=None):
         """Execute a SQL statement"""
         if self._closed:

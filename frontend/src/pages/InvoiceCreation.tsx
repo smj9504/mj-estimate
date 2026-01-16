@@ -443,7 +443,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                       {value ? (
                         <div dangerouslySetInnerHTML={{ __html: value }} style={{ flex: 1 }} />
                       ) : null}
-                      {record.note && record.note.trim() ? (
+                      {record.note && record.note.replace(/<[^>]*>/g, '').trim() ? (
                         <Tooltip
                           title={`Item Note: ${record.note.replace(/<[^>]*>/g, '').substring(0, 100)}${record.note.replace(/<[^>]*>/g, '').length > 100 ? '...' : ''}`}
                         >
@@ -1482,7 +1482,7 @@ const InvoiceCreation: React.FC = () => {
         line_item_id: lineItemId, // Set line_item_id from created library item or preserved from editing
         name: values.name.toString().trim(),
         description: values.description ? values.description.toString().trim() : '',
-        note: values.note || '',
+        note: values.note?.replace(/<[^>]*>/g, '').trim() ? values.note : undefined,
         quantity: Number(values.quantity),
         rate: Number(values.rate),
         amount: Number(values.quantity) * Number(values.rate),
@@ -3434,7 +3434,17 @@ const InvoiceCreation: React.FC = () => {
           if (open) {
             // Modal이 완전히 열린 후에 form 값 설정
             if (editingItem) {
-              itemForm.setFieldsValue(editingItem);
+              // Ensure rate and quantity are numbers
+              const formValues = {
+                ...editingItem,
+                rate: typeof editingItem.rate === 'string'
+                  ? parseFloat(editingItem.rate) || 0
+                  : editingItem.rate,
+                quantity: typeof editingItem.quantity === 'string'
+                  ? parseFloat(editingItem.quantity) || 1
+                  : editingItem.quantity,
+              };
+              itemForm.setFieldsValue(formValues);
             } else {
               itemForm.resetFields();
             }
@@ -3504,8 +3514,7 @@ const InvoiceCreation: React.FC = () => {
                 name="rate"
                 label="Rate"
                 rules={[
-                  { required: true, message: 'Please enter rate' },
-                  { type: 'number', message: 'Rate must be a valid number' }
+                  { required: true, message: 'Please enter rate' }
                 ]}
                 tooltip="Negative values allowed for discounts or credits"
               >
@@ -3522,8 +3531,13 @@ const InvoiceCreation: React.FC = () => {
                     return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                   }}
                   parser={((value: any) => {
-                    const parsed = parseFloat(value!.replace(/\$\s?|-|(,*)/g, '').trim() || '0');
-                    return isNaN(parsed) ? undefined : (value?.includes('-') ? -parsed : parsed);
+                    if (value === null || value === undefined || value === '') return 0;
+                    const isNegative = String(value).includes('-');
+                    // Remove $, commas, spaces, and minus sign for parsing
+                    const cleanValue = String(value).replace(/[$,\s-]/g, '').trim();
+                    const parsed = parseFloat(cleanValue || '0');
+                    if (isNaN(parsed)) return 0;
+                    return isNegative ? -Math.abs(parsed) : parsed;
                   }) as any}
                 />
               </Form.Item>
@@ -3654,8 +3668,10 @@ const InvoiceCreation: React.FC = () => {
                   placeholder="Enter amount"
                   formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                   parser={((value: any) => {
-                    const parsed = parseFloat(value!.replace(/\$\s?|(,*)/g, ''));
-                    return isNaN(parsed) ? undefined : parsed;
+                    if (value === null || value === undefined || value === '') return 0;
+                    const cleanValue = String(value).replace(/[$,\s]/g, '').trim();
+                    const parsed = parseFloat(cleanValue || '0');
+                    return isNaN(parsed) ? 0 : parsed;
                   }) as any}
                 />
               </Form.Item>

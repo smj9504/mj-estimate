@@ -769,7 +769,7 @@ const WaterMitigationDetail: React.FC = () => {
             {
               key: 'scope',
               label: 'Scope of Work',
-              children: id ? <WaterMitigationScopeTab jobId={id} /> : null
+              children: id ? <WaterMitigationScopeTab jobId={id} jobCompanyId={job.company_id} /> : null
             },
             {
               key: 'report',

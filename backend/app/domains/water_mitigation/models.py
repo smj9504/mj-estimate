@@ -512,12 +512,25 @@ class WMScopeItem(Base, BaseModel):
     )
     include_in_debris = Column(Boolean, default=True)  # Whether to include in debris calculation
 
+    # Line Item reference for invoice rate lookup
+    line_item_id = Column(
+        UUIDType(),
+        ForeignKey("line_items.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Link to LineItem for invoice rate lookup"
+    )
+
+    # Invoice tracking
+    invoiced = Column(Boolean, default=False, comment="Whether this item has been invoiced")
+    invoiced_at = Column(DateTime(timezone=True), comment="When this item was invoiced")
+
     # Display
     display_order = Column(Integer, default=0)
 
     # Relationships
     location = relationship("WMScopeLocation", back_populates="scope_items")
     material_weight = relationship("MaterialWeight")
+    line_item = relationship("LineItem")
 
 
 class WMDebrisCalculation(Base, BaseModel):
@@ -724,6 +737,52 @@ class WMStandardScopeItem(Base, BaseModel):
         comment="Default setting for debris inclusion"
     )
 
+    # ========================================
+    # Invoice Line Item Mapping
+    # ========================================
+    # Direct mapping to a line item for invoice generation
+    line_item_id = Column(
+        UUIDType(),
+        ForeignKey("line_items.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Mapped line item for invoice generation"
+    )
+
+    # Custom line item data (when not using existing line_item)
+    custom_line_item_name = Column(
+        String(255),
+        nullable=True,
+        comment="Custom line item name for invoice (if no line_item_id)"
+    )
+    custom_line_item_rate = Column(
+        DECIMAL(12, 4),
+        nullable=True,
+        comment="Custom rate for invoice (if no line_item_id)"
+    )
+
+    # Quantity calculation settings for invoice
+    # 'fixed': Use scope item quantity as-is
+    # 'per_day': Multiply by mitigation days
+    # 'per_day_capped': Multiply by mitigation days up to max_days
+    quantity_calc_type = Column(
+        String(30),
+        nullable=False,
+        default='fixed',
+        comment="Quantity calculation: fixed, per_day, per_day_capped"
+    )
+    max_days = Column(
+        Integer,
+        nullable=True,
+        comment="Maximum days for per_day_capped calculation"
+    )
+
+    # Default note for invoice line item
+    default_invoice_note = Column(
+        Text,
+        nullable=True,
+        comment="Default note to include in invoice line item"
+    )
+
     # UI/Display configuration
     display_order = Column(Integer, default=0, comment="Order in UI lists")
 
@@ -738,6 +797,87 @@ class WMStandardScopeItem(Base, BaseModel):
     company = relationship("Company", foreign_keys=[company_id])
     material_weight = relationship("MaterialWeight", foreign_keys=[material_weight_id])
     category_rel = relationship("WMScopeItemCategory", back_populates="scope_items")
+    line_item = relationship("LineItem", foreign_keys=[line_item_id])
+
+
+class WMScopeInvoice(Base, BaseModel):
+    """
+    Water Mitigation Scope Invoice link.
+
+    Links a WM Job to a generated Invoice.
+    Tracks when invoices are generated from scope items.
+    """
+    __tablename__ = "wm_scope_invoices"
+    __table_args__ = (
+        Index('ix_wm_scope_invoices_job', 'job_id'),
+        Index('ix_wm_scope_invoices_invoice', 'invoice_id'),
+        {'extend_existing': True}
+    )
+
+    job_id = Column(
+        UUIDType(),
+        ForeignKey("water_mitigation_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Water mitigation job reference"
+    )
+    invoice_id = Column(
+        UUIDType(),
+        ForeignKey("invoices.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Generated invoice reference"
+    )
+    generated_at = Column(DateTime(timezone=True), default=func.now(), nullable=False)
+    generated_by_id = Column(UUIDType(), ForeignKey("staff.id", ondelete="SET NULL"))
+    notes = Column(Text, comment="Optional notes about this invoice generation")
+
+    # Relationships
+    job = relationship("WaterMitigationJob")
+    invoice = relationship("Invoice")
+    item_links = relationship(
+        "WMScopeItemInvoiceLink",
+        back_populates="scope_invoice",
+        cascade="all, delete-orphan"
+    )
+
+
+class WMScopeItemInvoiceLink(Base, BaseModel):
+    """
+    Link between WM Scope Item and Invoice Line Item.
+
+    Provides bidirectional tracking between scope items and their
+    corresponding invoice line items for traceability.
+    """
+    __tablename__ = "wm_scope_item_invoice_links"
+    __table_args__ = (
+        Index('ix_wm_scope_item_invoice_links_scope_invoice', 'wm_scope_invoice_id'),
+        Index('ix_wm_scope_item_invoice_links_scope_item', 'scope_item_id'),
+        Index('ix_wm_scope_item_invoice_links_invoice_item', 'invoice_item_id'),
+        {'extend_existing': True}
+    )
+
+    wm_scope_invoice_id = Column(
+        UUIDType(),
+        ForeignKey("wm_scope_invoices.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Parent scope invoice record"
+    )
+    scope_item_id = Column(
+        UUIDType(),
+        ForeignKey("wm_scope_items.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="WM Scope item reference"
+    )
+    invoice_item_id = Column(
+        UUIDType(),
+        ForeignKey("invoice_items.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Invoice line item reference"
+    )
+
+    # Relationships
+    scope_invoice = relationship("WMScopeInvoice", back_populates="item_links")
+    scope_item = relationship("WMScopeItem")
+    invoice_item = relationship("InvoiceItem")
 
 
 class WMReportConfig(Base, BaseModel):
@@ -789,3 +929,106 @@ class WMReportConfig(Base, BaseModel):
     # Relationships
     job = relationship("WaterMitigationJob")
     template = relationship("WMReportTemplate", foreign_keys=[template_id])
+
+
+class WMInvoiceItemConfig(Base, BaseModel):
+    """
+    Water Mitigation Invoice Item Configuration.
+
+    Stores per-job invoice item settings for generating invoices from scope items.
+    Each config maps a scope item to an invoice line item with custom settings.
+
+    Features:
+    - Map to existing Line Item or create custom line item
+    - Quantity calculation: fixed, per_day (based on mitigation period)
+    - Default note that gets included in invoice item description
+    - Equipment items can auto-calculate quantity based on mitigation days
+    """
+    __tablename__ = "wm_invoice_item_configs"
+    __table_args__ = (
+        Index('ix_wm_invoice_item_configs_job', 'job_id'),
+        Index('ix_wm_invoice_item_configs_scope_item', 'scope_item_id'),
+        Index('ix_wm_invoice_item_configs_line_item', 'line_item_id'),
+        {'extend_existing': True}
+    )
+
+    job_id = Column(
+        UUIDType(),
+        ForeignKey("water_mitigation_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        comment="Water mitigation job reference"
+    )
+
+    # Source scope item (optional - for item-specific config)
+    scope_item_id = Column(
+        UUIDType(),
+        ForeignKey("wm_scope_items.id", ondelete="CASCADE"),
+        nullable=True,
+        comment="Specific scope item this config applies to"
+    )
+
+    # Standard scope item (optional - for template-level default config)
+    standard_scope_item_id = Column(
+        UUIDType(),
+        ForeignKey("wm_standard_scope_items.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Standard scope item for default config (if no specific scope_item)"
+    )
+
+    # Target Line Item (existing)
+    line_item_id = Column(
+        UUIDType(),
+        ForeignKey("line_items.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Target line item for invoice"
+    )
+
+    # Custom line item data (when not using existing line_item)
+    custom_name = Column(String(255), comment="Custom line item name")
+    custom_description = Column(Text, comment="Custom line item description")
+    custom_rate = Column(DECIMAL(12, 4), comment="Custom rate")
+    custom_unit = Column(String(20), comment="Custom unit (SF, LF, EA)")
+
+    # Quantity calculation settings
+    # 'fixed': Use scope item quantity as-is
+    # 'per_day': Multiply by mitigation days
+    # 'per_day_capped': Multiply by mitigation days up to max_days
+    # 'auto_calculated': System-calculated quantity (e.g., for General Conditions)
+    quantity_calc_type = Column(
+        String(30),
+        nullable=False,
+        default='fixed',
+        comment="Quantity calculation type: 'fixed', 'per_day', 'per_day_capped', 'auto_calculated'"
+    )
+    max_days = Column(
+        Integer,
+        nullable=True,
+        comment="Maximum days for per_day_capped calculation"
+    )
+
+    # Pre-calculated quantity (for General Conditions auto-calculated items)
+    # When set, this overrides the scope_item.quantity in invoice generation
+    calculated_quantity = Column(
+        DECIMAL(12, 4),
+        nullable=True,
+        comment="Pre-calculated quantity for auto-calculated items (e.g., debris hrs, equipment monitoring hrs)"
+    )
+
+    # Default note for this item (gets added to invoice item description)
+    default_note = Column(
+        Text,
+        nullable=True,
+        comment="Default note to include in invoice item description"
+    )
+
+    # Whether to include this item in invoice generation
+    is_enabled = Column(Boolean, default=True, comment="Whether to include in invoice")
+
+    # Display order in configuration UI
+    display_order = Column(Integer, default=0)
+
+    # Relationships
+    job = relationship("WaterMitigationJob")
+    scope_item = relationship("WMScopeItem")
+    standard_scope_item = relationship("WMStandardScopeItem")
+    line_item = relationship("LineItem")

@@ -832,9 +832,9 @@ def _group_items_into_sections(items: List[Dict[str, Any]]) -> List[Dict[str, An
         item_total = item.get('quantity', 0) * item.get('rate', 0)
         sections_dict[group]['subtotal'] += item_total
 
-    # Convert to list and sort by section name
+    # Convert to list - preserve original order (dict maintains insertion order in Python 3.7+)
+    # This keeps sections in the order they first appear in the estimate items
     sections = list(sections_dict.values())
-    sections.sort(key=lambda x: x['title'])
 
     logger.info(f"Created {len(sections)} sections:")
     for section in sections:

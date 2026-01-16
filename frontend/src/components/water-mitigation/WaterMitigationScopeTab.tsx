@@ -40,9 +40,11 @@ import {
   ReloadOutlined,
   CheckCircleOutlined,
   WarningOutlined,
-  QuestionCircleOutlined
+  QuestionCircleOutlined,
+  DollarOutlined
 } from '@ant-design/icons';
 import waterMitigationService from '../../services/waterMitigationService';
+import lineItemService from '../../services/lineItemService';
 import type {
   ScopeLocation,
   ScopeLocationCreate,
@@ -56,17 +58,19 @@ import type {
   StandardScopeItem,
   MaterialWeight
 } from '../../types/waterMitigation';
+import type { LineItem } from '../../types/lineItem';
 import {
   SCOPE_ITEM_TYPE_OPTIONS,
   UNIT_TYPE_OPTIONS
 } from '../../types/waterMitigation';
+import InvoiceConfigurationPanel from './InvoiceConfigurationPanel';
 
 const { Text, Title } = Typography;
-const { Panel } = Collapse;
 const { TextArea } = Input;
 
 interface WaterMitigationScopeTabProps {
   jobId: string;
+  jobCompanyId?: string | null;
 }
 
 // Floor options for location
@@ -95,7 +99,7 @@ const ROOM_TYPE_OPTIONS = [
   { value: 'Other', label: 'Other' }
 ];
 
-const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId }) => {
+const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId, jobCompanyId }) => {
   // State
   const [loading, setLoading] = useState(false);
   const [locations, setLocations] = useState<ScopeLocation[]>([]);
@@ -124,6 +128,10 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
   // Material weights for debris calculation
   const [materialWeights, setMaterialWeights] = useState<MaterialWeight[]>([]);
   const [loadingMaterials, setLoadingMaterials] = useState(false);
+
+  // Line items for invoice rate linking
+  const [lineItems, setLineItems] = useState<LineItem[]>([]);
+  const [loadingLineItems, setLoadingLineItems] = useState(false);
 
   // Inline editing state
   const [editingQuantity, setEditingQuantity] = useState<{ itemId: string; value: number | null } | null>(null);
@@ -181,12 +189,30 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     }
   }, []);
 
+  // Load line items for invoice rate linking
+  const loadLineItems = useCallback(async () => {
+    try {
+      setLoadingLineItems(true);
+      const response = await lineItemService.getLineItems({
+        is_active: true,
+        page_size: 500  // Load a reasonable amount
+      });
+      setLineItems(response.items || []);
+    } catch (error) {
+      console.error('Failed to load line items:', error);
+      setLineItems([]);
+    } finally {
+      setLoadingLineItems(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadLocations();
     loadDebrisCalculation();
     loadStandardScopeItems();
     loadMaterialWeights();
-  }, [loadLocations, loadDebrisCalculation, loadStandardScopeItems, loadMaterialWeights]);
+    loadLineItems();
+  }, [loadLocations, loadDebrisCalculation, loadStandardScopeItems, loadMaterialWeights, loadLineItems]);
 
   // Location handlers
   const handleAddLocation = () => {
@@ -297,6 +323,8 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
   const handleEditItem = (item: ScopeItem) => {
     setSelectedLocationId(item.location_id);
     setEditingItem(item);
+    setShowStandardItemSelector(false);
+    setSelectedStandardItem(null);
     itemForm.setFieldsValue({
       item_type: item.item_type,
       name: item.name,
@@ -305,6 +333,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       quantity_formula: item.quantity_formula,
       unit: item.unit,
       material_weight_id: item.material_weight_id,
+      line_item_id: item.line_item_id,
       include_in_debris: item.include_in_debris
     });
     setFormulaResult(null);
@@ -445,6 +474,13 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
               {record.material_weight.material_type} ({record.material_weight.dry_weight_per_unit} lb/{record.material_weight.unit})
             </Text>
           )}
+          {record.line_item && (
+            <Tooltip title={`Rate: $${record.line_item.untaxed_unit_price?.toFixed(2) || '0.00'}/${record.line_item.unit || 'EA'}`}>
+              <Tag color="green" style={{ fontSize: '11px', marginTop: 2 }}>
+                <DollarOutlined /> {record.line_item.description.substring(0, 30)}{record.line_item.description.length > 30 ? '...' : ''}
+              </Tag>
+            </Tooltip>
+          )}
         </Space>
       )
     },
@@ -538,15 +574,32 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
   ];
 
   // Render location panel header
-  const renderLocationHeader = (location: ScopeLocation) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-      <Space>
-        <EnvironmentOutlined />
-        <Text strong>{location.name}</Text>
-        {location.floor && <Tag>{location.floor}</Tag>}
-        {location.room_type && <Tag color="blue">{location.room_type}</Tag>}
-        <Badge count={location.scope_items?.length || 0} style={{ backgroundColor: '#1890ff' }} />
-      </Space>
+  const renderLocationHeader = (location: ScopeLocation) => {
+    // Check if any items in this location are invoiced
+    const invoicedCount = location.scope_items?.filter(item => item.invoiced)?.length || 0;
+    const totalItems = location.scope_items?.length || 0;
+    const allInvoiced = totalItems > 0 && invoicedCount === totalItems;
+    const partiallyInvoiced = invoicedCount > 0 && invoicedCount < totalItems;
+
+    return (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+        <Space>
+          <EnvironmentOutlined />
+          <Text strong>{location.name}</Text>
+          {location.floor && <Tag>{location.floor}</Tag>}
+          {location.room_type && <Tag color="blue">{location.room_type}</Tag>}
+          <Badge count={totalItems} style={{ backgroundColor: '#1890ff' }} />
+          {allInvoiced && (
+            <Tag color="purple" style={{ marginLeft: 4 }}>
+              <CheckCircleOutlined /> Invoiced
+            </Tag>
+          )}
+          {partiallyInvoiced && (
+            <Tag color="orange" style={{ marginLeft: 4 }}>
+              <CheckCircleOutlined /> {invoicedCount}/{totalItems} Invoiced
+            </Tag>
+          )}
+        </Space>
       <Space onClick={(e) => e.stopPropagation()}>
         <Button
           size="small"
@@ -567,7 +620,8 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
         </Popconfirm>
       </Space>
     </div>
-  );
+    );
+  };
 
   if (loading && locations.length === 0) {
     return (
@@ -579,106 +633,190 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
 
   return (
     <div className="wm-scope-tab">
-      {/* Header */}
-      <Card className="compact-card" style={{ marginBottom: 16 }}>
-        <Row justify="space-between" align="middle">
-          <Col>
-            <Space>
-              <Title level={5} style={{ margin: 0 }}>
-                <ToolOutlined /> Scope of Work
-              </Title>
-              <Tag>{locations.length} Location(s)</Tag>
-            </Space>
-          </Col>
-          <Col>
-            <Space>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={handleAddLocation}
-              >
-                Add Location
-              </Button>
-            </Space>
-          </Col>
-        </Row>
+      {/* Scope of Work Section */}
+      <Card
+        className="compact-card"
+        style={{ marginBottom: 16 }}
+        title={
+          <Space>
+            <ToolOutlined />
+            <span>Scope of Work</span>
+            <Tag>{locations.length} Location(s)</Tag>
+          </Space>
+        }
+        extra={
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={handleAddLocation}
+          >
+            Add Location
+          </Button>
+        }
+      >
+        {/* Locations */}
+        {locations.length === 0 ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="No locations added yet"
+          >
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAddLocation}>
+              Add First Location
+            </Button>
+          </Empty>
+        ) : (
+          <Collapse
+            accordion
+            defaultActiveKey={locations[0]?.id}
+            items={locations.map((location) => ({
+              key: location.id,
+              label: renderLocationHeader(location),
+              children: (
+                <>
+                  {location.description && (
+                    <Alert
+                      message={location.description}
+                      type="info"
+                      style={{ marginBottom: 16 }}
+                    />
+                  )}
+
+                  <Space style={{ marginBottom: 16 }} wrap>
+                    <Button
+                      type="primary"
+                      icon={<AppstoreAddOutlined />}
+                      onClick={() => handleAddFromStandard(location.id)}
+                    >
+                      From Templates
+                    </Button>
+                    <Button
+                      icon={<PlusOutlined />}
+                      onClick={() => handleAddItem(location.id, 'custom' as ScopeItemType)}
+                    >
+                      Custom Item
+                    </Button>
+                    <Button
+                      icon={<ToolOutlined />}
+                      onClick={() => handleAddItem(location.id, 'demolition' as ScopeItemType)}
+                    >
+                      Demolition
+                    </Button>
+                  </Space>
+
+                  {location.scope_items && location.scope_items.length > 0 ? (
+                    <Table
+                      dataSource={location.scope_items}
+                      columns={itemColumns}
+                      rowKey="id"
+                      pagination={false}
+                      size="small"
+                    />
+                  ) : (
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description="No items in this location"
+                    />
+                  )}
+                </>
+              )
+            }))}
+          />
+        )}
       </Card>
 
       {/* Debris Calculation Summary */}
       {debrisCalculation && (
-        <Card
-          className="compact-card"
+        <Collapse
+          defaultActiveKey={['debris-calc']}
           style={{ marginBottom: 16 }}
-          title={
-            <Space>
-              <CalculatorOutlined />
-              <span>Debris Calculation Summary</span>
-            </Space>
-          }
-          extra={
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={handleCalculateDebris}
-              loading={calculatingDebris}
-            >
-              Recalculate
-            </Button>
-          }
-        >
-          <Row gutter={24}>
-            <Col span={6}>
-              <Statistic
-                title="Total Weight"
-                value={debrisCalculation.total_weight_lb}
-                suffix="lb"
-                precision={0}
-              />
-            </Col>
-            <Col span={6}>
-              <Statistic
-                title="Total Weight"
-                value={debrisCalculation.total_weight_ton}
-                suffix="tons"
-                precision={2}
-              />
-            </Col>
-            <Col span={6}>
-              {debrisCalculation.dumpster_recommendation && (
-                <Statistic
-                  title="Recommended Dumpster"
-                  value={`${debrisCalculation.dumpster_recommendation.count}x ${debrisCalculation.dumpster_recommendation.size}`}
-                />
-              )}
-            </Col>
-            <Col span={6}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                Last calculated: {new Date(debrisCalculation.calculated_at).toLocaleString()}
-              </Text>
-            </Col>
-          </Row>
-
-          {debrisCalculation.category_breakdown && debrisCalculation.category_breakdown.length > 0 && (
-            <>
-              <Divider />
-              <Title level={5}>Weight by Category</Title>
-              <Row gutter={16}>
-                {debrisCalculation.category_breakdown.map((cat, idx) => (
-                  <Col span={6} key={idx}>
-                    <Card size="small" className="compact-card-sm">
+          items={[
+            {
+              key: 'debris-calc',
+              label: (
+                <Space>
+                  <CalculatorOutlined />
+                  <Text strong>Debris Calculation Summary</Text>
+                  <Tag color="blue">{debrisCalculation.total_weight_ton.toFixed(2)} tons</Tag>
+                  {debrisCalculation.dumpster_recommendation && (
+                    <Tag color="orange">
+                      {debrisCalculation.dumpster_recommendation.count}x {debrisCalculation.dumpster_recommendation.size}
+                    </Tag>
+                  )}
+                </Space>
+              ),
+              extra: (
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCalculateDebris();
+                  }}
+                  loading={calculatingDebris}
+                  size="small"
+                >
+                  Recalculate
+                </Button>
+              ),
+              children: (
+                <>
+                  <Row gutter={24}>
+                    <Col span={6}>
                       <Statistic
-                        title={cat.category_name || 'Uncategorized'}
-                        value={cat.weight_lb}
+                        title="Total Weight"
+                        value={debrisCalculation.total_weight_lb}
                         suffix="lb"
                         precision={0}
                       />
-                      <Text type="secondary">{cat.item_count} item(s)</Text>
-                    </Card>
-                  </Col>
-                ))}
-              </Row>
-            </>
-          )}
-        </Card>
+                    </Col>
+                    <Col span={6}>
+                      <Statistic
+                        title="Total Weight"
+                        value={debrisCalculation.total_weight_ton}
+                        suffix="tons"
+                        precision={2}
+                      />
+                    </Col>
+                    <Col span={6}>
+                      {debrisCalculation.dumpster_recommendation && (
+                        <Statistic
+                          title="Recommended Dumpster"
+                          value={`${debrisCalculation.dumpster_recommendation.count}x ${debrisCalculation.dumpster_recommendation.size}`}
+                        />
+                      )}
+                    </Col>
+                    <Col span={6}>
+                      <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                        Last calculated: {new Date(debrisCalculation.calculated_at).toLocaleString()}
+                      </Text>
+                    </Col>
+                  </Row>
+
+                  {debrisCalculation.category_breakdown && debrisCalculation.category_breakdown.length > 0 && (
+                    <>
+                      <Divider />
+                      <Title level={5}>Weight by Category</Title>
+                      <Row gutter={16}>
+                        {debrisCalculation.category_breakdown.map((cat, idx) => (
+                          <Col span={6} key={idx}>
+                            <Card size="small" className="compact-card-sm">
+                              <Statistic
+                                title={cat.category_name || 'Uncategorized'}
+                                value={cat.weight_lb}
+                                suffix="lb"
+                                precision={0}
+                              />
+                              <Text type="secondary">{cat.item_count} item(s)</Text>
+                            </Card>
+                          </Col>
+                        ))}
+                      </Row>
+                    </>
+                  )}
+                </>
+              )
+            }
+          ]}
+        />
       )}
 
       {/* Calculate Debris Button (if no calculation yet) */}
@@ -698,76 +836,20 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
         </div>
       )}
 
-      {/* Locations */}
-      {locations.length === 0 ? (
-        <Card className="compact-card">
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="No locations added yet"
-          >
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAddLocation}>
-              Add First Location
-            </Button>
-          </Empty>
-        </Card>
-      ) : (
-        <Collapse
-          accordion
-          defaultActiveKey={locations[0]?.id}
-          style={{ marginBottom: 16 }}
-        >
-          {locations.map((location) => (
-            <Panel
-              header={renderLocationHeader(location)}
-              key={location.id}
-            >
-              {location.description && (
-                <Alert
-                  message={location.description}
-                  type="info"
-                  style={{ marginBottom: 16 }}
-                />
-              )}
-
-              <Space style={{ marginBottom: 16 }} wrap>
-                <Button
-                  type="primary"
-                  icon={<AppstoreAddOutlined />}
-                  onClick={() => handleAddFromStandard(location.id)}
-                >
-                  From Templates
-                </Button>
-                <Button
-                  icon={<PlusOutlined />}
-                  onClick={() => handleAddItem(location.id, 'custom' as ScopeItemType)}
-                >
-                  Custom Item
-                </Button>
-                <Button
-                  icon={<ToolOutlined />}
-                  onClick={() => handleAddItem(location.id, 'demolition' as ScopeItemType)}
-                >
-                  Demolition
-                </Button>
-              </Space>
-
-              {location.scope_items && location.scope_items.length > 0 ? (
-                <Table
-                  dataSource={location.scope_items}
-                  columns={itemColumns}
-                  rowKey="id"
-                  pagination={false}
-                  size="small"
-                />
-              ) : (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="No items in this location"
-                />
-              )}
-            </Panel>
-          ))}
-        </Collapse>
+      {/* Invoice Configuration Panel */}
+      {locations.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <InvoiceConfigurationPanel
+            jobId={jobId}
+            jobCompanyId={jobCompanyId}
+            scopeItemCount={locations.reduce(
+              (total, loc) => total + (loc.scope_items?.length || 0),
+              0
+            )}
+            onConfigChange={loadLocations}
+            onInvoiceGenerated={() => loadLocations()}
+          />
+        </div>
       )}
 
       {/* Location Modal */}
@@ -1127,6 +1209,53 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                 </Form.Item>
               );
             }}
+          </Form.Item>
+
+          <Divider />
+
+          {/* Line Item Link for Invoice Rate */}
+          <Form.Item
+            name="line_item_id"
+            label={
+              <Space>
+                Invoice Line Item
+                <Tooltip title="Link to a Line Item for automatic rate lookup during invoice generation. Optional - if not set, the system will try to match by name.">
+                  <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                </Tooltip>
+              </Space>
+            }
+          >
+            <Select
+              placeholder="Select line item for invoice rate..."
+              allowClear
+              showSearch
+              optionFilterProp="children"
+              loading={loadingLineItems}
+              filterOption={(input, option) =>
+                (option?.children?.toString() ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+              notFoundContent={
+                loadingLineItems ? (
+                  <Spin size="small" />
+                ) : lineItems.length === 0 ? (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="No line items available"
+                  />
+                ) : null
+              }
+            >
+              {lineItems.map(item => (
+                <Select.Option key={item.id} value={item.id}>
+                  <Space>
+                    <span>{item.description}</span>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      (${item.untaxed_unit_price?.toFixed(2) || '0.00'}/{item.unit || 'EA'})
+                    </Text>
+                  </Space>
+                </Select.Option>
+              ))}
+            </Select>
           </Form.Item>
         </Form>
         )}

@@ -45,7 +45,24 @@ import type {
   ScopeItemCategoryFilters,
   MaterialWeight,
   MaterialWeightListResponse,
-  MaterialCategory
+  MaterialCategory,
+  // Invoice types
+  GenerateInvoiceRequest,
+  GenerateInvoiceResponse,
+  JobInvoiceHistoryResponse,
+  ScopeItemInvoiceStatusResponse,
+  // Invoice config types
+  InvoiceItemConfig,
+  InvoiceItemConfigCreate,
+  InvoiceItemConfigUpdate,
+  InvoiceItemConfigListResponse,
+  InvoicePreviewResponse,
+  AutoGenerateConfigResult,
+  // Standard Item Mapping types (New Approach)
+  StandardItemMappingListResponse,
+  StandardItemMappingUpdate,
+  StandardItemMappingUpdateResult,
+  StandardItemMappingPreviewResponse,
 } from '../types/waterMitigation';
 
 const BASE_URL = '/api/water-mitigation';
@@ -694,6 +711,208 @@ export const waterMitigationService = {
     // List material categories
     listCategories: async (): Promise<MaterialCategory[]> => {
       const response = await api.get('/api/reconstruction-estimate/categories');
+      return response.data;
+    }
+  },
+
+  // ============================================================================
+  // Scope Invoice API
+  // ============================================================================
+  scopeInvoice: {
+    // Generate invoice from scope items
+    generateInvoice: async (
+      jobId: string,
+      request: GenerateInvoiceRequest
+    ): Promise<GenerateInvoiceResponse> => {
+      const response = await api.post(
+        `${BASE_URL}/scope/jobs/${jobId}/generate-invoice`,
+        request
+      );
+      return response.data;
+    },
+
+    // Get invoice history for a job
+    getInvoiceHistory: async (jobId: string): Promise<JobInvoiceHistoryResponse> => {
+      const response = await api.get(`${BASE_URL}/scope/jobs/${jobId}/invoice-history`);
+      return response.data;
+    },
+
+    // Get invoice status for all scope items in a job
+    getScopeItemsInvoiceStatus: async (
+      jobId: string
+    ): Promise<ScopeItemInvoiceStatusResponse[]> => {
+      const response = await api.get(
+        `${BASE_URL}/scope/jobs/${jobId}/scope-items/invoice-status`
+      );
+      return response.data;
+    },
+
+    // Get count of uninvoiced scope items
+    getUninvoicedCount: async (jobId: string): Promise<{ uninvoiced_count: number }> => {
+      const response = await api.get(`${BASE_URL}/scope/jobs/${jobId}/uninvoiced-count`);
+      return response.data;
+    },
+
+    // Reset scope items' invoiced status for a job
+    resetInvoiceStatus: async (jobId: string): Promise<{
+      success: boolean;
+      items_reset: number;
+      message: string;
+    }> => {
+      const response = await api.post(
+        `${BASE_URL}/scope/jobs/${jobId}/reset-invoice-status`
+      );
+      return response.data;
+    },
+
+    // Delete a WM invoice and reset scope items
+    deleteInvoice: async (invoiceId: string): Promise<{
+      success: boolean;
+      message: string;
+      job_id?: string;
+      items_reset?: boolean;
+    }> => {
+      const response = await api.delete(
+        `${BASE_URL}/scope/invoices/${invoiceId}`
+      );
+      return response.data;
+    }
+  },
+
+  // ============================================================================
+  // Invoice Item Configuration API
+  // ============================================================================
+  invoiceConfig: {
+    // Get all invoice item configurations for a job
+    list: async (
+      jobId: string,
+      includeCalculated: boolean = true
+    ): Promise<InvoiceItemConfigListResponse> => {
+      const response = await api.get(
+        `${BASE_URL}/scope/jobs/${jobId}/invoice-configs`,
+        { params: { include_calculated: includeCalculated } }
+      );
+      return response.data;
+    },
+
+    // Create a new invoice item configuration
+    create: async (
+      jobId: string,
+      data: Omit<InvoiceItemConfigCreate, 'job_id'>
+    ): Promise<InvoiceItemConfig> => {
+      const response = await api.post(
+        `${BASE_URL}/scope/jobs/${jobId}/invoice-configs`,
+        data
+      );
+      return response.data;
+    },
+
+    // Bulk create invoice item configurations
+    bulkCreate: async (
+      jobId: string,
+      configs: Array<Omit<InvoiceItemConfigCreate, 'job_id'>>
+    ): Promise<{ created: number; items: InvoiceItemConfig[] }> => {
+      const response = await api.post(
+        `${BASE_URL}/scope/jobs/${jobId}/invoice-configs/bulk`,
+        configs
+      );
+      return response.data;
+    },
+
+    // Update an invoice item configuration
+    update: async (
+      configId: string,
+      data: InvoiceItemConfigUpdate
+    ): Promise<InvoiceItemConfig> => {
+      const response = await api.put(
+        `${BASE_URL}/scope/invoice-configs/${configId}`,
+        data
+      );
+      return response.data;
+    },
+
+    // Delete an invoice item configuration
+    delete: async (configId: string): Promise<void> => {
+      await api.delete(`${BASE_URL}/scope/invoice-configs/${configId}`);
+    },
+
+    // Auto-generate invoice item configurations from scope items
+    autoGenerate: async (
+      jobId: string,
+      templateId: string,
+      overwrite: boolean = false
+    ): Promise<AutoGenerateConfigResult> => {
+      const response = await api.post(
+        `${BASE_URL}/scope/jobs/${jobId}/invoice-configs/auto-generate`,
+        null,
+        { params: { template_id: templateId, overwrite } }
+      );
+      return response.data;
+    },
+
+    // Preview invoice generation
+    previewInvoice: async (
+      jobId: string,
+      templateId: string
+    ): Promise<InvoicePreviewResponse> => {
+      const response = await api.post(
+        `${BASE_URL}/scope/jobs/${jobId}/preview-invoice`,
+        null,
+        { params: { template_id: templateId } }
+      );
+      return response.data;
+    }
+  },
+
+  // ============================================================================
+  // Standard Scope Item Mapping API (New Approach)
+  // ============================================================================
+  standardItemMappings: {
+    /**
+     * Get all standard scope items with their invoice line item mappings.
+     * This is the recommended approach for invoice configuration:
+     * - Configure mappings once at the standard item level
+     * - All jobs using these items will inherit the mappings
+     */
+    list: async (companyId?: string): Promise<StandardItemMappingListResponse> => {
+      const params = new URLSearchParams();
+      if (companyId) params.append('company_id', companyId);
+
+      const response = await api.get(
+        `${BASE_URL}/scope/standard-item-mappings?${params.toString()}`
+      );
+      return response.data;
+    },
+
+    /**
+     * Update invoice mapping for a Standard Scope Item.
+     * This configures how this scope item type maps to invoice line items.
+     */
+    update: async (
+      standardItemId: string,
+      data: StandardItemMappingUpdate
+    ): Promise<StandardItemMappingUpdateResult> => {
+      const response = await api.put(
+        `${BASE_URL}/scope/standard-item-mappings/${standardItemId}`,
+        data
+      );
+      return response.data;
+    },
+
+    /**
+     * Preview invoice using standard scope item mappings.
+     * Aggregates quantities per item type across all locations.
+     */
+    previewInvoice: async (
+      jobId: string,
+      companyId?: string
+    ): Promise<StandardItemMappingPreviewResponse> => {
+      const params = new URLSearchParams();
+      if (companyId) params.append('company_id', companyId);
+
+      const response = await api.post(
+        `${BASE_URL}/scope/jobs/${jobId}/preview-invoice-from-mappings?${params.toString()}`
+      );
       return response.data;
     }
   }

@@ -196,21 +196,29 @@ class InMemoryCache:
         return False
     
     def delete_pattern(self, pattern: str) -> int:
-        """Delete all keys matching pattern"""
+        """Delete all keys matching pattern
+
+        Uses fnmatch which supports glob-style patterns:
+        - * matches everything
+        - ? matches any single character
+        """
         import fnmatch
-        
-        pattern = pattern.replace('*', '.*')
+
+        # fnmatch uses glob patterns directly, no conversion needed
         deleted = 0
-        
+
+        # Create a copy of keys to avoid modification during iteration
         keys_to_delete = [
-            key for key in self._cache.keys()
+            key for key in list(self._cache.keys())
             if fnmatch.fnmatch(key, pattern)
         ]
-        
+
         for key in keys_to_delete:
             self.delete(key)
             deleted += 1
-        
+
+        logger.debug(f"InMemoryCache: deleted {deleted} keys matching pattern '{pattern}'")
+
         return deleted
     
     def exists(self, key: str) -> bool:
@@ -218,12 +226,12 @@ class InMemoryCache:
         return key in self._cache
     
     def keys(self, pattern: str = "*") -> List[str]:
-        """Get keys matching pattern"""
+        """Get keys matching pattern (glob-style)"""
         import fnmatch
-        
-        pattern = pattern.replace('*', '.*')
+
+        # fnmatch uses glob patterns directly, no conversion needed
         return [
-            key for key in self._cache.keys()
+            key for key in list(self._cache.keys())
             if fnmatch.fnmatch(key, pattern)
         ]
     

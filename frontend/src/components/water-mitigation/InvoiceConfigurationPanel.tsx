@@ -1,0 +1,1125 @@
+/**
+ * Invoice Configuration Panel
+ * Manages invoice item configurations for Water Mitigation scope items
+ * - Map scope items to line items
+ * - Configure quantity calculation (fixed, per_day, per_day_capped)
+ * - Set default notes for line items
+ */
+
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Card,
+  Table,
+  Button,
+  Space,
+  Select,
+  InputNumber,
+  Input,
+  Switch,
+  Checkbox,
+  message,
+  Tooltip,
+  Typography,
+  Tag,
+  Alert,
+  Spin,
+  Empty,
+  Modal,
+  Divider,
+  Row,
+  Col,
+  Statistic,
+  Dropdown,
+  Collapse
+} from 'antd';
+import type { MenuProps } from 'antd';
+import {
+  SettingOutlined,
+  SyncOutlined,
+  DollarOutlined,
+  CalendarOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  InfoCircleOutlined,
+  CheckCircleOutlined,
+  WarningOutlined,
+  FileTextOutlined,
+  ReloadOutlined,
+  DownOutlined,
+  UndoOutlined,
+  GiftOutlined
+} from '@ant-design/icons';
+import waterMitigationService from '../../services/waterMitigationService';
+import lineItemService from '../../services/lineItemService';
+import type {
+  InvoiceItemConfig,
+  InvoiceItemConfigUpdate,
+  InvoicePreviewResponse,
+  AutoGenerateConfigResult,
+  GenerateInvoiceResponse
+} from '../../types/waterMitigation';
+import type { LineItem, EmbeddedItemData } from '../../types/lineItem';
+import type { LineItemTemplate } from '../../types/lineItem';
+import {
+  QuantityCalcType,
+  QUANTITY_CALC_TYPE_OPTIONS
+} from '../../types/waterMitigation';
+
+// Extended LineItem with embedded flag for dropdown
+interface LineItemOption extends LineItem {
+  _isEmbedded?: boolean;
+  _embeddedData?: EmbeddedItemData;
+}
+
+const { Text, Title } = Typography;
+const { TextArea } = Input;
+
+interface InvoiceConfigurationPanelProps {
+  jobId: string;
+  jobCompanyId?: string | null;
+  mitigationDays?: number;
+  scopeItemCount?: number;  // Number of scope items in the job
+  onConfigChange?: () => void;
+  onInvoiceGenerated?: (result: GenerateInvoiceResponse) => void;
+}
+
+const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
+  jobId,
+  jobCompanyId,
+  mitigationDays: mitigationDaysProp = 1,
+  scopeItemCount = 0,
+  onConfigChange,
+  onInvoiceGenerated
+}) => {
+  // State
+  const [loading, setLoading] = useState(false);
+  const [configs, setConfigs] = useState<InvoiceItemConfig[]>([]);
+  const [lineItems, setLineItems] = useState<LineItemOption[]>([]);
+  const [templates, setTemplates] = useState<LineItemTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [loadingLineItems, setLoadingLineItems] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewData, setPreviewData] = useState<InvoicePreviewResponse | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [generatingInvoice, setGeneratingInvoice] = useState(false);
+  const [resettingInvoice, setResettingInvoice] = useState(false);
+
+  // Actual mitigation days (fetched from job or calculated)
+  const [actualMitigationDays, setActualMitigationDays] = useState<number>(mitigationDaysProp);
+
+  // Editing state
+  const [editingCell, setEditingCell] = useState<{
+    configId: string;
+    field: string;
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Track if auto-generate has been attempted this session
+  const [autoGenerateAttempted, setAutoGenerateAttempted] = useState(false);
+
+  // Holiday Premium state
+  const [holidayPremium, setHolidayPremium] = useState(false);
+
+  // Load configurations
+  const loadConfigs = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await waterMitigationService.invoiceConfig.list(jobId, true);
+      setConfigs(response.items);
+      return response.items;
+    } catch (error) {
+      console.error('Failed to load invoice configs:', error);
+      message.error('Failed to load invoice configurations');
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  }, [jobId]);
+
+  // Load templates only (line items are loaded via useEffect when template changes)
+  const loadTemplates = useCallback(async () => {
+    try {
+      setLoadingLineItems(true);
+
+      // Load templates
+      const allTemplates = await lineItemService.getTemplates(jobCompanyId || undefined);
+      console.log('[InvoiceConfig] All templates:', allTemplates.map(t => ({ id: t.id, name: t.name })));
+
+      const wmTemplates = allTemplates.filter(
+        (t) => t.name.toLowerCase().includes('water') ||
+               t.name.toLowerCase().includes('wm') ||
+               t.name.toLowerCase().includes('mitigation') ||
+               t.name.toLowerCase().includes('essentials')
+      );
+      console.log('[InvoiceConfig] WM templates:', wmTemplates.map(t => ({ id: t.id, name: t.name })));
+
+      // Use all templates so user can select any template
+      setTemplates(allTemplates);
+
+      // Auto-select WM Essentials template
+      // Priority 1: Find "WM Essentials" specifically (exact match)
+      let bestTemplate = allTemplates.find(t => t.name === 'WM Essentials');
+      console.log('[InvoiceConfig] Exact match WM Essentials?', bestTemplate ? bestTemplate.name : 'No');
+
+      // Priority 2: Find template containing "wm essentials" (case-insensitive)
+      if (!bestTemplate) {
+        bestTemplate = allTemplates.find(t => t.name.toLowerCase().includes('wm essentials'));
+        console.log('[InvoiceConfig] Case-insensitive WM Essentials?', bestTemplate ? bestTemplate.name : 'No');
+      }
+
+      // Priority 3: Any template with WM keywords
+      if (!bestTemplate) {
+        bestTemplate = wmTemplates[0];
+        console.log('[InvoiceConfig] Any WM template?', bestTemplate ? bestTemplate.name : 'No');
+      }
+
+      // Priority 4: First template
+      if (!bestTemplate) {
+        bestTemplate = allTemplates[0];
+        console.log('[InvoiceConfig] Fallback to first template?', bestTemplate ? bestTemplate.name : 'No');
+      }
+
+      console.log('[InvoiceConfig] FINAL template selection:', bestTemplate?.name, bestTemplate?.id);
+
+      if (bestTemplate) {
+        setSelectedTemplateId(bestTemplate.id);
+        // Line items will be loaded via useEffect when selectedTemplateId changes
+      }
+    } catch (error) {
+      console.error('Failed to load templates:', error);
+    } finally {
+      setLoadingLineItems(false);
+    }
+  }, [jobCompanyId]); // Removed selectedTemplateId to always set the best template
+
+  // Initial data loading
+  useEffect(() => {
+    const initializePanel = async () => {
+      // Load templates first (line items will be loaded via useEffect when template is selected)
+      await loadTemplates();
+      // Then load configs
+      const loadedConfigs = await loadConfigs();
+
+      // If no configs exist and we haven't attempted auto-generate yet,
+      // auto-generate when template is available
+      if (loadedConfigs.length === 0 && !autoGenerateAttempted) {
+        setAutoGenerateAttempted(true);
+      }
+    };
+
+    initializePanel();
+  }, [jobId]); // Only depend on jobId to avoid infinite loops
+
+  // Fetch job data to get actual mitigation days
+  useEffect(() => {
+    const fetchJobData = async () => {
+      try {
+        const job = await waterMitigationService.getJob(jobId);
+        if (job.mitigation_start_date && job.mitigation_end_date) {
+          // Calculate days difference (inclusive)
+          const startDate = new Date(job.mitigation_start_date);
+          const endDate = new Date(job.mitigation_end_date);
+          const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 for inclusive
+          setActualMitigationDays(diffDays);
+        } else if (job.mitigation_start_date) {
+          // Only start date, count from start to today
+          const startDate = new Date(job.mitigation_start_date);
+          const today = new Date();
+          const diffTime = Math.abs(today.getTime() - startDate.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+          setActualMitigationDays(diffDays);
+        }
+      } catch (error) {
+        console.error('Failed to fetch job data for mitigation days:', error);
+        // Keep using the prop value
+      }
+    };
+
+    fetchJobData();
+  }, [jobId]);
+
+  // Reload line items when template changes
+  useEffect(() => {
+    const reloadLineItemsForTemplate = async () => {
+      if (!selectedTemplateId) return;
+
+      try {
+        setLoadingLineItems(true);
+        console.log('[InvoiceConfig] Loading template:', selectedTemplateId);
+        const templateDetail = await lineItemService.getTemplate(selectedTemplateId);
+        console.log('[InvoiceConfig] Template detail:', templateDetail);
+        console.log('[InvoiceConfig] Template items:', templateDetail.template_items);
+
+        const templateLineItems: LineItemOption[] = [];
+
+        if (templateDetail.template_items) {
+          for (const tli of templateDetail.template_items) {
+            console.log('[InvoiceConfig] Processing TLI:', tli);
+            if (tli.line_item) {
+              // Reference mode: real line item from database
+              console.log('[InvoiceConfig] Using line_item reference:', tli.line_item);
+              templateLineItems.push({
+                ...tli.line_item,
+                _isEmbedded: false,
+              } as LineItemOption);
+            } else if (tli.embedded_data) {
+              // Embedded mode: item data stored directly in template
+              console.log('[InvoiceConfig] Using embedded_data:', tli.embedded_data);
+              templateLineItems.push({
+                id: tli.id, // This is template_line_item.id, NOT line_item.id
+                description: tli.embedded_data.description || 'Unknown',
+                item: tli.embedded_data.item_code || '',
+                unit: tli.embedded_data.unit || 'EA',
+                untaxed_unit_price: tli.embedded_data.rate || 0,
+                type: 'CUSTOM',
+                is_active: true,
+                _isEmbedded: true, // Flag to identify embedded items
+                _embeddedData: tli.embedded_data, // Store original embedded data
+              } as LineItemOption);
+            } else {
+              console.log('[InvoiceConfig] TLI has neither line_item nor embedded_data');
+            }
+          }
+        } else {
+          console.log('[InvoiceConfig] No template_items found in template');
+        }
+
+        console.log('[InvoiceConfig] Final line items:', templateLineItems);
+        setLineItems(templateLineItems);
+      } catch (error) {
+        console.error('[InvoiceConfig] Failed to reload line items for template:', error);
+      } finally {
+        setLoadingLineItems(false);
+      }
+    };
+
+    reloadLineItemsForTemplate();
+  }, [selectedTemplateId]);
+
+  // Auto-generate when template is selected and configs are empty
+  useEffect(() => {
+    const tryAutoGenerate = async () => {
+      if (
+        autoGenerateAttempted &&
+        selectedTemplateId &&
+        configs.length === 0 &&
+        !generating &&
+        !loading
+      ) {
+        // Reset the flag so we don't try again unless user reloads
+        setAutoGenerateAttempted(false);
+        await handleAutoGenerateInternal(false);
+      }
+    };
+
+    tryAutoGenerate();
+  }, [autoGenerateAttempted, selectedTemplateId, configs.length, generating, loading]);
+
+  // Internal auto-generate function (no validation, for automatic calls)
+  const handleAutoGenerateInternal = async (
+    overwrite: boolean = false,
+    showMessages: boolean = true
+  ) => {
+    if (!selectedTemplateId) return;
+
+    try {
+      setGenerating(true);
+      const result: AutoGenerateConfigResult =
+        await waterMitigationService.invoiceConfig.autoGenerate(
+          jobId,
+          selectedTemplateId,
+          overwrite
+        );
+
+      if (result.success) {
+        if (showMessages) {
+          message.success(
+            `Created ${result.created_count} configurations ` +
+            `(${result.matched_count} matched to line items)`
+          );
+
+          if (result.unmatched_items.length > 0) {
+            message.warning(
+              `${result.unmatched_items.length} items could not be matched: ` +
+              result.unmatched_items.slice(0, 3).join(', ') +
+              (result.unmatched_items.length > 3 ? '...' : '')
+            );
+          }
+        }
+
+        await loadConfigs();
+        onConfigChange?.();
+      }
+    } catch (error: any) {
+      if (showMessages) {
+        message.error(
+          error.response?.data?.detail || 'Failed to auto-generate configurations'
+        );
+      }
+      console.error('Auto-generate failed:', error);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // Auto-generate configurations (user-triggered with validation)
+  const handleAutoGenerate = async (overwrite: boolean = false) => {
+    if (!selectedTemplateId) {
+      message.warning('Please select a template first');
+      return;
+    }
+
+    await handleAutoGenerateInternal(overwrite, true);
+  };
+
+  // Update configuration
+  const handleUpdateConfig = async (
+    configId: string,
+    updates: InvoiceItemConfigUpdate
+  ) => {
+    try {
+      setSaving(true);
+      await waterMitigationService.invoiceConfig.update(configId, updates);
+      message.success('Configuration updated');
+      loadConfigs();
+      onConfigChange?.();
+    } catch (error) {
+      message.error('Failed to update configuration');
+    } finally {
+      setSaving(false);
+      setEditingCell(null);
+    }
+  };
+
+  // Delete configuration
+  const handleDeleteConfig = async (configId: string) => {
+    try {
+      await waterMitigationService.invoiceConfig.delete(configId);
+      message.success('Configuration deleted');
+      loadConfigs();
+      onConfigChange?.();
+    } catch (error) {
+      message.error('Failed to delete configuration');
+    }
+  };
+
+  // Preview invoice
+  const handlePreview = async () => {
+    if (!selectedTemplateId) {
+      message.warning('Please select a template first');
+      return;
+    }
+
+    try {
+      setPreviewing(true);
+      const preview = await waterMitigationService.invoiceConfig.previewInvoice(
+        jobId,
+        selectedTemplateId
+      );
+      setPreviewData(preview);
+      setShowPreview(true);
+    } catch (error) {
+      message.error('Failed to generate preview');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  // Generate invoice directly from configuration
+  const handleGenerateInvoice = async () => {
+    if (!selectedTemplateId) {
+      message.warning('Please select a template first');
+      return;
+    }
+
+    if (configs.filter(c => c.is_enabled).length === 0) {
+      message.warning('No enabled items to invoice');
+      return;
+    }
+
+    try {
+      setGeneratingInvoice(true);
+      const result = await waterMitigationService.scopeInvoice.generateInvoice(
+        jobId,
+        {
+          job_id: jobId,
+          template_id: selectedTemplateId,
+          billing_company_id: jobCompanyId || undefined,
+          holiday_premium: holidayPremium,
+        }
+      );
+
+      if (result.success) {
+        const premiumMsg = holidayPremium ? ' (with Holiday Premium)' : '';
+        message.success(`Invoice ${result.invoice_number} generated successfully${premiumMsg}!`);
+        setShowPreview(false);
+        onInvoiceGenerated?.(result);
+        onConfigChange?.();
+      } else {
+        message.error(result.message || 'Failed to generate invoice');
+      }
+
+      // Show warnings if any
+      if (result.warnings && result.warnings.length > 0) {
+        result.warnings.forEach(warning => {
+          message.warning(warning);
+        });
+      }
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Failed to generate invoice');
+    } finally {
+      setGeneratingInvoice(false);
+    }
+  };
+
+  // Reset invoice status for all scope items
+  const handleResetInvoiceStatus = async () => {
+    Modal.confirm({
+      title: 'Reset Invoice Status',
+      content: 'This will mark all scope items as uninvoiced, allowing you to generate a new invoice. Are you sure?',
+      okText: 'Yes, Reset',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setResettingInvoice(true);
+        try {
+          const result = await waterMitigationService.scopeInvoice.resetInvoiceStatus(jobId);
+          if (result.success) {
+            message.success(`${result.items_reset} scope item(s) reset successfully`);
+            onConfigChange?.();
+          } else {
+            message.error(result.message || 'Failed to reset invoice status');
+          }
+        } catch (error: any) {
+          message.error(error.response?.data?.detail || 'Failed to reset invoice status');
+        } finally {
+          setResettingInvoice(false);
+        }
+      },
+    });
+  };
+
+  // Table columns
+  const columns = [
+    {
+      title: 'Scope Item',
+      dataIndex: 'scope_item_name',
+      key: 'scope_item_name',
+      width: 180,
+      render: (name: string, record: InvoiceItemConfig) => (
+        <Text strong>{name || record.custom_name || 'Unknown'}</Text>
+      )
+    },
+    {
+      title: 'Line Item',
+      dataIndex: 'line_item_description',
+      key: 'line_item_description',
+      width: 200,
+      render: (desc: string, record: InvoiceItemConfig) => {
+        const isEditing =
+          editingCell?.configId === record.id &&
+          editingCell?.field === 'line_item_id';
+
+        if (isEditing) {
+          return (
+            <Select
+              style={{ width: '100%' }}
+              defaultValue={record.line_item_id}
+              onChange={(value) => {
+                // Find the selected item to check if it's embedded
+                const selectedItem = lineItems.find(item => item.id === value);
+
+                if (!value) {
+                  // User cleared the selection - use null to explicitly clear
+                  handleUpdateConfig(record.id, {
+                    line_item_id: null,
+                    custom_name: null,
+                    custom_rate: null,
+                    custom_unit: null,
+                  });
+                } else if (selectedItem?._isEmbedded) {
+                  // Embedded item: use custom fields instead of line_item_id
+                  console.log('[InvoiceConfig] Selected embedded item:', selectedItem);
+                  handleUpdateConfig(record.id, {
+                    line_item_id: null, // Clear line_item_id to avoid FK violation
+                    custom_name: selectedItem.description,
+                    custom_rate: selectedItem.untaxed_unit_price || 0,
+                    custom_unit: selectedItem.unit || 'EA',
+                  });
+                } else {
+                  // Reference item: use line_item_id
+                  console.log('[InvoiceConfig] Selected reference item:', selectedItem);
+                  handleUpdateConfig(record.id, {
+                    line_item_id: value,
+                    custom_name: null, // Clear custom fields
+                    custom_rate: null,
+                    custom_unit: null,
+                  });
+                }
+              }}
+              onBlur={() => setEditingCell(null)}
+              autoFocus
+              showSearch
+              filterOption={(input, option) => {
+                const item = lineItems.find(li => li.id === option?.value);
+                return item?.description?.toLowerCase().includes(input.toLowerCase()) ?? false;
+              }}
+              allowClear
+              placeholder="Select line item..."
+            >
+              {lineItems.map(item => (
+                <Select.Option key={item.id} value={item.id}>
+                  {item.description}
+                  {item._isEmbedded && <Tag color="blue" style={{ marginLeft: 8, fontSize: 10 }}>Template</Tag>}
+                </Select.Option>
+              ))}
+            </Select>
+          );
+        }
+
+        return (
+          <Tooltip title="Click to change">
+            <div
+              onClick={() => setEditingCell({ configId: record.id, field: 'line_item_id' })}
+              style={{ cursor: 'pointer', minHeight: 22 }}
+            >
+              {desc || record.custom_name ? (
+                <Space>
+                  <Text>{desc || record.custom_name}</Text>
+                  {!record.line_item_id && (
+                    <Tag color="orange" style={{ fontSize: 10 }}>Custom</Tag>
+                  )}
+                </Space>
+              ) : (
+                <Text type="secondary" italic>Click to select...</Text>
+              )}
+            </div>
+          </Tooltip>
+        );
+      }
+    },
+    {
+      title: 'Qty Type',
+      dataIndex: 'quantity_calc_type',
+      key: 'quantity_calc_type',
+      width: 140,
+      render: (calcType: string, record: InvoiceItemConfig) => {
+        const isEditing =
+          editingCell?.configId === record.id &&
+          editingCell?.field === 'quantity_calc_type';
+
+        if (isEditing) {
+          return (
+            <Select
+              style={{ width: '100%' }}
+              defaultValue={calcType}
+              onChange={(value) => {
+                handleUpdateConfig(record.id, { quantity_calc_type: value });
+              }}
+              onBlur={() => setEditingCell(null)}
+              autoFocus
+            >
+              {QUANTITY_CALC_TYPE_OPTIONS.map(opt => (
+                <Select.Option key={opt.value} value={opt.value}>
+                  <Tooltip title={opt.description}>
+                    {opt.label}
+                  </Tooltip>
+                </Select.Option>
+              ))}
+            </Select>
+          );
+        }
+
+        const option = QUANTITY_CALC_TYPE_OPTIONS.find(o => o.value === calcType);
+        const tagColor =
+          calcType === 'per_day' ? 'blue' :
+          calcType === 'per_day_capped' ? 'purple' : 'default';
+
+        return (
+          <Tooltip title={`Click to change. ${option?.description || ''}`}>
+            <Tag
+              color={tagColor}
+              onClick={() => setEditingCell({ configId: record.id, field: 'quantity_calc_type' })}
+              style={{ cursor: 'pointer' }}
+            >
+              {calcType === 'per_day' && <CalendarOutlined style={{ marginRight: 4 }} />}
+              {option?.label || calcType}
+            </Tag>
+          </Tooltip>
+        );
+      }
+    },
+    {
+      title: 'Quantity',
+      key: 'quantity',
+      width: 80,
+      render: (_: any, record: InvoiceItemConfig) => (
+        <Text>
+          {record.calculated_quantity?.toFixed(2) || record.scope_item_quantity || 0}
+          {' '}{record.scope_item_unit}
+        </Text>
+      )
+    },
+    {
+      title: 'Rate',
+      dataIndex: 'effective_rate',
+      key: 'effective_rate',
+      width: 80,
+      render: (rate: number) => (
+        <Text>${(rate || 0).toFixed(2)}</Text>
+      )
+    },
+    {
+      title: 'Amount',
+      dataIndex: 'calculated_amount',
+      key: 'calculated_amount',
+      width: 100,
+      render: (amount: number) => (
+        <Text strong>${(amount || 0).toFixed(2)}</Text>
+      )
+    },
+    {
+      title: 'Note',
+      dataIndex: 'default_note',
+      key: 'default_note',
+      width: 150,
+      ellipsis: true,
+      render: (note: string, record: InvoiceItemConfig) => {
+        const isEditing =
+          editingCell?.configId === record.id &&
+          editingCell?.field === 'default_note';
+
+        // Get the line item name to compare
+        const lineItemName = record.line_item_description || record.custom_name || '';
+
+        // Check if note is redundant (same as line item name or contains it with prefix like "General Conditions:")
+        const isRedundantNote = (() => {
+          if (!note || !lineItemName) return false;
+          const noteLower = note.trim().toLowerCase();
+          const nameLower = lineItemName.trim().toLowerCase();
+          // Exact match
+          if (noteLower === nameLower) return true;
+          // Note contains line item name (e.g., "General Conditions: Emergency service call")
+          if (noteLower.includes(nameLower)) return true;
+          // Line item name contains note
+          if (nameLower.includes(noteLower)) return true;
+          return false;
+        })();
+
+        // Display note (hide if redundant)
+        const displayNote = isRedundantNote ? null : note;
+
+        if (isEditing) {
+          return (
+            <Input.TextArea
+              style={{ width: '100%' }}
+              defaultValue={note}
+              rows={2}
+              onBlur={(e) => {
+                handleUpdateConfig(record.id, { default_note: e.target.value });
+              }}
+              onPressEnter={(e) => {
+                e.preventDefault();
+                handleUpdateConfig(record.id, {
+                  default_note: (e.target as HTMLTextAreaElement).value
+                });
+              }}
+              autoFocus
+            />
+          );
+        }
+
+        return (
+          <Tooltip title={displayNote || 'Click to add note'}>
+            <div
+              onClick={() => setEditingCell({ configId: record.id, field: 'default_note' })}
+              style={{ cursor: 'pointer', minHeight: 22 }}
+            >
+              {displayNote ? (
+                <Text ellipsis style={{ maxWidth: 140 }}>{displayNote}</Text>
+              ) : (
+                <Text type="secondary" italic>Add note...</Text>
+              )}
+            </div>
+          </Tooltip>
+        );
+      }
+    },
+    {
+      title: 'Enabled',
+      dataIndex: 'is_enabled',
+      key: 'is_enabled',
+      width: 80,
+      render: (enabled: boolean, record: InvoiceItemConfig) => (
+        <Switch
+          checked={enabled}
+          onChange={(checked) => {
+            handleUpdateConfig(record.id, { is_enabled: checked });
+          }}
+          size="small"
+        />
+      )
+    },
+    {
+      title: '',
+      key: 'actions',
+      width: 50,
+      render: (_: any, record: InvoiceItemConfig) => (
+        <Tooltip title="Delete configuration">
+          <Button
+            type="text"
+            danger
+            size="small"
+            icon={<DeleteOutlined />}
+            onClick={() => handleDeleteConfig(record.id)}
+          />
+        </Tooltip>
+      )
+    }
+  ];
+
+  // Calculate totals
+  const totalAmount = configs
+    .filter(c => c.is_enabled)
+    .reduce((sum, c) => sum + (c.calculated_amount || 0), 0);
+
+  const enabledCount = configs.filter(c => c.is_enabled).length;
+  const unmatchedCount = configs.filter(c => !c.line_item_id && !c.custom_name).length;
+
+  return (
+    <Collapse
+      defaultActiveKey={['invoice-config']}
+      style={{ marginBottom: 16 }}
+      items={[
+        {
+          key: 'invoice-config',
+          label: (
+            <Space>
+              <SettingOutlined />
+              <Text strong>Invoice Configuration</Text>
+              <Tag>{enabledCount}/{configs.length} items</Tag>
+              <Text type="secondary">${totalAmount.toFixed(2)}</Text>
+            </Space>
+          ),
+          extra: (
+            <Space onClick={(e) => e.stopPropagation()}>
+              <Select
+                style={{ width: 180 }}
+                placeholder="Select Template"
+                value={selectedTemplateId}
+                onChange={setSelectedTemplateId}
+                loading={loadingLineItems}
+                size="small"
+              >
+                {templates.map(t => (
+                  <Select.Option key={t.id} value={t.id}>
+                    {t.name}
+                  </Select.Option>
+                ))}
+              </Select>
+              <Dropdown.Button
+                size="small"
+                icon={<DownOutlined />}
+                menu={{
+                  items: [
+                    {
+                      key: 'regenerate',
+                      label: 'Regenerate All',
+                      icon: <ReloadOutlined />,
+                      onClick: () => handleAutoGenerate(true)
+                    },
+                    {
+                      key: 'generate-new',
+                      label: 'Generate Missing Only',
+                      icon: <SyncOutlined />,
+                      onClick: () => handleAutoGenerate(false)
+                    },
+                    {
+                      type: 'divider'
+                    },
+                    {
+                      key: 'reset-invoice',
+                      label: 'Reset Invoice Status',
+                      icon: <UndoOutlined />,
+                      danger: true,
+                      onClick: handleResetInvoiceStatus
+                    }
+                  ]
+                }}
+                onClick={() => handleAutoGenerate(true)}
+                loading={generating}
+                disabled={!selectedTemplateId}
+              >
+                <SyncOutlined spin={generating} /> Auto
+              </Dropdown.Button>
+              <Tooltip title="Preview">
+                <Button
+                  size="small"
+                  icon={<FileTextOutlined />}
+                  onClick={handlePreview}
+                  loading={previewing}
+                  disabled={!selectedTemplateId || configs.length === 0}
+                />
+              </Tooltip>
+              <Divider type="vertical" />
+              <Tooltip title="Apply 30% Holiday Premium surcharge">
+                <Checkbox
+                  checked={holidayPremium}
+                  onChange={(e) => setHolidayPremium(e.target.checked)}
+                >
+                  <Space size={4}>
+                    <GiftOutlined style={{ color: holidayPremium ? '#ff4d4f' : undefined }} />
+                    <span style={{ fontSize: 12 }}>Holiday</span>
+                  </Space>
+                </Checkbox>
+              </Tooltip>
+              <Tooltip title="Generate Invoice">
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<DollarOutlined />}
+                  onClick={handleGenerateInvoice}
+                  loading={generatingInvoice}
+                  disabled={!selectedTemplateId || enabledCount === 0}
+                >
+                  Generate
+                </Button>
+              </Tooltip>
+            </Space>
+          ),
+          children: (
+            <>
+      {/* Summary Stats */}
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={6}>
+          <Statistic
+            title="Total Items"
+            value={configs.length}
+            suffix={`/ ${enabledCount} enabled`}
+          />
+        </Col>
+        <Col span={6}>
+          <Statistic
+            title="Estimated Total"
+            value={totalAmount}
+            precision={2}
+            prefix="$"
+          />
+        </Col>
+        <Col span={6}>
+          <Statistic
+            title="Mitigation Days"
+            value={actualMitigationDays}
+            suffix="days"
+          />
+        </Col>
+        <Col span={6}>
+          {unmatchedCount > 0 ? (
+            <Statistic
+              title="Unmatched Items"
+              value={unmatchedCount}
+              valueStyle={{ color: '#faad14' }}
+              prefix={<WarningOutlined />}
+            />
+          ) : (
+            <Statistic
+              title="Status"
+              value="All Matched"
+              valueStyle={{ color: '#52c41a' }}
+              prefix={<CheckCircleOutlined />}
+            />
+          )}
+        </Col>
+      </Row>
+
+      {/* Configuration Table - Grouped by Location */}
+      {loading || generating ? (
+        <div style={{ textAlign: 'center', padding: 40 }}>
+          <Spin tip={generating ? 'Generating configurations...' : 'Loading...'} />
+        </div>
+      ) : configs.length === 0 ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            scopeItemCount === 0 ? (
+              <span>
+                No scope items found.
+                <br />
+                Please add scope items first in the Locations section above.
+              </span>
+            ) : !selectedTemplateId ? (
+              <span>
+                Please select a pricing template above.
+                <br />
+                This will enable auto-generation of configurations.
+              </span>
+            ) : (
+              <span>
+                No configurations yet.
+                <br />
+                <Button
+                  type="link"
+                  onClick={() => handleAutoGenerate(false)}
+                  disabled={!selectedTemplateId}
+                >
+                  Click here to auto-generate from scope items
+                </Button>
+              </span>
+            )
+          }
+        />
+      ) : (
+        (() => {
+          // Group configs by location
+          const groups = new Map<string, InvoiceItemConfig[]>();
+          configs.forEach(c => {
+            const key = c.location_name || 'General';
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key)!.push(c);
+          });
+          const groupKeys = Array.from(groups.keys());
+
+          return (
+            <Collapse
+              defaultActiveKey={groupKeys}
+              size="small"
+              style={{ background: 'transparent' }}
+              items={Array.from(groups.entries()).map(([location, items], index) => {
+                const sectionTotal = items.reduce((sum, i) => sum + (i.calculated_amount || 0), 0);
+                const enabledItems = items.filter(i => i.is_enabled).length;
+
+                return {
+                  key: location,
+                  label: (
+                    <Space>
+                      <Text strong>{location}</Text>
+                      <Tag>{enabledItems}/{items.length} items</Tag>
+                      <Text type="secondary">${sectionTotal.toFixed(2)}</Text>
+                    </Space>
+                  ),
+                  children: (
+                    <Table
+                      dataSource={items}
+                      columns={columns}
+                      rowKey="id"
+                      size="small"
+                      pagination={false}
+                      scroll={{ x: 1000 }}
+                      showHeader={index === 0}
+                    />
+                  )
+                };
+              })}
+            />
+          );
+        })()
+      )}
+
+      {/* Preview Modal */}
+      <Modal
+        title="Invoice Preview"
+        open={showPreview}
+        onCancel={() => setShowPreview(false)}
+        width={800}
+        footer={[
+          <Button key="close" onClick={() => setShowPreview(false)}>
+            Close
+          </Button>,
+          <Button
+            key="generate"
+            type="primary"
+            icon={<DollarOutlined />}
+            loading={generatingInvoice}
+            onClick={handleGenerateInvoice}
+          >
+            Generate Invoice
+          </Button>
+        ]}
+      >
+        {previewData && (
+          <>
+            <Row gutter={16} style={{ marginBottom: 16 }}>
+              <Col span={8}>
+                <Statistic
+                  title="Subtotal"
+                  value={previewData.subtotal}
+                  precision={2}
+                  prefix="$"
+                />
+              </Col>
+              <Col span={8}>
+                <Statistic
+                  title="Total"
+                  value={previewData.total}
+                  precision={2}
+                  prefix="$"
+                  valueStyle={{ color: '#1890ff' }}
+                />
+              </Col>
+              <Col span={8}>
+                <Statistic
+                  title="Mitigation Days"
+                  value={previewData.mitigation_days}
+                />
+              </Col>
+            </Row>
+
+            {previewData.unmapped_items.length > 0 && (
+              <Alert
+                message="Unmapped Items"
+                description={previewData.unmapped_items.join(', ')}
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+            )}
+
+            <Table
+              dataSource={previewData.items}
+              columns={[
+                {
+                  title: 'Item',
+                  dataIndex: 'line_item_description',
+                  key: 'line_item_description'
+                },
+                {
+                  title: 'Location',
+                  dataIndex: 'location_name',
+                  key: 'location_name'
+                },
+                {
+                  title: 'Calculation',
+                  dataIndex: 'calculation_note',
+                  key: 'calculation_note'
+                },
+                {
+                  title: 'Rate',
+                  dataIndex: 'rate',
+                  key: 'rate',
+                  render: (v: number) => `$${v.toFixed(2)}`
+                },
+                {
+                  title: 'Amount',
+                  dataIndex: 'amount',
+                  key: 'amount',
+                  render: (v: number) => `$${v.toFixed(2)}`
+                }
+              ]}
+              rowKey={(_, index) => `preview-${index}`}
+              size="small"
+              pagination={false}
+            />
+          </>
+        )}
+      </Modal>
+            </>
+          )
+        }
+      ]}
+    />
+  );
+};
+
+export default InvoiceConfigurationPanel;

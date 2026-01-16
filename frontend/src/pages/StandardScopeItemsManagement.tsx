@@ -31,12 +31,19 @@ import {
   SearchOutlined,
   ReloadOutlined,
   UndoOutlined,
-  DatabaseOutlined
+  DatabaseOutlined,
+  LinkOutlined,
+  DisconnectOutlined,
+  DollarOutlined,
+  CheckCircleOutlined,
+  WarningOutlined
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ColumnsType } from 'antd/es/table';
 import waterMitigationService from '../services/waterMitigationService';
-import type { StandardScopeItem, StandardScopeItemCreate, StandardScopeItemUpdate, ScopeItemCategory, MaterialWeight } from '../types/waterMitigation';
+import type { StandardScopeItem, StandardScopeItemCreate, StandardScopeItemUpdate, ScopeItemCategory, MaterialWeight, StandardItemMapping, StandardItemMappingUpdate } from '../types/waterMitigation';
+import lineItemService from '../services/lineItemService';
+import type { LineItemModalItem } from '../types/lineItem';
 
 const { Title, Text } = Typography;
 const { Search } = Input;
@@ -59,6 +66,13 @@ const UNIT_OPTIONS = [
   { value: 'DAY', label: 'DAY' }
 ];
 
+// Quantity calculation type options
+const QUANTITY_CALC_TYPE_OPTIONS = [
+  { value: 'fixed', label: 'Fixed', description: 'Use quantity as-is' },
+  { value: 'per_day', label: 'Per Day', description: 'Multiply by mitigation days' },
+  { value: 'per_day_capped', label: 'Per Day (Capped)', description: 'Multiply by days, with max limit' }
+];
+
 const StandardScopeItemsManagement: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchText, setSearchText] = useState('');
@@ -68,6 +82,15 @@ const StandardScopeItemsManagement: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<StandardScopeItem | null>(null);
   const [form] = Form.useForm();
+
+  // Invoice Mapping Tab State
+  const [activeTab, setActiveTab] = useState<string>('items');
+  const [mappingModalVisible, setMappingModalVisible] = useState(false);
+  const [editingMapping, setEditingMapping] = useState<StandardItemMapping | null>(null);
+  const [mappingForm] = Form.useForm();
+  const [lineItemSearchTerm, setLineItemSearchTerm] = useState('');
+  const [showMappedOnly, setShowMappedOnly] = useState<boolean | undefined>(undefined);
+  const [mappingSearchText, setMappingSearchText] = useState('');
 
   // Fetch items
   const { data, isLoading, refetch } = useQuery({
@@ -178,6 +201,249 @@ const StandardScopeItemsManagement: React.FC = () => {
       message.error('Failed to seed default items');
     }
   });
+
+  // =====================================================
+  // Invoice Line Item Mapping
+  // =====================================================
+
+  // Fetch standard item mappings
+  const { data: mappingsData, isLoading: mappingsLoading, refetch: refetchMappings } = useQuery({
+    queryKey: ['wm-standard-item-mappings'],
+    queryFn: () => waterMitigationService.standardItemMappings.list(),
+    enabled: activeTab === 'mapping'
+  });
+
+  // Search line items for mapping
+  const { data: lineItemsForMapping, isLoading: lineItemsLoading } = useQuery({
+    queryKey: ['line-items-for-mapping', lineItemSearchTerm],
+    queryFn: () => lineItemService.searchLineItemsForModal(lineItemSearchTerm, undefined, 50),
+    enabled: mappingModalVisible && lineItemSearchTerm.length >= 2
+  });
+
+  // Update mapping mutation
+  const updateMappingMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: StandardItemMappingUpdate }) =>
+      waterMitigationService.standardItemMappings.update(id, data),
+    onSuccess: () => {
+      message.success('Invoice mapping updated successfully');
+      queryClient.invalidateQueries({ queryKey: ['wm-standard-item-mappings'] });
+      setMappingModalVisible(false);
+      mappingForm.resetFields();
+      setEditingMapping(null);
+      setLineItemSearchTerm('');
+    },
+    onError: (error: any) => {
+      message.error(error?.response?.data?.detail || 'Failed to update mapping');
+    }
+  });
+
+  // Handle edit mapping
+  const handleEditMapping = (mapping: StandardItemMapping) => {
+    setEditingMapping(mapping);
+    mappingForm.setFieldsValue({
+      mapping_type: mapping.line_item_id ? 'line_item' : (mapping.custom_line_item_name ? 'custom' : 'none'),
+      line_item_id: mapping.line_item_id,
+      custom_line_item_name: mapping.custom_line_item_name,
+      custom_line_item_rate: mapping.custom_line_item_rate,
+      quantity_calc_type: mapping.quantity_calc_type || 'fixed',
+      max_days: mapping.max_days,
+      default_invoice_note: mapping.default_invoice_note
+    });
+    setMappingModalVisible(true);
+  };
+
+  // Handle save mapping
+  const handleSaveMapping = async () => {
+    try {
+      const values = await mappingForm.validateFields();
+
+      if (!editingMapping) return;
+
+      const updateData: StandardItemMappingUpdate = {
+        quantity_calc_type: values.quantity_calc_type,
+        max_days: values.quantity_calc_type === 'per_day_capped' ? values.max_days : null,
+        default_invoice_note: values.default_invoice_note || null
+      };
+
+      // Set mapping based on type
+      if (values.mapping_type === 'line_item' && values.line_item_id) {
+        updateData.line_item_id = values.line_item_id;
+        updateData.custom_line_item_name = null;
+        updateData.custom_line_item_rate = null;
+      } else if (values.mapping_type === 'custom') {
+        updateData.line_item_id = null;
+        updateData.custom_line_item_name = values.custom_line_item_name;
+        updateData.custom_line_item_rate = values.custom_line_item_rate;
+      } else {
+        // No mapping
+        updateData.line_item_id = null;
+        updateData.custom_line_item_name = null;
+        updateData.custom_line_item_rate = null;
+      }
+
+      await updateMappingMutation.mutateAsync({ id: editingMapping.id, data: updateData });
+    } catch (error) {
+      // Form validation error
+    }
+  };
+
+  // Clear mapping (disconnect)
+  const handleClearMapping = async (mapping: StandardItemMapping) => {
+    try {
+      await updateMappingMutation.mutateAsync({
+        id: mapping.id,
+        data: {
+          line_item_id: null,
+          custom_line_item_name: null,
+          custom_line_item_rate: null
+        }
+      });
+    } catch (error) {
+      // Error handled in mutation
+    }
+  };
+
+  // Filter mappings
+  const filteredMappings = React.useMemo(() => {
+    if (!mappingsData?.items) return [];
+
+    let filtered = mappingsData.items;
+
+    // Filter by search text
+    if (mappingSearchText) {
+      const search = mappingSearchText.toLowerCase();
+      filtered = filtered.filter(m =>
+        m.name.toLowerCase().includes(search) ||
+        m.line_item_description?.toLowerCase().includes(search) ||
+        m.custom_line_item_name?.toLowerCase().includes(search)
+      );
+    }
+
+    // Filter by mapped status
+    if (showMappedOnly === true) {
+      filtered = filtered.filter(m => m.has_mapping);
+    } else if (showMappedOnly === false) {
+      filtered = filtered.filter(m => !m.has_mapping);
+    }
+
+    return filtered;
+  }, [mappingsData?.items, mappingSearchText, showMappedOnly]);
+
+  // Mapping table columns
+  const mappingColumns: ColumnsType<StandardItemMapping> = [
+    {
+      title: 'Scope Item',
+      dataIndex: 'name',
+      key: 'name',
+      width: 200,
+      sorter: (a, b) => a.name.localeCompare(b.name),
+      render: (name: string, record: StandardItemMapping) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{name}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {record.unit} • {record.item_type}
+          </Text>
+        </Space>
+      )
+    },
+    {
+      title: 'Category',
+      dataIndex: 'category_name',
+      key: 'category_name',
+      width: 120,
+      render: (categoryName: string | null) => categoryName ? (
+        <Tag>{categoryName}</Tag>
+      ) : (
+        <Text type="secondary">-</Text>
+      )
+    },
+    {
+      title: 'Mapping Status',
+      key: 'mapping_status',
+      width: 100,
+      align: 'center',
+      render: (_, record: StandardItemMapping) => record.has_mapping ? (
+        <Tag icon={<CheckCircleOutlined />} color="success">Mapped</Tag>
+      ) : (
+        <Tag icon={<WarningOutlined />} color="warning">Unmapped</Tag>
+      )
+    },
+    {
+      title: 'Invoice Line Item',
+      key: 'line_item_info',
+      width: 280,
+      render: (_, record: StandardItemMapping) => {
+        if (record.line_item_id && record.line_item_description) {
+          return (
+            <Space direction="vertical" size={0}>
+              <Text>{record.line_item_description}</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                <DollarOutlined /> ${record.line_item_rate?.toFixed(2) || '0.00'} / {record.unit}
+              </Text>
+            </Space>
+          );
+        }
+        if (record.custom_line_item_name) {
+          return (
+            <Space direction="vertical" size={0}>
+              <Text>
+                <Tag color="blue" style={{ marginRight: 4 }}>Custom</Tag>
+                {record.custom_line_item_name}
+              </Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                <DollarOutlined /> ${record.custom_line_item_rate?.toFixed(2) || '0.00'} / {record.unit}
+              </Text>
+            </Space>
+          );
+        }
+        return <Text type="secondary">Not configured</Text>;
+      }
+    },
+    {
+      title: 'Quantity Calc',
+      dataIndex: 'quantity_calc_type',
+      key: 'quantity_calc_type',
+      width: 130,
+      render: (calcType: string, record: StandardItemMapping) => {
+        const option = QUANTITY_CALC_TYPE_OPTIONS.find(o => o.value === calcType);
+        let label = option?.label || calcType;
+        if (calcType === 'per_day_capped' && record.max_days) {
+          label += ` (max ${record.max_days})`;
+        }
+        return <Tag color={calcType === 'fixed' ? 'default' : 'blue'}>{label}</Tag>;
+      }
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      width: 120,
+      fixed: 'right',
+      render: (_, record: StandardItemMapping) => (
+        <Space size="small">
+          <Tooltip title="Edit Mapping">
+            <Button
+              type="text"
+              icon={<LinkOutlined />}
+              onClick={() => handleEditMapping(record)}
+            />
+          </Tooltip>
+          {record.has_mapping && (
+            <Popconfirm
+              title="Clear this mapping?"
+              description="The scope item will no longer have a line item association."
+              onConfirm={() => handleClearMapping(record)}
+              okText="Clear"
+              cancelText="Cancel"
+            >
+              <Tooltip title="Clear Mapping">
+                <Button type="text" danger icon={<DisconnectOutlined />} />
+              </Tooltip>
+            </Popconfirm>
+          )}
+        </Space>
+      )
+    }
+  ];
 
   const handleCreateItem = () => {
     setEditingItem(null);
@@ -370,85 +636,172 @@ const StandardScopeItemsManagement: React.FC = () => {
   return (
     <div style={{ padding: 24 }}>
       <Card>
-        <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Title level={3} style={{ margin: 0 }}>Standard Scope Items</Title>
-          <Space>
-            <Tooltip title="Seed default items from hardcoded list">
-              <Button
-                icon={<DatabaseOutlined />}
-                onClick={() => seedDefaultsMutation.mutate()}
-                loading={seedDefaultsMutation.isPending}
+        </div>
+
+        <Tabs activeKey={activeTab} onChange={setActiveTab}>
+          {/* Items Tab */}
+          <Tabs.TabPane tab="Scope Items" key="items">
+            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
+              <Space>
+                <Tooltip title="Seed default items from hardcoded list">
+                  <Button
+                    icon={<DatabaseOutlined />}
+                    onClick={() => seedDefaultsMutation.mutate()}
+                    loading={seedDefaultsMutation.isPending}
+                  >
+                    Seed Defaults
+                  </Button>
+                </Tooltip>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={handleCreateItem}
+                >
+                  Add Item
+                </Button>
+              </Space>
+            </div>
+
+            {/* Filters */}
+            <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Search
+                placeholder="Search by name..."
+                allowClear
+                style={{ width: 250 }}
+                prefix={<SearchOutlined />}
+                onSearch={setSearchText}
+                onChange={e => !e.target.value && setSearchText('')}
+              />
+              <Select
+                placeholder="Filter by type"
+                allowClear
+                style={{ width: 150 }}
+                value={filterType}
+                onChange={setFilterType}
               >
-                Seed Defaults
+                {ITEM_TYPE_OPTIONS.map(t => (
+                  <Option key={t.value} value={t.value}>{t.label}</Option>
+                ))}
+              </Select>
+              <Select
+                placeholder="Filter by category"
+                allowClear
+                style={{ width: 180 }}
+                value={filterCategoryId}
+                onChange={setFilterCategoryId}
+              >
+                {categories.map((cat: ScopeItemCategory) => (
+                  <Option key={cat.id} value={cat.id}>
+                    <Tag color={cat.color} style={{ marginRight: 4 }}>{cat.name}</Tag>
+                  </Option>
+                ))}
+              </Select>
+              <Space>
+                <Text>Show inactive:</Text>
+                <Switch checked={showInactive} onChange={setShowInactive} />
+              </Space>
+              <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
+                Refresh
               </Button>
-            </Tooltip>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={handleCreateItem}
-            >
-              Add Item
-            </Button>
-          </Space>
-        </div>
+            </div>
 
-        {/* Filters */}
-        <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Search
-            placeholder="Search by name..."
-            allowClear
-            style={{ width: 250 }}
-            prefix={<SearchOutlined />}
-            onSearch={setSearchText}
-            onChange={e => !e.target.value && setSearchText('')}
-          />
-          <Select
-            placeholder="Filter by type"
-            allowClear
-            style={{ width: 150 }}
-            value={filterType}
-            onChange={setFilterType}
-          >
-            {ITEM_TYPE_OPTIONS.map(t => (
-              <Option key={t.value} value={t.value}>{t.label}</Option>
-            ))}
-          </Select>
-          <Select
-            placeholder="Filter by category"
-            allowClear
-            style={{ width: 180 }}
-            value={filterCategoryId}
-            onChange={setFilterCategoryId}
-          >
-            {categories.map((cat: ScopeItemCategory) => (
-              <Option key={cat.id} value={cat.id}>
-                <Tag color={cat.color} style={{ marginRight: 4 }}>{cat.name}</Tag>
-              </Option>
-            ))}
-          </Select>
-          <Space>
-            <Text>Show inactive:</Text>
-            <Switch checked={showInactive} onChange={setShowInactive} />
-          </Space>
-          <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
-            Refresh
-          </Button>
-        </div>
+            {/* Table */}
+            <Table
+              columns={columns}
+              dataSource={data?.items || []}
+              rowKey="id"
+              loading={isLoading}
+              pagination={{
+                total: data?.total || 0,
+                showSizeChanger: true,
+                showTotal: (total) => `Total ${total} items`
+              }}
+              scroll={{ x: 1200 }}
+              size="middle"
+            />
+          </Tabs.TabPane>
 
-        {/* Table */}
-        <Table
-          columns={columns}
-          dataSource={data?.items || []}
-          rowKey="id"
-          loading={isLoading}
-          pagination={{
-            total: data?.total || 0,
-            showSizeChanger: true,
-            showTotal: (total) => `Total ${total} items`
-          }}
-          scroll={{ x: 1200 }}
-          size="middle"
-        />
+          {/* Invoice Mapping Tab */}
+          <Tabs.TabPane
+            tab={
+              <Space>
+                <LinkOutlined />
+                Invoice Mapping
+                {mappingsData && (
+                  <Tag color={mappingsData.unmapped_count > 0 ? 'warning' : 'success'}>
+                    {mappingsData.mapped_count}/{mappingsData.total}
+                  </Tag>
+                )}
+              </Space>
+            }
+            key="mapping"
+          >
+            {/* Mapping Stats */}
+            {mappingsData && (
+              <div style={{ marginBottom: 16, padding: 16, background: '#fafafa', borderRadius: 8 }}>
+                <Space size="large">
+                  <div>
+                    <Text type="secondary">Total Items</Text>
+                    <div style={{ fontSize: 24, fontWeight: 600 }}>{mappingsData.total}</div>
+                  </div>
+                  <div>
+                    <Text type="secondary">Mapped</Text>
+                    <div style={{ fontSize: 24, fontWeight: 600, color: '#52c41a' }}>
+                      {mappingsData.mapped_count}
+                    </div>
+                  </div>
+                  <div>
+                    <Text type="secondary">Unmapped</Text>
+                    <div style={{ fontSize: 24, fontWeight: 600, color: mappingsData.unmapped_count > 0 ? '#faad14' : '#52c41a' }}>
+                      {mappingsData.unmapped_count}
+                    </div>
+                  </div>
+                </Space>
+              </div>
+            )}
+
+            {/* Mapping Filters */}
+            <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Search
+                placeholder="Search scope items or line items..."
+                allowClear
+                style={{ width: 300 }}
+                prefix={<SearchOutlined />}
+                onSearch={setMappingSearchText}
+                onChange={e => !e.target.value && setMappingSearchText('')}
+              />
+              <Select
+                placeholder="Filter by status"
+                allowClear
+                style={{ width: 150 }}
+                value={showMappedOnly}
+                onChange={setShowMappedOnly}
+              >
+                <Option value={true}>Mapped Only</Option>
+                <Option value={false}>Unmapped Only</Option>
+              </Select>
+              <Button icon={<ReloadOutlined />} onClick={() => refetchMappings()}>
+                Refresh
+              </Button>
+            </div>
+
+            {/* Mapping Table */}
+            <Table
+              columns={mappingColumns}
+              dataSource={filteredMappings}
+              rowKey="id"
+              loading={mappingsLoading}
+              pagination={{
+                showSizeChanger: true,
+                showTotal: (total) => `Total ${total} items`
+              }}
+              scroll={{ x: 1000 }}
+              size="middle"
+            />
+          </Tabs.TabPane>
+        </Tabs>
       </Card>
 
       {/* Create/Edit Modal */}
@@ -600,6 +953,222 @@ const StandardScopeItemsManagement: React.FC = () => {
               );
             }}
           </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Invoice Mapping Modal */}
+      <Modal
+        title={
+          <Space>
+            <LinkOutlined />
+            <span>Configure Invoice Mapping</span>
+            {editingMapping && <Tag>{editingMapping.name}</Tag>}
+          </Space>
+        }
+        open={mappingModalVisible}
+        onCancel={() => {
+          setMappingModalVisible(false);
+          mappingForm.resetFields();
+          setEditingMapping(null);
+          setLineItemSearchTerm('');
+        }}
+        onOk={handleSaveMapping}
+        confirmLoading={updateMappingMutation.isPending}
+        width={700}
+      >
+        {editingMapping && (
+          <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
+            <Space direction="vertical" size={4}>
+              <Text strong>{editingMapping.name}</Text>
+              <Text type="secondary">
+                Unit: {editingMapping.unit} | Type: {editingMapping.item_type}
+                {editingMapping.category_name && ` | Category: ${editingMapping.category_name}`}
+              </Text>
+            </Space>
+          </div>
+        )}
+
+        <Form
+          form={mappingForm}
+          layout="vertical"
+          initialValues={{
+            mapping_type: 'none',
+            quantity_calc_type: 'fixed'
+          }}
+        >
+          <Form.Item
+            name="mapping_type"
+            label="Mapping Type"
+            rules={[{ required: true }]}
+          >
+            <Select>
+              <Option value="none">No Mapping</Option>
+              <Option value="line_item">Link to Line Item Library</Option>
+              <Option value="custom">Custom Line Item</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) =>
+              prevValues.mapping_type !== currentValues.mapping_type
+            }
+          >
+            {({ getFieldValue }) => {
+              const mappingType = getFieldValue('mapping_type');
+
+              if (mappingType === 'line_item') {
+                return (
+                  <Form.Item
+                    name="line_item_id"
+                    label="Select Line Item"
+                    rules={[{ required: true, message: 'Please select a line item' }]}
+                  >
+                    <Select
+                      showSearch
+                      placeholder="Search line items..."
+                      filterOption={false}
+                      onSearch={setLineItemSearchTerm}
+                      loading={lineItemsLoading}
+                      optionLabelProp="label"
+                      notFoundContent={
+                        lineItemsLoading ? (
+                          <Text type="secondary">Searching...</Text>
+                        ) : lineItemSearchTerm.length < 2 ? (
+                          <Text type="secondary">Type at least 2 characters to search</Text>
+                        ) : (
+                          <Text type="secondary">No line items found</Text>
+                        )
+                      }
+                    >
+                      {(lineItemsForMapping || []).map((item: LineItemModalItem) => (
+                        <Option key={item.id} value={item.id} label={item.description}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <Text
+                              style={{
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: '100%'
+                              }}
+                              title={item.description}
+                            >
+                              {item.description}
+                            </Text>
+                            <Text
+                              type="secondary"
+                              style={{
+                                fontSize: 11,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              {item.component_code} | ${item.unit_price?.toFixed(2) || '0.00'} / {item.unit}
+                              {item.type === 'XACTIMATE' && ' | Xactimate'}
+                            </Text>
+                          </div>
+                        </Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                );
+              }
+
+              if (mappingType === 'custom') {
+                return (
+                  <>
+                    <Form.Item
+                      name="custom_line_item_name"
+                      label="Custom Line Item Name"
+                      rules={[{ required: true, message: 'Please enter a custom line item name' }]}
+                    >
+                      <Input placeholder="e.g., Equipment Monitoring - Daily Rate" />
+                    </Form.Item>
+                    <Form.Item
+                      name="custom_line_item_rate"
+                      label="Rate per Unit"
+                      rules={[{ required: true, message: 'Please enter a rate' }]}
+                    >
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        min={0}
+                        step={0.01}
+                        precision={2}
+                        prefix="$"
+                        placeholder="0.00"
+                      />
+                    </Form.Item>
+                  </>
+                );
+              }
+
+              return null;
+            }}
+          </Form.Item>
+
+          <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 16, marginTop: 16 }}>
+            <Title level={5}>Quantity Calculation Settings</Title>
+
+            <Form.Item
+              name="quantity_calc_type"
+              label="Calculation Method"
+              tooltip="How quantity should be calculated when generating invoice"
+            >
+              <Select>
+                {QUANTITY_CALC_TYPE_OPTIONS.map(opt => (
+                  <Option key={opt.value} value={opt.value}>
+                    <Space>
+                      <span>{opt.label}</span>
+                      <Text type="secondary" style={{ fontSize: 12 }}>- {opt.description}</Text>
+                    </Space>
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+
+            <Form.Item
+              noStyle
+              shouldUpdate={(prevValues, currentValues) =>
+                prevValues.quantity_calc_type !== currentValues.quantity_calc_type
+              }
+            >
+              {({ getFieldValue }) => {
+                const calcType = getFieldValue('quantity_calc_type');
+
+                if (calcType === 'per_day_capped') {
+                  return (
+                    <Form.Item
+                      name="max_days"
+                      label="Maximum Days"
+                      rules={[{ required: true, message: 'Please enter max days' }]}
+                      tooltip="Quantity will be capped at this number of days"
+                    >
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        min={1}
+                        max={365}
+                        placeholder="e.g., 5"
+                      />
+                    </Form.Item>
+                  );
+                }
+
+                return null;
+              }}
+            </Form.Item>
+
+            <Form.Item
+              name="default_invoice_note"
+              label="Default Invoice Note"
+              tooltip="Optional note to include with this line item in invoices"
+            >
+              <Input.TextArea
+                rows={2}
+                placeholder="e.g., Per IICRC S500 standards"
+              />
+            </Form.Item>
+          </div>
         </Form>
       </Modal>
     </div>

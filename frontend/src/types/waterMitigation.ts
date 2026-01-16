@@ -448,6 +448,14 @@ export interface MaterialWeightBrief {
   unit: string;
 }
 
+// Line item brief (for scope item reference)
+export interface LineItemBrief {
+  id: string;
+  description: string;
+  unit?: string;
+  untaxed_unit_price?: number;
+}
+
 // Scope Location
 export interface ScopeLocation {
   id: string;
@@ -496,7 +504,11 @@ export interface ScopeItem {
   unit: UnitType;
   material_weight_id?: string;
   material_weight?: MaterialWeightBrief;
+  line_item_id?: string;
+  line_item?: LineItemBrief;
   include_in_debris: boolean;
+  invoiced?: boolean;
+  invoiced_at?: string;
   display_order: number;
   created_at: string;
   updated_at?: string;
@@ -511,6 +523,7 @@ export interface ScopeItemCreate {
   quantity_formula?: string;
   unit?: UnitType;
   material_weight_id?: string;
+  line_item_id?: string;
   include_in_debris?: boolean;
   display_order?: number;
 }
@@ -523,6 +536,7 @@ export interface ScopeItemUpdate {
   quantity_formula?: string;
   unit?: UnitType;
   material_weight_id?: string;
+  line_item_id?: string;
   include_in_debris?: boolean;
   display_order?: number;
 }
@@ -746,4 +760,295 @@ export interface MaterialWeight {
 export interface MaterialWeightListResponse {
   materials: MaterialWeight[];
   total: number;
+}
+
+// ============================================================================
+// Scope Invoice Types
+// ============================================================================
+
+export interface GenerateInvoiceRequest {
+  job_id: string;
+  template_id: string;
+  billing_company_id?: string;
+  invoice_date?: string;
+  scope_item_ids?: string[];
+  notes?: string;
+  holiday_premium?: boolean;
+}
+
+export interface GenerateInvoiceResponse {
+  success: boolean;
+  message: string;
+  invoice_id?: string;
+  invoice_number?: string;
+  scope_invoice_id?: string;
+  items_invoiced: number;
+  total_amount?: number;
+  warnings: string[];
+}
+
+export interface ScopeItemInvoiceLinkResponse {
+  id: string;
+  scope_item_id: string;
+  invoice_item_id: string;
+  scope_item_name?: string;
+  invoice_item_description?: string;
+}
+
+export interface WMScopeInvoiceResponse {
+  id: string;
+  job_id: string;
+  invoice_id: string;
+  invoice_number?: string;
+  invoice_total?: number;
+  generated_at: string;
+  generated_by_id?: string;
+  notes?: string;
+  item_links: ScopeItemInvoiceLinkResponse[];
+  created_at?: string;
+}
+
+export interface JobInvoiceHistoryResponse {
+  invoices: WMScopeInvoiceResponse[];
+  total_invoiced: number;
+  invoice_count: number;
+}
+
+export interface ScopeItemInvoiceStatusResponse {
+  scope_item_id: string;
+  scope_item_name: string;
+  invoiced: boolean;
+  invoiced_at?: string;
+  invoice_item_id?: string;
+  invoice_id?: string;
+  invoice_number?: string;
+}
+
+// ============================================================================
+// Invoice Item Configuration Types
+// ============================================================================
+
+// Quantity calculation types for invoice items
+export enum QuantityCalcType {
+  FIXED = 'fixed',         // Use scope item quantity as-is
+  PER_DAY = 'per_day',     // Multiply by mitigation period days
+  PER_DAY_CAPPED = 'per_day_capped'  // Per day with max days limit
+}
+
+export const QUANTITY_CALC_TYPE_OPTIONS = [
+  {
+    value: QuantityCalcType.FIXED,
+    label: 'Fixed',
+    description: 'Use scope item quantity as-is'
+  },
+  {
+    value: QuantityCalcType.PER_DAY,
+    label: 'Per Day',
+    description: 'Multiply quantity by mitigation days'
+  },
+  {
+    value: QuantityCalcType.PER_DAY_CAPPED,
+    label: 'Per Day (Capped)',
+    description: 'Per day with maximum days limit'
+  }
+] as const;
+
+// Invoice Item Configuration
+export interface InvoiceItemConfig {
+  id: string;
+  job_id: string;
+  scope_item_id?: string;
+  standard_scope_item_id?: string;
+  line_item_id?: string;
+
+  // Custom line item fields (when not using existing line item)
+  custom_name?: string;
+  custom_description?: string;
+  custom_rate?: number;
+  custom_unit?: string;
+
+  // Quantity calculation
+  quantity_calc_type: QuantityCalcType | string;
+  max_days?: number;  // For per_day_capped
+
+  // Default note for this line item
+  default_note?: string;
+
+  // Status
+  is_enabled: boolean;
+  display_order: number;
+
+  // Populated data from relationships
+  scope_item_name?: string;
+  scope_item_quantity?: number;
+  scope_item_unit?: string;
+  location_name?: string;
+  line_item_description?: string;
+  line_item_rate?: number;
+
+  // Calculated values (when include_calculated=true)
+  calculated_quantity?: number;
+  calculation_note?: string;  // e.g., "3 x 5 days = 15"
+  effective_rate?: number;
+  calculated_amount?: number;
+
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface InvoiceItemConfigCreate {
+  job_id: string;
+  scope_item_id?: string;
+  line_item_id?: string;
+  custom_name?: string;
+  custom_description?: string;
+  custom_rate?: number;
+  custom_unit?: string;
+  quantity_calc_type?: string;
+  max_days?: number;
+  default_note?: string;
+  is_enabled?: boolean;
+  display_order?: number;
+}
+
+export interface InvoiceItemConfigUpdate {
+  scope_item_id?: string;
+  line_item_id?: string | null;  // null to explicitly clear FK reference
+  custom_name?: string | null;
+  custom_description?: string | null;
+  custom_rate?: number | null;
+  custom_unit?: string | null;
+  quantity_calc_type?: string;
+  max_days?: number;
+  default_note?: string;
+  is_enabled?: boolean;
+  display_order?: number;
+}
+
+export interface InvoiceItemConfigListResponse {
+  items: InvoiceItemConfig[];
+  total: number;
+}
+
+// Invoice Preview Types
+export interface InvoicePreviewItem {
+  scope_item_name: string;
+  location_name: string;
+  line_item_description: string;
+  base_quantity: number;
+  calculated_quantity: number;
+  calculation_note: string;
+  unit: string;
+  rate: number;
+  amount: number;
+  default_note?: string;
+}
+
+export interface InvoicePreviewResponse {
+  items: InvoicePreviewItem[];
+  subtotal: number;
+  total: number;
+  mitigation_days: number;
+  mitigation_start?: string;
+  mitigation_end?: string;
+  unmapped_items: string[];
+}
+
+// Auto-generate config result
+export interface AutoGenerateConfigResult {
+  success: boolean;
+  created_count: number;
+  matched_count: number;
+  unmatched_items: string[];
+}
+
+// ============================================================================
+// Standard Scope Item Mapping Types (New Invoice Configuration Approach)
+// ============================================================================
+
+/**
+ * Standard scope item with its invoice line item mapping.
+ * This is used for the new invoice configuration approach where
+ * mappings are configured once at the standard item level.
+ */
+export interface StandardItemMapping {
+  id: string;
+  name: string;
+  item_type: string;
+  unit: string;
+  category_id?: string | null;
+  category_name?: string | null;
+  company_id?: string | null;
+
+  // Invoice mapping fields
+  line_item_id?: string | null;
+  line_item_description?: string | null;
+  line_item_rate?: number | null;
+  custom_line_item_name?: string | null;
+  custom_line_item_rate?: number | null;
+  quantity_calc_type: string;
+  max_days?: number | null;
+  default_invoice_note?: string | null;
+
+  // Computed field
+  has_mapping: boolean;
+}
+
+export interface StandardItemMappingListResponse {
+  items: StandardItemMapping[];
+  total: number;
+  mapped_count: number;
+  unmapped_count: number;
+}
+
+export interface StandardItemMappingUpdate {
+  line_item_id?: string | null;
+  custom_line_item_name?: string | null;
+  custom_line_item_rate?: number | null;
+  quantity_calc_type?: string;
+  max_days?: number | null;
+  default_invoice_note?: string | null;
+}
+
+export interface StandardItemMappingUpdateResult {
+  id: string;
+  name: string;
+  line_item_id?: string | null;
+  custom_line_item_name?: string | null;
+  custom_line_item_rate?: number | null;
+  quantity_calc_type: string;
+  max_days?: number | null;
+  default_invoice_note?: string | null;
+  updated: boolean;
+}
+
+/**
+ * Invoice preview item using standard scope item mappings.
+ * Aggregates quantities per item type across all locations.
+ */
+export interface StandardMappingPreviewItem {
+  scope_item_name: string;
+  location_names: string[];
+  line_item_description: string;
+  base_quantity: number;
+  calculated_quantity: number;
+  calculation_note: string;
+  unit: string;
+  rate: number;
+  amount: number;
+  default_note?: string | null;
+  has_mapping: boolean;
+  standard_item_id?: string | null;
+}
+
+export interface StandardItemMappingPreviewResponse {
+  items: StandardMappingPreviewItem[];
+  subtotal: number;
+  total: number;
+  mitigation_days: number;
+  mitigation_start?: string | null;
+  mitigation_end?: string | null;
+  unmapped_items: string[];
+  mapped_count: number;
+  total_count: number;
 }

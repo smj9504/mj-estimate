@@ -41,7 +41,9 @@ class ScopeRepository:
         if include_items:
             query = query.options(
                 selectinload(WMScopeLocation.scope_items)
-                .joinedload(WMScopeItem.material_weight)
+                .joinedload(WMScopeItem.material_weight),
+                selectinload(WMScopeLocation.scope_items)
+                .joinedload(WMScopeItem.line_item)
             )
 
         query = query.order_by(WMScopeLocation.display_order)
@@ -62,7 +64,9 @@ class ScopeRepository:
         if include_items:
             query = query.options(
                 selectinload(WMScopeLocation.scope_items)
-                .joinedload(WMScopeItem.material_weight)
+                .joinedload(WMScopeItem.material_weight),
+                selectinload(WMScopeLocation.scope_items)
+                .joinedload(WMScopeItem.line_item)
             )
 
         result = self.db.execute(query)
@@ -107,11 +111,14 @@ class ScopeRepository:
     def get_items_by_location(
         self, location_id: UUID
     ) -> List[WMScopeItem]:
-        """Get all scope items for a location with material_weight relationship"""
+        """Get all scope items for a location with material_weight and line_item relationships"""
         query = (
             select(WMScopeItem)
             .where(WMScopeItem.location_id == location_id)
-            .options(joinedload(WMScopeItem.material_weight))
+            .options(
+                joinedload(WMScopeItem.material_weight),
+                joinedload(WMScopeItem.line_item)
+            )
             .order_by(WMScopeItem.display_order)
         )
 
@@ -121,11 +128,14 @@ class ScopeRepository:
     def get_item_by_id(
         self, item_id: UUID
     ) -> Optional[WMScopeItem]:
-        """Get scope item by ID with material_weight relationship"""
+        """Get scope item by ID with material_weight and line_item relationships"""
         query = (
             select(WMScopeItem)
             .where(WMScopeItem.id == item_id)
-            .options(joinedload(WMScopeItem.material_weight))
+            .options(
+                joinedload(WMScopeItem.material_weight),
+                joinedload(WMScopeItem.line_item)
+            )
         )
 
         result = self.db.execute(query)

@@ -747,6 +747,17 @@ class ScopeLocationUpdate(BaseModel):
     display_order: Optional[int] = None
 
 
+class LineItemBrief(BaseModel):
+    """Brief line item info for scope item response"""
+    id: UUID
+    description: str
+    unit: Optional[str] = None
+    untaxed_unit_price: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ScopeItemResponse(BaseModel):
     """Scope item response (used in location response)"""
     id: UUID
@@ -759,7 +770,11 @@ class ScopeItemResponse(BaseModel):
     unit: str
     material_weight_id: Optional[UUID] = None
     material_weight: Optional[MaterialWeightBrief] = None
+    line_item_id: Optional[UUID] = None
+    line_item: Optional[LineItemBrief] = None
     include_in_debris: bool
+    invoiced: bool = False
+    invoiced_at: Optional[datetime] = None
     display_order: int
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -803,6 +818,7 @@ class ScopeItemCreate(BaseModel):
     quantity_formula: Optional[str] = Field(None, max_length=500)
     unit: str = Field("SF", max_length=20)
     material_weight_id: Optional[UUID] = None
+    line_item_id: Optional[UUID] = Field(None, description="Link to LineItem for invoice rate")
     include_in_debris: bool = True
     display_order: int = 0
 
@@ -816,6 +832,7 @@ class ScopeItemUpdate(BaseModel):
     quantity_formula: Optional[str] = Field(None, max_length=500)
     unit: Optional[str] = Field(None, max_length=20)
     material_weight_id: Optional[UUID] = None
+    line_item_id: Optional[UUID] = Field(None, description="Link to LineItem for invoice rate")
     include_in_debris: Optional[bool] = None
     display_order: Optional[int] = None
 
@@ -983,6 +1000,14 @@ class StandardScopeItemBase(BaseModel):
     default_include_in_debris: bool = Field(False, description="Include in debris calculation by default")
     display_order: int = Field(0, ge=0, description="Display order in UI")
 
+    # Invoice Line Item Mapping
+    line_item_id: Optional[UUID] = Field(None, description="Mapped line item for invoice")
+    custom_line_item_name: Optional[str] = Field(None, max_length=255, description="Custom line item name")
+    custom_line_item_rate: Optional[float] = Field(None, ge=0, description="Custom rate for invoice")
+    quantity_calc_type: str = Field('fixed', description="Quantity calculation: fixed, per_day, per_day_capped")
+    max_days: Optional[int] = Field(None, ge=1, description="Max days for per_day_capped")
+    default_invoice_note: Optional[str] = Field(None, description="Default note for invoice line item")
+
 
 class StandardScopeItemCreate(StandardScopeItemBase):
     """Create standard scope item request"""
@@ -1013,6 +1038,25 @@ class StandardScopeItemUpdate(BaseModel):
     display_order: Optional[int] = Field(None, ge=0)
     is_active: Optional[bool] = None
 
+    # Invoice Line Item Mapping
+    line_item_id: Optional[UUID] = None
+    custom_line_item_name: Optional[str] = Field(None, max_length=255)
+    custom_line_item_rate: Optional[float] = Field(None, ge=0)
+    quantity_calc_type: Optional[str] = None
+    max_days: Optional[int] = Field(None, ge=1)
+    default_invoice_note: Optional[str] = None
+
+
+class LineItemBrief(BaseModel):
+    """Brief line item info for standard scope item response"""
+    id: UUID
+    description: str
+    unit: Optional[str] = None
+    untaxed_unit_price: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
 
 class StandardScopeItemResponse(StandardScopeItemBase):
     """Standard scope item response"""
@@ -1021,6 +1065,7 @@ class StandardScopeItemResponse(StandardScopeItemBase):
     category_id: Optional[UUID] = None
     category: Optional[ScopeItemCategoryBrief] = None  # Nested category info
     material_weight_id: Optional[UUID] = None
+    line_item: Optional[LineItemBrief] = None  # Nested line item info
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -1048,3 +1093,218 @@ class StandardScopeItemBrief(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# =============================================================================
+# Scope Invoice Schemas
+# =============================================================================
+
+class ScopeInvoiceItemInfo(BaseModel):
+    """Information about a scope item to be invoiced"""
+    scope_item_id: UUID
+    quantity: Optional[float] = None  # Override quantity if needed
+    rate: Optional[float] = None  # Override rate if needed
+
+
+class GenerateInvoiceRequest(BaseModel):
+    """Request to generate an invoice from scope items"""
+    job_id: UUID
+    template_id: UUID = Field(..., description="Line Item Template ID (WM Template)")
+    billing_company_id: Optional[UUID] = Field(
+        None,
+        description="Billing company ID (defaults to job's company_id)"
+    )
+    invoice_date: Optional[datetime] = Field(
+        None,
+        description="Invoice date (defaults to now)"
+    )
+    scope_item_ids: Optional[List[UUID]] = Field(
+        None,
+        description="Specific scope items to invoice (all if not specified)"
+    )
+    notes: Optional[str] = Field(
+        None,
+        description="Notes for the invoice"
+    )
+    holiday_premium: bool = Field(
+        False,
+        description="Apply Holiday Premium (30% surcharge)"
+    )
+
+
+class GenerateInvoiceResponse(BaseModel):
+    """Response from invoice generation"""
+    success: bool
+    message: str
+    invoice_id: Optional[UUID] = None
+    invoice_number: Optional[str] = None
+    scope_invoice_id: Optional[UUID] = None
+    items_invoiced: int = 0
+    total_amount: Optional[float] = None
+    warnings: List[str] = []
+
+
+class ScopeItemInvoiceLinkResponse(BaseModel):
+    """Response for scope item to invoice item link"""
+    id: UUID
+    scope_item_id: UUID
+    invoice_item_id: UUID
+    scope_item_name: Optional[str] = None
+    invoice_item_description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class WMScopeInvoiceResponse(BaseModel):
+    """Response for WM Scope Invoice link"""
+    id: UUID
+    job_id: UUID
+    invoice_id: UUID
+    invoice_number: Optional[str] = None
+    invoice_total: Optional[float] = None
+    generated_at: datetime
+    generated_by_id: Optional[UUID] = None
+    notes: Optional[str] = None
+    item_links: List[ScopeItemInvoiceLinkResponse] = []
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class JobInvoiceHistoryResponse(BaseModel):
+    """Response for job's invoice history"""
+    invoices: List[WMScopeInvoiceResponse]
+    total_invoiced: float
+    invoice_count: int
+
+
+class ScopeItemInvoiceStatusResponse(BaseModel):
+    """Response for scope item's invoice status"""
+    scope_item_id: UUID
+    scope_item_name: str
+    invoiced: bool
+    invoiced_at: Optional[datetime] = None
+    invoice_item_id: Optional[UUID] = None
+    invoice_id: Optional[UUID] = None
+    invoice_number: Optional[str] = None
+
+# =============================================================================
+# Invoice Item Configuration Schemas
+# =============================================================================
+
+class QuantityCalcType:
+    """Quantity calculation types for invoice items"""
+    FIXED = "fixed"  # Use scope item quantity as-is
+    PER_DAY = "per_day"  # Multiply by mitigation days
+    PER_DAY_CAPPED = "per_day_capped"  # Multiply by mitigation days, up to max_days
+
+
+class InvoiceItemConfigBase(BaseModel):
+    """Base schema for invoice item configuration"""
+    scope_item_id: Optional[UUID] = Field(None, description="Specific scope item ID")
+    standard_scope_item_id: Optional[UUID] = Field(None, description="Standard scope item for defaults")
+    line_item_id: Optional[UUID] = Field(None, description="Target line item")
+    
+    # Custom line item data (when not using existing line_item)
+    custom_name: Optional[str] = Field(None, max_length=255, description="Custom line item name")
+    custom_description: Optional[str] = Field(None, description="Custom line item description")
+    custom_rate: Optional[float] = Field(None, ge=0, description="Custom rate")
+    custom_unit: Optional[str] = Field(None, max_length=20, description="Custom unit")
+    
+    # Quantity calculation
+    quantity_calc_type: str = Field(
+        default=QuantityCalcType.FIXED,
+        description="Quantity calculation type: 'fixed', 'per_day', 'per_day_capped'"
+    )
+    max_days: Optional[int] = Field(None, ge=1, description="Maximum days for per_day_capped")
+    
+    # Default note
+    default_note: Optional[str] = Field(None, description="Default note for invoice item")
+    
+    is_enabled: bool = Field(default=True, description="Whether to include in invoice")
+    display_order: int = Field(default=0, description="Display order in UI")
+
+
+class InvoiceItemConfigCreate(InvoiceItemConfigBase):
+    """Schema for creating invoice item configuration"""
+    job_id: UUID = Field(..., description="Water mitigation job ID")
+
+
+class InvoiceItemConfigUpdate(BaseModel):
+    """Schema for updating invoice item configuration"""
+    scope_item_id: Optional[UUID] = None
+    standard_scope_item_id: Optional[UUID] = None
+    line_item_id: Optional[UUID] = None
+    custom_name: Optional[str] = None
+    custom_description: Optional[str] = None
+    custom_rate: Optional[float] = None
+    custom_unit: Optional[str] = None
+    quantity_calc_type: Optional[str] = None
+    max_days: Optional[int] = None
+    default_note: Optional[str] = None
+    is_enabled: Optional[bool] = None
+    display_order: Optional[int] = None
+
+
+class InvoiceItemConfigResponse(InvoiceItemConfigBase):
+    """Response schema for invoice item configuration"""
+    id: UUID
+    job_id: UUID
+    
+    # Populated data for display
+    scope_item_name: Optional[str] = None
+    scope_item_quantity: Optional[float] = None
+    scope_item_unit: Optional[str] = None
+    location_name: Optional[str] = None
+    line_item_description: Optional[str] = None
+    line_item_rate: Optional[float] = None
+    
+    # Calculated values for preview
+    calculated_quantity: Optional[float] = None
+    effective_rate: Optional[float] = None
+    calculated_amount: Optional[float] = None
+    calculation_note: Optional[str] = None  # e.g., "3 units × 5 days = 15"
+    
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class InvoiceItemConfigBulkCreate(BaseModel):
+    """Schema for bulk creating invoice item configurations"""
+    job_id: UUID
+    configs: List[InvoiceItemConfigBase]
+
+
+class InvoicePreviewItem(BaseModel):
+    """Preview item for invoice generation"""
+    config_id: Optional[UUID] = None
+    scope_item_id: Optional[UUID] = None
+    scope_item_name: str
+    location_name: str
+    line_item_description: str
+    base_quantity: float
+    calculated_quantity: float
+    calculation_note: str  # e.g., "3 units × 5 days = 15"
+    unit: str
+    rate: float
+    amount: float
+    default_note: Optional[str] = None
+
+
+class InvoicePreviewResponse(BaseModel):
+    """Response for invoice preview"""
+    items: List[InvoicePreviewItem]
+    subtotal: float
+    tax_rate: float = 0
+    tax_amount: float = 0
+    total: float
+    mitigation_days: int
+    mitigation_start: Optional[datetime] = None
+    mitigation_end: Optional[datetime] = None
+    warnings: List[str] = []
+    unmapped_items: List[str] = []  # Scope items without line item mapping

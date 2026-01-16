@@ -371,21 +371,20 @@ const LineItemManagement: React.FC = () => {
               try {
                 await lineItemService.deleteLineItem(record.id);
                 message.success('Line item deleted');
-                
-                // Remove the deleted item from the current list immediately
-                setLineItems(prevItems => prevItems.filter(item => item.id !== record.id));
-                setTotalItems(prevTotal => Math.max(0, prevTotal - 1));
-                
-                // Check if current page will be empty after deletion
-                const itemsOnCurrentPage = lineItems.length;
-                if (itemsOnCurrentPage === 1 && currentPage > 1) {
-                  // Move to previous page if this was the last item on current page
+
+                // Calculate items remaining after deletion
+                const itemsAfterDeletion = lineItems.length - 1;
+
+                // Check if we need to go to previous page
+                if (itemsAfterDeletion === 0 && currentPage > 1) {
+                  // Move to previous page - this will trigger loadLineItems via useEffect
                   setCurrentPage(currentPage - 1);
                 } else {
-                  // Reload to ensure consistency with server
+                  // Reload current page to get fresh data from server
                   loadLineItems();
                 }
               } catch (error) {
+                console.error('Failed to delete line item:', error);
                 message.error('Failed to delete line item');
               }
             }}
