@@ -782,12 +782,14 @@ const FileGallery: React.FC<FileGalleryProps> = ({
         {/* Infinite scroll sentinel for date-grouped view */}
         {enableInfiniteScroll && (
           <div ref={sentinelRef} style={{ height: '20px', margin: '20px 0' }}>
-            {isFetchingNextPage && (
+            {isFetchingNextPage ? (
               <div style={{ textAlign: 'center' }}>
                 <Spin size="small" />
                 <p style={{ marginTop: 8, color: '#999' }}>Loading more photos...</p>
               </div>
-            )}
+            ) : !hasNextPage && filteredFiles.length > 0 ? (
+              <p style={{ textAlign: 'center', margin: '16px 0', color: '#999' }}>End</p>
+            ) : null}
           </div>
         )}
       </>
@@ -888,11 +890,13 @@ const FileGallery: React.FC<FileGalleryProps> = ({
         {/* Infinite scroll sentinel */}
         {enableInfiniteScroll && (
           <div ref={sentinelRef} style={{ height: '20px', margin: '20px 0' }}>
-            {isFetchingNextPage && (
+            {isFetchingNextPage ? (
               <div style={{ textAlign: 'center' }}>
                 <Spin size="small" />
               </div>
-            )}
+            ) : !hasNextPage && filteredFiles.length > 0 ? (
+              <p style={{ textAlign: 'center', margin: '16px 0', color: '#999' }}>End</p>
+            ) : null}
           </div>
         )}
       </>
