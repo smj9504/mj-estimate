@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress } from 'antd';
-import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined } from '@ant-design/icons';
+import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import api from '../../services/api';
@@ -24,6 +24,20 @@ interface SyncStatus {
   current_page?: number;
   errors?: string[];
   message?: string;
+}
+
+// Google Drive export status type
+interface ExportStatus {
+  status: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
+  message?: string;
+  total_photos?: number;
+  uploaded_count?: number;
+  skipped_count?: number;
+  error_count?: number;
+  current_photo?: number;
+  current_filename?: string;
+  drive_folder_url?: string;
+  errors?: string[];
 }
 
 // CompanyCam project search result
@@ -96,6 +110,13 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const [jobAddress, setJobAddress] = useState<string>('');
   const [selectedProject, setSelectedProject] = useState<CompanyCamProject | null>(null);
   const [manualInput, setManualInput] = useState(false);
+
+  // Google Drive export state
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [exportStatus, setExportStatus] = useState<ExportStatus>({ status: 'idle' });
+  const [isExporting, setIsExporting] = useState(false);
+  const exportPollingRef = useRef<boolean>(false);
+  const exportTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Update current project ID when prop changes
   useEffect(() => {
@@ -199,8 +220,167 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => stopPolling();
+    return () => {
+      stopPolling();
+      stopExportPolling();
+    };
   }, []);
+
+  // ===== Google Drive Export Functions =====
+
+  // Poll for export status
+  const pollExportStatus = async () => {
+    if (!exportPollingRef.current) return;
+
+    try {
+      const status = await waterMitigationService.photos.getExportStatus(jobId);
+
+      if (!exportPollingRef.current) return;
+
+      setExportStatus(status);
+
+      // Stop polling if export completed, cancelled, or failed
+      if (status.status === 'completed' || status.status === 'cancelled' || status.status === 'failed') {
+        stopExportPolling();
+        setIsExporting(false);
+
+        if (status.status === 'completed') {
+          message.success(
+            <span>
+              Export completed! {status.uploaded_count} photos uploaded to Google Drive.
+              {status.drive_folder_url && (
+                <a
+                  href={status.drive_folder_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ marginLeft: 8 }}
+                >
+                  Open folder
+                </a>
+              )}
+            </span>
+          );
+        } else if (status.status === 'cancelled') {
+          message.info(status.message || 'Export cancelled');
+        } else {
+          message.error(status.message || 'Export failed');
+        }
+      } else {
+        // Schedule next poll
+        exportTimeoutRef.current = setTimeout(pollExportStatus, 2000);
+      }
+    } catch (error) {
+      console.error('Failed to get export status:', error);
+      if (exportPollingRef.current) {
+        exportTimeoutRef.current = setTimeout(pollExportStatus, 3000);
+      }
+    }
+  };
+
+  const startExportPolling = () => {
+    if (exportPollingRef.current) return;
+    exportPollingRef.current = true;
+    pollExportStatus();
+  };
+
+  const stopExportPolling = () => {
+    exportPollingRef.current = false;
+    if (exportTimeoutRef.current) {
+      clearTimeout(exportTimeoutRef.current);
+      exportTimeoutRef.current = null;
+    }
+  };
+
+  // Check initial export status on mount
+  useEffect(() => {
+    const checkInitialExportStatus = async () => {
+      try {
+        const status = await waterMitigationService.photos.getExportStatus(jobId);
+        setExportStatus(status);
+        if (status.status === 'running') {
+          setIsExporting(true);
+          startExportPolling();
+        }
+      } catch (error) {
+        // Ignore errors on initial check
+      }
+    };
+    checkInitialExportStatus();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId]);
+
+  // Export mutation
+  const exportMutation = useMutation({
+    mutationFn: () => waterMitigationService.photos.exportToGoogleDrive(jobId),
+    onMutate: () => {
+      setIsExporting(true);
+      setExportModalVisible(false);
+      startExportPolling();
+    },
+    onSuccess: (result) => {
+      if (!result.success) {
+        message.error(result.message || 'Failed to start export');
+        setIsExporting(false);
+        stopExportPolling();
+      }
+    },
+    onError: (error: any) => {
+      stopExportPolling();
+      setIsExporting(false);
+      message.error(`Export failed: ${error?.response?.data?.detail || error.message || 'Unknown error'}`);
+    }
+  });
+
+  // Cancel export mutation
+  const cancelExportMutation = useMutation({
+    mutationFn: () => waterMitigationService.photos.cancelExport(jobId),
+    onSuccess: (result) => {
+      if (result.success) {
+        message.info(result.message);
+      } else {
+        message.warning(result.message);
+      }
+    },
+    onError: (error: any) => {
+      message.error(`Failed to cancel export: ${error?.message || 'Unknown error'}`);
+    }
+  });
+
+  const handleExportClick = () => {
+    setExportModalVisible(true);
+  };
+
+  const confirmExport = () => {
+    exportMutation.mutate();
+  };
+
+  const handleCancelExport = () => {
+    cancelExportMutation.mutate();
+  };
+
+  // Calculate export progress
+  const getExportProgressInfo = () => {
+    if (exportStatus.status !== 'running') return null;
+
+    const uploaded = exportStatus.uploaded_count || 0;
+    const skipped = exportStatus.skipped_count || 0;
+    const errors = exportStatus.error_count || 0;
+    const total = exportStatus.total_photos || 0;
+    const current = exportStatus.current_photo || 0;
+    const processed = uploaded + skipped + errors;
+    const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+
+    return {
+      uploaded,
+      skipped,
+      errors,
+      total,
+      current,
+      processed,
+      percent,
+      currentFilename: exportStatus.current_filename
+    };
+  };
 
   // Check initial status on mount
   useEffect(() => {
@@ -503,6 +683,86 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
               {currentProjectId ? 'Sync from CompanyCam' : 'Link CompanyCam'}
             </Button>
           )}
+
+          {/* Google Drive Export Button */}
+          {isExporting ? (
+            (() => {
+              const exportProgress = getExportProgressInfo();
+              return (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
+                  background: 'rgba(255,255,255,0.15)',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  backdropFilter: 'blur(10px)'
+                }}>
+                  <div style={{ minWidth: '180px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <Text style={{ color: 'white', fontSize: '12px' }}>
+                        <CloudUploadOutlined style={{ marginRight: 6 }} />
+                        Uploading to Google Drive
+                      </Text>
+                      <Text style={{ color: 'white', fontSize: '12px' }}>
+                        {exportProgress?.uploaded || 0}/{exportProgress?.total || 0} photos
+                      </Text>
+                    </div>
+                    <Progress
+                      percent={exportProgress?.percent || 0}
+                      status="active"
+                      showInfo={false}
+                      strokeColor={{
+                        '0%': '#4285f4',
+                        '100%': '#34a853',
+                      }}
+                      trailColor="rgba(255,255,255,0.2)"
+                      size="small"
+                    />
+                    {exportProgress?.currentFilename && (
+                      <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px', display: 'block', marginTop: '2px' }}>
+                        {exportProgress.currentFilename}
+                      </Text>
+                    )}
+                  </div>
+                  <Tooltip title="Cancel export">
+                    <Button
+                      type="text"
+                      danger
+                      size="small"
+                      icon={<CloseCircleOutlined />}
+                      onClick={handleCancelExport}
+                      loading={cancelExportMutation.isPending}
+                      style={{
+                        color: '#ff7875',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: 'none'
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </Tooltip>
+                </div>
+              );
+            })()
+          ) : (
+            <Tooltip title="Export all photos to Google Drive">
+              <Button
+                type="default"
+                icon={<GoogleOutlined />}
+                onClick={handleExportClick}
+                style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                  fontWeight: 500,
+                  color: 'white'
+                }}
+              >
+                Export to Drive
+              </Button>
+            </Tooltip>
+          )}
         </div>
       </div>
 
@@ -779,6 +1039,43 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
               )}
             </>
           )}
+        </Space>
+      </Modal>
+
+      {/* Google Drive Export Confirmation Modal */}
+      <Modal
+        title={
+          <Space>
+            <GoogleOutlined style={{ color: '#4285f4' }} />
+            <span>Export Photos to Google Drive</span>
+          </Space>
+        }
+        open={exportModalVisible}
+        onOk={confirmExport}
+        onCancel={() => setExportModalVisible(false)}
+        confirmLoading={exportMutation.isPending}
+        okText="Start Export"
+        cancelText="Cancel"
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Text>
+            This will export all photos from this job to your Google Drive:
+          </Text>
+          <ul style={{ margin: 0, paddingLeft: 20 }}>
+            <li>Photos will be uploaded to <strong>CompanyCam/[Job Address]</strong> folder</li>
+            <li>Existing files with the same name will be skipped</li>
+            <li>Original photo quality will be preserved</li>
+            <li>You can cancel the export at any time</li>
+          </ul>
+          <Alert
+            type="info"
+            message="Google Drive Authorization Required"
+            description="Make sure you have connected your Google Drive account in Profile settings."
+            showIcon
+          />
+          <Text type="secondary">
+            This may take a while for jobs with many photos. Progress will be shown in the header.
+          </Text>
         </Space>
       </Modal>
     </div>

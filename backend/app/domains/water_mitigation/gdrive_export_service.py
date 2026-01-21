@@ -376,7 +376,11 @@ class GDriveExportService:
         return getattr(job, 'property_address', None) or getattr(job, 'address', None)
 
     def _get_or_create_companycam_folder(self) -> str:
-        """Get or create the CompanyCam root folder in Google Drive"""
+        """Get or create the CompanyCam root folder in Google Drive
+
+        If the user has already selected a folder named "CompanyCam",
+        use it directly instead of creating a subfolder.
+        """
         folder_name = "CompanyCam"
         cache_key = f"root:{folder_name}"
 
@@ -386,7 +390,23 @@ class GDriveExportService:
         # Use user-level or environment root folder ID
         root_folder = self.root_folder_id
 
-        # Search for existing folder
+        # Check if the selected root folder is already named "CompanyCam"
+        try:
+            folder_info = self.drive_service.files().get(
+                fileId=root_folder,
+                fields='name'
+            ).execute()
+            selected_folder_name = folder_info.get('name', '')
+
+            if selected_folder_name.lower() == folder_name.lower():
+                # User already selected CompanyCam folder, use it directly
+                logger.info(f"Selected folder is already CompanyCam, using directly: {root_folder}")
+                self._folder_cache[cache_key] = root_folder
+                return root_folder
+        except Exception as e:
+            logger.warning(f"Failed to get folder info for {root_folder}: {e}")
+
+        # Search for existing CompanyCam folder inside the selected folder
         folder_id = self._find_folder(folder_name, root_folder)
 
         if not folder_id:

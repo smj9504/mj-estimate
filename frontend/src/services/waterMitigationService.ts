@@ -310,6 +310,35 @@ export const waterMitigationService = {
         }
       );
       return response.data;
+    },
+
+    // Export photos to Google Drive
+    exportToGoogleDrive: async (jobId: string): Promise<{ success: boolean; message: string }> => {
+      const response = await api.post(`${BASE_URL}/jobs/${jobId}/export-to-gdrive`);
+      return response.data;
+    },
+
+    // Get export status
+    getExportStatus: async (jobId: string): Promise<{
+      status: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
+      message?: string;
+      total_photos?: number;
+      uploaded_count?: number;
+      skipped_count?: number;
+      error_count?: number;
+      current_photo?: number;
+      current_filename?: string;
+      drive_folder_url?: string;
+      errors?: string[];
+    }> => {
+      const response = await api.get(`${BASE_URL}/jobs/${jobId}/export-to-gdrive/status`);
+      return response.data;
+    },
+
+    // Cancel export
+    cancelExport: async (jobId: string): Promise<{ success: boolean; message: string }> => {
+      const response = await api.post(`${BASE_URL}/jobs/${jobId}/export-to-gdrive/cancel`);
+      return response.data;
     }
   },
 

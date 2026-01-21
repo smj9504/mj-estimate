@@ -118,30 +118,37 @@ class BaseRepository(Repository[T, ID]):
             # to be processed in different branches of the object tree
             visited.discard(entity_id)
     
-    def _prepare_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Prepare data for database insertion/update"""
+    def _prepare_data(self, data: Dict[str, Any], allow_none: bool = False) -> Dict[str, Any]:
+        """Prepare data for database insertion/update
+
+        Args:
+            data: Data dictionary to prepare
+            allow_none: If True, include None values (needed for update operations)
+        """
         from uuid import UUID
         from datetime import date, datetime
         prepared = {}
         for key, value in data.items():
-            if value is not None:
-                # Handle UUID types
-                if isinstance(value, UUID):
-                    prepared[key] = str(value)
-                # Handle date/datetime types - convert to YYYY-MM-DD string
-                elif isinstance(value, datetime):
-                    prepared[key] = value.strftime('%Y-%m-%d')
-                elif isinstance(value, date):
-                    prepared[key] = value.strftime('%Y-%m-%d')
-                # Handle lists that might contain UUIDs
-                elif isinstance(value, list):
-                    prepared[key] = [str(item) if isinstance(item, UUID) else item for item in value]
-                # Handle different data types
-                elif isinstance(value, dict):
-                    # Convert complex types to JSON for databases that support it
-                    prepared[key] = json.dumps(value)
-                else:
-                    prepared[key] = value
+            if value is None:
+                if allow_none:
+                    prepared[key] = None
+                # Skip None values if allow_none is False
+            elif isinstance(value, UUID):
+                prepared[key] = str(value)
+            # Handle date/datetime types - convert to YYYY-MM-DD string
+            elif isinstance(value, datetime):
+                prepared[key] = value.strftime('%Y-%m-%d')
+            elif isinstance(value, date):
+                prepared[key] = value.strftime('%Y-%m-%d')
+            # Handle lists that might contain UUIDs
+            elif isinstance(value, list):
+                prepared[key] = [str(item) if isinstance(item, UUID) else item for item in value]
+            # Handle different data types
+            elif isinstance(value, dict):
+                # Convert complex types to JSON for databases that support it
+                prepared[key] = json.dumps(value)
+            else:
+                prepared[key] = value
         return prepared
     
     def _validate_data(self, data: Dict[str, Any], operation: str = "create") -> Dict[str, Any]:
@@ -160,7 +167,9 @@ class BaseRepository(Repository[T, ID]):
         for field in system_fields:
             data.pop(field, None)
 
-        prepared_data = self._prepare_data(data)
+        # For update operations, allow None values to be set in the database
+        allow_none = (operation == "update")
+        prepared_data = self._prepare_data(data, allow_none=allow_none)
 
         return prepared_data
 
@@ -173,26 +182,32 @@ class SQLAlchemyRepository(BaseRepository[T, ID]):
         self.db_session = session  # SQLAlchemy session
     
     def _prepare_sqlalchemy_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Prepare data specifically for SQLAlchemy, keeping UUIDs as UUID objects"""
+        """Prepare data specifically for SQLAlchemy, keeping UUIDs as UUID objects
+
+        Note: This method preserves None values as they are needed for update operations
+        to set fields to NULL in the database.
+        """
         from uuid import UUID
         import uuid as uuid_module
         prepared = {}
         for key, value in data.items():
-            if value is not None:
+            if value is None:
+                # Preserve None values for update operations
+                prepared[key] = None
+            elif isinstance(value, str) and key.endswith('_id'):
                 # Convert string UUIDs back to UUID objects for SQLAlchemy
-                if isinstance(value, str) and key.endswith('_id'):
-                    try:
-                        prepared[key] = UUID(value)
-                    except (ValueError, AttributeError):
-                        prepared[key] = value
-                # Handle lists (keep as-is for SQLAlchemy JSON fields)
-                elif isinstance(value, list):
+                try:
+                    prepared[key] = UUID(value)
+                except (ValueError, AttributeError):
                     prepared[key] = value
-                # Handle dict (keep as-is for SQLAlchemy JSON fields)
-                elif isinstance(value, dict):
-                    prepared[key] = value
-                else:
-                    prepared[key] = value
+            # Handle lists (keep as-is for SQLAlchemy JSON fields)
+            elif isinstance(value, list):
+                prepared[key] = value
+            # Handle dict (keep as-is for SQLAlchemy JSON fields)
+            elif isinstance(value, dict):
+                prepared[key] = value
+            else:
+                prepared[key] = value
         return prepared
     
     def create(self, entity_data: Dict[str, Any]) -> T:
