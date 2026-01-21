@@ -897,17 +897,19 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   const selectExistingCompany = async (companyId: string) => {
     setUseCustomCompany(false);
     const company = companies.find(c => c.id === companyId);
+
+    // Check if company actually changed BEFORE setting the new value
+    // Also generate if no company was previously selected (new estimate)
+    const currentCompanyId = form.getFieldValue('company_id');
+    const shouldGenerateNumber = !currentCompanyId || currentCompanyId !== companyId;
+
     setSelectedCompany(company || null);
     form.setFieldValue('company_selection', companyId);
     form.setFieldValue('company_id', companyId);
 
-    // Generate new estimate number when company changes (both create and edit mode)
-    if (company) {
-      // Check if company actually changed
-      const currentCompanyId = form.getFieldValue('company_id');
-      if (currentCompanyId !== company.id) {
-        await generateEstimateNumber(company.id);
-      }
+    // Generate new estimate number when company changes or first selection
+    if (company && shouldGenerateNumber) {
+      await generateEstimateNumber(company.id);
     }
   };
 
@@ -1441,6 +1443,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                   dragType="item"
                                   activeId={activeId}
                                   scroll={{ x: 600 }}
+                                  resizableColumns={true}
                                   rowSelection={{
                                     selectedRowKeys: selectedItemKeys[sectionIndex] || [],
                                     onChange: (selectedRowKeys) => handleItemRowSelection(sectionIndex, selectedRowKeys as string[]),
@@ -1459,6 +1462,8 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                       key: 'description',
                                       ellipsis: true,
                                       width: 200,
+                                      minWidth: 100,
+                                      maxWidth: 500,
                                       fixed: 'left' as const,
                                       render: (value, record: EstimateLineItem) => (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -430,6 +430,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
               dragType="item"
               activeId={activeId}
               scroll={{ x: 600 }}
+              resizableColumns={true}
               columns={[
                 {
                   title: 'Description',
@@ -437,6 +438,8 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                   key: 'description',
                   ellipsis: true,
                   width: 200,
+                  minWidth: 100,
+                  maxWidth: 500,
                   fixed: 'left' as const,
                   render: (value: string, record: InvoiceItem) => (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

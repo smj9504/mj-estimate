@@ -688,6 +688,14 @@ export interface StandardScopeItem {
     dry_weight_per_unit: number;
     unit: string;
   } | null;
+  // Line item mapping fields
+  line_item_id?: string | null;
+  line_item?: LineItemBrief | null;
+  custom_line_item_name?: string | null;
+  custom_line_item_rate?: number | null;
+  quantity_calc_type?: 'manual' | 'area' | 'perimeter' | 'count' | null;
+  max_days?: number | null;
+  default_invoice_note?: string | null;
 }
 
 export interface StandardScopeItemCreate {
@@ -701,6 +709,13 @@ export interface StandardScopeItemCreate {
   default_include_in_debris?: boolean;
   display_order?: number;
   company_id?: string;
+  // Line item mapping fields
+  line_item_id?: string;
+  custom_line_item_name?: string;
+  custom_line_item_rate?: number;
+  quantity_calc_type?: 'manual' | 'area' | 'perimeter' | 'count';
+  max_days?: number;
+  default_invoice_note?: string;
 }
 
 export interface StandardScopeItemUpdate {
@@ -714,6 +729,13 @@ export interface StandardScopeItemUpdate {
   default_include_in_debris?: boolean;
   display_order?: number;
   is_active?: boolean;
+  // Line item mapping fields
+  line_item_id?: string | null;
+  custom_line_item_name?: string | null;
+  custom_line_item_rate?: number | null;
+  quantity_calc_type?: 'manual' | 'area' | 'perimeter' | 'count' | null;
+  max_days?: number | null;
+  default_invoice_note?: string | null;
 }
 
 export interface StandardScopeItemListResponse {

@@ -26,7 +26,8 @@ class StandardScopeItemRepository:
         """Get standard scope item by ID"""
         return self.db.query(WMStandardScopeItem).options(
             joinedload(WMStandardScopeItem.material_weight),
-            joinedload(WMStandardScopeItem.category_rel)
+            joinedload(WMStandardScopeItem.category_rel),
+            joinedload(WMStandardScopeItem.line_item)
         ).filter(WMStandardScopeItem.id == item_id).first()
 
     def find_by_filters(
@@ -58,7 +59,8 @@ class StandardScopeItemRepository:
         """
         query = self.db.query(WMStandardScopeItem).options(
             joinedload(WMStandardScopeItem.material_weight),
-            joinedload(WMStandardScopeItem.category_rel)
+            joinedload(WMStandardScopeItem.category_rel),
+            joinedload(WMStandardScopeItem.line_item)
         )
 
         conditions = []

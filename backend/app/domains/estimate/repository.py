@@ -329,14 +329,57 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
 
                 # Create new items
                 for idx, item_data in enumerate(items_data):
-                    item_data['estimate_id'] = estimate_id
-                    item_data['order_index'] = idx
-                    # Calculate the amount for the item
+                    # Calculate item values
                     quantity = float(item_data.get('quantity', 1))
                     rate = float(item_data.get('rate', 0))
-                    item_data['amount'] = quantity * rate
+                    amount = quantity * rate
 
-                    item_entity = EstimateItem(**item_data)
+                    # Explicitly get taxable - default to True if not provided
+                    taxable = item_data.get('taxable', True)
+
+                    # Build valid fields dict with explicit field mapping
+                    # This ensures all fields are properly set
+                    valid_fields = {
+                        'estimate_id': estimate_id,
+                        'order_index': idx,
+                        'name': item_data.get('name'),
+                        'description': item_data.get('description', ''),
+                        'note': item_data.get('note'),
+                        'quantity': quantity,
+                        'unit': item_data.get('unit', 'ea'),
+                        'rate': rate,
+                        'amount': amount,
+                        'taxable': taxable,
+                        'tax_rate': float(item_data.get('tax_rate', 0)),
+                        'tax_amount': float(item_data.get('tax_amount', 0)),
+                        # Grouping fields
+                        'primary_group': item_data.get('primary_group'),
+                        'secondary_group': item_data.get('secondary_group'),
+                        'sort_order': item_data.get('sort_order', 0),
+                        # Line item integration
+                        'line_item_id': item_data.get('line_item_id'),
+                        'is_custom_override': item_data.get('is_custom_override', False),
+                        'override_values': item_data.get('override_values'),
+                        # Legacy field
+                        'room': item_data.get('room'),
+                        'category': item_data.get('category'),
+                        # Insurance fields
+                        'depreciation_rate': float(item_data.get('depreciation_rate', 0)),
+                        'depreciation_amount': float(item_data.get('depreciation_amount', 0)),
+                        'acv_amount': float(item_data.get('acv_amount', 0)),
+                        'rcv_amount': float(item_data.get('rcv_amount', 0)),
+                    }
+
+                    # Remove None values except for nullable fields
+                    nullable_fields = {'name', 'note', 'description', 'line_item_id',
+                                       'override_values', 'secondary_group', 'room',
+                                       'category', 'primary_group'}
+                    filtered_fields = {
+                        k: v for k, v in valid_fields.items()
+                        if v is not None or k in nullable_fields
+                    }
+
+                    item_entity = EstimateItem(**filtered_fields)
                     self.db_session.add(item_entity)
             
             # Before flush, ensure company_id is properly set if it was in update_data
@@ -418,16 +461,62 @@ class EstimateSQLAlchemyRepository(SQLAlchemyRepository, EstimateRepositoryMixin
             estimate = self.create(estimate_data)
             estimate_id = estimate['id']
             
-            # Create items
+            # Create items with explicit field mapping
             for idx, item_data in enumerate(items_data):
-                item_data['estimate_id'] = estimate_id
-                item_data['order_index'] = idx
+                # Calculate item values
+                quantity = float(item_data.get('quantity', 1))
+                rate = float(item_data.get('rate', 0))
+                amount = quantity * rate
 
-                item_entity = EstimateItem(**item_data)
+                # Explicitly get taxable - default to True if not provided
+                taxable = item_data.get('taxable', True)
+
+                # Build valid fields dict with explicit field mapping
+                valid_fields = {
+                    'estimate_id': estimate_id,
+                    'order_index': idx,
+                    'name': item_data.get('name'),
+                    'description': item_data.get('description', ''),
+                    'note': item_data.get('note'),
+                    'quantity': quantity,
+                    'unit': item_data.get('unit', 'ea'),
+                    'rate': rate,
+                    'amount': amount,
+                    'taxable': taxable,
+                    'tax_rate': float(item_data.get('tax_rate', 0)),
+                    'tax_amount': float(item_data.get('tax_amount', 0)),
+                    # Grouping fields
+                    'primary_group': item_data.get('primary_group'),
+                    'secondary_group': item_data.get('secondary_group'),
+                    'sort_order': item_data.get('sort_order', 0),
+                    # Line item integration
+                    'line_item_id': item_data.get('line_item_id'),
+                    'is_custom_override': item_data.get('is_custom_override', False),
+                    'override_values': item_data.get('override_values'),
+                    # Legacy field
+                    'room': item_data.get('room'),
+                    'category': item_data.get('category'),
+                    # Insurance fields
+                    'depreciation_rate': float(item_data.get('depreciation_rate', 0)),
+                    'depreciation_amount': float(item_data.get('depreciation_amount', 0)),
+                    'acv_amount': float(item_data.get('acv_amount', 0)),
+                    'rcv_amount': float(item_data.get('rcv_amount', 0)),
+                }
+
+                # Remove None values except for nullable fields
+                nullable_fields = {'name', 'note', 'description', 'line_item_id',
+                                   'override_values', 'secondary_group', 'room',
+                                   'category', 'primary_group'}
+                filtered_fields = {
+                    k: v for k, v in valid_fields.items()
+                    if v is not None or k in nullable_fields
+                }
+
+                item_entity = EstimateItem(**filtered_fields)
                 self.db_session.add(item_entity)
-            
+
             self.db_session.flush()
-            
+
             # Return estimate with items
             return self.get_with_items(estimate_id)
             

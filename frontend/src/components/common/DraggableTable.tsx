@@ -1,15 +1,26 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { Table, TableProps } from 'antd';
-import { ColumnsType } from 'antd/es/table';
+import { ColumnsType, ColumnType } from 'antd/es/table';
 import {
   SortableContext,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
+import { ResizeCallbackData } from 'react-resizable';
 import SortableRow from './SortableRow';
 import DragHandle from './DragHandle';
+import ResizableTitle from './ResizableTitle';
+import 'react-resizable/css/styles.css';
 
-export interface DraggableTableProps<T = any> extends Omit<TableProps<T>, 'dataSource'> {
+// Extended column type with resizable properties
+export interface ResizableColumnType<T> extends ColumnType<T> {
+  resizable?: boolean;
+  minWidth?: number;
+  maxWidth?: number;
+}
+
+export interface DraggableTableProps<T = any> extends Omit<TableProps<T>, 'dataSource' | 'columns'> {
   dataSource: T[];
+  columns: ResizableColumnType<T>[];
   onReorder: (newDataSource: T[]) => void;
   dragHandlePosition?: 'start' | 'end';
   showDragHandle?: boolean;
@@ -22,6 +33,9 @@ export interface DraggableTableProps<T = any> extends Omit<TableProps<T>, 'dataS
   activeId?: string | null; // Active drag ID from parent context
   onDragStart?: (id: string) => void; // Callback for drag start
   onDragEnd?: (oldIndex: number, newIndex: number) => void; // Callback for drag end
+  resizableColumns?: boolean; // Enable column resizing
+  onColumnWidthChange?: (columnKey: string, width: number) => void; // Callback for column width change
+  defaultColumnWidths?: Record<string, number>; // Default column widths
 }
 
 function DraggableTable<T extends Record<string, any>>({
@@ -39,8 +53,36 @@ function DraggableTable<T extends Record<string, any>>({
   activeId = null,
   onDragStart,
   onDragEnd,
+  resizableColumns = false,
+  onColumnWidthChange,
+  defaultColumnWidths = {},
   ...tableProps
 }: DraggableTableProps<T>) {
+
+  // Track column widths in state for resizable columns
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
+    const widths: Record<string, number> = { ...defaultColumnWidths };
+    (originalColumns || []).forEach((col, index) => {
+      const key = String(col.key || col.dataIndex || index);
+      if (widths[key] === undefined && col.width) {
+        widths[key] = typeof col.width === 'number' ? col.width : parseInt(col.width as string, 10) || 100;
+      }
+    });
+    return widths;
+  });
+
+  // Handle column resize
+  const handleResize = useCallback(
+    (columnKey: string) =>
+      (_: React.SyntheticEvent, { size }: ResizeCallbackData) => {
+        setColumnWidths((prev) => {
+          const newWidths = { ...prev, [columnKey]: size.width };
+          onColumnWidthChange?.(columnKey, size.width);
+          return newWidths;
+        });
+      },
+    [onColumnWidthChange]
+  );
 
   // Generate unique IDs for rows
   const getItemId = (record: T, fallbackIndex?: number): string => {
@@ -68,6 +110,28 @@ function DraggableTable<T extends Record<string, any>>({
   // Filter out any undefined columns and ensure originalColumns is always an array
   const validColumns = (originalColumns || []).filter(col => col !== undefined && col !== null);
 
+  // Apply resizable column widths and add onHeaderCell handlers
+  const processedColumns = resizableColumns
+    ? validColumns.map((col, index) => {
+        const key = String(col.key || col.dataIndex || index);
+        const width = columnWidths[key] || col.width;
+        const isResizable = col.resizable !== false && width !== undefined;
+
+        return {
+          ...col,
+          width,
+          onHeaderCell: isResizable
+            ? () => ({
+                width: columnWidths[key] || col.width,
+                onResize: handleResize(key),
+                minWidth: col.minWidth || 50,
+                maxWidth: col.maxWidth || 800,
+              })
+            : col.onHeaderCell,
+        };
+      })
+    : validColumns;
+
   // Add drag handle column if needed
   const columns: ColumnsType<T> = showDragHandle && !disableDrag
     ? [
@@ -91,7 +155,7 @@ function DraggableTable<T extends Record<string, any>>({
               },
             ]
           : []),
-        ...validColumns,
+        ...processedColumns,
         ...(dragHandlePosition === 'end'
           ? [
               {
@@ -113,7 +177,7 @@ function DraggableTable<T extends Record<string, any>>({
             ]
           : []),
       ]
-    : validColumns;
+    : processedColumns;
 
   // Custom row component that integrates with sortable
   const customRow = (record: T, index?: number) => {
@@ -133,7 +197,14 @@ function DraggableTable<T extends Record<string, any>>({
   };
 
   if (disableDrag) {
-    return <Table {...tableProps} dataSource={dataSource} columns={columns} />;
+    return (
+      <Table
+        {...tableProps}
+        dataSource={dataSource}
+        columns={columns}
+        components={resizableColumns ? { header: { cell: ResizableTitle } } : undefined}
+      />
+    );
   }
 
   return (
@@ -143,6 +214,7 @@ function DraggableTable<T extends Record<string, any>>({
         dataSource={dataSource}
         columns={columns}
         components={{
+          ...(resizableColumns ? { header: { cell: ResizableTitle } } : {}),
           body: {
             row: (props: any) => {
               // Get the ID from the row props
