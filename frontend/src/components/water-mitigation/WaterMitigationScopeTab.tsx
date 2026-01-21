@@ -232,6 +232,29 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     setLocationModalVisible(true);
   };
 
+  // Helper function to extract error message from API error
+  const getErrorMessage = (error: any, defaultMsg: string): string => {
+    const detail = error?.response?.data?.detail;
+    if (!detail) return defaultMsg;
+
+    // Handle array of validation errors from FastAPI/Pydantic
+    if (Array.isArray(detail)) {
+      return detail.map((err: any) => {
+        if (typeof err === 'string') return err;
+        if (err.msg) return err.msg;
+        return JSON.stringify(err);
+      }).join(', ');
+    }
+
+    // Handle string error
+    if (typeof detail === 'string') return detail;
+
+    // Handle object with msg property
+    if (detail.msg) return detail.msg;
+
+    return defaultMsg;
+  };
+
   const handleSaveLocation = async (values: any) => {
     try {
       if (editingLocation) {
@@ -248,7 +271,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       setLocationModalVisible(false);
       loadLocations();
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || 'Failed to save location');
+      message.error(getErrorMessage(error, 'Failed to save location'));
       console.error('Save location error:', error);
     }
   };
@@ -259,7 +282,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       message.success('Location deleted successfully');
       loadLocations();
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || 'Failed to delete location');
+      message.error(getErrorMessage(error, 'Failed to delete location'));
       console.error('Delete location error:', error);
     }
   };
@@ -270,7 +293,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       message.success('Standard items added');
       loadLocations();
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || 'Failed to add standard items');
+      message.error(getErrorMessage(error, 'Failed to add standard items'));
       console.error('Add standard items error:', error);
     }
   };
@@ -366,7 +389,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       setItemModalVisible(false);
       loadLocations();
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || 'Failed to save item');
+      message.error(getErrorMessage(error, 'Failed to save item'));
       console.error('Save item error:', error);
     }
   };
@@ -377,7 +400,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       message.success('Item deleted successfully');
       loadLocations();
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || 'Failed to delete item');
+      message.error(getErrorMessage(error, 'Failed to delete item'));
       console.error('Delete item error:', error);
     }
   };
@@ -408,7 +431,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       message.success('Quantity updated');
       loadLocations();
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || 'Failed to update quantity');
+      message.error(getErrorMessage(error, 'Failed to update quantity'));
     } finally {
       setSavingQuantity(false);
       setEditingQuantity(null);
@@ -434,7 +457,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
         }
       }
     } catch (error: any) {
-      message.error(error?.response?.data?.detail || 'Failed to calculate debris');
+      message.error(getErrorMessage(error, 'Failed to calculate debris'));
       console.error('Calculate debris error:', error);
     } finally {
       setCalculatingDebris(false);

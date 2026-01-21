@@ -119,7 +119,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   const loading = loadingConfig || loadingPhotos;
 
   const [saving, setSaving] = useState(false);
-  const [coverTitle, setCoverTitle] = useState('Water Mitigation Report');
+  const [coverTitle, setCoverTitle] = useState('Water Mitigation Photos');
   const [coverDescription, setCoverDescription] = useState('');
   const [sections, setSections] = useState<ReportSection[]>([]);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>('cover');
@@ -183,7 +183,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   // Initialize form data when config loads
   useEffect(() => {
     if (config) {
-      setCoverTitle(config.cover_title || 'Water Mitigation Report');
+      setCoverTitle(config.cover_title || 'Water Mitigation Photos');
       setCoverDescription(config.cover_description || '');
       // Ensure all sections have required fields with defaults
       // Also replace placeholders in summaries when loading config
@@ -202,41 +202,9 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   }, [config, jobAddress, dateOfLoss, mitigationStartDate, mitigationEndDate]);
 
   const initializeDefaultConfig = () => {
-    setCoverTitle('Water Mitigation Report');
-    
-    // Build cover description with property address and dates
-    let description = '';
-    
-    // Property Address
-    if (jobAddress) {
-      description += `Property: ${jobAddress}\n`;
-    }
-    
-    // Date of Loss
-    if (dateOfLoss) {
-      const formattedLoss = formatDateDisplay(dateOfLoss);
-      if (formattedLoss) {
-        description += `Date of Loss: ${formattedLoss}\n`;
-      }
-    }
-    
-    // Water Mitigation Period
-    if (mitigationStartDate || mitigationEndDate) {
-      const startFormatted = formatDateDisplay(mitigationStartDate);
-      const endFormatted = formatDateDisplay(mitigationEndDate);
-      
-      if (startFormatted && endFormatted) {
-        description += `Water Mitigation: ${startFormatted} ~ ${endFormatted}\n`;
-      } else if (startFormatted) {
-        description += `Water Mitigation Start: ${startFormatted}\n`;
-      } else if (endFormatted) {
-        description += `Water Mitigation End: ${endFormatted}\n`;
-      }
-    }
-    
-    description += `\nThis report documents the water mitigation work performed at the above property.`;
-    
-    setCoverDescription(description);
+    setCoverTitle('Water Mitigation Photos');
+    // Description is intentionally empty - property info is shown elsewhere in the cover page
+    setCoverDescription('');
     setSections([]);
   };
 
@@ -941,7 +909,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                   <Input
                     value={coverTitle}
                     onChange={e => setCoverTitle(e.target.value)}
-                    placeholder="Water Mitigation Report"
+                    placeholder="Water Mitigation Photos"
                     size="large"
                   />
                 </Form.Item>

@@ -413,6 +413,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                     'day-2',
                     'day-3',
                   ]}
+                  defaultCategory="documentation"  // Start with Documentation category selected
                   defaultViewMode="grid"
                   allowViewModeChange={false}
                   showImagePreview={true}

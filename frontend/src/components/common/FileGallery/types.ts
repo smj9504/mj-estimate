@@ -42,6 +42,7 @@ export interface FileGalleryProps {
 
   // Categories
   categories?: string[];
+  defaultCategory?: string;  // Default selected category (default: 'all')
   allowCategoryCreate?: boolean;
   onCategoryCreate?: (category: string) => void;
   showBulkCategoryUpdate?: boolean;  // Show/hide bulk category update action (default: true)

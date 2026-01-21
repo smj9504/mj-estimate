@@ -26,6 +26,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   selectedFiles = [],
   onFileSelect,
   categories = ['general'],
+  defaultCategory = 'all',
   allowCategoryCreate = false,
   onCategoryCreate,
   showBulkCategoryUpdate = true,
@@ -59,7 +60,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   onFileClick
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>(defaultViewMode);
-  const [selectedCategory, setSelectedCategory] = useState<string | string[]>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string | string[]>(defaultCategory);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const [dateChangeModalVisible, setDateChangeModalVisible] = useState(false);
@@ -97,7 +98,8 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     onUpload,
     onDelete,
     enableInfiniteScroll,
-    pageSize
+    pageSize,
+    categoryFilter: selectedCategory  // Pass selected category to backend for server-side filtering
   });
 
   // Intersection Observer for infinite scroll
@@ -621,7 +623,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
         {showCategories && (
           <div style={{ position: 'relative' }}>
             <CategoryManager
-              categories={['all', 'uncategorized', ...categories.filter(c => c !== 'uncategorized')]}
+              categories={['all', ...categories]}
               selectedCategory={selectedCategory}
               onCategorySelect={handleCategorySelect}
               allowCreate={allowCategoryCreate}

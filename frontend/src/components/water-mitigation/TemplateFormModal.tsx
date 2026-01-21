@@ -213,7 +213,7 @@ const TemplateFormModal: React.FC<TemplateFormModalProps> = ({
           name="name"
           rules={[{ required: true, message: 'Please enter template name' }]}
         >
-          <Input placeholder="e.g., Standard Water Mitigation Report" />
+          <Input placeholder="e.g., Standard Water Mitigation Photos" />
         </Form.Item>
 
         <Form.Item

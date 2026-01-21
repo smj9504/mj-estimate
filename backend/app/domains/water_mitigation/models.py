@@ -900,7 +900,7 @@ class WMReportConfig(Base, BaseModel):
     )
 
     # Cover Page
-    cover_title = Column(String(255), default='Water Mitigation Report')
+    cover_title = Column(String(255), default='Water Mitigation Photos')
     cover_description = Column(Text)
 
     # Sections (JSON array)

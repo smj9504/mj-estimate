@@ -530,6 +530,14 @@ class ScopeInvoiceService:
             scope_item.invoiced = True
             scope_item.invoiced_at = now
 
+        # Update WM Job financial fields with invoice info
+        job.invoice_number = invoice.invoice_number
+        job.invoice_amount = total_amount
+        logger.info(
+            f"Updated WM Job {job_id} with invoice_number={invoice.invoice_number}, "
+            f"invoice_amount={total_amount}"
+        )
+
         self.db.commit()
 
         result = {
@@ -543,6 +551,74 @@ class ScopeInvoiceService:
         }
 
         return result, warnings
+
+    def sync_invoice_to_wm_job(
+        self,
+        invoice_id: UUID,
+        invoice_number: Optional[str] = None,
+        invoice_amount: Optional[Decimal] = None,
+    ) -> bool:
+        """
+        Sync invoice information to the linked Water Mitigation Job.
+
+        When an invoice is updated, this method updates the corresponding
+        WM Job's financial fields (invoice_number, invoice_amount).
+
+        Args:
+            invoice_id: The invoice ID to sync from
+            invoice_number: Optional invoice number (fetched from Invoice if not provided)
+            invoice_amount: Optional invoice amount (fetched from Invoice if not provided)
+
+        Returns:
+            True if a WM Job was updated, False if no linked job found
+        """
+        # Find the WMScopeInvoice link for this invoice
+        scope_invoice = self.db.query(WMScopeInvoice).filter(
+            WMScopeInvoice.invoice_id == invoice_id
+        ).first()
+
+        if not scope_invoice:
+            logger.debug(f"No WM Job linked to invoice {invoice_id}")
+            return False
+
+        # Get the WM Job
+        job = self.db.query(WaterMitigationJob).filter(
+            WaterMitigationJob.id == scope_invoice.job_id
+        ).first()
+
+        if not job:
+            logger.warning(
+                f"WM Job {scope_invoice.job_id} not found for invoice {invoice_id}"
+            )
+            return False
+
+        # If invoice_number or invoice_amount not provided, fetch from Invoice
+        if invoice_number is None or invoice_amount is None:
+            invoice = self.db.query(Invoice).filter(Invoice.id == invoice_id).first()
+            if invoice:
+                if invoice_number is None:
+                    invoice_number = invoice.invoice_number
+                if invoice_amount is None:
+                    invoice_amount = invoice.total_amount
+
+        # Update WM Job financial fields
+        updated = False
+        if invoice_number is not None and job.invoice_number != invoice_number:
+            job.invoice_number = invoice_number
+            updated = True
+
+        if invoice_amount is not None and job.invoice_amount != invoice_amount:
+            job.invoice_amount = invoice_amount
+            updated = True
+
+        if updated:
+            self.db.commit()
+            logger.info(
+                f"Synced invoice {invoice_id} to WM Job {job.id}: "
+                f"invoice_number={invoice_number}, invoice_amount={invoice_amount}"
+            )
+
+        return updated
 
     def _build_template_rate_map(
         self, template: LineItemTemplate

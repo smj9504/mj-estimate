@@ -750,7 +750,22 @@ async def update_invoice(
     updated_invoice = service.update_with_items(invoice_id, update_dict)
     if not updated_invoice:
         raise HTTPException(status_code=500, detail="Failed to update invoice")
-    
+
+    # Sync invoice updates to linked Water Mitigation Job (if any)
+    try:
+        from app.domains.water_mitigation.scope_invoice_service import ScopeInvoiceService
+        from decimal import Decimal
+        scope_service = ScopeInvoiceService(db)
+        invoice_amount = updated_invoice.get('total_amount') or updated_invoice.get('total')
+        scope_service.sync_invoice_to_wm_job(
+            invoice_id=invoice_id,
+            invoice_number=updated_invoice.get('invoice_number'),
+            invoice_amount=Decimal(str(invoice_amount)) if invoice_amount else None,
+        )
+    except Exception as e:
+        # Log but don't fail the invoice update if WM sync fails
+        logger.warning(f"Failed to sync invoice to WM Job: {e}")
+
     # Get company information from updated_invoice (already flattened by get_with_items)
     logger.info(f"Updated invoice company_id: {updated_invoice.get('company_id')}")
     logger.info(f"Updated invoice company_name: {updated_invoice.get('company_name')}")

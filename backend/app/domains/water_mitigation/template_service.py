@@ -429,7 +429,7 @@ class WMReportTemplateService:
         config_repo = WMReportConfigRepository(self.session)
 
         # Use provided or default cover title
-        cover_title = request.cover_title or template.get('name', 'Water Mitigation Report')
+        cover_title = request.cover_title or template.get('name', 'Water Mitigation Photos')
         cover_description = request.cover_description or template.get('description', '')
 
         config_data = {

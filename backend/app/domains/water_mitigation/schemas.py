@@ -349,7 +349,7 @@ class ReportSection(BaseModel):
 
 class ReportConfigBase(BaseModel):
     """Base report config schema"""
-    cover_title: str = Field("Water Mitigation Report", max_length=255)
+    cover_title: str = Field("Water Mitigation Photos", max_length=255)
     cover_description: Optional[str] = None
     sections: List[dict] = []  # List of section dictionaries
 
@@ -997,8 +997,8 @@ class StandardScopeItemBase(BaseModel):
         description="Default unit: SF, LF, EA"
     )
     default_quantity: Optional[float] = Field(None, ge=0, description="Default quantity")
-    default_include_in_debris: bool = Field(False, description="Include in debris calculation by default")
-    display_order: int = Field(0, ge=0, description="Display order in UI")
+    default_include_in_debris: Optional[bool] = Field(default=False, description="Include in debris calculation by default")
+    display_order: Optional[int] = Field(default=0, ge=0, description="Display order in UI")
 
     # Invoice Line Item Mapping
     line_item_id: Optional[UUID] = Field(None, description="Mapped line item for invoice")
@@ -1007,6 +1007,16 @@ class StandardScopeItemBase(BaseModel):
     quantity_calc_type: str = Field('fixed', description="Quantity calculation: fixed, per_day, per_day_capped")
     max_days: Optional[int] = Field(None, ge=1, description="Max days for per_day_capped")
     default_invoice_note: Optional[str] = Field(None, description="Default note for invoice line item")
+
+    @validator('default_include_in_debris', pre=True, always=True)
+    def set_default_include_in_debris(cls, v):
+        """Convert None to False for database records with NULL values"""
+        return v if v is not None else False
+
+    @validator('display_order', pre=True, always=True)
+    def set_display_order(cls, v):
+        """Convert None to 0 for database records with NULL values"""
+        return v if v is not None else 0
 
 
 class StandardScopeItemCreate(StandardScopeItemBase):

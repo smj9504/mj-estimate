@@ -39,7 +39,8 @@ class DebrisCalculationConfig:
     CREW_COUNT = 3
 
     # Base time per ton of debris (hours per person)
-    BASE_HOURS_PER_TON = 2.0
+    # Reduced from 2.0 to 0.5 for more realistic estimates
+    BASE_HOURS_PER_TON = 0.5
 
     # Stairs multiplier (additional time if stairs are involved)
     STAIRS_MULTIPLIER = 1.5  # 50% more time if stairs
@@ -48,15 +49,15 @@ class DebrisCalculationConfig:
     MIN_HOURS = 0.5
 
     # Maximum hours cap (to prevent unrealistic values) - total after crew multiplier
-    MAX_HOURS = 120.0  # 40 hours × 3 crew
+    MAX_HOURS = 40.0  # Reduced max cap
 
     # Weight thresholds for different hauling complexity
     LIGHT_DEBRIS_TON = 0.5  # Under this is light debris
     HEAVY_DEBRIS_TON = 3.0  # Over this is heavy debris
 
     # Time adjustments by debris weight category (hours per person per ton)
-    LIGHT_DEBRIS_HOURS_PER_TON = 1.5  # Faster for light debris
-    HEAVY_DEBRIS_HOURS_PER_TON = 2.5  # Slower for heavy debris
+    LIGHT_DEBRIS_HOURS_PER_TON = 0.4  # Faster for light debris
+    HEAVY_DEBRIS_HOURS_PER_TON = 0.6  # Slower for heavy debris
 
 
 def calculate_debris_disposal_hours(
@@ -70,7 +71,7 @@ def calculate_debris_disposal_hours(
     Args:
         total_weight_ton: Total debris weight in tons
         location_has_stairs: Whether stairs are involved in hauling
-        location_name: Name of the location for note generation
+        location_name: Name of the location for note generation (not used in note)
 
     Returns:
         Tuple of (calculated_hours, note)
@@ -95,10 +96,8 @@ def calculate_debris_disposal_hours(
     hours_per_person = float(total_weight_ton) * hours_per_ton
 
     # Apply stairs multiplier
-    stairs_note = ""
     if location_has_stairs:
         hours_per_person *= config.STAIRS_MULTIPLIER
-        stairs_note = " (including stairs)"
 
     # Apply minimum per person
     hours_per_person = max(config.MIN_HOURS, hours_per_person)
@@ -113,10 +112,10 @@ def calculate_debris_disposal_hours(
     # Round to nearest 0.5 hour for cleaner values
     total_hours = round(total_hours * 2) / 2
 
-    # Generate note
+    # Generate generic note (without location name for reusability)
+    stairs_note = " (including stairs)" if location_has_stairs else ""
     note = (
-        f"Debris hand-loaded & hauled from {location_name} to the driveway"
-        f"{stairs_note}. "
+        f"Debris hand-loaded & hauled to the driveway{stairs_note}. "
         f"Calculated: {float(total_weight_ton):.2f} tons × {hours_per_ton} hrs/ton"
     )
     if location_has_stairs:
@@ -142,7 +141,7 @@ class EquipmentMonitoringConfig:
     DAILY_MONITORING_PER_EQUIPMENT = 0.05  # 3 minutes per equipment piece
 
     # Floor/level multiplier (multi-level jobs take more time)
-    MULTI_LEVEL_MULTIPLIER = 1.3  # 30% more time for multi-level jobs
+    MULTI_LEVEL_MULTIPLIER = 1.2  # 20% more time for multi-level jobs
 
     # Minimum and maximum hours
     MIN_HOURS = 1.0  # Minimum 1 hour even for small jobs
@@ -202,17 +201,20 @@ def calculate_equipment_monitoring_hours(
     if total_equipment == 0:
         return Decimal("0"), "No equipment found"
 
-    # Calculate setup time
-    setup_hours = total_equipment * config.SETUP_TIME_PER_EQUIPMENT
+    # Calculate setup time (round to 0.5)
+    setup_hours_raw = total_equipment * config.SETUP_TIME_PER_EQUIPMENT
+    setup_hours = round(setup_hours_raw * 2) / 2
 
-    # Calculate takedown time
-    takedown_hours = total_equipment * config.TAKEDOWN_TIME_PER_EQUIPMENT
+    # Calculate takedown time (round to 0.5)
+    takedown_hours_raw = total_equipment * config.TAKEDOWN_TIME_PER_EQUIPMENT
+    takedown_hours = round(takedown_hours_raw * 2) / 2
 
-    # Calculate daily monitoring time
-    daily_monitoring = (
+    # Calculate daily monitoring time (round to 0.5)
+    daily_monitoring_raw = (
         config.DAILY_MONITORING_BASE +
         (weighted_equipment * config.DAILY_MONITORING_PER_EQUIPMENT)
     )
+    daily_monitoring = round(daily_monitoring_raw * 2) / 2
     total_monitoring = daily_monitoring * mitigation_days
 
     # Total hours
@@ -231,14 +233,12 @@ def calculate_equipment_monitoring_hours(
     hours = round(hours * 2) / 2
 
     # Generate concise note (without repeating line item description)
-    # Format: "{days} days, {levels} levels. Setup {x}h + Takedown {x}h + Monitoring {x}h (×1.3 multi-level) = {total}h"
     level_info = f", {floor_count} levels" if floor_count > 1 else ""
     multiplier_info = f" (×{config.MULTI_LEVEL_MULTIPLIER} multi-level)" if level_multiplier_applied else ""
 
     note = (
-        f"{mitigation_days} days{level_info}. "
         f"Setup {setup_hours:.1f}h + Takedown {takedown_hours:.1f}h + "
-        f"Monitoring {total_monitoring:.1f}h{multiplier_info} = {hours:.1f}h"
+        f"Monitoring {daily_monitoring:.1f}h/day × {mitigation_days} days{multiplier_info} = {hours:.1f}h"
     )
 
     return Decimal(str(hours)), note

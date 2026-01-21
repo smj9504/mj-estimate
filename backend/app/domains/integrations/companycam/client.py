@@ -277,13 +277,20 @@ class CompanyCamClient:
             logger.error(f"Failed to batch fetch photos: {e}")
             raise
 
-    async def get_project_photos(self, project_id: int, limit: int = 10) -> list:
+    async def get_project_photos(
+        self,
+        project_id: int,
+        limit: Optional[int] = None,
+        fetch_all: bool = True
+    ) -> list:
         """
-        Get recent photos from a project (non-paginated helper)
+        Get photos from a project with optional pagination.
 
         Args:
             project_id: CompanyCam project ID
-            limit: Maximum number of photos to return
+            limit: Maximum number of photos to return (None = no limit when fetch_all=True)
+            fetch_all: If True, fetch all photos using pagination (default: True)
+                       If False, only fetch first page with `limit` photos
 
         Returns:
             List of photo dictionaries
@@ -292,16 +299,50 @@ class CompanyCamClient:
             httpx.HTTPError: If API request fails
         """
         try:
-            result = await self.list_project_photos(project_id, page=1, per_page=limit)
+            all_photos = []
+            page = 1
+            per_page = 100  # Max allowed by CompanyCam API
 
-            # Handle both direct list response and paginated dict response
-            if isinstance(result, list):
-                return result
-            elif isinstance(result, dict):
-                return result.get("data", [])
-            else:
-                logger.warning(f"Unexpected response type from CompanyCam API: {type(result)}")
-                return []
+            while True:
+                result = await self.list_project_photos(project_id, page=page, per_page=per_page)
+
+                # Handle both direct list response and paginated dict response
+                if isinstance(result, list):
+                    photos = result
+                elif isinstance(result, dict):
+                    photos = result.get("data", [])
+                else:
+                    logger.warning(f"Unexpected response type from CompanyCam API: {type(result)}")
+                    break
+
+                if not photos:
+                    break
+
+                all_photos.extend(photos)
+
+                # Check if we should stop pagination
+                if not fetch_all:
+                    # Only fetch first page
+                    break
+
+                if limit and len(all_photos) >= limit:
+                    # Reached the limit
+                    all_photos = all_photos[:limit]
+                    break
+
+                if len(photos) < per_page:
+                    # No more pages
+                    break
+
+                page += 1
+
+                # Safety limit to prevent infinite loops
+                if page > 100:
+                    logger.warning(f"Reached page limit (100) for project {project_id}")
+                    break
+
+            logger.info(f"Fetched {len(all_photos)} photos from CompanyCam project {project_id}")
+            return all_photos
 
         except Exception as e:
             logger.error(f"Failed to get photos for project {project_id}: {e}")
