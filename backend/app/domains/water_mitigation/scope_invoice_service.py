@@ -783,17 +783,52 @@ class ScopeInvoiceService:
         return header_note
 
     def _generate_invoice_number(self, job: WaterMitigationJob) -> str:
-        """Generate a unique invoice number for WM job"""
-        # Format: WM-{claim_number or job_id suffix}-{sequence}
-        base = job.claim_number or str(job.id)[:8]
+        """
+        Generate a unique invoice number for WM job.
+        Uses the same format as regular invoices: INV-{CompanyCode}-{Year}-{sequence}
+        """
+        from app.domains.company.repository import get_company_repository
+        from app.common.services.document_number_service import DocumentNumberService
 
-        # Count existing invoices for this job
-        existing_count = self.db.query(WMScopeInvoice).filter(
-            WMScopeInvoice.job_id == job.id
-        ).count()
+        now = datetime.utcnow()
+        year = str(now.year)
 
-        sequence = existing_count + 1
-        return f"WM-{base}-{sequence:03d}"
+        # Get company code
+        company_code = None
+        if job.company_id:
+            try:
+                company_repo = get_company_repository(self.db)
+                company = company_repo.get_by_id(str(job.company_id))
+                if company:
+                    company_code = company.get('company_code')
+                    logger.info(f"Found company code: {company_code} for company_id: {job.company_id}")
+            except Exception as e:
+                logger.error(f"Error fetching company for invoice number generation: {e}")
+
+        if company_code:
+            # Company-specific numbering: INV-{CompanyCode}-{Year}-{sequence}
+            doc_service = DocumentNumberService(self.db)
+            count = doc_service.get_document_count_for_company('invoice', company_code)
+
+            sequence = count + 1
+            invoice_number = f"INV-{company_code}-{year}-{sequence}"
+
+            # Verify uniqueness
+            existing = self.db.query(Invoice).filter(
+                Invoice.invoice_number == invoice_number
+            ).first()
+            while existing:
+                sequence += 1
+                invoice_number = f"INV-{company_code}-{year}-{sequence}"
+                existing = self.db.query(Invoice).filter(
+                    Invoice.invoice_number == invoice_number
+                ).first()
+
+            return invoice_number
+        else:
+            # Fallback to timestamp-based numbering
+            timestamp = int(now.timestamp())
+            return f"INV-{year}-{timestamp % 10000}"
 
     def get_job_invoice_history(
         self, job_id: UUID
