@@ -822,8 +822,18 @@ class LineItemService {
       const response = await apiClient.get('/api/line-items/templates', {
         params: { company_id: companyId, category, is_active: isActive }
       });
-      return response.data.items || response.data;
+      // Handle both array response and paginated response formats
+      const data = response.data;
+      if (Array.isArray(data)) {
+        return data;
+      }
+      if (data && Array.isArray(data.items)) {
+        return data.items;
+      }
+      console.warn('[lineItemService] Unexpected response format:', data);
+      return [];
     } catch (error) {
+      console.error('[lineItemService] getTemplates error:', error);
       throw new LineItemServiceError(
         `Failed to fetch templates: ${getErrorMessage(error)}`,
         getErrorStatus(error),

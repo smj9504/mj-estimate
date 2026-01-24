@@ -227,7 +227,7 @@
     <div class="client-insurance-container">
       <div class="client-info">
         <p><strong>Prepared for</strong></p>
-        <p>{{ client.name }}</p>
+        {% if client.name %}<p>{{ client.name }}</p>{% endif %}
         {% if client.address %}<p>{{ client.address }}</p>{% endif %}
         {% if client.city or client.state or client.zip %}
         <p>{{ client.city }}{% if client.city and client.state %}, {% endif %}{{ client.state }} {{ client.zip }}</p>

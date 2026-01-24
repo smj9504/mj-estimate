@@ -65,9 +65,18 @@ import {
   QUANTITY_CALC_TYPE_OPTIONS
 } from '../../types/waterMitigation';
 
-// Extended LineItem with embedded flag for dropdown
-interface LineItemOption extends LineItem {
+// Line item option for dropdown (standalone interface to avoid type conflicts)
+interface LineItemOption {
+  id: string;
+  description: string;
+  item?: string;
+  unit?: string;
+  untaxed_unit_price?: number;
+  type?: string;
+  is_active?: boolean;
+  cat?: string;
   _isEmbedded?: boolean;
+  _isFromTemplate?: boolean;
   _embeddedData?: EmbeddedItemData;
 }
 
@@ -142,9 +151,10 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
     try {
       setLoadingLineItems(true);
 
-      // Load templates
-      const allTemplates = await lineItemService.getTemplates(jobCompanyId || undefined);
-      console.log('[InvoiceConfig] All templates:', allTemplates.map(t => ({ id: t.id, name: t.name })));
+      // Load templates - don't filter by company to get all available templates
+      // Backend will return templates for user's company + global templates
+      const allTemplates = await lineItemService.getTemplates();
+      console.log('[InvoiceConfig] All templates:', allTemplates?.length || 0, allTemplates?.map(t => ({ id: t.id, name: t.name })));
 
       const wmTemplates = allTemplates.filter(
         (t) => t.name.toLowerCase().includes('water') ||
@@ -187,11 +197,13 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
         // Line items will be loaded via useEffect when selectedTemplateId changes
       }
     } catch (error) {
-      console.error('Failed to load templates:', error);
+      console.error('[InvoiceConfig] Failed to load templates:', error);
+      message.error('Failed to load templates. Please refresh the page.');
+      setTemplates([]);
     } finally {
       setLoadingLineItems(false);
     }
-  }, [jobCompanyId]); // Removed selectedTemplateId to always set the best template
+  }, []); // No dependencies - templates are loaded once and don't depend on jobCompanyId
 
   // Initial data loading
   useEffect(() => {
@@ -263,6 +275,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
               templateLineItems.push({
                 ...tli.line_item,
                 _isEmbedded: false,
+                _isFromTemplate: true, // Mark as from template for grouping
               } as LineItemOption);
             } else if (tli.embedded_data) {
               // Embedded mode: item data stored directly in template
@@ -276,6 +289,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
                 type: 'CUSTOM',
                 is_active: true,
                 _isEmbedded: true, // Flag to identify embedded items
+                _isFromTemplate: true, // Mark as from template for grouping
                 _embeddedData: tli.embedded_data, // Store original embedded data
               } as LineItemOption);
             } else {
@@ -286,8 +300,32 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
           console.log('[InvoiceConfig] No template_items found in template');
         }
 
-        console.log('[InvoiceConfig] Final line items:', templateLineItems);
-        setLineItems(templateLineItems);
+        // Also load all line items from the library for full selection
+        console.log('[InvoiceConfig] Loading all line items from library...');
+        const allLineItems = await lineItemService.getLineItems({
+          is_active: true,
+          page_size: 1000, // Get all active line items
+        });
+        console.log('[InvoiceConfig] All line items from library:', allLineItems.items?.length || 0);
+
+        // Create a set of template item IDs to avoid duplicates
+        const templateItemIds = new Set(templateLineItems.map(item => item.id));
+
+        // Add library items that are not already in template
+        const libraryItems: LineItemOption[] = (allLineItems.items || [])
+          .filter(item => !templateItemIds.has(item.id))
+          .map(item => ({
+            ...item,
+            _isEmbedded: false,
+            _isFromTemplate: false,
+          } as LineItemOption));
+
+        // Combine: template items first, then library items
+        const combinedLineItems = [...templateLineItems, ...libraryItems];
+        console.log('[InvoiceConfig] Combined line items:', combinedLineItems.length,
+          `(${templateLineItems.length} from template, ${libraryItems.length} from library)`);
+
+        setLineItems(combinedLineItems);
       } catch (error) {
         console.error('[InvoiceConfig] Failed to reload line items for template:', error);
       } finally {
@@ -296,7 +334,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
     };
 
     reloadLineItemsForTemplate();
-  }, [selectedTemplateId]);
+  }, [selectedTemplateId, jobCompanyId]);
 
   // Auto-generate when template is selected and configs are empty
   useEffect(() => {
@@ -545,7 +583,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
                   handleUpdateConfig(record.id, {
                     line_item_id: null, // Clear line_item_id to avoid FK violation
                     custom_name: selectedItem.description,
-                    custom_rate: selectedItem.untaxed_unit_price || 0,
+                    custom_rate: Number(selectedItem.untaxed_unit_price) || 0,
                     custom_unit: selectedItem.unit || 'EA',
                   });
                 } else {
@@ -564,7 +602,11 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
               showSearch
               filterOption={(input, option) => {
                 const item = lineItems.find(li => li.id === option?.value);
-                return item?.description?.toLowerCase().includes(input.toLowerCase()) ?? false;
+                const searchText = input.toLowerCase();
+                return (
+                  item?.description?.toLowerCase().includes(searchText) ||
+                  item?.item?.toLowerCase().includes(searchText)
+                ) ?? false;
               }}
               allowClear
               placeholder="Select line item..."
@@ -572,7 +614,6 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
               {lineItems.map(item => (
                 <Select.Option key={item.id} value={item.id}>
                   {item.description}
-                  {item._isEmbedded && <Tag color="blue" style={{ marginLeft: 8, fontSize: 10 }}>Template</Tag>}
                 </Select.Option>
               ))}
             </Select>

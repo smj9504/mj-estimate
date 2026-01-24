@@ -449,6 +449,7 @@ class ScopeInvoiceService:
             item_amount = quantity * rate
 
             # Process note with placeholders if configured
+            # Priority: config.default_note > scope_item.description
             item_note = None
             if config and config.default_note and config.default_note.strip():
                 item_note = config.default_note
@@ -461,6 +462,9 @@ class ScopeInvoiceService:
                 # Clear note if it becomes empty after processing
                 if not item_note.strip():
                     item_note = None
+            elif scope_item.description and scope_item.description.strip():
+                # Use scope item description as note if no config note
+                item_note = scope_item.description.strip()
 
             # Create invoice item
             # name: line item description (display name)

@@ -142,7 +142,9 @@
   </div>
   <div class="client-info">
     <p><strong>Estimate for</strong></p>
+    {% if client.name %}
     <p>{{ client.name }}</p>
+    {% endif %}
     {% if client.address %}
     <p>{{ client.address }}</p>
     {% endif %}
