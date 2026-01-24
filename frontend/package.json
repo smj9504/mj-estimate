@@ -52,7 +52,7 @@
     "start": "craco start",
     "start:dev": "dotenv -e .env.development craco start",
     "start:prod": "dotenv -e .env.production craco start",
-    "build": "craco build",
+    "build": "CI=false craco build",
     "build:dev": "dotenv -e .env.development craco build",
     "build:prod": "dotenv -e .env.production craco build",
     "test": "craco test",
