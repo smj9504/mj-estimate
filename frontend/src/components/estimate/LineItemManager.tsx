@@ -13,22 +13,16 @@ import {
   Tag,
   Empty,
   Spin,
-  AutoComplete,
   InputNumber,
   Modal,
   Form,
-  Radio,
   Checkbox,
   List,
   Typography,
-  Divider,
   Popconfirm,
-  Alert,
-  Tabs,
   Segmented,
 } from 'antd';
 import {
-  PlusOutlined,
   EditOutlined,
   DeleteOutlined,
   CopyOutlined,
@@ -36,21 +30,19 @@ import {
   FileTextFilled,
   SaveOutlined,
   ClearOutlined,
-  CloseOutlined,
   SearchOutlined,
   BookOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { EstimateLineItem } from '../../services/estimateService';
 import lineItemService from '../../services/lineItemService';
-import { LineItem, LineItemCategory, LineItemNote, CategoryModalItem, LineItemModalItem } from '../../types/lineItem';
+import { LineItemNote, CategoryModalItem, LineItemModalItem } from '../../types/lineItem';
 import Calculator from '../common/Calculator';
 import CategoryModal from './CategoryModal';
 import SelectionModal from './SelectionModal';
 import XactimateInputMode from './XactimateInputMode';
 import { XactimateLineItemData } from '../../utils/xactimateTransform';
-import debounce from 'lodash/debounce';
-import { formatNumber, formatCurrency } from '../../utils/formatUtils';
+import { formatNumber } from '../../utils/formatUtils';
 import { evaluate } from 'mathjs';
 
 const { Option } = Select;
@@ -101,16 +93,9 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
     });
   }, [items, selectedGroup]);
   // Helper functions for group validation
-  const validateGroupSelection = (selectedGroup?: string): boolean => {
+  const validateGroupSelection = (_selectedGroup?: string): boolean => {
     // Allow item creation even without group selection - user can assign group later
     return true; // Always allow item creation
-  };
-
-  const getGroupValidationMessage = (selectedGroup?: string): string => {
-    if (!selectedGroup) {
-      return 'No group selected - items will be created without grouping';
-    }
-    return '';
   };
 
   const isGroupSelected = validateGroupSelection(selectedGroup);
@@ -162,13 +147,6 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
 
   // State
   const [formData, setFormData] = useState<FormData>({});
-  const [categories, setCategories] = useState<LineItemCategory[]>([]);
-  const [lineItems, setLineItems] = useState<LineItem[]>([]);
-  const [loadingCategories, setLoadingCategories] = useState(false);
-  const [loadingLineItems, setLoadingLineItems] = useState(false);
-  const [searchingItems, setSearchingItems] = useState(false);
-  const [categorySearch, setCategorySearch] = useState('');
-  const [itemSearch, setItemSearch] = useState('');
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [noteModalVisible, setNoteModalVisible] = useState(false);
   const [selectedItemForNote, setSelectedItemForNote] = useState<EstimateLineItem | null>(null);
@@ -229,7 +207,6 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
   // Inline editing states
   const [editingCell, setEditingCell] = useState<{ index: number; field: string } | null>(null);
   const [editingValue, setEditingValue] = useState<any>(null);
-  const [showCalculatorMessage, setShowCalculatorMessage] = useState(false);
   
   
   // File manager style states
@@ -240,7 +217,6 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
   
   // Copy/paste functionality
   const [copiedItems, setCopiedItems] = useState<EstimateLineItem[]>([]);
-  const [lastCopyAction, setLastCopyAction] = useState<Date | null>(null);
   const [noteForm] = Form.useForm();
   const [noteEditForm] = Form.useForm();
   
@@ -249,7 +225,6 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
   const [noteTemplates, setNoteTemplates] = useState<LineItemNote[]>([]);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
-  const [noteCreationType, setNoteCreationType] = useState<'template' | 'custom'>('template');
   const [editingNote, setEditingNote] = useState<LineItemNote | null>(null);
   const [savingNote, setSavingNote] = useState(false);
   const [templateSearch, setTemplateSearch] = useState('');
@@ -276,81 +251,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
     }
   }, [formData.action]);
 
-  // Load categories with improved error handling
-  const loadCategories = async () => {
-    setLoadingCategories(true);
-    try {
-      const response = await lineItemService.getCategories();
-      setCategories(response || []);
-    } catch (error) {
-      console.error('Failed to load categories:', error);
-      // Graceful degradation: set empty array instead of showing error popup
-      setCategories([]);
-      // Only show subtle notification, don't block user workflow
-      console.warn('Categories unavailable, you can still add custom items');
-    } finally {
-      setLoadingCategories(false);
-    }
-  };
-
-  // Load line items by category with improved error handling
-  const loadLineItemsByCategory = async (categoryCode: string) => {
-    setLoadingLineItems(true);
-    try {
-      const response = await lineItemService.searchLineItems({
-        search_term: '',
-        cat: categoryCode,
-      });
-      setLineItems(response.items || []);
-    } catch (error) {
-      console.error('Failed to load line items:', error);
-      // Graceful degradation: set empty array, allow custom item creation
-      setLineItems([]);
-      console.warn('Line items unavailable for this category');
-    } finally {
-      setLoadingLineItems(false);
-    }
-  };
-
-  // Search line items with improved error handling
-  const searchLineItems = useCallback(
-    debounce(async (query: string) => {
-      if (!query.trim()) {
-        setLineItems([]);
-        return;
-      }
-      
-      setSearchingItems(true);
-      try {
-        const response = await lineItemService.searchLineItems({
-          search_term: query.trim(),
-        });
-        setLineItems(response.items || []);
-      } catch (error) {
-        console.error('Search failed:', error);
-        // Graceful degradation: show empty results instead of error
-        setLineItems([]);
-        console.warn('Search unavailable, you can create custom items instead');
-      } finally {
-        setSearchingItems(false);
-      }
-    }, 300),
-    []
-  );
-
-  // Handle line item selection
-  const handleLineItemSelect = (itemCode: string) => {
-    const selectedItem = (lineItems || []).find(item => item.item === itemCode);
-    if (selectedItem) {
-      setFormData(prev => ({
-        ...prev,
-        itemCode: selectedItem.item,
-        description: selectedItem.description,
-        unit: selectedItem.unit,
-        unitPrice: selectedItem.untaxed_unit_price,
-      }));
-    }
-  };
+  // Note: loadCategories and loadLineItemsByCategory removed - handled by CategoryModal and SelectionModal
 
   // Handle category modal selection
   const handleCategorySelect = (category: CategoryModalItem) => {
@@ -752,8 +653,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
       case 'copy':
         const selectedItems = selectedIndices.map(index => (items || [])[index]);
         setCopiedItems(selectedItems);
-        setLastCopyAction(new Date());
-        
+
         // Also copy to system clipboard as JSON for external paste
         try {
           const clipboardData = JSON.stringify(selectedItems.map(item => ({
@@ -1144,7 +1044,6 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
     setSelectedItemForNote(null);
     setAllNotes([]); // Clear all notes when closing modal
     setNoteTemplates([]);
-    setNoteCreationType('template');
     setEditingNote(null);
     setTemplateSearch('');
     setSelectedTemplate(null);
@@ -1261,7 +1160,6 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
         return (
           <div
             onClick={(e) => {
-              loadCategories();
               handleCellClick(index, 'category', displayValue, e);
             }}
             style={{
@@ -1704,8 +1602,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
               <Button
                 style={{ width: '100%', textAlign: 'left', justifyContent: 'flex-start' }}
                 onClick={() => {
-                  // Load categories only when modal opens
-                  loadCategories();
+                  // CategoryModal loads categories internally when opened
                   setCategoryModalVisible(true);
                 }}
                 disabled={!isGroupSelected}
