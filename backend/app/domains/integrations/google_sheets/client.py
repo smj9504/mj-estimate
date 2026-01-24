@@ -179,6 +179,13 @@ class GoogleSheetsClient:
                 }
                 response = await client.get(url, params=params)
 
+            # Log detailed error for debugging
+            if response.status_code >= 400:
+                logger.error(
+                    f"Google Sheets API error {response.status_code}: "
+                    f"{response.text}"
+                )
+
             response.raise_for_status()
             data = response.json()
             return data.get("values", [])
