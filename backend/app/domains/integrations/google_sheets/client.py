@@ -1,9 +1,10 @@
 """
 Google Sheets API client for reading and monitoring sheet data
 
-Supports two authentication methods:
-1. Service Account (recommended for production) - uses GDRIVE_SERVICE_ACCOUNT_FILE
-2. API Key (for public sheets only) - uses GOOGLE_API_KEY
+Supports three authentication methods (in priority order):
+1. Service Account JSON from environment variable (GOOGLE_SERVICE_ACCOUNT_JSON) - for cloud deployments
+2. Service Account file (GDRIVE_SERVICE_ACCOUNT_FILE) - for local development with file
+3. API Key (GOOGLE_API_KEY) - for public sheets only
 """
 
 import json
@@ -24,8 +25,9 @@ class GoogleSheetsClient:
         Initialize Google Sheets client
 
         Authentication priority:
-        1. Service Account (GDRIVE_SERVICE_ACCOUNT_FILE) - for private sheets
-        2. API Key (GOOGLE_API_KEY) - for public sheets only
+        1. Service Account JSON from env var (GOOGLE_SERVICE_ACCOUNT_JSON) - for cloud deployments like Render
+        2. Service Account file (GDRIVE_SERVICE_ACCOUNT_FILE) - for local development
+        3. API Key (GOOGLE_API_KEY) - for public sheets only
 
         Args:
             spreadsheet_id: Google Sheets spreadsheet ID
@@ -39,14 +41,48 @@ class GoogleSheetsClient:
         self._access_token: Optional[str] = None
         self._token_expires_at: Optional[datetime] = None
         self._service_account_file = settings.GDRIVE_SERVICE_ACCOUNT_FILE
+        self._service_account_json = settings.GOOGLE_SERVICE_ACCOUNT_JSON
 
         # Check authentication method
-        if self._service_account_file:
-            logger.info("Google Sheets client initialized with Service Account authentication")
+        if self._service_account_json:
+            logger.info("Google Sheets client initialized with Service Account JSON from environment variable")
+        elif self._service_account_file:
+            logger.info("Google Sheets client initialized with Service Account file")
         elif self.api_key:
             logger.warning("Google Sheets client using API Key (only works for public sheets)")
         else:
             logger.error("No authentication configured for Google Sheets")
+
+    def _load_service_account_credentials(self) -> Optional[dict]:
+        """
+        Load service account credentials from environment variable or file.
+
+        Returns:
+            Service account credentials dict or None
+        """
+        # Priority 1: JSON from environment variable (for cloud deployments)
+        if self._service_account_json:
+            try:
+                return json.loads(self._service_account_json)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse GOOGLE_SERVICE_ACCOUNT_JSON: {e}")
+                return None
+
+        # Priority 2: JSON from file (for local development)
+        if self._service_account_file:
+            try:
+                with open(self._service_account_file, 'r') as f:
+                    return json.load(f)
+            except FileNotFoundError:
+                logger.error(
+                    f"Service account file not found: {self._service_account_file}"
+                )
+                return None
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse service account file: {e}")
+                return None
+
+        return None
 
     async def _get_access_token(self) -> Optional[str]:
         """
@@ -55,7 +91,9 @@ class GoogleSheetsClient:
         Returns:
             Access token string or None if not using service account
         """
-        if not self._service_account_file:
+        # Load credentials from env var or file
+        creds = self._load_service_account_credentials()
+        if not creds:
             return None
 
         # Check if we have a valid cached token
@@ -66,10 +104,6 @@ class GoogleSheetsClient:
         try:
             import jwt
             from datetime import timedelta
-
-            # Load service account credentials
-            with open(self._service_account_file, 'r') as f:
-                creds = json.load(f)
 
             # Create JWT assertion
             now = datetime.utcnow()
@@ -107,9 +141,6 @@ class GoogleSheetsClient:
             logger.debug("Obtained new Google Sheets access token")
             return self._access_token
 
-        except FileNotFoundError:
-            logger.error(f"Service account file not found: {self._service_account_file}")
-            return None
         except Exception as e:
             logger.error(f"Failed to get access token: {e}")
             return None

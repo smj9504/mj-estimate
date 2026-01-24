@@ -212,6 +212,11 @@ class Settings(BaseSettings):
     GDRIVE_SERVICE_ACCOUNT_FILE: Optional[str] = os.getenv("GDRIVE_SERVICE_ACCOUNT_FILE")
     GDRIVE_ROOT_FOLDER_ID: Optional[str] = os.getenv("GDRIVE_ROOT_FOLDER_ID")
 
+    # Google Service Account JSON (for cloud deployments like Render)
+    # Set this environment variable with the full JSON content of the service account key
+    # This allows authentication without uploading a file to the server
+    GOOGLE_SERVICE_ACCOUNT_JSON: Optional[str] = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+
     # Google OAuth 2.0 Settings (for user-level Google Drive access)
     GOOGLE_OAUTH_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
     GOOGLE_OAUTH_CLIENT_SECRET: Optional[str] = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
