@@ -271,6 +271,7 @@ async def get_estimate(estimate_id: str, db=Depends(get_db)):
                 unit=item.get('unit', ''),
                 rate=item.get('rate', 0),
                 amount=item.get('amount', 0),
+                taxable=item.get('taxable', True),
                 tax_rate=item.get('tax_rate', 0),
                 tax_amount=item.get('tax_amount', 0),
                 category=item.get('category'),
@@ -460,6 +461,7 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
                 unit=item.get('unit', ''),
                 rate=item.get('rate', 0),
                 amount=item.get('amount', 0),
+                taxable=item.get('taxable', True),
                 tax_rate=item.get('tax_rate', 0),
                 tax_amount=item.get('tax_amount', 0),
                 category=item.get('category'),
@@ -597,6 +599,7 @@ async def update_estimate(
                 unit=item.get('unit', ''),
                 rate=item.get('rate', 0),
                 amount=item.get('amount', 0),
+                taxable=item.get('taxable', True),
                 tax_rate=item.get('tax_rate', 0),
                 tax_amount=item.get('tax_amount', 0),
                 category=item.get('category'),
@@ -750,6 +753,7 @@ async def duplicate_estimate(estimate_id: str, db=Depends(get_db)):
                 unit=item.get('unit', ''),
                 rate=item.get('rate', 0),
                 amount=item.get('amount', 0),
+                taxable=item.get('taxable', True),
                 tax_rate=item.get('tax_rate', 0),
                 tax_amount=item.get('tax_amount', 0),
                 category=item.get('category'),
@@ -825,7 +829,8 @@ def _group_items_into_sections(items: List[Dict[str, Any]]) -> List[Dict[str, An
             'note': item.get('note', ''),
             'quantity': item.get('quantity', 0),
             'unit': item.get('unit', 'EA'),
-            'rate': item.get('rate', 0)
+            'rate': item.get('rate', 0),
+            'taxable': item.get('taxable', True)
         })
 
         # Update section subtotal
