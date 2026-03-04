@@ -7,18 +7,20 @@ from pathlib import Path
 from typing import List, Optional
 
 from dotenv import load_dotenv
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 # Get the base directory (2 levels up from this file)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
 # Load environment-specific .env file
+# Fix for Korean Windows: Explicitly use UTF-8 encoding when loading .env files
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 env_file = f".env.{ENVIRONMENT}"
 if Path(env_file).exists():
-    load_dotenv(env_file, override=True)
+    load_dotenv(env_file, override=True, encoding="utf-8")
 else:
-    load_dotenv(".env", override=True)  # Fallback to default .env
+    load_dotenv(".env", override=True, encoding="utf-8")  # Fallback to default .env
 
 class Settings(BaseSettings):
     # Environment
@@ -33,6 +35,30 @@ class Settings(BaseSettings):
     DATABASE_URL: Optional[str] = None
     DATABASE_TYPE: Optional[str] = None  # sqlite, postgresql, supabase
     LOG_LEVEL: Optional[str] = "INFO"
+    
+    @field_validator('DATABASE_URL', mode='before')
+    @classmethod
+    def validate_database_url(cls, v):
+        """Ensure DATABASE_URL is properly decoded as UTF-8 string"""
+        if v is None:
+            return None
+        
+        # If it's bytes, decode it
+        if isinstance(v, bytes):
+            try:
+                v = v.decode('utf-8')
+            except UnicodeDecodeError:
+                # Try with error handling
+                v = v.decode('utf-8', errors='replace')
+        
+        # Ensure it's a string
+        if not isinstance(v, str):
+            v = str(v)
+        
+        # Remove BOM and strip whitespace
+        v = v.strip().strip('\ufeff')
+        
+        return v
     
     # SQLite Database Settings
     SQLITE_DB_PATH: str = "mjestimate_dev.db"
@@ -50,7 +76,7 @@ class Settings(BaseSettings):
     # Adjust these via environment variables if needed
     DB_POOL_SIZE: int = int(os.getenv("DB_POOL_SIZE", "5"))  # Reduced from 10 for Render compatibility
     DB_MAX_OVERFLOW: int = int(os.getenv("DB_MAX_OVERFLOW", "5"))  # Reduced from 20 for Render compatibility
-    DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+    DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "10"))  # Reduced from 30 to 10 seconds for faster failure
     DB_POOL_RECYCLE: int = int(os.getenv("DB_POOL_RECYCLE", "3600"))  # 1 hour
     
     # Database Operation Settings
@@ -58,6 +84,8 @@ class Settings(BaseSettings):
     DB_RETRY_DELAY: float = 1.0
     DB_QUERY_TIMEOUT: int = 30
     REMOVE_NONE_VALUES: bool = True
+    # Auto-initialize database tables on startup (set to false if using migrations)
+    DB_AUTO_INIT: bool = os.getenv("DB_AUTO_INIT", "true").lower() == "true"
     
     # Server Settings
     HOST: str = os.getenv("HOST", "0.0.0.0")
@@ -192,7 +220,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     PHOTO_ANALYSIS_CACHE_ENABLED: bool = os.getenv("PHOTO_ANALYSIS_CACHE_ENABLED", "true").lower() == "true"
     PHOTO_ANALYSIS_CACHE_TTL_DAYS: int = int(os.getenv("PHOTO_ANALYSIS_CACHE_TTL_DAYS", "30"))
-    PHOTO_ANALYSIS_MODEL: str = os.getenv("PHOTO_ANALYSIS_MODEL", "gpt-4-vision-preview")
+    PHOTO_ANALYSIS_MODEL: str = os.getenv("PHOTO_ANALYSIS_MODEL", "gpt-4o")  # gpt-4-vision-preview is deprecated
 
     # Gemini Vision API Settings (AI-powered photo classification)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")

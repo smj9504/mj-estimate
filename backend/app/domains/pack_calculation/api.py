@@ -537,3 +537,183 @@ def delete_calculation(
 
     repo.delete(calculation_id)
     return {"message": "Calculation deleted successfully"}
+
+
+@router.post("/admin/patch-materials")
+def patch_missing_materials(
+    db: Session = Depends(get_db),
+):
+    """
+    Admin endpoint to patch pack_items that have NULL xactimate_materials.
+    This recalculates materials for all items and updates the database.
+    """
+    from sqlalchemy import select, update
+    from app.domains.pack_calculation.models import PackItem
+
+    logger.info("[PackCalc] Starting materials patch for items with NULL xactimate_materials")
+
+    # Find all items with NULL xactimate_materials
+    result = db.execute(
+        select(PackItem).where(PackItem.xactimate_materials.is_(None))
+    )
+    items_to_patch = result.scalars().all()
+
+    if not items_to_patch:
+        return {
+            "status": "success",
+            "message": "No items need patching",
+            "patched_count": 0
+        }
+
+    logger.info(f"[PackCalc] Found {len(items_to_patch)} items to patch")
+
+    # Initialize service for material calculation
+    service = PackCalculationService(db)
+
+    patched_count = 0
+    errors = []
+
+    for item in items_to_patch:
+        try:
+            # Create item input for material calculation
+            from types import SimpleNamespace
+            item_input = SimpleNamespace(
+                item_name=item.item_name or "",
+                item_category=item.item_category,
+                quantity=item.quantity or 1,
+                size_category=item.size_category,
+                floor_level=item.floor_level,
+                fragile=item.fragile or False,
+                requires_disassembly=item.requires_disassembly or False,
+                special_notes=item.special_notes,
+            )
+
+            # Calculate materials
+            item_materials = service._get_materials_for_item(item_input)
+
+            # Check if this is contents-only (no furniture wrapping needed)
+            item_name_lower = item_input.item_name.lower()
+            is_contents_only = any(keyword in item_name_lower for keyword in [
+                'magazines', 'documents', 'paper', 'pill', 'medicine', 'cups',
+                'bowls', 'figurines', 'vases', 'beauty', 'hair products', 'tools',
+                'cords', 'books', 'clothing', 'linens', 'toiletries', 'food',
+                'pantry', 'spices', 'utensils', 'silverware', 'pots', 'pans'
+            ])
+
+            # Add wrapping consumables only for furniture
+            if not is_contents_only and item_materials:
+                wrap_consumables = service._estimate_wrapping_consumables(item_input, item_materials)
+                if wrap_consumables:
+                    for code, qty in wrap_consumables.items():
+                        item_materials[code] = item_materials.get(code, 0) + qty
+
+            # Update the item
+            if item_materials:
+                item.xactimate_materials = item_materials
+                patched_count += 1
+                logger.debug(f"[PackCalc] Patched item {item.id}: {item.item_name} -> {item_materials}")
+
+        except Exception as e:
+            error_msg = f"Error patching item {item.id} ({item.item_name}): {str(e)}"
+            logger.error(f"[PackCalc] {error_msg}")
+            errors.append(error_msg)
+
+    # Commit all changes
+    try:
+        db.commit()
+        logger.info(f"[PackCalc] Successfully patched {patched_count} items")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[PackCalc] Failed to commit patches: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to commit patches: {str(e)}")
+
+    return {
+        "status": "success",
+        "message": f"Patched {patched_count} items",
+        "patched_count": patched_count,
+        "total_items": len(items_to_patch),
+        "errors": errors if errors else None
+    }
+
+
+@router.post("/admin/patch-labor")
+def patch_missing_labor(
+    db: Session = Depends(get_db),
+):
+    """
+    Admin endpoint to patch pack_items that have NULL cached_packing_hours or cached_moving_hours.
+    This calculates labor hours for all items and updates the database.
+    """
+    from sqlalchemy import select, or_
+    from app.domains.pack_calculation.models import PackItem
+
+    logger.info("[PackCalc] Starting labor patch for items with NULL cached labor hours")
+
+    # Find all items with NULL cached labor hours
+    result = db.execute(
+        select(PackItem).where(
+            or_(
+                PackItem.cached_packing_hours.is_(None),
+                PackItem.cached_moving_hours.is_(None)
+            )
+        )
+    )
+    items_to_patch = result.scalars().all()
+
+    if not items_to_patch:
+        return {
+            "status": "success",
+            "message": "No items need labor patching",
+            "patched_count": 0
+        }
+
+    logger.info(f"[PackCalc] Found {len(items_to_patch)} items to patch labor hours")
+
+    # Initialize service for labor calculation
+    service = PackCalculationService(db)
+
+    patched_count = 0
+    errors = []
+
+    for item in items_to_patch:
+        try:
+            # Create item input for labor calculation
+            from types import SimpleNamespace
+            item_for_labor = SimpleNamespace(
+                item_name=item.item_name or "",
+                quantity=item.quantity or 1,
+                floor_level=item.floor_level,
+                fragile=item.fragile or False,
+                requires_disassembly=item.requires_disassembly or False,
+            )
+
+            # Calculate labor hours (pack-out)
+            packing_hours, moving_hours = service._calculate_item_labor(item_for_labor, is_pack_out=True)
+
+            # Update the item
+            item.cached_packing_hours = packing_hours
+            item.cached_moving_hours = moving_hours
+            patched_count += 1
+            logger.debug(f"[PackCalc] Patched labor for item {item.id}: {item.item_name} -> packing={packing_hours}, moving={moving_hours}")
+
+        except Exception as e:
+            error_msg = f"Error patching labor for item {item.id} ({item.item_name}): {str(e)}"
+            logger.error(f"[PackCalc] {error_msg}")
+            errors.append(error_msg)
+
+    # Commit all changes
+    try:
+        db.commit()
+        logger.info(f"[PackCalc] Successfully patched labor for {patched_count} items")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[PackCalc] Failed to commit labor patches: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to commit labor patches: {str(e)}")
+
+    return {
+        "status": "success",
+        "message": f"Patched labor for {patched_count} items",
+        "patched_count": patched_count,
+        "total_items": len(items_to_patch),
+        "errors": errors if errors else None
+    }

@@ -18,6 +18,7 @@ except ImportError:
     Client = None
 
 import logging
+import os
 import threading
 import time
 import traceback
@@ -25,6 +26,28 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from functools import wraps
+
+# Fix for Korean Windows: Set multiple environment variables to force UTF-8 encoding
+# This prevents UnicodeDecodeError when Windows username contains Korean characters
+os.environ.setdefault("PGCLIENTENCODING", "UTF8")
+os.environ.setdefault("PYTHONUTF8", "1")  # Force Python UTF-8 mode (PEP 540)
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")  # Force UTF-8 for I/O
+
+# Also set locale to UTF-8 for psycopg2
+import locale
+try:
+    locale.setlocale(locale.LC_ALL, '')  # Use system default
+    # Then force UTF-8 for various categories
+    for category in [locale.LC_CTYPE, locale.LC_COLLATE]:
+        try:
+            locale.setlocale(category, 'en_US.UTF-8')
+        except locale.Error:
+            try:
+                locale.setlocale(category, 'C.UTF-8')
+            except locale.Error:
+                pass  # Fallback to system default
+except Exception:
+    pass  # Silently ignore locale errors, will log later
 
 from app.core.config import settings
 from app.core.interfaces import (
@@ -39,6 +62,7 @@ from app.core.interfaces import (
 )
 
 logger = logging.getLogger(__name__)
+logger.debug("Database factory initialized with UTF-8 encoding fixes for Korean Windows")
 
 # Create Base for SQLAlchemy models
 Base = declarative_base()
@@ -358,6 +382,7 @@ class SQLiteDatabase(DatabaseProvider):
             # Import all models to ensure they are registered with Base
             from sqlalchemy import inspect
 
+            import app.domains.analytics.models  # Analytics models (API usage logs)
             import app.domains.auth.models
             import app.domains.company.models
             import app.domains.credit.models
@@ -366,7 +391,10 @@ class SQLiteDatabase(DatabaseProvider):
             import app.domains.estimate.models
             import app.domains.file.models  # File management 모델 추가
             import app.domains.invoice.models
+            import app.domains.line_items.category_models  # Line Item Categories 모델 추가
+            import app.domains.line_items.models  # Line Items 모델 추가
             import app.domains.payment.models
+            import app.domains.payment_config.models  # Payment config (payment_frequencies) 모델 추가
             import app.domains.plumber_report.models
             import app.domains.staff.models
             import app.domains.work_order.models
@@ -376,14 +404,12 @@ class SQLiteDatabase(DatabaseProvider):
             existing_tables = inspector.get_table_names()
             
             # Only create tables if they don't exist
+            # PERFORMANCE: Skip create_all if tables exist - only create for fresh databases
             if not existing_tables:
                 Base.metadata.create_all(bind=self.engine)
                 logger.info("SQLite tables created successfully")
             else:
-                logger.info(f"SQLite tables already exist: {existing_tables}")
-                # Create only missing tables
-                Base.metadata.create_all(bind=self.engine, checkfirst=True)
-                logger.debug("Checked and created any missing tables")
+                logger.info(f"SQLite tables already exist ({len(existing_tables)} tables). Skipping create_all.")
         except Exception as e:
             logger.error(f"Failed to initialize SQLite database: {e}")
             raise ConfigurationError("Failed to initialize database", e)
@@ -411,22 +437,87 @@ class PostgreSQLDatabase(DatabaseProvider):
     """PostgreSQL database implementation with connection pooling"""
     
     def __init__(self, database_url: str):
+        # Fix for Korean Windows: Ensure database_url is properly encoded as UTF-8 string
+        if isinstance(database_url, bytes):
+            try:
+                database_url = database_url.decode('utf-8')
+            except UnicodeDecodeError:
+                # Try to decode with error handling
+                database_url = database_url.decode('utf-8', errors='replace')
+        
+        # Remove any BOM or invalid characters
+        database_url = database_url.strip().strip('\ufeff')
+        
+        # Ensure it's a valid string
+        if not isinstance(database_url, str):
+            database_url = str(database_url)
+        
         self.database_url = database_url
         self._lock = threading.Lock()
         
         # Configure engine with connection pooling using config values
         # Render/NeonDB compatibility: Use smaller pool sizes to avoid connection limits
-        self.engine = create_engine(
-            self.database_url,
-            poolclass=QueuePool,
-            pool_size=settings.DB_POOL_SIZE,
-            max_overflow=settings.DB_MAX_OVERFLOW,
-            pool_pre_ping=True,  # Verify connections before using
-            pool_recycle=settings.DB_POOL_RECYCLE,  # Recycle connections to prevent stale connections
-            pool_timeout=settings.DB_POOL_TIMEOUT,  # Timeout for getting connection from pool
-            echo=settings.DEBUG,
-            future=True
-        )
+        # Korean Windows fix: Force UTF-8 encoding to avoid CP949/EUC-KR issues
+        try:
+            # NeonDB free tier: Databases auto-suspend after 5 minutes of inactivity
+            # First connection attempt may take 15-30 seconds to wake up the database
+            # Increase timeout to accommodate cold starts
+            connect_timeout = 30 if "neon.tech" in self.database_url else 10
+
+            self.engine = create_engine(
+                self.database_url,
+                poolclass=QueuePool,
+                pool_size=settings.DB_POOL_SIZE,
+                max_overflow=settings.DB_MAX_OVERFLOW,
+                pool_pre_ping=True,  # Verify connections before using
+                pool_recycle=settings.DB_POOL_RECYCLE,  # Recycle connections to prevent stale connections
+                pool_timeout=settings.DB_POOL_TIMEOUT,  # Timeout for getting connection from pool
+                echo=settings.DEBUG,
+                future=True,
+                connect_args={
+                    "client_encoding": "utf8",  # Fix for Korean Windows encoding
+                    "connect_timeout": connect_timeout,  # Longer timeout for NeonDB cold starts
+                    "options": f"-c statement_timeout={settings.DB_QUERY_TIMEOUT * 1000} -c client_encoding=UTF8"  # Force UTF-8
+                }
+            )
+
+            logger.info(f"PostgreSQL engine created with connect_timeout={connect_timeout}s (NeonDB cold start aware)")
+        except UnicodeDecodeError as e:
+            logger.error(f"Unicode decode error when creating database engine: {e}")
+            logger.error(f"Database URL (first 100 chars): {self.database_url[:100]}")
+            logger.error("This usually happens on Korean Windows with non-UTF8 system locale")
+            # Try to sanitize the URL and retry
+            import urllib.parse
+            try:
+                # Parse and reconstruct the URL to ensure proper encoding
+                parsed = urllib.parse.urlparse(self.database_url)
+                # Reconstruct with proper encoding
+                sanitized_url = urllib.parse.urlunparse(parsed)
+
+                connect_timeout = 30 if "neon.tech" in sanitized_url else 10
+
+                self.engine = create_engine(
+                    sanitized_url,
+                    poolclass=QueuePool,
+                    pool_size=settings.DB_POOL_SIZE,
+                    max_overflow=settings.DB_MAX_OVERFLOW,
+                    pool_pre_ping=True,
+                    pool_recycle=settings.DB_POOL_RECYCLE,
+                    pool_timeout=settings.DB_POOL_TIMEOUT,
+                    echo=settings.DEBUG,
+                    future=True,
+                    connect_args={
+                        "client_encoding": "utf8",
+                        "connect_timeout": connect_timeout,
+                        "options": f"-c statement_timeout={settings.DB_QUERY_TIMEOUT * 1000} -c client_encoding=UTF8"
+                    }
+                )
+                self.database_url = sanitized_url
+                logger.info("Database engine created successfully after URL sanitization")
+            except Exception as e2:
+                logger.error(f"Failed to sanitize and recreate database URL: {e2}")
+                logger.error("Please check: 1) NeonDB is active, 2) Network allows outbound port 5432, 3) Windows locale is UTF-8")
+                raise
         
         self.SessionLocal = sessionmaker(
             autocommit=False, 
@@ -443,15 +534,34 @@ class PostgreSQLDatabase(DatabaseProvider):
             f"max_connections={max_connections})"
         )
     
-    @retry_on_database_error(max_retries=3)
+    @retry_on_database_error(max_retries=1)  # Reduced retries for faster failure
     def get_session(self) -> DatabaseSession:
         """Get SQLAlchemy session with retry logic"""
         try:
+            logger.debug("Creating new PostgreSQL session")
+            # SessionLocal() doesn't actually connect - connection happens on first query
+            # But we can test the connection pool availability
             raw_session = self.SessionLocal()
+            logger.debug("PostgreSQL session created successfully")
+            
+            # Lazy initialization: ensure tables exist on first use
+            # This handles cases where DB was unavailable at server startup
+            # Only if DB_AUTO_INIT is enabled
+            if settings.DB_AUTO_INIT and not hasattr(self, '_tables_initialized'):
+                try:
+                    self.init_database()
+                    self._tables_initialized = True
+                except Exception as init_error:
+                    # Log but don't fail - tables might already exist
+                    logger.debug(f"Table initialization check: {init_error}")
+                    self._tables_initialized = True  # Mark as attempted
+            
             return SQLAlchemySession(raw_session)
         except Exception as e:
             logger.error(f"Failed to create PostgreSQL session: {e}")
-            raise ConnectionError("Failed to connect to PostgreSQL database", e)
+            logger.error(traceback.format_exc())
+            # Don't raise ConnectionError - let it be handled by get_db()
+            raise
 
     @retry_on_database_error(max_retries=3)
     def get_readonly_session(self) -> DatabaseSession:
@@ -502,22 +612,38 @@ class PostgreSQLDatabase(DatabaseProvider):
             import app.domains.staff.models
             import app.domains.work_order.models
             
-            # Check if tables already exist
-            inspector = inspect(self.engine)
-            existing_tables = inspector.get_table_names()
+            # Check if tables already exist with timeout
+            try:
+                inspector = inspect(self.engine)
+                existing_tables = inspector.get_table_names()
+            except Exception as inspect_error:
+                logger.warning(
+                    f"Could not inspect database tables (connection may be unavailable): "
+                    f"{inspect_error}"
+                )
+                # If we can't inspect, try to create tables anyway (checkfirst will handle it)
+                existing_tables = []
             
             # Only create tables if they don't exist
+            # PERFORMANCE: Skip create_all if tables exist - use Alembic for migrations
+            # create_all with checkfirst=True causes 50+ table existence checks (~15 seconds on remote DB)
             if not existing_tables:
                 Base.metadata.create_all(bind=self.engine)
                 logger.info("PostgreSQL tables created successfully")
             else:
-                logger.info(f"PostgreSQL tables already exist: {existing_tables}")
-                # Create only missing tables
-                Base.metadata.create_all(bind=self.engine, checkfirst=True)
-                logger.debug("Checked and created any missing tables")
+                logger.info(f"PostgreSQL tables already exist ({len(existing_tables)} tables). Skipping create_all.")
+                # DISABLED: This was causing 15+ second delays on remote databases
+                # Use Alembic migrations instead: alembic upgrade head
+                # Base.metadata.create_all(bind=self.engine, checkfirst=True)
         except Exception as e:
             logger.error(f"Failed to initialize PostgreSQL database: {e}")
-            raise ConfigurationError("Failed to initialize database", e)
+            # Don't raise - let it fail gracefully so server can still start
+            # The error will be logged and can be retried later
+            # Just log the error and return - don't raise exception
+            logger.warning(
+                "Database initialization will be retried on first connection. "
+                "Server will continue to start."
+            )
     
     @retry_on_database_error(max_retries=2)
     def health_check(self) -> bool:
@@ -527,9 +653,14 @@ class PostgreSQLDatabase(DatabaseProvider):
                 # Execute a simple query to test the connection
                 result = session._session.execute(text("SELECT 1"))
                 result.fetchone()
+            logger.debug("PostgreSQL health check passed")
             return True
         except Exception as e:
             logger.error(f"PostgreSQL health check failed: {e}")
+            if "UnicodeDecodeError" in str(e) or "utf-8" in str(e).lower():
+                logger.error("UTF-8 encoding issue detected. Consider moving project to ASCII-only path (e.g., C:\\dev\\mjestimate\\)")
+            elif "timeout" in str(e).lower():
+                logger.error("Connection timeout - NeonDB may be sleeping (free tier auto-suspends after 5min). First connection takes 15-30s to wake up.")
             return False
     
     @property
@@ -655,12 +786,39 @@ class DatabaseFactory:
                 else:
                     raise ValueError(f"Unsupported database type: {db_type}")
                 
-                # Initialize database
-                cls._database.init_database()
+                # Initialize database (optional - controlled by DB_AUTO_INIT setting)
+                # Skip if DB_AUTO_INIT=false (useful when using migrations like Alembic)
+                if settings.DB_AUTO_INIT:
+                    try:
+                        cls._database.init_database()
+                        logger.info(f"Database tables initialized successfully")
+                    except Exception as init_error:
+                        logger.warning(
+                            f"Database initialization failed (will retry on first use): "
+                            f"{init_error}"
+                        )
+                        logger.warning(
+                            "Server will continue to start. Database will be initialized "
+                            "on first connection attempt."
+                        )
+                else:
+                    logger.info(
+                        "Database auto-initialization disabled (DB_AUTO_INIT=false). "
+                        "Using migrations or manual table creation."
+                    )
                 
-                # Perform health check
-                if not cls._database.health_check():
-                    raise ConnectionError(f"{db_type} database health check failed")
+                # Perform health check (non-blocking)
+                try:
+                    if not cls._database.health_check():
+                        logger.warning(
+                            f"{db_type} database health check failed. "
+                            "Will retry on first use."
+                        )
+                except Exception as health_error:
+                    logger.warning(
+                        f"Database health check failed (will retry on first use): "
+                        f"{health_error}"
+                    )
                 
                 logger.info(f"Database factory created {db_type} database successfully")
                 return cls._database
@@ -785,26 +943,57 @@ def get_database_session():
 
 def get_db():
     """Get database session for FastAPI dependency injection"""
-    database = get_database()
-    session = database.get_session()
-
+    logger.debug("get_db: Getting database instance")
+    try:
+        database = get_database()
+        logger.debug("get_db: Getting database session")
+        session = database.get_session()
+        logger.debug("get_db: Database session obtained")
+    except Exception as db_error:
+        logger.error(f"get_db: Failed to get database session: {db_error}")
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=503,
+            detail="Database service temporarily unavailable. Please try again later."
+        )
+    
     try:
         yield session
         # Commit the transaction if no errors occurred
+        logger.debug("get_db: Committing transaction")
         if hasattr(session, 'commit'):
             session.commit()
+        logger.debug("get_db: Transaction committed")
     except Exception as e:
+        logger.error(f"get_db: Exception occurred: {type(e).__name__}: {e}")
         if hasattr(session, 'rollback'):
-            session.rollback()
+            logger.debug("get_db: Rolling back transaction")
+            try:
+                session.rollback()
+            except Exception as rollback_error:
+                logger.error(f"get_db: Rollback failed: {rollback_error}")
 
         # Only log actual database/system errors, not HTTP exceptions like 401/403
         from fastapi import HTTPException
         if not isinstance(e, HTTPException):
             logger.error(f"Database session error: {e}")
+            # Check if it's a connection timeout error
+            error_str = str(e).lower()
+            if 'timeout' in error_str or 'connection' in error_str:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Database connection timeout. Please try again later."
+                )
+            logger.error(traceback.format_exc())
 
         raise
     finally:
-        session.close()
+        logger.debug("get_db: Closing session")
+        try:
+            session.close()
+            logger.debug("get_db: Session closed")
+        except Exception as close_error:
+            logger.error(f"get_db: Error closing session: {close_error}")
 
 # Alias for backward compatibility
 get_db_session = get_db

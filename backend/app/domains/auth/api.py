@@ -77,13 +77,16 @@ async def login(
 ):
     """Login with username/email and password"""
     logger.info(f"Login attempt for username: {login_request.username}")
+    logger.debug(f"Getting database session for login")
 
     try:
+        logger.debug(f"Calling authenticate_staff for: {login_request.username}")
         staff = auth_service.authenticate_staff(
             db,
             login_request.username,
             login_request.password
         )
+        logger.debug(f"authenticate_staff completed, staff: {staff is not None}")
 
         if not staff:
             logger.warning(

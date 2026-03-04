@@ -24,6 +24,7 @@ GENERAL_CONDITIONS_CALCULABLE_ITEMS = {
     # Matches by line item description (case-insensitive partial match)
     "hand loading disposal": "calculate_debris_disposal_hours",
     "equipment setup": "calculate_equipment_monitoring_hours",
+    "disposal fee": "calculate_debris_disposal_fee",  # Debris Disposal Fee - per bag pricing
 }
 
 
@@ -63,7 +64,9 @@ class DebrisCalculationConfig:
 def calculate_debris_disposal_hours(
     total_weight_ton: Decimal,
     location_has_stairs: bool = False,
-    location_name: str = "the property"
+    location_name: str = "the property",
+    debris_floors: set = None,
+    bag_count: int = 0
 ) -> Tuple[Decimal, str]:
     """
     Calculate debris disposal hours based on weight and location factors.
@@ -72,6 +75,8 @@ def calculate_debris_disposal_hours(
         total_weight_ton: Total debris weight in tons
         location_has_stairs: Whether stairs are involved in hauling
         location_name: Name of the location for note generation (not used in note)
+        debris_floors: Set of floor names where debris exists (e.g., {"ground floor", "2nd floor"})
+        bag_count: Number of 42-gallon contractor bags needed
 
     Returns:
         Tuple of (calculated_hours, note)
@@ -112,17 +117,102 @@ def calculate_debris_disposal_hours(
     # Round to nearest 0.5 hour for cleaner values
     total_hours = round(total_hours * 2) / 2
 
-    # Generate generic note (without location name for reusability)
-    stairs_note = " (including stairs)" if location_has_stairs else ""
-    note = (
-        f"Debris hand-loaded & hauled to the driveway{stairs_note}. "
-        f"Calculated: {float(total_weight_ton):.2f} tons × {hours_per_ton} hrs/ton"
-    )
+    # Generate dynamic hauling description based on actual debris floors
+    hauling_description = _generate_hauling_description(debris_floors)
+
+    # Generate detailed note with debris disposal specifications
+    note_lines = [
+        "Water Damage Debris Disposal",
+        "Heavy-duty construction debris bags",
+        f"@ 42-gallon capacity ({bag_count} bags estimated) & Large debris" if bag_count > 0 else "@ 42-gallon capacity & Large debris",
+        f"- {hauling_description}",
+        "- Truck disposal"
+    ]
+
+    # Add calculation details at the end
+    calc_detail = f"\nCalculated: {float(total_weight_ton):.2f} tons"
+    if bag_count > 0:
+        calc_detail += f" (~{bag_count} bags @ 85 lbs/bag)"
+    calc_detail += f" × {hours_per_ton} hrs/ton"
     if location_has_stairs:
-        note += f" × {config.STAIRS_MULTIPLIER} (stairs)"
-    note += f" × {crew_count} crew = {total_hours:.1f}h"
+        calc_detail += f" × {config.STAIRS_MULTIPLIER} (stairs)"
+    calc_detail += f" × {crew_count} crew = {total_hours:.1f}h"
+
+    note = "\n".join(note_lines) + calc_detail
 
     return Decimal(str(total_hours)), note
+
+
+def calculate_debris_disposal_fee(
+    bag_count: int,
+    total_weight_ton: Decimal = Decimal("0"),
+) -> Tuple[Decimal, str]:
+    """
+    Calculate debris disposal fee based on number of 42-gallon contractor bags.
+
+    Quantity = bag_count (each bag is billed at the line item unit rate).
+
+    Args:
+        bag_count: Number of 42-gallon contractor bags needed
+        total_weight_ton: Total debris weight in tons (used in note only)
+
+    Returns:
+        Tuple of (quantity, note)
+    """
+    if bag_count <= 0:
+        # No debris calculation done yet - default to 1 with a warning note
+        return Decimal("1"), "Debris disposal fee\n(Run debris calculation to auto-set bag count)"
+
+    note_lines = [
+        f"42-gallon contractor bags: {bag_count} bags",
+        "Fee per bag (debris removal & disposal)",
+    ]
+    if total_weight_ton > 0:
+        note_lines.append(
+            f"Total debris: {float(total_weight_ton):.2f} tons"
+            f" (~{bag_count} bags @ 85 lbs/bag capacity)"
+        )
+
+    note = "\n".join(note_lines)
+    return Decimal(str(bag_count)), note
+
+
+def _generate_hauling_description(debris_floors: set = None) -> str:
+    """
+    Generate hauling description based on which floors have debris.
+
+    Args:
+        debris_floors: Set of normalized floor names (e.g., {"ground floor", "2nd floor", "basement"})
+
+    Returns:
+        Hauling description string
+    """
+    if not debris_floors or len(debris_floors) == 0:
+        # Default case - assume ground floor
+        return "Hand-loaded & Hauled from ground floor to the driveway"
+
+    # Sort floors for consistent ordering (basement -> ground -> upper floors)
+    floor_order = ["basement", "ground floor", "2nd floor", "3rd floor", "4th floor"]
+    sorted_floors = sorted(
+        debris_floors,
+        key=lambda x: floor_order.index(x) if x in floor_order else 999
+    )
+
+    # Generate description based on number and type of floors
+    if len(sorted_floors) == 1:
+        floor = sorted_floors[0]
+        return f"Hand-loaded & Hauled from {floor} to the driveway"
+
+    elif len(sorted_floors) == 2:
+        # Two floors - list them both
+        floor1, floor2 = sorted_floors
+        return f"Hand-loaded & Hauled from {floor1} and {floor2} to the driveway"
+
+    else:
+        # Three or more floors - use range description
+        first_floor = sorted_floors[0]
+        last_floor = sorted_floors[-1]
+        return f"Hand-loaded & Hauled from {first_floor} through {last_floor} to the driveway"
 
 
 # =============================================================================
@@ -307,11 +397,15 @@ def calculate_general_conditions_quantity(
         total_weight_ton = scope_data.get("total_debris_ton", Decimal("0"))
         location_has_stairs = scope_data.get("has_stairs", False)
         location_name = scope_data.get("primary_location", "the property")
+        debris_floors = scope_data.get("debris_floors", set())
+        bag_count = scope_data.get("bag_count", 0)
 
         return calculate_debris_disposal_hours(
             total_weight_ton,
             location_has_stairs,
-            location_name
+            location_name,
+            debris_floors,
+            bag_count
         )
 
     elif func_name == "calculate_equipment_monitoring_hours":
@@ -324,5 +418,11 @@ def calculate_general_conditions_quantity(
             mitigation_days,
             floor_count
         )
+
+    elif func_name == "calculate_debris_disposal_fee":
+        bag_count = scope_data.get("bag_count", 0)
+        total_weight_ton = scope_data.get("total_debris_ton", Decimal("0"))
+
+        return calculate_debris_disposal_fee(bag_count, total_weight_ton)
 
     return None, None

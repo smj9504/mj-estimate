@@ -191,3 +191,45 @@ class StandardScopeItemRepository:
 
         max_order = query.scalar()
         return (max_order or 0) + 1
+
+    # =========================================================================
+    # Line Item Sync Operations
+    # =========================================================================
+
+    def get_items_by_line_item_id(self, line_item_id: UUID) -> List[WMStandardScopeItem]:
+        """Get all standard scope items that reference a specific line item"""
+        return self.db.query(WMStandardScopeItem).options(
+            joinedload(WMStandardScopeItem.material_weight),
+            joinedload(WMStandardScopeItem.category_rel)
+        ).filter(
+            WMStandardScopeItem.line_item_id == line_item_id
+        ).all()
+
+    def update_items_from_line_item(
+        self,
+        line_item_id: UUID,
+        updates: dict
+    ) -> int:
+        """
+        Update all standard scope items that reference a specific line item.
+
+        Args:
+            line_item_id: The line item ID to find dependent standard scope items
+            updates: Dict of field updates (e.g., {'name': 'New Name', 'unit': 'SF'})
+
+        Returns:
+            Number of updated items
+        """
+        items = self.get_items_by_line_item_id(line_item_id)
+        updated_count = 0
+
+        for item in items:
+            for key, value in updates.items():
+                if hasattr(item, key) and value is not None:
+                    setattr(item, key, value)
+            updated_count += 1
+
+        if updated_count > 0:
+            self.db.flush()
+
+        return updated_count

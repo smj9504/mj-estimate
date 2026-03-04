@@ -486,6 +486,11 @@ class WMScopeItem(Base, BaseModel):
     __table_args__ = (
         Index('ix_wm_scope_items_location', 'location_id'),
         Index('ix_wm_scope_items_type', 'item_type'),
+        # Performance indexes for foreign key joins (debris calculation, invoice lookup)
+        Index('ix_wm_scope_items_material_weight', 'material_weight_id'),
+        Index('ix_wm_scope_items_line_item', 'line_item_id'),
+        # Composite index for debris query pattern
+        Index('ix_wm_scope_items_debris', 'item_type', 'include_in_debris'),
         {'extend_existing': True}
     )
 
@@ -550,6 +555,9 @@ class WMDebrisCalculation(Base, BaseModel):
     # Calculation results
     total_weight_lb = Column(DECIMAL(12, 2))
     total_weight_ton = Column(DECIMAL(10, 4))
+
+    # 42-gallon contractor bag count
+    bag_count = Column(Integer, comment="Number of 42-gallon contractor bags needed")
 
     # Breakdown by category (JSON)
     category_breakdown = Column(JSONB, default=dict)  # {category_name: {weight_lb, weight_ton}}

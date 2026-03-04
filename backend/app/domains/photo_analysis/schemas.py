@@ -20,6 +20,9 @@ class DetectedItem(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score (0.0-1.0)")
     pack_size: int = Field(1, ge=1, description="How many items fit in one box")
     storage_type: Optional[str] = Field(None, description="Where stored: visible|cabinet|closet|drawer")
+    packing_method: Optional[str] = Field(None, description="Detailed packing instructions for this item")
+    box_type: Optional[str] = Field(None, description="Recommended box type: SMALL_BOX|MEDIUM_BOX|LARGE_BOX|WARDROBE_BOX|DISH_PACK_BOX|PICTURE_BOX|LONG_BOX|LAMP_BOX|TV_BOX|TUBE_BOX|N/A")
+    special_handling: List[str] = Field(default_factory=list, description="Special handling requirements: FRAGILE|HEAVY|TWO_PERSON_LIFT|ELECTRICAL|DISASSEMBLY|VALUABLE|FABRIC_PROTECTION")
 
     class Config:
         json_schema_extra = {
@@ -29,7 +32,10 @@ class DetectedItem(BaseModel):
                 "quantity": 8,
                 "confidence": 0.85,
                 "pack_size": 1,
-                "storage_type": "cabinet"
+                "storage_type": "cabinet",
+                "packing_method": "Wrap each item in packing paper, layer in dish pack box",
+                "box_type": "DISH_PACK_BOX",
+                "special_handling": ["FRAGILE"]
             }
         }
 

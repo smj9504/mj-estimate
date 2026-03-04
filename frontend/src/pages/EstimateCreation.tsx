@@ -15,7 +15,6 @@ import {
   Divider,
   Typography,
   Tooltip,
-  Popconfirm,
   Collapse,
   Switch,
   Checkbox,
@@ -27,10 +26,9 @@ import {
   EyeOutlined,
   EditOutlined,
   HolderOutlined,
-  FileTextFilled,
 } from '@ant-design/icons';
-import DraggableTable from '../components/common/DraggableTable';
 import SortableSection from '../components/common/SortableSection';
+import SectionItemsTable from '../components/estimate/SectionItemsTable';
 import {
   DndContext,
   DragOverlay,
@@ -51,7 +49,7 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import dayjs from 'dayjs';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { estimateService, EstimateLineItem, EstimateResponse, EstimateSection } from '../services/estimateService';
 import { companyService } from '../services/companyService';
 import lineItemService from '../services/lineItemService';
@@ -60,6 +58,7 @@ import { Company } from '../types';
 import UnitSelect from '../components/common/UnitSelect';
 import { DEFAULT_UNIT } from '../constants/units';
 import ItemCodeSelector from '../components/estimate/ItemCodeSelector';
+import { generateId } from '../components/sketch/utils/idUtils';
 
 import { formatCurrency } from '../utils/formatUtils';
 
@@ -82,7 +81,9 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const isEditMode = !!id;
+  const importSource = searchParams.get('import'); // 'pack' for pack estimate import
 
   // Loading states - separate for different operations
   const [isDataLoading, setIsDataLoading] = useState(false); // For initial data loading
@@ -191,20 +192,17 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
       if (estimate.sections && estimate.sections.length > 0) {
         console.log('loadEstimate - using existing sections');
-        estimate.sections.forEach((section: EstimateSection, sIndex: number) => {
-          console.log(`loadEstimate - section ${sIndex}:`, section.title);
-          section.items?.forEach((item: EstimateLineItem, iIndex: number) => {
-            console.log(`loadEstimate - section ${sIndex} item ${iIndex}:`, {
-              name: item.name,
-              description: item.description,
-              quantity: item.quantity,
-              unit_price: item.unit_price
-            });
-          });
-        });
-        setSections(estimate.sections);
+        // Ensure all items have stable IDs for drag and drop
+        const sectionsWithIds = estimate.sections.map((section: EstimateSection) => ({
+          ...section,
+          items: (section.items || []).map((item: EstimateLineItem, iIndex: number) => ({
+            ...item,
+            id: item.id || generateId(),  // Ensure each item has a stable ID
+          }))
+        }));
+        setSections(sectionsWithIds);
         // Expand all sections when loading an existing estimate
-        setActiveKeys(estimate.sections.map((s: EstimateSection) => s.id));
+        setActiveKeys(sectionsWithIds.map((s: EstimateSection) => s.id));
       } else {
         console.log('loadEstimate - converting items to sections');
         console.log('loadEstimate - items to convert:', estimate.items);
@@ -267,19 +265,20 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   }, [id, form, companies]);
 
   const convertItemsToSections = (items: EstimateLineItem[]): EstimateSection[] => {
-    // console.log('convertItemsToSections - input items:', items);
     const groupedItems: { [key: string]: EstimateLineItem[] } = {};
 
     items.forEach(item => {
-      // console.log('convertItemsToSections - processing item:', item);
-      // console.log('convertItemsToSections - item.name value:', item.name);
       const groupKey = item.primary_group || 'Default Section';
       if (!groupedItems[groupKey]) {
         groupedItems[groupKey] = [];
       }
-      groupedItems[groupKey].push(item);
+      // Ensure each item has a stable ID for drag and drop
+      groupedItems[groupKey].push({
+        ...item,
+        id: item.id || generateId(),
+      });
     });
-    
+
     return Object.entries(groupedItems).map(([title, groupItems], index) => ({
       id: `section-${index}`,
       title,
@@ -292,6 +291,53 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   useEffect(() => {
     loadCompanies();
   }, [loadCompanies]);
+
+  // Import from Pack Calculator
+  useEffect(() => {
+    if (importSource === 'pack' && !isEditMode) {
+      const packExportData = sessionStorage.getItem('packEstimateExport');
+      if (packExportData) {
+        try {
+          const { items, metadata } = JSON.parse(packExportData);
+
+          // Set form values from metadata
+          form.setFieldsValue({
+            client_name: metadata.calculation_name || 'Pack-Out Estimate',
+            client_address: metadata.project_address || '',
+            notes: `Imported from Pack Calculator on ${new Date(metadata.exported_at).toLocaleDateString()}. Total items: ${metadata.total_items}`,
+          });
+
+          // Convert imported items to sections
+          const importedItems: EstimateLineItem[] = items.map((item: any, index: number) => ({
+            id: item.id || `imported-${Date.now()}-${index}`,
+            name: item.name,
+            description: item.description || '',
+            note: item.note || '',
+            quantity: item.quantity,
+            unit: item.unit || 'EA',
+            unit_price: item.unit_price || 0,
+            total: item.total || 0,
+            taxable: item.taxable || false,
+            primary_group: item.primary_group || 'Moving/Packing',
+            secondary_group: item.secondary_group || '',
+            sort_order: index,
+          }));
+
+          const importedSections = convertItemsToSections(importedItems);
+          setSections(importedSections);
+          setActiveKeys(importedSections.map(s => s.id));
+
+          message.success(`Imported ${items.length} items from Pack Calculator`);
+
+          // Clear session storage
+          sessionStorage.removeItem('packEstimateExport');
+        } catch (error) {
+          console.error('Failed to parse pack export data:', error);
+          message.error('Failed to import pack estimate data');
+        }
+      }
+    }
+  }, [importSource, isEditMode, form]);
 
   // Load estimate data when entering edit mode
   useEffect(() => {
@@ -398,27 +444,36 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       }
     } else if (activeDragType === 'item' && activeSectionIndex !== null) {
       // Handle item reordering within the same section
+      // ID format: item-{sectionIndex}-{itemId} where itemId may contain dashes (UUID)
       if (activeIdStr.startsWith('item-') && overIdStr.startsWith('item-')) {
-        const activeParts = activeIdStr.split('-');
-        const overParts = overIdStr.split('-');
+        // Parse the ID: split by '-' and extract sectionIndex and itemId
+        const parseItemId = (idStr: string) => {
+          const firstDash = idStr.indexOf('-');
+          const secondDash = idStr.indexOf('-', firstDash + 1);
+          if (firstDash === -1 || secondDash === -1) return null;
 
-        if (activeParts.length >= 3 && overParts.length >= 3) {
-          const activeSectionIdx = parseInt(activeParts[1]);
-          const overSectionIdx = parseInt(overParts[1]);
+          const sectionIdx = parseInt(idStr.substring(firstDash + 1, secondDash));
+          const itemId = idStr.substring(secondDash + 1);
+          return { sectionIdx, itemId };
+        };
 
-          // Only allow reordering within the same section
-          if (activeSectionIdx === overSectionIdx) {
-            const activeItemIdx = parseInt(activeParts[2]);
-            const overItemIdx = parseInt(overParts[2]);
+        const activeInfo = parseItemId(activeIdStr);
+        const overInfo = parseItemId(overIdStr);
 
-            if (activeItemIdx !== overItemIdx) {
-              const newSections = [...sections];
-              const sectionItems = [...newSections[activeSectionIdx].items];
-              const newItems = arrayMove(sectionItems, activeItemIdx, overItemIdx);
-              newSections[activeSectionIdx].items = newItems;
-              newSections[activeSectionIdx].subtotal = calculateSectionSubtotal(newItems);
-              setSections(newSections);
-            }
+        if (activeInfo && overInfo && activeInfo.sectionIdx === overInfo.sectionIdx) {
+          const sectionIdx = activeInfo.sectionIdx;
+          const sectionItems = sections[sectionIdx]?.items || [];
+
+          // Find indices by item ID
+          const activeItemIdx = sectionItems.findIndex(item => item.id === activeInfo.itemId);
+          const overItemIdx = sectionItems.findIndex(item => item.id === overInfo.itemId);
+
+          if (activeItemIdx !== -1 && overItemIdx !== -1 && activeItemIdx !== overItemIdx) {
+            const newSections = [...sections];
+            const newItems = arrayMove([...sectionItems], activeItemIdx, overItemIdx);
+            newSections[sectionIdx].items = newItems;
+            newSections[sectionIdx].subtotal = calculateSectionSubtotal(newItems);
+            setSections(newSections);
           }
         }
       }
@@ -482,9 +537,10 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     const newSections = [...sections];
     const currentSection = sections[sectionIndex];
 
-    // Update each line item with the current section's title
+    // Update each line item with the current section's title and ensure ID
     const itemsWithGroup = itemsToAdd.map(item => ({
       ...item,
+      id: item.id || generateId(),  // Ensure each item has a stable ID
       primary_group: currentSection.title,
     }));
 
@@ -580,6 +636,32 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
     setSections(newSections);
     message.success('Item deleted successfully');
   };
+
+  // Toggle taxable status for a single item
+  const handleTaxableChange = useCallback((sectionIndex: number, itemIndex: number, checked: boolean) => {
+    setSections(prev => {
+      const newSections = [...prev];
+      if (newSections[sectionIndex]?.items[itemIndex]) {
+        newSections[sectionIndex].items[itemIndex] = {
+          ...newSections[sectionIndex].items[itemIndex],
+          taxable: checked
+        };
+      }
+      return newSections;
+    });
+  }, []);
+
+  // Toggle taxable status for all items in a section
+  const handleToggleAllTaxable = useCallback((sectionIndex: number, checked: boolean) => {
+    setSections(prev => {
+      const newSections = [...prev];
+      newSections[sectionIndex].items = newSections[sectionIndex].items.map(item => ({
+        ...item,
+        taxable: checked
+      }));
+      return newSections;
+    });
+  }, []);
 
   // Delete multiple selected items
   const deleteMultipleItems = (sectionIndex: number, selectedKeys: string[]) => {
@@ -784,6 +866,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   const createItemFromValues = (values: any): EstimateLineItem => {
     return {
       ...values,
+      id: editingItem?.id || generateId(),  // Preserve existing ID or generate new one
       name: values.name.trim(),
       description: currentItemDescription,
       note: currentItemNote,
@@ -1425,172 +1508,18 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                                     <span>Use Actions buttons or select items and press Delete key to remove</span>
                                   </Space>
                                 </div>
-                                <DraggableTable
-                                  className="draggable-table estimate-items-table"
-                                  dataSource={section.items.map((item, index) => ({
-                                    ...item,
-                                    key: item.id || `${sectionIndex}-${index}-${item.name || 'unnamed'}-${item.unit_price || 0}`
-                                  }))}
-                                  onReorder={() => {}} // Not used anymore - handled by unified handler
-                                  pagination={false}
-                                  size="small"
-                                  showDragHandle={true}
-                                  dragHandlePosition="start"
-                                  dragColumnWidth={30}
-                                  getRowId={(record, index) => `item-${sectionIndex}-${index}`}
-                                  disableDrag={false}
+                                <SectionItemsTable
                                   sectionIndex={sectionIndex}
-                                  dragType="item"
+                                  items={section.items}
                                   activeId={activeId}
-                                  scroll={{ x: 600 }}
-                                  resizableColumns={true}
-                                  rowSelection={{
-                                    selectedRowKeys: selectedItemKeys[sectionIndex] || [],
-                                    onChange: (selectedRowKeys) => handleItemRowSelection(sectionIndex, selectedRowKeys as string[]),
-                                    type: 'checkbox',
-                                  }}
-                                  onRow={(record, index) => ({
-                                    onDoubleClick: () => editItemInSection(sectionIndex, index!),
-                                    style: {
-                                      cursor: 'pointer',
-                                    }
-                                  })}
-                                  columns={[
-                                    {
-                                      title: 'Description',
-                                      dataIndex: 'description',
-                                      key: 'description',
-                                      ellipsis: true,
-                                      width: 200,
-                                      minWidth: 100,
-                                      maxWidth: 500,
-                                      fixed: 'left' as const,
-                                      render: (value, record: EstimateLineItem) => (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                          {value ? <div dangerouslySetInnerHTML={{ __html: value }} /> : null}
-                                          {record.note && (
-                                            <Tooltip title={<div dangerouslySetInnerHTML={{ __html: record.note }} />}>
-                                              <FileTextFilled style={{ color: '#1890ff', cursor: 'help', flexShrink: 0 }} />
-                                            </Tooltip>
-                                          )}
-                                        </div>
-                                      ),
-                                    },
-                                    {
-                                      title: 'Qty',
-                                      dataIndex: 'quantity',
-                                      key: 'quantity',
-                                      width: 60,
-                                      align: 'center' as const,
-                                    },
-                                    {
-                                      title: 'Unit',
-                                      dataIndex: 'unit',
-                                      key: 'unit',
-                                      width: 60,
-                                      align: 'center' as const,
-                                    },
-                                    {
-                                      title: 'Rate',
-                                      dataIndex: 'unit_price',
-                                      key: 'unit_price',
-                                      width: 80,
-                                      align: 'right' as const,
-                                      render: (value) => formatCurrency(value || 0),
-                                    },
-                                    {
-                                      title: 'Total',
-                                      dataIndex: 'total',
-                                      key: 'total',
-                                      width: 90,
-                                      align: 'right' as const,
-                                      render: (value) => formatCurrency(value || 0),
-                                    },
-                                    ...(taxMethod === 'percentage' ? [{
-                                      title: (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                          <span>Tax</span>
-                                          <Tooltip title="Toggle all items in this section">
-                                            <Switch
-                                              size="small"
-                                              checked={section.items.every(item => item.taxable !== false)}
-                                              onChange={(checked) => {
-                                                const newSections = [...sections];
-                                                newSections[sectionIndex].items = newSections[sectionIndex].items.map(item => ({
-                                                  ...item,
-                                                  taxable: checked
-                                                }));
-                                                setSections(newSections);
-                                              }}
-                                            />
-                                          </Tooltip>
-                                        </div>
-                                      ),
-                                      dataIndex: 'taxable',
-                                      key: 'taxable',
-                                      width: 80,
-                                      align: 'center' as const,
-                                      responsive: ['md'] as any,
-                                      render: (value: boolean | undefined, record: EstimateLineItem, recordIndex: number) => (
-                                        <Switch
-                                          size="small"
-                                          checked={value !== false}
-                                          onChange={(checked) => {
-                                            const newSections = [...sections];
-                                            const itemIndex = newSections[sectionIndex].items.findIndex((item, idx) => idx === recordIndex);
-                                            if (itemIndex !== -1) {
-                                              newSections[sectionIndex].items[itemIndex] = {
-                                                ...newSections[sectionIndex].items[itemIndex],
-                                                taxable: checked
-                                              };
-                                              setSections(newSections);
-                                            }
-                                          }}
-                                        />
-                                      ),
-                                    }] : []),
-                                    {
-                                      title: '',
-                                      key: 'actions',
-                                      width: 70,
-                                      align: 'center' as const,
-                                      fixed: 'right' as const,
-                                      render: (_: any, record: EstimateLineItem, index: number) => (
-                                        <Space size="small">
-                                          <Tooltip title="Edit item">
-                                            <Button
-                                              type="text"
-                                              size="small"
-                                              icon={<EditOutlined />}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                editItemInSection(sectionIndex, index);
-                                              }}
-                                            />
-                                          </Tooltip>
-                                          <Tooltip title="Delete item">
-                                            <Popconfirm
-                                              title="Are you sure you want to delete this item?"
-                                              onConfirm={(e) => {
-                                                e?.stopPropagation();
-                                                deleteSingleItem(sectionIndex, index);
-                                              }}
-                                              okText="Yes"
-                                              cancelText="No"
-                                            >
-                                              <Button
-                                                type="text"
-                                                size="small"
-                                                icon={<DeleteOutlined />}
-                                                danger
-                                                onClick={(e) => e.stopPropagation()}
-                                              />
-                                            </Popconfirm>
-                                          </Tooltip>
-                                        </Space>
-                                      ),
-                                    },
-                                  ]}
+                                  taxMethod={taxMethod}
+                                  selectedRowKeys={selectedItemKeys[sectionIndex] || []}
+                                  onRowSelection={(keys) => handleItemRowSelection(sectionIndex, keys)}
+                                  onEditItem={(index) => editItemInSection(sectionIndex, index)}
+                                  onDeleteItem={(index) => deleteSingleItem(sectionIndex, index)}
+                                  onTaxableChange={(index, checked) => handleTaxableChange(sectionIndex, index, checked)}
+                                  onToggleAllTaxable={(checked) => handleToggleAllTaxable(sectionIndex, checked)}
+                                  formatCurrency={formatCurrency}
                                 />
                               </div>
                             )}
@@ -1621,12 +1550,14 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                       </div>
                     ) : activeId && activeDragType === 'item' && activeSectionIndex !== null ? (
                       (() => {
-                        const parts = activeId.split('-');
-                        if (parts.length >= 3) {
-                          const sectionIdx = parseInt(parts[1]);
-                          const itemIdx = parseInt(parts[2]);
+                        // Parse ID format: item-{sectionIndex}-{itemId} where itemId may contain dashes (UUID)
+                        const firstDash = activeId.indexOf('-');
+                        const secondDash = activeId.indexOf('-', firstDash + 1);
+                        if (firstDash !== -1 && secondDash !== -1) {
+                          const sectionIdx = parseInt(activeId.substring(firstDash + 1, secondDash));
+                          const itemId = activeId.substring(secondDash + 1);
                           const section = sections[sectionIdx];
-                          const item = section?.items[itemIdx];
+                          const item = section?.items.find(i => i.id === itemId);
 
                           if (item) {
                             return (

@@ -35,7 +35,7 @@ import WorkOrderFilters from '../components/work-order/WorkOrderFilters';
 import WorkOrderStats from '../components/work-order/WorkOrderStats';
 import type { ColumnsType } from 'antd/es/table';
 import { saveAs } from 'file-saver';
-import * as XLSX from 'xlsx';
+import { utils as XLSXUtils, write as XLSXWrite } from 'xlsx';
 
 const { Title } = Typography;
 const { confirm } = Modal;
@@ -241,11 +241,11 @@ const WorkOrderList: React.FC = () => {
       'Created By': order.created_by_staff_name || '-',
     }));
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Work Order List');
-    
-    const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const ws = XLSXUtils.json_to_sheet(exportData);
+    const wb = XLSXUtils.book_new();
+    XLSXUtils.book_append_sheet(wb, ws, 'Work Order List');
+
+    const excelBuffer = XLSXWrite(wb, { bookType: 'xlsx', type: 'array' });
     const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     saveAs(blob, `work_order_list_${new Date().toISOString().split('T')[0]}.xlsx`);
   }, [workOrders, getCompanyName]);

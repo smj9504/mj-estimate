@@ -25,6 +25,7 @@ import {
   MoreOutlined,
   SearchOutlined,
   FilterOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -208,12 +209,27 @@ const DocumentList: React.FC = () => {
     },
     onSuccess: () => {
       message.success('Document has been duplicated');
-      queryClient.invalidateQueries({ 
-        queryKey: ['documents', type] 
+      queryClient.invalidateQueries({
+        queryKey: ['documents', type]
       });
     },
     onError: () => {
       message.error('An error occurred during duplication');
+    },
+  });
+
+  // Convert to Invoice mutation (for estimates only)
+  const convertToInvoiceMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await estimateService.convertToInvoice(id);
+    },
+    onSuccess: (data) => {
+      message.success(`Invoice ${data.invoice_number} created successfully`);
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+      navigate(`/invoices/${data.invoice_id}/edit`);
+    },
+    onError: (error: any) => {
+      message.error(error.response?.data?.detail || 'Failed to convert to invoice');
     },
   });
 
@@ -498,6 +514,13 @@ const DocumentList: React.FC = () => {
             label: 'Duplicate',
             onClick: () => duplicateMutation.mutate(record.id),
           },
+          // Convert to Invoice - only for estimates
+          ...(record.type === 'estimate' || record.type === 'insurance_estimate' ? [{
+            key: 'convert-to-invoice',
+            icon: <FileTextOutlined />,
+            label: 'Convert to Invoice',
+            onClick: () => convertToInvoiceMutation.mutate(record.id),
+          }] : []),
           {
             type: 'divider' as const,
           },

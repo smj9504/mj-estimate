@@ -20,14 +20,49 @@ logger = logging.getLogger(__name__)
 
 
 class DashboardService:
-    """Service for dashboard operations"""
-    
+    """Service for dashboard operations
+
+    Performance optimization: Dashboard only needs counts and totals,
+    not individual items. We use direct SQL queries where possible
+    to avoid N+1 query problems from lazy-loading relationships.
+    """
+
     def __init__(self):
         self.database = get_database()
         self.work_order_service = WorkOrderService(self.database)
         self.invoice_service = InvoiceService(self.database)
         self.estimate_service = EstimateService(self.database)
         self.staff_service = StaffService(self.database)
+
+        # Cache for frequently accessed data within a single request
+        self._work_orders_cache = None
+        self._invoices_cache = None
+        self._estimates_cache = None
+        self._staff_cache = None
+
+    def _get_work_orders_cached(self) -> List[Dict[str, Any]]:
+        """Get work orders with caching to avoid duplicate DB calls"""
+        if self._work_orders_cache is None:
+            self._work_orders_cache = self.work_order_service.get_all()
+        return self._work_orders_cache
+
+    def _get_invoices_cached(self) -> List[Dict[str, Any]]:
+        """Get invoices with caching to avoid duplicate DB calls"""
+        if self._invoices_cache is None:
+            self._invoices_cache = self.invoice_service.get_all()
+        return self._invoices_cache
+
+    def _get_estimates_cached(self) -> List[Dict[str, Any]]:
+        """Get estimates with caching to avoid duplicate DB calls"""
+        if self._estimates_cache is None:
+            self._estimates_cache = self.estimate_service.get_all()
+        return self._estimates_cache
+
+    def _get_staff_cached(self) -> List[Dict[str, Any]]:
+        """Get staff with caching to avoid duplicate DB calls"""
+        if self._staff_cache is None:
+            self._staff_cache = self.staff_service.get_all()
+        return self._staff_cache
     
     def calculate_priority(self, created_at: datetime) -> Priority:
         """
@@ -108,9 +143,9 @@ class DashboardService:
                 # In production with proper junction table, use the above query
                 
                 # Fallback to using assigned_to_staff_id for now
-                work_orders = self.work_order_service.get_all()
+                work_orders = self._get_work_orders_cached()
                 assigned_orders = [
-                    wo for wo in work_orders 
+                    wo for wo in work_orders
                     if wo.get('assigned_to_staff_id') == staff_id
                 ]
                 return assigned_orders
@@ -125,8 +160,8 @@ class DashboardService:
         stats_by_type = {}
         
         try:
-            # Get invoices
-            invoices = self.invoice_service.get_all()
+            # Get invoices (cached)
+            invoices = self._get_invoices_cached()
             for invoice in invoices:
                 # Check if in date range
                 invoice_date = invoice.get('created_at', '')
@@ -150,8 +185,8 @@ class DashboardService:
                             stats_by_type['invoice']['paid_count'] += 1
                         stats_by_type['invoice']['total_amount'] += float(invoice.get('total_amount', 0))
             
-            # Get estimates
-            estimates = self.estimate_service.get_all()
+            # Get estimates (cached)
+            estimates = self._get_estimates_cached()
             for estimate in estimates:
                 # Check if in date range
                 estimate_date = estimate.get('created_at', '')
@@ -184,8 +219,8 @@ class DashboardService:
         revision_docs = []
         
         try:
-            # Check work orders with revision_requested flag
-            work_orders = self.work_order_service.get_all()
+            # Check work orders with revision_requested flag (cached)
+            work_orders = self._get_work_orders_cached()
             for wo in work_orders:
                 if wo.get('revision_requested'):
                     # Check if assigned to this staff member (if staff_id provided)
@@ -328,8 +363,8 @@ class DashboardService:
         # Get user dashboard data first
         user_data = self.get_user_dashboard(staff_id, filters)
         
-        # Get team members
-        all_staff = self.staff_service.get_all()
+        # Get team members (cached)
+        all_staff = self._get_staff_cached()
         team_members = []
         team_stats = {
             'total_assigned': 0,
@@ -397,8 +432,8 @@ class DashboardService:
         # Get manager dashboard data first
         manager_data = self.get_manager_dashboard(staff_id, filters)
         
-        # Get ALL work orders in the system
-        all_work_orders = self.work_order_service.get_all()
+        # Get ALL work orders in the system (cached)
+        all_work_orders = self._get_work_orders_cached()
         all_wo_summaries = []
         
         system_completed_today = 0
@@ -476,8 +511,8 @@ class DashboardService:
         start_date, end_date = self.get_time_period_dates(filters.time_period)
         total_revenue = 0.0
         
-        # Sum invoice amounts in the period
-        invoices = self.invoice_service.get_all()
+        # Sum invoice amounts in the period (cached)
+        invoices = self._get_invoices_cached()
         for invoice in invoices:
             invoice_date = invoice.get('invoice_date') or invoice.get('created_at')
             if isinstance(invoice_date, str):

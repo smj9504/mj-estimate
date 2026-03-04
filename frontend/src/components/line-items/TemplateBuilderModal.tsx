@@ -146,7 +146,11 @@ const SortableItem: React.FC<SortableItemProps> = ({ id, index, item, onRemove, 
               onChange={(value) => onUpdate(index, { rate: value || 0 })}
               size="small"
               style={{ width: 100 }}
-              prefix="$"
+              formatter={value => (value != null && value !== '') ? `$ ${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : ''}
+              parser={value => {
+                const num = parseFloat(String(value || '').replace(/\$\s?|(,*)/g, ''));
+                return isNaN(num) ? 0 : num;
+              }}
             />
           </Space>
           <Text strong>

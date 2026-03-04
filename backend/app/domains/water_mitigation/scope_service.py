@@ -69,14 +69,25 @@ class ScopeService:
     def create_location(
         self, data: ScopeLocationCreate
     ) -> WMScopeLocation:
-        """Create a new scope location"""
+        """Create a new scope location with optional auto-add standard items"""
         # Get next display order if not specified
         if data.display_order == 0:
             data.display_order = self.repository.get_next_location_order(
                 data.job_id
             )
 
-        return self.repository.create_location(data.dict())
+        # Extract auto_add flag before creating location data dict
+        auto_add_standard = data.auto_add_standard_items
+        location_data = data.dict(exclude={'auto_add_standard_items'})
+
+        # Create the location
+        location = self.repository.create_location(location_data)
+
+        # Auto-add standard items if requested
+        if auto_add_standard:
+            self.add_standard_items_to_location(location.id)
+
+        return location
 
     def update_location(
         self,
@@ -272,15 +283,11 @@ class ScopeService:
                 )
                 continue
 
-            # Get material weight info directly from scope item
-            material = None
+            # Use pre-loaded material_weight (eager-loaded in repository)
+            # This avoids N+1 queries - DO NOT call repository.get_material_weight_by_id here
+            material = item.material_weight
             dry_weight = Decimal("0")
             category_name = "Uncategorized"
-
-            if item.material_weight_id:
-                material = self.repository.get_material_weight_by_id(
-                    item.material_weight_id
-                )
 
             if material:
                 dry_weight = Decimal(str(material.dry_weight_per_unit))
@@ -329,6 +336,9 @@ class ScopeService:
         # Calculate total weight in tons
         total_weight_ton = total_weight_lb / Decimal("2000")
 
+        # Calculate number of 42-gallon contractor bags needed
+        bag_count = self._calculate_bag_count(float(total_weight_lb))
+
         # Generate dumpster recommendation
         dumpster_rec = self._recommend_dumpster(float(total_weight_ton))
 
@@ -346,6 +356,7 @@ class ScopeService:
         calculation_data = {
             "total_weight_lb": float(total_weight_lb),
             "total_weight_ton": float(total_weight_ton),
+            "bag_count": bag_count,
             "category_breakdown": category_breakdown,
             "dumpster_recommendation": dumpster_rec,
             "item_details": item_details,
@@ -388,6 +399,33 @@ class ScopeService:
             count=count,
             total_capacity_tons=largest["capacity_tons"] * count
         ).dict()
+
+    def _calculate_bag_count(self, total_weight_lb: float) -> int:
+        """
+        Calculate number of 42-gallon contractor bags needed for debris.
+
+        Based on research:
+        - 42-gallon contractor bags: max capacity 110 lbs
+        - Practical safe capacity: 85 lbs per bag (to avoid overfilling and tearing)
+        - Leaves room for bulky items and safe handling
+
+        Args:
+            total_weight_lb: Total debris weight in pounds
+
+        Returns:
+            Number of bags needed (rounded up)
+        """
+        if total_weight_lb <= 0:
+            return 0
+
+        # Practical capacity per bag: 85 lbs (allows safe handling + room for bulky items)
+        PRACTICAL_BAG_CAPACITY_LB = 85.0
+
+        # Calculate bags needed (round up to ensure sufficient bags)
+        import math
+        bag_count = math.ceil(total_weight_lb / PRACTICAL_BAG_CAPACITY_LB)
+
+        return bag_count
 
     def get_debris_calculation(
         self, job_id: UUID

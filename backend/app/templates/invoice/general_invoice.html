@@ -279,7 +279,14 @@
 </div>
 
 <div class="amount-due">
+  {% if balance_due is defined and balance_due <= 0.01 %}
+  <h3 style="color: #28a745;">✓ PAID IN FULL</h3>
+  {% elif total_paid is defined and total_paid > 0 %}
+  <h3>${{ balance_due|format_number_smart }} USD due {{ due_date|format_date }}</h3>
+  <p style="font-size: 12px; color: #666; margin-top: 5px;">Original: ${{ total|format_number_smart }} | Paid: ${{ total_paid|format_number_smart }}</p>
+  {% else %}
   <h3>${{ total|format_number_smart }} USD due {{ due_date|format_date }}</h3>
+  {% endif %}
 </div>
 
 {% if notes %}

@@ -28,16 +28,25 @@ class PhotoAnalysisCacheRepository:
         """Initialize repository with appropriate database implementation"""
         self.db = get_database()
         self.session = self.db.get_session()
+        self.repo = None
+        self._cache_available = False
 
         # Choose repository implementation based on database type
-        if self.db.provider_name in ["sqlite", "postgresql"]:
-            self.repo = SQLAlchemyRepository(self.session, PhotoAnalysisCache)
-        else:  # supabase
-            self.repo = SupabaseRepository(
-                self.session,
-                "photo_analysis_cache",
-                PhotoAnalysisCache
-            )
+        try:
+            if self.db.provider_name in ["sqlite", "postgresql"]:
+                self.repo = SQLAlchemyRepository(
+                    self.session, PhotoAnalysisCache
+                )
+            else:  # supabase
+                self.repo = SupabaseRepository(
+                    self.session,
+                    "photo_analysis_cache",
+                    PhotoAnalysisCache
+                )
+            self._cache_available = True
+        except Exception as e:
+            logger.warning(f"Cache repository initialization failed: {e}")
+            self._cache_available = False
 
     @staticmethod
     def generate_cache_key(
@@ -79,6 +88,10 @@ class PhotoAnalysisCacheRepository:
         Returns:
             PhotoAnalysisResponse if found and not expired, None otherwise
         """
+        if not self._cache_available or not self.repo:
+            logger.debug("Cache not available, skipping lookup")
+            return None
+
         try:
             # Query cache entry
             cache_entries = self.repo.get_all(filters={"cache_key": cache_key})
@@ -144,8 +157,14 @@ class PhotoAnalysisCacheRepository:
         Returns:
             True if saved successfully, False otherwise
         """
+        if not self._cache_available or not self.repo:
+            logger.debug("Cache not available, skipping save")
+            return False
+
         try:
-            ttl = ttl_days or getattr(settings, 'PHOTO_ANALYSIS_CACHE_TTL_DAYS', 30)
+            ttl = ttl_days or getattr(
+                settings, 'PHOTO_ANALYSIS_CACHE_TTL_DAYS', 30
+            )
             expires_at = datetime.utcnow() + timedelta(days=ttl)
 
             # Convert analysis result to dict
@@ -190,6 +209,9 @@ class PhotoAnalysisCacheRepository:
         Returns:
             True if deleted successfully, False otherwise
         """
+        if not self._cache_available or not self.repo:
+            return False
+
         try:
             entries = self.repo.get_all(filters={"cache_key": cache_key})
 
@@ -211,8 +233,11 @@ class PhotoAnalysisCacheRepository:
         Returns:
             Number of entries deleted
         """
+        if not self._cache_available or not self.repo:
+            return 0
+
         try:
-            # This is a simplified version - in production, you'd want a more efficient query
+            # This is a simplified version - for production use more efficient query
             all_entries = self.repo.get_all()
             deleted_count = 0
 

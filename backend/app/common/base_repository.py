@@ -48,7 +48,52 @@ class BaseRepository(Repository[T, ID]):
         visited.add(entity_id)
 
         try:
-            if hasattr(entity, '__dict__'):
+            # For SQLAlchemy models, use column inspection to get all column values
+            # This ensures all columns (including 'note') are included, not just those in __dict__
+            if hasattr(entity, '__table__'):
+                # This is a SQLAlchemy model - use column inspection
+                result = {}
+                for column in entity.__table__.columns:
+                    key = column.name
+                    try:
+                        value = getattr(entity, key, None)
+                    except Exception:
+                        value = None
+
+                    # Handle special types
+                    if isinstance(value, UUID):
+                        result[key] = str(value)
+                    elif isinstance(value, Decimal):
+                        result[key] = float(value)
+                    elif isinstance(value, datetime):
+                        result[key] = value.isoformat()
+                    elif value is None:
+                        result[key] = None
+                    elif isinstance(value, dict):
+                        result[key] = value
+                    elif isinstance(value, str) and key.endswith('_id'):
+                        result[key] = value
+                    elif isinstance(value, str) and key in ['base_cost', 'final_cost', 'tax_amount', 'discount_amount', 'estimated_cost', 'actual_cost']:
+                        try:
+                            result[key] = float(value) if value else 0.0
+                        except (ValueError, TypeError):
+                            result[key] = 0.0
+                    else:
+                        result[key] = value
+
+                # Handle relationships with circular reference protection for SQLAlchemy models
+                if hasattr(entity, 'items') and hasattr(entity.items, '__iter__'):
+                    result['items'] = [self._convert_to_dict(item, visited.copy()) for item in entity.items]
+                if hasattr(entity, 'rooms') and hasattr(entity.rooms, '__iter__'):
+                    result['rooms'] = [self._convert_to_dict(room, visited.copy()) for room in entity.rooms]
+                if hasattr(entity, 'category') and entity.category is not None:
+                    if hasattr(entity.category, '__dict__'):
+                        result['category'] = self._convert_to_dict(entity.category, visited.copy())
+                    else:
+                        result['category'] = entity.category
+
+                return result
+            elif hasattr(entity, '__dict__'):
                 result = {}
                 for key, value in entity.__dict__.items():
                     if not key.startswith('_'):
@@ -199,6 +244,14 @@ class SQLAlchemyRepository(BaseRepository[T, ID]):
                 try:
                     prepared[key] = UUID(value)
                 except (ValueError, AttributeError):
+                    prepared[key] = value
+            # Handle JSON strings that were converted from dict/list by _prepare_data
+            # Convert them back to dict/list for SQLAlchemy JSONB columns
+            elif isinstance(value, str) and value.startswith(('{', '[')):
+                try:
+                    parsed = json.loads(value)
+                    prepared[key] = parsed
+                except (json.JSONDecodeError, TypeError):
                     prepared[key] = value
             # Handle lists (keep as-is for SQLAlchemy JSON fields)
             elif isinstance(value, list):

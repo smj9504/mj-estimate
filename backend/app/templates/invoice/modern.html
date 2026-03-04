@@ -79,10 +79,13 @@
     {% endif %}
 
     <!-- Amount Due Banner -->
-    <div class="amount-due-banner {% if total <= 0 %}paid{% endif %}">
+    <div class="amount-due-banner {% if balance_due is defined and balance_due <= 0.01 %}paid{% endif %}">
       <p class="amount-due-text">
-        {% if total <= 0 %}
-          PAID IN FULL
+        {% if balance_due is defined and balance_due <= 0.01 %}
+          ✓ PAID IN FULL
+        {% elif total_paid is defined and total_paid > 0 %}
+          {{ balance_due|format_currency }} USD due {{ date_due|format_date }}
+          <br><span style="font-size: 12px; font-weight: normal;">Original: {{ total|format_currency }} | Paid: {{ total_paid|format_currency }}</span>
         {% else %}
           {{ total|format_currency }} USD due {{ date_due|format_date }}
         {% endif %}

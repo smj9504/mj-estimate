@@ -1,5 +1,6 @@
 import React from 'react';
 import { HolderOutlined } from '@ant-design/icons';
+import { useDragContext } from './DragContext';
 
 interface DragHandleProps {
   listeners?: any;
@@ -10,12 +11,19 @@ interface DragHandleProps {
 }
 
 const DragHandle: React.FC<DragHandleProps> = ({
-  listeners,
-  attributes,
-  isDragging = false,
+  listeners: propListeners,
+  attributes: propAttributes,
+  isDragging: propIsDragging,
   style,
   className,
 }) => {
+  // Use context if props are not provided (null or undefined)
+  const dragContext = useDragContext();
+
+  const listeners = propListeners ?? dragContext?.listeners;
+  const attributes = propAttributes ?? dragContext?.attributes;
+  const isDragging = propIsDragging ?? dragContext?.isDragging ?? false;
+
   return (
     <div
       {...attributes}

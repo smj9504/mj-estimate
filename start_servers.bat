@@ -5,6 +5,12 @@ echo    MJ React App - Smart Server Manager
 echo ===============================================
 echo.
 
+:: Fix for Korean Windows: Set encoding to UTF-8
+:: Prevents UnicodeDecodeError when Windows username contains Korean characters
+set PGCLIENTENCODING=UTF8
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
+
 :: Check if port 8000 is in use (Backend)
 echo Checking Backend (port 8000)...
 netstat -aon | findstr ":8000 " | findstr "LISTENING" >nul 2>&1

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import DragHandle from './DragHandle';
+import { DragProvider } from './DragContext';
 
 interface SortableRowProps {
   id: string;
@@ -48,49 +48,14 @@ const SortableRow: React.FC<SortableRowProps> = ({
   const transformStyle = {
     transform: CSS.Transform.toString(transform),
     transition: isDragging ? 'none' : transition,
-    opacity: isDragging ? 0 : 1, // Completely hide the original when dragging
+    opacity: isDragging ? 0 : 1,
     zIndex: isDragging ? 1000 : 'auto',
     position: isDragging ? 'relative' : 'static',
-    visibility: isDragging ? 'hidden' : 'visible', // Add visibility control
+    visibility: isDragging ? 'hidden' : 'visible',
     ...style,
   } as React.CSSProperties;
 
-  // Convert children to array for manipulation
-  const childrenArray = React.Children.toArray(children);
-
-  // Function to recursively search for DragHandle and enhance it
-  const enhanceDragHandle = (element: any): any => {
-    if (!React.isValidElement(element)) {
-      return element;
-    }
-
-    // Check if this is a DragHandle component
-    if (element.type === DragHandle) {
-      return React.cloneElement(element as React.ReactElement<any>, {
-        ...(element.props || {}),
-        listeners,
-        attributes,
-        isDragging,
-      });
-    }
-
-    // If it has children, recursively check them
-    const elementProps = element.props as any;
-    if (elementProps && elementProps.children) {
-      const enhancedChildren = React.Children.map(elementProps.children, enhanceDragHandle);
-      return React.cloneElement(element as React.ReactElement<any>, {
-        ...elementProps,
-        children: enhancedChildren,
-      });
-    }
-
-    return element;
-  };
-
-  // Enhance all children to find and enhance DragHandle components
-  const enhancedChildren = childrenArray.map((child) => enhanceDragHandle(child));
-
-  // Filter out any remaining drag-related props that shouldn't be passed to DOM
+  // Filter out any drag-related props that shouldn't be passed to DOM
   const {
     onDragStart: _onDragStart,
     onDragEnd: _onDragEnd,
@@ -104,6 +69,8 @@ const SortableRow: React.FC<SortableRowProps> = ({
     ...domProps
   } = props;
 
+  // Use DragProvider to pass drag context to DragHandle children
+  // This eliminates the need for expensive recursive child traversal
   return (
     <tr
       ref={setNodeRef}
@@ -113,7 +80,9 @@ const SortableRow: React.FC<SortableRowProps> = ({
       {...listeners}
       {...domProps}
     >
-      {enhancedChildren}
+      <DragProvider listeners={listeners} attributes={attributes} isDragging={isDragging}>
+        {children}
+      </DragProvider>
     </tr>
   );
 };

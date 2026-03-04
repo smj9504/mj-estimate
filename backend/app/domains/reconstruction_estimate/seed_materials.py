@@ -16,8 +16,8 @@ from .repository import MaterialCategoryRepository, MaterialWeightRepository
 SEED_DATA = {
     'flooring': [
         # Wood Flooring - High absorption (25-30% moisture content at saturation)
-        {'type': 'hardwood_floor_3_4', 'desc': '3/4" solid hardwood flooring (oak, maple)', 'weight': '2.3', 'unit': 'SF', 'damp': '1.15', 'wet': '1.35', 'sat': '1.6'},
-        {'type': 'hardwood_floor_1', 'desc': '1" solid hardwood flooring', 'weight': '3.1', 'unit': 'SF', 'damp': '1.15', 'wet': '1.35', 'sat': '1.6'},
+        {'type': 'hardwood_floor_3_4', 'desc': '3/4" solid hardwood flooring (oak, maple)', 'weight': '3.5', 'unit': 'SF', 'damp': '1.15', 'wet': '1.35', 'sat': '1.6'},
+        {'type': 'hardwood_floor_1', 'desc': '1" solid hardwood flooring', 'weight': '4.7', 'unit': 'SF', 'damp': '1.15', 'wet': '1.35', 'sat': '1.6'},
         {'type': 'engineered_hardwood', 'desc': 'Engineered hardwood flooring (3/8"-5/8")', 'weight': '2.0', 'unit': 'SF', 'damp': '1.12', 'wet': '1.25', 'sat': '1.4'},
         {'type': 'parquet_flooring', 'desc': 'Parquet wood flooring', 'weight': '2.4', 'unit': 'SF', 'damp': '1.15', 'wet': '1.35', 'sat': '1.6'},
 
@@ -35,8 +35,8 @@ SEED_DATA = {
         {'type': 'lvp_thick', 'desc': 'Luxury vinyl plank (thick/premium)', 'weight': '2.0', 'unit': 'SF', 'damp': '1.0', 'wet': '1.05', 'sat': '1.08'},
 
         # Tile - Very low absorption (non-porous, only grout absorbs)
-        {'type': 'ceramic_tile', 'desc': 'Ceramic tile (12x12) with thinset', 'weight': '4.0', 'unit': 'SF', 'damp': '1.05', 'wet': '1.08', 'sat': '1.12'},
-        {'type': 'porcelain_tile', 'desc': 'Porcelain tile (12x12) with thinset', 'weight': '4.5', 'unit': 'SF', 'damp': '1.03', 'wet': '1.05', 'sat': '1.08'},
+        {'type': 'ceramic_tile', 'desc': 'Ceramic tile (12x12) - tile only', 'weight': '4.0', 'unit': 'SF', 'damp': '1.05', 'wet': '1.08', 'sat': '1.12'},
+        {'type': 'porcelain_tile', 'desc': 'Porcelain tile (12x12) - tile only', 'weight': '4.5', 'unit': 'SF', 'damp': '1.03', 'wet': '1.05', 'sat': '1.08'},
         {'type': 'natural_stone_tile', 'desc': 'Natural stone tile (marble, travertine)', 'weight': '5.5', 'unit': 'SF', 'damp': '1.08', 'wet': '1.15', 'sat': '1.25'},
         {'type': 'tile_grout_only', 'desc': 'Tile grout (1/8" joints)', 'weight': '0.3', 'unit': 'SF', 'damp': '1.2', 'wet': '1.5', 'sat': '1.8'},
 
@@ -63,9 +63,9 @@ SEED_DATA = {
 
     'insulation': [
         # Insulation - Very high absorption (acts as sponge)
-        {'type': 'fiberglass_r13', 'desc': 'Fiberglass batt R-13 (3.5")', 'weight': '0.4', 'unit': 'SF', 'damp': '2.0', 'wet': '3.2', 'sat': '4.5'},
-        {'type': 'fiberglass_r19', 'desc': 'Fiberglass batt R-19 (6")', 'weight': '0.6', 'unit': 'SF', 'damp': '2.0', 'wet': '3.2', 'sat': '4.5'},
-        {'type': 'fiberglass_r30', 'desc': 'Fiberglass batt R-30 (10")', 'weight': '0.9', 'unit': 'SF', 'damp': '2.0', 'wet': '3.2', 'sat': '4.5'},
+        {'type': 'fiberglass_r13', 'desc': 'Fiberglass batt R-13 (3.5")', 'weight': '0.15', 'unit': 'SF', 'damp': '2.0', 'wet': '3.2', 'sat': '4.5'},
+        {'type': 'fiberglass_r19', 'desc': 'Fiberglass batt R-19 (6")', 'weight': '0.27', 'unit': 'SF', 'damp': '2.0', 'wet': '3.2', 'sat': '4.5'},
+        {'type': 'fiberglass_r30', 'desc': 'Fiberglass batt R-30 (10")', 'weight': '0.42', 'unit': 'SF', 'damp': '2.0', 'wet': '3.2', 'sat': '4.5'},
         {'type': 'cellulose_blown', 'desc': 'Blown cellulose insulation (R-3.5/inch)', 'weight': '0.5', 'unit': 'SF', 'damp': '2.5', 'wet': '4.0', 'sat': '5.5'},
         {'type': 'rockwool_batt', 'desc': 'Mineral wool (rockwool) batt insulation', 'weight': '1.7', 'unit': 'SF', 'damp': '1.8', 'wet': '2.8', 'sat': '4.0'},
         {'type': 'foam_board_1', 'desc': '1" rigid foam insulation board', 'weight': '0.3', 'unit': 'SF', 'damp': '1.05', 'wet': '1.1', 'sat': '1.15'},

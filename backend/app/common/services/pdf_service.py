@@ -14,6 +14,34 @@ from typing import Any, Dict, List, Optional
 
 from jinja2 import Environment, FileSystemLoader
 
+# Month names constant to avoid Windows locale/encoding issues with strftime %B
+MONTH_NAMES = [
+    "", "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+]
+
+
+def safe_strftime(dt: datetime, fmt: str) -> str:
+    """
+    Format datetime safely, avoiding Windows strftime encoding issues.
+
+    On Windows, strftime with %B (full month name) can produce corrupted
+    characters due to locale/encoding issues. This function manually
+    replaces %B with the English month name.
+
+    Args:
+        dt: datetime object to format
+        fmt: strftime format string
+
+    Returns:
+        Formatted date string
+    """
+    if "%B" in fmt:
+        month_name = MONTH_NAMES[dt.month]
+        fmt = fmt.replace("%B", month_name)
+    return dt.strftime(fmt)
+
+
 # Add GTK+ path for WeasyPrint on Windows (development only)
 # In production/Docker, GTK dependencies are installed system-wide
 if sys.platform == 'win32' and os.environ.get('ENVIRONMENT', 'development') == 'development':
@@ -215,24 +243,59 @@ class PDFService:
             return "0"
     
     @staticmethod
-    def _format_date(value, format: str = "%B %d, %Y") -> str:
-        """Format date string - accepts YYYY-MM-DD or MM-DD-YYYY"""
+    def _format_date(value, output_format: str = "%B %d, %Y") -> str:
+        """Format date string - accepts various date formats
+
+        Supported input formats:
+        - YYYY-MM-DD (ISO format)
+        - MM-DD-YYYY
+        - M-D-YYYY (without leading zeros)
+        - MM/DD/YYYY
+        - M/D/YYYY (without leading zeros)
+        - YYYY/MM/DD
+
+        Note: Uses safe_strftime to avoid Windows encoding issues.
+        """
+        if not value:
+            return ""
+
+        if isinstance(value, datetime):
+            return safe_strftime(value, output_format)
+
         if isinstance(value, str):
-            try:
-                # Try YYYY-MM-DD format first
-                dt = datetime.strptime(value, "%Y-%m-%d")
-                return dt.strftime(format)
-            except ValueError:
+            value = value.strip()
+            if not value:
+                return ""
+
+            # List of formats to try (most specific first)
+            date_formats = [
+                "%Y-%m-%d",      # 2026-02-06 (ISO format)
+                "%m-%d-%Y",      # 02-06-2026
+                "%m/%d/%Y",      # 02/06/2026
+                "%Y/%m/%d",      # 2026/02/06
+                "%d-%m-%Y",      # 06-02-2026 (European)
+                "%d/%m/%Y",      # 06/02/2026 (European)
+            ]
+
+            for fmt in date_formats:
                 try:
-                    # Try MM-DD-YYYY format
-                    dt = datetime.strptime(value, "%m-%d-%Y")
-                    return dt.strftime(format)
+                    dt = datetime.strptime(value, fmt)
+                    return safe_strftime(dt, output_format)
                 except ValueError:
-                    # Return as-is if neither format works
-                    return value
-        elif isinstance(value, datetime):
-            return value.strftime(format)
-        return str(value)
+                    continue
+
+            # If none of the strict formats work, try dateutil parser
+            try:
+                from dateutil import parser as dateutil_parser
+                dt = dateutil_parser.parse(value)
+                return safe_strftime(dt, output_format)
+            except Exception:
+                pass
+
+            # Return original value if all parsing fails
+            return value
+
+        return str(value) if value else ""
     
     def _markdown_to_html(self, text: str) -> str:
         """Convert basic markdown to HTML for notes section"""
@@ -1197,7 +1260,7 @@ class PDFService:
             if isinstance(value, str):
                 try:
                     dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
-                    return dt.strftime("%B %d, %Y")
+                    return safe_strftime(dt, "%B %d, %Y")
                 except (ValueError, TypeError):
                     return value
             return value
@@ -1590,7 +1653,7 @@ def generate_water_mitigation_report_pdf(
                 dt = datetime.fromisoformat(date_value.replace('Z', '+00:00'))
             else:
                 dt = date_value
-            return dt.strftime("%B %d, %Y")
+            return safe_strftime(dt, "%B %d, %Y")
         except Exception:
             return str(date_value)
 
@@ -2227,8 +2290,8 @@ def generate_ewa_pdf(
             dt = datetime.fromisoformat(date_of_loss.replace('Z', '+00:00'))
         else:
             dt = date_of_loss
-        # "October 25" format for first blank
-        date_month_day = dt.strftime("%B %d")
+        # "October 25" format for first blank (use safe_strftime for %B)
+        date_month_day = safe_strftime(dt, "%B %d")
         # "25" format for year (last 2 digits) for second blank after "20"
         date_year = dt.strftime("%y")
     except Exception as e:

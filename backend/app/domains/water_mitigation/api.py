@@ -534,8 +534,9 @@ async def list_photos(
         preview_url = None
         thumbnail_url = None
         
-        # Use stored thumbnail URL if available (fastest)
-        if photo.storage_thumbnail_url:
+        # Use stored thumbnail URL only if it's an actual URL (cloud CDN, etc.)
+        # Local storage paths (e.g. "water-mitigation/job/photos/thumb_xxx.webp") are NOT valid URLs
+        if photo.storage_thumbnail_url and photo.storage_thumbnail_url.startswith('http'):
             thumbnail_url = photo.storage_thumbnail_url
             preview_url = photo.storage_thumbnail_url
         
@@ -1739,11 +1740,12 @@ async def generate_document_pdf(
             local_path = Path(file_path_str)
             photo_added = False
 
-            # Check if local file exists first (absolute path)
-            if local_path.is_absolute() and local_path.exists():
-                photo_paths.append(str(local_path))
-                path_to_id[str(local_path)] = str(photo_id)
-                logger.debug(f"Using local file for photo {photo_id}: {local_path}")
+            # Check if local file exists (absolute or relative path)
+            if local_path.exists():
+                resolved = str(local_path.resolve())
+                photo_paths.append(resolved)
+                path_to_id[resolved] = str(photo_id)
+                logger.debug(f"Using local file for photo {photo_id}: {resolved}")
                 photo_added = True
 
             # Try cloud storage (GCS, GDrive, etc.)

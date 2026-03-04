@@ -313,22 +313,22 @@ const LineItemManagement: React.FC = () => {
       key: 'rate',
       width: 120,
       render: (_: any, record: LineItem) => {
-        const isXactimate = record.type === 'XACTIMATE';
+        // Parse breakdown fields
+        const lab = parseFloat(String(record.lab || 0));
+        const mat = parseFloat(String(record.mat || 0));
+        const equ = parseFloat(String(record.equ || 0));
+        const laborBurden = parseFloat(String(record.labor_burden || 0));
+        const marketCondition = parseFloat(String(record.market_condition || 0));
+
         let rate = 0;
+        const hasBreakdown = (lab > 0 || mat > 0 || equ > 0);
 
-        if (isXactimate) {
-          // Calculate Xactimate total with parseFloat to handle string values
-          const lab = parseFloat(String(record.lab || 0));
-          const mat = parseFloat(String(record.mat || 0));
-          const equ = parseFloat(String(record.equ || 0));
-          const laborBurden = parseFloat(String(record.labor_burden || 0));
-          const marketCondition = parseFloat(String(record.market_condition || 0));
-
-          // Only calculate if we have valid numbers
-          if (!isNaN(lab) && !isNaN(mat) && !isNaN(equ)) {
-            rate = (lab + mat + equ) * (1 + laborBurden / 100) * (1 + marketCondition / 100);
-          }
+        // Use breakdown calculation if any breakdown fields have values
+        // This handles both XACTIMATE type and CUSTOM items with breakdown data
+        if (hasBreakdown && !isNaN(lab) && !isNaN(mat) && !isNaN(equ)) {
+          rate = (lab + mat + equ) * (1 + laborBurden / 100) * (1 + marketCondition / 100);
         } else {
+          // Fall back to untaxed_unit_price for items without breakdown
           rate = parseFloat(String(record.untaxed_unit_price || 0));
         }
 

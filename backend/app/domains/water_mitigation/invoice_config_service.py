@@ -128,6 +128,12 @@ class InvoiceConfigService:
                         # Also support variations
                         processed_note = processed_note.replace("{quantity}", str(int(base_qty)))
                         processed_note = processed_note.replace("{wm_days}", str(mitigation_days))
+                        # Handle singular/plural for Unit(s) placeholder
+                        # e.g., "1 Unit(s) @ 3 days" -> "1 Unit @ 3 days"
+                        # e.g., "13 Unit(s) @ 3 days" -> "13 Units @ 3 days"
+                        if "Unit(s)" in processed_note:
+                            unit_text = "Unit" if int(base_qty) == 1 else "Units"
+                            processed_note = processed_note.replace("Unit(s)", unit_text)
 
                     config_dict.update({
                         "calculated_quantity": calc_qty,
@@ -404,6 +410,32 @@ class InvoiceConfigService:
                 # Add default note from standard item
                 if std_item and std_item.default_invoice_note:
                     config_kwargs["default_note"] = std_item.default_invoice_note
+                # Auto-generate equipment note if not already set
+                elif is_equipment and not config_kwargs.get("default_note"):
+                    # Use placeholder format: {qty} Unit(s) @ {days} days
+                    # The Unit(s) will be replaced with "Unit" or "Units" during invoice generation
+                    # Different notes for different equipment types
+                    item_name_lower = scope_item.name.lower()
+
+                    if "air mover" in item_name_lower:
+                        config_kwargs["default_note"] = (
+                            "{qty} Unit(s) @ {days} days\n"
+                            "Excludes: HEPA filter and setup, take down, and monitoring."
+                        )
+                    elif "air scrubber" in item_name_lower:
+                        config_kwargs["default_note"] = (
+                            "{qty} Unit(s) @ {days} days\n"
+                            "Excludes: Set-up, take down, and monitoring.\n"
+                            "Air Scrubber with HEPA and carbon filters use of an Air scrubber for a whole day"
+                        )
+                    elif "dehumidifier" in item_name_lower:
+                        config_kwargs["default_note"] = (
+                            "{qty} Unit(s) @ {days} days\n"
+                            "Excludes: Set-up, take down, and monitoring."
+                        )
+                    else:
+                        # Generic equipment note
+                        config_kwargs["default_note"] = "{qty} Unit(s) @ {days} days"
 
                 matched = False
 
@@ -535,6 +567,7 @@ class InvoiceConfigService:
             - primary_location: Primary location name for notes
             - equipment_items: List of equipment items with quantities
             - floor_count: Number of unique floors
+            - debris_floors: Set of floor names where debris items exist
         """
         # Get debris calculation if exists
         debris_calc = self.db.query(WMDebrisCalculation).filter(
@@ -542,8 +575,11 @@ class InvoiceConfigService:
         ).first()
 
         total_debris_ton = Decimal("0")
+        bag_count = 0
         if debris_calc and debris_calc.total_weight_ton:
             total_debris_ton = debris_calc.total_weight_ton
+        if debris_calc and debris_calc.bag_count:
+            bag_count = debris_calc.bag_count
 
         # Get all locations and scope items
         locations = self.db.query(WMScopeLocation).options(
@@ -554,6 +590,7 @@ class InvoiceConfigService:
         has_stairs = False
         primary_location = "the property"
         floors = set()
+        debris_floors = set()
 
         for location in locations:
             # Check for stairs indicators
@@ -564,6 +601,21 @@ class InvoiceConfigService:
             # Track floors
             if location.floor:
                 floors.add(location.floor)
+
+            # Track floors with debris items
+            has_debris_in_location = False
+            for scope_item in location.scope_items:
+                # Check if this is a demolition/debris item
+                if (scope_item.item_type == "demolition" or
+                    scope_item.include_in_debris or
+                    scope_item.material_weight_id):
+                    has_debris_in_location = True
+                    break
+
+            if has_debris_in_location and location.floor:
+                # Normalize floor names for consistency
+                floor_normalized = self._normalize_floor_name(location.floor)
+                debris_floors.add(floor_normalized)
 
             # Use first location as primary
             if location == locations[0]:
@@ -584,11 +636,42 @@ class InvoiceConfigService:
 
         return {
             "total_debris_ton": total_debris_ton,
+            "bag_count": bag_count,
             "has_stairs": has_stairs,
             "primary_location": primary_location,
             "equipment_items": equipment_items,
             "floor_count": len(floors) if floors else 1,
+            "debris_floors": debris_floors,
         }
+
+    def _normalize_floor_name(self, floor: str) -> str:
+        """
+        Normalize floor name for consistent display.
+
+        Examples:
+        - "1st Floor" -> "ground floor"
+        - "2nd Floor" -> "2nd floor"
+        - "Basement" -> "basement"
+        """
+        floor_lower = floor.lower().strip()
+
+        # Ground floor variations
+        if any(term in floor_lower for term in ["1st", "first", "main", "ground"]):
+            return "ground floor"
+
+        # Basement variations
+        if "basement" in floor_lower or "bsmt" in floor_lower:
+            return "basement"
+
+        # Upper floors
+        if "2nd" in floor_lower or "second" in floor_lower:
+            return "2nd floor"
+
+        if "3rd" in floor_lower or "third" in floor_lower:
+            return "3rd floor"
+
+        # Default - return as-is if can't normalize
+        return floor_lower
 
     def _add_general_conditions_items(self, job_id: UUID, overwrite: bool = False) -> Dict[str, Any]:
         """
@@ -1010,4 +1093,168 @@ class InvoiceConfigService:
             "unmapped_items": unmapped_items,
             "mapped_count": len([i for i in items if i["has_mapping"]]),
             "total_count": len(items),
+        }
+
+    # ========================================
+    # General Conditions Template Seeding
+    # ========================================
+
+    def seed_general_conditions_template(self) -> Dict[str, Any]:
+        """
+        Seed the General Conditions template with necessary line items.
+
+        This ensures the template has the required items:
+        - Emergency service call
+        - Hand loading disposal of construction debris
+        - Equipment setup, take down, and monitoring
+
+        Returns:
+            Dictionary with seed results
+        """
+        from app.domains.line_items.models import LineItem, TemplateLineItem
+
+        # General Conditions line item keywords/codes to find
+        GC_LINE_ITEMS = [
+            {
+                "keywords": ["emergency service", "emeseca"],
+                "description": "Emergency service call",
+                "order": 0,
+            },
+            {
+                "keywords": ["hand loading disposal", "genlape", "hand load", "debris disposal"],
+                "description": "Hand loading disposal of construction debris",
+                "order": 1,
+            },
+            {
+                "keywords": ["equipment setup", "equseta", "monitoring"],
+                "description": "Equipment setup, take down, and monitoring",
+                "order": 2,
+            },
+        ]
+
+        # Get or create General Conditions template
+        gc_template = self.db.query(LineItemTemplate).filter(
+            LineItemTemplate.id == GENERAL_CONDITIONS_TEMPLATE_ID
+        ).first()
+
+        if not gc_template:
+            # Create the template if it doesn't exist
+            gc_template = LineItemTemplate(
+                id=GENERAL_CONDITIONS_TEMPLATE_ID,
+                name="General Conditions",
+                description="General Conditions items for Water Mitigation invoices",
+                is_active=True,
+            )
+            self.db.add(gc_template)
+            self.db.flush()
+            logger.info(f"Created General Conditions template: {gc_template.id}")
+
+        # Check existing template items
+        existing_items = self.db.query(TemplateLineItem).filter(
+            TemplateLineItem.template_id == GENERAL_CONDITIONS_TEMPLATE_ID
+        ).all()
+
+        existing_line_item_ids = {str(ti.line_item_id) for ti in existing_items if ti.line_item_id}
+
+        added_count = 0
+        skipped_count = 0
+        not_found = []
+
+        for gc_item in GC_LINE_ITEMS:
+            # Find matching line item
+            line_item = None
+            for keyword in gc_item["keywords"]:
+                # Search by description or item code
+                line_item = self.db.query(LineItem).filter(
+                    LineItem.is_active == True,
+                    (
+                        LineItem.description.ilike(f"%{keyword}%") |
+                        LineItem.item.ilike(f"%{keyword}%")
+                    )
+                ).first()
+
+                if line_item:
+                    break
+
+            if not line_item:
+                not_found.append(gc_item["description"])
+                logger.warning(f"Line item not found for GC: {gc_item['description']}")
+                continue
+
+            # Check if already exists
+            if str(line_item.id) in existing_line_item_ids:
+                skipped_count += 1
+                logger.debug(f"Line item already in template: {line_item.description}")
+                continue
+
+            # Add to template
+            template_item = TemplateLineItem(
+                template_id=GENERAL_CONDITIONS_TEMPLATE_ID,
+                line_item_id=line_item.id,
+                order_index=gc_item["order"],
+            )
+            self.db.add(template_item)
+            added_count += 1
+            logger.info(f"Added GC line item: {line_item.description}")
+
+        self.db.commit()
+
+        return {
+            "success": True,
+            "template_id": str(GENERAL_CONDITIONS_TEMPLATE_ID),
+            "added_count": added_count,
+            "skipped_count": skipped_count,
+            "not_found": not_found,
+            "message": f"Added {added_count} items to General Conditions template"
+        }
+
+    def get_general_conditions_template_status(self) -> Dict[str, Any]:
+        """
+        Get the status of the General Conditions template.
+
+        Returns:
+            Dictionary with template info and item count
+        """
+        from app.domains.line_items.models import TemplateLineItem
+
+        gc_template = self.db.query(LineItemTemplate).options(
+            joinedload(LineItemTemplate.template_items).joinedload(TemplateLineItem.line_item)
+        ).filter(
+            LineItemTemplate.id == GENERAL_CONDITIONS_TEMPLATE_ID
+        ).first()
+
+        if not gc_template:
+            return {
+                "exists": False,
+                "template_id": str(GENERAL_CONDITIONS_TEMPLATE_ID),
+                "item_count": 0,
+                "items": [],
+            }
+
+        items = []
+        for tli in gc_template.template_items:
+            if tli.line_item:
+                items.append({
+                    "id": str(tli.id),
+                    "line_item_id": str(tli.line_item_id),
+                    "description": tli.line_item.description,
+                    "rate": float(tli.line_item.untaxed_unit_price) if tli.line_item.untaxed_unit_price else 0,
+                    "unit": tli.line_item.unit,
+                })
+            elif tli.embedded_data:
+                items.append({
+                    "id": str(tli.id),
+                    "line_item_id": None,
+                    "description": tli.embedded_data.get("description", "Unknown"),
+                    "rate": tli.embedded_data.get("rate", 0),
+                    "unit": tli.embedded_data.get("unit", "EA"),
+                    "is_embedded": True,
+                })
+
+        return {
+            "exists": True,
+            "template_id": str(GENERAL_CONDITIONS_TEMPLATE_ID),
+            "template_name": gc_template.name,
+            "item_count": len(items),
+            "items": items,
         }

@@ -28,6 +28,7 @@ slowapi==0.1.9
 aiofiles==23.2.1
 openpyxl==3.1.2
 Pillow>=11.0.0  # Updated for inference-sdk compatibility (requires >=11.0)
+python-dateutil==2.8.2  # Flexible date parsing for various input formats
 
 # AI/ML - Photo Analysis
 openai==1.54.0  # OpenAI GPT-4 Vision for room photo analysis

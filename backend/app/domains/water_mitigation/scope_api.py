@@ -32,8 +32,6 @@ from app.domains.water_mitigation.schemas import (
     CategoryBreakdown,
     DumpsterRecommendation,
     DebrisItemDetail,
-    # Bulk operations
-    AddStandardItemsRequest,
     # Formula
     CalculateFormulaRequest,
     CalculateFormulaResponse,
@@ -110,11 +108,19 @@ def create_location(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user)
 ):
-    """Create a new scope location"""
+    """
+    Create a new scope location.
+
+    By default, standard scope items (Floor Protection, Content Protection,
+    Containment, Air Mover, Dehumidifier, Air Scrubber) are automatically
+    added to the location. Set auto_add_standard_items=false to create
+    an empty location.
+    """
     service = ScopeService(db)
     location = service.create_location(data)
     db.commit()
-    db.refresh(location)
+    # Re-fetch location with items to ensure relationships are loaded
+    location = service.get_location(location.id, include_items=True)
     return ScopeLocationResponse.from_orm(location)
 
 
@@ -365,6 +371,7 @@ def calculate_debris(
         job_id=job_id,
         total_weight_lb=calculation_data["total_weight_lb"],
         total_weight_ton=calculation_data["total_weight_ton"],
+        bag_count=calculation_data.get("bag_count"),  # Include bag count in response
         category_breakdown=[
             CategoryBreakdown(**cb)
             for cb in calculation_data["category_breakdown"]
@@ -417,6 +424,7 @@ def get_debris_calculation(
         job_id=calc.job_id,
         total_weight_lb=float(calc.total_weight_lb or 0),
         total_weight_ton=float(calc.total_weight_ton or 0),
+        bag_count=calc.bag_count,  # Include bag count in response
         category_breakdown=[
             CategoryBreakdown(**cb) if isinstance(cb, dict) else cb
             for cb in category_breakdown
@@ -972,3 +980,57 @@ def preview_invoice_from_standard_mappings(
     )
 
     return preview
+
+
+# =============================================================================
+# General Conditions Template Management Endpoints
+# =============================================================================
+
+@router.get(
+    "/general-conditions/status",
+    summary="Get General Conditions template status"
+)
+def get_general_conditions_status(
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user)
+):
+    """
+    Get the status of the General Conditions template.
+
+    Returns:
+    - Whether the template exists
+    - Number of line items in the template
+    - List of items with their details
+    """
+    from app.domains.water_mitigation.invoice_config_service import (
+        InvoiceConfigService
+    )
+
+    service = InvoiceConfigService(db)
+    return service.get_general_conditions_template_status()
+
+
+@router.post(
+    "/general-conditions/seed",
+    summary="Seed General Conditions template with line items"
+)
+def seed_general_conditions_template(
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user)
+):
+    """
+    Seed the General Conditions template with necessary line items.
+
+    This will:
+    1. Create the General Conditions template if it doesn't exist
+    2. Find matching line items (Emergency service call, Hand loading disposal, Equipment monitoring)
+    3. Link them to the template
+
+    Call this endpoint if General Conditions items are not appearing in invoices.
+    """
+    from app.domains.water_mitigation.invoice_config_service import (
+        InvoiceConfigService
+    )
+
+    service = InvoiceConfigService(db)
+    return service.seed_general_conditions_template()

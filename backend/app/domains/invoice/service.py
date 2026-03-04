@@ -446,22 +446,24 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
             raise
     
     def _generate_invoice_number(self) -> str:
-        """Generate unique invoice number"""
+        """Generate unique invoice number using efficient SQL query"""
         try:
+            from sqlalchemy import func, text
+            from app.domains.invoice.models import Invoice
+
             # Get current year and month
             now = datetime.utcnow()
             prefix = f"INV-{now.year}{now.month:02d}"
-            
-            # Get existing invoices for this month
-            existing_invoices = self.get_all(
-                filters={'invoice_number__startswith': prefix}
-            )
-            
-            # Find the next sequence number
-            sequence = len(existing_invoices) + 1
-            
-            return f"{prefix}-{sequence:04d}"
-            
+
+            # Use direct SQL to count invoices with this prefix (LIKE query)
+            with self.database.get_session() as session:
+                count = session.query(func.count(Invoice.id)).filter(
+                    Invoice.invoice_number.like(f"{prefix}%")
+                ).scalar() or 0
+
+                sequence = count + 1
+                return f"{prefix}-{sequence:04d}"
+
         except Exception as e:
             logger.error(f"Error generating invoice number: {e}")
             # Fallback to timestamp-based number

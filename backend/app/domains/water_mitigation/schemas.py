@@ -736,6 +736,10 @@ class ScopeLocationCreate(BaseModel):
     room_type: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = None
     display_order: int = 0
+    auto_add_standard_items: bool = Field(
+        default=True,
+        description="Automatically add standard scope items when creating location"
+    )
 
 
 class ScopeLocationUpdate(BaseModel):
@@ -873,6 +877,7 @@ class WMDebrisCalculationResponse(BaseModel):
     job_id: UUID
     total_weight_lb: float
     total_weight_ton: float
+    bag_count: Optional[int] = None  # Number of 42-gallon contractor bags needed
     category_breakdown: List[CategoryBreakdown] = []
     dumpster_recommendation: Optional[DumpsterRecommendation] = None
     item_details: List[DebrisItemDetail] = []

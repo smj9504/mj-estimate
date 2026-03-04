@@ -4,7 +4,6 @@ import {
   Card,
   Space,
   Button,
-  Tabs,
   Table,
   Form,
   Input,
@@ -12,7 +11,6 @@ import {
   Select,
   Switch,
   Modal,
-  Badge,
   Tag,
   Divider,
   Typography,
@@ -21,10 +19,6 @@ import {
   Statistic,
   message,
   Popconfirm,
-  List,
-  Collapse,
-  Alert,
-  Empty,
   Tooltip,
   Checkbox,
 } from 'antd';
@@ -39,13 +33,9 @@ import {
   FileTextOutlined,
   UnorderedListOutlined,
   AppstoreOutlined,
-  ThunderboltOutlined,
-  MergeCellsOutlined,
-  CheckCircleOutlined,
+  ExportOutlined,
 } from '@ant-design/icons';
 import InputModeSelector from './InputModeSelector';
-import RoomTemplateSelector from './RoomTemplateSelector';
-import BulkTextInput from './BulkTextInput';
 import SmartEstimation from './SmartEstimation';
 import { PhotoUploadManager } from './photo-upload';
 import { PackInputMode } from '../../types/pack-calculation';
@@ -57,14 +47,17 @@ import {
   type PackCalculationRequest,
   type PackCalculationResult
 } from '../../services/packCalculationService';
+import {
+  savePackEstimate,
+  type PackEstimateResult
+} from '../../services/packEstimateService';
 
-const { Title, Text, Paragraph } = Typography;
-const { Panel } = Collapse;
+const { Title, Text } = Typography;
 
 // Extended item type with source tracking
 interface ExtendedPackItem extends PackItemInput {
   id: string;
-  source: 'manual' | 'template' | 'bulk' | 'smart' | 'photo';
+  source: 'manual' | 'smart' | 'photo';
   room_name?: string;
   category_display?: string;
 }
@@ -72,8 +65,6 @@ interface ExtendedPackItem extends PackItemInput {
 // Source emoji mapping
 const SOURCE_ICONS = {
   manual: { emoji: '✏️', label: 'Manual', color: 'blue' },
-  template: { emoji: '📦', label: 'Template', color: 'green' },
-  bulk: { emoji: '📋', label: 'Bulk Text', color: 'orange' },
   smart: { emoji: '⚡', label: 'Smart AI', color: 'purple' },
   photo: { emoji: '📸', label: 'Photo', color: 'magenta' },
 };
@@ -103,16 +94,18 @@ const PackCalculatorMultiMode: React.FC = () => {
 
   // Items from different sources
   const [manualItems, setManualItems] = useState<ExtendedPackItem[]>([]);
-  const [templateItems, setTemplateItems] = useState<ExtendedPackItem[]>([]);
-  const [bulkItems, setBulkItems] = useState<ExtendedPackItem[]>([]);
   const [smartItems, setSmartItems] = useState<ExtendedPackItem[]>([]);
   const [photoItems, setPhotoItems] = useState<ExtendedPackItem[]>([]);
 
   // UI state
-  const [activeHybridTab, setActiveHybridTab] = useState('template');
+  const [activeHybridTab, setActiveHybridTab] = useState('photo');
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showBuildingModal, setShowBuildingModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Pack estimate result for saving
+  const [lastPackEstimateResult, setLastPackEstimateResult] = useState<PackEstimateResult | null>(null);
 
   // Manual item form
   const [manualForm] = Form.useForm();
@@ -121,27 +114,21 @@ const PackCalculatorMultiMode: React.FC = () => {
   const allItems = useMemo(() => {
     const items: ExtendedPackItem[] = [];
 
-    if (selectedMode === PackInputMode.IMAGE) { // Using IMAGE as HYBRID mode
-      items.push(...manualItems, ...templateItems, ...bulkItems, ...smartItems, ...photoItems);
+    if (selectedMode === PackInputMode.IMAGE) { // Photo Analysis mode
+      items.push(...photoItems);
     } else if (selectedMode === PackInputMode.STRUCTURED) {
       items.push(...manualItems);
-    } else if (selectedMode === PackInputMode.TEMPLATE) {
-      items.push(...templateItems);
-    } else if (selectedMode === PackInputMode.BULK_TEXT) {
-      items.push(...bulkItems);
     } else if (selectedMode === PackInputMode.TEXT) {
       items.push(...smartItems);
     }
 
     return items;
-  }, [selectedMode, manualItems, templateItems, bulkItems, smartItems, photoItems]);
+  }, [selectedMode, manualItems, smartItems, photoItems]);
 
   // Statistics
   const statistics = useMemo(() => {
     const bySource: Record<string, number> = {
       manual: manualItems.length,
-      template: templateItems.length,
-      bulk: bulkItems.length,
       smart: smartItems.length,
       photo: photoItems.length,
     };
@@ -164,7 +151,7 @@ const PackCalculatorMultiMode: React.FC = () => {
       totalQuantity,
       estimatedBoxes,
     };
-  }, [allItems, manualItems, templateItems, bulkItems, smartItems]);
+  }, [allItems, manualItems, smartItems, photoItems]);
 
   // Handle mode selection
   const handleModeSelect = (mode: PackInputMode) => {
@@ -177,64 +164,6 @@ const PackCalculatorMultiMode: React.FC = () => {
     }
   };
 
-  // Handle template items (with room information)
-  const handleTemplateItems = useCallback((rooms: any[]) => {
-    const newItems: ExtendedPackItem[] = [];
-
-    console.log('🔍 [DEBUG] Template rooms received:', rooms);
-
-    rooms.forEach(room => {
-      console.log(`📦 [DEBUG] Room: ${room.room_type}, items count: ${room.estimated_items?.length}`);
-
-      room.estimated_items.forEach((item: any) => {
-        console.log(`  └─ Item: ${item.subcategory}, quantity=${item.quantity}, pack_size=${item.pack_size}`);
-
-        newItems.push({
-          ...item,
-          item_name: item.subcategory || item.category,
-          item_category: item.category,
-          size_category: 'medium',
-          floor_level: 'MAIN_LEVEL',
-          fragile: false,
-          requires_disassembly: false,
-          id: `template-${Date.now()}-${Math.random()}`,
-          source: 'template' as const,
-          room_name: room.room_type, // Add room name from template
-          category_display: item.category,
-        });
-      });
-    });
-
-    console.log('✅ [DEBUG] Total items added:', newItems.length);
-    console.log('📊 [DEBUG] Sample quantities:', newItems.slice(0, 5).map(i => ({ name: i.item_name, qty: i.quantity })));
-
-    if (selectedMode === PackInputMode.IMAGE) { // HYBRID mode
-      setTemplateItems(prev => [...prev, ...newItems]);
-    } else {
-      setTemplateItems(newItems);
-    }
-
-    message.success(`Added ${newItems.length} items from ${rooms.length} room(s)`);
-  }, [selectedMode]);
-
-  // Handle bulk text items
-  const handleBulkItems = useCallback((items: PackItemInput[]) => {
-    const newItems: ExtendedPackItem[] = items.map(item => ({
-      ...item,
-      id: `bulk-${Date.now()}-${Math.random()}`,
-      source: 'bulk' as const,
-      category_display: item.item_category,
-    }));
-
-    if (selectedMode === PackInputMode.IMAGE) { // HYBRID mode
-      setBulkItems(prev => [...prev, ...newItems]);
-    } else {
-      setBulkItems(newItems);
-    }
-
-    message.success(`Added ${items.length} items from bulk text`);
-  }, [selectedMode]);
-
   // Handle smart estimation items
   const handleSmartItems = useCallback((items: PackItemInput[]) => {
     const newItems: ExtendedPackItem[] = items.map(item => ({
@@ -244,7 +173,7 @@ const PackCalculatorMultiMode: React.FC = () => {
       category_display: item.item_category,
     }));
 
-    if (selectedMode === PackInputMode.IMAGE) { // HYBRID mode
+    if (selectedMode === PackInputMode.IMAGE) { // Photo mode
       setSmartItems(prev => [...prev, ...newItems]);
     } else {
       setSmartItems(newItems);
@@ -255,14 +184,19 @@ const PackCalculatorMultiMode: React.FC = () => {
 
   // Handle photo analysis items
   const handlePhotoItems = useCallback((items: any[]) => {
+    console.log('🔍 [DEBUG] Photo items received:', items.map(i => ({ name: i.item_name, room: i.room_name })));
+
     const newItems: ExtendedPackItem[] = items.map(item => ({
       ...item,
       id: `photo-${Date.now()}-${Math.random()}`,
       source: 'photo' as const,
-      category_display: item.category,
+      category_display: item.item_category,
+      room_name: item.room_name, // Explicitly preserve room_name from photo analysis
     }));
 
-    if (selectedMode === PackInputMode.IMAGE) { // HYBRID mode
+    console.log('✅ [DEBUG] Photo items with room_name:', newItems.map(i => ({ name: i.item_name, room: i.room_name })));
+
+    if (selectedMode === PackInputMode.IMAGE) { // Photo mode
       setPhotoItems(prev => [...prev, ...newItems]);
     } else {
       setPhotoItems(newItems);
@@ -281,7 +215,7 @@ const PackCalculatorMultiMode: React.FC = () => {
         category_display: values.item_category,
       };
 
-      if (selectedMode === PackInputMode.IMAGE) { // HYBRID mode
+      if (selectedMode === PackInputMode.IMAGE) { // Photo mode
         setManualItems(prev => [...prev, newItem]);
       } else {
         setManualItems([...manualItems, newItem]);
@@ -301,14 +235,11 @@ const PackCalculatorMultiMode: React.FC = () => {
       case 'manual':
         setManualItems(prev => prev.filter(i => i.id !== itemId));
         break;
-      case 'template':
-        setTemplateItems(prev => prev.filter(i => i.id !== itemId));
-        break;
-      case 'bulk':
-        setBulkItems(prev => prev.filter(i => i.id !== itemId));
-        break;
       case 'smart':
         setSmartItems(prev => prev.filter(i => i.id !== itemId));
+        break;
+      case 'photo':
+        setPhotoItems(prev => prev.filter(i => i.id !== itemId));
         break;
     }
 
@@ -353,9 +284,8 @@ const PackCalculatorMultiMode: React.FC = () => {
   // Clear all items
   const handleClearAll = () => {
     setManualItems([]);
-    setTemplateItems([]);
-    setBulkItems([]);
     setSmartItems([]);
+    setPhotoItems([]);
     message.success('All items cleared');
   };
 
@@ -363,7 +293,7 @@ const PackCalculatorMultiMode: React.FC = () => {
   const handleSwitchMode = () => {
     setPhase('mode-selection');
     setSelectedMode(null);
-    setActiveHybridTab('template');
+    setActiveHybridTab('photo');
   };
 
   // Calculate materials and labor
@@ -380,15 +310,24 @@ const PackCalculatorMultiMode: React.FC = () => {
 
       setLoading(true);
 
-      // Group items by room_name
+      // Group items by room_name - preserve original room names from photo analysis
+      console.log('🔍 [DEBUG] All items before grouping:', allItems.map(i => ({
+        name: i.item_name,
+        room: i.room_name,
+        source: i.source,
+      })));
+
       const itemsByRoom = allItems.reduce((acc, item) => {
-        const roomName = item.room_name || 'Main Room';
+        // Use the room_name from the item, only use fallback if truly undefined
+        const roomName = item.room_name || `Unknown Room (${item.source})`;
         if (!acc[roomName]) {
           acc[roomName] = [];
         }
         acc[roomName].push(item);
         return acc;
       }, {} as Record<string, ExtendedPackItem[]>);
+
+      console.log('✅ [DEBUG] Items grouped by room:', Object.keys(itemsByRoom));
 
       // Create PackRoomInput for each room
       const rooms: PackRoomInput[] = Object.entries(itemsByRoom).map(([roomName, items]) => ({
@@ -460,6 +399,166 @@ const PackCalculatorMultiMode: React.FC = () => {
       message.error('Failed to calculate. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Export to Estimate Editor
+  const handleExportToEstimate = () => {
+    if (allItems.length === 0) {
+      message.error('Please add at least one item');
+      return;
+    }
+
+    // Convert pack items to estimate line items format
+    const estimateItems = allItems.map((item, index) => ({
+      id: item.id,
+      name: item.item_name,
+      description: `${item.item_category || 'Item'} - ${item.room_name || 'Main Room'}`,
+      quantity: item.quantity,
+      unit: 'EA',
+      unit_price: 0, // Will be filled from pricing database
+      total: 0,
+      taxable: false,
+      primary_group: 'Moving/Packing',
+      secondary_group: item.item_category || 'General',
+      sort_order: index,
+      note: item.special_notes || undefined,
+    }));
+
+    // Store in sessionStorage for the estimate editor to pick up
+    sessionStorage.setItem('packEstimateExport', JSON.stringify({
+      items: estimateItems,
+      metadata: {
+        calculation_name: buildingInfo.calculation_name || 'Pack-Out Estimate',
+        project_address: buildingInfo.project_address,
+        total_items: allItems.length,
+        exported_at: new Date().toISOString(),
+      },
+    }));
+
+    message.success(`Exported ${allItems.length} items to estimate`);
+
+    // Navigate to new estimate creation with import flag
+    navigate('/estimates/new?import=pack');
+  };
+
+  // Save pack estimate to database
+  const handleSavePackEstimate = async () => {
+    if (allItems.length === 0) {
+      message.error('Please add at least one item before saving');
+      return;
+    }
+
+    const buildingData = buildingForm.getFieldsValue();
+
+    // Create a PackEstimateResult structure
+    const packResult: PackEstimateResult = {
+      phase1_inventory: {
+        room_name: buildingData.calculation_name || 'Pack-Out Estimate',
+        items: allItems.map((item) => ({
+          item_id: item.id,
+          category: item.item_category || 'General',
+          description: item.item_name,
+          quantity: item.quantity,
+          size_type: item.size_category || 'Medium',
+          condition: 'good' as const,
+          packing_method: undefined,
+          box_type: undefined,
+          special_handling: item.fragile ? ['FRAGILE'] : [],
+          packing_materials_needed: [],
+          estimated_pack_time_minutes: 10,
+          notes: item.special_notes,
+        })),
+        room_characteristics: {
+          approximate_size: 'medium' as const,
+          density_level: 'MODERATE' as const,
+          access_notes: undefined,
+        },
+        packing_summary: {
+          box_requirements: {
+            SMALL_BOX: 0,
+            MEDIUM_BOX: Math.ceil(allItems.length / 3),
+            LARGE_BOX: Math.ceil(allItems.filter((i) => i.size_category === 'large').length),
+            EXTRA_LARGE_BOX: 0,
+            WARDROBE_BOX: 0,
+            DISH_PACK_BOX: 0,
+            PICTURE_BOX: 0,
+            LONG_BOX: 0,
+            LAMP_BOX: 0,
+            TV_BOX: 0,
+            TUBE_BOX: 0,
+            OTHER: 0,
+          },
+          supplies_needed: [],
+          fragile_item_count: allItems.filter((i) => i.fragile).length,
+          heavy_item_count: 0,
+          estimated_total_pack_time_hours: Math.ceil(allItems.length / 10),
+          crew_size_recommended: 2,
+          special_equipment_needed: [],
+        },
+      },
+      line_items: allItems.map((item, index) => ({
+        id: item.id,
+        name: item.item_name,
+        description: `${item.item_category || 'Item'} - ${item.room_name || 'Main Room'}`,
+        quantity: item.quantity,
+        unit: 'EA' as const,
+        unit_price: 0,
+        total: 0,
+        category: 'MATERIALS' as const,
+        primary_group: 'Moving/Packing',
+        secondary_group: item.item_category || 'General',
+        notes: item.special_notes,
+        taxable: false,
+        sort_order: index,
+      })),
+      summary: {
+        subtotal: 0,
+        tax_rate: 0,
+        tax_amount: 0,
+        total: 0,
+        estimated_duration_hours: Math.ceil(allItems.length / 10),
+      },
+      processing_info: {
+        photo_count: photoItems.length,
+        room_name: buildingData.calculation_name || 'Pack-Out Estimate',
+        phase1_method: 'manual',
+        phase2_method: 'rule_based',
+        items_detected: allItems.length,
+        line_items_generated: allItems.length,
+        estimated_total: 0,
+      },
+    };
+
+    setSaving(true);
+
+    try {
+      const savedEstimate = await savePackEstimate(packResult, {
+        jobName: buildingData.calculation_name,
+        address: buildingData.project_address,
+        notes: buildingData.notes,
+      });
+
+      setLastPackEstimateResult(packResult);
+
+      message.success({
+        content: (
+          <span>
+            Pack estimate saved successfully! ID: {savedEstimate.id}
+            <br />
+            <small>
+              {savedEstimate.items_detected_count} items, {savedEstimate.total_boxes} boxes estimated
+            </small>
+          </span>
+        ),
+        duration: 5,
+      });
+
+    } catch (error: any) {
+      console.error('Error saving pack estimate:', error);
+      message.error(`Failed to save: ${error.message || 'Unknown error'}`);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -647,57 +746,6 @@ const PackCalculatorMultiMode: React.FC = () => {
       );
     }
 
-    if (selectedMode === PackInputMode.TEMPLATE) {
-      return (
-        <div>
-          <RoomTemplateSelector onRoomsChange={(rooms) => {
-            // Pass rooms directly (with room_name preserved)
-            handleTemplateItems(rooms);
-          }} />
-          {templateItems.length > 0 && (
-            <Card title="Template Items" className="mt-4">
-              <Table
-                dataSource={templateItems}
-                columns={columns}
-                rowKey="id"
-                size="small"
-                pagination={false}
-              />
-            </Card>
-          )}
-        </div>
-      );
-    }
-
-    if (selectedMode === PackInputMode.BULK_TEXT) {
-      return (
-        <div>
-          <BulkTextInput onImport={(items) => {
-            // Convert parsed items to pack items
-            const packItems = items.map(item => ({
-              item_name: item.subcategory || item.category,
-              item_category: item.category,
-              quantity: item.quantity,
-              size_category: 'medium',
-              floor_level: 'MAIN_LEVEL',
-            }));
-            handleBulkItems(packItems);
-          }} />
-          {bulkItems.length > 0 && (
-            <Card title="Bulk Text Items" className="mt-4">
-              <Table
-                dataSource={bulkItems}
-                columns={columns}
-                rowKey="id"
-                size="small"
-                pagination={false}
-              />
-            </Card>
-          )}
-        </div>
-      );
-    }
-
     if (selectedMode === PackInputMode.TEXT) {
       return (
         <div>
@@ -727,134 +775,19 @@ const PackCalculatorMultiMode: React.FC = () => {
       );
     }
 
-    if (selectedMode === PackInputMode.IMAGE) { // Using IMAGE as HYBRID mode
+    if (selectedMode === PackInputMode.IMAGE) { // Photo mode
       return (
         <div>
-          <Alert
-            message="Hybrid Mode"
-            description="Use multiple input methods to build your item list. Items from all sources will be combined."
-            type="info"
-            showIcon
-            className="mb-4"
+          <PhotoUploadManager
+            onPhotosAnalyzed={(items) => {
+              handlePhotoItems(items);
+            }}
           />
 
-          <Tabs
-            activeKey={activeHybridTab}
-            onChange={setActiveHybridTab}
-            type="card"
-            items={[
-              {
-                key: 'template',
-                label: (
-                  <span>
-                    {SOURCE_ICONS.template.emoji} Template
-                    {templateItems.length > 0 && (
-                      <Badge count={templateItems.length} className="ml-2" />
-                    )}
-                  </span>
-                ),
-                children: (
-                  <RoomTemplateSelector onRoomsChange={(rooms) => {
-                    // Pass rooms directly (with room_name preserved)
-                    handleTemplateItems(rooms);
-                  }} />
-                ),
-              },
-              {
-                key: 'bulk',
-                label: (
-                  <span>
-                    {SOURCE_ICONS.bulk.emoji} Bulk Text
-                    {bulkItems.length > 0 && (
-                      <Badge count={bulkItems.length} className="ml-2" />
-                    )}
-                  </span>
-                ),
-                children: (
-                  <BulkTextInput onImport={(items) => {
-                    const packItems = items.map(item => ({
-                      item_name: item.subcategory || item.category,
-                      item_category: item.category,
-                      quantity: item.quantity,
-                      size_category: 'medium',
-                      floor_level: 'MAIN_LEVEL',
-                    }));
-                    handleBulkItems(packItems);
-                  }} />
-                ),
-              },
-              {
-                key: 'manual',
-                label: (
-                  <span>
-                    {SOURCE_ICONS.manual.emoji} Manual
-                    {manualItems.length > 0 && (
-                      <Badge count={manualItems.length} className="ml-2" />
-                    )}
-                  </span>
-                ),
-                children: renderManualItemForm(),
-              },
-              {
-                key: 'smart',
-                label: (
-                  <span>
-                    {SOURCE_ICONS.smart.emoji} Smart AI
-                    {smartItems.length > 0 && (
-                      <Badge count={smartItems.length} className="ml-2" />
-                    )}
-                  </span>
-                ),
-                children: (
-                  <SmartEstimation onApplyEstimate={(estimation, config) => {
-                    const items = estimation.estimated_items.map(item => ({
-                      item_name: item.subcategory || item.category,
-                      item_category: item.category,
-                      quantity: item.quantity,
-                      size_category: 'medium',
-                      floor_level: 'MAIN_LEVEL',
-                    }));
-                    handleSmartItems(items);
-                  }} />
-                ),
-              },
-              {
-                key: 'photo',
-                label: (
-                  <span>
-                    {SOURCE_ICONS.photo.emoji} Photo
-                    {photoItems.length > 0 && (
-                      <Badge count={photoItems.length} className="ml-2" />
-                    )}
-                  </span>
-                ),
-                children: (
-                  <PhotoUploadManager
-                    onPhotosAnalyzed={(items) => {
-                      handlePhotoItems(items);
-                    }}
-                  />
-                ),
-              },
-            ]}
-          />
-
-          {allItems.length > 0 && (
-            <Card title="Combined Item List" className="mt-4">
-              <Row gutter={[16, 16]} className="mb-3">
-                {Object.entries(statistics.bySource).map(([source, count]) => (
-                  count > 0 && (
-                    <Col key={source}>
-                      <Tag color={SOURCE_ICONS[source as keyof typeof SOURCE_ICONS].color}>
-                        {SOURCE_ICONS[source as keyof typeof SOURCE_ICONS].emoji} {count} items
-                      </Tag>
-                    </Col>
-                  )
-                ))}
-              </Row>
-
+          {photoItems.length > 0 && (
+            <Card title="Photo Analysis Items" className="mt-4">
               <Table
-                dataSource={allItems}
+                dataSource={photoItems}
                 columns={columns}
                 rowKey="id"
                 size="small"
@@ -954,7 +887,7 @@ const PackCalculatorMultiMode: React.FC = () => {
           <Card className="mb-4">
             <Row justify="space-between" align="middle">
               <Col>
-                <Space>
+                <Space size="middle">
                   <Button
                     icon={<ArrowLeftOutlined />}
                     onClick={handleSwitchMode}
@@ -975,8 +908,11 @@ const PackCalculatorMultiMode: React.FC = () => {
                 </Space>
               </Col>
               <Col>
-                <Space>
-                  <Button onClick={() => setShowBuildingModal(true)}>
+                <Space size="middle" wrap>
+                  <Button
+                    icon={<EditOutlined />}
+                    onClick={() => setShowBuildingModal(true)}
+                  >
                     Edit Project Info
                   </Button>
                   <Popconfirm
@@ -991,6 +927,17 @@ const PackCalculatorMultiMode: React.FC = () => {
                       Clear All
                     </Button>
                   </Popconfirm>
+                  <Divider type="vertical" />
+                  <Tooltip title="Save pack estimate for later review">
+                    <Button
+                      icon={<SaveOutlined />}
+                      onClick={handleSavePackEstimate}
+                      disabled={allItems.length === 0}
+                      loading={saving}
+                    >
+                      Save Estimate
+                    </Button>
+                  </Tooltip>
                   <Button
                     type="primary"
                     icon={<CalculatorOutlined />}
@@ -1000,6 +947,15 @@ const PackCalculatorMultiMode: React.FC = () => {
                   >
                     Calculate Materials & Labor
                   </Button>
+                  <Tooltip title="Export items to create a new Estimate">
+                    <Button
+                      icon={<ExportOutlined />}
+                      onClick={handleExportToEstimate}
+                      disabled={allItems.length === 0}
+                    >
+                      Export to Estimate
+                    </Button>
+                  </Tooltip>
                 </Space>
               </Col>
             </Row>
@@ -1039,22 +995,6 @@ const PackCalculatorMultiMode: React.FC = () => {
                   />
                 </Col>
               </Row>
-
-              {selectedMode === PackInputMode.IMAGE && ( // HYBRID mode
-                <div className="mt-4">
-                  <Text type="secondary">Items by Source:</Text>
-                  <Space className="mt-2">
-                    {Object.entries(statistics.bySource).map(([source, count]) => (
-                      count > 0 && (
-                        <Tag key={source} color={SOURCE_ICONS[source as keyof typeof SOURCE_ICONS].color}>
-                          {SOURCE_ICONS[source as keyof typeof SOURCE_ICONS].emoji}
-                          {' '}{SOURCE_ICONS[source as keyof typeof SOURCE_ICONS].label}: {count}
-                        </Tag>
-                      )
-                    ))}
-                  </Space>
-                </div>
-              )}
             </Card>
           )}
 

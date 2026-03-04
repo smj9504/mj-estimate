@@ -459,6 +459,12 @@ class ScopeInvoiceService:
                 item_note = item_note.replace("{days}", str(int(mitigation_days)))
                 item_note = item_note.replace("{quantity}", str(int(base_qty)))
                 item_note = item_note.replace("{wm_days}", str(int(mitigation_days)))
+                # Handle singular/plural for Unit(s) placeholder
+                # e.g., "1 Unit(s) @ 3 days" -> "1 Unit @ 3 days"
+                # e.g., "13 Unit(s) @ 3 days" -> "13 Units @ 3 days"
+                if "Unit(s)" in item_note:
+                    unit_text = "Unit" if int(base_qty) == 1 else "Units"
+                    item_note = item_note.replace("Unit(s)", unit_text)
                 # Clear note if it becomes empty after processing
                 if not item_note.strip():
                     item_note = None

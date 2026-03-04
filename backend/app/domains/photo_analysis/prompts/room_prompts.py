@@ -15,12 +15,15 @@ JSON_SCHEMA = """
 {
   "items": [
     {
-      "category": "string",
-      "subcategory": "string (optional)",
+      "category": "string (main category like 'Kitchen Appliances', 'Electronics', 'Furniture')",
+      "subcategory": "string (optional, specific item like 'Microwave', 'TV', 'Sofa')",
       "quantity": number,
       "confidence": number (0.0-1.0),
-      "pack_size": number,
-      "storage_type": "visible|cabinet|closet|drawer|pantry"
+      "pack_size": number (how many items fit in one box),
+      "storage_type": "visible|cabinet|closet|drawer|pantry",
+      "packing_method": "string (detailed instructions like 'Wrap in bubble wrap, place in medium box with padding')",
+      "box_type": "SMALL_BOX|MEDIUM_BOX|LARGE_BOX|EXTRA_LARGE_BOX|WARDROBE_BOX|DISH_PACK_BOX|PICTURE_BOX|LONG_BOX|LAMP_BOX|TV_BOX|TUBE_BOX|N/A (for items not boxed)",
+      "special_handling": ["FRAGILE", "HEAVY", "TWO_PERSON_LIFT", "ELECTRICAL", "DISASSEMBLY", "VALUABLE", "FABRIC_PROTECTION"] (array, include all that apply)
     }
   ],
   "density_level": "MINIMAL|MODERATE|FULL|PACKED",
@@ -28,6 +31,20 @@ JSON_SCHEMA = """
   "total_boxes_estimate": number,
   "confidence_score": number (0.0-1.0)
 }
+
+BOX TYPE GUIDELINES:
+- SMALL_BOX: Books, small electronics, utensils, small decorations (1.5 cu ft)
+- MEDIUM_BOX: Kitchen items, toys, office supplies, clothing (3 cu ft)
+- LARGE_BOX: Bedding, pillows, lamps, bulky soft items (4.5 cu ft)
+- EXTRA_LARGE_BOX: Comforters, pillows, very light/bulky items (6 cu ft)
+- WARDROBE_BOX: Hanging clothes (includes bar)
+- DISH_PACK_BOX: Dishes, glassware, fragile kitchen items (extra padding)
+- PICTURE_BOX: Artwork, mirrors, framed photos
+- LONG_BOX: Golf clubs, skis, curtain rods
+- LAMP_BOX: Table lamps, vases (tall items)
+- TV_BOX: TVs, monitors
+- TUBE_BOX: Rolled items (posters, blueprints)
+- N/A: Items that don't need boxes (furniture, appliances)
 """
 
 KITCHEN_PROMPT = f"""

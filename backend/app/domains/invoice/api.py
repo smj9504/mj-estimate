@@ -4,12 +4,24 @@ Invoice domain API endpoints
 
 import logging
 import os
+import re
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+
+
+def sanitize_surrogates(text: str) -> str:
+    """
+    Remove or replace surrogate characters (U+D800 to U+DFFF) that are invalid in UTF-8.
+    These characters can cause encoding errors when returning HTTP responses.
+    """
+    if not text:
+        return text
+    # Remove surrogate pairs (characters in range U+D800 to U+DFFF)
+    return re.sub(r'[\ud800-\udfff]', '', text)
 
 from app.common.services.pdf_service import pdf_service
 from app.common.utils.security import validate_file_path, PathTraversalError
@@ -182,11 +194,10 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"Received invoice data: {invoice_data.dict()}")
-    
-    # Initialize service
-    from app.core.database_factory import get_database
-    database = get_database()
-    service = InvoiceService(database)
+
+    # Initialize repository with the injected db session for consistent transaction management
+    from app.domains.invoice.repository import get_invoice_repository
+    invoice_repo = get_invoice_repository(db)
     
     # Determine if using saved company or custom company
     company_code = None
@@ -368,13 +379,10 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
         for item in invoice_data.items
     ]
     
-    # Create invoice using repository
-    from app.domains.invoice.repository import get_invoice_repository
-    invoice_repo = get_invoice_repository(db)
-    
     # Add items to the invoice_dict for the repository
     invoice_dict['items'] = items_data
-    
+
+    # Create invoice using repository (uses consistent db session)
     created_invoice = invoice_repo.create_with_items(invoice_dict)
     
     # Get company information from created_invoice (already flattened by get_with_items)
@@ -471,13 +479,18 @@ async def update_invoice(
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"Updating invoice {invoice_id}")
-    
+
+    # Initialize repository with the injected db session for consistent transaction
+    from app.domains.invoice.repository import get_invoice_repository
+    invoice_repo = get_invoice_repository(db)
+
+    # For calculate_totals (pure calculation, no DB access needed)
     from app.core.database_factory import get_database
     database = get_database()
     service = InvoiceService(database)
-    
+
     # Check if invoice exists
-    existing = service.get_by_id(invoice_id)
+    existing = invoice_repo.get_with_items(invoice_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Invoice not found")
     
@@ -745,9 +758,9 @@ async def update_invoice(
             # No items available, just save adjustments
             update_dict['adjustments'] = adjustments_data
     
-    # Update invoice with items (the service will handle items and totals)
-    logger.info(f"Calling service.update_with_items with invoice_id: {invoice_id}")
-    updated_invoice = service.update_with_items(invoice_id, update_dict)
+    # Update invoice with items (using repository with consistent db session)
+    logger.info(f"Calling invoice_repo.update_with_items with invoice_id: {invoice_id}")
+    updated_invoice = invoice_repo.update_with_items(invoice_id, update_dict)
     if not updated_invoice:
         raise HTTPException(status_code=500, detail="Failed to update invoice")
 
@@ -1215,6 +1228,9 @@ async def preview_invoice_html(data: InvoicePDFRequest):
 
         # Generate HTML
         html_content = pdf_service.generate_invoice_html(html_data)
+
+        # Sanitize any surrogate characters that could cause encoding errors
+        html_content = sanitize_surrogates(html_content)
 
         # Return HTML as response
         return Response(

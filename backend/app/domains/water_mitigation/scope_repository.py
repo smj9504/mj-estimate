@@ -39,11 +39,12 @@ class ScopeRepository:
         )
 
         if include_items:
+            # Load scope_items ONCE with both relationships to avoid N+1 queries
             query = query.options(
-                selectinload(WMScopeLocation.scope_items)
-                .joinedload(WMScopeItem.material_weight),
-                selectinload(WMScopeLocation.scope_items)
-                .joinedload(WMScopeItem.line_item)
+                selectinload(WMScopeLocation.scope_items).options(
+                    joinedload(WMScopeItem.material_weight),
+                    joinedload(WMScopeItem.line_item)
+                )
             )
 
         query = query.order_by(WMScopeLocation.display_order)
@@ -62,11 +63,12 @@ class ScopeRepository:
         )
 
         if include_items:
+            # Load scope_items ONCE with both relationships to avoid N+1 queries
             query = query.options(
-                selectinload(WMScopeLocation.scope_items)
-                .joinedload(WMScopeItem.material_weight),
-                selectinload(WMScopeLocation.scope_items)
-                .joinedload(WMScopeItem.line_item)
+                selectinload(WMScopeLocation.scope_items).options(
+                    joinedload(WMScopeItem.material_weight),
+                    joinedload(WMScopeItem.line_item)
+                )
             )
 
         result = self.db.execute(query)
@@ -186,7 +188,10 @@ class ScopeRepository:
     def get_demolition_items_for_job(
         self, job_id: UUID
     ) -> List[WMScopeItem]:
-        """Get all demolition items for a job (for debris calculation)"""
+        """Get all demolition items for a job (for debris calculation)
+
+        Optimized to eager-load material_weight with its category to avoid N+1 queries.
+        """
         query = (
             select(WMScopeItem)
             .join(WMScopeLocation)
@@ -196,13 +201,14 @@ class ScopeRepository:
                 WMScopeItem.include_in_debris.is_(True)
             )
             .options(
-                joinedload(WMScopeItem.material_weight),
+                # Eager-load material_weight AND its category to avoid N+1 queries
+                joinedload(WMScopeItem.material_weight).joinedload(MaterialWeight.category),
                 joinedload(WMScopeItem.location)
             )
         )
 
         result = self.db.execute(query)
-        return list(result.scalars().all())
+        return list(result.unique().scalars().all())
 
     # =========================================================================
     # Debris Calculation Operations
@@ -281,4 +287,49 @@ class ScopeRepository:
         query = query.order_by(MaterialWeight.material_type)
 
         result = self.db.execute(query)
+        return list(result.unique().scalars().all())
+
+    # =========================================================================
+    # Line Item Sync Operations
+    # =========================================================================
+
+    def get_scope_items_by_line_item_id(
+        self, line_item_id: UUID
+    ) -> List[WMScopeItem]:
+        """Get all scope items that reference a specific line item"""
+        query = (
+            select(WMScopeItem)
+            .where(WMScopeItem.line_item_id == line_item_id)
+            .options(joinedload(WMScopeItem.location))
+        )
+        result = self.db.execute(query)
         return list(result.scalars().all())
+
+    def update_scope_items_from_line_item(
+        self,
+        line_item_id: UUID,
+        updates: dict
+    ) -> int:
+        """
+        Update all scope items that reference a specific line item.
+
+        Args:
+            line_item_id: The line item ID to find dependent scope items
+            updates: Dict of field updates (e.g., {'name': 'New Name', 'unit': 'SF'})
+
+        Returns:
+            Number of updated scope items
+        """
+        items = self.get_scope_items_by_line_item_id(line_item_id)
+        updated_count = 0
+
+        for item in items:
+            for key, value in updates.items():
+                if hasattr(item, key) and value is not None:
+                    setattr(item, key, value)
+            updated_count += 1
+
+        if updated_count > 0:
+            self.db.flush()
+
+        return updated_count

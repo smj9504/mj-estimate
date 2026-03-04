@@ -308,7 +308,7 @@ class InvoiceListResponse(BaseModel):
     id: UUID
     invoice_number: str
     date: str  # Changed to string
-    due_date: str  # Changed to string
+    due_date: Optional[str] = None  # Changed to Optional string
     status: str
     company_id: Optional[UUID] = None
     company_name: str
@@ -327,7 +327,7 @@ class InvoiceResponse(BaseModel):
     invoice_number: str
     date: str  # Changed to string
     invoice_date: Optional[str] = None  # Added for compatibility
-    due_date: str  # Changed to string
+    due_date: Optional[str] = None  # Changed to Optional string
     status: str
     
     # Company info

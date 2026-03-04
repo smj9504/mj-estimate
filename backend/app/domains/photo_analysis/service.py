@@ -17,6 +17,7 @@ from app.domains.photo_analysis.repository import PhotoAnalysisCacheRepository
 from app.domains.photo_analysis.aggregator import PhotoResultAggregator
 from app.domains.photo_analysis.providers import (
     OpenAIVisionProvider,
+    GeminiVisionProvider,
     MockPhotoAnalysisProvider,
     PhotoAnalysisProvider
 )
@@ -37,35 +38,97 @@ class PhotoAnalysisService:
         # Initialize providers
         self.providers = {
             "openai": OpenAIVisionProvider(),
+            "gemini": GeminiVisionProvider(),
             "mock": MockPhotoAnalysisProvider()
         }
+
+        # Determine default provider based on availability
+        self.default_provider = self._determine_default_provider()
 
         logger.info("PhotoAnalysisService initialized")
         logger.info(f"Cache enabled: {self.cache_enabled}")
         logger.info(f"Available providers: {list(self.providers.keys())}")
+        logger.info(f"Default provider: {self.default_provider}")
+
+    def _determine_default_provider(self) -> str:
+        """
+        Determine the best available provider.
+
+        Priority: openai > gemini
+
+        Returns:
+            Name of the default provider to use
+
+        Raises:
+            ValueError if no AI providers are available
+        """
+        # Check OpenAI first
+        if self.providers["openai"].is_available():
+            return "openai"
+
+        # Fallback to Gemini (free tier available)
+        if self.providers["gemini"].is_available():
+            logger.info("OpenAI not available, using Gemini as default")
+            return "gemini"
+
+        # No providers available - will raise error when used
+        logger.error(
+            "No AI providers available! "
+            "Please configure OPENAI_API_KEY or GEMINI_API_KEY"
+        )
+        return None
 
     def _get_provider(self, provider_name: str) -> PhotoAnalysisProvider:
         """
-        Get analysis provider by name.
+        Get analysis provider by name with automatic fallback.
 
         Args:
-            provider_name: Name of provider (openai, mock)
+            provider_name: Name of provider (openai, gemini, mock)
 
         Returns:
             PhotoAnalysisProvider instance
 
         Raises:
-            ValueError if provider not found or not available
+            ValueError if no providers are available
         """
+        # Use default provider if not specified or "auto"
+        if not provider_name or provider_name == "auto":
+            provider_name = self.default_provider
+
+        # Check if any provider is available
+        if provider_name is None:
+            raise ValueError(
+                "No AI providers available. "
+                "Please configure OPENAI_API_KEY or GEMINI_API_KEY in your .env file. "
+                "Get free Gemini API key at: https://aistudio.google.com/app/apikey"
+            )
+
         provider = self.providers.get(provider_name)
 
         if not provider:
             raise ValueError(f"Unknown provider: {provider_name}")
 
         if not provider.is_available():
-            # Fallback to mock provider if primary provider unavailable
-            logger.warning(f"Provider {provider_name} not available, falling back to mock")
-            return self.providers["mock"]
+            # Try fallback chain: openai -> gemini (no mock)
+            fallback_chain = ["openai", "gemini"]
+            for fallback_name in fallback_chain:
+                if fallback_name == provider_name:
+                    continue
+                fallback = self.providers.get(fallback_name)
+                if fallback and fallback.is_available():
+                    logger.warning(
+                        f"Provider {provider_name} not available, "
+                        f"falling back to {fallback_name}"
+                    )
+                    return fallback
+
+            # No AI providers available - raise error
+            raise ValueError(
+                f"Provider '{provider_name}' is not available and no fallback found. "
+                "Please check your API key configuration. "
+                "OpenAI: https://platform.openai.com/api-keys | "
+                "Gemini (free): https://aistudio.google.com/app/apikey"
+            )
 
         return provider
 
@@ -99,20 +162,24 @@ class PhotoAnalysisService:
             f"(user_id: {request.user_id}, provider: {request.provider})"
         )
 
-        # Generate cache key
-        cache_key = self.cache_repo.generate_cache_key(
+        # Generate cache key (can be done without DB)
+        cache_key = PhotoAnalysisCacheRepository.generate_cache_key(
             request.room_type,
             photo_urls
         )
 
         # Check cache if enabled
         if self.cache_enabled and request.use_cache:
-            cached_result = self.cache_repo.get_cached_analysis(cache_key)
-            if cached_result:
-                processing_time = time.time() - start_time
-                cached_result.processing_time = processing_time
-                logger.info(f"Returning cached result (processing time: {processing_time:.2f}s)")
-                return cached_result
+            try:
+                cached_result = self.cache_repo.get_cached_analysis(cache_key)
+                if cached_result:
+                    processing_time = time.time() - start_time
+                    cached_result.processing_time = processing_time
+                    logger.info(f"Returning cached result (processing time: {processing_time:.2f}s)")
+                    return cached_result
+            except Exception as e:
+                logger.warning(f"Cache lookup failed (continuing without cache): {e}")
+                # Continue without cache - don't block analysis due to cache issues
 
         # Get provider
         provider = self._get_provider(request.provider or "openai")
@@ -250,8 +317,13 @@ class PhotoAnalysisService:
             "service": "Photo Analysis Service",
             "cache_enabled": self.cache_enabled,
             "providers": provider_status,
-            "default_provider": "openai",
-            "fallback_provider": "mock",
-            "cache_ttl_days": getattr(settings, 'PHOTO_ANALYSIS_CACHE_TTL_DAYS', 30),
-            "model": getattr(settings, 'PHOTO_ANALYSIS_MODEL', 'gpt-4-vision-preview')
+            "default_provider": self.default_provider,
+            "fallback_chain": ["openai", "gemini", "mock"],
+            "cache_ttl_days": getattr(
+                settings, 'PHOTO_ANALYSIS_CACHE_TTL_DAYS', 30
+            ),
+            "openai_model": getattr(
+                settings, 'PHOTO_ANALYSIS_MODEL', 'gpt-4o'
+            ),
+            "gemini_model": getattr(settings, 'GEMINI_MODEL', 'gemini-1.5-flash')
         }

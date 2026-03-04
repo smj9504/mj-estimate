@@ -368,7 +368,16 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
         try:
             # Calculate totals
             totals = self.calculate_totals(invoice_data)
+            # Remove non-model fields from totals before updating invoice_data
+            totals.pop('items_subtotal', None)
+            totals.pop('adjustments', None)
+            totals.pop('op_amount', None)
             invoice_data.update(totals)
+
+            # Remove non-model fields from invoice_data that may have been added by service layer
+            invoice_data.pop('items_subtotal', None)
+            invoice_data.pop('adjustments', None)
+            invoice_data.pop('op_amount', None)
 
             # Extract items
             items_data = invoice_data.pop('items', [])
@@ -718,7 +727,16 @@ class InvoiceSupabaseRepository(SupabaseRepository, InvoiceRepositoryMixin):
         try:
             # Calculate totals
             totals = self.calculate_totals(invoice_data)
+            # Remove non-model fields from totals before updating invoice_data
+            totals.pop('items_subtotal', None)
+            totals.pop('adjustments', None)
+            totals.pop('op_amount', None)
             invoice_data.update(totals)
+
+            # Remove non-model fields from invoice_data that may have been added by service layer
+            invoice_data.pop('items_subtotal', None)
+            invoice_data.pop('adjustments', None)
+            invoice_data.pop('op_amount', None)
 
             # Extract items
             items_data = invoice_data.pop('items', [])

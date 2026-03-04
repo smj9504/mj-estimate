@@ -1,21 +1,23 @@
 """
 Authentication service layer
 """
+import secrets
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Union
 from uuid import UUID
+
 import bcrypt
 import jwt
-from sqlalchemy.orm import Session
-from app.core.database_factory import DatabaseSession
 from sqlalchemy.exc import IntegrityError
-import uuid
-import secrets
+from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.core.database_factory import DatabaseSession
 from app.domains.staff.models import Staff, StaffRole
+
 from . import schemas
 from .password_reset_models import PasswordResetToken
-from app.core.config import settings
 
 
 class AuthService:
@@ -108,17 +110,25 @@ class AuthService:
     
     def authenticate_staff(self, db, username: str, password: str) -> Optional[Staff]:
         """Authenticate a staff member by username and password"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # Handle both raw Session and DatabaseSession wrapper
+        logger.debug(f"Authenticating staff: {username}")
         if hasattr(db, '_session'):
             session = db._session
+            logger.debug("Using DatabaseSession wrapper")
         elif hasattr(db, 'query'):
             session = db
+            logger.debug("Using raw session")
         else:
             raise ValueError("Invalid database session type")
-            
+        
+        logger.debug(f"Executing query for username/email: {username}")
         staff = session.query(Staff).filter(
             (Staff.username == username) | (Staff.email == username)
         ).first()
+        logger.debug(f"Query completed, staff found: {staff is not None}")
         
         if not staff:
             return None

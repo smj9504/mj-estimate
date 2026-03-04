@@ -97,6 +97,12 @@ export interface DetectedItem {
   pack_size: number;
   /** Detection confidence (0-1) */
   confidence: number;
+  /** Detailed packing instructions */
+  packing_method?: string;
+  /** Recommended box type (SMALL_BOX, MEDIUM_BOX, LARGE_BOX, etc.) */
+  box_type?: string;
+  /** Special handling requirements (FRAGILE, HEAVY, etc.) */
+  special_handling?: string[];
 }
 
 /**

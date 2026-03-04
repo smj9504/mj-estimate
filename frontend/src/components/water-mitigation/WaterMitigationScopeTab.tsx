@@ -44,7 +44,6 @@ import {
   DollarOutlined
 } from '@ant-design/icons';
 import waterMitigationService from '../../services/waterMitigationService';
-import lineItemService from '../../services/lineItemService';
 import type {
   ScopeLocation,
   ScopeLocationCreate,
@@ -54,14 +53,14 @@ import type {
   ScopeItemUpdate,
   WMDebrisCalculation,
   CalculateDebrisResponse,
-  ScopeItemType,
   StandardScopeItem,
   MaterialWeight
 } from '../../types/waterMitigation';
-import type { LineItem } from '../../types/lineItem';
 import {
   SCOPE_ITEM_TYPE_OPTIONS,
-  UNIT_TYPE_OPTIONS
+  UNIT_TYPE_OPTIONS,
+  ScopeItemType,
+  UnitType
 } from '../../types/waterMitigation';
 import InvoiceConfigurationPanel from './InvoiceConfigurationPanel';
 
@@ -125,13 +124,15 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
   const [showStandardItemSelector, setShowStandardItemSelector] = useState(false);
   const [selectedStandardItem, setSelectedStandardItem] = useState<StandardScopeItem | null>(null);
 
+  // Multi-select mode for template items
+  const [multiSelectMode, setMultiSelectMode] = useState(true);  // Default to multi-select
+  const [selectedTemplateItems, setSelectedTemplateItems] = useState<Map<string, { item: StandardScopeItem; quantity: number | null }>>(new Map());
+  const [savingMultipleItems, setSavingMultipleItems] = useState(false);
+
   // Material weights for debris calculation
   const [materialWeights, setMaterialWeights] = useState<MaterialWeight[]>([]);
   const [loadingMaterials, setLoadingMaterials] = useState(false);
 
-  // Line items for invoice rate linking
-  const [lineItems, setLineItems] = useState<LineItem[]>([]);
-  const [loadingLineItems, setLoadingLineItems] = useState(false);
 
   // Inline editing state
   const [editingQuantity, setEditingQuantity] = useState<{ itemId: string; value: number | null } | null>(null);
@@ -189,30 +190,12 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     }
   }, []);
 
-  // Load line items for invoice rate linking
-  const loadLineItems = useCallback(async () => {
-    try {
-      setLoadingLineItems(true);
-      const response = await lineItemService.getLineItems({
-        is_active: true,
-        page_size: 500  // Load a reasonable amount
-      });
-      setLineItems(response.items || []);
-    } catch (error) {
-      console.error('Failed to load line items:', error);
-      setLineItems([]);
-    } finally {
-      setLoadingLineItems(false);
-    }
-  }, []);
-
   useEffect(() => {
     loadLocations();
     loadDebrisCalculation();
     loadStandardScopeItems();
     loadMaterialWeights();
-    loadLineItems();
-  }, [loadLocations, loadDebrisCalculation, loadStandardScopeItems, loadMaterialWeights, loadLineItems]);
+  }, [loadLocations, loadDebrisCalculation, loadStandardScopeItems, loadMaterialWeights]);
 
   // Location handlers
   const handleAddLocation = () => {
@@ -320,12 +303,14 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     setEditingItem(null);
     setSelectedStandardItem(null);
     setShowStandardItemSelector(true);
+    setMultiSelectMode(true);  // Default to multi-select
+    setSelectedTemplateItems(new Map());  // Clear previous selections
     itemForm.resetFields();
     setFormulaResult(null);
     setItemModalVisible(true);
   };
 
-  // When a standard item is selected, pre-fill the form
+  // When a standard item is selected, pre-fill the form (single select mode)
   const handleStandardItemSelect = (itemId: string) => {
     const item = standardScopeItems.find(i => i.id === itemId);
     if (item) {
@@ -340,6 +325,74 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
         include_in_debris: item.default_include_in_debris || false,
         material_weight_id: item.material_weight_id || undefined
       });
+    }
+  };
+
+  // Toggle item selection in multi-select mode
+  const handleToggleTemplateItem = (item: StandardScopeItem) => {
+    const newMap = new Map(selectedTemplateItems);
+    if (newMap.has(item.id)) {
+      newMap.delete(item.id);
+    } else {
+      newMap.set(item.id, { item, quantity: item.default_quantity || null });
+    }
+    setSelectedTemplateItems(newMap);
+  };
+
+  // Update quantity for selected item
+  const handleSelectedItemQuantityChange = (itemId: string, quantity: number | null) => {
+    const newMap = new Map(selectedTemplateItems);
+    const existing = newMap.get(itemId);
+    if (existing) {
+      newMap.set(itemId, { ...existing, quantity });
+      setSelectedTemplateItems(newMap);
+    }
+  };
+
+  // Save all selected items at once
+  const handleSaveMultipleItems = async () => {
+    if (!selectedLocationId || selectedTemplateItems.size === 0) return;
+
+    try {
+      setSavingMultipleItems(true);
+      const itemsToSave = Array.from(selectedTemplateItems.values());
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const { item, quantity } of itemsToSave) {
+        try {
+          const createData: ScopeItemCreate = {
+            location_id: selectedLocationId,
+            item_type: item.item_type as ScopeItemType,
+            name: item.name,
+            description: item.description || '',
+            unit: item.unit as UnitType,
+            quantity: quantity || undefined,
+            include_in_debris: item.default_include_in_debris || false,
+            material_weight_id: item.material_weight_id || undefined
+          };
+          await waterMitigationService.scope.items.create(createData);
+          successCount++;
+        } catch (error) {
+          console.error(`Failed to create item ${item.name}:`, error);
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        message.success(`${successCount} item(s) added successfully`);
+      }
+      if (errorCount > 0) {
+        message.warning(`${errorCount} item(s) failed to add`);
+      }
+
+      setItemModalVisible(false);
+      setSelectedTemplateItems(new Map());
+      loadLocations();
+    } catch (error: any) {
+      message.error(getErrorMessage(error, 'Failed to save items'));
+    } finally {
+      setSavingMultipleItems(false);
     }
   };
 
@@ -760,6 +813,11 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                   <CalculatorOutlined />
                   <Text strong>Debris Calculation Summary</Text>
                   <Tag color="blue">{debrisCalculation.total_weight_ton.toFixed(2)} tons</Tag>
+                  {debrisCalculation.bag_count && (
+                    <Tag color="green">
+                      ~{debrisCalculation.bag_count} bags (42-gal)
+                    </Tag>
+                  )}
                   {debrisCalculation.dumpster_recommendation && (
                     <Tag color="orange">
                       {debrisCalculation.dumpster_recommendation.count}x {debrisCalculation.dumpster_recommendation.size}
@@ -800,19 +858,45 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                       />
                     </Col>
                     <Col span={6}>
-                      {debrisCalculation.dumpster_recommendation && (
+                      {debrisCalculation.bag_count ? (
+                        <Statistic
+                          title="42-Gal Contractor Bags"
+                          value={debrisCalculation.bag_count}
+                          suffix="bags"
+                          prefix="~"
+                        />
+                      ) : (
+                        debrisCalculation.dumpster_recommendation && (
+                          <Statistic
+                            title="Recommended Dumpster"
+                            value={`${debrisCalculation.dumpster_recommendation.count}x ${debrisCalculation.dumpster_recommendation.size}`}
+                          />
+                        )
+                      )}
+                    </Col>
+                    <Col span={6}>
+                      {debrisCalculation.dumpster_recommendation && debrisCalculation.bag_count && (
                         <Statistic
                           title="Recommended Dumpster"
                           value={`${debrisCalculation.dumpster_recommendation.count}x ${debrisCalculation.dumpster_recommendation.size}`}
                         />
                       )}
-                    </Col>
-                    <Col span={6}>
-                      <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                        Last calculated: {new Date(debrisCalculation.calculated_at).toLocaleString()}
-                      </Text>
+                      {!debrisCalculation.bag_count && (
+                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                          Last calculated: {new Date(debrisCalculation.calculated_at).toLocaleString()}
+                        </Text>
+                      )}
                     </Col>
                   </Row>
+                  {debrisCalculation.bag_count && (
+                    <Row gutter={24} style={{ marginTop: 16 }}>
+                      <Col span={24}>
+                        <Text type="secondary" style={{ display: 'block' }}>
+                          Last calculated: {new Date(debrisCalculation.calculated_at).toLocaleString()}
+                        </Text>
+                      </Col>
+                    </Row>
+                  )}
 
                   {debrisCalculation.category_breakdown && debrisCalculation.category_breakdown.length > 0 && (
                     <>
@@ -927,7 +1011,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
       <Modal
         title={
           showStandardItemSelector
-            ? 'Select from Templates'
+            ? `Select from Templates${selectedTemplateItems.size > 0 ? ` (${selectedTemplateItems.size} selected)` : ''}`
             : editingItem
               ? 'Edit Scope Item'
               : selectedStandardItem
@@ -939,23 +1023,33 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
           setItemModalVisible(false);
           setShowStandardItemSelector(false);
           setSelectedStandardItem(null);
+          setSelectedTemplateItems(new Map());
         }}
         onOk={() => {
           if (showStandardItemSelector) {
-            message.warning('Please select an item from the list');
+            if (selectedTemplateItems.size > 0) {
+              handleSaveMultipleItems();
+            } else {
+              message.warning('Please select at least one item');
+            }
           } else {
             itemForm.submit();
           }
         }}
-        okText={showStandardItemSelector ? 'Close' : 'Save'}
-        width={600}
+        okText={showStandardItemSelector ? (selectedTemplateItems.size > 0 ? `Add ${selectedTemplateItems.size} Item(s)` : 'Close') : 'Save'}
+        okButtonProps={{
+          type: showStandardItemSelector && selectedTemplateItems.size > 0 ? 'primary' : 'default',
+          loading: savingMultipleItems
+        }}
+        width={800}
       >
-        {/* Standard Item Selector */}
+        {/* Standard Item Selector - Multi-Select Mode */}
         {showStandardItemSelector ? (
           <div>
             <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-              Select a template item to add. Values can be modified after selection.
+              Click items to select. You can select multiple items and set quantities before adding.
             </Text>
+
             {standardScopeItems.length === 0 ? (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -967,56 +1061,147 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                 }
               />
             ) : (
-              <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-                {/* Group by category */}
-                {(() => {
-                  const grouped = standardScopeItems.reduce((acc, item) => {
-                    const categoryName = item.category?.name || 'Uncategorized';
-                    if (!acc[categoryName]) {
-                      acc[categoryName] = [];
-                    }
-                    acc[categoryName].push(item);
-                    return acc;
-                  }, {} as Record<string, StandardScopeItem[]>);
+              <Row gutter={16}>
+                {/* Left: Item Selection */}
+                <Col span={selectedTemplateItems.size > 0 ? 14 : 24}>
+                  <div style={{ maxHeight: 450, overflowY: 'auto', paddingRight: 8 }}>
+                    {(() => {
+                      const grouped = standardScopeItems.reduce((acc, item) => {
+                        const categoryName = item.category?.name || 'Uncategorized';
+                        if (!acc[categoryName]) {
+                          acc[categoryName] = [];
+                        }
+                        acc[categoryName].push(item);
+                        return acc;
+                      }, {} as Record<string, StandardScopeItem[]>);
 
-                  return Object.entries(grouped).map(([categoryName, items]) => (
-                    <div key={categoryName} style={{ marginBottom: 16 }}>
-                      <Text strong style={{ display: 'block', marginBottom: 8, color: '#1890ff' }}>
-                        {categoryName}
-                      </Text>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {items.map(item => (
-                          <Button
-                            key={item.id}
-                            onClick={() => handleStandardItemSelect(item.id)}
+                      return Object.entries(grouped).map(([categoryName, items]) => (
+                        <div key={categoryName} style={{ marginBottom: 16 }}>
+                          <Text strong style={{ display: 'block', marginBottom: 8, color: '#1890ff' }}>
+                            {categoryName}
+                          </Text>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {items.map(item => {
+                              const isSelected = selectedTemplateItems.has(item.id);
+                              return (
+                                <Button
+                                  key={item.id}
+                                  type={isSelected ? 'primary' : 'default'}
+                                  onClick={() => handleToggleTemplateItem(item)}
+                                  style={{
+                                    height: 'auto',
+                                    padding: '8px 12px',
+                                    textAlign: 'left',
+                                    whiteSpace: 'normal',
+                                    borderColor: isSelected ? '#1890ff' : undefined
+                                  }}
+                                >
+                                  <div>
+                                    <div style={{ fontWeight: 500 }}>
+                                      {isSelected && <CheckCircleOutlined style={{ marginRight: 4 }} />}
+                                      {item.name}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: isSelected ? 'rgba(255,255,255,0.85)' : '#888' }}>
+                                      <Tag
+                                        color={getItemTypeColor(item.item_type)}
+                                        style={{ marginRight: 4, fontSize: 10 }}
+                                      >
+                                        {item.item_type}
+                                      </Tag>
+                                      {item.unit}
+                                    </div>
+                                  </div>
+                                </Button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </Col>
+
+                {/* Right: Selected Items with Quantity Input */}
+                {selectedTemplateItems.size > 0 && (
+                  <Col span={10}>
+                    <Card
+                      size="small"
+                      title={
+                        <Space>
+                          <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                          <span>Selected Items ({selectedTemplateItems.size})</span>
+                        </Space>
+                      }
+                      style={{ height: '100%', maxHeight: 450, overflow: 'auto' }}
+                      extra={
+                        <Button
+                          type="link"
+                          size="small"
+                          danger
+                          onClick={() => setSelectedTemplateItems(new Map())}
+                        >
+                          Clear All
+                        </Button>
+                      }
+                    >
+                      <Space direction="vertical" style={{ width: '100%' }} size="small">
+                        {Array.from(selectedTemplateItems.entries()).map(([itemId, { item, quantity }]) => (
+                          <div
+                            key={itemId}
                             style={{
-                              height: 'auto',
-                              padding: '8px 12px',
-                              textAlign: 'left',
-                              whiteSpace: 'normal'
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '8px',
+                              background: '#fafafa',
+                              borderRadius: 4
                             }}
                           >
-                            <div>
-                              <div style={{ fontWeight: 500 }}>{item.name}</div>
-                              <div style={{ fontSize: 11, color: '#888' }}>
-                                <Tag color={getItemTypeColor(item.item_type)} style={{ marginRight: 4, fontSize: 10 }}>
-                                  {item.item_type}
-                                </Tag>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <Text
+                                strong
+                                style={{ display: 'block', fontSize: 12 }}
+                                ellipsis
+                              >
+                                {item.name}
+                              </Text>
+                              <Text type="secondary" style={{ fontSize: 11 }}>
                                 {item.unit}
-                                {item.default_quantity && ` • Default: ${item.default_quantity}`}
-                              </div>
+                              </Text>
                             </div>
-                          </Button>
+                            <Space size={4}>
+                              <InputNumber
+                                size="small"
+                                placeholder="Qty"
+                                value={quantity}
+                                onChange={(val) => handleSelectedItemQuantityChange(itemId, val)}
+                                min={0}
+                                step={0.01}
+                                style={{ width: 70 }}
+                              />
+                              <Button
+                                type="text"
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                                onClick={() => handleToggleTemplateItem(item)}
+                              />
+                            </Space>
+                          </div>
                         ))}
-                      </div>
-                    </div>
-                  ));
-                })()}
-              </div>
+                      </Space>
+                    </Card>
+                  </Col>
+                )}
+              </Row>
             )}
+
             <Divider />
             <div style={{ textAlign: 'center' }}>
-              <Button onClick={() => setShowStandardItemSelector(false)}>
+              <Button onClick={() => {
+                setShowStandardItemSelector(false);
+                setSelectedTemplateItems(new Map());
+              }}>
                 Or enter custom item manually
               </Button>
             </div>
@@ -1234,52 +1419,6 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
             }}
           </Form.Item>
 
-          <Divider />
-
-          {/* Line Item Link for Invoice Rate */}
-          <Form.Item
-            name="line_item_id"
-            label={
-              <Space>
-                Invoice Line Item
-                <Tooltip title="Link to a Line Item for automatic rate lookup during invoice generation. Optional - if not set, the system will try to match by name.">
-                  <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                </Tooltip>
-              </Space>
-            }
-          >
-            <Select
-              placeholder="Select line item for invoice rate..."
-              allowClear
-              showSearch
-              optionFilterProp="children"
-              loading={loadingLineItems}
-              filterOption={(input, option) =>
-                (option?.children?.toString() ?? '').toLowerCase().includes(input.toLowerCase())
-              }
-              notFoundContent={
-                loadingLineItems ? (
-                  <Spin size="small" />
-                ) : lineItems.length === 0 ? (
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description="No line items available"
-                  />
-                ) : null
-              }
-            >
-              {lineItems.map(item => (
-                <Select.Option key={item.id} value={item.id}>
-                  <Space>
-                    <span>{item.description}</span>
-                    <Text type="secondary" style={{ fontSize: 11 }}>
-                      (${item.untaxed_unit_price?.toFixed(2) || '0.00'}/{item.unit || 'EA'})
-                    </Text>
-                  </Space>
-                </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
         </Form>
         )}
       </Modal>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Modal,
   Select,
@@ -14,11 +14,9 @@ import {
 } from 'antd';
 import { SearchOutlined, PushpinOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import lineItemService from '../../services/lineItemService';
-import { LineItemModalItem } from '../../types/lineItem';
-import { getErrorMessage, getErrorDetails } from '../../api/errorHandler';
+import { LineItemModalItem, LineItem } from '../../types/lineItem';
 import { useCategoryOptions } from '../../hooks/useCategoryCache';
-import debounce from 'lodash/debounce';
+import { useLineItemsCache } from '../../hooks/useLineItemsCache';
 
 const { Option } = Select;
 const { Text } = Typography;
@@ -37,73 +35,22 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
   selectedCategory,
 }) => {
   // Category data from React Query cache with 5-minute staleTime for efficiency
-  // Replaces hardcoded LINE_ITEMS_CATEGORIES with dynamic database data
   const { categories, isLoading: categoriesLoading, isError: categoriesError } = useCategoryOptions();
-  
+
+  // Use shared line items cache (same cache as ItemCodeSelector)
+  const { lineItems: cachedLineItems, isLoading: itemsLoading, error: itemsError, refetch } = useLineItemsCache();
+
   // State
-  const [lineItems, setLineItems] = useState<LineItemModalItem[]>([]);
-  const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLineCategory, setSelectedLineCategory] = useState(selectedCategory || 'all');
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
-  
-  // Ref to track current request
-  const currentRequestRef = useRef<AbortController | null>(null);
-
-  // Load all line items or by category
-  const loadLineItems = useCallback(async (category?: string, abortController?: AbortController) => {
-    console.log('SelectionModal: Loading line items with category:', category);
-    setLoading(true);
-    try {
-      const categoryParam = category === 'all' ? undefined : category;
-      console.log('SelectionModal: Calling getLineItemsForModal with category:', categoryParam);
-      
-      // Check if request was aborted before making API call
-      if (abortController?.signal.aborted) {
-        console.log('SelectionModal: Request aborted before API call');
-        return;
-      }
-      
-      const response = await lineItemService.getLineItemsForModal({ 
-        category: categoryParam
-        // No page_size needed for modal - show all items
-      });
-      
-      // Check if request was aborted after API call
-      if (abortController?.signal.aborted) {
-        console.log('SelectionModal: Request aborted after API call');
-        return;
-      }
-      
-      console.log('SelectionModal: Received response:', response);
-      console.log('SelectionModal: Response type:', typeof response);
-      console.log('SelectionModal: Response is array:', Array.isArray(response));
-      console.log('SelectionModal: Response length:', response?.length);
-      console.log('SelectionModal: First item:', response?.[0]);
-      setLineItems(response);
-      if (response.length === 0) {
-        console.warn('SelectionModal: No line items returned from API');
-      }
-    } catch (error) {
-      if (abortController?.signal.aborted) {
-        console.log('SelectionModal: Request was aborted');
-        return;
-      }
-      console.error('Failed to load line items:', getErrorDetails(error));
-      message.error(getErrorMessage(error));
-      setLineItems([]);
-    } finally {
-      if (!abortController?.signal.aborted) {
-        setLoading(false);
-      }
-    }
-  }, []);
 
   // Initialize modal when opened
   useEffect(() => {
     if (open) {
       // Reset selections
       setSelectedRowKeys([]);
+      setSearchTerm('');
       // Set category from prop if provided
       if (selectedCategory && selectedCategory !== selectedLineCategory) {
         setSelectedLineCategory(selectedCategory);
@@ -111,89 +58,74 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
     }
   }, [open, selectedCategory]);
 
-  // Load items when modal is open and category changes
-  useEffect(() => {
-    if (open) {
-      // Cancel previous request if exists
-      if (currentRequestRef.current) {
-        currentRequestRef.current.abort();
-      }
-      
-      // Create new request controller
-      const abortController = new AbortController();
-      currentRequestRef.current = abortController;
-      
-      loadLineItems(selectedLineCategory, abortController);
-      
-      return () => {
-        abortController.abort();
-        currentRequestRef.current = null;
-      };
-    }
-  }, [open, selectedLineCategory, loadLineItems]);
+  // Transform LineItem to LineItemModalItem format for display
+  const transformedLineItems = useMemo((): LineItemModalItem[] => {
+    return cachedLineItems.map(item => ({
+      id: item.id,
+      component_code: item.item || '',
+      item_code: item.item || '',
+      description: item.description || 'No description',
+      unit: item.unit || 'EA',
+      act: item.type === 'XACTIMATE' ? '&' : '+',
+      unit_price: item.untaxed_unit_price || 0,
+      category: item.cat || '',
+      type: item.type || 'CUSTOM',
+      includes: item.includes || '',
+    }));
+  }, [cachedLineItems]);
 
-  // Debounced search function
-  const debouncedSearch = useCallback(
-    debounce(async (query: string) => {
-      if (!query.trim()) {
-        loadLineItems(selectedLineCategory);
-        return;
-      }
-      
-      setLoading(true);
-      try {
-        const category = selectedLineCategory === 'all' ? undefined : selectedLineCategory;
-        const response = await lineItemService.searchLineItemsForModal(
-          query.trim(),
-          category
-          // No limit needed for modal - show all matching items  
-        );
-        setLineItems(response);
-      } catch (error) {
-        console.error('Search failed:', getErrorDetails(error));
-        setLineItems([]);
-      } finally {
-        setLoading(false);
-      }
-    }, 300),
-    [selectedLineCategory, loadLineItems]
-  );
-
-  // Handle search input change
-  const handleSearchChange = (value: string) => {
-    setSearchTerm(value);
-    debouncedSearch(value);
-  };
-
-  // Filter line items by category selection (additional client-side filtering)
+  // Filter line items by category and search term (all client-side)
   const filteredLineItems = useMemo(() => {
-    console.log('SelectionModal: Filtering items. lineItems:', lineItems);
-    console.log('SelectionModal: selectedLineCategory:', selectedLineCategory);
-    
-    if (selectedLineCategory === 'all') {
-      console.log('SelectionModal: Returning all items:', lineItems);
-      return lineItems;
-    }
-    
-    // Additional client-side filtering if needed
-    const filterKeyword = selectedLineCategory.toLowerCase();
-    const filtered = lineItems.filter(item => 
-      item.category?.toLowerCase().includes(filterKeyword) ||
-      item.description.toLowerCase().includes(filterKeyword)
-    );
-    console.log('SelectionModal: Filtered items:', filtered);
-    return filtered;
-  }, [lineItems, selectedLineCategory]);
+    let filtered = transformedLineItems;
 
-  // Clear selections when filtered data becomes empty to prevent selection state inconsistencies
+    // Filter by category
+    if (selectedLineCategory && selectedLineCategory !== 'all') {
+      const lowerCategory = selectedLineCategory.toLowerCase();
+      filtered = filtered.filter(item =>
+        (item.category || '').toLowerCase().includes(lowerCategory) ||
+        (item.description || '').toLowerCase().includes(lowerCategory)
+      );
+    }
+
+    // Filter by search term
+    if (searchTerm && searchTerm.trim().length >= 2) {
+      const lowerSearch = searchTerm.toLowerCase().trim();
+      filtered = filtered.filter(item =>
+        (item.component_code || '').toLowerCase().includes(lowerSearch) ||
+        (item.description || '').toLowerCase().includes(lowerSearch)
+      );
+    }
+
+    return filtered;
+  }, [transformedLineItems, selectedLineCategory, searchTerm]);
+
+  // Clear selections when filtered data becomes empty
   useEffect(() => {
     if (filteredLineItems.length === 0 && selectedRowKeys.length > 0) {
-      console.log('SelectionModal: Clearing selections due to empty filtered data');
       setSelectedRowKeys([]);
     }
   }, [filteredLineItems.length, selectedRowKeys.length]);
 
-  // Handle row selection - Enhanced with defensive programming and ID transformation
+  // Handle search input change - now instant (no debounce needed)
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+  };
+
+  // Handle category change
+  const handleCategoryChange = (value: string) => {
+    setSelectedLineCategory(value);
+  };
+
+  // Data transformation helper
+  const getComponentCode = (item: LineItemModalItem): string => {
+    return item.component_code || item.item_code || String(item.id) || 'N/A';
+  };
+
+  const getItemId = (item: LineItemModalItem): string => {
+    return typeof item.id === 'number' ? item.id.toString() : (item.id || '');
+  };
+
+  // Handle row selection
   const handleRowSelection = useMemo(() => ({
     type: 'checkbox' as const,
     selectedRowKeys: selectedRowKeys || [],
@@ -202,7 +134,7 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
         setSelectedRowKeys(newSelectedRowKeys as string[]);
       }
     },
-    onSelectAll: (selected: boolean, selectedRows: LineItemModalItem[], changeRows: LineItemModalItem[]) => {
+    onSelectAll: (selected: boolean, _selectedRows: LineItemModalItem[], changeRows: LineItemModalItem[]) => {
       const currentSelectedKeys = selectedRowKeys || [];
       if (selected) {
         const validChangeRows = (changeRows || []).filter(item => item && item.id);
@@ -225,7 +157,6 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
       }
     },
     getCheckboxProps: (record: LineItemModalItem) => {
-      // Ensure record exists before accessing properties
       if (!record || typeof record !== 'object') {
         return { disabled: true };
       }
@@ -249,9 +180,7 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
 
   // Handle row double click (add to selection and close)
   const handleRowDoubleClick = (record: LineItemModalItem) => {
-    console.log('SelectionModal: Double-click, calling onSelect with item:', record);
-    const selectedItems = [record];
-    onSelect(selectedItems);
+    onSelect([record]);
   };
 
   // Handle OK button click
@@ -261,34 +190,16 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
       return;
     }
 
-    const selectedItems = filteredLineItems.filter(item => 
+    const selectedItems = filteredLineItems.filter(item =>
       selectedRowKeys.includes(getItemId(item))
     );
-    
+
     if (selectedItems.length === 0) {
       message.warning('Selected items not found');
-      console.error('SelectionModal: No items matched selection keys', {
-        selectedRowKeys,
-        availableItems: filteredLineItems.map(item => ({ 
-          id: getItemId(item), 
-          component_code: getComponentCode(item) 
-        }))
-      });
       return;
     }
 
-    console.log('SelectionModal: Calling onSelect with items:', selectedItems);
-    console.log('SelectionModal: Item details:', selectedItems.map(item => ({
-      id: getItemId(item),
-      component_code: getComponentCode(item),
-      description: item.description,
-      unit_price: item.unit_price,
-      type: (item as any).type || 'unknown'
-    })));
-    
     onSelect(selectedItems);
-    
-    // Clear selections after successful selection
     setSelectedRowKeys([]);
   };
 
@@ -296,7 +207,7 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (!filteredLineItems.length) return;
 
-    const currentIndex = selectedRowKeys.length > 0 
+    const currentIndex = selectedRowKeys.length > 0
       ? filteredLineItems.findIndex(item => getItemId(item) === selectedRowKeys[selectedRowKeys.length - 1])
       : -1;
 
@@ -312,7 +223,7 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
           }
         }
         break;
-      
+
       case 'ArrowUp':
         event.preventDefault();
         const prevIndex = currentIndex > 0 ? currentIndex - 1 : filteredLineItems.length - 1;
@@ -324,7 +235,7 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
           }
         }
         break;
-      
+
       case ' ': // Space bar
         event.preventDefault();
         if (currentIndex >= 0) {
@@ -337,12 +248,12 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
           }
         }
         break;
-      
+
       case 'Enter':
         event.preventDefault();
         handleOk();
         break;
-      
+
       case 'Escape':
         event.preventDefault();
         onCancel();
@@ -361,16 +272,6 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
     setSelectedRowKeys(allKeys);
   };
 
-  // Data transformation helper
-  const getComponentCode = (item: LineItemModalItem): string => {
-    return item.component_code || (item as any).item_code || item.id || 'N/A';
-  };
-
-  const getItemId = (item: LineItemModalItem): string => {
-    // Ensure ID is always a string for consistency
-    return typeof item.id === 'number' ? item.id.toString() : (item.id || '');
-  };
-
   // Table columns
   const columns: ColumnsType<LineItemModalItem> = [
     {
@@ -379,7 +280,7 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
       key: 'component_code',
       width: 120,
       sorter: (a, b) => getComponentCode(a).localeCompare(getComponentCode(b)),
-      render: (text: string, record: LineItemModalItem) => (
+      render: (_text: string, record: LineItemModalItem) => (
         <Text code style={{ fontSize: '12px' }}>{getComponentCode(record)}</Text>
       ),
     },
@@ -458,7 +359,7 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
       footer={null}
       styles={{ body: { padding: '16px' } }}
     >
-      <div 
+      <div
         style={{ height: '600px', display: 'flex', flexDirection: 'column' }}
         onKeyDown={handleKeyDown}
         tabIndex={0}
@@ -469,7 +370,7 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
           <Col span={6}>
             <Select
               value={selectedLineCategory}
-              onChange={setSelectedLineCategory}
+              onChange={handleCategoryChange}
               style={{ width: '100%' }}
               placeholder="All Line Items"
               loading={categoriesLoading}
@@ -486,7 +387,7 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
           {/* Search Input */}
           <Col span={18}>
             <Input
-              placeholder="Search line items..."
+              placeholder="Search line items... (instant)"
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
               prefix={<PushpinOutlined style={{ color: '#1890ff' }} />}
@@ -501,7 +402,7 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
           <Col>
             <Space>
               <Text strong>
-                {selectedRowKeys.length > 0 
+                {selectedRowKeys.length > 0
                   ? `${selectedRowKeys.length} item${selectedRowKeys.length > 1 ? 's' : ''} selected`
                   : 'No items selected'
                 }
@@ -535,11 +436,11 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
             columns={columns}
             dataSource={Array.isArray(filteredLineItems) ? filteredLineItems : []}
             rowKey={(record) => getItemId(record)}
-            loading={loading}
+            loading={itemsLoading}
             pagination={false}
             scroll={{ y: 400 }}
             size="small"
-            rowSelection={Array.isArray(filteredLineItems) && filteredLineItems.length > 0 && !loading ? handleRowSelection : undefined}
+            rowSelection={Array.isArray(filteredLineItems) && filteredLineItems.length > 0 && !itemsLoading ? handleRowSelection : undefined}
             onRow={(record) => {
               if (!record || !record.id) {
                 return {};
@@ -558,9 +459,16 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
               emptyText: (
                 <Empty
                   description={
-                    searchTerm 
-                      ? 'No line items found for your search'
-                      : 'No line items available'
+                    itemsError
+                      ? (
+                        <Space direction="vertical">
+                          <Text type="danger">Failed to load line items: {itemsError}</Text>
+                          <Button size="small" onClick={() => refetch()}>Retry</Button>
+                        </Space>
+                      )
+                      : searchTerm
+                        ? 'No line items found for your search'
+                        : 'No line items available'
                   }
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                 />
@@ -570,12 +478,12 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
         </div>
 
         {/* Footer Buttons */}
-        <Row 
-          justify="end" 
-          style={{ 
-            marginTop: '16px', 
-            borderTop: '1px solid #f0f0f0', 
-            paddingTop: '16px' 
+        <Row
+          justify="end"
+          style={{
+            marginTop: '16px',
+            borderTop: '1px solid #f0f0f0',
+            paddingTop: '16px'
           }}
         >
           <Col>
@@ -583,9 +491,9 @@ const SelectionModal: React.FC<SelectionModalProps> = ({
               <Button onClick={handleCancel}>
                 Cancel
               </Button>
-              <Button 
-                type="primary" 
-                onClick={handleOk} 
+              <Button
+                type="primary"
+                onClick={handleOk}
                 disabled={selectedRowKeys.length === 0}
               >
                 OK ({selectedRowKeys.length})

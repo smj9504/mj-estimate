@@ -373,10 +373,15 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
 
       if (result.success) {
         if (showMessages) {
-          message.success(
-            `Created ${result.created_count} configurations ` +
-            `(${result.matched_count} matched to line items)`
-          );
+          // Build success message including GC items
+          let successMsg = `Created ${result.created_count} configurations ` +
+            `(${result.matched_count} matched to line items)`;
+
+          if (result.general_conditions_created && result.general_conditions_created > 0) {
+            successMsg += ` + ${result.general_conditions_created} General Conditions items`;
+          }
+
+          message.success(successMsg);
 
           if (result.unmatched_items.length > 0) {
             message.warning(
@@ -384,6 +389,11 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
               result.unmatched_items.slice(0, 3).join(', ') +
               (result.unmatched_items.length > 3 ? '...' : '')
             );
+          }
+
+          // Warn if no GC items were created and this might be due to empty template
+          if (!result.general_conditions_created || result.general_conditions_created === 0) {
+            console.log('[InvoiceConfig] No General Conditions items created. Template may need seeding.');
           }
         }
 
@@ -974,6 +984,39 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
           )}
         </Col>
       </Row>
+
+      {/* Warnings for mitigation days and General Conditions */}
+      {actualMitigationDays === 1 && configs.length > 0 && (
+        <Alert
+          message="Mitigation Period Not Set"
+          description={
+            <>
+              Equipment quantities (Air Mover, Dehumidifier, Air Scrubber) are calculated based on mitigation days.
+              Currently set to <strong>1 day</strong>. Please set the mitigation start and end dates in the Job Details
+              for accurate per-day calculations.
+            </>
+          }
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
+      {/* Check if there are no General Conditions items */}
+      {configs.length > 0 && configs.filter(c => c.location_name === 'General Conditions').length === 0 && (
+        <Alert
+          message="No General Conditions Items"
+          description={
+            <>
+              General Conditions items (Emergency Service Call, Equipment Monitoring, etc.) are not configured.
+              Try clicking <strong>Regenerate All</strong> or contact support if items still don't appear.
+            </>
+          }
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
 
       {/* Configuration Table - Grouped by Location */}
       {loading || generating ? (

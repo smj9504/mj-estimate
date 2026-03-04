@@ -477,6 +477,8 @@ export interface ScopeLocationCreate {
   room_type?: string;
   description?: string;
   display_order?: number;
+  /** Auto-add standard scope items when creating location (default: true) */
+  auto_add_standard_items?: boolean;
 }
 
 export interface ScopeLocationUpdate {
@@ -572,6 +574,7 @@ export interface WMDebrisCalculation {
   job_id: string;
   total_weight_lb: number;
   total_weight_ton: number;
+  bag_count?: number; // Number of 42-gallon contractor bags needed
   category_breakdown: CategoryBreakdown[];
   dumpster_recommendation?: DumpsterRecommendation;
   item_details: DebrisItemDetail[];
@@ -982,6 +985,8 @@ export interface AutoGenerateConfigResult {
   created_count: number;
   matched_count: number;
   unmatched_items: string[];
+  general_conditions_created?: number;
+  general_conditions_calculated?: number;
 }
 
 // ============================================================================

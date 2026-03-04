@@ -124,21 +124,50 @@ async def get_admin_dashboard(
     include_draft: bool = Query(False),
     current_staff: Staff = Depends(get_current_staff)
 ):
-    """Get dashboard data for admin (includes all system data)"""
+    """Get dashboard data for admin (includes all system data)
+
+    NOTE: This endpoint is cached for 30 seconds to reduce database load.
+    The cache is keyed by staff_id and time_period.
+    """
+    from app.core.cache import CacheService
+    import json
+
     # Check if user has admin role
     if current_staff.role not in [StaffRole.admin, StaffRole.super_admin]:
         raise HTTPException(status_code=403, detail="Access denied. Admin role required.")
-    
+
+    # Try to get from cache first
+    cache = CacheService()
+    cache_key = f"dashboard:admin:{current_staff.id}:{time_period.value}"
+
+    try:
+        cached_data = await cache.get(cache_key)
+        if cached_data:
+            # Return cached data
+            return AdminDashboardData(**json.loads(cached_data))
+    except Exception as e:
+        # Log but don't fail if cache is unavailable
+        import logging
+        logging.debug(f"Cache get failed for dashboard: {e}")
+
     service = DashboardService()
-    
+
     filters = DashboardFilterParams(
         time_period=time_period,
         include_completed=include_completed,
         include_draft=include_draft
     )
-    
+
     try:
         dashboard_data = service.get_admin_dashboard(str(current_staff.id), filters)
+
+        # Cache the result for 30 seconds
+        try:
+            await cache.set(cache_key, dashboard_data.json(), ttl=30)
+        except Exception as e:
+            import logging
+            logging.debug(f"Cache set failed for dashboard: {e}")
+
         return dashboard_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -16,13 +16,9 @@
 export enum PackInputMode {
   /** Manual structured entry with individual items */
   STRUCTURED = 'STRUCTURED',
-  /** Template-based estimation using room type and density */
-  TEMPLATE = 'TEMPLATE',
-  /** AI-powered bulk text parsing */
-  BULK_TEXT = 'BULK_TEXT',
-  /** Legacy free-form text input */
+  /** AI-powered smart estimation */
   TEXT = 'TEXT',
-  /** AI image recognition (future) */
+  /** Photo analysis + hybrid mode (main feature) */
   IMAGE = 'IMAGE',
 }
 

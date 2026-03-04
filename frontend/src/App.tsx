@@ -68,11 +68,9 @@ const ScopeItemCategoriesManagement = lazy(() => import('./pages/ScopeItemCatego
 // Reconstruction Estimate Pages
 const DebrisCalculator = lazy(() => import('./pages/DebrisCalculator'));
 const MaterialDetectionPage = lazy(() => import('./pages/MaterialDetectionPage'));
-const PackCalculator = lazy(() => import('./pages/PackCalculator'));
 const PackCalculatorNew = lazy(() => import('./pages/PackCalculatorNew'));
 const PackCalculatorNewList = lazy(() => import('./pages/PackCalculatorNewList'));
 const PackCalculatorNewDetail = lazy(() => import('./pages/PackCalculatorNewDetail'));
-const PackCalculationList = lazy(() => import('./pages/PackCalculationList'));
 
 // ML & Training Pages
 const MLTraining = lazy(() => import('./pages/MLTraining'));
@@ -543,30 +541,6 @@ const router = createBrowserRouter([
     )
   },
   {
-    path: "/reconstruction-estimate/pack-calculations",
-    element: (
-      <ProtectedRoute>
-        <Layout>
-          <Suspense fallback={<PageLoader />}>
-            <PackCalculationList />
-          </Suspense>
-        </Layout>
-      </ProtectedRoute>
-    )
-  },
-  {
-    path: "/reconstruction-estimate/pack-calculator",
-    element: (
-      <ProtectedRoute>
-        <Layout>
-          <Suspense fallback={<PageLoader />}>
-            <PackCalculator />
-          </Suspense>
-        </Layout>
-      </ProtectedRoute>
-    )
-  },
-  {
     path: "/reconstruction-estimate/pack-calculator-new",
     element: (
       <ProtectedRoute>
@@ -597,30 +571,6 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <PackCalculatorNewDetail />
-          </Suspense>
-        </Layout>
-      </ProtectedRoute>
-    )
-  },
-  {
-    path: "/reconstruction-estimate/pack-calculator/:id",
-    element: (
-      <ProtectedRoute>
-        <Layout>
-          <Suspense fallback={<PageLoader />}>
-            <PackCalculator />
-          </Suspense>
-        </Layout>
-      </ProtectedRoute>
-    )
-  },
-  {
-    path: "/reconstruction-estimate/pack-calculator/:id/edit",
-    element: (
-      <ProtectedRoute>
-        <Layout>
-          <Suspense fallback={<PageLoader />}>
-            <PackCalculator />
           </Suspense>
         </Layout>
       </ProtectedRoute>

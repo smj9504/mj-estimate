@@ -111,6 +111,7 @@ from app.domains.payment.api import router as payment_router
 from app.domains.payment_config.api import router as payment_config_router
 from app.domains.pdf_editor.api import router as pdf_editor_router
 from app.domains.photo_analysis.api import router as photo_analysis_router
+from app.domains.photo_analysis.pack_estimate_api import router as pack_estimate_router
 from app.domains.plumber_report.api import router as plumber_report_router
 from app.domains.plumber_report.templates.api import (
     router as plumber_report_template_router,
@@ -487,6 +488,9 @@ app.include_router(analytics_router, prefix="/api", tags=["Analytics"])
 
 # Photo Analysis endpoints (AI-powered room analysis)
 app.include_router(photo_analysis_router, prefix="/api/photo-analysis", tags=["Photo Analysis"])
+
+# Pack Estimate endpoints (AI-powered pack-out estimate generation)
+app.include_router(pack_estimate_router, prefix="/api/photo-analysis", tags=["Pack Estimate"])
 
 # Packout Analysis endpoints (Xactimate-based content packout estimation)
 app.include_router(packout_router, prefix="/api", tags=["Packout Analysis"])

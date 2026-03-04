@@ -944,6 +944,49 @@ export const waterMitigationService = {
       );
       return response.data;
     }
+  },
+
+  // ============================================================================
+  // General Conditions Template Management API
+  // ============================================================================
+  generalConditions: {
+    /**
+     * Get the status of the General Conditions template.
+     * Returns whether the template exists and its line items.
+     */
+    getStatus: async (): Promise<{
+      exists: boolean;
+      template_id: string;
+      template_name?: string;
+      item_count: number;
+      items: Array<{
+        id: string;
+        line_item_id: string | null;
+        description: string;
+        rate: number;
+        unit: string;
+        is_embedded?: boolean;
+      }>;
+    }> => {
+      const response = await api.get(`${BASE_URL}/scope/general-conditions/status`);
+      return response.data;
+    },
+
+    /**
+     * Seed the General Conditions template with necessary line items.
+     * Call this if GC items are not appearing in invoices.
+     */
+    seed: async (): Promise<{
+      success: boolean;
+      template_id: string;
+      added_count: number;
+      skipped_count: number;
+      not_found: string[];
+      message: string;
+    }> => {
+      const response = await api.post(`${BASE_URL}/scope/general-conditions/seed`);
+      return response.data;
+    }
   }
 };
 

@@ -779,6 +779,14 @@ class EstimateService {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   }
+
+  /**
+   * Convert estimate to invoice
+   */
+  async convertToInvoice(estimateId: string): Promise<{ invoice_id: string; invoice_number: string }> {
+    const response = await apiClient.post(`/api/estimates/${estimateId}/convert-to-invoice`);
+    return response.data;
+  }
 }
 
 export const estimateService = new EstimateService();

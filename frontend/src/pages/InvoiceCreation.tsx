@@ -75,6 +75,7 @@ import TemplateBuilderModal from '../components/line-items/TemplateBuilderModal'
 import lineItemService from '../services/lineItemService';
 import { LineItemType } from '../types/lineItem';
 import { useTemplateBuilder } from '../contexts/TemplateBuilderContext';
+import { generateId } from '../components/sketch/utils/idUtils';
 import {
   Collapse,
   Tag,
@@ -414,9 +415,9 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
           ) : (
             <DraggableTable
               className="draggable-table invoice-items-table"
-              dataSource={section.items.map((item, index) => ({
+              dataSource={section.items.map((item) => ({
                 ...item,
-                key: `item-${sectionIndex}-${index}`
+                key: item.id  // Use stable item ID
               }))}
               onReorder={() => {}}
               pagination={false}
@@ -424,7 +425,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
               showDragHandle={true}
               dragHandlePosition="start"
               dragColumnWidth={30}
-              getRowId={(record: any, index: number) => `item-${sectionIndex}-${index}`}
+              getRowId={(record: any) => `item-${sectionIndex}-${record.id}`}  // Include sectionIndex for drag handling
               disableDrag={false}
               sectionIndex={sectionIndex}
               dragType="item"
@@ -749,27 +750,36 @@ const InvoiceCreation: React.FC = () => {
       }
     } else if (activeDragType === 'item' && activeSectionIndex !== null) {
       // Handle item reordering within the same section
+      // ID format: item-{sectionIndex}-{itemId} where itemId may contain dashes (UUID)
       if (activeIdStr.startsWith('item-') && overIdStr.startsWith('item-')) {
-        const activeParts = activeIdStr.split('-');
-        const overParts = overIdStr.split('-');
+        // Parse the ID: split by '-' and extract sectionIndex and itemId
+        const parseItemId = (idStr: string) => {
+          const firstDash = idStr.indexOf('-');
+          const secondDash = idStr.indexOf('-', firstDash + 1);
+          if (firstDash === -1 || secondDash === -1) return null;
 
-        if (activeParts.length >= 3 && overParts.length >= 3) {
-          const activeSectionIdx = parseInt(activeParts[1]);
-          const overSectionIdx = parseInt(overParts[1]);
+          const sectionIdx = parseInt(idStr.substring(firstDash + 1, secondDash));
+          const itemId = idStr.substring(secondDash + 1);
+          return { sectionIdx, itemId };
+        };
 
-          // Only allow reordering within the same section
-          if (activeSectionIdx === overSectionIdx) {
-            const activeItemIdx = parseInt(activeParts[2]);
-            const overItemIdx = parseInt(overParts[2]);
+        const activeInfo = parseItemId(activeIdStr);
+        const overInfo = parseItemId(overIdStr);
 
-            if (activeItemIdx !== overItemIdx) {
-              const newSections = [...sections];
-              const sectionItems = [...newSections[activeSectionIdx].items];
-              const newItems = arrayMove(sectionItems, activeItemIdx, overItemIdx);
-              newSections[activeSectionIdx].items = newItems;
-              newSections[activeSectionIdx].subtotal = calculateSectionSubtotal(newItems);
-              setSections(newSections);
-            }
+        if (activeInfo && overInfo && activeInfo.sectionIdx === overInfo.sectionIdx) {
+          const sectionIdx = activeInfo.sectionIdx;
+          const sectionItems = sections[sectionIdx]?.items || [];
+
+          // Find indices by item ID
+          const activeItemIdx = sectionItems.findIndex(item => item.id === activeInfo.itemId);
+          const overItemIdx = sectionItems.findIndex(item => item.id === overInfo.itemId);
+
+          if (activeItemIdx !== -1 && overItemIdx !== -1 && activeItemIdx !== overItemIdx) {
+            const newSections = [...sections];
+            const newItems = arrayMove([...sectionItems], activeItemIdx, overItemIdx);
+            newSections[sectionIdx].items = newItems;
+            newSections[sectionIdx].subtotal = calculateSectionSubtotal(newItems);
+            setSections(newSections);
           }
         }
       }
@@ -807,7 +817,9 @@ const InvoiceCreation: React.FC = () => {
       if (!groupedItems.has(groupKey)) {
         groupedItems.set(groupKey, []);
       }
-      groupedItems.get(groupKey)!.push(item);
+      // Ensure each item has a stable unique ID for drag and drop
+      const itemWithId = item.id ? item : { ...item, id: generateId() };
+      groupedItems.get(groupKey)!.push(itemWithId);
     });
 
     return Array.from(groupedItems.entries()).map(([title, groupItems], index) => {
@@ -931,8 +943,9 @@ const InvoiceCreation: React.FC = () => {
     const currentSection = sections[sectionIndex];
 
     // Convert EstimateLineItem to InvoiceItem and update with section title
+    // Ensure each item has a stable unique ID for drag and drop
     const convertedItems: InvoiceItem[] = itemsToAdd.map(item => ({
-      id: item.id,
+      id: item.id || generateId(),  // Generate new ID if not provided
       line_item_id: item.line_item_id,  // Preserve line_item_id for template creation
       name: item.name,
       description: item.description,
@@ -1482,6 +1495,8 @@ const InvoiceCreation: React.FC = () => {
 
       const newItem: InvoiceItem = {
         ...values,
+        // Preserve existing ID when editing, generate new one for new items
+        id: editingItem?.id || generateId(),
         line_item_id: lineItemId, // Set line_item_id from created library item or preserved from editing
         name: values.name.toString().trim(),
         description: values.description ? values.description.toString().trim() : '',
@@ -2924,10 +2939,12 @@ const InvoiceCreation: React.FC = () => {
                       );
                     }
                   } else if (activeDragType === 'item' && activeSectionIndex !== null) {
-                    const parts = activeId.split('-');
-                    if (parts.length >= 3 && parts[0] === 'item') {
-                      const itemIdx = parseInt(parts[2]);
-                      const item = sections[activeSectionIndex]?.items[itemIdx];
+                    // Parse ID format: item-{sectionIndex}-{itemId}
+                    const firstDash = activeId.indexOf('-');
+                    const secondDash = activeId.indexOf('-', firstDash + 1);
+                    if (firstDash !== -1 && secondDash !== -1) {
+                      const itemId = activeId.substring(secondDash + 1);
+                      const item = sections[activeSectionIndex]?.items.find(i => i.id === itemId);
 
                       if (item) {
                         return (
@@ -3506,10 +3523,14 @@ const InvoiceCreation: React.FC = () => {
                 name="unit"
                 label="Unit"
                 rules={[
-                  { required: true, message: 'Please select unit' }
+                  { required: true, message: 'Please enter unit' }
                 ]}
               >
-                <UnitSelect />
+                <UnitSelect
+                  componentVariant="autocomplete"
+                  style={{ width: '100%' }}
+                  placeholder="Select or type unit"
+                />
               </Form.Item>
             </Col>
             <Col span={6}>

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { message } from 'antd';
 import authService from '../services/authService';
 import { getErrorMessage } from '../api/errorHandler';
@@ -88,27 +88,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
-  const login = async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     try {
       const response = await authService.login(username, password);
       const { access_token, user: userData } = response;
-      
+
       setToken(access_token);
       setUser(userData);
-      
+
       localStorage.setItem('auth_token', access_token);
       localStorage.setItem('auth_user', JSON.stringify(userData));
-      
+
       authService.setAuthToken(access_token);
-      
+
       message.success('Login successful!');
     } catch (error) {
       message.error(getErrorMessage(error) || 'Login failed.');
       throw error;
     }
-  };
+  }, []);
 
-  const logout = (showMessage: boolean = true) => {
+  const logout = useCallback((showMessage: boolean = true) => {
     setUser(null);
     setToken(null);
     localStorage.removeItem('auth_token');
@@ -117,9 +117,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (showMessage) {
       message.info('Logged out.');
     }
-  };
+  }, []);
 
-  const register = async (data: RegisterData) => {
+  const register = useCallback(async (data: RegisterData) => {
     try {
       const response = await authService.register(data);
       message.success('Registration completed. Please login.');
@@ -128,19 +128,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       message.error(getErrorMessage(error) || 'Registration failed.');
       throw error;
     }
-  };
+  }, []);
 
-  const isAdmin = () => {
+  // Memoized role check functions to prevent unnecessary re-renders
+  const isAdmin = useCallback(() => {
     return user?.role === 'admin' || user?.role === 'super_admin';
-  };
+  }, [user?.role]);
 
-  const isManager = () => {
-    return user?.role === 'manager' || user?.role === 'supervisor' || isAdmin();
-  };
+  const isManager = useCallback(() => {
+    return user?.role === 'manager' || user?.role === 'supervisor' || user?.role === 'admin' || user?.role === 'super_admin';
+  }, [user?.role]);
 
-  const hasPermission = (requiredRole: string) => {
+  const hasPermission = useCallback((requiredRole: string) => {
     if (!user) return false;
-    
+
     const roleHierarchy: Record<string, number> = {
       super_admin: 10,
       admin: 9,
@@ -153,14 +154,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       accountant: 3,
       viewer: 1,
     };
-    
+
     const userLevel = roleHierarchy[user.role] || 0;
     const requiredLevel = roleHierarchy[requiredRole] || 0;
-    
-    return userLevel >= requiredLevel;
-  };
 
-  const value = {
+    return userLevel >= requiredLevel;
+  }, [user]);
+
+  // Memoize context value to prevent unnecessary re-renders of consumers
+  const value = useMemo(() => ({
     user,
     token,
     loading,
@@ -170,7 +172,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isAdmin,
     isManager,
     hasPermission,
-  };
+  }), [user, token, loading, login, logout, register, isAdmin, isManager, hasPermission]);
 
   return (
     <AuthContext.Provider value={value}>

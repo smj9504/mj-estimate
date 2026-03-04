@@ -25,6 +25,8 @@ import {
   Badge,
   Spin,
   Alert,
+  List,
+  Collapse,
 } from 'antd';
 import {
   DeleteOutlined,
@@ -34,6 +36,8 @@ import {
   CheckCircleOutlined,
   LoadingOutlined,
   WarningOutlined,
+  InboxOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { PhotoGroup, AnalysisStatus } from '../../../types/photoAnalysis';
 import { RoomType } from '../../../types/pack-calculation';
@@ -303,6 +307,26 @@ export const RoomPhotoGroup: React.FC<RoomPhotoGroupProps> = ({
     );
   };
 
+  // Helper function to format box type for display
+  const formatBoxType = (boxType?: string): string => {
+    if (!boxType || boxType === 'N/A') return 'N/A';
+    return boxType.replace(/_/g, ' ').replace(/BOX$/, ' Box').trim();
+  };
+
+  // Helper function to get special handling color
+  const getSpecialHandlingColor = (handling: string): string => {
+    const colors: Record<string, string> = {
+      FRAGILE: 'red',
+      HEAVY: 'orange',
+      TWO_PERSON_LIFT: 'purple',
+      ELECTRICAL: 'blue',
+      DISASSEMBLY: 'cyan',
+      VALUABLE: 'gold',
+      FABRIC_PROTECTION: 'green',
+    };
+    return colors[handling.toUpperCase()] || 'default';
+  };
+
   const renderAnalysisResults = () => {
     if (!group.result) return null;
 
@@ -364,12 +388,70 @@ export const RoomPhotoGroup: React.FC<RoomPhotoGroupProps> = ({
             </Col>
           </Row>
 
-          {/* Items Preview */}
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Detected {estimated_items.length} item categories
-            </Text>
-          </div>
+          {/* Detected Items List */}
+          <Collapse
+            size="small"
+            items={[
+              {
+                key: 'items',
+                label: (
+                  <Space>
+                    <InboxOutlined />
+                    <Text>Detected {estimated_items.length} item categories</Text>
+                  </Space>
+                ),
+                children: (
+                  <List
+                    size="small"
+                    dataSource={estimated_items}
+                    renderItem={(item) => (
+                      <List.Item>
+                        <List.Item.Meta
+                          title={
+                            <Space size="small" wrap>
+                              <Text strong>{item.category}</Text>
+                              {item.subcategory && (
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  ({item.subcategory})
+                                </Text>
+                              )}
+                              <Tag color="blue">×{item.quantity}</Tag>
+                              {item.box_type && item.box_type !== 'N/A' && (
+                                <Tooltip title="Recommended Box Type">
+                                  <Tag icon={<InboxOutlined />} color="geekblue">
+                                    {formatBoxType(item.box_type)}
+                                  </Tag>
+                                </Tooltip>
+                              )}
+                              {item.special_handling && item.special_handling.length > 0 && (
+                                item.special_handling.map((handling, idx) => (
+                                  <Tooltip key={idx} title="Special Handling Required">
+                                    <Tag
+                                      icon={<SafetyCertificateOutlined />}
+                                      color={getSpecialHandlingColor(handling)}
+                                    >
+                                      {handling.replace(/_/g, ' ')}
+                                    </Tag>
+                                  </Tooltip>
+                                ))
+                              )}
+                            </Space>
+                          }
+                          description={
+                            item.packing_method && (
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                📦 {item.packing_method}
+                              </Text>
+                            )
+                          }
+                        />
+                      </List.Item>
+                    )}
+                  />
+                ),
+              },
+            ]}
+          />
         </Space>
       </div>
     );

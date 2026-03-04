@@ -300,11 +300,11 @@ const WaterMitigationDetail: React.FC = () => {
     const endDate = job.mitigation_end_date;
 
     if (startDate && endDate) {
-      return `${dayjs(startDate).format('YYYY-MM-DD')} to ${dayjs(endDate).format('YYYY-MM-DD')}`;
+      return `${dayjs(startDate).format('MMM D, YYYY')} - ${dayjs(endDate).format('MMM D, YYYY')}`;
     } else if (startDate) {
-      return `From ${dayjs(startDate).format('YYYY-MM-DD')}`;
+      return `From ${dayjs(startDate).format('MMM D, YYYY')}`;
     } else if (endDate) {
-      return `Until ${dayjs(endDate).format('YYYY-MM-DD')}`;
+      return `Until ${dayjs(endDate).format('MMM D, YYYY')}`;
     }
 
     return '-';
@@ -538,7 +538,7 @@ const WaterMitigationDetail: React.FC = () => {
                         placeholder="Select date of loss"
                       />
                     ) : (
-                      job.date_of_loss ? dayjs(job.date_of_loss).format('YYYY-MM-DD') : '-'
+                      job.date_of_loss ? dayjs(job.date_of_loss).format('MMM D, YYYY') : '-'
                     )}
                   </Descriptions.Item>
                   <Descriptions.Item
@@ -560,7 +560,7 @@ const WaterMitigationDetail: React.FC = () => {
                         placeholder="Select start date"
                       />
                     ) : (
-                      job.mitigation_start_date ? dayjs(job.mitigation_start_date).format('YYYY-MM-DD') : '-'
+                      job.mitigation_start_date ? dayjs(job.mitigation_start_date).format('MMM D, YYYY') : '-'
                     )}
                   </Descriptions.Item>
                   <Descriptions.Item
@@ -586,7 +586,7 @@ const WaterMitigationDetail: React.FC = () => {
                         }}
                       />
                     ) : (
-                      job.mitigation_end_date ? dayjs(job.mitigation_end_date).format('YYYY-MM-DD') : '-'
+                      job.mitigation_end_date ? dayjs(job.mitigation_end_date).format('MMM D, YYYY') : '-'
                     )}
                   </Descriptions.Item>
                   <Descriptions.Item label="Mitigation Period" span={2}>

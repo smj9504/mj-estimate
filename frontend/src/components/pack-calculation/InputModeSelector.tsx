@@ -21,10 +21,8 @@ import React from 'react';
 import { Card, Row, Col, Badge, Typography, Space, Tag } from 'antd';
 import {
   EditOutlined,
-  FileTextOutlined,
   ThunderboltOutlined,
   RobotOutlined,
-  AppstoreOutlined,
 } from '@ant-design/icons';
 import { PackInputMode } from '../../types/pack-calculation';
 
@@ -60,6 +58,16 @@ interface InputModeSelectorProps {
 
 const INPUT_MODE_CONFIGS: InputModeConfig[] = [
   {
+    mode: PackInputMode.IMAGE,
+    title: 'Photo Analysis',
+    description: 'Upload room photos for AI-powered item detection. Combine with manual adjustments for best results.',
+    icon: <ThunderboltOutlined style={{ fontSize: 32 }} />,
+    timeEstimate: '3-5 min',
+    accuracy: 'Very High',
+    recommended: true,
+    color: '#eb2f96',
+  },
+  {
     mode: PackInputMode.STRUCTURED,
     title: 'Manual Entry',
     description: 'Enter each item individually with full control over categories, quantities, and pack sizes.',
@@ -70,44 +78,14 @@ const INPUT_MODE_CONFIGS: InputModeConfig[] = [
     color: '#1890ff',
   },
   {
-    mode: PackInputMode.BULK_TEXT,
-    title: 'Bulk Text',
-    description: 'Paste a list of items from your notes or inventory. AI will automatically parse and categorize.',
-    icon: <FileTextOutlined style={{ fontSize: 32 }} />,
-    timeEstimate: '3-5 min',
-    accuracy: 'High',
-    recommended: true,
-    color: '#52c41a',
-  },
-  {
-    mode: PackInputMode.TEMPLATE,
-    title: 'Room Templates',
-    description: 'Select room types and density levels. Pre-built templates estimate items automatically.',
-    icon: <AppstoreOutlined style={{ fontSize: 32 }} />,
-    timeEstimate: '2-3 min',
-    accuracy: 'Medium',
-    recommended: true,
-    color: '#722ed1',
-  },
-  {
     mode: PackInputMode.TEXT,
-    title: 'Smart AI Parse',
-    description: 'Describe the job in natural language. AI extracts items, quantities, and context.',
+    title: 'Smart AI Estimate',
+    description: 'Describe the room in natural language. AI estimates items based on room type and size.',
     icon: <RobotOutlined style={{ fontSize: 32 }} />,
-    timeEstimate: '5-7 min',
+    timeEstimate: '2-3 min',
     accuracy: 'High',
     recommended: false,
     color: '#fa8c16',
-  },
-  {
-    mode: PackInputMode.IMAGE,
-    title: 'Hybrid Mode',
-    description: 'Combine templates with manual adjustments. Best of both speed and precision.',
-    icon: <ThunderboltOutlined style={{ fontSize: 32 }} />,
-    timeEstimate: '5-8 min',
-    accuracy: 'Very High',
-    recommended: true,
-    color: '#eb2f96',
   },
 ];
 
@@ -259,15 +237,11 @@ const InputModeSelector: React.FC<InputModeSelectorProps> = ({
           }}
         >
           <Text type="secondary" style={{ fontSize: 13 }}>
-            💡 <strong>Tip:</strong> For fastest results, try{' '}
-            <Text strong style={{ color: '#52c41a' }}>
-              Bulk Text
+            💡 <strong>Tip:</strong> For best results, use{' '}
+            <Text strong style={{ color: '#eb2f96' }}>
+              Photo Analysis
             </Text>{' '}
-            or{' '}
-            <Text strong style={{ color: '#722ed1' }}>
-              Room Templates
-            </Text>
-            . You can always edit items afterward.
+            to automatically detect items from room photos. You can always edit items afterward.
           </Text>
         </div>
       </Space>

@@ -217,8 +217,8 @@ function DraggableTable<T extends Record<string, any>>({
           ...(resizableColumns ? { header: { cell: ResizableTitle } } : {}),
           body: {
             row: (props: any) => {
-              // Get the ID from the row props
-              const id = props['data-sortable-id'] || props['data-row-key'] || props.key || `row-${Math.random()}`;
+              // Get the ID from the row props (avoid Math.random() which causes re-render issues)
+              const id = props['data-sortable-id'] || props['data-row-key'] || props.key || 'row-unknown';
 
 
               // Filter out our custom props that shouldn't reach the DOM

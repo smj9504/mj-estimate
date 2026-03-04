@@ -251,12 +251,19 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
     try {
       const lineItem = await lineItemService.getLineItem(lineItemId);
 
-      // Determine type based on presence of Xactimate fields
-      const type = lineItem.lab !== undefined || lineItem.mat !== undefined
-        ? LineItemType.XACTIMATE
-        : LineItemType.CUSTOM;
+      // Debug: Log the raw API response
+      console.log('[LineItemFormModal] Raw lineItem from API:', lineItem);
+      console.log('[LineItemFormModal] untaxed_unit_price value:', lineItem.untaxed_unit_price, 'type:', typeof lineItem.untaxed_unit_price);
+
+      // Use type from backend, default to CUSTOM if not set
+      const type = lineItem.type || LineItemType.CUSTOM;
 
       setItemType(type);
+
+      // Ensure numeric conversion for price fields
+      const priceValue = lineItem.untaxed_unit_price !== null && lineItem.untaxed_unit_price !== undefined
+        ? Number(lineItem.untaxed_unit_price)
+        : undefined;
 
       // Set form values
       form.setFieldsValue({
@@ -267,15 +274,17 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
         cat: lineItem.cat,
         includes: lineItem.includes,
         is_active: lineItem.is_active,
-        // Custom fields
-        untaxed_unit_price: lineItem.untaxed_unit_price,
+        // Custom fields - ensure numeric type
+        untaxed_unit_price: priceValue,
         // Xactimate fields
-        lab: lineItem.lab,
-        mat: lineItem.mat,
-        equ: lineItem.equ,
-        labor_burden: lineItem.labor_burden,
-        market_condition: lineItem.market_condition,
+        lab: lineItem.lab ? Number(lineItem.lab) : undefined,
+        mat: lineItem.mat ? Number(lineItem.mat) : undefined,
+        equ: lineItem.equ ? Number(lineItem.equ) : undefined,
+        labor_burden: lineItem.labor_burden ? Number(lineItem.labor_burden) : undefined,
+        market_condition: lineItem.market_condition ? Number(lineItem.market_condition) : undefined,
       });
+
+      console.log('[LineItemFormModal] Form values set, priceValue:', priceValue);
 
       // Load notes
       const notesData = await lineItemService.getLineItemNotes(lineItemId);
@@ -581,8 +590,12 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
               min={0}
               step={0.01}
               precision={2}
-              prefix="$"
               placeholder="0.00"
+              formatter={value => (value != null) ? `$ ${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : ''}
+              parser={value => {
+                const num = parseFloat(String(value || '').replace(/\$\s?|(,*)/g, ''));
+                return isNaN(num) ? (0 as any) : (num as any);
+              }}
             />
           </Form.Item>
         ) : (
@@ -594,7 +607,12 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
                   min={0}
                   step={0.01}
                   precision={2}
-                  prefix="$"
+                  placeholder="0.00"
+                  formatter={value => (value != null) ? `$ ${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : ''}
+                  parser={value => {
+                    const num = parseFloat(String(value || '').replace(/\$\s?|(,*)/g, ''));
+                    return isNaN(num) ? (0 as any) : (num as any);
+                  }}
                 />
               </Form.Item>
 
@@ -604,7 +622,12 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
                   min={0}
                   step={0.01}
                   precision={2}
-                  prefix="$"
+                  placeholder="0.00"
+                  formatter={value => (value != null) ? `$ ${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : ''}
+                  parser={value => {
+                    const num = parseFloat(String(value || '').replace(/\$\s?|(,*)/g, ''));
+                    return isNaN(num) ? (0 as any) : (num as any);
+                  }}
                 />
               </Form.Item>
 
@@ -614,7 +637,12 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
                   min={0}
                   step={0.01}
                   precision={2}
-                  prefix="$"
+                  placeholder="0.00"
+                  formatter={value => (value != null) ? `$ ${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : ''}
+                  parser={value => {
+                    const num = parseFloat(String(value || '').replace(/\$\s?|(,*)/g, ''));
+                    return isNaN(num) ? (0 as any) : (num as any);
+                  }}
                 />
               </Form.Item>
             </Space>
@@ -627,7 +655,12 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
                   max={100}
                   step={0.1}
                   precision={1}
-                  suffix="%"
+                  placeholder="0"
+                  formatter={value => (value != null) ? `${String(value)}%` : ''}
+                  parser={value => {
+                    const num = parseFloat(String(value || '').replace(/%/g, ''));
+                    return isNaN(num) ? (0 as any) : (num as any);
+                  }}
                 />
               </Form.Item>
 
@@ -638,7 +671,12 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
                   max={100}
                   step={0.1}
                   precision={1}
-                  suffix="%"
+                  placeholder="0"
+                  formatter={value => (value != null) ? `${String(value)}%` : ''}
+                  parser={value => {
+                    const num = parseFloat(String(value || '').replace(/%/g, ''));
+                    return isNaN(num) ? (0 as any) : (num as any);
+                  }}
                 />
               </Form.Item>
             </Space>

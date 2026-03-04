@@ -318,6 +318,37 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
             invoice_service = InvoiceService(self.database)
             
             # Convert estimate data to invoice data
+            from datetime import datetime, timedelta
+            today = datetime.utcnow().date()
+            due_date = today + timedelta(days=30)  # Default 30 days payment term
+
+            # Explicitly convert items to ensure all fields including note are preserved
+            estimate_items = estimate.get('items', [])
+            invoice_items = []
+            for item in estimate_items:
+                invoice_item = {
+                    'name': item.get('name'),
+                    'description': item.get('description'),
+                    'note': item.get('note'),  # Explicitly include note field
+                    'quantity': item.get('quantity', 1),
+                    'unit': item.get('unit', 'ea'),
+                    'rate': item.get('rate', 0),
+                    'amount': item.get('amount', 0),
+                    'taxable': item.get('taxable', True),
+                    'tax_rate': item.get('tax_rate', 0),
+                    'tax_amount': item.get('tax_amount', 0),
+                    'line_item_id': item.get('line_item_id'),
+                    'is_custom_override': item.get('is_custom_override', False),
+                    'override_values': item.get('override_values'),
+                    'primary_group': item.get('primary_group'),
+                    'secondary_group': item.get('secondary_group'),
+                    'sort_order': item.get('sort_order', 0),
+                    'order_index': item.get('order_index', 0),
+                }
+                invoice_items.append(invoice_item)
+
+            logger.info(f"Converting estimate to invoice: {len(invoice_items)} items, notes included: {sum(1 for i in invoice_items if i.get('note'))}")
+
             invoice_data = {
                 'company_id': estimate.get('company_id'),
                 'client_name': estimate.get('client_name'),
@@ -327,6 +358,8 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                 'client_zipcode': estimate.get('client_zipcode'),
                 'client_phone': estimate.get('client_phone'),
                 'client_email': estimate.get('client_email'),
+                'invoice_date': today.isoformat(),
+                'due_date': due_date.isoformat(),
                 'subtotal': estimate.get('subtotal'),
                 'tax_rate': estimate.get('tax_rate'),
                 'tax_amount': estimate.get('tax_amount'),
@@ -334,7 +367,7 @@ class EstimateService(TransactionalService[Dict[str, Any], str]):
                 'total_amount': estimate.get('total_amount'),
                 'notes': estimate.get('notes'),
                 'terms': estimate.get('terms'),
-                'items': estimate.get('items', [])
+                'items': invoice_items
             }
             
             # Create invoice

@@ -45,11 +45,16 @@ class LineItemCategoryUpdate(BaseModel):
 
 
 class LineItemCategoryResponse(LineItemCategoryBase):
-    """Schema for category response"""
-    created_at: datetime
+    """Schema for category response - OPTIMIZED: excludes subcategories to prevent N+1 queries
+
+    Note: subcategories are NOT included by default for performance reasons.
+    If hierarchical data is needed, use the /categories/tree endpoint instead.
+    """
+    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    subcategories: List['LineItemCategoryResponse'] = []
-    
+    # REMOVED: subcategories field was causing N+1 queries (19+ second response times)
+    # Each category triggered a separate DB query for its children
+
     model_config = {"from_attributes": True}
 
 
@@ -159,6 +164,7 @@ class LineItemUpdate(BaseModel):
 class LineItemResponse(LineItemBase):
     """Schema for line item response"""
     id: UUID
+    type: Optional[LineItemType] = LineItemType.CUSTOM  # Line item type (CUSTOM or XACTIMATE)
     is_active: bool
     version: int
     company_id: Optional[UUID] = None
@@ -166,7 +172,7 @@ class LineItemResponse(LineItemBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     notes: List[LineItemNoteResponse] = []
-    
+
     model_config = {"from_attributes": True}
     
     @computed_field

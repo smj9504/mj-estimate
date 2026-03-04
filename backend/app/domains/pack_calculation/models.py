@@ -171,6 +171,10 @@ class PackItem(Base, BaseModel):
     # Calculated materials for this item
     xactimate_materials = Column(JSONB)  # {line_item_code: quantity}
 
+    # Cached labor hours (calculated once, stored for future views)
+    cached_packing_hours = Column(Float)
+    cached_moving_hours = Column(Float)
+
     # Relationships
     room = relationship("PackRoom", back_populates="items")
 

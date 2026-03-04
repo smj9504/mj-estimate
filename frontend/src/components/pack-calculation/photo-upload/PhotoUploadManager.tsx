@@ -81,6 +81,7 @@ interface PhotoUploadManagerProps {
       floor_level: string;
       pack_size?: number;
       source: string;
+      room_name: string; // Room name from photo analysis (e.g., "Living Room")
     }>
   ) => void;
   /** Optional callback when rooms change (for parent state sync) */
@@ -104,7 +105,7 @@ export const PhotoUploadManager: React.FC<PhotoUploadManagerProps> = ({
   const [uploadingRoomId, setUploadingRoomId] = useState<string | null>(null);
   const [analyzingAll, setAnalyzingAll] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<UploadFile[]>([]);
-  const [analysisProvider] = useState<AnalysisProvider>('mock'); // Change to 'openai' when ready
+  const [analysisProvider] = useState<AnalysisProvider>('openai'); // Use OpenAI GPT-4 Vision for real analysis
 
   // ============================================================================
   // Derived State
@@ -440,9 +441,12 @@ export const PhotoUploadManager: React.FC<PhotoUploadManagerProps> = ({
       return;
     }
 
-    // Aggregate all items from all analyzed rooms
-    const allItems = analyzedRooms.flatMap((room) =>
-      room.result!.estimated_items.map((item) => ({
+    // Aggregate all items from all analyzed rooms with room_name preserved
+    const allItems = analyzedRooms.flatMap((room) => {
+      // Get room label from roomType (e.g., LIVING_ROOM -> "Living Room")
+      const roomLabel = getRoomTypeLabel(room.roomType);
+
+      return room.result!.estimated_items.map((item) => ({
         item_name: item.subcategory || item.category,
         item_category: item.category,
         quantity: item.quantity,
@@ -450,8 +454,9 @@ export const PhotoUploadManager: React.FC<PhotoUploadManagerProps> = ({
         floor_level: 'MAIN_LEVEL',
         pack_size: item.pack_size,
         source: 'photo' as const,
-      }))
-    );
+        room_name: roomLabel, // Preserve room name from photo analysis
+      }));
+    });
 
     // Call parent callback
     onPhotosAnalyzed(allItems);

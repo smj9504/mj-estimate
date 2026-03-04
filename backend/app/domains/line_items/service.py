@@ -26,6 +26,10 @@ from app.domains.line_items.models import LineItem, LineItemType
 from app.core.cache import CacheService
 from app.core.interfaces import ValidationError
 
+# Import WM repositories for sync operations
+from app.domains.water_mitigation.scope_repository import ScopeRepository
+from app.domains.water_mitigation.standard_scope_repository import StandardScopeItemRepository
+
 # BusinessError as a simple alias
 class BusinessError(Exception):
     pass
@@ -277,27 +281,46 @@ class LineItemService:
         return result
     
     async def update_line_item(
-        self, 
-        line_item_id: UUID, 
+        self,
+        line_item_id: UUID,
         update: LineItemUpdate,
-        user_id: UUID
+        user_id: UUID,
+        sync_to_wm: bool = True
     ) -> Optional[LineItemResponse]:
-        """Update a line item with audit logging"""
+        """
+        Update a line item with audit logging and optional WM sync.
+
+        Args:
+            line_item_id: The line item ID to update
+            update: The update data
+            user_id: The user making the update
+            sync_to_wm: If True, sync changes to WMScopeItem and WMStandardScopeItem
+        """
         # Get existing item for audit
         existing = self.repository.get_line_item(line_item_id)
         if not existing:
             return None
-        
+
         old_values = existing.to_dict()
-        
+
         # Update the item
         db_item = self.repository.update_line_item(line_item_id, update)
         if not db_item:
             return None
-        
+
         # Clear cache
         self._invalidate_line_item_cache(line_item_id)
-        
+
+        # Sync to Water Mitigation scope items if enabled
+        if sync_to_wm:
+            sync_result = self._sync_line_item_to_wm(line_item_id, db_item)
+            if sync_result['total_synced'] > 0:
+                logger.info(
+                    f"Synced LineItem {line_item_id} to WM: "
+                    f"{sync_result['scope_items_synced']} scope items, "
+                    f"{sync_result['standard_items_synced']} standard items"
+                )
+
         # Create audit log
         self.repository.create_audit_entry(
             line_item_id=line_item_id,
@@ -308,6 +331,67 @@ class LineItemService:
         )
 
         return LineItemResponse.model_validate(db_item)
+
+    def _sync_line_item_to_wm(self, line_item_id: UUID, line_item: LineItem) -> dict:
+        """
+        Sync LineItem changes to dependent WMStandardScopeItem records.
+
+        NOTE: WMScopeItem (job-specific scope items) are NOT synced because:
+        - Scope items and line items are separate entities
+        - Scope item names are user-defined for each job
+        - The link between scope item and line item is only for price reference
+        - Changing a line item should not affect existing scope item names
+
+        Field mapping (WMStandardScopeItem only):
+        - LineItem.description → WMStandardScopeItem.name
+        - LineItem.includes → WMStandardScopeItem.description
+        - LineItem.unit → WMStandardScopeItem.unit
+        - LineItem.untaxed_unit_price → WMStandardScopeItem.custom_line_item_rate
+
+        Args:
+            line_item_id: The line item ID
+            line_item: The updated LineItem object
+
+        Returns:
+            Dict with sync statistics
+        """
+        result = {
+            'scope_items_synced': 0,
+            'standard_items_synced': 0,
+            'total_synced': 0
+        }
+
+        try:
+            # NOTE: WMScopeItem sync is intentionally REMOVED
+            # Scope items are job-specific and should maintain their own names
+            # The line_item_id link is only for price lookup, not for name sync
+
+            # Prepare updates for WMStandardScopeItem (templates only)
+            # Standard scope items are templates that CAN be synced with line items
+            standard_item_updates = {}
+            if line_item.description:
+                standard_item_updates['name'] = line_item.description
+            if line_item.includes is not None:
+                standard_item_updates['description'] = line_item.includes
+            if line_item.unit:
+                standard_item_updates['unit'] = line_item.unit
+            if line_item.untaxed_unit_price is not None:
+                standard_item_updates['custom_line_item_rate'] = line_item.untaxed_unit_price
+
+            # Sync to WMStandardScopeItem
+            if standard_item_updates:
+                standard_repo = StandardScopeItemRepository(self.db)
+                result['standard_items_synced'] = standard_repo.update_items_from_line_item(
+                    line_item_id, standard_item_updates
+                )
+
+            result['total_synced'] = result['standard_items_synced']
+
+        except Exception as e:
+            logger.warning(f"Failed to sync LineItem {line_item_id} to WM: {e}")
+            # Don't fail the main update if sync fails
+
+        return result
     
     async def delete_line_item(self, line_item_id: UUID, user_id: UUID) -> bool:
         """Soft delete a line item"""

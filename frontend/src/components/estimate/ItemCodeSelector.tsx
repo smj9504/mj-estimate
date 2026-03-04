@@ -1,11 +1,10 @@
 import React, { useState, useCallback } from 'react';
 import { AutoComplete, Button, Space } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
-import debounce from 'lodash/debounce';
-import lineItemService from '../../services/lineItemService';
 import SelectionModal from './SelectionModal';
 import { LineItemModalItem, LineItem } from '../../types/lineItem';
 import { EstimateLineItem } from '../../services/estimateService';
+import { useLineItemsCache } from '../../hooks/useLineItemsCache';
 
 interface ItemCodeSelectorProps {
   value?: string;
@@ -73,44 +72,34 @@ const ItemCodeSelector: React.FC<ItemCodeSelectorProps> = ({
   style,
   mode = 'add',
 }) => {
-  // console.log('ItemCodeSelector render - value:', value);
-  // console.log('ItemCodeSelector render - onChange:', !!onChange);
   const [options, setOptions] = useState<AutoCompleteOption[]>([]);
-  const [loading, setLoading] = useState(false);
   const [selectionModalVisible, setSelectionModalVisible] = useState(false);
 
-  // Debounced search function for AutoComplete
-  const debouncedSearch = useCallback(
-    debounce(async (searchValue: string) => {
-      if (!searchValue || searchValue.length < 2) {
-        setOptions([]);
-        return;
-      }
+  // Use shared cache hook instead of local state
+  const { filterBySearch, isLoading: isInitialLoading } = useLineItemsCache();
 
-      setLoading(true);
-      try {
-        const items = await lineItemService.searchLineItemsSimple(searchValue, 10);
+  // Local search function - filters cached items instead of calling API
+  const handleLocalSearch = useCallback((searchValue: string) => {
+    if (!searchValue || searchValue.length < 2) {
+      setOptions([]);
+      return;
+    }
 
-        const searchOptions: AutoCompleteOption[] = items.map(item => ({
-          value: getItemCode(item),
-          label: `${getItemCode(item)} - ${getItemDescription(item)}`,
-          item: item,
-        }));
+    // Use shared cache filter (instant, no network call)
+    const filteredItems = filterBySearch(searchValue, 10);
 
-        setOptions(searchOptions);
-      } catch (error) {
-        console.error('AutoComplete search failed:', error);
-        setOptions([]);
-      } finally {
-        setLoading(false);
-      }
-    }, 300),
-    [setOptions, setLoading]
-  );
+    const searchOptions: AutoCompleteOption[] = filteredItems.map(item => ({
+      value: getItemCode(item),
+      label: `${getItemCode(item)} - ${getItemDescription(item)}`,
+      item: item,
+    }));
 
-  // Handle AutoComplete search
+    setOptions(searchOptions);
+  }, [filterBySearch]);
+
+  // Handle AutoComplete search - now uses local filtering
   const handleSearch = (searchValue: string) => {
-    debouncedSearch(searchValue);
+    handleLocalSearch(searchValue);
   };
 
   // Handle AutoComplete selection
@@ -199,8 +188,8 @@ const ItemCodeSelector: React.FC<ItemCodeSelectorProps> = ({
           disabled={disabled}
           allowClear={true}
           style={{ flex: 1 }}
-          filterOption={false} // We handle filtering server-side
-          notFoundContent={loading ? 'Searching...' : 'No line items found'}
+          filterOption={false} // We handle filtering client-side
+          notFoundContent={isInitialLoading ? 'Loading items...' : 'No line items found'}
         />
         <Button
           icon={<SearchOutlined />}

@@ -30,7 +30,7 @@ export type AnalysisProvider = 'openai' | 'mock';
 /**
  * Default provider - can be overridden per request
  */
-const DEFAULT_PROVIDER: AnalysisProvider = 'mock'; // Change to 'openai' when ready
+const DEFAULT_PROVIDER: AnalysisProvider = 'openai'; // Use OpenAI GPT-4 Vision for real analysis
 
 // ============================================================================
 // Helper Functions
@@ -52,20 +52,30 @@ const mapDetectedItem = (item: any): DetectedItem => ({
   quantity: item.quantity,
   pack_size: item.pack_size || 1,
   confidence: item.confidence,
+  packing_method: item.packing_method || undefined,
+  box_type: item.box_type || undefined,
+  special_handling: item.special_handling || [],
 });
 
 /**
  * Map backend response to RoomAnalysisResult
+ * Note: Backend returns confidence_score as 0-1, we convert to 0-100 for UI
  */
-const mapAnalysisResponse = (response: any): RoomAnalysisResult => ({
-  room_type: response.room_type || RoomType.LIVING_ROOM,
-  density_level: response.density_level || DensityLevel.MODERATE,
-  estimated_items: (response.items || []).map(mapDetectedItem),
-  confidence_score: response.confidence_score || 0,
-  detected_features: response.detected_features || [],
-  analyzed_at: new Date(),
-  total_boxes: response.total_boxes || 0,
-});
+const mapAnalysisResponse = (response: any): RoomAnalysisResult => {
+  // Backend returns 0-1, convert to 0-100 percentage
+  const rawConfidence = response.confidence_score || 0;
+  const confidencePercent = rawConfidence <= 1 ? rawConfidence * 100 : rawConfidence;
+
+  return {
+    room_type: response.room_type || RoomType.LIVING_ROOM,
+    density_level: response.density_level || DensityLevel.MODERATE,
+    estimated_items: (response.items || []).map(mapDetectedItem),
+    confidence_score: Math.round(confidencePercent * 10) / 10, // Round to 1 decimal
+    detected_features: response.detected_features || [],
+    analyzed_at: new Date(),
+    total_boxes: response.total_boxes || 0,
+  };
+};
 
 // ============================================================================
 // API Functions

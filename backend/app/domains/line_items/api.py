@@ -2,6 +2,7 @@
 Line Items domain API endpoints
 """
 
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
@@ -70,9 +71,23 @@ async def get_categories(
     categories = query.order_by(LineItemCategory.display_order).all()
     response_data = [LineItemCategoryResponse.from_orm(cat) for cat in categories]
     
-    # Convert to dict for JSON serialization
-    response_dict = [cat.dict() for cat in response_data]
-    
+    # Convert to dict for JSON serialization with datetime handling
+    def serialize_datetime(obj):
+        """Convert datetime to ISO string for JSON serialization"""
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return obj
+
+    response_dict = []
+    for cat in response_data:
+        cat_dict = cat.dict()
+        # Convert datetime fields to ISO strings
+        if cat_dict.get('created_at'):
+            cat_dict['created_at'] = serialize_datetime(cat_dict['created_at'])
+        if cat_dict.get('updated_at'):
+            cat_dict['updated_at'] = serialize_datetime(cat_dict['updated_at'])
+        response_dict.append(cat_dict)
+
     # Cache the result (30 minutes TTL for frequently accessed data)
     try:
         await cache.set(cache_key, json.dumps(response_dict), ttl=1800)
@@ -737,21 +752,83 @@ async def search_line_items(
 async def update_line_item(
     line_item_id: UUID,
     update: LineItemUpdate,
+    background_tasks: BackgroundTasks,
+    sync_to_wm: bool = Query(True, description="Sync changes to WM standard items (runs in background)"),
     db: Session = Depends(get_db),
     cache: CacheService = Depends(get_cache),
     current_user: Staff = Depends(get_current_user)
 ):
-    """Update a line item"""
+    """Update a line item
+
+    Performance optimization: WM sync now runs in background to avoid blocking the response.
+    The main update completes in ~2-3 queries instead of 5-6.
+    """
     service = LineItemService(db, cache)
-    item = await service.update_line_item(line_item_id, update, UUID(current_user.id))
-    
+    # Don't sync to WM synchronously - do it in background
+    item = await service.update_line_item(
+        line_item_id, update, UUID(current_user.id),
+        sync_to_wm=False  # Disable sync in main request
+    )
+
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Line item not found"
         )
-    
+
+    # Run WM sync in background if requested (doesn't block response)
+    if sync_to_wm:
+        background_tasks.add_task(
+            _sync_line_item_to_wm_background,
+            line_item_id,
+            item
+        )
+
     return item
+
+
+def _sync_line_item_to_wm_background(line_item_id: UUID, line_item_response: LineItemResponse):
+    """Background task to sync LineItem changes to WM standard items.
+
+    Runs asynchronously after the API response is sent.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Create a new database session for background task
+        from app.core.database_factory import DatabaseFactory
+        db_factory = DatabaseFactory()
+        session = db_factory.get_session()
+
+        try:
+            from app.domains.water_mitigation.standard_scope_repository import StandardScopeItemRepository
+
+            # Prepare updates for WMStandardScopeItem (templates only)
+            standard_item_updates = {}
+            if line_item_response.description:
+                standard_item_updates['name'] = line_item_response.description
+            if line_item_response.includes is not None:
+                standard_item_updates['description'] = line_item_response.includes
+            if line_item_response.unit:
+                standard_item_updates['unit'] = line_item_response.unit
+            if line_item_response.untaxed_unit_price is not None:
+                standard_item_updates['custom_line_item_rate'] = line_item_response.untaxed_unit_price
+
+            if standard_item_updates:
+                standard_repo = StandardScopeItemRepository(session._session)
+                synced_count = standard_repo.update_items_from_line_item(
+                    line_item_id, standard_item_updates
+                )
+                session.commit()
+
+                if synced_count > 0:
+                    logger.info(f"[Background] Synced LineItem {line_item_id} to {synced_count} WM standard items")
+        finally:
+            session.close()
+
+    except Exception as e:
+        logger.warning(f"[Background] Failed to sync LineItem {line_item_id} to WM: {e}")
 
 
 @router.delete("/bulk", status_code=status.HTTP_204_NO_CONTENT)

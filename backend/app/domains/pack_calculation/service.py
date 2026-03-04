@@ -2248,7 +2248,7 @@ class PackCalculationService:
                         
                         item_materials = parse_json_field(item.get("xactimate_materials"))
                         print(f"🔍 Item {item.get('item_name')}: parsed materials={item_materials}, len={len(item_materials) if item_materials else 0}")
-                        
+
                         # If materials are empty or None, try to recalculate them
                         if not item_materials or len(item_materials) == 0:
                             print(f"🔍 Item {item.get('item_name')}: materials empty, attempting to recalculate")
@@ -2273,6 +2273,21 @@ class PackCalculationService:
                                         recalc_materials[code] = recalc_materials.get(code, 0) + qty
                                 item_materials = recalc_materials
                                 print(f"🔍 Item {item.get('item_name')}: recalculated materials={item_materials}, len={len(item_materials)}")
+
+                                # Cache recalculated materials back to DB for future views
+                                item_id = item.get("id")
+                                if item_id and item_materials:
+                                    try:
+                                        from app.domains.pack_calculation.models import PackItem
+                                        from uuid import UUID
+                                        item_uuid = UUID(item_id) if isinstance(item_id, str) else item_id
+                                        db_item = self.db.query(PackItem).filter(PackItem.id == item_uuid).first()
+                                        if db_item:
+                                            db_item.xactimate_materials = item_materials
+                                            self.db.flush()
+                                            print(f"✅ Cached materials to DB for item {item_id}")
+                                    except Exception as cache_err:
+                                        print(f"⚠️ Failed to cache materials to DB: {cache_err}")
                             except Exception as e:
                                 print(f"🔍 Error recalculating materials: {e}")
                                 import traceback
@@ -2287,36 +2302,73 @@ class PackCalculationService:
                         # Calculate pack-out and pack-in labor for this item
                         item_floor = item.get("floor_level") or room.get("floor_level", "MAIN_LEVEL")
                         quantity = item.get("quantity", 1)
-                        # Reconstruct item-like object for labor calculation
-                        from types import SimpleNamespace
-                        item_for_labor = SimpleNamespace(
-                            item_name=item.get("item_name", ""),
-                            quantity=quantity,
-                            floor_level=item_floor,
-                            fragile=item.get("fragile", False),
-                            requires_disassembly=item.get("requires_disassembly", False),
-                        )
+
+                        # Check for cached labor hours first
+                        cached_packing = item.get("cached_packing_hours")
+                        cached_moving = item.get("cached_moving_hours")
+
+                        # Also try to get from SQLAlchemy object directly if item_obj is not dict
+                        if cached_packing is None and not isinstance(item_obj, dict) and hasattr(item_obj, 'cached_packing_hours'):
+                            cached_packing = item_obj.cached_packing_hours
+                        if cached_moving is None and not isinstance(item_obj, dict) and hasattr(item_obj, 'cached_moving_hours'):
+                            cached_moving = item_obj.cached_moving_hours
+
+                        should_cache_labor = False
+                        if cached_packing is not None and cached_moving is not None:
+                            # Use cached values
+                            packing_hours = cached_packing
+                            moving_hours = cached_moving
+                            print(f"✅ Using cached labor for item {item.get('item_name')}: packing={packing_hours}, moving={moving_hours}")
+                        else:
+                            # Calculate labor hours
+                            from types import SimpleNamespace
+                            item_for_labor = SimpleNamespace(
+                                item_name=item.get("item_name", ""),
+                                quantity=quantity,
+                                floor_level=item_floor,
+                                fragile=item.get("fragile", False),
+                                requires_disassembly=item.get("requires_disassembly", False),
+                            )
+                            packing_hours, moving_hours = self._calculate_item_labor(item_for_labor, is_pack_out=True)
+                            should_cache_labor = True
+                            print(f"🔍 Calculated labor for item {item.get('item_name')}: packing={packing_hours}, moving={moving_hours}")
+
                         # Pack-out labor
-                        packing_hours, moving_hours = self._calculate_item_labor(item_for_labor, is_pack_out=True)
                         floor_mult_out = FLOOR_MULTIPLIERS.get(
                             item_floor,
                             FLOOR_MULTIPLIERS["MAIN_LEVEL"]
                         )
                         moving_hours_out = moving_hours * floor_mult_out.get("moving_down", floor_mult_out.get("moving", 1.0))
                         room_pack_out_hours += (packing_hours + moving_hours_out) * quantity
-                        
+
                         # Pack-in labor
                         unpacking_hours = 0.0
-                        _, moving_hours_base = self._calculate_item_labor(item_for_labor, is_pack_out=False)
                         floor_mult_in = FLOOR_MULTIPLIERS.get(
                             item_floor,
                             FLOOR_MULTIPLIERS["MAIN_LEVEL"]
                         )
                         moving_mult = floor_mult_in.get("moving_up", floor_mult_in.get("moving", 1.0))
-                        moving_hours_in = moving_hours_base * moving_mult
+                        moving_hours_in = moving_hours * moving_mult
                         item_pack_in_hours = (unpacking_hours + moving_hours_in) * quantity
                         room_pack_in_hours += item_pack_in_hours
                         total_item_moving_hours += item_pack_in_hours
+
+                        # Cache labor hours back to DB for future views
+                        if should_cache_labor:
+                            item_id = item.get("id")
+                            if item_id:
+                                try:
+                                    from app.domains.pack_calculation.models import PackItem
+                                    from uuid import UUID
+                                    item_uuid = UUID(item_id) if isinstance(item_id, str) else item_id
+                                    db_item = self.db.query(PackItem).filter(PackItem.id == item_uuid).first()
+                                    if db_item:
+                                        db_item.cached_packing_hours = packing_hours
+                                        db_item.cached_moving_hours = moving_hours
+                                        self.db.flush()
+                                        print(f"✅ Cached labor hours to DB for item {item_id}")
+                                except Exception as cache_err:
+                                    print(f"⚠️ Failed to cache labor hours to DB: {cache_err}")
 
                 # Calculate logistics labor for this room (truck/storage movement)
                 room_floor = room.get("floor_level", "MAIN_LEVEL")
