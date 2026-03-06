@@ -454,7 +454,7 @@ class PostgreSQLDatabase(DatabaseProvider):
         
         self.database_url = database_url
         self._lock = threading.Lock()
-        
+
         # Configure engine with connection pooling using config values
         # Render/NeonDB compatibility: Use smaller pool sizes to avoid connection limits
         # Korean Windows fix: Force UTF-8 encoding to avoid CP949/EUC-KR issues
@@ -474,11 +474,7 @@ class PostgreSQLDatabase(DatabaseProvider):
                 pool_timeout=settings.DB_POOL_TIMEOUT,  # Timeout for getting connection from pool
                 echo=settings.DEBUG,
                 future=True,
-                connect_args={
-                    "client_encoding": "utf8",  # Fix for Korean Windows encoding
-                    "connect_timeout": connect_timeout,  # Longer timeout for NeonDB cold starts
-                    "options": f"-c statement_timeout={settings.DB_QUERY_TIMEOUT * 1000} -c client_encoding=UTF8"  # Force UTF-8
-                }
+                connect_args=self._build_connect_args(connect_timeout)
             )
 
             logger.info(f"PostgreSQL engine created with connect_timeout={connect_timeout}s (NeonDB cold start aware)")
@@ -506,11 +502,7 @@ class PostgreSQLDatabase(DatabaseProvider):
                     pool_timeout=settings.DB_POOL_TIMEOUT,
                     echo=settings.DEBUG,
                     future=True,
-                    connect_args={
-                        "client_encoding": "utf8",
-                        "connect_timeout": connect_timeout,
-                        "options": f"-c statement_timeout={settings.DB_QUERY_TIMEOUT * 1000} -c client_encoding=UTF8"
-                    }
+                    connect_args=self._build_connect_args(connect_timeout)
                 )
                 self.database_url = sanitized_url
                 logger.info("Database engine created successfully after URL sanitization")
@@ -534,6 +526,23 @@ class PostgreSQLDatabase(DatabaseProvider):
             f"max_connections={max_connections})"
         )
     
+    def _build_connect_args(self, connect_timeout: int) -> dict:
+        """Build connect_args, skipping statement_timeout for NeonDB pooler connections."""
+        args = {
+            "client_encoding": "utf8",
+            "connect_timeout": connect_timeout,
+        }
+        # NeonDB pooler connections don't support startup parameters like statement_timeout
+        # Pooler URLs contain "-pooler" in the hostname
+        is_neon_pooler = "-pooler" in self.database_url
+        if is_neon_pooler:
+            options = "-c client_encoding=UTF8"
+            logger.info("NeonDB pooler detected: skipping statement_timeout in connection options")
+        else:
+            options = f"-c statement_timeout={settings.DB_QUERY_TIMEOUT * 1000} -c client_encoding=UTF8"
+        args["options"] = options
+        return args
+
     @retry_on_database_error(max_retries=1)  # Reduced retries for faster failure
     def get_session(self) -> DatabaseSession:
         """Get SQLAlchemy session with retry logic"""

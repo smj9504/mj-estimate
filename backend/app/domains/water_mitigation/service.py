@@ -507,10 +507,12 @@ class WaterMitigationService:
         description: Optional[str] = None,
         captured_date: Optional[datetime] = None,
         companycam_thumbnail_url: Optional[str] = None,
-        companycam_web_url: Optional[str] = None
+        companycam_web_url: Optional[str] = None,
+        skip_duplicate_check: bool = False
     ) -> WMPhoto:
         """
-        Save CompanyCam photo to Water Mitigation job using configured storage provider
+        Save CompanyCam photo to Water Mitigation job
+        using configured storage provider.
 
         Args:
             job_id: Water mitigation job ID
@@ -521,6 +523,10 @@ class WaterMitigationService:
             title: Photo title
             description: Photo description
             captured_date: When the photo was captured
+            companycam_thumbnail_url: CDN thumbnail URL
+            companycam_web_url: CDN web-size URL
+            skip_duplicate_check: Skip DB duplicate query
+                when caller already filtered (e.g. sync flow)
 
         Returns:
             Created WMPhoto record
@@ -530,19 +536,21 @@ class WaterMitigationService:
         if not job:
             raise ValueError(f"Job {job_id} not found")
 
-        # Prevent duplicate uploads for the same CompanyCam photo
-        # Check globally by external_id since same CompanyCam photo won't be in multiple jobs
-        existing_photo = self.session.query(WMPhoto).filter(
-            WMPhoto.external_id == companycam_photo_id
-        ).first()
+        # Duplicate check: skip when sync flow already
+        # filtered via existing_external_ids set
+        if not skip_duplicate_check:
+            existing_photo = self.session.query(WMPhoto).filter(
+                WMPhoto.external_id == companycam_photo_id
+            ).first()
 
-        if existing_photo:
-            logger.info(
-                "CompanyCam photo %s already exists (job %s). Skipping re-upload.",
-                companycam_photo_id,
-                existing_photo.job_id,
-            )
-            return existing_photo
+            if existing_photo:
+                logger.info(
+                    "CompanyCam photo %s already exists "
+                    "(job %s). Skipping re-upload.",
+                    companycam_photo_id,
+                    existing_photo.job_id,
+                )
+                return existing_photo
 
         # Get storage provider
         storage = StorageFactory.get_instance()
@@ -552,32 +560,50 @@ class WaterMitigationService:
         file_size = len(photo_bytes)
 
         # Extract capture date from EXIF if not provided
+        # Use in-memory BytesIO instead of temp file disk I/O
         if not captured_date:
-            is_image = mime_type and mime_type.startswith('image/')
+            is_image = (
+                mime_type and mime_type.startswith('image/')
+            )
             if is_image:
                 try:
-                    # Save to temp location for EXIF extraction
-                    temp_path = UPLOAD_DIR / "temp" / f"temp_{datetime.utcnow().timestamp()}.jpg"
-                    temp_path.parent.mkdir(parents=True, exist_ok=True)
-                    with temp_path.open("wb") as f:
-                        f.write(photo_bytes)
-                    captured_date = self._extract_photo_capture_date(temp_path)
-                    temp_path.unlink()  # Clean up temp file
+                    img = Image.open(BytesIO(photo_bytes))
+                    exif_data = img._getexif()
+                    if exif_data:
+                        for tag_id, value in exif_data.items():
+                            tag = TAGS.get(tag_id, tag_id)
+                            if tag == 'DateTimeOriginal':
+                                captured_date = (
+                                    datetime.strptime(
+                                        value,
+                                        '%Y:%m:%d %H:%M:%S'
+                                    )
+                                )
+                                break
+                    if not captured_date:
+                        captured_date = datetime.utcnow()
                 except Exception as e:
-                    logger.warning(f"Failed to extract EXIF date: {e}")
+                    logger.warning(
+                        f"Failed to extract EXIF date: {e}"
+                    )
                     captured_date = datetime.utcnow()
             else:
                 captured_date = datetime.utcnow()
 
         # Determine file type
-        file_type = 'photo' if mime_type and mime_type.startswith('image/') else 'video'
+        file_type = (
+            'photo'
+            if mime_type and mime_type.startswith('image/')
+            else 'video'
+        )
 
         # Upload to storage
         try:
-            # Generate unique filename
             timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-            unique_filename = f"companycam_{timestamp}_{filename}"
-            
+            unique_filename = (
+                f"companycam_{timestamp}_{filename}"
+            )
+
             file_stream = BytesIO(photo_bytes)
             upload_result = storage.upload(
                 file_data=file_stream,
@@ -587,24 +613,30 @@ class WaterMitigationService:
                 category="photos",
                 content_type=mime_type
             )
-            
-            # Get file URL (for cloud storage) or path (for local)
-            if storage_provider_type == 'local':
-                file_path = upload_result.file_path
-            else:
-                # For cloud storage, file_path is the storage path
-                file_path = upload_result.file_path
-            
-            logger.info(f"CompanyCam photo uploaded to {storage_provider_type} storage: {upload_result.file_path}")
-            
+
+            file_path = upload_result.file_path
+
+            logger.info(
+                f"CompanyCam photo uploaded to "
+                f"{storage_provider_type} storage: "
+                f"{upload_result.file_path}"
+            )
+
         except Exception as e:
-            logger.error(f"Failed to upload CompanyCam photo to storage: {e}", exc_info=True)
+            logger.error(
+                f"Failed to upload CompanyCam photo "
+                f"to storage: {e}",
+                exc_info=True
+            )
             raise
 
         # Create photo record
-        # Prefer CompanyCam CDN thumbnail URL over storage provider URL (faster loading)
-        thumbnail_url = companycam_thumbnail_url or upload_result.thumbnail_url
-        
+        # Prefer CompanyCam CDN thumbnail URL (faster loading)
+        thumbnail_url = (
+            companycam_thumbnail_url
+            or upload_result.thumbnail_url
+        )
+
         photo_data = {
             'job_id': job_id,
             'source': 'companycam',
@@ -626,19 +658,31 @@ class WaterMitigationService:
 
         try:
             created_photo = self.photo_repo.create(photo_data)
-            # Flush to ensure photo is saved even if sync is cancelled
-            self.session.flush()
-            logger.info(f"Created WMPhoto record for CompanyCam photo {companycam_photo_id}")
+            # Note: flush is now called per-batch in sync flow
+            # (skip_duplicate_check=True), or per-photo for
+            # direct calls (backward compatible)
+            if not skip_duplicate_check:
+                self.session.flush()
+            logger.info(
+                f"Created WMPhoto record for CompanyCam "
+                f"photo {companycam_photo_id}"
+            )
             return created_photo
         except Exception as e:
-            # Handle race condition: another sync may have created this photo
+            # Handle race condition
             self.session.rollback()
-            if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            if (
+                'unique' in str(e).lower()
+                or 'duplicate' in str(e).lower()
+            ):
                 existing = self.session.query(WMPhoto).filter(
                     WMPhoto.external_id == companycam_photo_id
                 ).first()
                 if existing:
-                    logger.info(f"Photo {companycam_photo_id} already exists (race condition). Using existing.")
+                    logger.info(
+                        f"Photo {companycam_photo_id} already "
+                        f"exists (race condition). Using existing."
+                    )
                     return existing
             raise
 
@@ -939,8 +983,9 @@ class WaterMitigationService:
         total_companycam = 0
         errors = []
 
-        # Initialize CompanyCam client
+        # Initialize CompanyCam client with connection pooling
         companycam_client = CompanyCamClient()
+        # Will be used as async context manager below
 
         # Helper to check cancellation
         async def is_cancelled() -> bool:
@@ -985,7 +1030,9 @@ class WaterMitigationService:
         has_more = True
         cancelled = False
 
-        while has_more:
+        # Use async context manager for HTTP connection pooling
+        async with companycam_client:
+          while has_more:
             # Check for cancellation at start of each page
             if await is_cancelled():
                 logger.info(f"Sync cancelled for job {job_id}")
@@ -993,7 +1040,9 @@ class WaterMitigationService:
                 break
 
             try:
-                logger.info(f"Fetching CompanyCam photos page {page}")
+                logger.info(
+                    f"Fetching CompanyCam photos page {page}"
+                )
                 response = await companycam_client.list_project_photos(
                     project_id=project_id,
                     page=page,
@@ -1004,7 +1053,9 @@ class WaterMitigationService:
                 if isinstance(response, list):
                     photos = response
                 elif isinstance(response, dict):
-                    photos = response.get('data', response.get('photos', []))
+                    photos = response.get(
+                        'data', response.get('photos', [])
+                    )
                 else:
                     photos = []
 
@@ -1024,14 +1075,12 @@ class WaterMitigationService:
                         existing_photo = existing_photos.get(photo_id)
                         if existing_photo and existing_photo.is_trashed:
                             skipped_trashed += 1
-                            logger.debug(f"Skipping trashed photo {photo_id}")
                         else:
                             skipped_existing += 1
-                            logger.debug(f"Skipping existing photo {photo_id}")
                         continue
 
                     photos_to_sync.append(cc_photo)
-                    existing_external_ids.add(photo_id)  # Mark as will be processed
+                    existing_external_ids.add(photo_id)
 
                 # Check cancellation before parallel download
                 if await is_cancelled():
@@ -1039,22 +1088,34 @@ class WaterMitigationService:
                     cancelled = True
                     break
 
-                # Parallel download in batches of 5 (balance speed vs memory/connections)
-                # Note: Downloads are parallel, but DB saves are sequential to avoid session conflicts
+                # Parallel download in batches of 15
+                # (increased from 5 for better throughput with
+                #  connection pooling)
                 import asyncio
-                PARALLEL_BATCH_SIZE = 5
+                PARALLEL_BATCH_SIZE = 15
 
-                for batch_start in range(0, len(photos_to_sync), PARALLEL_BATCH_SIZE):
+                for batch_start in range(
+                    0, len(photos_to_sync), PARALLEL_BATCH_SIZE
+                ):
                     # Check cancellation before each batch
                     if await is_cancelled():
-                        logger.info(f"Sync cancelled for job {job_id}")
+                        logger.info(
+                            f"Sync cancelled for job {job_id}"
+                        )
                         cancelled = True
                         break
 
-                    batch = photos_to_sync[batch_start:batch_start + PARALLEL_BATCH_SIZE]
+                    batch = photos_to_sync[
+                        batch_start:batch_start + PARALLEL_BATCH_SIZE
+                    ]
 
-                    async def download_photo_safe(cc_photo: Dict[str, Any]) -> tuple[str, Optional[bytes], Dict[str, Any], str, Optional[str], Optional[str]]:
-                        """Download single photo, return (photo_id, photo_bytes, cc_photo, error_msg, thumbnail_url, web_url)"""
+                    async def download_photo_safe(
+                        cc_photo: Dict[str, Any]
+                    ) -> tuple:
+                        """Download single photo with optimized URL selection.
+                        Returns (photo_id, photo_bytes, cc_photo, error_msg,
+                                 thumbnail_url, web_url)
+                        """
                         photo_id = str(cc_photo.get('id'))
                         try:
                             # Extract photo URL from uris
@@ -1068,45 +1129,97 @@ class WaterMitigationService:
                                     if isinstance(uri, dict):
                                         uri_type = uri.get('type')
                                         uri_value = uri.get('uri')
-                                        
-                                        # Extract thumbnail and web URLs for fast loading
+
                                         if uri_type == 'thumbnail':
                                             thumbnail_url = uri_value
                                         elif uri_type == 'web':
                                             web_url = uri_value
-                                        
-                                        # Find best quality URL for download
-                                        if uri_type == 'original':
-                                            photo_url = uri_value
-                                        elif uri_type == 'large' and not photo_url:
-                                            photo_url = uri_value
+
+                                # Prefer web/large over original
+                                # (10-16x smaller, sufficient quality
+                                #  for storage & display)
+                                for uri in uris:
+                                    if isinstance(uri, dict):
+                                        t = uri.get('type')
+                                        v = uri.get('uri')
+                                        if t == 'large':
+                                            photo_url = v
+                                            break
+                                        if t == 'web' and not photo_url:
+                                            photo_url = v
+
+                                # Fallback to original if no
+                                # web/large available
+                                if not photo_url:
+                                    for uri in uris:
+                                        if isinstance(uri, dict):
+                                            t = uri.get('type')
+                                            v = uri.get('uri')
+                                            if t == 'original':
+                                                photo_url = v
+                                                break
+
                                 if not photo_url and uris:
-                                    first_uri = uris[0]
-                                    photo_url = first_uri.get('uri') if isinstance(first_uri, dict) else first_uri
+                                    first = uris[0]
+                                    photo_url = (
+                                        first.get('uri')
+                                        if isinstance(first, dict)
+                                        else first
+                                    )
                             elif isinstance(uris, dict):
-                                photo_url = uris.get('original') or uris.get('large') or uris.get('medium')
+                                photo_url = (
+                                    uris.get('large')
+                                    or uris.get('web')
+                                    or uris.get('original')
+                                    or uris.get('medium')
+                                )
                                 thumbnail_url = uris.get('thumbnail')
                                 web_url = uris.get('web')
 
                             if not photo_url:
-                                return (photo_id, None, cc_photo, f"No photo URL found for {photo_id}", None, None)
+                                return (
+                                    photo_id, None, cc_photo,
+                                    f"No URL for {photo_id}",
+                                    None, None
+                                )
 
-                            # Download photo (parallel safe - no DB access)
-                            photo_bytes = await companycam_client.download_photo(photo_url)
-                            return (photo_id, photo_bytes, cc_photo, "", thumbnail_url, web_url)
+                            # Download photo (parallel safe)
+                            photo_bytes = (
+                                await companycam_client
+                                .download_photo(photo_url)
+                            )
+                            return (
+                                photo_id, photo_bytes, cc_photo,
+                                "", thumbnail_url, web_url
+                            )
                         except Exception as e:
-                            error_msg = f"Failed to download photo {photo_id}: {str(e)}"
-                            logger.error(error_msg, exc_info=True)
-                            return (photo_id, None, cc_photo, error_msg, None, None)
+                            msg = (
+                                f"Failed to download photo "
+                                f"{photo_id}: {str(e)}"
+                            )
+                            logger.error(msg, exc_info=True)
+                            return (
+                                photo_id, None, cc_photo,
+                                msg, None, None
+                            )
 
                     # Run downloads in parallel
-                    download_results = await asyncio.gather(*[download_photo_safe(p) for p in batch])
+                    download_results = await asyncio.gather(
+                        *[download_photo_safe(p) for p in batch]
+                    )
 
-                    # Save to DB sequentially (SQLAlchemy session is not thread-safe)
-                    for photo_id, photo_bytes, cc_photo, error_msg, thumbnail_url, web_url in download_results:
+                    # Save to DB sequentially (SQLAlchemy session
+                    # is not thread-safe)
+                    batch_saved = 0
+                    for (photo_id, photo_bytes, cc_photo,
+                         error_msg, thumbnail_url,
+                         web_url) in download_results:
                         # Check cancellation during DB save loop
                         if await is_cancelled():
-                            logger.info(f"Sync cancelled during save for job {job_id}")
+                            logger.info(
+                                f"Sync cancelled during save "
+                                f"for job {job_id}"
+                            )
                             cancelled = True
                             break
 
@@ -1115,7 +1228,9 @@ class WaterMitigationService:
                             continue
 
                         if photo_bytes is None:
-                            errors.append(f"No photo bytes for {photo_id}")
+                            errors.append(
+                                f"No photo bytes for {photo_id}"
+                            )
                             continue
 
                         try:
@@ -1125,18 +1240,33 @@ class WaterMitigationService:
                             if captured_at:
                                 try:
                                     if isinstance(captured_at, int):
-                                        captured_date = datetime.fromtimestamp(captured_at)
+                                        captured_date = (
+                                            datetime.fromtimestamp(
+                                                captured_at
+                                            )
+                                        )
                                     elif isinstance(captured_at, str):
-                                        captured_date = datetime.fromisoformat(captured_at.replace('Z', '+00:00'))
+                                        captured_date = (
+                                            datetime.fromisoformat(
+                                                captured_at.replace(
+                                                    'Z', '+00:00'
+                                                )
+                                            )
+                                        )
                                     else:
-                                        captured_date = datetime.utcnow()
-                                except (ValueError, TypeError, OSError):
+                                        captured_date = (
+                                            datetime.utcnow()
+                                        )
+                                except (
+                                    ValueError, TypeError, OSError
+                                ):
                                     captured_date = datetime.utcnow()
 
-                            filename = f"companycam_{photo_id}.jpg"
+                            filename = (
+                                f"companycam_{photo_id}.jpg"
+                            )
 
-                            # Save to storage and DB (sequential)
-                            # Pass CompanyCam CDN URLs for fast thumbnail loading
+                            # Save to storage and DB
                             await self.save_companycam_photo(
                                 job_id=job_id,
                                 photo_bytes=photo_bytes,
@@ -1144,17 +1274,29 @@ class WaterMitigationService:
                                 companycam_photo_id=photo_id,
                                 mime_type='image/jpeg',
                                 title=cc_photo.get('title'),
-                                description=cc_photo.get('description'),
+                                description=cc_photo.get(
+                                    'description'
+                                ),
                                 captured_date=captured_date,
-                                companycam_thumbnail_url=thumbnail_url,
-                                companycam_web_url=web_url
+                                companycam_thumbnail_url=(
+                                    thumbnail_url
+                                ),
+                                companycam_web_url=web_url,
+                                skip_duplicate_check=True
                             )
                             synced_count += 1
-                            logger.info(f"Synced CompanyCam photo {photo_id}")
+                            batch_saved += 1
                         except Exception as e:
-                            error_msg = f"Failed to save photo {photo_id}: {str(e)}"
-                            errors.append(error_msg)
-                            logger.error(error_msg, exc_info=True)
+                            msg = (
+                                f"Failed to save photo "
+                                f"{photo_id}: {str(e)}"
+                            )
+                            errors.append(msg)
+                            logger.error(msg, exc_info=True)
+
+                    # Flush once per batch instead of per photo
+                    if batch_saved > 0:
+                        self.session.flush()
 
                     # Update progress after each batch
                     await update_progress(page)
@@ -1174,7 +1316,9 @@ class WaterMitigationService:
                     page += 1
 
             except Exception as e:
-                error_msg = f"Failed to fetch page {page}: {str(e)}"
+                error_msg = (
+                    f"Failed to fetch page {page}: {str(e)}"
+                )
                 errors.append(error_msg)
                 logger.error(error_msg, exc_info=True)
                 has_more = False

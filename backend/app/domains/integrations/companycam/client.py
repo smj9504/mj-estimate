@@ -27,6 +27,14 @@ class CompanyCamClient:
     CompanyCam API v2 Client
 
     Documentation: https://docs.companycam.com/
+
+    Supports reusable async HTTP client for connection pooling.
+    Use as async context manager for best performance:
+
+        async with CompanyCamClient() as client:
+            photos = await client.list_project_photos(project_id)
+            for photo in photos:
+                data = await client.download_photo(photo_url)
     """
 
     def __init__(self, api_key: Optional[str] = None):
@@ -39,9 +47,35 @@ class CompanyCamClient:
         self.api_key = api_key or settings.COMPANYCAM_API_KEY
         self.base_url = "https://api.companycam.com/v2"
         self.timeout = 30.0
+        self._shared_client: Optional[httpx.AsyncClient] = None
 
         if not self.api_key:
             logger.warning("CompanyCam API key not configured")
+
+    async def __aenter__(self):
+        """Create shared async client for connection pooling."""
+        self._shared_client = httpx.AsyncClient(
+            timeout=self.timeout,
+            headers=self.headers,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
+        )
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Close shared async client."""
+        if self._shared_client:
+            await self._shared_client.aclose()
+            self._shared_client = None
+
+    def _get_client(self, timeout: Optional[float] = None) -> httpx.AsyncClient:
+        """
+        Get the shared client or create a one-off client.
+        When used as context manager, returns the shared pooled client.
+        """
+        if self._shared_client:
+            return self._shared_client
+        # Fallback: create a new client (backward compatible)
+        return httpx.AsyncClient(timeout=timeout or self.timeout)
 
     @property
     def headers(self) -> Dict[str, str]:
@@ -68,10 +102,15 @@ class CompanyCamClient:
         url = f"{self.base_url}/photos/{photo_id}"
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, headers=self.headers)
+            if self._shared_client:
+                response = await self._shared_client.get(url, headers=self.headers)
                 response.raise_for_status()
                 return response.json()
+            else:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.get(url, headers=self.headers)
+                    response.raise_for_status()
+                    return response.json()
 
         except httpx.HTTPError as e:
             logger.error(f"Failed to get photo {photo_id} from CompanyCam: {e}")
@@ -195,10 +234,15 @@ class CompanyCamClient:
         url = f"{self.base_url}/projects/{project_id}"
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, headers=self.headers)
+            if self._shared_client:
+                response = await self._shared_client.get(url, headers=self.headers)
                 response.raise_for_status()
                 return response.json()
+            else:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.get(url, headers=self.headers)
+                    response.raise_for_status()
+                    return response.json()
 
         except httpx.HTTPError as e:
             logger.error(f"Failed to get project {project_id} from CompanyCam: {e}")
@@ -218,13 +262,24 @@ class CompanyCamClient:
             httpx.HTTPError: If download fails
         """
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:  # Longer timeout for downloads
-                response = await client.get(photo_url, headers=self.headers)
+            if self._shared_client:
+                response = await self._shared_client.get(
+                    photo_url, headers=self.headers, timeout=60.0
+                )
                 response.raise_for_status()
                 return response.content
+            else:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.get(
+                        photo_url, headers=self.headers
+                    )
+                    response.raise_for_status()
+                    return response.content
 
         except httpx.HTTPError as e:
-            logger.error(f"Failed to download photo from {photo_url}: {e}")
+            logger.error(
+                f"Failed to download photo from {photo_url}: {e}"
+            )
             raise
 
     async def get_photos_batch(self, photo_ids: list[int]) -> Dict[int, Dict[str, Any]]:
@@ -375,13 +430,27 @@ class CompanyCamClient:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, headers=self.headers, params=params)
+            if self._shared_client:
+                response = await self._shared_client.get(
+                    url, headers=self.headers, params=params
+                )
                 response.raise_for_status()
                 return response.json()
+            else:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout
+                ) as client:
+                    response = await client.get(
+                        url, headers=self.headers, params=params
+                    )
+                    response.raise_for_status()
+                    return response.json()
 
         except httpx.HTTPError as e:
-            logger.error(f"Failed to list photos for project {project_id}: {e}")
+            logger.error(
+                f"Failed to list photos for project "
+                f"{project_id}: {e}"
+            )
             raise
 
     @staticmethod
