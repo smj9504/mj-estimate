@@ -469,10 +469,10 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
           const overItemIdx = sectionItems.findIndex(item => item.id === overInfo.itemId);
 
           if (activeItemIdx !== -1 && overItemIdx !== -1 && activeItemIdx !== overItemIdx) {
-            const newSections = [...sections];
             const newItems = arrayMove([...sectionItems], activeItemIdx, overItemIdx);
-            newSections[sectionIdx].items = newItems;
-            newSections[sectionIdx].subtotal = calculateSectionSubtotal(newItems);
+            const newSections = sections.map((section, i) =>
+              i !== sectionIdx ? section : { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems) }
+            );
             setSections(newSections);
           }
         }
@@ -489,8 +489,9 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   };
 
   const updateSectionTitle = (sectionIndex: number, newTitle: string) => {
-    const newSections = [...sections];
-    newSections[sectionIndex].title = newTitle;
+    const newSections = sections.map((section, i) =>
+      i !== sectionIndex ? section : { ...section, title: newTitle }
+    );
     setSections(newSections);
   };
 
@@ -534,7 +535,6 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
   // Add items to a specific section
   const addItemsToSection = (sectionIndex: number, itemsToAdd: EstimateLineItem[]) => {
-    const newSections = [...sections];
     const currentSection = sections[sectionIndex];
 
     // Update each line item with the current section's title and ensure ID
@@ -544,8 +544,16 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       primary_group: currentSection.title,
     }));
 
-    newSections[sectionIndex].items.push(...itemsWithGroup);
-    newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+    // Immutably update the target section so memo() detects the change
+    const newSections = sections.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      const newItems = [...section.items, ...itemsWithGroup];
+      return {
+        ...section,
+        items: newItems,
+        subtotal: calculateSectionSubtotal(newItems),
+      };
+    });
 
     setSections(newSections);
 
@@ -630,49 +638,42 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
   // Delete single item from section
   const deleteSingleItem = (sectionIndex: number, itemIndex: number) => {
-    const newSections = [...sections];
-    newSections[sectionIndex].items.splice(itemIndex, 1);
-    newSections[sectionIndex].subtotal = calculateSectionSubtotal(newSections[sectionIndex].items);
+    const newSections = sections.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      const newItems = section.items.filter((_, j) => j !== itemIndex);
+      return { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems) };
+    });
     setSections(newSections);
     message.success('Item deleted successfully');
   };
 
   // Toggle taxable status for a single item
   const handleTaxableChange = useCallback((sectionIndex: number, itemIndex: number, checked: boolean) => {
-    setSections(prev => {
-      const newSections = [...prev];
-      if (newSections[sectionIndex]?.items[itemIndex]) {
-        newSections[sectionIndex].items[itemIndex] = {
-          ...newSections[sectionIndex].items[itemIndex],
-          taxable: checked
-        };
-      }
-      return newSections;
-    });
+    setSections(prev => prev.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      const newItems = section.items.map((item, j) =>
+        j !== itemIndex ? item : { ...item, taxable: checked }
+      );
+      return { ...section, items: newItems };
+    }));
   }, []);
 
   // Toggle taxable status for all items in a section
   const handleToggleAllTaxable = useCallback((sectionIndex: number, checked: boolean) => {
-    setSections(prev => {
-      const newSections = [...prev];
-      newSections[sectionIndex].items = newSections[sectionIndex].items.map(item => ({
-        ...item,
-        taxable: checked
-      }));
-      return newSections;
-    });
+    setSections(prev => prev.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      const newItems = section.items.map(item => ({ ...item, taxable: checked }));
+      return { ...section, items: newItems };
+    }));
   }, []);
 
   // Delete multiple selected items
   const deleteMultipleItems = (sectionIndex: number, selectedKeys: string[]) => {
-    const newSections = [...sections];
-    const currentItems = newSections[sectionIndex].items;
-
-    // Filter out selected items (selectedKeys are indices as strings)
-    const filteredItems = currentItems.filter((_, index) => !selectedKeys.includes(String(index)));
-
-    newSections[sectionIndex].items = filteredItems;
-    newSections[sectionIndex].subtotal = calculateSectionSubtotal(filteredItems);
+    const newSections = sections.map((section, i) => {
+      if (i !== sectionIndex) return section;
+      const filteredItems = section.items.filter((_, index) => !selectedKeys.includes(String(index)));
+      return { ...section, items: filteredItems, subtotal: calculateSectionSubtotal(filteredItems) };
+    });
     setSections(newSections);
 
     // Clear selection
@@ -878,23 +879,24 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
   // Save or update item in section
   const saveItemToSection = (item: EstimateLineItem) => {
-    const newSections = [...sections];
-
-    if (editingIndex !== null) {
-      // Edit existing item
-      newSections[editingSectionIndex!].items[editingIndex] = item;
-    } else {
-      // Add new item
-      newSections[editingSectionIndex!].items.push(item);
-    }
-
-    // Recalculate section subtotal
-    newSections[editingSectionIndex!].subtotal = calculateSectionSubtotal(newSections[editingSectionIndex!].items);
+    const idx = editingSectionIndex!;
+    const newSections = sections.map((section, i) => {
+      if (i !== idx) return section;
+      // Deep copy the target section and its items array so memo() detects the change
+      const newItems = editingIndex !== null
+        ? section.items.map((it, j) => j === editingIndex ? item : it)
+        : [...section.items, item];
+      return {
+        ...section,
+        items: newItems,
+        subtotal: calculateSectionSubtotal(newItems),
+      };
+    });
 
     setSections(newSections);
 
     // Auto-expand the section when an item is added
-    const sectionId = sections[editingSectionIndex!].id;
+    const sectionId = sections[idx].id;
     expandSection(sectionId);
   };
 

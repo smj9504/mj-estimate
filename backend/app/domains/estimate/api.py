@@ -258,6 +258,7 @@ async def get_estimate(estimate_id: str, db=Depends(get_db)):
         notes=estimate.get('notes'),
         terms=estimate.get('terms'),
         room_data=estimate.get('room_data'),
+        sections_data=estimate.get('sections_data'),
         created_at=estimate.get('created_at'),
         updated_at=estimate.get('updated_at'),
         items=[
@@ -367,6 +368,7 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
         'policy_number': estimate_data.policy_number,
         'deductible': estimate_data.deductible,
         'room_data': estimate_data.room_data,
+        'sections_data': estimate_data.sections_data,
         'adjustments': (
             [adj.dict() if hasattr(adj, 'dict') else adj for adj in estimate_data.adjustments]
             if hasattr(estimate_data, 'adjustments') and estimate_data.adjustments else []
@@ -448,6 +450,7 @@ async def create_estimate(estimate_data: EstimateCreate, db=Depends(get_db)):
         notes=created_estimate.get('notes'),
         terms=created_estimate.get('terms'),
         room_data=created_estimate.get('room_data'),
+        sections_data=created_estimate.get('sections_data'),
         created_at=created_estimate.get('created_at'),
         updated_at=created_estimate.get('updated_at'),
         items=[
@@ -586,6 +589,7 @@ async def update_estimate(
         notes=updated_estimate.get('notes'),
         terms=updated_estimate.get('terms'),
         room_data=updated_estimate.get('room_data'),
+        sections_data=updated_estimate.get('sections_data'),
         created_at=updated_estimate.get('created_at'),
         updated_at=updated_estimate.get('updated_at'),
         items=[

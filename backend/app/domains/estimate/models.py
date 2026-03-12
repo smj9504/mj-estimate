@@ -74,6 +74,9 @@ class Estimate(Base, BaseModel):
     
     # Room data for floor plans
     room_data = Column(JSON)
+
+    # Sections data - stores section structure (title, order, showSubtotal) as JSON
+    sections_data = Column(JSON)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

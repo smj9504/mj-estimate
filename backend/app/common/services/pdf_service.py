@@ -1486,7 +1486,10 @@ def generate_images_pdf(
             logger.info(f"Processing image: {img_path} (rotation: {rotation})")
 
             # Load image with PIL
+            from PIL import ImageOps
             img = Image.open(img_path)
+            # Apply EXIF orientation (smartphones store images sideways with EXIF rotation tag)
+            img = ImageOps.exif_transpose(img)
 
             # Resize large images
             max_width = 2550
@@ -1499,10 +1502,12 @@ def generate_images_pdf(
             if rotation != 0:
                 logger.info(f"Rotating image by {rotation} degrees")
                 img = img.rotate(-rotation, expand=True)
-                # Save rotated image to temp file
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-                img.save(temp_file.name, format='JPEG', quality=95)
-                img_path = temp_file.name
+
+            # Always save processed image to temp file so ReportLab uses
+            # the EXIF-corrected (and optionally rotated) version
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+            img.save(temp_file.name, format='JPEG', quality=95)
+            img_path = temp_file.name
 
             img_width, img_height = img.size
 
@@ -2360,8 +2365,10 @@ def generate_ewa_pdf(
     photo_canvas = canvas.Canvas(photo_pdf_buffer, pagesize=letter)
 
     # Load and optionally rotate image
-    from PIL import Image
+    from PIL import Image, ImageOps
     img = Image.open(photo_path)
+    # Apply EXIF orientation (smartphones store images sideways with EXIF rotation tag)
+    img = ImageOps.exif_transpose(img)
 
     # Compression settings - balanced quality and file size
     if compress:
@@ -2372,33 +2379,31 @@ def generate_ewa_pdf(
         IMAGE_QUALITY = 95  # High quality for original
         IMAGE_MAX_SIZE = None  # No resizing
 
-    # Apply rotation and/or compression
-    needs_save = rotation != 0 or compress
-    if needs_save:
-        import tempfile
-        # Apply rotation if needed
-        if rotation != 0:
-            # PIL's rotate is counter-clockwise, so we negate for clockwise rotation
-            img = img.rotate(-rotation, expand=True)
-            logger.info(f"Rotated photo by {rotation} degrees")
+    # Apply rotation if needed
+    if rotation != 0:
+        # PIL's rotate is counter-clockwise, so we negate for clockwise rotation
+        img = img.rotate(-rotation, expand=True)
+        logger.info(f"Rotated photo by {rotation} degrees")
 
-        # Apply compression (resize if needed)
-        if compress and IMAGE_MAX_SIZE:
-            original_size = f"{img.width}x{img.height}"
-            if img.width > IMAGE_MAX_SIZE or img.height > IMAGE_MAX_SIZE:
-                img.thumbnail((IMAGE_MAX_SIZE, IMAGE_MAX_SIZE), Image.Resampling.LANCZOS)
-                logger.info(f"Resized image from {original_size} to {img.width}x{img.height}")
+    # Apply compression (resize if needed)
+    if compress and IMAGE_MAX_SIZE:
+        original_size = f"{img.width}x{img.height}"
+        if img.width > IMAGE_MAX_SIZE or img.height > IMAGE_MAX_SIZE:
+            img.thumbnail((IMAGE_MAX_SIZE, IMAGE_MAX_SIZE), Image.Resampling.LANCZOS)
+            logger.info(f"Resized image from {original_size} to {img.width}x{img.height}")
 
-        # Convert to RGB if necessary (for PNG with alpha)
-        if img.mode in ('RGBA', 'P'):
-            img = img.convert('RGB')
+    # Convert to RGB if necessary (for PNG with alpha)
+    if img.mode in ('RGBA', 'P'):
+        img = img.convert('RGB')
 
-        # Save to temp file with aggressive compression
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-        # subsampling='4:2:0' for maximum compression
-        img.save(temp_file.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True, subsampling='4:2:0')
-        photo_path = temp_file.name
-        logger.info(f"Saved compressed photo to: {photo_path}")
+    # Always save processed image to temp file so ReportLab uses
+    # the EXIF-corrected (and optionally rotated/compressed) version
+    import tempfile
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+    # subsampling='4:2:0' for maximum compression
+    img.save(temp_file.name, format='JPEG', quality=IMAGE_QUALITY, optimize=True, subsampling='4:2:0')
+    photo_path = temp_file.name
+    logger.info(f"Saved processed photo to: {photo_path}")
 
     img_width, img_height = img.size
 

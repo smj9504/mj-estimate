@@ -66,6 +66,12 @@ interface BackendEstimateResponse {
   created_at?: string;
   updated_at?: string;
   items?: BackendEstimateItem[];
+  sections_data?: Array<{
+    id: string;
+    title: string;
+    showSubtotal: boolean;
+    order: number;
+  }>;
 }
 
 /**
@@ -397,7 +403,14 @@ class EstimateService {
       tax_amount: estimate.tax_amount ? Number(estimate.tax_amount) : null,
       discount_amount: estimate.discount_amount ? Number(estimate.discount_amount) : null,
       total_amount: estimate.total_amount ? Number(estimate.total_amount) : null,
-      items: estimate.items.map(item => this.transformItemToBackend(item))
+      items: estimate.items.map(item => this.transformItemToBackend(item)),
+      // Persist section structure (titles, order, display settings)
+      sections_data: estimate.sections ? estimate.sections.map((section, index) => ({
+        id: section.id,
+        title: section.title,
+        showSubtotal: section.showSubtotal,
+        order: index,
+      })) : undefined
     };
   }
 
@@ -446,8 +459,48 @@ class EstimateService {
       terms: backendData.terms,
       created_at: backendData.created_at,
       updated_at: backendData.updated_at,
-      items: (backendData.items || []).map((item) => this.transformItemFromBackend(item))
+      items: (backendData.items || []).map((item) => this.transformItemFromBackend(item)),
+      // Rebuild sections from sections_data metadata + items
+      sections: this.rebuildSectionsFromData(
+        backendData.sections_data,
+        (backendData.items || []).map((item) => this.transformItemFromBackend(item))
+      ),
     };
+  }
+
+  /**
+   * Rebuild full sections from sections_data metadata and items.
+   * sections_data stores section structure (title, order), items have primary_group matching section titles.
+   */
+  private rebuildSectionsFromData(
+    sectionsData: BackendEstimateResponse['sections_data'],
+    items: EstimateLineItem[]
+  ): EstimateSection[] | undefined {
+    if (!sectionsData || sectionsData.length === 0) return undefined;
+
+    // Sort by order
+    const sorted = [...sectionsData].sort((a, b) => a.order - b.order);
+
+    // Group items by primary_group
+    const itemsByGroup: Record<string, EstimateLineItem[]> = {};
+    for (const item of items) {
+      const group = item.primary_group || 'Default Section';
+      if (!itemsByGroup[group]) itemsByGroup[group] = [];
+      itemsByGroup[group].push(item);
+    }
+
+    return sorted.map(sd => {
+      const sectionItems = itemsByGroup[sd.title] || [];
+      // Remove matched items so leftovers can be handled
+      delete itemsByGroup[sd.title];
+      return {
+        id: sd.id,
+        title: sd.title,
+        showSubtotal: sd.showSubtotal ?? true,
+        subtotal: sectionItems.reduce((sum, it) => sum + (it.total || 0), 0),
+        items: sectionItems,
+      };
+    });
   }
 
   async getEstimates(params?: {

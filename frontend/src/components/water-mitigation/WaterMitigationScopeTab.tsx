@@ -321,7 +321,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
         name: item.name,
         description: item.description || '',
         unit: item.unit,
-        quantity: item.default_quantity || undefined,
+        quantity: item.default_quantity || (['Air Scrubber', 'Dehumidifier'].includes(item.name) ? 1 : undefined),
         include_in_debris: item.default_include_in_debris || false,
         material_weight_id: item.material_weight_id || undefined
       });
@@ -334,7 +334,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     if (newMap.has(item.id)) {
       newMap.delete(item.id);
     } else {
-      newMap.set(item.id, { item, quantity: item.default_quantity || null });
+      newMap.set(item.id, { item, quantity: item.default_quantity || (['Air Scrubber', 'Dehumidifier'].includes(item.name) ? 1 : null) });
     }
     setSelectedTemplateItems(newMap);
   };

@@ -132,6 +132,9 @@ class EstimateBase(BaseModel):
     # Room data for floor plans
     room_data: Optional[Dict[str, Any]] = None
 
+    # Sections data - preserves section structure across save/load
+    sections_data: Optional[List[Dict[str, Any]]] = None
+
 
 class EstimateCreate(EstimateBase):
     """Schema for creating estimates"""
@@ -193,6 +196,9 @@ class EstimateUpdate(BaseModel):
 
     # Room data
     room_data: Optional[Dict[str, Any]] = None
+
+    # Sections data - preserves section structure across save/load
+    sections_data: Optional[List[Dict[str, Any]]] = None
 
     # Items
     items: Optional[List[EstimateItemCreate]] = None
@@ -276,7 +282,8 @@ class EstimateResponse(BaseModel):
     notes: Optional[str] = None
     terms: Optional[str] = None
     room_data: Optional[Dict[str, Any]] = None
-    
+    sections_data: Optional[List[Dict[str, Any]]] = None
+
     # Relationships
     items: List[EstimateItemResponse] = []
     
