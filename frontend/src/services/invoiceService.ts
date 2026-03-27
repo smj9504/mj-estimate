@@ -1,5 +1,12 @@
 import { apiClient } from '../api/config';
 
+export interface LineItemImage {
+  id: string;
+  title: string;
+  url: string;  // base64 data URL or external URL
+  order_index: number;
+}
+
 export interface InvoiceItem {
   id?: string; // Invoice line item ID (for existing items)
   name: string;
@@ -22,6 +29,9 @@ export interface InvoiceItem {
 
   // Rich text note field
   note?: string;  // HTML content for rich text notes (displayed as Item Name in PDF)
+
+  // Images attached to this line item
+  images?: LineItemImage[];
 }
 
 export interface CompanyInfo {

@@ -139,6 +139,12 @@
       margin-left: 30px;
       margin-top: 2px;
     }
+    .col-photos-ref {
+      font-size: 12px;
+      color: #1890ff;
+      margin-left: 30px;
+      margin-top: 2px;
+    }
     .section-title {
       margin-top: 20px;
       margin-bottom: 4px;
@@ -217,6 +223,52 @@
       margin-top: 10px;
       line-height: 1.5;
     }
+
+    /* Photo Appendix Styles */
+    .photo-appendix {
+      margin-top: 30px;
+      page-break-before: auto;
+    }
+    .photo-appendix-title {
+      font-size: 18px;
+      font-weight: bold;
+      color: #000;
+      border-bottom: 2px solid #333;
+      padding-bottom: 8px;
+      margin-bottom: 20px;
+    }
+    .photo-item-group {
+      margin-bottom: 20px;
+      page-break-inside: avoid;
+    }
+    .photo-item-label {
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 10px;
+    }
+    .photo-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+    }
+    .photo-card {
+      width: 240px;
+      page-break-inside: avoid;
+    }
+    .photo-card img {
+      width: 240px;
+      height: 180px;
+      object-fit: cover;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .photo-card .photo-title {
+      font-size: 11px;
+      color: #555;
+      margin-top: 4px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -280,7 +332,7 @@
 
 <div class="amount-due">
   {% if balance_due is defined and balance_due <= 0.01 %}
-  <h3 style="color: #28a745;">✓ PAID IN FULL</h3>
+  <h3 style="color: #28a745;">&#10003; PAID IN FULL</h3>
   {% elif total_paid is defined and total_paid > 0 %}
   <h3>${{ balance_due|format_number_smart }} USD due {{ due_date|format_date }}</h3>
   <p style="font-size: 12px; color: #666; margin-top: 5px;">Original: ${{ total|format_number_smart }} | Paid: ${{ total_paid|format_number_smart }}</p>
@@ -293,9 +345,18 @@
 <p class="note">{{ notes }}</p>
 {% endif %}
 
+{# Macro to render line item with photo reference #}
+{% macro render_item_photos_ref(item) %}
+  {% if item.images and item.images|length > 0 %}
+    <div class="col-photos-ref">
+      &#128247; {{ item.images|map(attribute='title')|select('string')|join(', ') or (item.images|length ~ ' photo(s)') }}
+    </div>
+  {% endif %}
+{% endmacro %}
+
 <!-- Check sections first (with subtotals), then fall back to serviceSections -->
 {% if sections and sections|length > 0 %}
-  <!-- ✅ Using sections with subtotals -->
+  <!-- Using sections with subtotals -->
   {% set item_counter = namespace(value=0) %}
   {% for section in sections %}
     <!-- Always show section title if it's not a default name -->
@@ -324,8 +385,9 @@
     {% if item.note %}
       <div class="col-desc">{{ item.note.replace('\n', '<br>') | safe }}</div>
     {% endif %}
+    {{ render_item_photos_ref(item) }}
     {% endfor %}
-    
+
     <!-- Section Subtotal -->
     {% if section.get('showSubtotal', True) %}
     <div class="subtotal">
@@ -343,15 +405,7 @@
   </div>
 
   <!-- Display sections if available, otherwise show flat items list -->
-  <!-- DEBUG START -->
-  <!-- sections variable exists: {{ 'YES' if sections is defined else 'NO' }} -->
-  <!-- sections type: {{ sections.__class__.__name__ if sections is defined else 'undefined' }} -->
-  <!-- sections length: {{ sections|length if sections else 0 }} -->
-  <!-- sections value: {{ sections }} -->
-  <!-- DEBUG END -->
-  
   {% if sections and sections|length > 0 %}
-    <!-- ✅ USING SECTIONS LAYOUT -->
     {% for section in sections %}
       <!-- Section Header -->
       <div class="line-row" style="background-color: #f5f5f5; font-weight: 600; margin-top: 8px;">
@@ -361,7 +415,7 @@
         <div class="col-price"></div>
         <div class="col-total"></div>
       </div>
-      
+
       <!-- Section Items -->
       {% for item in section['items'] %}
       <div class="line-row">
@@ -375,8 +429,9 @@
       {% if item.note %}
         <div class="col-desc">{{ item.note.replace('\n', '<br>') | safe }}</div>
       {% endif %}
+      {{ render_item_photos_ref(item) }}
       {% endfor %}
-      
+
       <!-- Section Subtotal -->
       <div class="line-row" style="font-weight: 600; border-top: 1px solid #ddd; background-color: #fafafa;">
         <div class="col-item" style="text-align: right; padding-right: 10px;">{{ section.title }} Subtotal</div>
@@ -400,6 +455,7 @@
     {% if item.note %}
       <div class="col-desc">{{ item.note.replace('\n', '<br>') | safe }}</div>
     {% endif %}
+    {{ render_item_photos_ref(item) }}
     {% endfor %}
   {% endif %}
 {% endif %}
@@ -499,6 +555,50 @@
 
 {% if payment_terms %}
   <p class="note">{{ payment_terms | safe }}</p>
+{% endif %}
+
+{# ===== Photo Appendix Section ===== #}
+{# Collect all items with images from sections or flat items list #}
+{% set all_photo_items = namespace(items=[]) %}
+
+{% if sections and sections|length > 0 %}
+  {% set photo_counter = namespace(value=0) %}
+  {% for section in sections %}
+    {% for item in section['items'] %}
+      {% set photo_counter.value = photo_counter.value + 1 %}
+      {% if item.images and item.images|length > 0 %}
+        {% set _ = all_photo_items.items.append({'number': photo_counter.value, 'name': item.description or item.name, 'images': item.images}) %}
+      {% endif %}
+    {% endfor %}
+  {% endfor %}
+{% elif items %}
+  {% for item in items %}
+    {% if item.images and item.images|length > 0 %}
+      {% set _ = all_photo_items.items.append({'number': loop.index, 'name': item.description or item.name, 'images': item.images}) %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+{% if all_photo_items.items|length > 0 %}
+<div class="photo-appendix">
+  <div class="photo-appendix-title">Attached Photos</div>
+
+  {% for photo_item in all_photo_items.items %}
+  <div class="photo-item-group">
+    <div class="photo-item-label">{{ photo_item.number }}. {{ photo_item.name }}</div>
+    <div class="photo-grid">
+      {% for img in photo_item.images %}
+      <div class="photo-card">
+        <img src="{{ img.url }}" alt="{{ img.title or 'Photo' }}">
+        {% if img.title %}
+        <div class="photo-title">{{ img.title }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
 {% endif %}
 
 </body>

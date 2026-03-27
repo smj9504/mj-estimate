@@ -154,7 +154,7 @@ class PlumberReportService:
                     "address": company.address,
                     "city": company.city,
                     "state": company.state,
-                    "zip": company.zip,
+                    "zip": company.zipcode,
                     "phone": company.phone,
                     "email": company.email,
                     "logo": company.logo,

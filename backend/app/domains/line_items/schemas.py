@@ -75,6 +75,13 @@ class LineItemNoteBase(BaseModel):
     category: Optional[str] = Field(None, max_length=50)
     is_template: bool = True
 
+    @field_validator('content')
+    @classmethod
+    def content_must_have_text(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('Note content cannot be empty or whitespace only')
+        return v.strip()
+
 
 class LineItemNoteCreate(LineItemNoteBase):
     """Schema for creating a line item note"""
@@ -87,6 +94,13 @@ class LineItemNoteUpdate(BaseModel):
     content: Optional[str] = Field(None, min_length=1)
     category: Optional[str] = Field(None, max_length=50)
     is_template: Optional[bool] = None
+
+    @field_validator('content')
+    @classmethod
+    def content_must_have_text(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not v.strip():
+            raise ValueError('Note content cannot be empty or whitespace only')
+        return v.strip() if v else v
 
 
 class LineItemNoteResponse(LineItemNoteBase):

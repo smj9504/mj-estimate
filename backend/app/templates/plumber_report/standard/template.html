@@ -1,289 +1,196 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Plumber's Report - {{ report_number }}</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <title>Plumber's Report{% if report_number %} #{{ report_number }}{% endif %}</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="page-container">
-        <!-- Header -->
-        <header class="report-header">
-            <div class="header-content">
-                <div class="company-info">
-                    {% if company_data %}
-                    <h1 class="company-name">{{ company_data.name }}</h1>
-                    <div class="company-details">
-                        <p>{{ company_data.address }}</p>
-                        <p>{{ company_data.city }}, {{ company_data.state }} {{ company_data.zip }}</p>
-                        <p>Phone: {{ company_data.phone }}</p>
-                        <p>Email: {{ company_data.email }}</p>
-                        {% if company_data.license %}
-                        <p>License #: {{ company_data.license }}</p>
-                        {% endif %}
-                    </div>
-                    {% endif %}
-                </div>
-                <div class="report-title">
-                    <h2>PLUMBER'S REPORT</h2>
-                    <p class="report-number">Report #: {{ report_number }}</p>
-                    <p class="report-date">Date: {{ service_date | date }}</p>
-                </div>
-            </div>
-        </header>
+<div class="page-wrapper">
 
-        <!-- Client and Property Information -->
-        <section class="info-section">
-            <div class="info-grid">
-                <div class="info-box">
-                    <h3>Client Information</h3>
-                    <div class="info-content">
-                        <p><strong>{{ client.name }}</strong></p>
-                        {% if client.address %}
-                        <p>{{ client.address }}</p>
-                        <p>{{ client.city }}, {{ client.state }} {{ client.zip }}</p>
-                        {% endif %}
-                        {% if client.phone %}<p>Phone: {{ client.phone }}</p>{% endif %}
-                        {% if client.email %}<p>Email: {{ client.email }}</p>{% endif %}
-                    </div>
-                </div>
-                <div class="info-box">
-                    <h3>Property Information</h3>
-                    <div class="info-content">
-                        {% if property.address %}
-                        <p><strong>{{ property.address }}</strong></p>
-                        <p>{{ property.city }}, {{ property.state }} {{ property.zip }}</p>
-                        {% else %}
-                        <p><em>Same as client address</em></p>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Service Details -->
-        <section class="service-details">
-            <div class="detail-row">
-                <span class="label">Technician:</span>
-                <span class="value">{{ technician_name }}</span>
-                {% if license_number %}
-                <span class="label">License #:</span>
-                <span class="value">{{ license_number }}</span>
-                {% endif %}
-            </div>
-        </section>
-
-        <!-- Cause of Damage -->
-        {% if cause_of_damage %}
-        <section class="content-section">
-            <h3>Cause of Damage</h3>
-            <div class="content-box">
-                {{ cause_of_damage | safe | nl2br }}
-            </div>
-        </section>
-        {% endif %}
-
-        <!-- Work Performed -->
-        {% if work_performed %}
-        <section class="content-section">
-            <h3>Work Performed</h3>
-            <div class="content-box rich-text">
-                {{ work_performed | safe }}
-            </div>
-        </section>
-        {% endif %}
-
-        <!-- Materials and Equipment -->
-        {% if materials_equipment %}
-        <section class="materials-section">
-            <h3>Materials & Equipment Utilized</h3>
-            <table class="items-table">
-                <thead>
-                    <tr>
-                        <th>Type</th>
-                        <th>Item</th>
-                        <th>Description</th>
-                        <th>Qty</th>
-                        <th>Unit</th>
-                        <th>Unit Cost</th>
-                        <th>Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in materials_equipment %}
-                    <tr>
-                        <td class="item-type">{{ item.type | capitalize }}</td>
-                        <td>{{ item.name }}</td>
-                        <td>
-                            {{ item.description }}
-                            {% if item.manufacturer %}
-                                <br><small>Mfg: {{ item.manufacturer }}</small>
-                            {% endif %}
-                            {% if item.model %}
-                                <br><small>Model: {{ item.model }}</small>
-                            {% endif %}
-                        </td>
-                        <td class="text-center">{{ item.quantity }}</td>
-                        <td class="text-center">{{ item.unit }}</td>
-                        <td class="text-right">${{ "%.2f"|format(item.unit_cost) }}</td>
-                        <td class="text-right">${{ "%.2f"|format(item.total_cost) }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </section>
-        {% endif %}
-
-        <!-- Recommendations -->
-        {% if recommendations %}
-        <section class="content-section">
-            <h3>Recommendations</h3>
-            <div class="content-box rich-text">
-                {{ recommendations | safe }}
-            </div>
-        </section>
-        {% endif %}
-
-        <!-- Photos -->
-        {% if photos and include_photos %}
-        <section class="photos-section">
-            <h3>Photo Documentation</h3>
-            <div class="photo-grid">
-                {% for photo in photos %}
-                <div class="photo-item">
-                    <img src="{{ photo.url }}" alt="{{ photo.caption or 'Photo' }}">
-                    <p class="photo-caption">
-                        <span class="photo-category">{{ photo.category | upper }}</span>
-                        {% if photo.caption %}: {{ photo.caption }}{% endif %}
-                    </p>
-                </div>
-                {% endfor %}
-            </div>
-        </section>
-        {% endif %}
-
-        <!-- Financial Summary -->
-        {% if include_financial %}
-        <section class="financial-section">
-            <h3>Cost Summary</h3>
-            <div class="financial-summary">
-                <table class="summary-table">
-                    <tbody>
-                        <tr>
-                            <td>Labor</td>
-                            <td class="text-right">${{ "%.2f"|format(financial.labor_cost) }}</td>
-                        </tr>
-                        <tr>
-                            <td>Materials</td>
-                            <td class="text-right">${{ "%.2f"|format(financial.materials_cost) }}</td>
-                        </tr>
-                        <tr>
-                            <td>Equipment</td>
-                            <td class="text-right">${{ "%.2f"|format(financial.equipment_cost) }}</td>
-                        </tr>
-                        <tr class="subtotal-row">
-                            <td>Subtotal</td>
-                            <td class="text-right">${{ "%.2f"|format(financial.subtotal) }}</td>
-                        </tr>
-                        {% if financial.tax_amount > 0 %}
-                        <tr>
-                            <td>Tax</td>
-                            <td class="text-right">${{ "%.2f"|format(financial.tax_amount) }}</td>
-                        </tr>
-                        {% endif %}
-                        {% if financial.discount > 0 %}
-                        <tr>
-                            <td>Discount</td>
-                            <td class="text-right">-${{ "%.2f"|format(financial.discount) }}</td>
-                        </tr>
-                        {% endif %}
-                        <tr class="total-row">
-                            <td><strong>Total</strong></td>
-                            <td class="text-right"><strong>${{ "%.2f"|format(financial.total_amount) }}</strong></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Payments -->
-            {% if payments %}
-            <div class="payments-section">
-                <h4>Payment Record</h4>
-                <table class="payments-table">
-                    <tbody>
-                        {% for payment in payments %}
-                        <tr>
-                            {% if show_payment_dates and payment.date %}
-                            <td>{{ payment.date | date }}</td>
-                            {% endif %}
-                            <td>${{ "%.2f"|format(payment.amount) }}</td>
-                            {% if payment.method %}
-                            <td>{{ payment.method }}</td>
-                            {% endif %}
-                            {% if payment.reference %}
-                            <td>Ref: {{ payment.reference }}</td>
-                            {% endif %}
-                        </tr>
-                        {% endfor %}
-                        <tr class="balance-row">
-                            <td colspan="{% if show_payment_dates %}4{% else %}3{% endif %}">
-                                <strong>Balance Due: ${{ "%.2f"|format(financial.balance_due) }}</strong>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            {% endif %}
-        </section>
-        {% endif %}
-
-        <!-- Warranty Information -->
-        {% if warranty_info %}
-        <section class="content-section">
-            <h3>Warranty Information</h3>
-            <div class="content-box">
-                {{ warranty_info | safe | nl2br }}
-            </div>
-        </section>
-        {% endif %}
-
-        <!-- Terms and Conditions -->
-        {% if terms_conditions %}
-        <section class="content-section">
-            <h3>Terms & Conditions</h3>
-            <div class="content-box small-text">
-                {{ terms_conditions | safe | nl2br }}
-            </div>
-        </section>
-        {% endif %}
-
-        <!-- Notes -->
-        {% if notes %}
-        <section class="content-section">
-            <h3>Additional Notes</h3>
-            <div class="content-box">
-                {{ notes | safe | nl2br }}
-            </div>
-        </section>
-        {% endif %}
-
-        <!-- Footer -->
-        <footer class="report-footer">
-            <div class="footer-content">
-                <div class="footer-left">
-                    <p class="page-number">Page <span class="page"></span> of <span class="topage"></span></p>
-                </div>
-                <div class="footer-center">
-                    <p>{{ report_number }} - Generated on {{ "now" | date }}</p>
-                </div>
-                <div class="footer-right">
-                    {% if company_data and company_data.logo %}
-                    <img src="{{ company_data.logo }}" alt="{{ company_data.name }}" class="company-logo">
-                    {% endif %}
-                </div>
-            </div>
-        </footer>
+  <!-- ── Header (mirrors invoice header-top) ── -->
+  <div class="header-top">
+    <div class="report-meta">
+      <h1>Plumber's Report</h1>
+      {% if report_number %}<p><strong>Report #</strong> {{ report_number }}</p>{% endif %}
+      <p>Service Date: {{ service_date | date }}</p>
+      {% if technician_name %}<p>Technician: {{ technician_name }}</p>{% endif %}
+      {% if license_number %}<p>License #: {{ license_number }}</p>{% endif %}
     </div>
+    <div class="company-right">
+      {% if company_data %}
+        {% if company_data.logo %}
+          <img src="{{ company_data.logo }}" alt="{{ company_data.name }}" class="logo">
+        {% endif %}
+        {% if company_data.name %}<p><strong>{{ company_data.name }}</strong></p>{% endif %}
+        {% if company_data.address %}<p>{{ company_data.address }}</p>{% endif %}
+        {% if company_data.city or company_data.state %}
+          <p>{{ company_data.city }}{% if company_data.city and company_data.state %}, {% endif %}{{ company_data.state }} {{ company_data.zipcode }}</p>
+        {% endif %}
+        {% if company_data.phone %}<p>{{ company_data.phone }}</p>{% endif %}
+        {% if company_data.email %}<p>{{ company_data.email }}</p>{% endif %}
+        {% if company_data.license %}<p>License #: {{ company_data.license }}</p>{% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Client information (mirrors invoice address-section) ── -->
+  {% if client.name or client.address or client.phone or client.email %}
+  <div class="address-section">
+    <div class="client-col">
+      <p><strong>Client</strong></p>
+      {% if client.name %}<p>{{ client.name }}</p>{% endif %}
+      {% if client.address %}<p>{{ client.address }}</p>{% endif %}
+      {% if client.city or client.state %}
+        <p>{{ client.city }}{% if client.city and client.state %}, {% endif %}{{ client.state }} {{ client.zipcode }}</p>
+      {% endif %}
+      {% if client.phone %}<p>{{ client.phone }}</p>{% endif %}
+      {% if client.email %}<p>{{ client.email }}</p>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Cause of Damage ── -->
+  {% if cause_of_damage %}
+  <div class="section-title">Cause of Damage</div>
+  <div class="content-box">{{ cause_of_damage | safe }}</div>
+  {% endif %}
+
+  <!-- ── Work Performed ── -->
+  {% if work_performed %}
+  <div class="section-title">Work Performed</div>
+  <div class="content-box">{{ work_performed | safe }}</div>
+  {% endif %}
+
+  <!-- ── Materials & Equipment ── -->
+  {% if materials_equipment_text %}
+  <div class="section-title">Materials &amp; Equipment</div>
+  <div class="content-box">{{ materials_equipment_text | safe }}</div>
+  {% endif %}
+
+  <!-- ── Invoice Items + Totals ── -->
+  {% if invoice_items or (include_financial and financial) %}
+  <div class="section-title">Invoice Items</div>
+
+  {% if invoice_items %}
+  <div class="line-header">
+    <div class="col-item">Item</div>
+    <div class="col-qty">Qty</div>
+    <div class="col-unit">Unit</div>
+    <div class="col-price">Unit Price</div>
+    <div class="col-total">Total</div>
+  </div>
+
+  {% for item in invoice_items %}
+  {% set desc_text = (item.description or '') | replace('<br>', '') | replace('<br/>', '') | replace('<br />', '') | replace('&nbsp;', '') | trim %}
+  <div class="line-item-group">
+    <div class="line-row">
+      <div class="col-item">{{ item.name }}</div>
+      <div class="col-qty">{{ item.quantity }}</div>
+      <div class="col-unit">{{ item.unit or 'ea' }}</div>
+      <div class="col-price">${{ "%.2f"|format(item.unit_cost) }}</div>
+      <div class="col-total">${{ "%.2f"|format(item.total_cost) }}</div>
+    </div>
+    {% if desc_text %}
+    <div class="col-desc">{{ item.description | safe }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <!-- Totals (mirrors invoice footer-total) -->
+  {% if include_financial and financial %}
+  <div class="footer-total">
+    <div class="totals-container">
+      {% if financial.tax_amount > 0 or financial.discount > 0 %}
+      <div class="total-row">
+        <span class="total-label">Subtotal</span>
+        <span class="total-value">${{ "%.2f"|format(financial.subtotal) }}</span>
+      </div>
+      {% endif %}
+      {% if financial.discount > 0 %}
+      <div class="total-row">
+        <span class="total-label">Discount</span>
+        <span class="total-value">-${{ "%.2f"|format(financial.discount) }}</span>
+      </div>
+      {% endif %}
+      {% if financial.tax_amount > 0 %}
+      <div class="total-row">
+        <span class="total-label">Tax</span>
+        <span class="total-value">${{ "%.2f"|format(financial.tax_amount) }}</span>
+      </div>
+      {% endif %}
+      <div class="total-row grand-total">
+        <span class="total-label">Total</span>
+        <span class="total-value">${{ "%.2f"|format(financial.total_amount) }}</span>
+      </div>
+
+      {% if payments %}
+        {% for payment in payments %}
+        <div class="total-row">
+          <span class="total-label">Payment{% if show_payment_dates and payment.date %} ({{ payment.date | date }}){% endif %}{% if payment.method %} &ndash; {{ payment.method }}{% endif %}</span>
+          <span class="total-value">-${{ "%.2f"|format(payment.amount) }}</span>
+        </div>
+        {% endfor %}
+        <div class="total-row grand-total balance-due">
+          <span class="total-label">Balance Due</span>
+          <span class="total-value">${{ "%.2f"|format(financial.balance_due) }}</span>
+        </div>
+      {% else %}
+        <div class="total-row grand-total balance-due">
+          <span class="total-label">Amount Due</span>
+          <span class="total-value">${{ "%.2f"|format(financial.total_amount) }}</span>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+  {% endif %}
+
+  <!-- ── Recommendations ── -->
+  {% if recommendations %}
+  <div class="section-title">Recommendations</div>
+  <div class="content-box">{{ recommendations | safe }}</div>
+  {% endif %}
+
+  <!-- ── Photos ── -->
+  {% if photos and include_photos %}
+  <div class="section-title">Photo Documentation</div>
+  <div class="photo-grid">
+    {% for photo in photos %}
+    <div class="photo-card">
+      <img src="{{ photo.url }}" alt="{{ photo.caption or 'Photo' }}">
+      <p><strong>{{ photo.category | upper }}</strong>{% if photo.caption %}: {{ photo.caption }}{% endif %}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- ── Warranty Information ── -->
+  {% if warranty_info %}
+  <div class="section-title">Warranty Information</div>
+  <div class="content-box note">{{ warranty_info | safe }}</div>
+  {% endif %}
+
+  <!-- ── Terms & Conditions ── -->
+  {% if terms_conditions %}
+  <div class="section-title">Terms &amp; Conditions</div>
+  <div class="content-box note" style="font-size:11px;">{{ terms_conditions | safe }}</div>
+  {% endif %}
+
+  <!-- ── Additional Notes ── -->
+  {% if notes %}
+  <div class="section-title">Additional Notes</div>
+  <div class="content-box note">{{ notes | safe }}</div>
+  {% endif %}
+
+  <!-- ── Footer ── -->
+  <div class="report-footer">
+    <span>{% if report_number %}Report #{{ report_number }}{% endif %}</span>
+    <span>{{ service_date | date }}</span>
+    <span>{% if company_data and company_data.name %}{{ company_data.name }}{% endif %}</span>
+  </div>
+
+</div>
 </body>
 </html>

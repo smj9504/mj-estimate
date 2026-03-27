@@ -348,6 +348,13 @@ const PlumberReportCreation: React.FC = () => {
     setActiveItemId(null);
   };
 
+  // Strip HTML tags and check if content has actual text
+  const cleanHtml = (html: string): string => {
+    if (!html) return '';
+    const text = html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+    return text.length > 0 ? html : '';
+  };
+
   const calculateTotals = () => {
     const subtotal = invoiceItems.reduce((sum, item) => sum + item.total_cost, 0);
     const taxAmount = form.getFieldValue('tax_amount') || 0;
@@ -394,21 +401,21 @@ const PlumberReportCreation: React.FC = () => {
           state: values.property_state || values.state,
           zipcode: values.property_zipcode || values.zipcode,
         },
-        service_date: values.service_date ? values.service_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+        service_date: values.service_date ? values.service_date.format('YYYY-MM-DDTHH:mm:ss') : dayjs().format('YYYY-MM-DDTHH:mm:ss'),
         technician_name: values.technician_name,
         license_number: values.license_number,
-        cause_of_damage: causeOfDamage,
-        work_performed: workPerformed,
-        materials_equipment_text: materialsEquipment,
-        recommendations,
+        cause_of_damage: cleanHtml(causeOfDamage),
+        work_performed: cleanHtml(workPerformed),
+        materials_equipment_text: cleanHtml(materialsEquipment),
+        recommendations: cleanHtml(recommendations),
         invoice_items: invoiceItems,
         financial: totals,
         payments,
         show_payment_dates: showPaymentDates,
         photos,
-        warranty_info: warrantyInfo,
-        terms_conditions: termsConditions,
-        notes: notes,
+        warranty_info: cleanHtml(warrantyInfo),
+        terms_conditions: cleanHtml(termsConditions),
+        notes: cleanHtml(notes),
       };
 
       let response;
@@ -453,32 +460,33 @@ const PlumberReportCreation: React.FC = () => {
           state: values.property_state || values.state,
           zipcode: values.property_zipcode || values.zipcode,
         },
-        service_date: values.service_date ? values.service_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+        service_date: values.service_date ? values.service_date.format('YYYY-MM-DDTHH:mm:ss') : dayjs().format('YYYY-MM-DDTHH:mm:ss'),
         technician_name: values.technician_name,
         license_number: values.license_number,
-        cause_of_damage: causeOfDamage,
-        work_performed: workPerformed,
-        materials_equipment_text: materialsEquipment,
-        recommendations,
+        cause_of_damage: cleanHtml(causeOfDamage),
+        work_performed: cleanHtml(workPerformed),
+        materials_equipment_text: cleanHtml(materialsEquipment),
+        recommendations: cleanHtml(recommendations),
         invoice_items: invoiceItems,
         financial: totals,
         payments,
         show_payment_dates: showPaymentDates,
         photos,
-        warranty_info: warrantyInfo,
-        terms_conditions: termsConditions,
-        notes: notes,
+        warranty_info: cleanHtml(warrantyInfo),
+        terms_conditions: cleanHtml(termsConditions),
+        notes: cleanHtml(notes),
       };
 
-      const blob = await plumberReportService.previewPDF(reportData, {
+      const htmlContent = await plumberReportService.previewHTML(reportData, {
         include_photos: true,
         include_financial: true,
       });
-      
+
+      const blob = new Blob([htmlContent], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
     } catch (error) {
-      message.error('Failed to generate PDF preview');
+      message.error('Failed to generate preview');
       console.error(error);
     } finally {
       setIsPreviewing(false);
@@ -569,7 +577,6 @@ const PlumberReportCreation: React.FC = () => {
                   <Form.Item
                     name="name"
                     label="Client Name"
-                    rules={[{ required: true }]}
                   >
                     <Input placeholder="Enter client name" />
                   </Form.Item>

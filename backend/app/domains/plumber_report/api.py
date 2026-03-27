@@ -5,7 +5,7 @@ API endpoints for Plumber Reports
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
 import json
 import io
 
@@ -57,7 +57,7 @@ async def create_plumber_report(
             report_data=report,
             created_by=str(current_staff.id)
         )
-        return PlumberReportResponse.from_orm(db_report)
+        return PlumberReportResponse.model_validate(db_report.to_dict())
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -86,7 +86,7 @@ async def get_plumber_reports(
     )
     
     return PlumberReportListResponse(
-        reports=[PlumberReportResponse.from_orm(r) for r in reports],
+        reports=[PlumberReportResponse.model_validate(r.to_dict()) for r in reports],
         total=total,
         page=skip // limit + 1,
         limit=limit
@@ -104,7 +104,7 @@ async def get_plumber_report(
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     
-    return PlumberReportResponse.from_orm(report)
+    return PlumberReportResponse.model_validate(report.to_dict())
 
 
 @router.put("/{report_id}", response_model=PlumberReportResponse)
@@ -125,7 +125,7 @@ async def update_plumber_report(
     if not updated_report:
         raise HTTPException(status_code=404, detail="Report not found")
     
-    return PlumberReportResponse.from_orm(updated_report)
+    return PlumberReportResponse.model_validate(updated_report.to_dict())
 
 
 @router.delete("/{report_id}")
@@ -217,6 +217,23 @@ async def preview_pdf(
         raise HTTPException(status_code=500, detail=f"PDF preview failed: {str(e)}")
 
 
+@router.post("/preview-html")
+async def preview_html(
+    pdf_request: PlumberReportPDFRequest
+):
+    """Preview report as HTML (fast, no WeasyPrint required)"""
+    try:
+        report_dict = pdf_request.report_data.dict()
+        html_content = PDFService.generate_plumber_report_html(
+            report_dict,
+            include_photos=pdf_request.include_photos,
+            include_financial=pdf_request.include_financial
+        )
+        return HTMLResponse(content=html_content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"HTML preview failed: {str(e)}")
+
+
 @router.get("/{report_id}/duplicate")
 async def duplicate_report(
     report_id: UUID,
@@ -246,4 +263,4 @@ async def duplicate_report(
         created_by=str(current_staff.id)
     )
     
-    return PlumberReportResponse.from_orm(new_report)
+    return PlumberReportResponse.model_validate(new_report.to_dict())

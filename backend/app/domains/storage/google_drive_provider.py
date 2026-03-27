@@ -172,7 +172,7 @@ class GoogleDriveProvider(StorageProvider):
     def download(self, file_id: str) -> bytes:
         """Download file content from Google Drive"""
         try:
-            request = self.service.files().get_media(fileId=file_id)
+            request = self.service.files().get_media(fileId=file_id, supportsAllDrives=True)
             file_content = io.BytesIO()
             downloader = MediaIoBaseDownload(file_content, request)
 
@@ -190,7 +190,7 @@ class GoogleDriveProvider(StorageProvider):
     def delete(self, file_id: str) -> bool:
         """Delete file from Google Drive"""
         try:
-            self.service.files().delete(fileId=file_id).execute()
+            self.service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
             logger.info(f"File deleted from Google Drive: {file_id}")
             return True
 
@@ -208,7 +208,8 @@ class GoogleDriveProvider(StorageProvider):
         try:
             file = self.service.files().get(
                 fileId=file_id,
-                fields='id, name, mimeType, size, createdTime, webViewLink, thumbnailLink, properties'
+                fields='id, name, mimeType, size, createdTime, webViewLink, thumbnailLink, properties',
+                supportsAllDrives=True
             ).execute()
 
             return FileMetadata(
@@ -245,7 +246,8 @@ class GoogleDriveProvider(StorageProvider):
             if body:
                 self.service.files().update(
                     fileId=file_id,
-                    body=body
+                    body=body,
+                    supportsAllDrives=True
                 ).execute()
 
                 logger.info(f"Metadata updated for {file_id}")
@@ -294,7 +296,9 @@ class GoogleDriveProvider(StorageProvider):
             results = self.service.files().list(
                 q=query,
                 fields='files(id, name, mimeType, size, createdTime, webViewLink, thumbnailLink, properties)',
-                orderBy='createdTime desc'
+                orderBy='createdTime desc',
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
             ).execute()
 
             files = []
@@ -328,7 +332,8 @@ class GoogleDriveProvider(StorageProvider):
             # Get current parents
             file = self.service.files().get(
                 fileId=file_id,
-                fields='parents'
+                fields='parents',
+                supportsAllDrives=True
             ).execute()
 
             previous_parents = ','.join(file.get('parents', []))
@@ -358,7 +363,8 @@ class GoogleDriveProvider(StorageProvider):
                 fileId=file_id,
                 addParents=new_category_folder_id,
                 removeParents=previous_parents,
-                fields='id, parents'
+                fields='id, parents',
+                supportsAllDrives=True
             ).execute()
 
             logger.info(f"File moved: {file_id} to {new_category}")
@@ -373,7 +379,8 @@ class GoogleDriveProvider(StorageProvider):
         try:
             self.service.files().get(
                 fileId=file_id,
-                fields='id'
+                fields='id',
+                supportsAllDrives=True
             ).execute()
             return True
 
@@ -413,7 +420,9 @@ class GoogleDriveProvider(StorageProvider):
             results = self.service.files().list(
                 q=query,
                 fields='files(id, name)',
-                spaces='drive'
+                spaces='drive',
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
             ).execute()
 
             folders = results.get('files', [])
@@ -430,7 +439,9 @@ class GoogleDriveProvider(StorageProvider):
             results = self.service.files().list(
                 q=query,
                 fields='files(id, name)',
-                spaces='drive'
+                spaces='drive',
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
             ).execute()
 
             return results.get('files', [])
@@ -450,7 +461,8 @@ class GoogleDriveProvider(StorageProvider):
 
             folder = self.service.files().create(
                 body=file_metadata,
-                fields='id'
+                fields='id',
+                supportsAllDrives=True
             ).execute()
 
             logger.info(f"Folder created: {folder_name}")

@@ -1,6 +1,7 @@
 /**
  * Water Mitigation Job List Page
  * Displays all water mitigation jobs with filtering and actions
+ * Responsive: mobile card layout, desktop table layout
  */
 
 import React, { useState, useEffect } from 'react';
@@ -14,17 +15,19 @@ import {
   Tag,
   Card,
   message,
-  Popconfirm,
   Switch,
   Dropdown,
-  Menu
+  Grid,
+  List,
+  Typography
 } from 'antd';
 import {
   PlusOutlined,
   SearchOutlined,
   EditOutlined,
   DeleteOutlined,
-  MoreOutlined
+  MoreOutlined,
+  RightOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import waterMitigationService from '../services/waterMitigationService';
@@ -39,16 +42,30 @@ import GoogleSheetsSyncButton from '../components/water-mitigation/GoogleSheetsS
 
 const { Search } = Input;
 const { Option } = Select;
+const { Text } = Typography;
+const { useBreakpoint } = Grid;
+
+const STATUS_COLORS: Record<JobStatus, string> = {
+  'Lead': 'blue',
+  'Doc prepping': 'cyan',
+  'Sent to adjuster': 'geekblue',
+  'Follow up': 'orange',
+  'Paperwork received': 'purple',
+  'Check received': 'green',
+  'Complete': 'success'
+};
 
 const WaterMitigationList: React.FC = () => {
   const navigate = useNavigate();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [loading, setLoading] = useState(false);
   const [jobs, setJobs] = useState<WaterMitigationJob[]>([]);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState<JobFilters>({
     page: 1,
     page_size: 20,
-    active: true,  // Default: show active jobs only
+    active: true,
     status: undefined,
     search: ''
   });
@@ -74,23 +91,19 @@ const WaterMitigationList: React.FC = () => {
     loadJobs();
   }, [filters]);
 
-  // Handle search
   const handleSearch = (value: string) => {
     setFilters(prev => ({ ...prev, search: value, page: 1 }));
   };
 
-  // Handle status filter change
   const handleStatusChange = (values: JobStatus[]) => {
     setFilters(prev => ({ ...prev, status: values.length > 0 ? values : undefined, page: 1 }));
   };
 
-  // Handle active filter change
   const handleActiveChange = (value: string) => {
     const activeValue = value === 'all' ? undefined : value === 'active';
     setFilters(prev => ({ ...prev, active: activeValue, page: 1 }));
   };
 
-  // Handle toggle active
   const handleToggleActive = async (jobId: string, currentActive: boolean) => {
     try {
       await waterMitigationService.toggleJobActive(jobId, !currentActive);
@@ -102,7 +115,6 @@ const WaterMitigationList: React.FC = () => {
     }
   };
 
-  // Handle delete
   const handleDelete = async (jobId: string) => {
     try {
       await waterMitigationService.deleteJob(jobId);
@@ -114,26 +126,23 @@ const WaterMitigationList: React.FC = () => {
     }
   };
 
-  // Handle open create modal
   const handleOpenCreateModal = () => {
     setEditingJob(undefined);
     setFormVisible(true);
   };
 
-  // Handle open edit modal
   const handleOpenEditModal = (job: WaterMitigationJob) => {
     setEditingJob(job);
     setFormVisible(true);
   };
 
-  // Handle form success
   const handleFormSuccess = () => {
     setFormVisible(false);
     setEditingJob(undefined);
     loadJobs();
   };
 
-  // Table columns
+  // Table columns (desktop)
   const columns: ColumnsType<WaterMitigationJob> = [
     {
       title: 'Active',
@@ -154,18 +163,9 @@ const WaterMitigationList: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       width: 150,
-      render: (status: JobStatus) => {
-        const colors: Record<JobStatus, string> = {
-          'Lead': 'blue',
-          'Doc prepping': 'cyan',
-          'Sent to adjuster': 'geekblue',
-          'Follow up': 'orange',
-          'Paperwork received': 'purple',
-          'Check received': 'green',
-          'Complete': 'success'
-        };
-        return <Tag color={colors[status]}>{status}</Tag>;
-      }
+      render: (status: JobStatus) => (
+        <Tag color={STATUS_COLORS[status]}>{status}</Tag>
+      )
     },
     {
       title: 'Property Address',
@@ -240,7 +240,6 @@ const WaterMitigationList: React.FC = () => {
                 label: 'Delete',
                 danger: true,
                 onClick: () => {
-                  // Show confirmation dialog
                   const confirmed = window.confirm('Delete this job?');
                   if (confirmed) {
                     handleDelete(record.id);
@@ -257,87 +256,184 @@ const WaterMitigationList: React.FC = () => {
     }
   ];
 
+  // Mobile card item renderer
+  const renderMobileItem = (job: WaterMitigationJob) => (
+    <List.Item
+      style={{ padding: '12px 0' }}
+      actions={[
+        <Dropdown
+          key="actions"
+          menu={{
+            items: [
+              {
+                key: 'edit',
+                icon: <EditOutlined />,
+                label: 'Edit',
+                onClick: () => handleOpenEditModal(job)
+              },
+              {
+                key: 'delete',
+                icon: <DeleteOutlined />,
+                label: 'Delete',
+                danger: true,
+                onClick: () => {
+                  const confirmed = window.confirm('Delete this job?');
+                  if (confirmed) handleDelete(job.id);
+                }
+              }
+            ]
+          }}
+          trigger={['click']}
+        >
+          <Button type="text" icon={<MoreOutlined />} />
+        </Dropdown>
+      ]}
+    >
+      <div
+        style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}
+        onClick={() => navigate(`/water-mitigation/${job.id}`)}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+          <Tag color={STATUS_COLORS[job.status]}>{job.status}</Tag>
+          {job.company && (
+            <Tag color="blue">{job.company.company_code || job.company.name}</Tag>
+          )}
+          {!job.active && <Tag>INACTIVE</Tag>}
+        </div>
+        <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 2 }}>
+          {job.property_address}
+        </Text>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          {job.homeowner_name && (
+            <Text type="secondary" style={{ fontSize: 12 }}>{job.homeowner_name}</Text>
+          )}
+          {job.claim_number && (
+            <Text type="secondary" style={{ fontSize: 12 }}>Claim: {job.claim_number}</Text>
+          )}
+          {(job.photo_count ?? 0) > 0 && (
+            <Text type="secondary" style={{ fontSize: 12 }}>Photos: {job.photo_count}</Text>
+          )}
+        </div>
+      </div>
+    </List.Item>
+  );
+
   return (
-    <div style={{ padding: '24px' }}>
+    <div style={{ padding: isMobile ? '0' : '24px' }}>
       <Card
         title="Water Mitigation Jobs"
         extra={
-          <Space>
-            <GoogleSheetsSyncButton
-              onSyncComplete={loadJobs}
-              type="default"
-              size="middle"
-              showStats={true}
-            />
+          <Space size={isMobile ? 'small' : 'middle'}>
+            {!isMobile && (
+              <GoogleSheetsSyncButton
+                onSyncComplete={loadJobs}
+                type="default"
+                size="middle"
+                showStats={true}
+              />
+            )}
             <Button
               type="primary"
               icon={<PlusOutlined />}
               onClick={handleOpenCreateModal}
             >
-              New Job
+              {isMobile ? 'New' : 'New Job'}
             </Button>
           </Space>
         }
+        styles={{
+          header: isMobile ? { padding: '0 12px' } : undefined,
+          body: isMobile ? { padding: '12px' } : undefined
+        }}
       >
         {/* Filters */}
-        <Space style={{ marginBottom: 16, width: '100%' }} direction="vertical">
-          <Space wrap>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: 8,
+            flexWrap: 'wrap'
+          }}>
             <Search
-              placeholder="Search by address, homeowner, claim number..."
+              placeholder="Search address, homeowner, claim..."
               allowClear
               onSearch={handleSearch}
-              style={{ width: 400 }}
+              style={{ width: isMobile ? '100%' : 400, minWidth: 0 }}
               prefix={<SearchOutlined />}
             />
 
-            <Select
-              mode="multiple"
-              placeholder="Filter by status"
-              style={{ minWidth: 200 }}
-              onChange={handleStatusChange}
-              allowClear
-            >
-              {JOB_STATUS_OPTIONS.map(option => (
-                <Option key={option.value} value={option.value}>
-                  {option.label}
-                </Option>
-              ))}
-            </Select>
+            <div style={{
+              display: 'flex',
+              gap: 8,
+              flexWrap: 'wrap',
+              flex: isMobile ? undefined : 1
+            }}>
+              <Select
+                mode="multiple"
+                placeholder="Filter by status"
+                style={{ minWidth: isMobile ? '100%' : 200, flex: isMobile ? '1 1 100%' : undefined }}
+                onChange={handleStatusChange}
+                allowClear
+              >
+                {JOB_STATUS_OPTIONS.map(option => (
+                  <Option key={option.value} value={option.value}>
+                    {option.label}
+                  </Option>
+                ))}
+              </Select>
 
-            <Select
-              placeholder="Active status"
-              style={{ width: 150 }}
-              onChange={handleActiveChange}
-              defaultValue="active"
-            >
-              <Option value="all">All</Option>
-              <Option value="active">Active Only</Option>
-              <Option value="inactive">Inactive Only</Option>
-            </Select>
-          </Space>
-        </Space>
+              <Select
+                placeholder="Active status"
+                style={{ width: isMobile ? '100%' : 150 }}
+                onChange={handleActiveChange}
+                defaultValue="active"
+              >
+                <Option value="all">All</Option>
+                <Option value="active">Active Only</Option>
+                <Option value="inactive">Inactive Only</Option>
+              </Select>
+            </div>
+          </div>
+        </div>
 
-        {/* Table */}
-        <Table
-          columns={columns}
-          dataSource={jobs}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            current: filters.page,
-            pageSize: filters.page_size,
-            total: total,
-            showSizeChanger: true,
-            showTotal: (total) => `Total ${total} jobs`,
-            onChange: (page, pageSize) => {
-              setFilters(prev => ({ ...prev, page, page_size: pageSize }));
-            }
-          }}
-          scroll={{ x: 1200 }}
-        />
+        {/* Mobile: Card List / Desktop: Table */}
+        {isMobile ? (
+          <List
+            dataSource={jobs}
+            loading={loading}
+            renderItem={renderMobileItem}
+            pagination={{
+              current: filters.page,
+              pageSize: filters.page_size,
+              total: total,
+              size: 'small',
+              showTotal: (total) => `${total} jobs`,
+              onChange: (page, pageSize) => {
+                setFilters(prev => ({ ...prev, page, page_size: pageSize }));
+              }
+            }}
+          />
+        ) : (
+          <Table
+            columns={columns}
+            dataSource={jobs}
+            rowKey="id"
+            loading={loading}
+            pagination={{
+              current: filters.page,
+              pageSize: filters.page_size,
+              total: total,
+              showSizeChanger: true,
+              showTotal: (total) => `Total ${total} jobs`,
+              onChange: (page, pageSize) => {
+                setFilters(prev => ({ ...prev, page, page_size: pageSize }));
+              }
+            }}
+            scroll={{ x: 1200 }}
+          />
+        )}
       </Card>
 
-      {/* Job Form Modal */}
       <JobFormModal
         visible={formVisible}
         onCancel={() => {

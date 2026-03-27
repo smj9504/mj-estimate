@@ -346,6 +346,18 @@ const router = createBrowserRouter([
     )
   },
   {
+    path: "/plumber-reports/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <PlumberReportCreation />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
     path: "/create/invoice",
     element: (
       <ProtectedRoute>

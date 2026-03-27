@@ -198,7 +198,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             label: 'Create Insurance Estimate',
           },
           {
-            key: '/create/plumber',
+            key: '/create/plumber-report',
             label: 'Create Plumber Report',
           },
           {
@@ -455,10 +455,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </Space>
           </Dropdown>
         </Header>
-        <Content style={{ 
-          margin: '24px', 
+        <Content style={{
+          margin: isMobile ? '8px' : '24px',
           minHeight: 'calc(100vh - 112px)',
-          padding: '24px',
+          padding: isMobile ? '8px' : '24px',
           background: '#fff',
           borderRadius: '8px',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',

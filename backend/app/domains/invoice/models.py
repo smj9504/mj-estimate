@@ -112,6 +112,9 @@ class InvoiceItem(Base, BaseModel):
     # Rich text note field for item-specific notes
     note = Column(Text)  # HTML content for rich text notes
 
+    # Images attached to this line item
+    images = Column(JSON, default=list)  # [{id, title, url, order_index}]
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

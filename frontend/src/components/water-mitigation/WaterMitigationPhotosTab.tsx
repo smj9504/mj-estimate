@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress } from 'antd';
+import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress, Grid } from 'antd';
 import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
@@ -88,12 +88,16 @@ interface WaterMitigationPhotosTabProps {
   onProjectIdUpdated?: (projectId: string) => void;
 }
 
+const { useBreakpoint } = Grid;
+
 const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   jobId,
   clientId,
   companycamProjectId,
   onProjectIdUpdated
 }) => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const queryClient = useQueryClient();
   const [syncModalVisible, setSyncModalVisible] = useState(false);
   const [projectIdModalVisible, setProjectIdModalVisible] = useState(false);
@@ -524,7 +528,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
   return (
     <div className="wm-photos-tab" style={{
-      height: 'calc(100vh - 180px)',
+      height: isMobile ? 'auto' : 'calc(100vh - 180px)',
+      minHeight: isMobile ? 'calc(100vh - 250px)' : undefined,
       display: 'flex',
       flexDirection: 'column',
       background: '#f5f7fa',
@@ -533,23 +538,25 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     }}>
       {/* Header Section */}
       <div style={{
-        padding: '16px 20px',
+        padding: isMobile ? '10px 12px' : '16px 20px',
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         borderRadius: '12px 12px 0 0',
         display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
+        alignItems: isMobile ? 'stretch' : 'center',
+        gap: isMobile ? 8 : 0,
         boxShadow: '0 2px 8px rgba(102, 126, 234, 0.25)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <CameraOutlined style={{ fontSize: '24px', color: 'white' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <CameraOutlined style={{ fontSize: isMobile ? '18px' : '24px', color: 'white' }} />
           <div>
-            <Title level={5} style={{ margin: 0, color: 'white', fontWeight: 600 }}>
+            <Title level={5} style={{ margin: 0, color: 'white', fontWeight: 600, fontSize: isMobile ? 14 : undefined }}>
               Photos
             </Title>
             {currentProjectId && (
               <Tooltip title={`CompanyCam Project ID: ${currentProjectId}`}>
-                <Text style={{ fontSize: '12px', color: 'rgba(255,255,255,0.85)' }}>
+                <Text style={{ fontSize: '11px', color: 'rgba(255,255,255,0.85)' }}>
                   <CheckCircleOutlined style={{ marginRight: 4 }} />
                   CompanyCam Linked
                 </Text>
@@ -559,18 +566,19 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         </div>
 
         {/* Sync Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           {isSyncing && progressInfo ? (
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '16px',
+              gap: isMobile ? '8px' : '16px',
               background: 'rgba(255,255,255,0.15)',
-              padding: '8px 16px',
+              padding: isMobile ? '6px 10px' : '8px 16px',
               borderRadius: '8px',
-              backdropFilter: 'blur(10px)'
+              backdropFilter: 'blur(10px)',
+              flex: isMobile ? 1 : undefined
             }}>
-              <div style={{ minWidth: '180px' }}>
+              <div style={{ minWidth: isMobile ? '120px' : '180px', flex: 1 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                   <Text style={{ color: 'white', fontSize: '12px' }}>
                     <SyncOutlined spin style={{ marginRight: 6 }} />
@@ -679,8 +687,9 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                 boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
                 fontWeight: 500
               }}
+              size={isMobile ? 'small' : 'middle'}
             >
-              {currentProjectId ? 'Sync from CompanyCam' : 'Link CompanyCam'}
+              {currentProjectId ? (isMobile ? 'Sync' : 'Sync from CompanyCam') : (isMobile ? 'Link' : 'Link CompanyCam')}
             </Button>
           )}
 
@@ -751,6 +760,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                 type="default"
                 icon={<GoogleOutlined />}
                 onClick={handleExportClick}
+                size={isMobile ? 'small' : 'middle'}
                 style={{
                   background: 'rgba(255,255,255,0.2)',
                   border: '1px solid rgba(255,255,255,0.3)',
@@ -759,7 +769,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                   color: 'white'
                 }}
               >
-                Export to Drive
+                {isMobile ? 'Drive' : 'Export to Drive'}
               </Button>
             </Tooltip>
           )}
@@ -794,7 +804,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       {/* Main Content Area */}
       <div style={{
         flex: 1,
-        padding: '16px',
+        padding: isMobile ? '8px' : '16px',
         overflow: 'hidden',
         background: 'white',
         borderRadius: '0 0 12px 12px'

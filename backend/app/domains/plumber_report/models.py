@@ -31,7 +31,7 @@ class PlumberReport(Base):
     company_data = Column(JSON)  # Store company info snapshot
     
     # Client Information
-    client_name = Column(String, nullable=False)
+    client_name = Column(String, nullable=True)
     client_address = Column(String)
     client_city = Column(String)
     client_state = Column(String)
@@ -104,7 +104,7 @@ class PlumberReport(Base):
                 "address": self.client_address,
                 "city": self.client_city,
                 "state": self.client_state,
-                "zip": self.client_zipcode,
+                "zipcode": self.client_zipcode,
                 "phone": self.client_phone,
                 "email": self.client_email
             },
@@ -112,7 +112,7 @@ class PlumberReport(Base):
                 "address": self.property_address,
                 "city": self.property_city,
                 "state": self.property_state,
-                "zip": self.property_zipcode
+                "zipcode": self.property_zipcode
             },
             "service_date": self.service_date.isoformat() if self.service_date else None,
             "technician_name": self.technician_name,

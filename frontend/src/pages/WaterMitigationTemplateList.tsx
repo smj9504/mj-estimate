@@ -245,11 +245,11 @@ const WaterMitigationTemplateList: React.FC = () => {
   ];
 
   return (
-    <div style={{ padding: 24 }}>
+    <div>
       <Card>
         <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <Title level={3} style={{ margin: 0 }}>Report Templates</Title>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+            <Title level={4} style={{ margin: 0 }}>Report Templates</Title>
             <Button
               type="primary"
               icon={<PlusOutlined />}
@@ -259,11 +259,11 @@ const WaterMitigationTemplateList: React.FC = () => {
             </Button>
           </div>
           <Search
-            placeholder="Search templates by name or description"
+            placeholder="Search templates..."
             allowClear
             prefix={<SearchOutlined />}
             onChange={e => setSearchText(e.target.value)}
-            style={{ width: 400 }}
+            style={{ width: '100%', maxWidth: 400 }}
           />
         </div>
 
@@ -272,11 +272,11 @@ const WaterMitigationTemplateList: React.FC = () => {
           dataSource={filteredTemplates}
           rowKey="id"
           loading={isLoading}
+          scroll={{ x: 600 }}
           pagination={{
             pageSize: 10,
-            showTotal: (total) => `Total ${total} templates`,
+            showTotal: (total) => `${total} templates`,
             showSizeChanger: true,
-            showQuickJumper: true
           }}
         />
       </Card>

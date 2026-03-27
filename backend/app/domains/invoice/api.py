@@ -368,13 +368,15 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
     # Prepare items separately
     items_data = [
         {
-            'name': item.name,  # Required field in InvoiceItem model
-            'description': item.description if hasattr(item, 'description') else '',  # Optional field
+            'name': item.name,
+            'description': item.description if hasattr(item, 'description') else '',
             'quantity': item.quantity,
             'unit': item.unit if hasattr(item, 'unit') else 'ea',
             'rate': item.rate,
             'amount': item.quantity * item.rate,
-            'taxable': item.taxable if hasattr(item, 'taxable') else True
+            'taxable': item.taxable if hasattr(item, 'taxable') else True,
+            'note': item.note if hasattr(item, 'note') else None,
+            'images': [img.dict() for img in item.images] if item.images else [],
         }
         for item in invoice_data.items
     ]
@@ -461,6 +463,7 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
                 secondary_group=item.get('secondary_group'),
                 sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
+                images=item.get('images', []),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
             )
@@ -691,7 +694,8 @@ async def update_invoice(
                 'secondary_group': item.get('secondary_group'),
                 'sort_order': item.get('sort_order', 0),
                 'note': item.get('note'),
-                'line_item_id': item.get('line_item_id')
+                'line_item_id': item.get('line_item_id'),
+                'images': item.get('images', []),
             }
             for item in items
         ]
@@ -857,6 +861,7 @@ async def update_invoice(
                 secondary_group=item.get('secondary_group'),
                 sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
+                images=item.get('images', []),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
             )
@@ -1368,6 +1373,7 @@ async def duplicate_invoice(invoice_id: str, db=Depends(get_db)):
                 secondary_group=item.get('secondary_group'),
                 sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
+                images=item.get('images', []),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
             )
@@ -1451,6 +1457,7 @@ async def add_payment(
                 secondary_group=item.get('secondary_group'),
                 sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
+                images=item.get('images', []),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
             )
@@ -1531,6 +1538,7 @@ async def remove_payment(
                 secondary_group=item.get('secondary_group'),
                 sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
+                images=item.get('images', []),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
             )
@@ -1673,7 +1681,8 @@ async def generate_receipt_html(invoice_id: str, db=Depends(get_db)):
                 "note": item.get('note'),
                 "quantity": item.get('quantity', 0),
                 "unit": item.get('unit', ''),
-                "rate": item.get('rate', 0)
+                "rate": item.get('rate', 0),
+                "images": item.get('images', [])
             }
             for item in invoice.get('items', [])
         ],
@@ -1767,7 +1776,8 @@ async def generate_receipt_pdf(invoice_id: str, db=Depends(get_db)):
                 "note": item.get('note'),
                 "quantity": item.get('quantity', 0),
                 "unit": item.get('unit', ''),
-                "rate": item.get('rate', 0)
+                "rate": item.get('rate', 0),
+                "images": item.get('images', [])
             }
             for item in invoice.get('items', [])
         ],

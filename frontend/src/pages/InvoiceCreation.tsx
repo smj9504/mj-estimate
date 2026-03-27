@@ -35,6 +35,7 @@ import {
   CommentOutlined,
   UpOutlined,
   DownOutlined,
+  PictureOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -59,7 +60,7 @@ import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import DraggableTable from '../components/common/DraggableTable';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
-import { invoiceService, InvoiceSection } from '../services/invoiceService';
+import { invoiceService, InvoiceSection, LineItemImage } from '../services/invoiceService';
 import { companyService } from '../services/companyService';
 import { Company } from '../types';
 import RichTextEditor from '../components/editor/RichTextEditor';
@@ -81,7 +82,9 @@ import {
   Tag,
   Badge,
   Checkbox,
+  Upload,
 } from 'antd';
+import type { UploadFile } from 'antd/es/upload/interface';
 import { receiptService } from '../services/receiptService';
 import type { ReceiptTemplate } from '../types/receipt';
 import { useCompanies } from '../hooks/useCompanyQueries';
@@ -113,6 +116,7 @@ interface InvoiceItem {
   secondary_group?: string;
   sort_order?: number;
   note?: string;  // Rich text note for item-specific notes
+  images?: LineItemImage[];  // Images attached to this line item
 }
 
 interface PaymentRecord {
@@ -461,6 +465,20 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                           />
                         </Tooltip>
                       ) : null}
+                      {record.images && record.images.length > 0 ? (
+                        <Tooltip
+                          title={`${record.images.length} photo(s): ${record.images.map((img: LineItemImage) => img.title).filter(Boolean).join(', ') || 'Attached'}`}
+                        >
+                          <PictureOutlined
+                            style={{
+                              color: '#52c41a',
+                              fontSize: '16px',
+                              cursor: 'pointer',
+                              flexShrink: 0
+                            }}
+                          />
+                        </Tooltip>
+                      ) : null}
                     </div>
                   ),
                 },
@@ -648,6 +666,7 @@ const InvoiceCreation: React.FC = () => {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingSectionIndex, setEditingSectionIndex] = useState<number | null>(null);
   const [itemForm] = Form.useForm();
+  const [itemImages, setItemImages] = useState<LineItemImage[]>([]);
   const [taxMethod, setTaxMethod] = useState<'percentage' | 'specific'>('percentage');
   const [taxRate, setTaxRate] = useState(0);
   const [specificTaxAmount, setSpecificTaxAmount] = useState(0);
@@ -1052,6 +1071,7 @@ const InvoiceCreation: React.FC = () => {
     setEditingItem(null);
     setEditingIndex(null);
     setEditingSectionIndex(null);
+    setItemImages([]);
   };
 
   // Consolidated initialization effect
@@ -1408,6 +1428,33 @@ const InvoiceCreation: React.FC = () => {
     return code;
   };
 
+  // Convert file to base64 data URL
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  // Handle image upload for line item
+  const handleItemImageUpload = async (file: File) => {
+    try {
+      const url = await fileToBase64(file);
+      const newImage: LineItemImage = {
+        id: generateId(),
+        title: file.name.replace(/\.[^/.]+$/, ''), // filename without extension
+        url,
+        order_index: itemImages.length,
+      };
+      setItemImages((prev) => [...prev, newImage]);
+    } catch (error) {
+      message.error('Failed to load image');
+    }
+    return false; // prevent default upload
+  };
+
   const handleItemSubmit = async () => {
     if (editingSectionIndex === null) {
       message.error('Please select a section to add the item to');
@@ -1506,6 +1553,7 @@ const InvoiceCreation: React.FC = () => {
         amount: Number(values.quantity) * Number(values.rate),
         taxable: values.taxable !== false, // Default to taxable if not specified
         primary_group: sections[editingSectionIndex]?.title,
+        images: itemImages.length > 0 ? itemImages : undefined,
       };
 
       console.log('Created invoice item with line_item_id:', newItem.line_item_id);
@@ -3449,6 +3497,7 @@ const InvoiceCreation: React.FC = () => {
         onCancel={() => {
           setItemModalVisible(false);
           itemForm.resetFields();
+          setItemImages([]);
         }}
         afterOpenChange={(open) => {
           if (open) {
@@ -3465,8 +3514,11 @@ const InvoiceCreation: React.FC = () => {
                   : editingItem.quantity,
               };
               itemForm.setFieldsValue(formValues);
+              // Load existing images when editing
+              setItemImages(editingItem.images || []);
             } else {
               itemForm.resetFields();
+              setItemImages([]);
             }
           }
         }}
@@ -3597,6 +3649,72 @@ const InvoiceCreation: React.FC = () => {
               minHeight={120}
             />
           </Form.Item>
+          {/* Image Upload Section */}
+          <Form.Item label="Photos" tooltip="Attach photos to this line item. Photos will appear in the PDF appendix.">
+            <Upload
+              listType="picture-card"
+              accept="image/*"
+              multiple
+              beforeUpload={handleItemImageUpload}
+              showUploadList={false}
+            >
+              <div>
+                <PictureOutlined />
+                <div style={{ marginTop: 4, fontSize: 12 }}>Upload</div>
+              </div>
+            </Upload>
+            {itemImages.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                {itemImages.map((img, idx) => (
+                  <div key={img.id} style={{
+                    position: 'relative',
+                    width: 104,
+                    border: '1px solid #d9d9d9',
+                    borderRadius: 4,
+                    padding: 4,
+                  }}>
+                    <img
+                      src={img.url}
+                      alt={img.title}
+                      style={{ width: '100%', height: 72, objectFit: 'cover', borderRadius: 2 }}
+                    />
+                    <Input
+                      size="small"
+                      placeholder="Title"
+                      value={img.title}
+                      onChange={(e) => {
+                        const updated = [...itemImages];
+                        updated[idx] = { ...updated[idx], title: e.target.value };
+                        setItemImages(updated);
+                      }}
+                      style={{ marginTop: 4, fontSize: 11 }}
+                    />
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => setItemImages(prev => prev.filter((_, i) => i !== idx))}
+                      style={{
+                        position: 'absolute',
+                        top: 2,
+                        right: 2,
+                        background: 'rgba(255,255,255,0.85)',
+                        borderRadius: '50%',
+                        width: 20,
+                        height: 20,
+                        padding: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </Form.Item>
+
           <Form.Item
             name="saveToDatabase"
             valuePropName="checked"

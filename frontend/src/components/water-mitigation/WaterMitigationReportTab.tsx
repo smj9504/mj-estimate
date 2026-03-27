@@ -26,7 +26,8 @@ import {
   Menu,
   Modal,
   DatePicker,
-  Dropdown
+  Dropdown,
+  Grid
 } from 'antd';
 import {
   PlusOutlined,
@@ -57,6 +58,7 @@ import type {
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
+const { useBreakpoint } = Grid;
 
 interface WaterMitigationReportTabProps {
   jobId: string;
@@ -95,6 +97,9 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   mitigationStartDate,
   mitigationEndDate
 }) => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+
   // Use React Query for automatic caching - config query
   const {
     data: config,
@@ -752,28 +757,77 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
 
   const currentSection = getCurrentSection();
 
+  // Build section options for mobile dropdown
+  const sectionOptions = [
+    { value: 'cover', label: 'Cover Page' },
+    ...sections.map(s => ({
+      value: s.id,
+      label: `${s.title} (${s.photos.length})`
+    }))
+  ];
+
   return (
-    <div style={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: isMobile ? 'auto' : 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <div style={{
-        padding: '16px 24px',
+        padding: isMobile ? '12px' : '16px 24px',
         borderBottom: '1px solid #f0f0f0',
         background: '#fff'
       }}>
-        <Row justify="space-between" align="middle">
-          <Col>
-            <Title level={3} style={{ margin: 0 }}>
-              <FileTextOutlined /> Photo Report Builder
-            </Title>
-          </Col>
-          <Col>
-            <Space>
-              <Button
-                icon={<AppstoreAddOutlined />}
-                onClick={handleUseTemplate}
-              >
-                Use Template
-              </Button>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+          <Title level={isMobile ? 5 : 3} style={{ margin: 0, marginRight: 'auto', width: isMobile ? '100%' : 'auto' }}>
+            <FileTextOutlined /> Photo Report Builder
+          </Title>
+
+          {/* Primary actions row */}
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            onClick={handleSaveConfig}
+            loading={saving}
+            size={isMobile ? 'small' : 'middle'}
+          >
+            Save
+          </Button>
+          <Button
+            type="default"
+            icon={<FileImageOutlined />}
+            onClick={handleGeneratePDF}
+            disabled={!config?.id && sections.length === 0}
+            size={isMobile ? 'small' : 'middle'}
+          >
+            {isMobile ? 'PDF' : 'Preview & Download PDF'}
+          </Button>
+
+          {/* Secondary actions - shown as dropdown on mobile */}
+          {isMobile ? (
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'template', icon: <AppstoreAddOutlined />, label: 'Use Template', onClick: handleUseTemplate },
+                  {
+                    key: 'autoAssign', icon: <ThunderboltOutlined />, label: 'Auto-Assign Photos',
+                    onClick: handleAutoAssignPhotos, disabled: sections.length === 0 || availablePhotos.length === 0
+                  },
+                  {
+                    key: 'updateDates', icon: <CalendarOutlined />, label: 'Update Photo Dates',
+                    onClick: handleUpdatePhotoDates,
+                    disabled: !mitigationStartDate || !mitigationEndDate || availablePhotos.length === 0
+                  },
+                  { type: 'divider' as const },
+                  { key: 'layout1', label: '1 photo/page', onClick: () => handleApplyLayoutToAll('single'), disabled: sections.length === 0 },
+                  { key: 'layout2', label: '2 photos/page', onClick: () => handleApplyLayoutToAll('two'), disabled: sections.length === 0 },
+                  { key: 'layout3', label: '3 photos/page', onClick: () => handleApplyLayoutToAll('three'), disabled: sections.length === 0 },
+                  { key: 'layout4', label: '4 photos/page', onClick: () => handleApplyLayoutToAll('four'), disabled: sections.length === 0 },
+                  { key: 'layout6', label: '6 photos/page', onClick: () => handleApplyLayoutToAll('six'), disabled: sections.length === 0 },
+                ]
+              }}
+            >
+              <Button size="small" icon={<DownOutlined />}>More</Button>
+            </Dropdown>
+          ) : (
+            <>
+              <Button icon={<AppstoreAddOutlined />} onClick={handleUseTemplate}>Use Template</Button>
               <Tooltip title="Auto-assign photos to sections based on category names">
                 <Button
                   icon={<ThunderboltOutlined />}
@@ -813,96 +867,81 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                   <Select.Option value="six">6 photos per page</Select.Option>
                 </Select>
               </Tooltip>
-              <Button
-                type="primary"
-                icon={<SaveOutlined />}
-                onClick={handleSaveConfig}
-                loading={saving}
-              >
-                Save Configuration
-              </Button>
-              <Tooltip title="Set the date to display on the PDF report">
-                <DatePicker
-                  value={reportDate}
-                  onChange={(date) => setReportDate(date)}
-                  format="YYYY-MM-DD"
-                  allowClear={false}
-                  style={{ width: 140 }}
-                  placeholder="Report Date"
-                />
-              </Tooltip>
-              <Button
-                type="default"
-                icon={<FileImageOutlined />}
-                onClick={handleGeneratePDF}
-                disabled={!config?.id && sections.length === 0}
-              >
-                Preview & Download PDF
-              </Button>
-            </Space>
-          </Col>
-        </Row>
+            </>
+          )}
+
+          <DatePicker
+            value={reportDate}
+            onChange={(date) => setReportDate(date)}
+            format="YYYY-MM-DD"
+            allowClear={false}
+            style={{ width: isMobile ? 120 : 140 }}
+            placeholder="Report Date"
+            size={isMobile ? 'small' : 'middle'}
+          />
+        </div>
       </div>
 
       {/* Main Content */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Left Sidebar - Section Navigation */}
-        <div style={{
-          width: 250,
-          borderRight: '1px solid #f0f0f0',
-          background: '#fafafa',
-          display: 'flex',
-          flexDirection: 'column'
-        }}>
-          <div style={{ padding: 16, borderBottom: '1px solid #f0f0f0' }}>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={handleAddSection}
-              block
-            >
-              New Section
+      <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', overflow: isMobile ? 'visible' : 'hidden' }}>
+        {/* Section Navigation - Sidebar on desktop, dropdown on mobile */}
+        {isMobile ? (
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', background: '#fafafa', display: 'flex', gap: 8 }}>
+            <Select
+              value={selectedSectionId || 'cover'}
+              onChange={(value) => setSelectedSectionId(value)}
+              options={sectionOptions}
+              style={{ flex: 1 }}
+              size="small"
+            />
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAddSection} size="small">
+              Add
             </Button>
           </div>
-
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            <Menu
-              mode="inline"
-              selectedKeys={[selectedSectionId || 'cover']}
-              style={{ border: 'none', background: 'transparent' }}
-            >
-              <Menu.Item
-                key="cover"
-                icon={<FileTextOutlined />}
-                onClick={() => setSelectedSectionId('cover')}
+        ) : (
+          <div style={{
+            width: 250,
+            borderRight: '1px solid #f0f0f0',
+            background: '#fafafa',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <div style={{ padding: 16, borderBottom: '1px solid #f0f0f0' }}>
+              <Button type="primary" icon={<PlusOutlined />} onClick={handleAddSection} block>
+                New Section
+              </Button>
+            </div>
+            <div style={{ flex: 1, overflow: 'auto' }}>
+              <Menu
+                mode="inline"
+                selectedKeys={[selectedSectionId || 'cover']}
+                style={{ border: 'none', background: 'transparent' }}
               >
-                Cover Page
-              </Menu.Item>
-
-              {sections.map((section, index) => (
-                <Menu.Item
-                  key={section.id}
-                  icon={<FileImageOutlined />}
-                  onClick={() => setSelectedSectionId(section.id)}
-                  style={{ display: 'flex', alignItems: 'center' }}
-                >
-                  <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>{section.title}</span>
-                    <Tag color="blue" style={{ marginLeft: 8 }}>
-                      {section.photos.length}
-                    </Tag>
-                  </div>
+                <Menu.Item key="cover" icon={<FileTextOutlined />} onClick={() => setSelectedSectionId('cover')}>
+                  Cover Page
                 </Menu.Item>
-              ))}
-            </Menu>
+                {sections.map((section) => (
+                  <Menu.Item
+                    key={section.id}
+                    icon={<FileImageOutlined />}
+                    onClick={() => setSelectedSectionId(section.id)}
+                    style={{ display: 'flex', alignItems: 'center' }}
+                  >
+                    <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>{section.title}</span>
+                      <Tag color="blue" style={{ marginLeft: 8 }}>{section.photos.length}</Tag>
+                    </div>
+                  </Menu.Item>
+                ))}
+              </Menu>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Right Content Area */}
         <div style={{ flex: 1, overflow: 'auto', background: '#fff' }}>
           {selectedSectionId === 'cover' ? (
-            // Cover Page Editor
-            <div style={{ padding: 24, maxWidth: 800 }}>
+            <div style={{ padding: isMobile ? 12 : 24, maxWidth: 800 }}>
               <Title level={4}>Cover Page</Title>
               <Form layout="vertical">
                 <Form.Item label="Report Title">
@@ -924,11 +963,10 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
               </Form>
             </div>
           ) : currentSection ? (
-            // Section Editor
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
               {/* Section Header */}
-              <div style={{ padding: 24, borderBottom: '1px solid #f0f0f0' }}>
-                <Row justify="space-between" align="middle">
+              <div style={{ padding: isMobile ? 12 : 24, borderBottom: '1px solid #f0f0f0' }}>
+                <Row justify="space-between" align="middle" gutter={[8, 8]}>
                   <Col flex="auto">
                     {editingSectionTitle ? (
                       <Input
@@ -965,8 +1003,9 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                       danger
                       icon={<DeleteOutlined />}
                       onClick={() => handleDeleteSection(currentSection.id)}
+                      size={isMobile ? 'small' : 'middle'}
                     >
-                      Delete Section
+                      {isMobile ? 'Delete' : 'Delete Section'}
                     </Button>
                   </Col>
                 </Row>
@@ -997,7 +1036,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
               </div>
 
               {/* Selected Photos Display */}
-              <div style={{ flex: 1, padding: 24, overflow: 'auto' }}>
+              <div style={{ flex: 1, padding: isMobile ? 12 : 24, overflow: 'auto' }}>
                 <div style={{ marginBottom: 16 }}>
                   <Button
                     type="primary"
@@ -1180,20 +1219,11 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
         >
           {templatesData?.items.map(template => (
             <Select.Option key={template.id} value={template.id}>
-              <div>
-                <div>
-                  <Space>
-                    {template.is_default && <Tag color="gold">Default</Tag>}
-                    <span>{template.name}</span>
-                    <Tag color="blue">{template.sections.length} sections</Tag>
-                  </Space>
-                </div>
-                {template.description && (
-                  <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-                    {template.description}
-                  </div>
-                )}
-              </div>
+              <Space>
+                {template.is_default && <Tag color="gold">Default</Tag>}
+                <span>{template.name}</span>
+                <Tag color="blue">{template.sections.length} sections</Tag>
+              </Space>
             </Select.Option>
           ))}
         </Select>

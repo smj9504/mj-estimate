@@ -86,7 +86,7 @@ class PlumberReportService {
   private baseUrl = `/api/plumber-reports`;
 
   async createReport(report: PlumberReport): Promise<PlumberReport> {
-    const response = await api.post(this.baseUrl, report);
+    const response = await api.post(`${this.baseUrl}/`, report);
     return response.data;
   }
 
@@ -106,7 +106,7 @@ class PlumberReportService {
     page: number;
     limit: number;
   }> {
-    const response = await api.get(this.baseUrl, { params });
+    const response = await api.get(`${this.baseUrl}/`, { params });
     return response.data;
   }
 
@@ -156,6 +156,17 @@ class PlumberReportService {
       ...options,
     }, {
       responseType: 'blob',
+    });
+    return response.data;
+  }
+
+  async previewHTML(report: PlumberReport, options?: {
+    include_photos?: boolean;
+    include_financial?: boolean;
+  }): Promise<string> {
+    const response = await api.post(`${this.baseUrl}/preview-html`, {
+      report_data: report,
+      ...options,
     });
     return response.data;
   }

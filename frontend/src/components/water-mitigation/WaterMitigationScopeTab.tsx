@@ -27,7 +27,8 @@ import {
   Empty,
   Spin,
   Badge,
-  Alert
+  Alert,
+  Grid
 } from 'antd';
 import {
   PlusOutlined,
@@ -98,7 +99,12 @@ const ROOM_TYPE_OPTIONS = [
   { value: 'Other', label: 'Other' }
 ];
 
+const { useBreakpoint } = Grid;
+
 const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId, jobCompanyId }) => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+
   // State
   const [loading, setLoading] = useState(false);
   const [locations, setLocations] = useState<ScopeLocation[]>([]);
@@ -658,44 +664,44 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     const partiallyInvoiced = invoicedCount > 0 && invoicedCount < totalItems;
 
     return (
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-        <Space>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', width: '100%', flexWrap: 'wrap', gap: 4 }}>
+        <Space wrap size={4}>
           <EnvironmentOutlined />
           <Text strong>{location.name}</Text>
           {location.floor && <Tag>{location.floor}</Tag>}
           {location.room_type && <Tag color="blue">{location.room_type}</Tag>}
           <Badge count={totalItems} style={{ backgroundColor: '#1890ff' }} />
           {allInvoiced && (
-            <Tag color="purple" style={{ marginLeft: 4 }}>
+            <Tag color="purple">
               <CheckCircleOutlined /> Invoiced
             </Tag>
           )}
           {partiallyInvoiced && (
-            <Tag color="orange" style={{ marginLeft: 4 }}>
-              <CheckCircleOutlined /> {invoicedCount}/{totalItems} Invoiced
+            <Tag color="orange">
+              <CheckCircleOutlined /> {invoicedCount}/{totalItems}
             </Tag>
           )}
         </Space>
-      <Space onClick={(e) => e.stopPropagation()}>
-        <Button
-          size="small"
-          icon={<EditOutlined />}
-          onClick={() => handleEditLocation(location)}
-        >
-          Edit
-        </Button>
-        <Popconfirm
-          title="Delete this location and all items?"
-          onConfirm={() => handleDeleteLocation(location.id)}
-          okText="Yes"
-          cancelText="No"
-        >
-          <Button size="small" danger icon={<DeleteOutlined />}>
-            Delete
+        <Space onClick={(e) => e.stopPropagation()} size={4}>
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleEditLocation(location)}
+          >
+            {isMobile ? '' : 'Edit'}
           </Button>
-        </Popconfirm>
-      </Space>
-    </div>
+          <Popconfirm
+            title="Delete this location and all items?"
+            onConfirm={() => handleDeleteLocation(location.id)}
+            okText="Yes"
+            cancelText="No"
+          >
+            <Button size="small" danger icon={<DeleteOutlined />}>
+              {isMobile ? '' : 'Delete'}
+            </Button>
+          </Popconfirm>
+        </Space>
+      </div>
     );
   };
 
@@ -786,6 +792,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                       rowKey="id"
                       pagination={false}
                       size="small"
+                      scroll={isMobile ? { x: 600 } : undefined}
                     />
                   ) : (
                     <Empty
@@ -840,8 +847,8 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
               ),
               children: (
                 <>
-                  <Row gutter={24}>
-                    <Col span={6}>
+                  <Row gutter={[16, 16]}>
+                    <Col xs={12} sm={6}>
                       <Statistic
                         title="Total Weight"
                         value={debrisCalculation.total_weight_lb}
@@ -849,7 +856,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                         precision={0}
                       />
                     </Col>
-                    <Col span={6}>
+                    <Col xs={12} sm={6}>
                       <Statistic
                         title="Total Weight"
                         value={debrisCalculation.total_weight_ton}
@@ -857,10 +864,10 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                         precision={2}
                       />
                     </Col>
-                    <Col span={6}>
+                    <Col xs={12} sm={6}>
                       {debrisCalculation.bag_count ? (
                         <Statistic
-                          title="42-Gal Contractor Bags"
+                          title="42-Gal Bags"
                           value={debrisCalculation.bag_count}
                           suffix="bags"
                           prefix="~"
@@ -868,22 +875,22 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                       ) : (
                         debrisCalculation.dumpster_recommendation && (
                           <Statistic
-                            title="Recommended Dumpster"
+                            title="Dumpster"
                             value={`${debrisCalculation.dumpster_recommendation.count}x ${debrisCalculation.dumpster_recommendation.size}`}
                           />
                         )
                       )}
                     </Col>
-                    <Col span={6}>
+                    <Col xs={12} sm={6}>
                       {debrisCalculation.dumpster_recommendation && debrisCalculation.bag_count && (
                         <Statistic
-                          title="Recommended Dumpster"
+                          title="Dumpster"
                           value={`${debrisCalculation.dumpster_recommendation.count}x ${debrisCalculation.dumpster_recommendation.size}`}
                         />
                       )}
                       {!debrisCalculation.bag_count && (
                         <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          Last calculated: {new Date(debrisCalculation.calculated_at).toLocaleString()}
+                          Last: {new Date(debrisCalculation.calculated_at).toLocaleString()}
                         </Text>
                       )}
                     </Col>
@@ -902,9 +909,9 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                     <>
                       <Divider />
                       <Title level={5}>Weight by Category</Title>
-                      <Row gutter={16}>
+                      <Row gutter={[16, 16]}>
                         {debrisCalculation.category_breakdown.map((cat, idx) => (
-                          <Col span={6} key={idx}>
+                          <Col xs={12} sm={8} md={6} key={idx}>
                             <Card size="small" className="compact-card-sm">
                               <Statistic
                                 title={cat.category_name || 'Uncategorized'}
@@ -965,7 +972,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
         open={locationModalVisible}
         onCancel={() => setLocationModalVisible(false)}
         onOk={() => locationForm.submit()}
-        width={500}
+        width={isMobile ? '95vw' : 500}
       >
         <Form
           form={locationForm}
@@ -1041,7 +1048,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
           type: showStandardItemSelector && selectedTemplateItems.size > 0 ? 'primary' : 'default',
           loading: savingMultipleItems
         }}
-        width={800}
+        width={isMobile ? '95vw' : 800}
       >
         {/* Standard Item Selector - Multi-Select Mode */}
         {showStandardItemSelector ? (
@@ -1061,9 +1068,9 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                 }
               />
             ) : (
-              <Row gutter={16}>
+              <Row gutter={[16, 16]}>
                 {/* Left: Item Selection */}
-                <Col span={selectedTemplateItems.size > 0 ? 14 : 24}>
+                <Col xs={24} md={selectedTemplateItems.size > 0 ? 14 : 24}>
                   <div style={{ maxHeight: 450, overflowY: 'auto', paddingRight: 8 }}>
                     {(() => {
                       const grouped = standardScopeItems.reduce((acc, item) => {
@@ -1123,7 +1130,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
 
                 {/* Right: Selected Items with Quantity Input */}
                 {selectedTemplateItems.size > 0 && (
-                  <Col span={10}>
+                  <Col xs={24} md={10}>
                     <Card
                       size="small"
                       title={

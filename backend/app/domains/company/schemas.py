@@ -3,7 +3,7 @@ Company domain schemas
 """
 
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
 
 from app.common.schemas.base import BaseResponseSchema, PaginatedResponse
@@ -19,6 +19,13 @@ class CompanyBase(BaseModel):
     zipcode: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[EmailStr] = None
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def empty_email_to_none(cls, v):
+        if v == '':
+            return None
+        return v
     website: Optional[str] = None
     company_code: Optional[str] = Field(None, max_length=10)
     license_number: Optional[str] = Field(None, max_length=100)
@@ -46,6 +53,13 @@ class CompanyUpdate(BaseModel):
     zipcode: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[EmailStr] = None
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def empty_email_to_none(cls, v):
+        if v == '':
+            return None
+        return v
     website: Optional[str] = None
     company_code: Optional[str] = Field(None, max_length=10)
     license_number: Optional[str] = Field(None, max_length=100)

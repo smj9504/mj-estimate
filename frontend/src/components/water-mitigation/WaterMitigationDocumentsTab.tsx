@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Tabs } from 'antd';
+import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Tabs, Grid } from 'antd';
 import { FilePdfOutlined, PlusOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined } from '@ant-design/icons';
 import FileGallery from '../common/FileGallery/FileGallery';
 import WMDocumentList from './WMDocumentList';
@@ -45,12 +45,16 @@ const DOCUMENT_TYPES: DocumentType[] = [
   }
 ];
 
+const { useBreakpoint } = Grid;
+
 const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = ({
   jobId,
   jobAddress,
   dateOfLoss,
   mitigationStartDate
 }) => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [selectedDocType, setSelectedDocType] = useState<string | null>(null);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
@@ -197,7 +201,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   };
 
   return (
-    <div className="wm-documents-tab" style={{ height: 'calc(100vh - 180px)', padding: '16px' }}>
+    <div className="wm-documents-tab" style={{ height: isMobile ? 'auto' : 'calc(100vh - 180px)', minHeight: isMobile ? 'calc(100vh - 250px)' : undefined, padding: isMobile ? '8px' : '16px' }}>
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
@@ -221,7 +225,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                     Create Document
                   </Button>
                 </div>
-                <div style={{ height: 'calc(100vh - 300px)', overflow: 'auto' }}>
+                <div style={{ height: isMobile ? 'auto' : 'calc(100vh - 300px)', overflow: 'auto' }}>
                   <WMDocumentList
                     ref={documentListRef}
                     jobId={jobId}
@@ -242,7 +246,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               </span>
             ),
             children: (
-              <div style={{ height: 'calc(100vh - 260px)', overflow: 'auto' }}>
+              <div style={{ height: isMobile ? 'auto' : 'calc(100vh - 260px)', overflow: 'auto' }}>
                 <WMInvoiceList
                   ref={invoiceListRef}
                   jobId={jobId}
@@ -264,7 +268,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
           setCustomFilename('');
           setCompressPdf(false);
         }}
-        width={1000}
+        width={isMobile ? '95vw' : 1000}
         footer={[
           <Button
             key="cancel"
@@ -372,7 +376,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
             </Text>
 
             <div style={{
-              height: selectedPhotoIds.length > 0 ? '350px' : '500px',
+              height: selectedPhotoIds.length > 0 ? (isMobile ? '250px' : '350px') : (isMobile ? '300px' : '500px'),
               border: '1px solid #d9d9d9',
               borderRadius: 4,
               overflow: 'hidden',

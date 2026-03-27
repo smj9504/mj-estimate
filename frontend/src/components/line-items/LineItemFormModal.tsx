@@ -355,11 +355,23 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
         // Create/Update notes
         for (let i = 0; i < notes.length; i++) {
           const note = notes[i];
-          if (!note.content.trim()) continue; // Skip empty notes
+          const hasContent = note.content && note.content.trim().length > 0;
+
+          // If existing note has no real content, delete it
+          if (!hasContent && !note._isNew && note.id) {
+            try {
+              await lineItemService.deleteLineItemNote(savedLineItemId, note.id);
+            } catch (error) {
+              console.error('Failed to delete empty note:', error);
+            }
+            continue;
+          }
+
+          if (!hasContent) continue; // Skip new empty notes
 
           const noteData = {
             title: note.title,
-            content: note.content,
+            content: note.content.trim(),
             category: note.category,
             is_template: false,
           };

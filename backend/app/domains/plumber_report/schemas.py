@@ -10,7 +10,7 @@ from uuid import UUID
 
 class ClientInfo(BaseModel):
     """Client information schema"""
-    name: str
+    name: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
@@ -40,7 +40,7 @@ class InvoiceItem(BaseModel):
 class PaymentRecord(BaseModel):
     """Payment record schema"""
     amount: float
-    date: Optional[datetime] = None
+    date: Optional[str] = None
     method: Optional[str] = None
     reference: Optional[str] = None
     notes: Optional[str] = None
@@ -167,9 +167,14 @@ class PlumberReportNumberResponse(BaseModel):
     report_number: str
 
 
+class PlumberReportPreviewData(PlumberReportCreate):
+    """Schema for PDF preview - does not require id or created_at"""
+    company_data: Optional[Dict[str, Any]] = None
+
+
 class PlumberReportPDFRequest(BaseModel):
     """Schema for PDF generation request"""
-    report_data: PlumberReportResponse
+    report_data: PlumberReportPreviewData
     include_photos: bool = True
     include_financial: bool = True
     page_size: str = "letter"  # letter, a4

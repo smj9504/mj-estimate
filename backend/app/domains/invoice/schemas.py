@@ -9,6 +9,14 @@ from uuid import UUID
 from pydantic import BaseModel, Field, validator
 
 
+class LineItemImage(BaseModel):
+    """Image attached to an invoice line item"""
+    id: str
+    title: str = ""
+    url: str  # base64 data URL or external URL
+    order_index: int = 0
+
+
 # Nested schemas
 class CompanyInfo(BaseModel):
     name: str
@@ -116,6 +124,9 @@ class InvoiceItemBase(BaseModel):
 
     # Rich text note field for item-specific notes
     note: Optional[str] = None  # HTML content for rich text notes
+
+    # Images attached to this line item
+    images: Optional[List[LineItemImage]] = None
 
 
 class InvoiceItemCreate(InvoiceItemBase):

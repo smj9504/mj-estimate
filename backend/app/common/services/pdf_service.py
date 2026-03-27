@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -82,6 +82,16 @@ except Exception as e:
 # Template directory for React backend - correct path to backend/app/templates
 TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates"
 TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Locale-independent English month names for PDF/HTML templates
+_EN_MONTHS = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+]
+
+def _format_date_en(dt: datetime) -> str:
+    """Format a datetime as 'Month DD, YYYY' using English month names regardless of system locale."""
+    return f"{_EN_MONTHS[dt.month - 1]} {dt.day}, {dt.year}"
 
 # EWA Template Configuration
 # Coordinates are in points (1/72 inch) from bottom-left corner
@@ -1257,23 +1267,27 @@ class PDFService:
         
         # Register filters
         def date_filter(value):
+            if isinstance(value, datetime):
+                return _format_date_en(value)
+            if isinstance(value, date):
+                return f"{_EN_MONTHS[value.month - 1]} {value.day}, {value.year}"
             if isinstance(value, str):
                 try:
                     dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
-                    return safe_strftime(dt, "%B %d, %Y")
+                    return _format_date_en(dt)
                 except (ValueError, TypeError):
                     return value
             return value
-        
+
         def nl2br_filter(value):
             if value:
                 return value.replace('\n', '<br>')
             return value
-        
+
         def safe_filter(value):
             # Allow HTML tags for rich text
             return value
-        
+
         env.filters['date'] = date_filter
         env.filters['nl2br'] = nl2br_filter
         env.filters['safe'] = safe_filter
@@ -1282,6 +1296,7 @@ class PDFService:
         context = report_data.copy()
         context['include_photos'] = include_photos
         context['include_financial'] = include_financial
+        context['generated_date'] = datetime.now().strftime("%B %d, %Y")
         
         # Load template
         template = env.get_template('template.html')
@@ -1294,28 +1309,131 @@ class PDFService:
             with open(css_path, 'r', encoding='utf-8') as f:
                 stylesheets.append(CSS(string=f.read()))
         
-        # Add page numbering CSS
-        page_css = """
-        @page {
+        # Build footer text values from context
+        report_number = report_data.get('report_number', '')
+        service_date_raw = report_data.get('service_date', '')
+        company_data = report_data.get('company_data', {}) or {}
+        company_name = company_data.get('name', '') if isinstance(company_data, dict) else ''
+
+        footer_left   = f"Report #{report_number}" if report_number else ''
+        footer_center = date_filter(service_date_raw)
+        footer_right  = company_name
+
+        # Add page CSS with footer on every page
+        page_css = f"""
+        @page {{
             size: letter;
-            margin: 0.75in;
-            
-            @bottom-center {
-                content: "Page " counter(page) " of " counter(pages);
+            margin: 0.1in 0.3in 0.3in 0.3in;
+
+            @bottom-left {{
+                content: "{footer_left}";
                 font-size: 9pt;
                 color: #666;
-            }
-        }
-        
-        .page:after { content: counter(page); }
-        .topage:after { content: counter(pages); }
+                border-top: 1px solid #ccc;
+                padding-top: 2px;
+                padding-bottom: 4px;
+            }}
+
+            @bottom-center {{
+                content: "{footer_center}";
+                font-size: 9pt;
+                color: #666;
+                border-top: 1px solid #ccc;
+                padding-top: 2px;
+                padding-bottom: 4px;
+            }}
+
+            @bottom-right {{
+                content: "{footer_right}";
+                font-size: 9pt;
+                color: #666;
+                border-top: 1px solid #ccc;
+                padding-top: 2px;
+                padding-bottom: 4px;
+            }}
+        }}
         """
         stylesheets.append(CSS(string=page_css))
         
         # Generate PDF
-        pdf_document = HTML(string=html_content).write_pdf(stylesheets=stylesheets)
+        pdf_document = HTML(string=html_content, base_url=str(template_dir)).write_pdf(stylesheets=stylesheets)
 
         return pdf_document
+
+    @staticmethod
+    def generate_plumber_report_html(
+        report_data: Dict[str, Any],
+        include_photos: bool = True,
+        include_financial: bool = True
+    ) -> str:
+        """Generate HTML for Plumber's Report (browser-renderable preview)"""
+        template_dir = TEMPLATE_DIR / "plumber_report" / "standard"
+        env = Environment(loader=FileSystemLoader(str(template_dir)))
+
+        def date_filter(value):
+            if isinstance(value, datetime):
+                return _format_date_en(value)
+            if isinstance(value, date):
+                return f"{_EN_MONTHS[value.month - 1]} {value.day}, {value.year}"
+            if isinstance(value, str):
+                try:
+                    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                    return _format_date_en(dt)
+                except (ValueError, TypeError):
+                    return value
+            return value
+
+        def nl2br_filter(value):
+            if value:
+                return value.replace('\n', '<br>')
+            return value
+
+        def safe_filter(value):
+            return value
+
+        env.filters['date'] = date_filter
+        env.filters['nl2br'] = nl2br_filter
+        env.filters['safe'] = safe_filter
+
+        context = report_data.copy()
+        context['include_photos'] = include_photos
+        context['include_financial'] = include_financial
+        context['generated_date'] = datetime.now().strftime("%B %d, %Y")
+
+        template = env.get_template('template.html')
+        html_content = template.render(**context)
+
+        # Inline the CSS so the HTML works as a standalone blob URL
+        css_path = template_dir / 'style.css'
+        css_content = css_path.read_text(encoding='utf-8', errors='replace') if css_path.exists() else ''
+
+        # Print button style (screen only — CSS already hides it on print)
+        print_btn_style = """
+        .print-btn {
+            position: fixed; top: 12px; right: 16px; z-index: 9999;
+            background: #1f2937; color: white; border: none;
+            padding: 9px 18px; font-size: 13px; font-family: Arial, sans-serif;
+            cursor: pointer; border-radius: 4px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+        .print-btn:hover { background: #374151; }
+        """
+
+        html_content = html_content.replace(
+            '<link rel="stylesheet" href="style.css">',
+            f'<style>{css_content}\n{print_btn_style}</style>'
+        )
+
+        # Inject print button
+        html_content = html_content.replace(
+            '<body>',
+            '<body><button class="print-btn" onclick="window.print()">&#128438; Print / Save as PDF</button>'
+        )
+
+        # Sanitize surrogate characters that Windows file paths/fonts can introduce
+        html_content = html_content.encode('utf-8', errors='replace').decode('utf-8')
+
+        return html_content
 
     def generate_receipt_html(self, data: Dict[str, Any]) -> str:
         """
