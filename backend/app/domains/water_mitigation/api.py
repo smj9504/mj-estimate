@@ -534,12 +534,16 @@ async def list_photos(
         preview_url = None
         thumbnail_url = None
         
-        # Use stored thumbnail URL only if it's an actual URL (cloud CDN, etc.)
+        # Use stored thumbnail URL only if it's a publicly accessible URL (CDN, etc.)
+        # Google Drive URLs are NOT publicly accessible (Shared Drive requires auth)
         # Local storage paths (e.g. "water-mitigation/job/photos/thumb_xxx.webp") are NOT valid URLs
-        if photo.storage_thumbnail_url and photo.storage_thumbnail_url.startswith('http'):
+        storage_prov = getattr(photo, 'storage_provider', None)
+        if (photo.storage_thumbnail_url
+            and photo.storage_thumbnail_url.startswith('http')
+            and storage_prov != 'gdrive'):
             thumbnail_url = photo.storage_thumbnail_url
             preview_url = photo.storage_thumbnail_url
-        
+
         # For CompanyCam photos, use cached CDN URLs directly (fastest)
         elif photo.source == 'companycam' and photo.external_id:
             try:
@@ -875,20 +879,35 @@ async def preview_photo(
             logger.error(f"Failed to proxy CompanyCam photo for {photo_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to access CompanyCam photo: {str(e)}")
 
-    # Handle cloud storage (GCS, S3, etc.) - redirect to signed URL
+    # Handle cloud storage (Google Drive, GCS, S3, etc.)
     if storage_provider and storage_provider != 'local':
         try:
+            import io
+
+            from fastapi.responses import StreamingResponse
+
             from ..storage.factory import StorageFactory
             storage = StorageFactory.get_instance(storage_provider)
 
-            # Get signed URL (valid for 1 hour)
-            signed_url = storage.get_url(file_path, expires_in=3600)
+            # For Google Drive: download and proxy (Shared Drive files aren't publicly accessible)
+            storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else photo.storage_file_id
+            if storage_provider == 'gdrive' and hasattr(storage, 'download') and storage_file_id:
+                photo_bytes = storage.download(storage_file_id)
+                return StreamingResponse(
+                    io.BytesIO(photo_bytes),
+                    media_type=media_type,
+                    headers={
+                        "Content-Disposition": "inline",
+                        "Cache-Control": "public, max-age=86400"
+                    }
+                )
 
-            # Redirect to signed URL
+            # For other cloud providers: redirect to signed URL
             from fastapi.responses import RedirectResponse
+            signed_url = storage.get_url(file_path, expires_in=3600)
             return RedirectResponse(url=signed_url, status_code=302)
         except Exception as e:
-            logger.error(f"Failed to generate signed URL for photo {photo_id}: {e}")
+            logger.error(f"Failed to serve cloud storage photo {photo_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to access photo: {str(e)}")
 
     # Handle local storage - optimize and serve file
