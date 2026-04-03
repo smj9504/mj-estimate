@@ -28,6 +28,7 @@ const DragHandle: React.FC<DragHandleProps> = ({
     <div
       {...attributes}
       {...listeners}
+      data-dnd-handle="true"
       className={className}
       style={{
         cursor: isDragging ? 'grabbing' : 'grab',
@@ -38,7 +39,8 @@ const DragHandle: React.FC<DragHandleProps> = ({
         color: isDragging ? '#1890ff' : '#999',
         transition: 'color 0.2s ease',
         userSelect: 'none',
-        touchAction: 'none', // Important for touch devices
+        WebkitUserSelect: 'none',
+        touchAction: 'none',
         ...style,
       }}
       onMouseEnter={(e) => {

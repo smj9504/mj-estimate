@@ -35,3 +35,104 @@ code {
 .invoice-config-collapse .ant-collapse-extra {
   flex-shrink: 0;
 }
+
+/* ============================================================
+   Mobile Responsive Styles (≤576px)
+   ============================================================ */
+@media (max-width: 576px) {
+  /* Section panel header - stack buttons below title on small screens */
+  .section-panel-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+
+  /* Hide button text labels on very small screens to save space */
+  .section-btn-text {
+    display: none;
+  }
+
+  /* Make draggable tables horizontally scrollable on mobile */
+  .draggable-table .ant-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Card padding reduction on mobile */
+  .ant-card-body {
+    padding: 12px !important;
+  }
+
+  /* Reduce form item spacing on mobile */
+  .ant-form-item {
+    margin-bottom: 12px !important;
+  }
+
+  /* Full-width inputs inside flex rows */
+  .add-section-row input {
+    min-width: 0;
+  }
+
+  /* Ensure Collapse headers wrap properly */
+  .ant-collapse-header {
+    flex-wrap: wrap !important;
+  }
+
+  /* Tighten table cells on mobile */
+  .ant-table-small .ant-table-cell {
+    padding: 6px 4px !important;
+  }
+  .ant-table .ant-table-cell {
+    padding: 8px 6px !important;
+  }
+
+  /* Grand Total bar on mobile */
+  .ant-card .ant-row {
+    flex-wrap: wrap;
+  }
+}
+
+/* ============================================================
+   Tablet Responsive Styles (577px – 768px)
+   ============================================================ */
+@media (max-width: 768px) {
+  /* Section btn text visible on tablet but smaller */
+  .section-btn-text {
+    font-size: 12px;
+  }
+
+  /* Table horizontal scroll */
+  .ant-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ============================================================
+   Touch / Mobile drag-and-drop
+   ============================================================ */
+/* Ensure drag handle is always touchable with no scroll interference */
+.section-drag-handle {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* DragHandle div inside table cells */
+[data-dnd-handle],
+.drag-handle {
+  touch-action: none;
+  cursor: grab;
+}
+
+/* Prevent text selection during drag */
+.draggable-table .ant-table-row {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Overlay shown during drag: ensure it's above table */
+.dnd-drag-overlay {
+  pointer-events: none;
+  z-index: 9999;
+}

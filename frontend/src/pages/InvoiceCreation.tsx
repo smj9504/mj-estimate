@@ -43,6 +43,7 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragStartEvent,
@@ -326,10 +327,13 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
     >
       {/* Section Header */}
       <div
+        className="section-panel-header"
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '8px',
           padding: '12px 16px',
           backgroundColor: '#fafafa',
           borderBottom: isOpen ? '1px solid #d9d9d9' : 'none',
@@ -337,25 +341,25 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
         }}
         onClick={onToggle}
       >
-        <Space>
+        <Space size={6} style={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>
           <span
             {...dragListeners}
             className="section-drag-handle"
-            style={{ cursor: 'grab', color: '#999', padding: '4px' }}
+            style={{ cursor: 'grab', color: '#999', padding: '4px', touchAction: 'none', flexShrink: 0 }}
             onClick={(e) => e.stopPropagation()}
           >
             <HolderOutlined />
           </span>
-          <span style={{ fontWeight: 'bold' }}>{section.title}</span>
-          <Badge count={section.items.length} showZero color="#108ee9" />
+          <span style={{ fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{section.title}</span>
+          <Badge count={section.items.length} showZero color="#108ee9" style={{ flexShrink: 0 }} />
           {section.showSubtotal && (
-            <Tag color="blue">${formatCurrency(section.subtotal)}</Tag>
+            <Tag color="blue" style={{ margin: 0 }}>${formatCurrency(section.subtotal)}</Tag>
           )}
-          <span style={{ color: '#999', marginLeft: '8px' }}>
+          <span style={{ color: '#999' }}>
             {isOpen ? <UpOutlined /> : <DownOutlined />}
           </span>
         </Space>
-        <Space onClick={(e) => e.stopPropagation()}>
+        <Space size={4} onClick={(e) => e.stopPropagation()} style={{ flexShrink: 0 }}>
           <Button
             size="small"
             type="primary"
@@ -365,7 +369,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
               onAddItem();
             }}
           >
-            Add Item
+            <span className="section-btn-text">Add Item</span>
           </Button>
           <Button
             size="small"
@@ -375,7 +379,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
               onApplyTemplate();
             }}
           >
-            Apply Template
+            <span className="section-btn-text">Template</span>
           </Button>
           <Tooltip title="Save section as template">
             <Button
@@ -385,9 +389,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                 e.stopPropagation();
                 onSaveAsTemplate();
               }}
-            >
-              Save as Template
-            </Button>
+            />
           </Tooltip>
           <Tooltip title="Edit section name">
             <Button
@@ -715,10 +717,17 @@ const InvoiceCreation: React.FC = () => {
   const [activeKeys, setActiveKeys] = useState<string[]>([]);
 
   // Setup sensors for drag interactions
+  // PointerSensor for mouse/stylus; TouchSensor with delay for mobile (prevents scroll/drag conflict)
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 8,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 200,
+        tolerance: 5,
       },
     }),
     useSensor(KeyboardSensor, {
@@ -2871,13 +2880,13 @@ const InvoiceCreation: React.FC = () => {
         {/* Invoice Items - Section Based */}
         <Card title="Invoice Items" style={{ marginBottom: 24 }}>
           {/* Section Creation */}
-          <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="add-section-row" style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <Input
               placeholder="Enter section title..."
               value={newSectionTitle}
               onChange={(e) => setNewSectionTitle(e.target.value)}
               onPressEnter={addSection}
-              style={{ maxWidth: 300 }}
+              style={{ flex: '1 1 200px', maxWidth: 300 }}
             />
             <Button type="primary" icon={<PlusOutlined />} onClick={addSection}>
               Add Section

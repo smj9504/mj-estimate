@@ -889,9 +889,12 @@ async def preview_photo(
             from ..storage.factory import StorageFactory
             storage = StorageFactory.get_instance(storage_provider)
 
-            # For Google Drive: download and proxy (Shared Drive files aren't publicly accessible)
+            # For Google Drive and GCS: download and proxy through backend
+            # (Shared Drive / private GCS files aren't publicly accessible;
+            #  GCS signed URL generation requires IAM signing which may not be
+            #  available on non-GCP hosting like Render)
             storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else photo.storage_file_id
-            if storage_provider == 'gdrive' and hasattr(storage, 'download') and storage_file_id:
+            if storage_provider in ('gdrive', 'gcs') and hasattr(storage, 'download') and storage_file_id:
                 photo_bytes = storage.download(storage_file_id)
                 return StreamingResponse(
                     io.BytesIO(photo_bytes),
@@ -902,7 +905,7 @@ async def preview_photo(
                     }
                 )
 
-            # For other cloud providers: redirect to signed URL
+            # For other cloud providers (S3, Azure, etc.): redirect to signed URL
             from fastapi.responses import RedirectResponse
             signed_url = storage.get_url(file_path, expires_in=3600)
             return RedirectResponse(url=signed_url, status_code=302)

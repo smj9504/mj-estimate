@@ -146,7 +146,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
       onOk={handleSubmit}
       confirmLoading={loading}
       width={800}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}

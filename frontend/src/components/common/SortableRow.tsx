@@ -45,16 +45,6 @@ const SortableRow: React.FC<SortableRowProps> = ({
     id: id,
   });
 
-  const transformStyle = {
-    transform: CSS.Transform.toString(transform),
-    transition: isDragging ? 'none' : transition,
-    opacity: isDragging ? 0 : 1,
-    zIndex: isDragging ? 1000 : 'auto',
-    position: isDragging ? 'relative' : 'static',
-    visibility: isDragging ? 'hidden' : 'visible',
-    ...style,
-  } as React.CSSProperties;
-
   // Filter out any drag-related props that shouldn't be passed to DOM
   const {
     onDragStart: _onDragStart,
@@ -69,12 +59,53 @@ const SortableRow: React.FC<SortableRowProps> = ({
     ...domProps
   } = props;
 
-  // Use DragProvider to pass drag context to DragHandle children
-  // This eliminates the need for expensive recursive child traversal
+  // When THIS row is dragged: render an EMPTY <tr> placeholder.
+  // DragOverlay handles the visual. Empty <tr> prevents Tooltip children from
+  // re-rendering on every pointermove (which causes ResizeObserver → setState loop).
+  if (isDragging) {
+    return (
+      <tr
+        ref={setNodeRef}
+        style={{ opacity: 0, visibility: 'hidden', pointerEvents: 'none', ...style }}
+        className={className}
+        {...attributes}
+        {...listeners}
+        {...domProps}
+      />
+    );
+  }
+
+  // When any drag is active (transform is non-null on displaced rows): skip CSS transforms.
+  // dnd-kit sets transform on non-dragged rows to slide them up/down showing the drop gap.
+  // Applying these per-frame transform changes triggers Ant Design's Tooltip ResizeObserver
+  // → setState loop ("Maximum update depth exceeded"). Skip transforms during active drag;
+  // the DragOverlay already provides visual feedback — items reorder on drop anyway.
+  if (transform !== null) {
+    return (
+      <tr
+        ref={setNodeRef}
+        style={style}
+        className={className}
+        {...attributes}
+        {...listeners}
+        {...domProps}
+      >
+        <DragProvider listeners={listeners} attributes={attributes} isDragging={false}>
+          {children}
+        </DragProvider>
+      </tr>
+    );
+  }
+
+  // Normal (no drag active): full row with transforms and drag context
   return (
     <tr
       ref={setNodeRef}
-      style={transformStyle}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        ...style,
+      }}
       className={className}
       {...attributes}
       {...listeners}

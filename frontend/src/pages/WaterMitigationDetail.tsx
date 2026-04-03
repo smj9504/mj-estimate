@@ -54,6 +54,7 @@ const WaterMitigationDetail: React.FC = () => {
   const navigate = useNavigate();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
+  const [activeTab, setActiveTab] = useState('details');
   const [loading, setLoading] = useState(false);
   const [job, setJob] = useState<WaterMitigationJob | null>(null);
   const [statusHistory, setStatusHistory] = useState<JobStatusHistory[]>([]);
@@ -395,6 +396,8 @@ const WaterMitigationDetail: React.FC = () => {
         {/* Tabs */}
         <Tabs
           defaultActiveKey="details"
+          activeKey={activeTab}
+          onChange={setActiveTab}
           size={isMobile ? 'small' : 'middle'}
           tabBarStyle={isMobile ? { marginBottom: 8 } : undefined}
           items={[
@@ -580,6 +583,7 @@ const WaterMitigationDetail: React.FC = () => {
                             )}
                           </Descriptions.Item>
                           <Descriptions.Item
+                            span={descColumn}
                             label={
                               <Space size={4}>
                                 <span>{isMobile ? 'End Date' : 'Mitigation End Date'}</span>
@@ -710,26 +714,27 @@ const WaterMitigationDetail: React.FC = () => {
                   {/* Status History */}
                   <Col xs={24} lg={8}>
                     <Card title="Status History">
-                      <Timeline>
-                        {statusHistory.map((history) => (
-                          <Timeline.Item
-                            key={history.id}
-                            color={getStatusColor(history.new_status as JobStatus)}
-                          >
-                            <p style={{ margin: 0, fontWeight: 'bold' }}>
-                              {history.new_status}
-                            </p>
-                            <p style={{ margin: 0, fontSize: '12px', color: '#999' }}>
-                              {new Date(history.changed_at).toLocaleString()}
-                            </p>
-                            {history.notes && (
-                              <p style={{ margin: '4px 0 0', fontSize: '13px' }}>
-                                {history.notes}
+                      <Timeline
+                        items={statusHistory.map((history) => ({
+                          key: history.id,
+                          color: getStatusColor(history.new_status as JobStatus),
+                          children: (
+                            <>
+                              <p style={{ margin: 0, fontWeight: 'bold' }}>
+                                {history.new_status}
                               </p>
-                            )}
-                          </Timeline.Item>
-                        ))}
-                      </Timeline>
+                              <p style={{ margin: 0, fontSize: '12px', color: '#999' }}>
+                                {new Date(history.changed_at).toLocaleString()}
+                              </p>
+                              {history.notes && (
+                                <p style={{ margin: '4px 0 0', fontSize: '13px' }}>
+                                  {history.notes}
+                                </p>
+                              )}
+                            </>
+                          ),
+                        }))}
+                      />
                     </Card>
 
                     <Card title="Integration Info" style={{ marginTop: 16 }}>
@@ -785,7 +790,7 @@ const WaterMitigationDetail: React.FC = () => {
             {
               key: 'scope',
               label: 'Scope',
-              children: id ? <WaterMitigationScopeTab jobId={id} jobCompanyId={job.company_id} /> : null
+              children: id ? <WaterMitigationScopeTab jobId={id} jobCompanyId={job.company_id} isActive={activeTab === 'scope'} /> : null
             },
             {
               key: 'sketch',

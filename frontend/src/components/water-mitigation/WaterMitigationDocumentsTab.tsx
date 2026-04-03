@@ -389,7 +389,10 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                   alignItems: 'center',
                   height: '100%'
                 }}>
-                  <Spin size="large" tip="Generating PDF..." />
+                  <div style={{ textAlign: 'center' }}>
+                    <Spin size="large" />
+                    <div style={{ marginTop: 12, color: '#8c8c8c', fontSize: 14 }}>Generating PDF...</div>
+                  </div>
                 </div>
               ) : (
                 <FileGallery

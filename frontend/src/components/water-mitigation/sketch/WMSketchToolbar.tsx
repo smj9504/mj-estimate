@@ -57,6 +57,9 @@ import type {
 } from '../../../types/wmSketch';
 import { EQUIPMENT_CONFIG } from '../../../types/wmSketch';
 
+// Space.Compact is available in antd v5+; aliased for readability
+const { Compact: SpaceCompact } = Space;
+
 // ============================================================================
 // Props
 // ============================================================================
@@ -215,7 +218,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
       }}
     >
       {/* Group 1 — Select */}
-      <Button.Group>
+      <SpaceCompact>
         <Tooltip title="Select / Move (V)">
           <Button
             type={toolButtonType('select')}
@@ -226,12 +229,12 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             Select
           </Button>
         </Tooltip>
-      </Button.Group>
+      </SpaceCompact>
 
       <Divider type="vertical" style={{ margin: '0 4px', height: 20 }} />
 
       {/* Group 2 — Demolition */}
-      <Button.Group>
+      <SpaceCompact>
         <Tooltip title="Draw demolition zone">
           <Button
             type={toolButtonType('demolition')}
@@ -276,10 +279,10 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             style={{ padding: '0 6px' }}
           />
         </Dropdown>
-      </Button.Group>
+      </SpaceCompact>
 
       {/* Group 3 — Equipment */}
-      <Button.Group>
+      <SpaceCompact>
         <Tooltip title="Place drying equipment">
           <Button
             type={toolButtonType('equipment')}
@@ -323,10 +326,10 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             style={{ padding: '0 6px' }}
           />
         </Dropdown>
-      </Button.Group>
+      </SpaceCompact>
 
       {/* Group 4 — Containment */}
-      <Button.Group>
+      <SpaceCompact>
         <Tooltip title="Draw containment zone">
           <Button
             type={toolButtonType('containment')}
@@ -337,10 +340,10 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             Containment
           </Button>
         </Tooltip>
-      </Button.Group>
+      </SpaceCompact>
 
       {/* Group 5 — Floor Protection */}
-      <Button.Group>
+      <SpaceCompact>
         <Tooltip title="Draw floor protection strip">
           <Button
             type={toolButtonType('floor_protection')}
@@ -351,7 +354,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             Protection
           </Button>
         </Tooltip>
-      </Button.Group>
+      </SpaceCompact>
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />
@@ -359,7 +362,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
       <Divider type="vertical" style={{ margin: '0 4px', height: 20 }} />
 
       {/* Group 6 — History */}
-      <Button.Group>
+      <SpaceCompact>
         <Tooltip title="Undo (Ctrl+Z)">
           <Button
             icon={<UndoOutlined />}
@@ -376,7 +379,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             onClick={onRedo}
           />
         </Tooltip>
-      </Button.Group>
+      </SpaceCompact>
 
       {/* Group 7 — Save */}
       <Tooltip title={isDirty ? 'Unsaved changes — click to save (Ctrl+S)' : 'All changes saved'}>

@@ -113,7 +113,8 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
     if (loading) {
       return (
         <div style={{ textAlign: 'center', padding: 40 }}>
-          <Spin tip="Loading invoices..." />
+          <Spin />
+          <div style={{ marginTop: 8, color: '#8c8c8c', fontSize: 14 }}>Loading invoices...</div>
         </div>
       );
     }

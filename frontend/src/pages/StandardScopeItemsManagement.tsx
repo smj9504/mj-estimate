@@ -48,7 +48,6 @@ import type { LineItemModalItem } from '../types/lineItem';
 const { Title, Text } = Typography;
 const { Search } = Input;
 const { Option } = Select;
-const { TabPane } = Tabs;
 
 // Item type options
 const ITEM_TYPE_OPTIONS = [
@@ -640,92 +639,96 @@ const StandardScopeItemsManagement: React.FC = () => {
           <Title level={3} style={{ margin: 0 }}>Standard Scope Items</Title>
         </div>
 
-        <Tabs activeKey={activeTab} onChange={setActiveTab}>
-          {/* Items Tab */}
-          <Tabs.TabPane tab="Scope Items" key="items">
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
-              <Space>
-                <Tooltip title="Seed default items from hardcoded list">
-                  <Button
-                    icon={<DatabaseOutlined />}
-                    onClick={() => seedDefaultsMutation.mutate()}
-                    loading={seedDefaultsMutation.isPending}
+        <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
+          {
+            key: 'items',
+            label: 'Scope Items',
+            children: (
+              <>
+                <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
+                  <Space>
+                    <Tooltip title="Seed default items from hardcoded list">
+                      <Button
+                        icon={<DatabaseOutlined />}
+                        onClick={() => seedDefaultsMutation.mutate()}
+                        loading={seedDefaultsMutation.isPending}
+                      >
+                        Seed Defaults
+                      </Button>
+                    </Tooltip>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={handleCreateItem}
+                    >
+                      Add Item
+                    </Button>
+                  </Space>
+                </div>
+
+                {/* Filters */}
+                <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Search
+                    placeholder="Search by name..."
+                    allowClear
+                    style={{ width: 250 }}
+                    prefix={<SearchOutlined />}
+                    onSearch={setSearchText}
+                    onChange={e => !e.target.value && setSearchText('')}
+                  />
+                  <Select
+                    placeholder="Filter by type"
+                    allowClear
+                    style={{ width: 150 }}
+                    value={filterType}
+                    onChange={setFilterType}
                   >
-                    Seed Defaults
+                    {ITEM_TYPE_OPTIONS.map(t => (
+                      <Option key={t.value} value={t.value}>{t.label}</Option>
+                    ))}
+                  </Select>
+                  <Select
+                    placeholder="Filter by category"
+                    allowClear
+                    style={{ width: 180 }}
+                    value={filterCategoryId}
+                    onChange={setFilterCategoryId}
+                  >
+                    {categories.map((cat: ScopeItemCategory) => (
+                      <Option key={cat.id} value={cat.id}>
+                        <Tag color={cat.color} style={{ marginRight: 4 }}>{cat.name}</Tag>
+                      </Option>
+                    ))}
+                  </Select>
+                  <Space>
+                    <Text>Show inactive:</Text>
+                    <Switch checked={showInactive} onChange={setShowInactive} />
+                  </Space>
+                  <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
+                    Refresh
                   </Button>
-                </Tooltip>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={handleCreateItem}
-                >
-                  Add Item
-                </Button>
-              </Space>
-            </div>
+                </div>
 
-            {/* Filters */}
-            <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Search
-                placeholder="Search by name..."
-                allowClear
-                style={{ width: 250 }}
-                prefix={<SearchOutlined />}
-                onSearch={setSearchText}
-                onChange={e => !e.target.value && setSearchText('')}
-              />
-              <Select
-                placeholder="Filter by type"
-                allowClear
-                style={{ width: 150 }}
-                value={filterType}
-                onChange={setFilterType}
-              >
-                {ITEM_TYPE_OPTIONS.map(t => (
-                  <Option key={t.value} value={t.value}>{t.label}</Option>
-                ))}
-              </Select>
-              <Select
-                placeholder="Filter by category"
-                allowClear
-                style={{ width: 180 }}
-                value={filterCategoryId}
-                onChange={setFilterCategoryId}
-              >
-                {categories.map((cat: ScopeItemCategory) => (
-                  <Option key={cat.id} value={cat.id}>
-                    <Tag color={cat.color} style={{ marginRight: 4 }}>{cat.name}</Tag>
-                  </Option>
-                ))}
-              </Select>
-              <Space>
-                <Text>Show inactive:</Text>
-                <Switch checked={showInactive} onChange={setShowInactive} />
-              </Space>
-              <Button icon={<ReloadOutlined />} onClick={() => refetch()}>
-                Refresh
-              </Button>
-            </div>
-
-            {/* Table */}
-            <Table
-              columns={columns}
-              dataSource={data?.items || []}
-              rowKey="id"
-              loading={isLoading}
-              pagination={{
-                total: data?.total || 0,
-                showSizeChanger: true,
-                showTotal: (total) => `Total ${total} items`
-              }}
-              scroll={{ x: 1200 }}
-              size="middle"
-            />
-          </Tabs.TabPane>
-
-          {/* Invoice Mapping Tab */}
-          <Tabs.TabPane
-            tab={
+                {/* Table */}
+                <Table
+                  columns={columns}
+                  dataSource={data?.items || []}
+                  rowKey="id"
+                  loading={isLoading}
+                  pagination={{
+                    total: data?.total || 0,
+                    showSizeChanger: true,
+                    showTotal: (total) => `Total ${total} items`
+                  }}
+                  scroll={{ x: 1200 }}
+                  size="middle"
+                />
+              </>
+            ),
+          },
+          {
+            key: 'mapping',
+            label: (
               <Space>
                 <LinkOutlined />
                 Invoice Mapping
@@ -735,73 +738,75 @@ const StandardScopeItemsManagement: React.FC = () => {
                   </Tag>
                 )}
               </Space>
-            }
-            key="mapping"
-          >
-            {/* Mapping Stats */}
-            {mappingsData && (
-              <div style={{ marginBottom: 16, padding: 16, background: '#fafafa', borderRadius: 8 }}>
-                <Space size="large">
-                  <div>
-                    <Text type="secondary">Total Items</Text>
-                    <div style={{ fontSize: 24, fontWeight: 600 }}>{mappingsData.total}</div>
+            ),
+            children: (
+              <>
+                {/* Mapping Stats */}
+                {mappingsData && (
+                  <div style={{ marginBottom: 16, padding: 16, background: '#fafafa', borderRadius: 8 }}>
+                    <Space size="large">
+                      <div>
+                        <Text type="secondary">Total Items</Text>
+                        <div style={{ fontSize: 24, fontWeight: 600 }}>{mappingsData.total}</div>
+                      </div>
+                      <div>
+                        <Text type="secondary">Mapped</Text>
+                        <div style={{ fontSize: 24, fontWeight: 600, color: '#52c41a' }}>
+                          {mappingsData.mapped_count}
+                        </div>
+                      </div>
+                      <div>
+                        <Text type="secondary">Unmapped</Text>
+                        <div style={{ fontSize: 24, fontWeight: 600, color: mappingsData.unmapped_count > 0 ? '#faad14' : '#52c41a' }}>
+                          {mappingsData.unmapped_count}
+                        </div>
+                      </div>
+                    </Space>
                   </div>
-                  <div>
-                    <Text type="secondary">Mapped</Text>
-                    <div style={{ fontSize: 24, fontWeight: 600, color: '#52c41a' }}>
-                      {mappingsData.mapped_count}
-                    </div>
-                  </div>
-                  <div>
-                    <Text type="secondary">Unmapped</Text>
-                    <div style={{ fontSize: 24, fontWeight: 600, color: mappingsData.unmapped_count > 0 ? '#faad14' : '#52c41a' }}>
-                      {mappingsData.unmapped_count}
-                    </div>
-                  </div>
-                </Space>
-              </div>
-            )}
+                )}
 
-            {/* Mapping Filters */}
-            <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Search
-                placeholder="Search scope items or line items..."
-                allowClear
-                style={{ width: 300 }}
-                prefix={<SearchOutlined />}
-                onSearch={setMappingSearchText}
-                onChange={e => !e.target.value && setMappingSearchText('')}
-              />
-              <Select
-                placeholder="Filter by status"
-                allowClear
-                style={{ width: 150 }}
-                value={showMappedOnly}
-                onChange={setShowMappedOnly}
-              >
-                <Option value={true}>Mapped Only</Option>
-                <Option value={false}>Unmapped Only</Option>
-              </Select>
-              <Button icon={<ReloadOutlined />} onClick={() => refetchMappings()}>
-                Refresh
-              </Button>
-            </div>
+                {/* Mapping Filters */}
+                <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Search
+                    placeholder="Search scope items or line items..."
+                    allowClear
+                    style={{ width: 300 }}
+                    prefix={<SearchOutlined />}
+                    onSearch={setMappingSearchText}
+                    onChange={e => !e.target.value && setMappingSearchText('')}
+                  />
+                  <Select
+                    placeholder="Filter by status"
+                    allowClear
+                    style={{ width: 150 }}
+                    value={showMappedOnly}
+                    onChange={setShowMappedOnly}
+                  >
+                    <Option value={true}>Mapped Only</Option>
+                    <Option value={false}>Unmapped Only</Option>
+                  </Select>
+                  <Button icon={<ReloadOutlined />} onClick={() => refetchMappings()}>
+                    Refresh
+                  </Button>
+                </div>
 
-            {/* Mapping Table */}
-            <Table
-              columns={mappingColumns}
-              dataSource={filteredMappings}
-              rowKey="id"
-              loading={mappingsLoading}
-              pagination={{
-                showSizeChanger: true,
-                showTotal: (total) => `Total ${total} items`
-              }}
-              scroll={{ x: 1000 }}
-              size="middle"
-            />
-          </Tabs.TabPane>
-        </Tabs>
+                {/* Mapping Table */}
+                <Table
+                  columns={mappingColumns}
+                  dataSource={filteredMappings}
+                  rowKey="id"
+                  loading={mappingsLoading}
+                  pagination={{
+                    showSizeChanger: true,
+                    showTotal: (total) => `Total ${total} items`
+                  }}
+                  scroll={{ x: 1000 }}
+                  size="middle"
+                />
+              </>
+            ),
+          },
+        ]} />
       </Card>
 
       {/* Create/Edit Modal */}

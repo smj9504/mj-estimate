@@ -6,6 +6,11 @@ module.exports = {
     configure: (webpackConfig) => {
       // Set public path for proper routing
       webpackConfig.output.publicPath = '/';
+      // Enable polling on Windows where native file watchers miss external editor changes
+      webpackConfig.watchOptions = {
+        poll: 500,
+        aggregateTimeout: 300,
+      };
       return webpackConfig;
     },
   },

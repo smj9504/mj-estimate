@@ -102,7 +102,7 @@ const AddFloorModal: React.FC<AddFloorModalProps> = ({ open, onClose, onConfirm 
       onCancel={handleCancel}
       okText="Add Floor"
       width={400}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}
@@ -204,7 +204,7 @@ const RenameFloorModal: React.FC<RenameFloorModalProps> = ({
       onCancel={() => { form.resetFields(); onClose(); }}
       okText="Rename"
       width={360}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}

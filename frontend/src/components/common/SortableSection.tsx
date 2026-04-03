@@ -42,18 +42,36 @@ const SortableSection: React.FC<SortableSectionProps> = ({
     id: section.id,
   });
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition: isDragging ? 'none' : transition,
-    opacity: isDragging ? 0 : 1,
-    visibility: isDragging ? 'hidden' : 'visible',
-  } as React.CSSProperties;
+  // When dragging: render an empty div placeholder (no children).
+  // Rendering Tooltip/Button children during drag causes ResizeObserver → setState loop.
+  if (isDragging) {
+    if (renderHeaderOnly) {
+      return (
+        <div
+          ref={setNodeRef}
+          style={{ opacity: 0, visibility: 'hidden', pointerEvents: 'none', width: '100%' }}
+        />
+      );
+    }
+    return (
+      <div
+        ref={setNodeRef}
+        style={{ opacity: 0, visibility: 'hidden', pointerEvents: 'none' }}
+      />
+    );
+  }
+
+  // Skip CSS transforms when displaced (transform non-null = another section is being dragged).
+  // Per-frame transform changes trigger Ant Design Tooltip ResizeObserver → setState loop.
+  const sectionStyle = (transform !== null)
+    ? ({} as React.CSSProperties)
+    : ({ transform: CSS.Transform.toString(transform), transition } as React.CSSProperties);
 
   // If only rendering the header, return just the header content
   if (renderHeaderOnly) {
     return (
-      <div ref={setNodeRef} style={{ ...style, display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div ref={setNodeRef} style={{ ...sectionStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <div
             {...attributes}
             {...listeners}
@@ -64,8 +82,10 @@ const SortableSection: React.FC<SortableSectionProps> = ({
               borderRadius: '4px',
               display: 'flex',
               alignItems: 'center',
+              flexShrink: 0,
               backgroundColor: 'transparent',
               transition: 'background-color 0.2s',
+              touchAction: 'none',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = '#f0f0f0';
@@ -76,12 +96,12 @@ const SortableSection: React.FC<SortableSectionProps> = ({
           >
             <HolderOutlined style={{ color: '#999', fontSize: '14px' }} />
           </div>
-          <strong>{section.title}</strong>
-          <Badge count={section.items.length} style={{ marginLeft: 8 }} />
+          <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{section.title}</strong>
+          <Badge count={section.items.length} style={{ marginLeft: 4, flexShrink: 0 }} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
           {section.showSubtotal && (
-            <Tag color="blue">${section.subtotal.toFixed(2)}</Tag>
+            <Tag color="blue" style={{ margin: 0 }}>${section.subtotal.toFixed(2)}</Tag>
           )}
           <Space size={4}>
             <Button
@@ -92,8 +112,9 @@ const SortableSection: React.FC<SortableSectionProps> = ({
                 e.stopPropagation();
                 onAddItem(sectionIndex);
               }}
+              className="section-btn-add-item"
             >
-              Add Item
+              <span className="section-btn-text">Add Item</span>
             </Button>
             <Tooltip title="Edit section name">
               <Button
@@ -129,7 +150,7 @@ const SortableSection: React.FC<SortableSectionProps> = ({
 
   // Legacy mode: return full Panel (for backward compatibility)
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={sectionStyle}>
       <Panel
         key={section.id}
         header={

@@ -170,7 +170,7 @@ const WMMaterialTypeManager: React.FC<WMMaterialTypeManagerProps> = ({
         cancelText="Cancel"
         width={520}
         styles={{ body: { maxHeight: '70vh', overflowY: 'auto', padding: '8px 0' } }}
-        destroyOnClose
+        destroyOnHidden
       >
         <Space direction="vertical" size={0} style={{ width: '100%' }}>
           {localTypes.map((type, index) => (

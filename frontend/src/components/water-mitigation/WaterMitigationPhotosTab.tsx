@@ -953,8 +953,11 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           {/* Loading State */}
           {isSearching && (
             <div style={{ textAlign: 'center', padding: '20px' }}>
-              <Spin tip="Searching all CompanyCam projects by address match..." />
+              <Spin />
               <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                Searching all CompanyCam projects by address match...
+              </Text>
+              <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
                 This may take a moment if you have many projects
               </Text>
             </div>

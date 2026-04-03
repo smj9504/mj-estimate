@@ -71,6 +71,7 @@ const { TextArea } = Input;
 interface WaterMitigationScopeTabProps {
   jobId: string;
   jobCompanyId?: string | null;
+  isActive?: boolean;
 }
 
 // Floor options for location
@@ -101,7 +102,7 @@ const ROOM_TYPE_OPTIONS = [
 
 const { useBreakpoint } = Grid;
 
-const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId, jobCompanyId }) => {
+const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId, jobCompanyId, isActive }) => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
 
@@ -143,6 +144,17 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
   // Inline editing state
   const [editingQuantity, setEditingQuantity] = useState<{ itemId: string; value: number | null } | null>(null);
   const [savingQuantity, setSavingQuantity] = useState(false);
+
+  // Close modals when this tab becomes inactive
+  useEffect(() => {
+    if (isActive === false) {
+      setLocationModalVisible(false);
+      setItemModalVisible(false);
+      setShowStandardItemSelector(false);
+      setSelectedStandardItem(null);
+      setSelectedTemplateItems(new Map());
+    }
+  }, [isActive]);
 
   // Load data
   const loadLocations = useCallback(async () => {
@@ -707,7 +719,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
 
   if (loading && locations.length === 0) {
     return (
-      <div style={{ textAlign: 'center', padding: '100px' }}>
+      <div style={{ textAlign: 'center', padding: isMobile ? '50px 16px' : '100px' }}>
         <Spin size="large" />
       </div>
     );
@@ -720,7 +732,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
         className="compact-card"
         style={{ marginBottom: 16 }}
         title={
-          <Space>
+          <Space size={4} wrap>
             <ToolOutlined />
             <span>Scope of Work</span>
             <Tag>{locations.length} Location(s)</Tag>
@@ -731,8 +743,9 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
             type="primary"
             icon={<PlusOutlined />}
             onClick={handleAddLocation}
+            size={isMobile ? 'small' : 'middle'}
           >
-            Add Location
+            {isMobile ? 'Add' : 'Add Location'}
           </Button>
         }
       >
@@ -763,23 +776,26 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                     />
                   )}
 
-                  <Space style={{ marginBottom: 16 }} wrap>
+                  <Space style={{ marginBottom: 16 }} wrap size={isMobile ? 4 : 8}>
                     <Button
                       type="primary"
                       icon={<AppstoreAddOutlined />}
                       onClick={() => handleAddFromStandard(location.id)}
+                      size={isMobile ? 'small' : 'middle'}
                     >
-                      From Templates
+                      {isMobile ? 'Templates' : 'From Templates'}
                     </Button>
                     <Button
                       icon={<PlusOutlined />}
                       onClick={() => handleAddItem(location.id, 'custom' as ScopeItemType)}
+                      size={isMobile ? 'small' : 'middle'}
                     >
-                      Custom Item
+                      Custom
                     </Button>
                     <Button
                       icon={<ToolOutlined />}
                       onClick={() => handleAddItem(location.id, 'demolition' as ScopeItemType)}
+                      size={isMobile ? 'small' : 'middle'}
                     >
                       Demolition
                     </Button>
@@ -816,16 +832,16 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
             {
               key: 'debris-calc',
               label: (
-                <Space>
+                <Space size={4} wrap>
                   <CalculatorOutlined />
-                  <Text strong>Debris Calculation Summary</Text>
+                  <Text strong>{isMobile ? 'Debris' : 'Debris Calculation Summary'}</Text>
                   <Tag color="blue">{debrisCalculation.total_weight_ton.toFixed(2)} tons</Tag>
-                  {debrisCalculation.bag_count && (
+                  {!isMobile && debrisCalculation.bag_count && (
                     <Tag color="green">
                       ~{debrisCalculation.bag_count} bags (42-gal)
                     </Tag>
                   )}
-                  {debrisCalculation.dumpster_recommendation && (
+                  {!isMobile && debrisCalculation.dumpster_recommendation && (
                     <Tag color="orange">
                       {debrisCalculation.dumpster_recommendation.count}x {debrisCalculation.dumpster_recommendation.size}
                     </Tag>
@@ -1240,7 +1256,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
             )}
 
             <Row gutter={16}>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item
                   name="item_type"
                   label="Item Type"
@@ -1249,7 +1265,7 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
                   <Select options={SCOPE_ITEM_TYPE_OPTIONS.map(o => ({ value: o.value, label: o.label }))} />
                 </Form.Item>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Form.Item
                   name="unit"
                   label="Unit"

@@ -118,7 +118,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         label: 'Line Items',
       },
       {
-        key: '/water-mitigation',
+        key: 'water-mitigation-menu',
         icon: <DropboxOutlined />,
         label: 'Water Mitigation',
         children: [
@@ -430,13 +430,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           transition: 'margin-left 0.3s ease',
         }}
       >
-        <Header style={{ 
-          padding: '0 24px', 
+        <Header style={{
+          padding: isMobile ? '0 12px' : '0 24px',
           background: '#fff',
           display: 'flex',
-          justifyContent: collapsed ? 'space-between' : 'space-between',
+          justifyContent: 'space-between',
           alignItems: 'center',
           boxShadow: '0 1px 4px rgba(0,21,41,.08)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 100,
         }}>
           {collapsed && (
             <Button
@@ -448,22 +451,23 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 fontSize: '16px',
                 width: 40,
                 height: 40,
+                flexShrink: 0,
               }}
               aria-label="Expand sidebar"
             />
           )}
-          <div style={{ flex: 1, paddingLeft: collapsed ? '16px' : '0' }}>
+          <div style={{ flex: 1, paddingLeft: collapsed ? '8px' : '0', minWidth: 0, overflow: 'hidden' }}>
             {selectedCompany && (
-              <Space>
-                <span>Current Company:</span>
-                <strong>{selectedCompany.name}</strong>
+              <Space size={4}>
+                {!isMobile && <span style={{ color: '#666' }}>Company:</span>}
+                <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedCompany.name}</strong>
               </Space>
             )}
           </div>
           <Dropdown menu={{ items: userMenuItems, onClick: handleMenuClick }} placement="bottomRight">
-            <Space style={{ cursor: 'pointer' }}>
-              <Avatar icon={<UserOutlined />} />
-              <span>{user?.full_name || user?.username || 'User'}</span>
+            <Space style={{ cursor: 'pointer', flexShrink: 0 }}>
+              <Avatar icon={<UserOutlined />} size={isMobile ? 'small' : 'default'} />
+              {!isMobile && <span>{user?.full_name || user?.username || 'User'}</span>}
             </Space>
           </Dropdown>
         </Header>

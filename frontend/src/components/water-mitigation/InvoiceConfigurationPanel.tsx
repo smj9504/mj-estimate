@@ -30,7 +30,8 @@ import {
   Col,
   Statistic,
   Dropdown,
-  Collapse
+  Collapse,
+  Grid
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -81,6 +82,7 @@ interface LineItemOption {
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
+const { useBreakpoint } = Grid;
 
 interface InvoiceConfigurationPanelProps {
   jobId: string;
@@ -99,6 +101,9 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
   onConfigChange,
   onInvoiceGenerated
 }) => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
+
   // State
   const [loading, setLoading] = useState(false);
   const [configs, setConfigs] = useState<InvoiceItemConfig[]>([]);
@@ -274,6 +279,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
         // Also load all line items from the library for full selection
         console.log('[InvoiceConfig] Loading all line items from library...');
         const allLineItems = await lineItemService.getLineItems({
+          page: 1,
           is_active: true,
           page_size: 1000, // Get all active line items
         });
@@ -826,7 +832,62 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
               <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>${totalAmount.toFixed(2)}</Text>
             </Space>
           ),
-          extra: (
+          extra: isMobile ? (
+            <Space size={4} onClick={(e) => e.stopPropagation()}>
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: 'regenerate',
+                      label: 'Regenerate All',
+                      icon: <ReloadOutlined />,
+                      onClick: () => handleAutoGenerate(true)
+                    },
+                    {
+                      key: 'generate-new',
+                      label: 'Generate Missing Only',
+                      icon: <SyncOutlined />,
+                      onClick: () => handleAutoGenerate(false)
+                    },
+                    { type: 'divider' },
+                    {
+                      key: 'preview',
+                      label: 'Preview Invoice',
+                      icon: <FileTextOutlined />,
+                      onClick: handlePreview,
+                      disabled: !selectedTemplateId || configs.length === 0
+                    },
+                    {
+                      key: 'holiday',
+                      label: holidayPremium ? 'Holiday Premium ON' : 'Holiday Premium OFF',
+                      icon: <GiftOutlined style={{ color: holidayPremium ? '#ff4d4f' : undefined }} />,
+                      onClick: () => setHolidayPremium(!holidayPremium)
+                    },
+                    { type: 'divider' },
+                    {
+                      key: 'reset-invoice',
+                      label: 'Reset Invoice Status',
+                      icon: <UndoOutlined />,
+                      danger: true,
+                      onClick: handleResetInvoiceStatus
+                    }
+                  ]
+                }}
+              >
+                <Button size="small" icon={<SettingOutlined />} loading={generating} />
+              </Dropdown>
+              <Button
+                size="small"
+                type="primary"
+                icon={<DollarOutlined />}
+                onClick={handleGenerateInvoice}
+                loading={generatingInvoice}
+                disabled={!selectedTemplateId || enabledCount === 0}
+              >
+                Invoice
+              </Button>
+            </Space>
+          ) : (
             <Space wrap size={[8, 4]} onClick={(e) => e.stopPropagation()}>
               <Dropdown.Button
                 size="small"
@@ -901,15 +962,15 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
           children: (
             <>
       {/* Summary Stats */}
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
+      <Row gutter={[16, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={6}>
           <Statistic
             title="Total Items"
             value={configs.length}
             suffix={`/ ${enabledCount} enabled`}
           />
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={6}>
           <Statistic
             title="Estimated Total"
             value={totalAmount}
@@ -917,14 +978,14 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
             prefix="$"
           />
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={6}>
           <Statistic
             title="Mitigation Days"
             value={actualMitigationDays}
             suffix="days"
           />
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={6}>
           {unmatchedCount > 0 ? (
             <Statistic
               title="Unmatched Items"
@@ -936,7 +997,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
             <Statistic
               title="Status"
               value="All Matched"
-              valueStyle={{ color: '#52c41a' }}
+              valueStyle={{ color: '#52c41a', fontSize: isMobile ? 18 : undefined }}
               prefix={<CheckCircleOutlined />}
             />
           )}
@@ -979,7 +1040,8 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
       {/* Configuration Table - Grouped by Location */}
       {loading || generating ? (
         <div style={{ textAlign: 'center', padding: 40 }}>
-          <Spin tip={generating ? 'Generating configurations...' : 'Loading...'} />
+          <Spin />
+          <div style={{ marginTop: 8, color: '#8c8c8c', fontSize: 14 }}>{generating ? 'Generating configurations...' : 'Loading...'}</div>
         </div>
       ) : configs.length === 0 ? (
         <Empty
@@ -1064,7 +1126,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
         title="Invoice Preview"
         open={showPreview}
         onCancel={() => setShowPreview(false)}
-        width={800}
+        width={isMobile ? '95vw' : 800}
         footer={[
           <Button key="close" onClick={() => setShowPreview(false)}>
             Close
@@ -1082,8 +1144,8 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
       >
         {previewData && (
           <>
-            <Row gutter={16} style={{ marginBottom: 16 }}>
-              <Col span={8}>
+            <Row gutter={[16, 12]} style={{ marginBottom: 16 }}>
+              <Col xs={12} sm={8}>
                 <Statistic
                   title="Subtotal"
                   value={previewData.subtotal}
@@ -1091,7 +1153,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
                   prefix="$"
                 />
               </Col>
-              <Col span={8}>
+              <Col xs={12} sm={8}>
                 <Statistic
                   title="Total"
                   value={previewData.total}
@@ -1100,7 +1162,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
                   valueStyle={{ color: '#1890ff' }}
                 />
               </Col>
-              <Col span={8}>
+              <Col xs={12} sm={8}>
                 <Statistic
                   title="Mitigation Days"
                   value={previewData.mitigation_days}
@@ -1152,6 +1214,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
               rowKey={(_, index) => `preview-${index}`}
               size="small"
               pagination={false}
+              scroll={isMobile ? { x: 600 } : undefined}
             />
           </>
         )}

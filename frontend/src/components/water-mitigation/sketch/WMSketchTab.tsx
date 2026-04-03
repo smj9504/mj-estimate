@@ -314,7 +314,8 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
           minHeight: 300,
         }}
       >
-        <Spin tip="Loading floor sketches..." size="large" />
+        <Spin size="large" />
+        <div style={{ marginTop: 12, color: '#8c8c8c', fontSize: 14 }}>Loading floor sketches...</div>
       </div>
     );
   }

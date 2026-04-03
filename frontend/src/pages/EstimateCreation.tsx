@@ -35,6 +35,7 @@ import {
   closestCenter,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragStartEvent,
@@ -382,10 +383,17 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
   };
 
   // Unified drag and drop sensors with improved activation
+  // PointerSensor for mouse/stylus; TouchSensor with delay for mobile (prevents scroll/drag conflict)
   const unifiedSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 8,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 200,
+        tolerance: 5,
       },
     }),
     useSensor(KeyboardSensor, {
