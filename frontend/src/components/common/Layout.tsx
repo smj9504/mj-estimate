@@ -100,6 +100,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             key: '/documents/invoice',
             label: 'Invoices',
           },
+          {
+            key: '/documents/plumber_report',
+            label: 'Plumber Reports',
+          },
         ],
       },
       {

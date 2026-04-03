@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { Table, TableProps } from 'antd';
 import { ColumnsType, ColumnType } from 'antd/es/table';
 import {
@@ -196,6 +196,42 @@ function DraggableTable<T extends Record<string, any>>({
     };
   };
 
+  // Memoize the row component so its reference is stable across re-renders.
+  // An inline function here creates a new component type every render, causing
+  // Ant Design Table to unmount/remount all rows → Tooltip ref resets → setState loop.
+  const bodyRowComponent = useMemo(() => {
+    return (props: any) => {
+      const id = props['data-sortable-id'] || props['data-row-key'] || props.key || 'row-unknown';
+      const {
+        sectionIndex: _sectionIndex,
+        dragType: _dragType,
+        onDragStart: _onDragStart,
+        onDragEnd: _onDragEnd,
+        items: _items,
+        onReorder: _onReorder,
+        activeId: _activeId,
+        ...rowProps
+      } = props;
+      return (
+        <SortableRow
+          {...rowProps}
+          id={id}
+          showDragHandle={showDragHandle && !disableDrag}
+          dragHandlePosition={dragHandlePosition}
+          sectionIndex={sectionIndex}
+          dragType={dragType}
+        />
+      );
+    };
+  // Only recreate when layout-affecting props change (not per-frame drag data)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDragHandle, disableDrag, dragHandlePosition, sectionIndex, dragType]);
+
+  const tableComponents = useMemo(() => ({
+    ...(resizableColumns ? { header: { cell: ResizableTitle } } : {}),
+    body: { row: bodyRowComponent },
+  }), [resizableColumns, bodyRowComponent]);
+
   if (disableDrag) {
     return (
       <Table
@@ -213,46 +249,9 @@ function DraggableTable<T extends Record<string, any>>({
         {...tableProps}
         dataSource={dataSource}
         columns={columns}
-        components={{
-          ...(resizableColumns ? { header: { cell: ResizableTitle } } : {}),
-          body: {
-            row: (props: any) => {
-              // Get the ID from the row props (avoid Math.random() which causes re-render issues)
-              const id = props['data-sortable-id'] || props['data-row-key'] || props.key || 'row-unknown';
-
-
-              // Filter out our custom props that shouldn't reach the DOM
-              const {
-                sectionIndex: _sectionIndex,
-                dragType: _dragType,
-                onDragStart: _onDragStart,
-                onDragEnd: _onDragEnd,
-                items: _items,
-                onReorder: _onReorder,
-                activeId: _activeId,
-                ...rowProps
-              } = props;
-
-              return (
-                <SortableRow
-                  {...rowProps}
-                  id={id}
-                  showDragHandle={showDragHandle && !disableDrag}
-                  dragHandlePosition={dragHandlePosition}
-                  sectionIndex={sectionIndex}
-                  dragType={dragType}
-                  onDragStart={onDragStart}
-                  onDragEnd={onDragEnd}
-                  items={items}
-                  onReorder={onReorder}
-                />
-              );
-            },
-          },
-        }}
+        components={tableComponents}
         onRow={customRow}
         rowKey={(record) => {
-          // Find the index of the record in dataSource
           const index = dataSource.indexOf(record);
           return getItemId(record, index >= 0 ? index : 0);
         }}

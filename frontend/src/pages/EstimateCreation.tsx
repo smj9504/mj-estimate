@@ -1953,18 +1953,7 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                   style={{ width: '100%' }}
                   step={0.01}
                   precision={2}
-                  placeholder="Enter price (negative allowed)"
-                  formatter={(value?: string | number) => {
-                    const num = typeof value === 'number' ? value : parseFloat(value || '0');
-                    if (num < 0) {
-                      return `-$${Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                    }
-                    return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                  }}
-                  parser={(value?: string) => {
-                    const parsed = parseFloat(value?.replace(/\$\s?|-|(,*)/g, '').trim() || '0');
-                    return isNaN(parsed) ? 0 : (value?.includes('-') ? -parsed : parsed);
-                  }}
+                  placeholder="0.00"
                 />
               </Form.Item>
             </Col>

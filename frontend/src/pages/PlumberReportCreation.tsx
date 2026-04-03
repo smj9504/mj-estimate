@@ -29,6 +29,8 @@ import {
   HolderOutlined,
   FileTextOutlined,
   ClearOutlined,
+  CopyOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -86,6 +88,9 @@ const PlumberReportCreation: React.FC = () => {
   const [showPaymentDates, setShowPaymentDates] = useState(true);
   const [templateType, setTemplateType] = useState('standard');
   
+  // Prompt modal state
+  const [promptModalVisible, setPromptModalVisible] = useState(false);
+
   // Modal states
   const [itemModalVisible, setItemModalVisible] = useState(false);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
@@ -497,7 +502,17 @@ const PlumberReportCreation: React.FC = () => {
 
   return (
     <div style={{ padding: '24px' }}>
-      <Title level={2}>{id ? 'Edit' : 'Create'} Plumber's Report</Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Title level={2} style={{ margin: 0 }}>{id ? 'Edit' : 'Create'} Plumber's Report</Title>
+        <Tooltip title="AI Prompt Template">
+          <Button
+            icon={<RobotOutlined />}
+            onClick={() => setPromptModalVisible(true)}
+            size="small"
+            type="text"
+          />
+        </Tooltip>
+      </div>
       
       <Form
         form={form}
@@ -798,6 +813,7 @@ const PlumberReportCreation: React.FC = () => {
                 getRowId={(record, index) => `item-${index}`}
                 disableDrag={false}
                 activeId={activeItemId}
+                scroll={{ x: 800 }}
                 columns={[
                   {
                     title: '#',
@@ -809,6 +825,8 @@ const PlumberReportCreation: React.FC = () => {
                     title: 'Item',
                     dataIndex: 'name',
                     key: 'name',
+                    width: 150,
+                    ellipsis: true,
                   },
                   {
                     title: 'Description',
@@ -1304,6 +1322,107 @@ const PlumberReportCreation: React.FC = () => {
             </Col>
           </Row>
         </Form>
+      </Modal>
+
+      {/* AI Prompt Template Modal */}
+      <Modal
+        title={
+          <Space>
+            <RobotOutlined />
+            <span>AI Prompt Template</span>
+          </Space>
+        }
+        open={promptModalVisible}
+        onCancel={() => setPromptModalVisible(false)}
+        width={700}
+        footer={[
+          <Button key="close" onClick={() => setPromptModalVisible(false)}>
+            Close
+          </Button>,
+          <Button
+            key="copy"
+            type="primary"
+            icon={<CopyOutlined />}
+            onClick={() => {
+              const el = document.getElementById('plumber-prompt-text');
+              if (el) {
+                navigator.clipboard.writeText(el.innerText).then(() => {
+                  message.success('Prompt copied to clipboard');
+                });
+              }
+            }}
+          >
+            Copy to Clipboard
+          </Button>,
+        ]}
+      >
+        <div
+          id="plumber-prompt-text"
+          style={{
+            maxHeight: '60vh',
+            overflowY: 'auto',
+            background: '#f5f5f5',
+            borderRadius: 8,
+            padding: 16,
+            fontSize: 13,
+            lineHeight: 1.7,
+            whiteSpace: 'pre-wrap',
+            fontFamily: 'monospace',
+          }}
+        >{`You are an experienced licensed master plumber in the DMV area (DC, Maryland, Virginia).
+Write a professional plumber's service report for an emergency repair call.
+
+---
+
+JOB DETAILS (fill in before sending):
+- Incident type: [e.g. burst shower valve, broken supply line, etc.]
+- Location in home: [e.g. master bathroom shower]
+- State: [MD / VA / DC] (for tax rate)
+- Total invoice amount: [$X,XXX]
+
+- Work performed: Based on the incident type and location provided above,
+  infer the most realistic and typical scope of work a licensed plumber
+  would perform for this type of emergency repair in the DMV area.
+
+- Materials used: Infer the most commonly used, code-compliant materials
+  for this type of repair.
+
+- Labor hours: Estimate realistic labor hours by phase based on the scope
+  of work inferred above. Total hours should be consistent with the
+  specified invoice amount.
+
+---
+
+REPORT REQUIREMENTS:
+
+1. SITE FINDINGS & ASSESSMENT
+   - Describe the failure as sudden and unexpected
+   - State that no prior signs of leakage were reported by the homeowner
+   - Use factual, field technician language — not legal or overly formal
+   - Do NOT mention age of components, wear and tear, or maintenance history
+   - Use "sudden burst" or "sudden failure" once naturally — do not repeat excessively
+
+2. WORK PERFORMED
+   - 5 line items maximum
+   - Group related tasks together
+   - Keep each item to 2 lines — concise but clear
+   - Written as a field technician would describe it
+
+3. INVOICE
+   - 5 line items maximum
+   - Include: Emergency Dispatch Fee, Labor (broken into 2-3 phases), Materials (grouped)
+   - Show Subtotal, Tax, and Total Due separately
+   - Total must match the specified invoice amount
+
+4. TECHNICIAN NOTES
+   - Keep it brief and factual — 2 to 3 sentences max
+   - Include any relevant follow-up advisory (e.g. drying time, tile restoration)
+   - Include 30-day labor warranty statement
+   - Do NOT include any defensive or legal-sounding language
+
+TONE: Professional field report. Written as a licensed technician, not a lawyer.
+Avoid: wear and tear, deterioration, age-related, neglect, deferred maintenance,
+       excessive repetition of "sudden", overly legal or defensive phrasing.`}</div>
       </Modal>
     </div>
   );

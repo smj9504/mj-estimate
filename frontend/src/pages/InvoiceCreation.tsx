@@ -3611,23 +3611,7 @@ const InvoiceCreation: React.FC = () => {
                   style={{ width: '100%' }}
                   step={0.01}
                   precision={2}
-                  placeholder="Enter rate (negative allowed)"
-                  formatter={value => {
-                    const num = typeof value === 'number' ? value : parseFloat(value || '0');
-                    if (num < 0) {
-                      return `-$${Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                    }
-                    return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                  }}
-                  parser={((value: any) => {
-                    if (value === null || value === undefined || value === '') return 0;
-                    const isNegative = String(value).includes('-');
-                    // Remove $, commas, spaces, and minus sign for parsing
-                    const cleanValue = String(value).replace(/[$,\s-]/g, '').trim();
-                    const parsed = parseFloat(cleanValue || '0');
-                    if (isNaN(parsed)) return 0;
-                    return isNegative ? -Math.abs(parsed) : parsed;
-                  }) as any}
+                  placeholder="0.00"
                 />
               </Form.Item>
             </Col>

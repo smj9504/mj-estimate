@@ -32,6 +32,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { documentService } from '../services/documentService';
 import { invoiceService, InvoiceResponse } from '../services/invoiceService';
 import { estimateService } from '../services/estimateService';
+import { plumberReportService } from '../services/plumberReportService';
 import { Document, DocumentFilter, DocumentType, DocumentStatus, InvoiceStatus, EstimateStatus, EstimateType, EstimateTypeLabels } from '../types';
 import dayjs from 'dayjs';
 
@@ -150,6 +151,31 @@ const DocumentList: React.FC = () => {
           }),
           total: filteredEstimates.length,
         };
+      } else if (type === 'plumber_report') {
+        // Use plumber report service
+        const result = await plumberReportService.getReports({
+          skip: (currentPage - 1) * pageSize,
+          limit: pageSize,
+          status: filter.status,
+          search: filter.search,
+        });
+
+        return {
+          items: result.reports.map((report: any): TableDocument => ({
+            id: report.id,
+            document_number: report.report_number || '',
+            type: 'plumber_report' as DocumentType,
+            company_id: report.company_id || '',
+            client_name: report.client?.name || '',
+            client_address: report.property?.address || report.client?.address || '',
+            client_city: report.property?.city || report.client?.city || '',
+            total_amount: report.total_amount || 0,
+            status: report.status as DocumentStatus,
+            created_at: report.created_at,
+            updated_at: report.updated_at,
+          })),
+          total: result.total,
+        };
       } else {
         // Use document service for other types
         const result = await documentService.getDocuments(filter, currentPage, pageSize);
@@ -181,6 +207,8 @@ const DocumentList: React.FC = () => {
         return invoiceService.deleteInvoice(id);
       } else if (type === 'estimate' || type === 'insurance_estimate') {
         return estimateService.deleteEstimate(id);
+      } else if (type === 'plumber_report') {
+        return plumberReportService.deleteReport(id);
       } else {
         return documentService.deleteDocument(id);
       }
@@ -203,6 +231,8 @@ const DocumentList: React.FC = () => {
         return await invoiceService.duplicateInvoice(id);
       } else if (type === 'estimate' || type === 'insurance_estimate') {
         return await estimateService.duplicateEstimate(id);
+      } else if (type === 'plumber_report') {
+        return await plumberReportService.duplicateReport(id);
       } else {
         return await documentService.duplicateDocument(id);
       }
@@ -307,6 +337,9 @@ const DocumentList: React.FC = () => {
         // Use the new estimate PDF endpoint for saved estimates
         blob = await estimateService.generatePDF(id);
         filename = `estimate_${record.estimate_number || id}.pdf`;
+      } else if (type === 'plumber_report') {
+        blob = await plumberReportService.generatePDF(id);
+        filename = `plumber_report_${record.document_number || id}.pdf`;
       } else {
         blob = await documentService.generatePDF(id);
         filename = `document_${id}.pdf`;
@@ -362,16 +395,15 @@ const DocumentList: React.FC = () => {
     }
   };
 
-  const columns = [
+  const allColumns = [
     {
-      title: 'Document Number',
+      title: type === 'plumber_report' ? 'Report Number' : 'Document Number',
       dataIndex: 'document_number',
       key: 'document_number',
       width: 150,
       render: (text: string, record: TableDocument) => (
         <a
           onClick={() => {
-            // Navigate to the appropriate edit page based on document type
             if (record.type === 'invoice') {
               navigate(`/invoices/${record.id}/edit`);
             } else if (record.type === 'estimate') {
@@ -379,7 +411,7 @@ const DocumentList: React.FC = () => {
             } else if (record.type === 'insurance_estimate') {
               navigate(`/insurance-estimate/${record.id}`);
             } else if (record.type === 'plumber_report') {
-              navigate(`/plumber-reports/${record.id}/edit`);
+              navigate(`/plumber-reports/${record.id}`);
             }
           }}
           style={{ cursor: 'pointer' }}
@@ -393,8 +425,8 @@ const DocumentList: React.FC = () => {
       dataIndex: 'type',
       key: 'type',
       width: 150,
+      hidden: type === 'plumber_report',
       render: (documentType: DocumentType, record: any) => {
-        // For estimate pages, show estimate type instead of document type
         if (type === 'estimate' && record.estimate_type) {
           return (
             <Tag color={record.estimate_type === EstimateType.INSURANCE ? 'blue' : 'green'}>
@@ -402,8 +434,6 @@ const DocumentList: React.FC = () => {
             </Tag>
           );
         }
-        
-        // For other document types, use original logic
         const typeMap: Record<DocumentType, string> = {
           estimate: 'Estimate',
           invoice: 'Invoice',
@@ -444,6 +474,7 @@ const DocumentList: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       width: 100,
+      hidden: type === 'plumber_report',
       render: (status: string) => (
         <Tag color={getStatusColor(status)}>
           {getStatusText(status)}
@@ -492,7 +523,7 @@ const DocumentList: React.FC = () => {
               } else if (record.type === 'insurance_estimate') {
                 navigate(`/insurance-estimate/${record.id}`);
               } else if (record.type === 'plumber_report') {
-                navigate(`/plumber-reports/${record.id}/edit`);
+                navigate(`/plumber-reports/${record.id}`);
               }
             },
           },
@@ -542,6 +573,8 @@ const DocumentList: React.FC = () => {
     },
   ];
 
+  const columns = allColumns.filter((col: any) => !col.hidden);
+
   return (
     <div>
       <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
@@ -558,7 +591,7 @@ const DocumentList: React.FC = () => {
           <Button type="primary" onClick={() => {
             let createPath: string;
             if (type === 'plumber_report') {
-              createPath = '/create/plumber';
+              createPath = '/create/plumber-report';
             } else if (type === 'insurance_estimate') {
               createPath = '/create/insurance-estimate';
             } else {
