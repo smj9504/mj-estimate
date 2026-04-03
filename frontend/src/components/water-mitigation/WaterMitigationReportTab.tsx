@@ -108,7 +108,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   } = useQuery({
     queryKey: ['wm-report-config', jobId],
     queryFn: () => waterMitigationService.report.getConfig(jobId),
-    retry: 1,
+    retry: false,
     enabled: !!jobId
   });
 

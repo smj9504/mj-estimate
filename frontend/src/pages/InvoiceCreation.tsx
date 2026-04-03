@@ -1162,8 +1162,10 @@ const InvoiceCreation: React.FC = () => {
     // Set discount state
     setDiscount(parseFloat(data.discount || data.discount_amount) || 0);
 
-    // Set insurance visibility
-    if (data.insurance_company || data.insurance_policy_number || data.insurance_claim_number || data.insurance_deductible) {
+    // Set insurance visibility from DB flag (fallback to data presence for legacy invoices)
+    if (data.show_insurance != null) {
+      setShowInsurance(data.show_insurance);
+    } else if (data.insurance_company || data.insurance_policy_number || data.insurance_claim_number || data.insurance_deductible) {
       setShowInsurance(true);
     }
 
@@ -1853,6 +1855,7 @@ const InvoiceCreation: React.FC = () => {
         invoiceData.client_company_id = selectedClient.id;
       }
 
+      invoiceData.show_insurance = showInsurance;
       invoiceData.insurance = showInsurance ? {
         company: values.insurance_company,
         policy_number: values.insurance_policy_number,
@@ -1971,6 +1974,7 @@ const InvoiceCreation: React.FC = () => {
           phone: values.client_phone,
           email: values.client_email,
         },
+        show_insurance: showInsurance,
         insurance: showInsurance ? {
           company: values.insurance_company,
           policy_number: values.insurance_policy_number,

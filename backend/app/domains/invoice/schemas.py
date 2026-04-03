@@ -170,8 +170,9 @@ class InvoiceBase(BaseModel):
     company: Optional[CompanyInfo] = None  # For custom companies
     client: ClientInfo
     client_company_id: Optional[UUID] = None  # Optional reference to registered company as client
+    show_insurance: Optional[bool] = False
     insurance: Optional[InsuranceInfo] = None
-    
+
     # Tax configuration
     tax_method: Optional[str] = Field("percentage", description="Tax calculation method: 'percentage' or 'specific'")
     tax_rate: Optional[float] = 0
@@ -276,10 +277,11 @@ class InvoiceUpdate(BaseModel):
     company: Optional[CompanyInfo] = None
     client: Optional[ClientInfo] = None
     client_company_id: Optional[UUID] = None  # Optional reference to registered company as client
+    show_insurance: Optional[bool] = None
     insurance: Optional[InsuranceInfo] = None
-    
+
     items: Optional[List[InvoiceItemCreate]] = None
-    
+
     # Tax configuration
     tax_method: Optional[str] = None
     tax_rate: Optional[float] = None
@@ -363,6 +365,7 @@ class InvoiceResponse(BaseModel):
     client_email: Optional[str]
     
     # Insurance info
+    show_insurance: Optional[bool] = False
     insurance_company: Optional[str]
     insurance_policy_number: Optional[str]
     insurance_claim_number: Optional[str]

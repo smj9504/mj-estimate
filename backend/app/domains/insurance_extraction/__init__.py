@@ -1,0 +1,1 @@
+"""Insurance extraction domain package."""

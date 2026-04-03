@@ -126,11 +126,14 @@ class StorageFactory:
                 "GDRIVE_ROOT_FOLDER_ID environment variable is required for Google Drive storage"
             )
 
-        logger.info(f"Creating Google Drive storage provider: root_folder_id={root_folder_id}")
+        shared_drive_id = os.getenv('GDRIVE_SHARED_DRIVE_ID')
+
+        logger.info(f"Creating Google Drive storage provider: root_folder_id={root_folder_id}, shared_drive_id={shared_drive_id or 'auto-detect'}")
 
         return GoogleDriveProvider(
             service_account_file=service_account_file,
-            root_folder_id=root_folder_id
+            root_folder_id=root_folder_id,
+            shared_drive_id=shared_drive_id
         )
 
     @classmethod

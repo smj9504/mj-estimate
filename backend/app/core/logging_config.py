@@ -123,6 +123,10 @@ def setup_logging():
     logging.getLogger('PIL').setLevel(logging.WARNING)
     logging.getLogger('PIL.PngImagePlugin').setLevel(logging.WARNING)
 
+    # pdfplumber → pdfminer.six: at app DEBUG, pdfminer logs every token/cmap lookup
+    logging.getLogger("pdfminer").setLevel(logging.WARNING)
+    logging.getLogger("pdfplumber").setLevel(logging.WARNING)
+
     # Suppress Uvicorn access logs for health checks
     uvicorn_access = logging.getLogger('uvicorn.access')
     uvicorn_access.addFilter(HealthCheckFilter())

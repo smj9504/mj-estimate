@@ -17,6 +17,8 @@ import {
   Collapse,
   Badge,
   Tabs,
+  Popconfirm,
+  Table,
 } from 'antd';
 import {
   SaveOutlined,
@@ -31,8 +33,16 @@ import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
 import { estimateService, EstimateLineItem, EstimateResponse } from '../services/estimateService';
 import { companyService } from '../services/companyService';
+import { fileService } from '../services/fileService';
+import { insuranceExtractionService } from '../services/insuranceExtractionService';
 import GroupableLineItemsWithSidebar from '../components/estimate/GroupableLineItemsWithSidebar';
 import RichTextEditor from '../components/editor/RichTextEditor';
+import {
+  ExtractionItemsTable,
+  ExtractionSummaryCard,
+  ExtractionUploadPanel,
+} from '../components/insurance-extraction';
+import { InsuranceExtraction } from '../types/insuranceExtraction';
 import { Company } from '../types';
 
 const { Title, Text } = Typography;
@@ -71,6 +81,13 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
   const [items, setItems] = useState<EstimateLineItem[]>([]);
   const [showInsurance, setShowInsurance] = useState(true); // Default to true for insurance estimates
   const [activeTab, setActiveTab] = useState('basic');
+  const [insurancePdfFile, setInsurancePdfFile] = useState<File | null>(null);
+  const [isExtractingInsurancePdf, setIsExtractingInsurancePdf] = useState(false);
+  const [extractionResult, setExtractionResult] = useState<InsuranceExtraction | null>(null);
+  const [extractionList, setExtractionList] = useState<InsuranceExtraction[]>([]);
+  const [isLoadingExtractions, setIsLoadingExtractions] = useState(false);
+  const [isSavingExtraction, setIsSavingExtraction] = useState(false);
+  const [editedExtractionItems, setEditedExtractionItems] = useState<InsuranceExtraction['items']>([]);
   
   // Modal and editing states - removed unused modal states since using GroupableLineItemsWithSidebar
   
@@ -456,6 +473,132 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
     }
   };
 
+  const handleRunInsuranceExtraction = async () => {
+    if (!insurancePdfFile) {
+      message.warning('Please select a PDF first');
+      return;
+    }
+
+    try {
+      setIsExtractingInsurancePdf(true);
+      const uploaded = await fileService.uploadFiles(
+        [insurancePdfFile],
+        'insurance_extraction',
+        id || `tmp-insurance-estimate-${Date.now()}`,
+        'insurance-pdf'
+      );
+      if (!uploaded.length) {
+        throw new Error('File upload returned empty response');
+      }
+
+      const extracted = await insuranceExtractionService.extractFromFile(uploaded[0].id);
+      const latest = await insuranceExtractionService.getExtraction(extracted.id);
+      setExtractionResult(latest);
+      setEditedExtractionItems(latest.items);
+      await loadExtractions();
+      message.success(`Extraction completed: ${latest.items.length} item(s)`);
+    } catch (error) {
+      console.error(error);
+      message.error('Failed to run insurance PDF extraction');
+    } finally {
+      setIsExtractingInsurancePdf(false);
+    }
+  };
+
+  const loadExtractions = useCallback(async () => {
+    try {
+      setIsLoadingExtractions(true);
+      const list = await insuranceExtractionService.listExtractions(30);
+      setExtractionList(list);
+    } catch (error) {
+      console.error(error);
+      message.error('Failed to load saved extraction results');
+    } finally {
+      setIsLoadingExtractions(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadExtractions();
+  }, [loadExtractions]);
+
+  const handleSelectExtraction = async (extractionId: string) => {
+    try {
+      const selected = await insuranceExtractionService.getExtraction(extractionId);
+      setExtractionResult(selected);
+      setEditedExtractionItems(selected.items);
+      message.success('Loaded extraction from DB');
+    } catch (error) {
+      console.error(error);
+      message.error('Failed to load extraction');
+    }
+  };
+
+  const handleDeleteExtraction = async (extractionId: string) => {
+    try {
+      await insuranceExtractionService.deleteExtraction(extractionId);
+      if (extractionResult?.id === extractionId) {
+        setExtractionResult(null);
+        setEditedExtractionItems([]);
+      }
+      await loadExtractions();
+      message.success('Extraction deleted');
+    } catch (error) {
+      console.error(error);
+      message.error('Failed to delete extraction');
+    }
+  };
+
+  const handleSaveExtractionEdits = async () => {
+    if (!extractionResult) return;
+    try {
+      setIsSavingExtraction(true);
+      const payload = {
+        carrier: extractionResult.carrier,
+        status: extractionResult.status,
+        raw_text_excerpt: extractionResult.raw_text_excerpt,
+        parser_metadata: extractionResult.parser_metadata,
+        items: editedExtractionItems.map((item, index) => ({
+          id: item.id,
+          room: item.room,
+          line_item: item.line_item,
+          notes: item.notes,
+          unit_price: item.unit_price,
+          quantity: item.quantity,
+          measurement: item.measurement,
+          unit: item.unit,
+          source_page: item.source_page,
+          confidence: item.confidence,
+          raw_line: item.raw_line,
+          validation_flags: item.validation_flags,
+          sort_order: index,
+        })),
+      };
+      const updated = await insuranceExtractionService.updateExtraction(extractionResult.id, payload);
+      setExtractionResult(updated);
+      setEditedExtractionItems(updated.items);
+      await loadExtractions();
+      message.success('Extraction updated in DB');
+    } catch (error) {
+      console.error(error);
+      message.error('Failed to update extraction');
+    } finally {
+      setIsSavingExtraction(false);
+    }
+  };
+
+  const updateEditedItem = (index: number, field: 'room' | 'line_item' | 'quantity' | 'unit_price' | 'unit', value: string) => {
+    setEditedExtractionItems((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item;
+        if (field === 'quantity' || field === 'unit_price') {
+          return { ...item, [field]: value === '' ? undefined : Number(value) };
+        }
+        return { ...item, [field]: value };
+      })
+    );
+  };
+
   const totals = calculateTotals();
 
   // Tab configurations
@@ -783,12 +926,131 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
     ];
 
     return (
-      <Collapse
-        defaultActiveKey={['client', 'insurance']}
-        style={{ marginBottom: 24 }}
-        expandIconPosition="end"
-        items={collapseItems}
-      />
+      <>
+        <ExtractionUploadPanel
+          selectedFile={insurancePdfFile}
+          isExtracting={isExtractingInsurancePdf}
+          onFileSelect={setInsurancePdfFile}
+          onRunExtraction={handleRunInsuranceExtraction}
+        />
+        {extractionResult && (
+          <Card style={{ marginBottom: 24 }}>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <ExtractionSummaryCard extraction={extractionResult} />
+              <ExtractionItemsTable items={editedExtractionItems} />
+              <Button type="primary" onClick={handleSaveExtractionEdits} loading={isSavingExtraction}>
+                Save Extraction Changes
+              </Button>
+            </Space>
+          </Card>
+        )}
+        <Card title="Saved Extraction Results (DB)" style={{ marginBottom: 24 }}>
+          <Table
+            size="small"
+            loading={isLoadingExtractions}
+            rowKey="id"
+            pagination={{ pageSize: 5 }}
+            dataSource={extractionList}
+            columns={[
+              { title: 'ID', dataIndex: 'id', key: 'id', width: 260 },
+              { title: 'Carrier', dataIndex: 'carrier', key: 'carrier', width: 120 },
+              { title: 'Status', dataIndex: 'status', key: 'status', width: 100 },
+              { title: 'Items', key: 'items', width: 80, render: (_, record) => record.items.length },
+              {
+                title: 'Actions',
+                key: 'actions',
+                width: 220,
+                render: (_, record) => (
+                  <Space>
+                    <Button size="small" onClick={() => handleSelectExtraction(record.id)}>
+                      Open
+                    </Button>
+                    <Popconfirm
+                      title="Delete this extraction?"
+                      onConfirm={() => handleDeleteExtraction(record.id)}
+                    >
+                      <Button size="small" danger>
+                        Delete
+                      </Button>
+                    </Popconfirm>
+                  </Space>
+                ),
+              },
+            ]}
+          />
+        </Card>
+        {extractionResult && (
+          <Card title="Quick Edit Items (CRUD: Update)">
+            <Table
+              size="small"
+              rowKey="id"
+              pagination={{ pageSize: 6 }}
+              dataSource={editedExtractionItems}
+              columns={[
+                {
+                  title: 'Room',
+                  key: 'room',
+                  render: (_, record, index) => (
+                    <Input
+                      value={record.room}
+                      onChange={(e) => updateEditedItem(index, 'room', e.target.value)}
+                    />
+                  ),
+                },
+                {
+                  title: 'Line Item',
+                  key: 'line_item',
+                  render: (_, record, index) => (
+                    <Input
+                      value={record.line_item}
+                      onChange={(e) => updateEditedItem(index, 'line_item', e.target.value)}
+                    />
+                  ),
+                },
+                {
+                  title: 'Qty',
+                  key: 'quantity',
+                  width: 90,
+                  render: (_, record, index) => (
+                    <Input
+                      value={record.quantity ?? ''}
+                      onChange={(e) => updateEditedItem(index, 'quantity', e.target.value)}
+                    />
+                  ),
+                },
+                {
+                  title: 'Unit Price',
+                  key: 'unit_price',
+                  width: 120,
+                  render: (_, record, index) => (
+                    <Input
+                      value={record.unit_price ?? ''}
+                      onChange={(e) => updateEditedItem(index, 'unit_price', e.target.value)}
+                    />
+                  ),
+                },
+                {
+                  title: 'Unit',
+                  key: 'unit',
+                  width: 90,
+                  render: (_, record, index) => (
+                    <Input
+                      value={record.unit ?? ''}
+                      onChange={(e) => updateEditedItem(index, 'unit', e.target.value)}
+                    />
+                  ),
+                },
+              ]}
+            />
+          </Card>
+        )}
+        <Collapse
+          defaultActiveKey={['client', 'insurance']}
+          style={{ marginBottom: 24 }}
+          expandIconPosition="end"
+          items={collapseItems}
+        />
+      </>
     );
   };
 

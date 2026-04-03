@@ -42,6 +42,7 @@ const DocumentList = lazy(() => import('./pages/DocumentList'));
 // Estimate Pages
 const EstimateCreation = lazy(() => import('./pages/EstimateCreation'));
 const InsuranceEstimateCreation = lazy(() => import('./pages/InsuranceEstimateCreation'));
+const InsuranceExtraction = lazy(() => import('./pages/InsuranceExtraction'));
 const EstimateEditWrapper = lazy(() => import('./pages/EstimateEditWrapper'));
 
 // Invoice Pages
@@ -80,6 +81,9 @@ const SketchTest = lazy(() => import('./pages/SketchTest'));
 
 // PDF Editor Pages
 const PDFEditor = lazy(() => import('./pages/PDFEditor'));
+
+// Reference Pages
+const XactimateCheatSheet = lazy(() => import('./pages/XactimateCheatSheet'));
 
 // Error Pages
 const NotFound = lazy(() => import('./pages/NotFound'));
@@ -280,6 +284,18 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <DocumentList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/insurance-extractions",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <InsuranceExtraction />
           </Suspense>
         </Layout>
       </ProtectedRoute>
@@ -633,6 +649,19 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <PDFEditor />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Reference Pages
+  {
+    path: "/cheat-sheet",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <XactimateCheatSheet />
           </Suspense>
         </Layout>
       </ProtectedRoute>

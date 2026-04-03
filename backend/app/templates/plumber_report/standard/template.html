@@ -132,10 +132,18 @@
           <span class="total-value">-${{ "%.2f"|format(payment.amount) }}</span>
         </div>
         {% endfor %}
+        {% if financial.balance_due <= 0 %}
+        <div class="total-row grand-total paid-in-full">
+          <span class="total-label">Balance Due</span>
+          <span class="total-value">$0.00</span>
+        </div>
+        <div class="paid-stamp">PAID IN FULL</div>
+        {% else %}
         <div class="total-row grand-total balance-due">
           <span class="total-label">Balance Due</span>
           <span class="total-value">${{ "%.2f"|format(financial.balance_due) }}</span>
         </div>
+        {% endif %}
       {% else %}
         <div class="total-row grand-total balance-due">
           <span class="total-label">Amount Due</span>

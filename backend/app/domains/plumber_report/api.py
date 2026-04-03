@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, 
 from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
 import json
 import io
+import logging
 
 from app.core.database_factory import get_db_session as get_db
 from app.domains.auth.dependencies import get_current_staff
@@ -23,6 +24,8 @@ from app.domains.plumber_report.schemas import (
 from app.domains.plumber_report.service import PlumberReportService
 from app.common.services.pdf_service import PDFService
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -57,9 +60,32 @@ async def create_plumber_report(
             report_data=report,
             created_by=str(current_staff.id)
         )
-        return PlumberReportResponse.model_validate(db_report.to_dict())
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(
+            f"Failed to create plumber report: "
+            f"{type(e).__name__}: {e}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create report: {str(e)}"
+        )
+
+    try:
+        return PlumberReportResponse.model_validate(
+            db_report.to_dict()
+        )
+    except Exception as e:
+        logger.error(
+            f"Report created but serialization failed: "
+            f"{type(e).__name__}: {e}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Report created but response "
+                   f"serialization failed: {str(e)}"
+        )
 
 
 @router.get("/", response_model=PlumberReportListResponse)

@@ -45,6 +45,7 @@ import WaterMitigationReportTab from '../components/water-mitigation/WaterMitiga
 import WaterMitigationTrashTab from '../components/water-mitigation/WaterMitigationTrashTab';
 import WaterMitigationScopeTab from '../components/water-mitigation/WaterMitigationScopeTab';
 import EditableSection from '../components/water-mitigation/EditableSection';
+import WMSketchTab from '../components/water-mitigation/sketch/WMSketchTab';
 
 const { useBreakpoint } = Grid;
 
@@ -785,6 +786,16 @@ const WaterMitigationDetail: React.FC = () => {
               key: 'scope',
               label: 'Scope',
               children: id ? <WaterMitigationScopeTab jobId={id} jobCompanyId={job.company_id} /> : null
+            },
+            {
+              key: 'sketch',
+              label: 'Sketch',
+              children: id ? (
+                <WMSketchTab
+                  jobId={id}
+                  jobAddress={job.property_address || 'Unknown Address'}
+                />
+              ) : null
             },
             {
               key: 'report',

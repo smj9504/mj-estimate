@@ -197,8 +197,13 @@ class ScopeInvoiceService:
         # Generate invoice number
         invoice_number = self._generate_invoice_number(job)
 
-        # Calculate due date: invoice_date + 7 days
-        effective_invoice_date = invoice_date or datetime.utcnow()
+        # Calculate invoice date: default to mitigation_end_date + 1 day, fallback to now
+        if invoice_date:
+            effective_invoice_date = invoice_date
+        elif job.mitigation_end_date:
+            effective_invoice_date = job.mitigation_end_date + timedelta(days=1)
+        else:
+            effective_invoice_date = datetime.utcnow()
         due_date = effective_invoice_date + timedelta(days=7)
 
         # Generate header note with WM details if not provided
@@ -235,6 +240,7 @@ class ScopeInvoiceService:
             status="pending",
             notes=invoice_notes,
             adjustments=adjustments if adjustments else [],
+            show_insurance=bool(job.insurance_company or job.claim_number),
             insurance_company=job.insurance_company,
             insurance_policy_number=job.insurance_policy_number,
             insurance_claim_number=job.claim_number,

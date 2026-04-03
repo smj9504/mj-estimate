@@ -1,0 +1,220 @@
+/**
+ * WMLegendRenderer
+ * Renders a compact legend box on the canvas showing color codes for all
+ * overlay element types present on the current floor.
+ *
+ * Usage:
+ *   <WMLegendRenderer
+ *     overlayData={overlayData}
+ *     x={canvasWidth - 180}
+ *     y={canvasHeight - legendHeight - 10}
+ *     materialTypes={DEFAULT_DEMO_MATERIAL_TYPES}
+ *   />
+ */
+
+import React, { useMemo } from 'react';
+import { Group, Rect, Text, Line } from 'react-konva';
+import {
+  WMOverlayData,
+  DemoMaterialType,
+  EQUIPMENT_CONFIG,
+  EquipmentType,
+} from '../../../../types/wmSketch';
+
+export interface WMLegendRendererProps {
+  overlayData: WMOverlayData;
+  /** Canvas X position of the legend box */
+  x: number;
+  /** Canvas Y position of the legend box */
+  y: number;
+  materialTypes: DemoMaterialType[];
+}
+
+// ---------------------------------------------------------------------------
+// Layout constants
+// ---------------------------------------------------------------------------
+const LEGEND_WIDTH = 170;
+const PADDING = 10;
+const ROW_HEIGHT = 18;
+const SWATCH_SIZE = 12;
+const FONT_SIZE = 11;
+const TITLE_FONT_SIZE = 12;
+const TITLE_ROW_HEIGHT = 20;
+const SECTION_GAP = 6;
+const SHADOW_BLUR = 6;
+const SHADOW_OFFSET = 2;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+interface LegendRow {
+  kind: 'material' | 'equipment' | 'containment' | 'floor_protection';
+  color: string;
+  label: string;
+}
+
+function buildRows(
+  overlayData: WMOverlayData,
+  materialTypes: DemoMaterialType[],
+): LegendRow[] {
+  const rows: LegendRow[] = [];
+
+  // Materials that actually appear in demolition zones
+  const usedMaterialIds = new Set(overlayData.demolition_zones.map((z) => z.material_type));
+  for (const mt of materialTypes) {
+    if (usedMaterialIds.has(mt.id)) {
+      rows.push({ kind: 'material', color: mt.color, label: mt.name });
+    }
+  }
+
+  // Equipment types that appear
+  const equipmentKeys = Object.keys(EQUIPMENT_CONFIG) as EquipmentType[];
+  for (const key of equipmentKeys) {
+    const count = overlayData.equipment_placements.filter((p) => p.equipment_type === key).length;
+    if (count > 0) {
+      const cfg = EQUIPMENT_CONFIG[key];
+      rows.push({ kind: 'equipment', color: cfg.color, label: `${cfg.name} (${count})` });
+    }
+  }
+
+  // Containment
+  if (overlayData.containment_zones.length > 0) {
+    rows.push({
+      kind: 'containment',
+      color: '#2196F3',
+      label: `Containment (${overlayData.containment_zones.length})`,
+    });
+  }
+
+  // Floor protection
+  if (overlayData.floor_protections.length > 0) {
+    rows.push({
+      kind: 'floor_protection',
+      color: '#FFD700',
+      label: `Floor Protection (${overlayData.floor_protections.length})`,
+    });
+  }
+
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+const WMLegendRenderer: React.FC<WMLegendRendererProps> = ({
+  overlayData,
+  x,
+  y,
+  materialTypes,
+}) => {
+  const rows = useMemo(
+    () => buildRows(overlayData, materialTypes),
+    [overlayData, materialTypes],
+  );
+
+  if (rows.length === 0) return null;
+
+  const boxHeight = PADDING + TITLE_ROW_HEIGHT + SECTION_GAP + rows.length * ROW_HEIGHT + PADDING;
+
+  return (
+    <Group x={x} y={y} listening={false}>
+      {/* Background box with shadow simulation */}
+      <Rect
+        width={LEGEND_WIDTH}
+        height={boxHeight}
+        fill="#ffffff"
+        stroke="#d9d9d9"
+        strokeWidth={1}
+        cornerRadius={4}
+        shadowColor="rgba(0,0,0,0.18)"
+        shadowBlur={SHADOW_BLUR}
+        shadowOffsetX={SHADOW_OFFSET}
+        shadowOffsetY={SHADOW_OFFSET}
+      />
+
+      {/* Title */}
+      <Text
+        x={PADDING}
+        y={PADDING}
+        text="Legend"
+        fontSize={TITLE_FONT_SIZE}
+        fontStyle="bold"
+        fontFamily="'Inter', 'Segoe UI', sans-serif"
+        fill="#1a1a1a"
+        width={LEGEND_WIDTH - PADDING * 2}
+      />
+
+      {/* Divider */}
+      <Line
+        points={[PADDING, PADDING + TITLE_ROW_HEIGHT, LEGEND_WIDTH - PADDING, PADDING + TITLE_ROW_HEIGHT]}
+        stroke="#e8e8e8"
+        strokeWidth={1}
+      />
+
+      {/* Rows */}
+      {rows.map((row, i) => {
+        const rowY = PADDING + TITLE_ROW_HEIGHT + SECTION_GAP + i * ROW_HEIGHT;
+        const swatchY = rowY + (ROW_HEIGHT - SWATCH_SIZE) / 2;
+
+        return (
+          <Group key={`legend-row-${i}`}>
+            {row.kind === 'containment' ? (
+              // Containment: dashed blue rect swatch
+              <Rect
+                x={PADDING}
+                y={swatchY}
+                width={SWATCH_SIZE}
+                height={SWATCH_SIZE}
+                fill="rgba(33,150,243,0.1)"
+                stroke={row.color}
+                strokeWidth={1.5}
+                dash={[3, 2]}
+                cornerRadius={1}
+              />
+            ) : row.kind === 'floor_protection' ? (
+              // Floor protection: yellow filled rect
+              <Rect
+                x={PADDING}
+                y={swatchY}
+                width={SWATCH_SIZE}
+                height={SWATCH_SIZE}
+                fill={row.color}
+                opacity={0.5}
+                stroke={row.color}
+                strokeWidth={1}
+                cornerRadius={1}
+              />
+            ) : (
+              // Material or equipment: solid colored square
+              <Rect
+                x={PADDING}
+                y={swatchY}
+                width={SWATCH_SIZE}
+                height={SWATCH_SIZE}
+                fill={row.color}
+                opacity={row.kind === 'material' ? 0.7 : 1}
+                cornerRadius={row.kind === 'equipment' ? 6 : 1}
+              />
+            )}
+
+            <Text
+              x={PADDING + SWATCH_SIZE + 6}
+              y={rowY + (ROW_HEIGHT - FONT_SIZE) / 2}
+              text={row.label}
+              fontSize={FONT_SIZE}
+              fontFamily="'Inter', 'Segoe UI', sans-serif"
+              fill="#333333"
+              width={LEGEND_WIDTH - PADDING * 2 - SWATCH_SIZE - 6}
+              wrap="none"
+              ellipsis
+            />
+          </Group>
+        );
+      })}
+    </Group>
+  );
+};
+
+export default React.memo(WMLegendRenderer);

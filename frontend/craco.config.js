@@ -36,6 +36,11 @@ module.exports = {
         onError: (err, req, res) => {
           console.error('Proxy error:', err);
         }
+      },
+      '/uploads': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
       }
     }
   },

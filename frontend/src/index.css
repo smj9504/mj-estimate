@@ -26,3 +26,12 @@ code {
 .no-padding-card .ant-card-body {
   padding: 0 !important;
 }
+
+/* Invoice Configuration Collapse - responsive header */
+.invoice-config-collapse .ant-collapse-header {
+  flex-wrap: wrap !important;
+  gap: 4px 0;
+}
+.invoice-config-collapse .ant-collapse-extra {
+  flex-shrink: 0;
+}

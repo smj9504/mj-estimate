@@ -103,6 +103,7 @@ from app.domains.document_types.api import router as document_types_router
 from app.domains.estimate.api import router as estimate_router
 from app.domains.file.api import router as file_router
 from app.domains.file.service import initialize_storage
+from app.domains.insurance_extraction.api import router as insurance_extraction_router
 from app.domains.invoice.api import router as invoice_router
 from app.domains.line_items.api import router as line_items_router
 from app.domains.pack_calculation.api import router as pack_calculation_router
@@ -124,10 +125,26 @@ from app.domains.sketch.api import router as sketch_router
 from app.domains.staff.api import router as staff_router
 from app.domains.water_mitigation.api import router as water_mitigation_router
 from app.domains.water_mitigation.scope_api import router as wm_scope_router
-from app.domains.water_mitigation.standard_scope_api import router as wm_standard_scope_router
-from app.domains.water_mitigation.scope_category_api import router as wm_scope_category_router
+from app.domains.water_mitigation.standard_scope_api import (
+    router as wm_standard_scope_router,
+)
+from app.domains.water_mitigation.scope_category_api import (
+    router as wm_scope_category_router,
+)
+from app.domains.water_mitigation.sketch_api import router as wm_sketch_router
+from app.domains.water_mitigation.sketch_models import (
+    WMFloorSketch,
+    WMDemolitionZone,
+    WMEquipmentPlacement,
+    WMContainmentZone,
+    WMFloorProtection,
+)
 from app.domains.work_order.api import router as work_order_router
 from app.domains.xactimate.api import router as xactimate_router
+from app.domains.insurance_extraction.models import (
+    InsurancePdfExtraction,
+    InsurancePdfExtractionItem,
+)
 
 # Conditional Material Detection imports (only if enabled)
 material_detection_available = False
@@ -464,6 +481,11 @@ app.include_router(payment_config_router, prefix="/api/payment-config", tags=["P
 
 # File Management endpoints
 app.include_router(file_router, prefix="/api/files", tags=["File Management"])
+app.include_router(
+    insurance_extraction_router,
+    prefix="/api/insurance-extractions",
+    tags=["Insurance Extractions"],
+)
 
 # Interior Sketch System endpoints
 app.include_router(sketch_router, prefix="/api/sketches", tags=["Interior Sketches"])
@@ -476,6 +498,9 @@ app.include_router(water_mitigation_router, prefix="/api")
 app.include_router(wm_scope_router, prefix="/api/water-mitigation")
 app.include_router(wm_standard_scope_router, prefix="/api/water-mitigation")
 app.include_router(wm_scope_category_router, prefix="/api/water-mitigation")
+app.include_router(
+    wm_sketch_router, prefix="/api/water-mitigation/sketch"
+)
 
 # Reconstruction Estimate System endpoints
 app.include_router(reconstruction_estimate_router)

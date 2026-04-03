@@ -66,6 +66,7 @@ class Invoice(Base, BaseModel):
     receipt_generated_at = Column(DateTime(timezone=True))  # When receipt was generated
     
     # Insurance information
+    show_insurance = Column(Boolean, default=False)
     insurance_company = Column(String(255))
     insurance_policy_number = Column(String(100))
     insurance_claim_number = Column(String(100))

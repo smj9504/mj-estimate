@@ -59,7 +59,6 @@ import type {
   GenerateInvoiceResponse
 } from '../../types/waterMitigation';
 import type { LineItem, EmbeddedItemData } from '../../types/lineItem';
-import type { LineItemTemplate } from '../../types/lineItem';
 import {
   QuantityCalcType,
   QUANTITY_CALC_TYPE_OPTIONS
@@ -104,7 +103,6 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
   const [loading, setLoading] = useState(false);
   const [configs, setConfigs] = useState<InvoiceItemConfig[]>([]);
   const [lineItems, setLineItems] = useState<LineItemOption[]>([]);
-  const [templates, setTemplates] = useState<LineItemTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [loadingLineItems, setLoadingLineItems] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -146,15 +144,12 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
     }
   }, [jobId]);
 
-  // Load templates only (line items are loaded via useEffect when template changes)
+  // Auto-select the best WM template (no user selection needed)
   const loadTemplates = useCallback(async () => {
     try {
       setLoadingLineItems(true);
 
-      // Load templates - don't filter by company to get all available templates
-      // Backend will return templates for user's company + global templates
       const allTemplates = await lineItemService.getTemplates();
-      console.log('[InvoiceConfig] All templates:', allTemplates?.length || 0, allTemplates?.map(t => ({ id: t.id, name: t.name })));
 
       const wmTemplates = allTemplates.filter(
         (t) => t.name.toLowerCase().includes('water') ||
@@ -162,48 +157,24 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
                t.name.toLowerCase().includes('mitigation') ||
                t.name.toLowerCase().includes('essentials')
       );
-      console.log('[InvoiceConfig] WM templates:', wmTemplates.map(t => ({ id: t.id, name: t.name })));
 
-      // Use all templates so user can select any template
-      setTemplates(allTemplates);
-
-      // Auto-select WM Essentials template
-      // Priority 1: Find "WM Essentials" specifically (exact match)
-      let bestTemplate = allTemplates.find(t => t.name === 'WM Essentials');
-      console.log('[InvoiceConfig] Exact match WM Essentials?', bestTemplate ? bestTemplate.name : 'No');
-
-      // Priority 2: Find template containing "wm essentials" (case-insensitive)
-      if (!bestTemplate) {
-        bestTemplate = allTemplates.find(t => t.name.toLowerCase().includes('wm essentials'));
-        console.log('[InvoiceConfig] Case-insensitive WM Essentials?', bestTemplate ? bestTemplate.name : 'No');
-      }
-
-      // Priority 3: Any template with WM keywords
-      if (!bestTemplate) {
-        bestTemplate = wmTemplates[0];
-        console.log('[InvoiceConfig] Any WM template?', bestTemplate ? bestTemplate.name : 'No');
-      }
-
-      // Priority 4: First template
-      if (!bestTemplate) {
-        bestTemplate = allTemplates[0];
-        console.log('[InvoiceConfig] Fallback to first template?', bestTemplate ? bestTemplate.name : 'No');
-      }
-
-      console.log('[InvoiceConfig] FINAL template selection:', bestTemplate?.name, bestTemplate?.id);
+      // Auto-select: WM Essentials (exact) → WM Essentials (partial) → any WM template → first template
+      const bestTemplate =
+        allTemplates.find(t => t.name === 'WM Essentials') ||
+        allTemplates.find(t => t.name.toLowerCase().includes('wm essentials')) ||
+        wmTemplates[0] ||
+        allTemplates[0];
 
       if (bestTemplate) {
         setSelectedTemplateId(bestTemplate.id);
-        // Line items will be loaded via useEffect when selectedTemplateId changes
       }
     } catch (error) {
       console.error('[InvoiceConfig] Failed to load templates:', error);
       message.error('Failed to load templates. Please refresh the page.');
-      setTemplates([]);
     } finally {
       setLoadingLineItems(false);
     }
-  }, []); // No dependencies - templates are loaded once and don't depend on jobCompanyId
+  }, []);
 
   // Initial data loading
   useEffect(() => {
@@ -843,33 +814,20 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
     <Collapse
       defaultActiveKey={['invoice-config']}
       style={{ marginBottom: 16 }}
+      className="invoice-config-collapse"
       items={[
         {
           key: 'invoice-config',
           label: (
-            <Space>
+            <Space size={4} wrap>
               <SettingOutlined />
-              <Text strong>Invoice Configuration</Text>
+              <Text strong style={{ whiteSpace: 'nowrap' }}>Invoice Configuration</Text>
               <Tag>{enabledCount}/{configs.length} items</Tag>
-              <Text type="secondary">${totalAmount.toFixed(2)}</Text>
+              <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>${totalAmount.toFixed(2)}</Text>
             </Space>
           ),
           extra: (
-            <Space onClick={(e) => e.stopPropagation()}>
-              <Select
-                style={{ width: 180 }}
-                placeholder="Select Template"
-                value={selectedTemplateId}
-                onChange={setSelectedTemplateId}
-                loading={loadingLineItems}
-                size="small"
-              >
-                {templates.map(t => (
-                  <Select.Option key={t.id} value={t.id}>
-                    {t.name}
-                  </Select.Option>
-                ))}
-              </Select>
+            <Space wrap size={[8, 4]} onClick={(e) => e.stopPropagation()}>
               <Dropdown.Button
                 size="small"
                 icon={<DownOutlined />}

@@ -178,6 +178,23 @@ body {
   font-weight: bold;
 }
 
+/* ── Paid in Full ── */
+.paid-in-full .total-value {
+  color: #666;
+}
+
+.paid-stamp {
+  margin-top: 10px;
+  padding: 6px 0;
+  text-align: center;
+  font-size: 18px;
+  font-weight: bold;
+  color: #1a7a1a;
+  letter-spacing: 2px;
+  border: 2px solid #1a7a1a;
+  border-radius: 4px;
+}
+
 /* ── Payments ── */
 .payments-list {
   margin-top: 8px;

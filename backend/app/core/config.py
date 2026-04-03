@@ -239,6 +239,7 @@ class Settings(BaseSettings):
     # Google Drive Storage Settings
     GDRIVE_SERVICE_ACCOUNT_FILE: Optional[str] = os.getenv("GDRIVE_SERVICE_ACCOUNT_FILE")
     GDRIVE_ROOT_FOLDER_ID: Optional[str] = os.getenv("GDRIVE_ROOT_FOLDER_ID")
+    GDRIVE_SHARED_DRIVE_ID: Optional[str] = os.getenv("GDRIVE_SHARED_DRIVE_ID")  # Required for Service Accounts
 
     # Google Service Account JSON (for cloud deployments like Render)
     # Set this environment variable with the full JSON content of the service account key

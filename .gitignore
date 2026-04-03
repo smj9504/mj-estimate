@@ -140,10 +140,11 @@ temp/
 # Editor directories and files
 .vscode-test
 
-# Playwright
+# Playwright & E2E Tests
 /test-results/
 /playwright-report/
 /playwright/.cache/
+/tests/
 
 # Docker
 .dockerignore

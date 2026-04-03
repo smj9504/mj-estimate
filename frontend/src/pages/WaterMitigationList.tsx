@@ -419,6 +419,15 @@ const WaterMitigationList: React.FC = () => {
             dataSource={jobs}
             rowKey="id"
             loading={loading}
+            onRow={(record) => ({
+              onClick: (e) => {
+                // Don't navigate if clicking on a link, button, or dropdown
+                const target = e.target as HTMLElement;
+                if (target.closest('a, button, .ant-dropdown-trigger, .ant-btn')) return;
+                navigate(`/water-mitigation/${record.id}`);
+              },
+              style: { cursor: 'pointer' }
+            })}
             pagination={{
               current: filters.page,
               pageSize: filters.page_size,

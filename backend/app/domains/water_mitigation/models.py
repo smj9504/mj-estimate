@@ -139,6 +139,12 @@ class WaterMitigationJob(Base, BaseModel):
         uselist=False,
         cascade="all, delete-orphan"
     )
+    floor_sketches = relationship(
+        "WMFloorSketch",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        order_by="WMFloorSketch.floor_order",
+    )
 
 
 class PhotoCategory(Base, BaseModel):

@@ -1,6 +1,7 @@
 """
 Google Drive storage provider
-For production use with 30GB free storage
+Supports both Shared Drives and My Drive
+Service Accounts MUST use Shared Drives (no storage quota on My Drive)
 """
 
 import os
@@ -24,39 +25,25 @@ class GoogleDriveProvider(StorageProvider):
     """
     Google Drive storage provider
 
+    IMPORTANT: Service Accounts no longer have storage quota on My Drive.
+    You MUST use a Shared Drive. Set GDRIVE_ROOT_FOLDER_ID to a folder
+    inside a Shared Drive, or set GDRIVE_SHARED_DRIVE_ID directly.
+
     Hierarchical structure:
     Root Folder/
       └─ context/
           └─ {context_id}_{readable_name}/
               └─ category/
                   └─ files...
-
-    Example:
-    MJ Estimate/
-      └─ water-mitigation/
-          └─ job-123_Main-Street/
-              ├─ before/
-              │   └─ photo1.jpg
-              ├─ after/
-              │   └─ photo2.jpg
-              └─ documents/
-                  └─ invoice.pdf
     """
 
     def __init__(
         self,
         service_account_file: str,
         root_folder_id: str,
+        shared_drive_id: Optional[str] = None,
         scopes: Optional[List[str]] = None
     ):
-        """
-        Initialize Google Drive provider
-
-        Args:
-            service_account_file: Path to service account JSON key
-            root_folder_id: Root folder ID in Google Drive
-            scopes: OAuth scopes (default: drive access)
-        """
         if scopes is None:
             scopes = ['https://www.googleapis.com/auth/drive']
 
@@ -67,13 +54,41 @@ class GoogleDriveProvider(StorageProvider):
             )
             self.service = build('drive', 'v3', credentials=credentials)
             self.root_folder_id = root_folder_id
-            self._folder_cache: Dict[str, str] = {}  # Cache folder IDs
+            self.shared_drive_id = shared_drive_id
+            self._folder_cache: Dict[str, str] = {}
 
-            logger.info("Google Drive provider initialized")
+            # Auto-detect Shared Drive if not explicitly provided
+            if not self.shared_drive_id:
+                self.shared_drive_id = self._detect_shared_drive(root_folder_id)
+
+            if self.shared_drive_id:
+                logger.info(f"Google Drive provider initialized (Shared Drive: {self.shared_drive_id})")
+            else:
+                logger.warning(
+                    "Google Drive provider initialized WITHOUT Shared Drive. "
+                    "Service Accounts have no storage quota on My Drive. "
+                    "Uploads will fail unless you use a Shared Drive."
+                )
 
         except Exception as e:
             logger.error(f"Failed to initialize Google Drive: {e}")
             raise
+
+    def _detect_shared_drive(self, folder_id: str) -> Optional[str]:
+        """Auto-detect if a folder belongs to a Shared Drive"""
+        try:
+            file_info = self.service.files().get(
+                fileId=folder_id,
+                fields='driveId',
+                supportsAllDrives=True
+            ).execute()
+            drive_id = file_info.get('driveId')
+            if drive_id:
+                logger.info(f"Auto-detected Shared Drive: {drive_id}")
+            return drive_id
+        except HttpError as e:
+            logger.warning(f"Could not detect Shared Drive for folder {folder_id}: {e}")
+            return None
 
     def upload(
         self,
@@ -163,7 +178,15 @@ class GoogleDriveProvider(StorageProvider):
             )
 
         except HttpError as e:
-            logger.error(f"Google Drive upload failed: {e}")
+            if 'storageQuotaExceeded' in str(e):
+                logger.error(
+                    "Storage quota exceeded! Service Accounts cannot store files in My Drive. "
+                    "You must use a Shared Drive. Steps to fix:\n"
+                    "1. Create a Shared Drive in Google Workspace\n"
+                    "2. Add your service account email as a Content Manager\n"
+                    "3. Create a root folder in the Shared Drive\n"
+                    "4. Set GDRIVE_ROOT_FOLDER_ID to that folder's ID"
+                )
             raise
         except Exception as e:
             logger.error(f"Upload error: {e}")
@@ -200,7 +223,6 @@ class GoogleDriveProvider(StorageProvider):
 
     def get_url(self, file_id: str, expires_in: Optional[int] = None) -> str:
         """Get accessible URL for file (view or download)"""
-        # Google Drive view URL
         return f"https://drive.google.com/uc?id={file_id}&export=download"
 
     def get_metadata(self, file_id: str) -> Optional[FileMetadata]:
@@ -293,13 +315,19 @@ class GoogleDriveProvider(StorageProvider):
 
             # List files in folder
             query = f"'{search_folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'"
-            results = self.service.files().list(
-                q=query,
-                fields='files(id, name, mimeType, size, createdTime, webViewLink, thumbnailLink, properties)',
-                orderBy='createdTime desc',
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True
-            ).execute()
+
+            list_params: Dict[str, Any] = {
+                'q': query,
+                'fields': 'files(id, name, mimeType, size, createdTime, webViewLink, thumbnailLink, properties)',
+                'orderBy': 'createdTime desc',
+                'supportsAllDrives': True,
+                'includeItemsFromAllDrives': True,
+            }
+            if self.shared_drive_id:
+                list_params['driveId'] = self.shared_drive_id
+                list_params['corpora'] = 'drive'
+
+            results = self.service.files().list(**list_params).execute()
 
             files = []
             for file in results.get('files', []):
@@ -417,13 +445,20 @@ class GoogleDriveProvider(StorageProvider):
         """Find folder by name in parent"""
         try:
             query = f"name='{folder_name}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-            results = self.service.files().list(
-                q=query,
-                fields='files(id, name)',
-                spaces='drive',
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True
-            ).execute()
+
+            list_params: Dict[str, Any] = {
+                'q': query,
+                'fields': 'files(id, name)',
+                'supportsAllDrives': True,
+                'includeItemsFromAllDrives': True,
+            }
+            if self.shared_drive_id:
+                list_params['driveId'] = self.shared_drive_id
+                list_params['corpora'] = 'drive'
+            else:
+                list_params['spaces'] = 'drive'
+
+            results = self.service.files().list(**list_params).execute()
 
             folders = results.get('files', [])
             return folders[0]['id'] if folders else None
@@ -436,13 +471,20 @@ class GoogleDriveProvider(StorageProvider):
         """Search folders by name pattern"""
         try:
             query = f"'{parent_id}' in parents and name contains '{name_contains}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-            results = self.service.files().list(
-                q=query,
-                fields='files(id, name)',
-                spaces='drive',
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True
-            ).execute()
+
+            list_params: Dict[str, Any] = {
+                'q': query,
+                'fields': 'files(id, name)',
+                'supportsAllDrives': True,
+                'includeItemsFromAllDrives': True,
+            }
+            if self.shared_drive_id:
+                list_params['driveId'] = self.shared_drive_id
+                list_params['corpora'] = 'drive'
+            else:
+                list_params['spaces'] = 'drive'
+
+            results = self.service.files().list(**list_params).execute()
 
             return results.get('files', [])
 
@@ -474,10 +516,8 @@ class GoogleDriveProvider(StorageProvider):
 
     def _build_job_folder_name(self, context_id: str, metadata: Optional[Dict[str, Any]]) -> str:
         """Build readable folder name for job"""
-        # Start with short context_id
         folder_name = context_id[:8]
 
-        # Add address if available
         if metadata and metadata.get('property_address'):
             address = metadata['property_address']
             safe_address = self._sanitize_filename(address)
@@ -487,9 +527,6 @@ class GoogleDriveProvider(StorageProvider):
 
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename for Google Drive"""
-        # Remove special characters, keep alphanumeric, space, dash, underscore
         safe_name = re.sub(r'[^\w\s-]', '', filename)
-        # Replace spaces with underscores
         safe_name = re.sub(r'\s+', '_', safe_name)
-        # Limit length
         return safe_name[:100]

@@ -36,6 +36,7 @@ import app.domains.document.models
 import app.domains.document_types.models
 import app.domains.file.models
 import app.domains.template.models
+import app.domains.insurance_extraction.models
 
 # Financial
 import app.domains.invoice.models

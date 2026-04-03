@@ -399,9 +399,16 @@ export const waterMitigationService = {
   // Report Config Management
   report: {
     // Get report config for job
-    getConfig: async (jobId: string): Promise<ReportConfig> => {
-      const response = await api.get(`${BASE_URL}/jobs/${jobId}/report-config`);
-      return response.data;
+    getConfig: async (jobId: string): Promise<ReportConfig | null> => {
+      try {
+        const response = await api.get(`${BASE_URL}/jobs/${jobId}/report-config`);
+        return response.data;
+      } catch (error: any) {
+        if (error.response?.status === 404) {
+          return null;
+        }
+        throw error;
+      }
     },
 
     // Create or update report config

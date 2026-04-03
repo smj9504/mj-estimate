@@ -70,9 +70,10 @@ async def _run_sync_in_background(is_business: bool):
         us_time = datetime.now(US_EASTERN_TZ)
         schedule_type = "business hours (15min)" if is_business else "off-hours (3hr)"
         sheet_names = settings.water_mitigation_sheet_names
+        am_pm = "PM" if us_time.hour >= 12 else "AM"
         logger.info(
             f"Starting scheduled Google Sheets sync [{schedule_type}] - "
-            f"US Time: {us_time.strftime('%I:%M %p')}, "
+            f"US Time: {us_time.strftime('%I:%M')} {am_pm}, "
             f"Sheets: {sheet_names}"
         )
 
@@ -157,10 +158,12 @@ def start_scheduler():
 
     scheduler.start()
     us_time = datetime.now(US_EASTERN_TZ)
+    tz_name = us_time.tzname() or "ET"
+    am_pm = "PM" if us_time.hour >= 12 else "AM"
     schedule_info = "15min interval" if is_business else "180min interval"
     logger.info(
         f"Google Sheets sync scheduler started - "
-        f"US Time: {us_time.strftime('%I:%M %p %Z')}, "
+        f"US Time: {us_time.strftime('%I:%M')} {am_pm} {tz_name}, "
         f"Current mode: {schedule_info}"
     )
 

@@ -24,6 +24,8 @@ import {
   FilePdfOutlined,
   AppstoreAddOutlined,
   UnorderedListOutlined,
+  SafetyCertificateOutlined,
+  BookOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -99,6 +101,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             label: 'Invoices',
           },
         ],
+      },
+      {
+        key: '/insurance-extractions',
+        icon: <SafetyCertificateOutlined />,
+        label: 'Insurance Extraction',
       },
       {
         key: '/work-orders',
@@ -179,6 +186,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         key: '/pdf-editor',
         icon: <FilePdfOutlined />,
         label: 'PDF Editor',
+      },
+      {
+        key: '/cheat-sheet',
+        icon: <BookOutlined />,
+        label: 'Cheat Sheet',
       },
       {
         key: '/create',

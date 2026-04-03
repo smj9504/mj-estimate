@@ -1,0 +1,104 @@
+/**
+ * Water Mitigation Sketch API Service
+ * Handles all API calls to /api/water-mitigation/sketch endpoints
+ */
+
+import api from './api';
+import type {
+  WMFloorSketch,
+  WMFloorSketchCreate,
+  WMFloorSketchUpdate,
+  WMOverlayData,
+} from '../types/wmSketch';
+
+const BASE_URL = '/api/water-mitigation/sketch';
+
+const wmSketchService = {
+  // ============================================================================
+  // Floor Sketch CRUD
+  // ============================================================================
+
+  /** Retrieve all floor sketches for a given WM job, ordered by floor_order */
+  getFloorSketches: async (jobId: string): Promise<WMFloorSketch[]> => {
+    const response = await api.get(`${BASE_URL}/jobs/${jobId}/floors`);
+    return response.data.items;
+  },
+
+  /** Create a new floor sketch under a WM job */
+  createFloorSketch: async (
+    jobId: string,
+    data: WMFloorSketchCreate
+  ): Promise<WMFloorSketch> => {
+    const response = await api.post(`${BASE_URL}/jobs/${jobId}/floors`, data);
+    return response.data;
+  },
+
+  /** Retrieve a single floor sketch by its ID */
+  getFloorSketch: async (floorSketchId: string): Promise<WMFloorSketch> => {
+    const response = await api.get(`${BASE_URL}/floors/${floorSketchId}`);
+    return response.data;
+  },
+
+  /** Update floor sketch metadata (label, order, canvas size, etc.) */
+  updateFloorSketch: async (
+    floorSketchId: string,
+    data: WMFloorSketchUpdate
+  ): Promise<WMFloorSketch> => {
+    const response = await api.put(`${BASE_URL}/floors/${floorSketchId}`, data);
+    return response.data;
+  },
+
+  /** Permanently delete a floor sketch and all its overlay data */
+  deleteFloorSketch: async (floorSketchId: string): Promise<void> => {
+    await api.delete(`${BASE_URL}/floors/${floorSketchId}`);
+  },
+
+  // ============================================================================
+  // Overlay Data (bulk save)
+  // ============================================================================
+
+  /**
+   * Replace all overlay data for a floor sketch in one request.
+   * The backend performs a full replace — pass the complete overlay state,
+   * not a partial diff.
+   */
+  saveOverlayData: async (
+    floorSketchId: string,
+    overlayData: WMOverlayData
+  ): Promise<WMOverlayData> => {
+    const response = await api.put(
+      `${BASE_URL}/floors/${floorSketchId}/overlay`,
+      overlayData
+    );
+    return response.data;
+  },
+
+  // ============================================================================
+  // Background Image
+  // ============================================================================
+
+  /**
+   * Upload a background image for a floor sketch.
+   * The backend stores the file and returns the public URL to display on canvas.
+   */
+  uploadBackgroundImage: async (
+    floorSketchId: string,
+    file: File
+  ): Promise<{ background_image_url: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post(
+      `${BASE_URL}/floors/${floorSketchId}/background-image`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    return response.data;
+  },
+
+  /** Remove the background image from a floor sketch */
+  removeBackgroundImage: async (floorSketchId: string): Promise<void> => {
+    await api.delete(`${BASE_URL}/floors/${floorSketchId}/background-image`);
+  },
+};
+
+export default wmSketchService;
