@@ -99,6 +99,29 @@ const wmSketchService = {
   removeBackgroundImage: async (floorSketchId: string): Promise<void> => {
     await api.delete(`${BASE_URL}/floors/${floorSketchId}/background-image`);
   },
+
+  // ============================================================================
+  // PDF Report
+  // ============================================================================
+
+  /**
+   * Generate and download a PDF sketch report for a WM job.
+   * Triggers a browser download with the PDF file.
+   */
+  downloadSketchReport: async (jobId: string, filename?: string): Promise<void> => {
+    const response = await api.get(`${BASE_URL}/jobs/${jobId}/report`, {
+      responseType: 'blob',
+    });
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename || `sketch_report.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  },
 };
 
 export default wmSketchService;

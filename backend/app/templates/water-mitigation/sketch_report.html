@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Water Mitigation Sketch Report</title>
+  <style>
+    @page {
+      size: letter;
+      margin: 1.8cm 2cm;
+      @bottom-center {
+        content: "Page " counter(page) " of " counter(pages);
+        font-size: 9px;
+        color: #999;
+        font-family: 'Arial', sans-serif;
+      }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Arial', 'Helvetica Neue', sans-serif;
+      font-size: 10px;
+      color: #1a1a1a;
+      line-height: 1.5;
+      background: #fff;
+    }
+
+    /* ── Report Header ──────────────────────────────────── */
+    .report-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding-bottom: 14px;
+      border-bottom: 2px solid #1a1a1a;
+      margin-bottom: 20px;
+    }
+    .report-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      color: #1a1a1a;
+    }
+    .report-subtitle {
+      font-size: 11px;
+      color: #555;
+      margin-top: 2px;
+    }
+    .report-meta {
+      text-align: right;
+      font-size: 9px;
+      color: #666;
+      line-height: 1.8;
+    }
+
+    /* ── Jobsite Info Section ───────────────────────────── */
+    .section {
+      margin-bottom: 22px;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #1a1a1a;
+      border-bottom: 1px solid #e0e0e0;
+      padding-bottom: 5px;
+      margin-bottom: 10px;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .info-row {
+      display: flex;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .info-row:last-child { border-bottom: none; }
+    .info-label {
+      width: 120px;
+      min-width: 120px;
+      font-weight: 600;
+      color: #555;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      padding: 5px 8px;
+      background: #fafafa;
+      border-right: 1px solid #e0e0e0;
+    }
+    .info-value {
+      flex: 1;
+      padding: 5px 8px;
+      color: #1a1a1a;
+      font-size: 10px;
+    }
+    .info-value.empty { color: #aaa; font-style: italic; }
+
+    /* ── Floor Page Break ───────────────────────────────── */
+    .floor-section {
+      page-break-before: always;
+    }
+    .floor-section:first-of-type {
+      page-break-before: auto;
+    }
+
+    .floor-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      border-bottom: 1px solid #e0e0e0;
+      padding-bottom: 6px;
+      margin-bottom: 14px;
+    }
+    .floor-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+    .floor-address {
+      font-size: 9px;
+      color: #888;
+    }
+
+    /* ── Sketch Canvas ──────────────────────────────────── */
+    .sketch-canvas-wrapper {
+      width: 100%;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 16px;
+      background: #fafafa;
+    }
+    .sketch-canvas-wrapper svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .sketch-empty {
+      padding: 40px;
+      text-align: center;
+      color: #aaa;
+      font-size: 10px;
+      font-style: italic;
+    }
+
+    /* ── Summary Tables ─────────────────────────────────── */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .summary-block { }
+    .summary-block-title {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #555;
+      margin-bottom: 5px;
+    }
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9px;
+    }
+    .summary-table th {
+      background: #f5f5f5;
+      font-weight: 600;
+      text-align: left;
+      padding: 4px 6px;
+      border: 1px solid #e0e0e0;
+      color: #444;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      font-size: 8px;
+    }
+    .summary-table td {
+      padding: 4px 6px;
+      border: 1px solid #f0f0f0;
+      color: #1a1a1a;
+    }
+    .summary-table tr:nth-child(even) td { background: #fafafa; }
+    .summary-table .total-row td {
+      background: #f0f0f0;
+      font-weight: 700;
+      border-top: 1px solid #ccc;
+    }
+    .text-right { text-align: right; }
+
+    .color-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+
+    /* ── Equipment & Other Summary ──────────────────────── */
+    .equip-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 3px 0;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 9px;
+    }
+    .equip-row:last-child { border-bottom: none; }
+    .equip-label { color: #444; }
+    .equip-count { font-weight: 700; color: #1a1a1a; }
+
+    .other-summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9px;
+    }
+    .other-summary-table td {
+      padding: 4px 6px;
+      border: 1px solid #f0f0f0;
+    }
+    .other-summary-table tr:nth-child(even) td { background: #fafafa; }
+
+    /* ── Notes ──────────────────────────────────────────── */
+    .notes-box {
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 9px;
+      color: #444;
+      background: #fafafa;
+      margin-top: 10px;
+      font-style: italic;
+    }
+
+    /* ── Legend ─────────────────────────────────────────── */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 8px 0;
+      margin-bottom: 10px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 8px;
+      color: #555;
+    }
+    .legend-swatch {
+      width: 16px;
+      height: 10px;
+      border-radius: 2px;
+    }
+    .legend-swatch.containment {
+      border: 2px dashed #0066FF;
+      background: rgba(0,102,255,0.05);
+    }
+    .legend-swatch.protection {
+      background: rgba(255,215,0,0.5);
+      border: 1px solid #FFD700;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Report Header ──────────────────────────────────── -->
+  <div class="report-header">
+    <div>
+      <div class="report-title">Water Mitigation Sketch Report</div>
+      <div class="report-subtitle">Floor Plan &amp; Material Summary</div>
+    </div>
+    <div class="report-meta">
+      <div><strong>Report Date:</strong> {{ report_date.strftime('%B %d, %Y') }}</div>
+      {% if job.claim_number %}
+      <div><strong>Claim #:</strong> {{ job.claim_number }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Jobsite Information ────────────────────────────── -->
+  <div class="section">
+    <div class="section-title">Jobsite Information</div>
+    <div class="info-grid">
+      <!-- Left column -->
+      <div>
+        <div class="info-row">
+          <div class="info-label">Property</div>
+          <div class="info-value {% if not job.property_address %}empty{% endif %}">
+            {{ job.property_address or 'N/A' }}
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Homeowner</div>
+          <div class="info-value {% if not job.homeowner_name %}empty{% endif %}">
+            {{ job.homeowner_name or '—' }}
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Phone</div>
+          <div class="info-value {% if not job.homeowner_phone %}empty{% endif %}">
+            {{ job.homeowner_phone or '—' }}
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Email</div>
+          <div class="info-value {% if not job.homeowner_email %}empty{% endif %}">
+            {{ job.homeowner_email or '—' }}
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Date of Loss</div>
+          <div class="info-value {% if not job.date_of_loss %}empty{% endif %}">
+            {% if job.date_of_loss %}{{ job.date_of_loss.strftime('%B %d, %Y') }}{% else %}—{% endif %}
+          </div>
+        </div>
+      </div>
+      <!-- Right column -->
+      <div>
+        <div class="info-row">
+          <div class="info-label">Insurance Co.</div>
+          <div class="info-value {% if not job.insurance_company %}empty{% endif %}">
+            {{ job.insurance_company or '—' }}
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Policy #</div>
+          <div class="info-value {% if not job.insurance_policy_number %}empty{% endif %}">
+            {{ job.insurance_policy_number or '—' }}
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Claim #</div>
+          <div class="info-value {% if not job.claim_number %}empty{% endif %}">
+            {{ job.claim_number or '—' }}
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Adjuster</div>
+          <div class="info-value {% if not job.adjuster_name %}empty{% endif %}">
+            {{ job.adjuster_name or '—' }}
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-label">Adjuster Phone</div>
+          <div class="info-value {% if not job.adjuster_phone %}empty{% endif %}">
+            {{ job.adjuster_phone or '—' }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if job.mitigation_start_date or job.mitigation_end_date %}
+    <div style="margin-top:8px;">
+      <div class="info-row" style="border:1px solid #e0e0e0; border-radius:4px;">
+        <div class="info-label">Mitigation Period</div>
+        <div class="info-value">
+          {% if job.mitigation_start_date %}{{ job.mitigation_start_date.strftime('%b %d, %Y') }}{% else %}—{% endif %}
+          &nbsp;→&nbsp;
+          {% if job.mitigation_end_date %}{{ job.mitigation_end_date.strftime('%b %d, %Y') }}{% else %}Ongoing{% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Floor Sketches ─────────────────────────────────── -->
+  {% for item in floor_data %}
+  <div class="floor-section {% if not loop.first %}page-break{% endif %}">
+
+    <div class="floor-header">
+      <div class="floor-title">{{ item.floor_label }}</div>
+      <div class="floor-address">{{ job.property_address }}</div>
+    </div>
+
+    <!-- Sketch Canvas -->
+    <div class="sketch-canvas-wrapper">
+      {% if item.svg %}
+        {{ item.svg | safe }}
+      {% else %}
+        <div class="sketch-empty">No sketch data available for this floor.</div>
+      {% endif %}
+    </div>
+
+    <!-- Legend -->
+    <div class="legend">
+      {% for mat in item.summary.demo_by_material %}
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:{{ mat.color }}40; border:1.5px solid {{ mat.color }};"></div>
+        <span>{{ mat.material }}</span>
+      </div>
+      {% endfor %}
+      {% if item.summary.containment_sqft > 0 %}
+      <div class="legend-item">
+        <div class="legend-swatch containment"></div>
+        <span>Containment</span>
+      </div>
+      {% endif %}
+      {% if item.summary.protection_sqft > 0 %}
+      <div class="legend-item">
+        <div class="legend-swatch protection"></div>
+        <span>Floor Protection</span>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Summary Tables -->
+    <div class="summary-grid">
+
+      <!-- Demolition Summary -->
+      <div class="summary-block">
+        <div class="summary-block-title">Demolition Summary</div>
+        {% if item.summary.demo_by_material %}
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>Material Type</th>
+              <th>Surface</th>
+              <th class="text-right">Count</th>
+              <th class="text-right">Total SF</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for mat in item.summary.demo_by_material %}
+            <tr>
+              <td>
+                <span class="color-dot" style="background:{{ mat.color }};"></span>
+                {{ mat.material }}
+              </td>
+              <td>{{ mat.surface | capitalize }}</td>
+              <td class="text-right">{{ mat.count }}</td>
+              <td class="text-right">{{ "%.1f"|format(mat.total_sqft) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="total-row">
+              <td colspan="3">Total Demolition</td>
+              <td class="text-right">{{ "%.1f"|format(item.summary.total_demo_sqft) }} SF</td>
+            </tr>
+          </tfoot>
+        </table>
+        {% else %}
+        <div style="color:#aaa; font-size:9px; font-style:italic; padding:8px 0;">No demolition zones recorded.</div>
+        {% endif %}
+      </div>
+
+      <!-- Equipment & Other -->
+      <div class="summary-block">
+        <div class="summary-block-title">Equipment Placement</div>
+        {% if item.summary.equip_counts %}
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>Equipment Type</th>
+              <th class="text-right">Count</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for equip_name, equip_count in item.summary.equip_counts.items() %}
+            <tr>
+              <td>{{ equip_name }}</td>
+              <td class="text-right">{{ equip_count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="total-row">
+              <td>Total Equipment</td>
+              <td class="text-right">{{ item.summary.equip_counts.values() | sum }}</td>
+            </tr>
+          </tfoot>
+        </table>
+        {% else %}
+        <div style="color:#aaa; font-size:9px; font-style:italic; padding:8px 0;">No equipment placed.</div>
+        {% endif %}
+
+        {% if item.summary.containment_sqft > 0 or item.summary.protection_sqft > 0 %}
+        <div style="margin-top:10px;">
+          <div class="summary-block-title">Additional Areas</div>
+          <table class="other-summary-table">
+            {% if item.summary.containment_sqft > 0 %}
+            <tr>
+              <td>Containment</td>
+              <td class="text-right">{{ "%.1f"|format(item.summary.containment_sqft) }} SF</td>
+            </tr>
+            {% endif %}
+            {% if item.summary.protection_sqft > 0 %}
+            <tr>
+              <td>Floor Protection</td>
+              <td class="text-right">{{ "%.1f"|format(item.summary.protection_sqft) }} SF</td>
+            </tr>
+            {% endif %}
+          </table>
+        </div>
+        {% endif %}
+      </div>
+
+    </div>
+
+    <!-- Notes -->
+    {% if item.notes %}
+    <div style="margin-top:6px;">
+      <div class="summary-block-title">Notes</div>
+      <div class="notes-box">{{ item.notes }}</div>
+    </div>
+    {% endif %}
+
+  </div>
+  {% endfor %}
+
+  {% if not floor_data %}
+  <div style="text-align:center; color:#aaa; font-size:12px; padding:60px 0; font-style:italic;">
+    No floor sketches have been created for this job.
+  </div>
+  {% endif %}
+
+</body>
+</html>

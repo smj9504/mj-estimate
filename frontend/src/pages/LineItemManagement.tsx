@@ -19,6 +19,7 @@ import {
   Col,
   Switch,
   Empty,
+  Grid,
 } from 'antd';
 import {
   PlusOutlined,
@@ -34,9 +35,12 @@ import { LineItem } from '../types/lineItem';
 import { debounce } from 'lodash';
 
 const { Title, Text } = Typography;
+const { useBreakpoint } = Grid;
 const { Search } = Input;
 
 const LineItemManagement: React.FC = () => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [loading, setLoading] = useState(false);
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -265,6 +269,7 @@ const LineItemManagement: React.FC = () => {
       sorter: true,
       sortOrder: sortBy === 'item' ? (sortOrder === 'asc' ? 'ascend' : sortOrder === 'desc' ? 'descend' : null) : null,
       render: (text: string) => <Text strong>{text}</Text>,
+      responsive: ['md'] as any,
     },
     {
       title: 'Category',
@@ -272,6 +277,7 @@ const LineItemManagement: React.FC = () => {
       key: 'cat',
       width: 120,
       ellipsis: true,
+      responsive: ['lg'] as any,
     },
     {
       title: 'Description',
@@ -291,8 +297,8 @@ const LineItemManagement: React.FC = () => {
       dataIndex: 'type',
       key: 'type',
       width: 100,
+      responsive: ['md'] as any,
       render: (type: string) => {
-        // Use the actual type field from database
         const isXactimate = type === 'XACTIMATE';
         return (
           <Tag color={isXactimate ? 'blue' : 'green'}>
@@ -313,7 +319,6 @@ const LineItemManagement: React.FC = () => {
       key: 'rate',
       width: 120,
       render: (_: any, record: LineItem) => {
-        // Parse breakdown fields
         const lab = parseFloat(String(record.lab || 0));
         const mat = parseFloat(String(record.mat || 0));
         const equ = parseFloat(String(record.equ || 0));
@@ -323,16 +328,12 @@ const LineItemManagement: React.FC = () => {
         let rate = 0;
         const hasBreakdown = (lab > 0 || mat > 0 || equ > 0);
 
-        // Use breakdown calculation if any breakdown fields have values
-        // This handles both XACTIMATE type and CUSTOM items with breakdown data
         if (hasBreakdown && !isNaN(lab) && !isNaN(mat) && !isNaN(equ)) {
           rate = (lab + mat + equ) * (1 + laborBurden / 100) * (1 + marketCondition / 100);
         } else {
-          // Fall back to untaxed_unit_price for items without breakdown
           rate = parseFloat(String(record.untaxed_unit_price || 0));
         }
 
-        // Handle NaN case
         if (isNaN(rate)) {
           rate = 0;
         }
@@ -346,6 +347,7 @@ const LineItemManagement: React.FC = () => {
       key: 'is_active',
       width: 80,
       align: 'center' as const,
+      responsive: ['md'] as any,
       render: (isActive: boolean) => (
         <Tag color={isActive ? 'success' : 'default'}>
           {isActive ? 'Active' : 'Inactive'}
@@ -412,12 +414,12 @@ const LineItemManagement: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '24px' }}>
+    <div style={{ padding: isMobile ? '12px' : '24px' }}>
       <Card>
         {/* Header */}
-        <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
+        <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
           <Col>
-            <Title level={3} style={{ margin: 0 }}>Line Item Library</Title>
+            <Title level={isMobile ? 4 : 3} style={{ margin: 0 }}>Line Item Library</Title>
           </Col>
           <Col>
             <Button
@@ -425,13 +427,13 @@ const LineItemManagement: React.FC = () => {
               icon={<PlusOutlined />}
               onClick={handleCreateNew}
             >
-              Create New Line Item
+              {isMobile ? 'New' : 'Create New Line Item'}
             </Button>
           </Col>
         </Row>
 
         {/* Filters */}
-        <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Row gutter={[16, 8]} style={{ marginBottom: 16 }}>
           <Col xs={24} sm={12} md={8}>
             <Search
               placeholder="Search by code or description"
@@ -476,8 +478,7 @@ const LineItemManagement: React.FC = () => {
             </Select>
           </Col>
           <Col xs={24} sm={12} md={6}>
-            <Space>
-              <Text>Show:</Text>
+            <Space wrap>
               <Switch
                 checked={activeFilter === true}
                 onChange={(checked) => {
@@ -531,13 +532,15 @@ const LineItemManagement: React.FC = () => {
           rowKey={(record) => record.id || `invalid-${Math.random()}`}
           loading={loading}
           onChange={handleTableChange}
+          scroll={{ x: 500 }}
           pagination={{
             current: currentPage,
             pageSize: pageSize,
             total: totalItems,
             showSizeChanger: true,
-            showTotal: (total) => `Total ${total} items`,
+            showTotal: (total) => isMobile ? `${total} items` : `Total ${total} items`,
             pageSizeOptions: ['10', '25', '50', '100'],
+            simple: isMobile,
           }}
           locale={{
             emptyText: (

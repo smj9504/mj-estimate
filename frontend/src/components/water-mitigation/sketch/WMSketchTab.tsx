@@ -29,10 +29,12 @@ import {
   Space,
   Typography,
   Card,
+  Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
   EnvironmentOutlined,
+  FilePdfOutlined,
 } from '@ant-design/icons';
 import wmSketchService from '../../../services/wmSketchService';
 import type {
@@ -95,6 +97,7 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
   const [activeFloorId, setActiveFloorId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [pdfGenerating, setPdfGenerating] = useState(false);
 
   // Material types are constant for now; could be customised per-job later
   const materialTypes = DEFAULT_DEMO_MATERIAL_TYPES;
@@ -294,6 +297,19 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
     );
   }, [activeFloorId]);
 
+  const handleGeneratePdf = useCallback(async () => {
+    setPdfGenerating(true);
+    try {
+      const address = jobAddress.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 40);
+      await wmSketchService.downloadSketchReport(jobId, `sketch_report_${address}.pdf`);
+      message.success('PDF report downloaded.');
+    } catch {
+      message.error('Failed to generate PDF report. Please try again.');
+    } finally {
+      setPdfGenerating(false);
+    }
+  }, [jobId, jobAddress]);
+
   // ------------------------------------------------------------------
   // Derived: active floor
   // ------------------------------------------------------------------
@@ -374,6 +390,19 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
             — {floors.length} floor{floors.length !== 1 ? 's' : ''}
           </Text>
         )}
+        <div style={{ marginLeft: 'auto' }}>
+          <Tooltip title={floors.length === 0 ? 'Add a floor sketch first' : 'Download PDF Report'}>
+            <Button
+              icon={<FilePdfOutlined />}
+              size="small"
+              loading={pdfGenerating}
+              disabled={floors.length === 0}
+              onClick={handleGeneratePdf}
+            >
+              PDF Report
+            </Button>
+          </Tooltip>
+        </div>
       </div>
 
       {/* Floor selector tabs */}

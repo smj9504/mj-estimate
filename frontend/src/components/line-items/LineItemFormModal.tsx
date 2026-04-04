@@ -21,6 +21,9 @@ import {
   Card,
   List,
   Collapse,
+  Row,
+  Col,
+  Grid,
 } from 'antd';
 import {
   PlusOutlined,
@@ -51,6 +54,7 @@ import { LineItem, LineItemCreate, LineItemUpdate, LineItemType, LineItemNote } 
 const { TextArea } = Input;
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
+const { useBreakpoint } = Grid;
 
 interface LineItemFormModalProps {
   open: boolean;
@@ -192,6 +196,8 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
   onSuccess,
   lineItemId,
 }) => {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
@@ -484,7 +490,8 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
       title={isEditMode ? 'Edit Line Item' : 'Create Line Item'}
       open={open}
       onCancel={handleClose}
-      width={800}
+      width={isMobile ? '95vw' : 800}
+      styles={{ body: { maxHeight: 'calc(85vh - 110px)', overflowY: 'auto', overflowX: 'hidden', padding: isMobile ? '12px 12px' : undefined } }}
       footer={[
         <Button key="cancel" onClick={handleClose}>
           Cancel
@@ -549,45 +556,40 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
         </Form.Item>
 
         {/* Unit and Category */}
-        <Space style={{ width: '100%' }} size="middle">
-          <Form.Item
-            label="Unit"
-            name="unit"
-            style={{ width: 200 }}
-          >
-            <Select
-              showSearch
-              placeholder="Select unit"
-              options={unitOptions.map(u => ({ label: u, value: u }))}
-              dropdownRender={(menu) => (
-                <>
-                  {menu}
-                  <Divider style={{ margin: '8px 0' }} />
-                  <div style={{ padding: '4px 8px', cursor: 'pointer' }}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      Or type custom unit
-                    </Text>
-                  </div>
-                </>
-              )}
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="Category"
-            name="cat"
-            style={{ flex: 1 }}
-          >
-            <Select
-              showSearch
-              placeholder="Select category"
-              options={categories.map(c => ({
-                label: `${c.code} - ${c.name}`,
-                value: c.code,
-              }))}
-            />
-          </Form.Item>
-        </Space>
+        <Row gutter={[16, 0]}>
+          <Col xs={12} sm={8}>
+            <Form.Item label="Unit" name="unit">
+              <Select
+                showSearch
+                placeholder="Select unit"
+                options={unitOptions.map(u => ({ label: u, value: u }))}
+                dropdownRender={(menu) => (
+                  <>
+                    {menu}
+                    <Divider style={{ margin: '8px 0' }} />
+                    <div style={{ padding: '4px 8px', cursor: 'pointer' }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Or type custom unit
+                      </Text>
+                    </div>
+                  </>
+                )}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={12} sm={16}>
+            <Form.Item label="Category" name="cat">
+              <Select
+                showSearch
+                placeholder="Select category"
+                options={categories.map(c => ({
+                  label: `${c.code} - ${c.name}`,
+                  value: c.code,
+                }))}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
 
         <Divider orientation="left">Pricing</Divider>
 
@@ -612,86 +614,93 @@ const LineItemFormModal: React.FC<LineItemFormModalProps> = ({
           </Form.Item>
         ) : (
           <>
-            <Space style={{ width: '100%' }} size="middle">
-              <Form.Item label="Labor" name="lab" style={{ flex: 1 }}>
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={0}
-                  step={0.01}
-                  precision={2}
-                  placeholder="0.00"
-                  formatter={value => (value != null) ? `$ ${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : ''}
-                  parser={value => {
-                    const num = parseFloat(String(value || '').replace(/\$\s?|(,*)/g, ''));
-                    return isNaN(num) ? (0 as any) : (num as any);
-                  }}
-                />
-              </Form.Item>
+            <Row gutter={[16, 0]}>
+              <Col xs={24} sm={8}>
+                <Form.Item label="Labor" name="lab">
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={0}
+                    step={0.01}
+                    precision={2}
+                    placeholder="0.00"
+                    formatter={value => (value != null) ? `$ ${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : ''}
+                    parser={value => {
+                      const num = parseFloat(String(value || '').replace(/\$\s?|(,*)/g, ''));
+                      return isNaN(num) ? (0 as any) : (num as any);
+                    }}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={8}>
+                <Form.Item label="Material" name="mat">
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={0}
+                    step={0.01}
+                    precision={2}
+                    placeholder="0.00"
+                    formatter={value => (value != null) ? `$ ${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : ''}
+                    parser={value => {
+                      const num = parseFloat(String(value || '').replace(/\$\s?|(,*)/g, ''));
+                      return isNaN(num) ? (0 as any) : (num as any);
+                    }}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={8}>
+                <Form.Item label="Equipment" name="equ">
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={0}
+                    step={0.01}
+                    precision={2}
+                    placeholder="0.00"
+                    formatter={value => (value != null) ? `$ ${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : ''}
+                    parser={value => {
+                      const num = parseFloat(String(value || '').replace(/\$\s?|(,*)/g, ''));
+                      return isNaN(num) ? (0 as any) : (num as any);
+                    }}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
 
-              <Form.Item label="Material" name="mat" style={{ flex: 1 }}>
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={0}
-                  step={0.01}
-                  precision={2}
-                  placeholder="0.00"
-                  formatter={value => (value != null) ? `$ ${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : ''}
-                  parser={value => {
-                    const num = parseFloat(String(value || '').replace(/\$\s?|(,*)/g, ''));
-                    return isNaN(num) ? (0 as any) : (num as any);
-                  }}
-                />
-              </Form.Item>
-
-              <Form.Item label="Equipment" name="equ" style={{ flex: 1 }}>
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={0}
-                  step={0.01}
-                  precision={2}
-                  placeholder="0.00"
-                  formatter={value => (value != null) ? `$ ${String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}` : ''}
-                  parser={value => {
-                    const num = parseFloat(String(value || '').replace(/\$\s?|(,*)/g, ''));
-                    return isNaN(num) ? (0 as any) : (num as any);
-                  }}
-                />
-              </Form.Item>
-            </Space>
-
-            <Space style={{ width: '100%' }} size="middle">
-              <Form.Item label="Labor Burden (%)" name="labor_burden" style={{ flex: 1 }}>
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  precision={1}
-                  placeholder="0"
-                  formatter={value => (value != null) ? `${String(value)}%` : ''}
-                  parser={value => {
-                    const num = parseFloat(String(value || '').replace(/%/g, ''));
-                    return isNaN(num) ? (0 as any) : (num as any);
-                  }}
-                />
-              </Form.Item>
-
-              <Form.Item label="Market Condition (%)" name="market_condition" style={{ flex: 1 }}>
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={-100}
-                  max={100}
-                  step={0.1}
-                  precision={1}
-                  placeholder="0"
-                  formatter={value => (value != null) ? `${String(value)}%` : ''}
-                  parser={value => {
-                    const num = parseFloat(String(value || '').replace(/%/g, ''));
-                    return isNaN(num) ? (0 as any) : (num as any);
-                  }}
-                />
-              </Form.Item>
-            </Space>
+            <Row gutter={[16, 0]}>
+              <Col xs={24} sm={12}>
+                <Form.Item label="Labor Burden (%)" name="labor_burden">
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={0}
+                    max={100}
+                    step={0.1}
+                    precision={1}
+                    placeholder="0"
+                    formatter={value => (value != null) ? `${String(value)}%` : ''}
+                    parser={value => {
+                      const num = parseFloat(String(value || '').replace(/%/g, ''));
+                      return isNaN(num) ? (0 as any) : (num as any);
+                    }}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item label="Market Condition (%)" name="market_condition">
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={-100}
+                    max={100}
+                    step={0.1}
+                    precision={1}
+                    placeholder="0"
+                    formatter={value => (value != null) ? `${String(value)}%` : ''}
+                    parser={value => {
+                      const num = parseFloat(String(value || '').replace(/%/g, ''));
+                      return isNaN(num) ? (0 as any) : (num as any);
+                    }}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
 
             <Card size="small" style={{ background: '#f5f5f5' }}>
               <Text strong>Calculated Total: </Text>

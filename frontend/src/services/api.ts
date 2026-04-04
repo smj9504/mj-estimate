@@ -3,7 +3,8 @@ import axios from 'axios';
 // Create axios instance with base configuration
 // For production: use backend URL directly (Vercel env vars not working)
 // For development: use proxy (empty string)
-const baseURL = window.location.hostname === 'localhost'
+const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const baseURL = isLocalDev
   ? '' // Development: use proxy
   : 'https://mjestimate-backend.onrender.com'; // Production: direct backend URL
 

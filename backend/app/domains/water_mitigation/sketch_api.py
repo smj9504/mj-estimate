@@ -5,10 +5,12 @@ REST endpoints for floor sketches and overlay management.
 Router is registered in main.py with prefix="/api/water-mitigation/sketch".
 """
 
+import io
 from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.database_factory import get_db
@@ -36,6 +38,7 @@ from app.domains.water_mitigation.sketch_schemas import (
     WMOverlayData,
 )
 from app.domains.water_mitigation.sketch_service import SketchService
+from app.domains.water_mitigation.sketch_pdf_service import SketchPdfService
 
 router = APIRouter(tags=["WM Sketches"])
 
@@ -313,3 +316,57 @@ async def remove_background_image(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         )
+
+
+# ---------------------------------------------------------------------------
+# PDF Report Endpoint
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/jobs/{job_id}/report",
+    summary="Generate a PDF sketch report for a WM job",
+    response_class=StreamingResponse,
+)
+def generate_sketch_report(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """
+    Generate and download a PDF report that includes:
+    - Jobsite / homeowner / insurance information
+    - SVG floor plan for each floor sketch
+    - Per-floor demolition, equipment, containment, and protection summaries
+
+    Returns a PDF file as an attachment.
+    """
+    import logging
+    _logger = logging.getLogger(__name__)
+
+    try:
+        pdf_service = SketchPdfService(db)
+        pdf_bytes = pdf_service.generate_sketch_report(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except RuntimeError as exc:
+        _logger.error("PDF generation failed for job %s: %s", job_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        _logger.exception("Unexpected error generating PDF for job %s", job_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate PDF report",
+        )
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="sketch_report_{job_id}.pdf"',
+        "Content-Length": str(len(pdf_bytes)),
+    }
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers=headers,
+    )
