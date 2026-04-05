@@ -146,8 +146,19 @@ const sections: Section[] = [
           'Tile (FCT, TIL) — per SF 가격에 포함',
           'Wood flooring (FCW) — 포함',
           'LVP / Vinyl plank (FCV PLK) — 포함',
-          'Drywall (DRY) — 포함',
+          '**Drywall 시트 (DRY)** — 포함 (SF/LF 모두)',
           'Paint (PNT) — 포함',
+        ],
+      },
+      {
+        type: 'purple', title: 'Drywall 부분 교체 Waste 규칙',
+        items: [
+          '**DRY 시트** 가격에 waste **이미 포함** → 별도 추가 불필요',
+          '**DRY LF (flood cut 2\')** — 높은 노동단가에 waste 반영됨',
+          '**Drywall mud / joint compound** — waste **미포함!** 10~15% 수동 추가',
+          '단순 사각형 방 → 10% / 코너·개구부 많으면 → 15%',
+          '⚠ Remove 수량에는 waste 추가 안 함 (설치 수량에만)',
+          '부분 교체 시 `DRY PATCHJ` (tape joint) LF는 실측 — waste 없음',
         ],
       },
       {
@@ -323,6 +334,26 @@ const sections: Section[] = [
   {
     id: 'drywall', title: 'Drywall', tag: 'DRY', tagColor: '#1a1a1a',
     navGroup: 'Structure', navDotColor: '#4f8ef7',
+    rules: [
+      {
+        type: 'success', title: 'Drywall Waste 규칙',
+        items: [
+          '**DRY 시트 (LF/SF)** — waste 가격에 **포함됨** → 별도 추가 불필요',
+          '**Drywall mud / joint compound** — waste **미포함** → 10~15% 추가',
+          'LF 방식 (flood cut) — 높은 노동단가에 waste 이미 반영',
+          'Remove 수량에는 waste 추가 안 함 (설치만 해당)',
+        ],
+      },
+      {
+        type: 'info', title: '부분 교체 (Flood Cut) 기준',
+        items: [
+          '침수 높이 < 2.5ft → **4ft까지** 제거',
+          '침수 높이 > 2.5ft → **8ft (천장)까지** 제거',
+          'Category 3 water (하수) → 접촉 여부 무관 **전체 교체**',
+          '`DRY PATCHJ` (tape joint) — 부분 교체 경계선, 실측 LF 입력',
+        ],
+      },
+    ],
     tables: [{
       columns: [
         { title: '타입', dataIndex: 'type', key: 'type' },
