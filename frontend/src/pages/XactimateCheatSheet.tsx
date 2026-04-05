@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useRef } from 'react';
-import { Input, Tag, Typography, Anchor, Card, Table, Alert, Row, Col, Badge, Space } from 'antd';
-import { SearchOutlined, PrinterOutlined } from '@ant-design/icons';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { Input, Tag, Typography, Anchor, Card, Table, Alert, Row, Col, Badge, Space, Drawer, FloatButton } from 'antd';
+import { SearchOutlined, PrinterOutlined, MenuOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
 
@@ -904,10 +904,27 @@ const formatText = (text: string): React.ReactNode => {
   });
 };
 
+// ─── Mobile hook ───
+const useIsMobile = (breakpoint = 768) => {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < breakpoint : false
+  );
+  useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mql.addEventListener('change', handler);
+    setIsMobile(mql.matches);
+    return () => mql.removeEventListener('change', handler);
+  }, [breakpoint]);
+  return isMobile;
+};
+
 // ─── Main Component ───
 const XactimateCheatSheet: React.FC = () => {
   const [searchText, setSearchText] = useState('');
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const mainRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   const filteredSections = useMemo(() => {
     if (!searchText.trim()) return sections;
@@ -965,62 +982,106 @@ const XactimateCheatSheet: React.FC = () => {
       rule.items.some(item => item.toLowerCase().includes(q));
   };
 
-  return (
-    <div style={{ display: 'flex', gap: 24 }}>
-      {/* Sidebar Anchor Navigation */}
-      <div style={{
-        width: 220,
-        flexShrink: 0,
-        position: 'sticky',
-        top: 0,
-        maxHeight: 'calc(100vh - 140px)',
-        overflowY: 'auto',
-        borderRight: '1px solid #f0f0f0',
-        paddingRight: 12,
-      }}>
-        <div style={{ padding: '8px 0 16px', borderBottom: '1px solid #f0f0f0', marginBottom: 12 }}>
-          <Title level={5} style={{ margin: 0, fontFamily: 'monospace', letterSpacing: 1 }}>XACTIMATE</Title>
-          <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 }}>Estimator Cheat Sheet</Text>
-        </div>
-        <Anchor
-          affix={false}
-          offsetTop={80}
-          items={Object.entries(navGroups).map(([group, items]) => ({
-            key: group,
-            href: `#${items[0].id}`,
-            title: <Text type="secondary" style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>{group}</Text>,
-            children: items.map(item => ({
-              key: item.id,
-              href: `#${item.id}`,
-              title: (
-                <Space size={6}>
-                  <Badge color={item.dotColor} />
-                  <span style={{ fontSize: 12 }}>{item.title}</span>
-                </Space>
-              ),
-            })),
-          }))}
-        />
-        <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
-          <a onClick={() => window.print()} style={{ fontSize: 12, cursor: 'pointer', color: '#666' }}>
-            <PrinterOutlined /> Print / PDF
-          </a>
-        </div>
+  const handleAnchorClick = useCallback(() => {
+    if (isMobile) setDrawerOpen(false);
+  }, [isMobile]);
+
+  // Shared navigation content
+  const navContent = (
+    <>
+      <div style={{ padding: '8px 0 16px', borderBottom: '1px solid #f0f0f0', marginBottom: 12 }}>
+        <Title level={5} style={{ margin: 0, fontFamily: 'monospace', letterSpacing: 1 }}>XACTIMATE</Title>
+        <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 }}>Estimator Cheat Sheet</Text>
       </div>
+      <Anchor
+        affix={false}
+        offsetTop={80}
+        onClick={handleAnchorClick}
+        items={Object.entries(navGroups).map(([group, items]) => ({
+          key: group,
+          href: `#${items[0].id}`,
+          title: <Text type="secondary" style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>{group}</Text>,
+          children: items.map(item => ({
+            key: item.id,
+            href: `#${item.id}`,
+            title: (
+              <Space size={6}>
+                <Badge color={item.dotColor} />
+                <span style={{ fontSize: 12 }}>{item.title}</span>
+              </Space>
+            ),
+          })),
+        }))}
+      />
+      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
+        <a onClick={() => window.print()} style={{ fontSize: 12, cursor: 'pointer', color: '#666' }}>
+          <PrinterOutlined /> Print / PDF
+        </a>
+      </div>
+    </>
+  );
+
+  return (
+    <div style={{ display: 'flex', gap: isMobile ? 0 : 24 }}>
+      {/* Desktop Sidebar */}
+      {!isMobile && (
+        <div style={{
+          width: 220,
+          flexShrink: 0,
+          position: 'sticky',
+          top: 0,
+          maxHeight: 'calc(100vh - 140px)',
+          overflowY: 'auto',
+          borderRight: '1px solid #f0f0f0',
+          paddingRight: 12,
+        }}>
+          {navContent}
+        </div>
+      )}
+
+      {/* Mobile Drawer */}
+      {isMobile && (
+        <>
+          <Drawer
+            title={null}
+            placement="left"
+            onClose={() => setDrawerOpen(false)}
+            open={drawerOpen}
+            width={260}
+            bodyStyle={{ padding: '12px 16px' }}
+            styles={{ body: { padding: '12px 16px' } }}
+          >
+            {navContent}
+          </Drawer>
+          <FloatButton
+            icon={<MenuOutlined />}
+            onClick={() => setDrawerOpen(true)}
+            style={{ left: 16, bottom: 24, right: 'auto' }}
+          />
+        </>
+      )}
 
       {/* Main Content */}
-      <div ref={mainRef} style={{ flex: 1, minWidth: 0 }}>
+      <div ref={mainRef} style={{ flex: 1, minWidth: 0, padding: isMobile ? '0 8px' : 0 }}>
         {/* Search Bar */}
-        <div style={{ marginBottom: 24, position: 'sticky', top: 0, zIndex: 10, background: '#fff', paddingBottom: 8 }}>
+        <div style={{
+          marginBottom: isMobile ? 16 : 24,
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
+          background: '#fff',
+          paddingBottom: 8,
+          paddingTop: isMobile ? 8 : 0,
+        }}>
           <Input
-            size="large"
-            placeholder="Search items, codes, descriptions..."
+            size={isMobile ? 'middle' : 'large'}
+            placeholder={isMobile ? 'Search codes...' : 'Search items, codes, descriptions...'}
             prefix={<SearchOutlined style={{ color: '#aaa' }} />}
             suffix={searchText && <Text type="secondary" style={{ fontSize: 12 }}>{matchCount} items</Text>}
             value={searchText}
             onChange={e => setSearchText(e.target.value)}
             allowClear
-            style={{ fontFamily: 'monospace', fontSize: 13 }}
+            style={{ fontFamily: 'monospace', fontSize: isMobile ? 12 : 13 }}
           />
         </div>
 
@@ -1030,25 +1091,26 @@ const XactimateCheatSheet: React.FC = () => {
 
         {/* Sections */}
         {filteredSections.map(section => (
-          <div key={section.id} id={section.id} style={{ marginBottom: 40, scrollMarginTop: 60 }}>
+          <div key={section.id} id={section.id} style={{ marginBottom: isMobile ? 28 : 40, scrollMarginTop: 60 }}>
             {/* Section Header */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 10,
-              marginBottom: 16,
-              paddingBottom: 10,
+              gap: isMobile ? 6 : 10,
+              marginBottom: isMobile ? 10 : 16,
+              paddingBottom: isMobile ? 6 : 10,
               borderBottom: '2px solid #1a1a1a',
+              flexWrap: 'wrap',
             }}>
-              <Title level={4} style={{ margin: 0, fontFamily: 'monospace' }}>{section.title}</Title>
-              <Tag color={section.tagColor} style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 11 }}>
+              <Title level={isMobile ? 5 : 4} style={{ margin: 0, fontFamily: 'monospace' }}>{section.title}</Title>
+              <Tag color={section.tagColor} style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: isMobile ? 10 : 11 }}>
                 {section.tag}
               </Tag>
             </div>
 
             {/* Rules */}
             {section.rules && (
-              <Row gutter={[12, 12]} style={{ marginBottom: section.tables ? 16 : 0 }}>
+              <Row gutter={[isMobile ? 8 : 12, isMobile ? 8 : 12]} style={{ marginBottom: section.tables ? (isMobile ? 10 : 16) : 0 }}>
                 {section.rules.filter(shouldShowRule).map((rule, i) => (
                   <Col key={i} xs={24} md={section.rules!.length > 2 ? 12 : section.rules!.length === 1 ? 24 : 12} lg={section.rules!.length > 2 ? (section.rules!.length > 4 ? 8 : 12) : section.rules!.length === 1 ? 24 : 12}>
                     <Card
@@ -1059,20 +1121,22 @@ const XactimateCheatSheet: React.FC = () => {
                         borderLeft: `3px solid ${ruleTypeToBorderColor(rule.type)}`,
                         borderColor: '#f0f0f0',
                       }}
+                      bodyStyle={isMobile ? { padding: '8px 10px' } : undefined}
+                      styles={isMobile ? { body: { padding: '8px 10px' } } : undefined}
                     >
                       <Text strong style={{
-                        fontSize: 11,
+                        fontSize: isMobile ? 10 : 11,
                         textTransform: 'uppercase',
                         letterSpacing: 0.5,
                         color: ruleTypeToBorderColor(rule.type),
                         display: 'block',
-                        marginBottom: 8,
+                        marginBottom: isMobile ? 4 : 8,
                       }}>
                         {rule.title}
                       </Text>
-                      <ul style={{ paddingLeft: 16, margin: 0 }}>
+                      <ul style={{ paddingLeft: isMobile ? 12 : 16, margin: 0 }}>
                         {rule.items.map((item, j) => (
-                          <li key={j} style={{ fontSize: 12, color: '#555', lineHeight: 1.8 }}>
+                          <li key={j} style={{ fontSize: isMobile ? 11 : 12, color: '#555', lineHeight: isMobile ? 1.6 : 1.8 }}>
                             {formatText(item)}
                           </li>
                         ))}
@@ -1088,15 +1152,15 @@ const XactimateCheatSheet: React.FC = () => {
               const filteredData = getFilteredTableData(table.data);
               if (searchText && filteredData.length === 0) return null;
               return (
-                <div key={ti} style={{ marginTop: ti > 0 ? 12 : 0 }}>
+                <div key={ti} style={{ marginTop: ti > 0 ? 12 : 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                   <Table
                     columns={table.columns}
                     dataSource={filteredData}
                     pagination={false}
                     size="small"
                     bordered
-                    scroll={{ x: 'max-content' }}
-                    style={{ fontSize: 12 }}
+                    scroll={{ x: isMobile ? 600 : 'max-content' }}
+                    style={{ fontSize: isMobile ? 11 : 12 }}
                     rowClassName={(_, index) => index % 2 === 0 ? '' : 'ant-table-row-stripe'}
                   />
                 </div>
