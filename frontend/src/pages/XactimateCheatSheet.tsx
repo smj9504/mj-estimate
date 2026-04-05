@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Input, Tag, Typography, Anchor, Card, Table, Alert, Row, Col, Badge, Space, Drawer, FloatButton } from 'antd';
-import { SearchOutlined, PrinterOutlined, MenuOutlined } from '@ant-design/icons';
+import { SearchOutlined, PrinterOutlined, MenuOutlined, CopyOutlined, FileTextOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
 
@@ -14,7 +14,8 @@ interface RuleBox {
 
 interface TableRow {
   key: string;
-  [k: string]: string;
+  desc?: string;
+  [k: string]: string | undefined;
 }
 
 interface Section {
@@ -301,6 +302,7 @@ const sections: Section[] = [
         { key: 'w10', mode: '', item: '`FCW LAMQ` Quarter round (paint grade)', unit: 'LF', price: '$3.89', note: 'R&R 단일 코드' },
         { key: 'w11', mode: '', item: 'Stain grade → `FCW AV` Baseboard + `FCW` QR hardwood', unit: 'LF', price: '—', note: '' },
         { key: 'w12', mode: '계단', item: '`FCW FINSTP` Sand, stain, finish steps', unit: 'EA', price: '$16.18', note: '' },
+        { key: 'w13', mode: '', item: '`FCW FINSTP` Sand, stain, finish steps (uniform match)', unit: 'EA', price: '$16.18', note: '[miss]바닥 교체 시 계단 refinish', desc: 'To ensure a Reasonable Uniform Appearance, the stairs must be sanded and refinished to match the new flooring\'s color and sheen, as they share a continuous line of sight. This process is essential to restore the home to its pre-loss condition and prevent a significant mismatch that would diminish the property\'s aesthetic and market value.' },
       ],
     }],
   },
@@ -644,6 +646,17 @@ const sections: Section[] = [
         ],
       },
       {
+        type: 'warning', title: 'Flooring 교체 시 Cabinet Toe Kick 처리',
+        items: [
+          '바닥 교체 시 toe kick은 **반드시 D&R 또는 R&R** 해야 함',
+          '**D&R (Detach & Reset)**: toe kick이 온전하고 재사용 가능할 때',
+          '**R&R (Replace)**: particle board 팽창 · 곰팡이 · 파손 시 교체 필수',
+          '⚠ Particle board는 물 흡수 시 **영구 팽창** → 복원 불가 → 교체',
+          '새 바닥 두께가 다르면 toe kick 높이 조정 필요 → **re-skin** 또는 교체',
+          '**사진 필수**: adjuster가 가장 자주 누락하는 항목 중 하나',
+        ],
+      },
+      {
         type: 'info', title: '캐비닛 등급별 가격/LF',
         items: [
           'Lower Standard: **$192**',
@@ -696,7 +709,9 @@ const sections: Section[] = [
           { key: 'ka8', category: '', item: '`CAB HINGC` Cabinet hinge - concealed', unit: 'EA', price: '$12.45', note: '[miss]자주 빠짐' },
           { key: 'ka9', category: 'Trim', item: '`CAB CROWN` Prefinished crown molding', unit: 'LF', price: '$10.58~$42.69', note: '' },
           { key: 'ka10', category: '', item: '`CAB FILLSCP` Filler/scribe board', unit: 'LF', price: '$7.24~$9.03', note: '[miss]벽과 캐비닛 사이' },
-          { key: 'ka11', category: '', item: '`CAB PLYTK` Re-skin toe kick', unit: 'LF', price: '$10.52', note: '' },
+          { key: 'ka11', category: 'Toe Kick', item: '`CAB PLYTK` Re-skin toe kick', unit: 'LF', price: '$10.52', note: '바닥 두께 변경 시 높이 조정' },
+          { key: 'ka11b', category: '', item: '`CAB LOWRS` Detach & reset lower cabinet', unit: 'LF', price: '$68.87', note: '[miss]flooring 교체 시 D&R 필수' },
+          { key: 'ka11c', category: '', item: '`CAB` Replace toe kick (particle board 파손)', unit: 'LF', price: '—', note: '[miss]물 흡수 팽창 → 교체 필수' },
           { key: 'ka12', category: 'Appliances', item: 'Refrigerator D&R', unit: 'EA', price: '$45.83', note: '' },
           { key: 'ka13', category: '', item: 'Range - electric D&R', unit: 'EA', price: '$34.38', note: '' },
           { key: 'ka14', category: '', item: 'Range - gas D&R', unit: 'EA', price: '$235.67', note: '' },
@@ -819,6 +834,7 @@ const sections: Section[] = [
           'Baseboard R&R (wood floor 교체시)',
           'Quarter round R&R (wood floor 교체시)',
           'Reducer strip (방 전환부)',
+          'Cabinet toe kick D&R (캐비닛 있는 바닥 교체 시)',
           'Tile cement board backer',
           'Grout sealer (tile, shower)',
           'Dustless floor sanding (hardwood)',
@@ -852,7 +868,8 @@ const sections: Section[] = [
           'Countertop mitered corner',
           'Filler/scribe boards',
           'Backsplash (countertop 미포함)',
-          'Toe kick re-skin',
+          'Toe kick D&R 또는 R&R (flooring 교체 시)',
+          'Toe kick re-skin (바닥 두께 변경 시)',
         ],
       },
       {
@@ -1246,6 +1263,7 @@ const XactimateCheatSheet: React.FC = () => {
             {section.tables?.map((table, ti) => {
               const filteredData = getFilteredTableData(table.data);
               if (searchText && filteredData.length === 0) return null;
+              const hasAnyDesc = filteredData.some(r => r.desc);
               return (
                 <div key={ti} style={{ marginTop: ti > 0 ? 12 : 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                   <Table
@@ -1256,7 +1274,54 @@ const XactimateCheatSheet: React.FC = () => {
                     bordered
                     scroll={{ x: isMobile ? 600 : 'max-content' }}
                     style={{ fontSize: isMobile ? 11 : 12 }}
-                    rowClassName={(_, index) => index % 2 === 0 ? '' : 'ant-table-row-stripe'}
+                    rowClassName={(record, index) => {
+                      const stripe = index % 2 === 0 ? '' : 'ant-table-row-stripe';
+                      const hasDesc = record.desc ? ' has-desc-row' : '';
+                      return stripe + hasDesc;
+                    }}
+                    expandable={hasAnyDesc ? {
+                      rowExpandable: (record) => !!record.desc,
+                      expandedRowRender: (record) => (
+                        <div style={{
+                          padding: isMobile ? '8px 4px' : '10px 16px',
+                          background: '#f6ffed',
+                          borderLeft: '3px solid #52c41a',
+                          borderRadius: 4,
+                          display: 'flex',
+                          gap: 8,
+                          alignItems: 'flex-start',
+                        }}>
+                          <div style={{ flex: 1 }}>
+                            <Text type="secondary" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 4 }}>
+                              <FileTextOutlined /> Description / Justification
+                            </Text>
+                            <Text style={{ fontSize: isMobile ? 11 : 12, lineHeight: 1.6, color: '#333' }}>
+                              {record.desc}
+                            </Text>
+                          </div>
+                          <a
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(record.desc || '');
+                            }}
+                            style={{ flexShrink: 0, fontSize: 16, color: '#999', padding: 4 }}
+                            title="Copy to clipboard"
+                          >
+                            <CopyOutlined />
+                          </a>
+                        </div>
+                      ),
+                      expandIcon: ({ expanded, onExpand, record }) =>
+                        record.desc ? (
+                          <a
+                            onClick={(e) => onExpand(record, e)}
+                            style={{ color: expanded ? '#52c41a' : '#bbb', fontSize: 14 }}
+                            title="View description"
+                          >
+                            <FileTextOutlined />
+                          </a>
+                        ) : <span style={{ display: 'inline-block', width: 14 }} />,
+                    } : undefined}
                   />
                 </div>
               );
