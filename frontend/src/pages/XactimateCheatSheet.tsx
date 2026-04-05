@@ -252,6 +252,17 @@ const sections: Section[] = [
   {
     id: 'lvp', title: 'LVP / Laminate / Engineered Wood', tag: 'FCW / FCV', tagColor: '#389e0d',
     navGroup: 'Flooring', navDotColor: '#4caf82',
+    rules: [
+      {
+        type: 'purple', title: '설치 방식별 Underlayment 규칙',
+        items: [
+          '**Floating (클릭식)**: 폼/코르크 underlayment **필수** — 충격흡수+수평보정+소음방지',
+          '**Nail-down (못 고정)**: 15# felt 또는 rosin paper **필수** — 마찰소음 방지+습기차단',
+          '**Glue-down (접착)**: 대부분 **불필요** — 콘크리트에 직접 접착. 층간소음/습기 시에만 사용',
+          '⚠ Concrete slab 위 설치 시 → **vapor barrier 필수** (방식 무관)',
+        ],
+      },
+    ],
     tables: [{
       columns: [
         { title: '타입', dataIndex: 'type', key: 'type' },
@@ -264,8 +275,8 @@ const sections: Section[] = [
         { key: 'l1', type: 'LVP 제거', item: '`FCV PLK –` Remove Vinyl plank', unit: 'SF', price: '—', note: 'demo SF 제외' },
         { key: 'l2', type: 'LVP 설치', item: '`FCV PLK` Vinyl plank (Standard~Premium)', unit: 'SF', price: '$5.90~$11.00', note: 'waste 포함됨' },
         { key: 'l3', type: '', item: '`FCV PREP` Floor preparation', unit: 'SF', price: '$0.60~$0.86', note: '[miss]자주 빠짐' },
-        { key: 'l4', type: 'Underlayment', item: '`FCW UC1` 1/8" cork underlayment', unit: 'SF', price: '$2.73', note: '' },
-        { key: 'l5', type: '', item: '`FCW BARRV` Visqueen vapor barrier 6mil', unit: 'SF', price: '$0.41', note: '' },
+        { key: 'l4', type: 'Underlayment', item: '`FCW UC1` 1/8" cork underlayment', unit: 'SF', price: '$2.73', note: 'Floating 방식 필수', desc: 'Underlayment is required for floating (click-lock) installations to absorb impact, level minor subfloor imperfections, and reduce noise transmission. Foam or cork underlayment provides the necessary cushion layer between the subfloor and the floating floor assembly.' },
+        { key: 'l5', type: '', item: '`FCW BARRV` Visqueen vapor barrier 6mil', unit: 'SF', price: '$0.41', note: 'concrete slab 시 필수', desc: 'A 6-mil polyethylene vapor barrier is required over concrete subfloors to prevent moisture migration from the slab into the flooring material. Without this barrier, trapped moisture causes warping, buckling, and mold growth, voiding most manufacturer warranties.' },
         { key: 'l6', type: 'Laminate', item: '`FCW LAM` Snaplock Laminate (Std/High)', unit: 'SF', price: '$6.09~$9.10', note: '' },
         { key: 'l7', type: '', item: '`FCW NFCPSN` Laminate per specs', unit: 'SF', price: '$4.34', note: '' },
         { key: 'l8', type: 'Eng. Wood', item: '`FCW LAMTF` Engineered floating (Std~Premium)', unit: 'SF', price: '$9.43~$17.69', note: '' },
@@ -281,6 +292,16 @@ const sections: Section[] = [
   {
     id: 'wood', title: 'Hardwood Floor', tag: 'FCW', tagColor: '#cf1322',
     navGroup: 'Flooring', navDotColor: '#e85c5c',
+    rules: [
+      {
+        type: 'info', title: 'Underlayment by Install Method',
+        items: [
+          '**Nail-down**: 15# felt / rosin paper **필수** — 마찰소음 방지+습기차단 (쿠션 아님)',
+          '**Floating (Eng. Wood)**: 폼/코르크 underlayment **필수**',
+          '**Glue-down**: 대부분 **불필요** — 콘크리트 직접 접착',
+        ],
+      },
+    ],
     tables: [{
       columns: [
         { title: '모드', dataIndex: 'mode', key: 'mode' },
@@ -295,7 +316,7 @@ const sections: Section[] = [
         { key: 'w3', mode: '', item: '`FCW FINADD` Additional coat of finish', unit: 'SF', price: '$1.04', note: '' },
         { key: 'w4', mode: 'Full R&R', item: '`FCW AV –` Remove Hardwood', unit: 'SF', price: '—', note: '' },
         { key: 'w5', mode: '', item: '`FCW AV` Oak #1 common (no finish)', unit: 'SF', price: '$12.49', note: '' },
-        { key: 'w6', mode: '', item: '`FCW BARR` Vapor barrier 15# felt', unit: 'SF', price: '$0.29', note: '' },
+        { key: 'w6', mode: '', item: '`FCW BARR` Vapor barrier 15# felt', unit: 'SF', price: '$0.29', note: 'Nail-down 방식 필수', desc: 'A 15-lb asphalt felt (rosin paper) underlayment is required for nail-down hardwood installations. It serves as a moisture barrier between the subfloor and hardwood, and eliminates wood-on-wood friction that causes squeaking. This is not a cushioned underlayment — it is a thin paper-based layer standard for all nail-down applications.' },
         { key: 'w7', mode: '', item: '+ Sand, stain, finish (위 항목 동일)', unit: 'SF', price: '', note: '' },
         { key: 'w8', mode: 'Pre-finished', item: '`FCW AVPF` Pre-finished solid wood (High)', unit: 'SF', price: '$14.52', note: '' },
         { key: 'w9', mode: 'Trim (필수)', item: '`FCW LAMB` Baseboard (paint grade)', unit: 'LF', price: '$7.99', note: 'wood floor R&R시 필수' },
