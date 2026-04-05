@@ -195,6 +195,18 @@ const sections: Section[] = [
           '가구·물건 덮기 → `Mask or cover per SF`',
         ],
       },
+      {
+        type: 'purple', title: 'Scrape & Prep for Paint — 언제 추가하나',
+        items: [
+          '기존 페인트가 **벗겨지거나(peeling) 들뜬(flaking)** 상태일 때',
+          'Drywall 패치/수리 후 **기존 벽과 블렌딩** 필요 시',
+          '오래된 페인트가 **chalky(분필처럼 닳음)** 하거나 오염된 경우',
+          '광택(glossy) 표면 → 새 페인트 부착 위해 **경미한 샌딩** 필요',
+          '포함 항목: painter\'s putty + sandpaper + labor (별도 자재비 청구 금지)',
+          '⚠ 기존 페인트 상태 양호하면 불필요 — 새 drywall은 Seal/Prime만',
+          '순서: Mask → **Scrape & Prep** → Seal/Prime → Paint',
+        ],
+      },
     ],
   },
 
@@ -375,6 +387,7 @@ const sections: Section[] = [
         { title: '사용 조건', dataIndex: 'note', key: 'note', render: missRender },
       ],
       data: [
+        { key: 'p0', item_name: 'Scrape & prep for paint', item: '`PNT SCRP`', unit: 'SF', price: '—', note: '[miss]기존 페인트 peeling/flaking 시' },
         { key: 'p1', item_name: 'Seal/prime + paint (1+1)', item: '`PNT SP`', unit: 'SF', price: '—', note: '새 drywall 후 기본' },
         { key: 'p2', item_name: 'Seal stain blocker (≤ floor perim)', item: '`PNT S+`', unit: 'SF', price: '—', note: '부분 얼룩' },
         { key: 'p3', item_name: 'Seal stain blocker (> floor perim)', item: '`PNT S++`', unit: 'SF', price: '—', note: '광범위 얼룩, 천장' },
@@ -767,6 +780,7 @@ const sections: Section[] = [
           'Drywall gluing add-on',
           'Tape joint - new to existing drywall',
           'Texture (drywall 교체 후 기존 match)',
+          'Scrape & prep for paint (기존 페인트 peeling/flaking 시)',
           'Seal stain blocker (얼룩 있을 때)',
           'Floor protection (hardwood 위 drywall 작업)',
           'Ceiling fan D&R',
