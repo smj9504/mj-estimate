@@ -283,12 +283,18 @@ const LineItemManagement: React.FC = () => {
       title: 'Description',
       dataIndex: 'description',
       key: 'description',
-      ellipsis: true,
+      ellipsis: !isMobile,
       sorter: true,
       sortOrder: sortBy === 'description' ? (sortOrder === 'asc' ? 'ascend' : sortOrder === 'desc' ? 'descend' : null) : null,
       render: (text: string, record: LineItem) => (
         <a onClick={() => handleEdit(record)}>
-          {text}
+          {isMobile ? (
+            <div>
+              <Text strong style={{ fontSize: 12, marginRight: 4 }}>{record.item}</Text>
+              <br />
+              <Text style={{ fontSize: 12 }}>{text}</Text>
+            </div>
+          ) : text}
         </a>
       ),
     },
@@ -359,6 +365,7 @@ const LineItemManagement: React.FC = () => {
       key: 'actions',
       width: 100,
       align: 'center' as const,
+      responsive: ['md'] as any,
       render: (_: any, record: LineItem) => (
         <Space size="small">
           <Button
