@@ -361,11 +361,10 @@ const LineItemManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Actions',
+      title: '',
       key: 'actions',
-      width: 100,
+      width: isMobile ? 50 : 100,
       align: 'center' as const,
-      responsive: ['md'] as any,
       render: (_: any, record: LineItem) => (
         <Space size="small">
           <Button
@@ -374,37 +373,39 @@ const LineItemManagement: React.FC = () => {
             icon={<EditOutlined />}
             onClick={() => handleEdit(record)}
           />
-          <Popconfirm
-            title="Delete this line item?"
-            onConfirm={async () => {
-              try {
-                await lineItemService.deleteLineItem(record.id);
-                message.success('Line item deleted');
+          {!isMobile && (
+            <Popconfirm
+              title="Delete this line item?"
+              onConfirm={async () => {
+                try {
+                  await lineItemService.deleteLineItem(record.id);
+                  message.success('Line item deleted');
 
-                // Calculate items remaining after deletion
-                const itemsAfterDeletion = lineItems.length - 1;
+                  // Calculate items remaining after deletion
+                  const itemsAfterDeletion = lineItems.length - 1;
 
-                // Check if we need to go to previous page
-                if (itemsAfterDeletion === 0 && currentPage > 1) {
-                  // Move to previous page - this will trigger loadLineItems via useEffect
-                  setCurrentPage(currentPage - 1);
-                } else {
-                  // Reload current page to get fresh data from server
-                  loadLineItems();
+                  // Check if we need to go to previous page
+                  if (itemsAfterDeletion === 0 && currentPage > 1) {
+                    // Move to previous page - this will trigger loadLineItems via useEffect
+                    setCurrentPage(currentPage - 1);
+                  } else {
+                    // Reload current page to get fresh data from server
+                    loadLineItems();
+                  }
+                } catch (error) {
+                  console.error('Failed to delete line item:', error);
+                  message.error('Failed to delete line item');
                 }
-              } catch (error) {
-                console.error('Failed to delete line item:', error);
-                message.error('Failed to delete line item');
-              }
-            }}
-          >
-            <Button
-              type="link"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-            />
-          </Popconfirm>
+              }}
+            >
+              <Button
+                type="link"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+              />
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
