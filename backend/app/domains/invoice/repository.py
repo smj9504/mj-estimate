@@ -44,51 +44,84 @@ class InvoiceRepositoryMixin:
         raise NotImplementedError("Subclasses must implement get_overdue_invoices")
     
     def calculate_totals(self, invoice_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate invoice totals based on items and tax configuration"""
+        """Calculate invoice totals based on items, adjustments, and tax configuration"""
         items = invoice_data.get('items', [])
         tax_method = invoice_data.get('tax_method', 'percentage')
         tax_rate = invoice_data.get('tax_rate', 0)
         tax_amount = invoice_data.get('tax_amount', 0)
-        
-        subtotal = Decimal('0')
+        adjustments = invoice_data.get('adjustments', [])
+
+        items_subtotal = Decimal('0')
         item_level_tax = Decimal('0')
-        
+
         # Calculate subtotal and item-level taxes
         for item in items:
             quantity = Decimal(str(item.get('quantity', 1)))
             rate = Decimal(str(item.get('rate', 0)))
             taxable = item.get('taxable', True)
             item_tax_rate = Decimal(str(item.get('tax_rate', 0)))
-            
+
             item_amount = quantity * rate
-            subtotal += item_amount
-            
+            items_subtotal += item_amount
+
             # Add item-level tax if taxable and item has tax rate
             if taxable and item_tax_rate > 0:
                 item_tax = item_amount * (item_tax_rate / 100)
                 item_level_tax += item_tax
-        
-        # Calculate invoice-level tax
+
+        # Apply adjustments in order
+        current_subtotal = items_subtotal
+        calculated_adjustments = []
+
+        if adjustments:
+            sorted_adjustments = sorted(adjustments, key=lambda x: x.get('order', 999))
+            for adj in sorted_adjustments:
+                percentage = Decimal(str(adj.get('percentage', 0)))
+                adj_type = adj.get('type', 'add')
+                adj_name = adj.get('name', 'Adjustment')
+
+                adj_amount = current_subtotal * (abs(percentage) / 100)
+
+                if adj_type == 'subtract' or percentage < 0:
+                    current_subtotal -= adj_amount
+                else:
+                    current_subtotal += adj_amount
+
+                calculated_adjustments.append({
+                    'name': adj_name,
+                    'percentage': float(percentage),
+                    'type': adj_type,
+                    'order': adj.get('order', 999),
+                    'amount': float(adj_amount)
+                })
+        else:
+            # Legacy: apply discount if no adjustments
+            discount = Decimal(str(invoice_data.get('discount_amount', 0)))
+            if discount:
+                current_subtotal -= discount
+
+        # Calculate invoice-level tax on adjusted subtotal
         invoice_tax = Decimal('0')
         if tax_method == 'percentage' and tax_rate > 0:
-            # Apply percentage to subtotal
-            invoice_tax = subtotal * (Decimal(str(tax_rate)) / 100)
+            invoice_tax = current_subtotal * (Decimal(str(tax_rate)) / 100)
         elif tax_method == 'specific' and tax_amount > 0:
-            # Use specific tax amount
             invoice_tax = Decimal(str(tax_amount))
-        
+
         # Total tax is sum of item-level and invoice-level taxes
         total_tax = item_level_tax + invoice_tax
-        
-        # Apply discount
-        discount = Decimal(str(invoice_data.get('discount_amount', 0)))
-        total = subtotal + total_tax - discount
-        
-        return {
-            'subtotal': float(subtotal),
+
+        total = current_subtotal + total_tax
+
+        result = {
+            'subtotal': float(current_subtotal),
             'tax_amount': float(total_tax),
             'total_amount': float(total)
         }
+
+        if calculated_adjustments:
+            result['adjustments'] = calculated_adjustments
+
+        return result
 
 
 class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
@@ -366,18 +399,25 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
     def create_with_items(self, invoice_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create invoice with items in a transaction"""
         try:
+            # Preserve adjustments before calculate_totals overwrites them.
+            # adjustments is a JSON model field and must not be removed.
+            preserved_adjustments = invoice_data.get('adjustments')
+
             # Calculate totals
             totals = self.calculate_totals(invoice_data)
             # Remove non-model fields from totals before updating invoice_data
             totals.pop('items_subtotal', None)
-            totals.pop('adjustments', None)
+            totals.pop('adjustments', None)  # Strip from totals only (not a model field here)
             totals.pop('op_amount', None)
             invoice_data.update(totals)
 
             # Remove non-model fields from invoice_data that may have been added by service layer
             invoice_data.pop('items_subtotal', None)
-            invoice_data.pop('adjustments', None)
             invoice_data.pop('op_amount', None)
+            # Do NOT pop 'adjustments' here — it is a valid JSON column on the Invoice model.
+            # Restore the adjustments that were passed in (they take precedence over recalculated ones).
+            if preserved_adjustments is not None:
+                invoice_data['adjustments'] = preserved_adjustments
 
             # Extract items
             items_data = invoice_data.pop('items', [])
@@ -725,18 +765,25 @@ class InvoiceSupabaseRepository(SupabaseRepository, InvoiceRepositoryMixin):
     def create_with_items(self, invoice_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create invoice with items (Supabase doesn't support transactions, so we handle errors)"""
         try:
+            # Preserve adjustments before calculate_totals overwrites them.
+            # adjustments is a JSON model field and must not be removed.
+            preserved_adjustments = invoice_data.get('adjustments')
+
             # Calculate totals
             totals = self.calculate_totals(invoice_data)
             # Remove non-model fields from totals before updating invoice_data
             totals.pop('items_subtotal', None)
-            totals.pop('adjustments', None)
+            totals.pop('adjustments', None)  # Strip from totals only (not a model field here)
             totals.pop('op_amount', None)
             invoice_data.update(totals)
 
             # Remove non-model fields from invoice_data that may have been added by service layer
             invoice_data.pop('items_subtotal', None)
-            invoice_data.pop('adjustments', None)
             invoice_data.pop('op_amount', None)
+            # Do NOT pop 'adjustments' here — it is a valid JSON column on the Invoice model.
+            # Restore the adjustments that were passed in (they take precedence over recalculated ones).
+            if preserved_adjustments is not None:
+                invoice_data['adjustments'] = preserved_adjustments
 
             # Extract items
             items_data = invoice_data.pop('items', [])

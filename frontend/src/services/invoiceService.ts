@@ -72,26 +72,43 @@ export interface InvoiceSection {
   sort_order?: number;
 }
 
+export interface Adjustment {
+  name: string;
+  percentage: number;
+  type: 'add' | 'subtract';
+  order: number;
+  amount?: number; // Calculated
+}
+
 export interface InvoiceData {
   invoice_number?: string;
   date?: string;
   due_date?: string;
   status?: string;
-  company: CompanyInfo;
+  company_id?: string;
+  company?: CompanyInfo;
   client: ClientInfo;
+  client_company_id?: string;
+  show_insurance?: boolean;
   insurance?: InsuranceInfo | null;
   items: InvoiceItem[];
   sections?: InvoiceSection[];  // Section-based data
+  subtotal?: number;
   tax_method?: 'percentage' | 'specific'; // Tax calculation method
   tax_rate?: number;
   tax_amount?: number;
-  discount?: number;
+  adjustments?: Adjustment[];  // New flexible adjustments system
+  discount?: number;           // Legacy: kept for backward compatibility
+  discount_amount?: number;    // Legacy: kept for backward compatibility
   shipping?: number;
+  total?: number;
   paid_amount?: number;
   payments?: PaymentRecord[];  // Payment records
+  show_payment_dates?: boolean;
+  balance_due?: number;
   payment_terms?: string;
   notes?: string;
-  op_percent?: number;  // O&P percentage
+  op_percent?: number;  // O&P percentage (legacy, use adjustments instead)
 }
 
 export interface PaymentRecord {

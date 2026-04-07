@@ -506,14 +506,16 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
         if payments:
             self._validate_payment_records(payments)
         
-        # Calculate totals with tax configuration
+        # Calculate totals with tax configuration and adjustments
+        adjustments_data = validated_data.get('adjustments')
         totals = self.calculate_totals(
             items,
             tax_method=tax_method,
             tax_rate=tax_rate,
             tax_amount=float(validated_data.get('tax_amount', 0)),
             discount_amount=float(validated_data.get('discount_amount', 0)),
-            op_percent=float(validated_data.get('op_percent', 0))
+            op_percent=float(validated_data.get('op_percent', 0)),
+            adjustments=adjustments_data if adjustments_data else None
         )
         validated_data.update(totals)
         
