@@ -9,6 +9,7 @@ import os
 import re
 import sys
 from datetime import datetime, date
+from html import escape as html_escape
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -1309,25 +1310,49 @@ class PDFService:
             with open(css_path, 'r', encoding='utf-8') as f:
                 stylesheets.append(CSS(string=f.read()))
         
-        # Build footer text values from context
+        # Build header/footer text values from context
         report_number = report_data.get('report_number', '')
-        service_date_raw = report_data.get('service_date', '')
-        company_data = report_data.get('company_data', {}) or {}
-        company_name = company_data.get('name', '') if isinstance(company_data, dict) else ''
+        report_label = f"Report #{report_number}" if report_number else ''
 
-        footer_left   = f"Report #{report_number}" if report_number else ''
-        footer_center = date_filter(service_date_raw)
-        footer_right  = company_name
+        # Build property address for header/footer
+        prop = report_data.get('property', {}) or {}
+        if isinstance(prop, dict):
+            addr_parts = [p for p in [
+                prop.get('address', ''),
+                prop.get('city', ''),
+                prop.get('state', ''),
+                prop.get('zipcode', ''),
+            ] if p]
+            property_address = ', '.join(addr_parts)
+        else:
+            property_address = ''
 
-        # Add page CSS with footer on every page
+        # Add page CSS with header (pages 2+) and footer (all pages)
         page_css = f"""
         @page {{
             size: letter;
-            margin: 0.1in 0.3in 0.3in 0.3in;
+            margin: 0.4in 0.3in 0.4in 0.3in;
+
+            @top-left {{
+                content: "{report_label}";
+                font-size: 9pt;
+                color: #444;
+                border-bottom: 1px solid #ccc;
+                padding-bottom: 4px;
+            }}
+
+            @top-right {{
+                content: "{property_address}";
+                font-size: 9pt;
+                color: #444;
+                text-align: right;
+                border-bottom: 1px solid #ccc;
+                padding-bottom: 4px;
+            }}
 
             @bottom-left {{
-                content: "{footer_left}";
-                font-size: 9pt;
+                content: "{report_label}";
+                font-size: 8pt;
                 color: #666;
                 border-top: 1px solid #ccc;
                 padding-top: 2px;
@@ -1335,8 +1360,8 @@ class PDFService:
             }}
 
             @bottom-center {{
-                content: "{footer_center}";
-                font-size: 9pt;
+                content: "Page " counter(page) " of " counter(pages);
+                font-size: 8pt;
                 color: #666;
                 border-top: 1px solid #ccc;
                 padding-top: 2px;
@@ -1344,12 +1369,22 @@ class PDFService:
             }}
 
             @bottom-right {{
-                content: "{footer_right}";
-                font-size: 9pt;
+                content: "{property_address}";
+                font-size: 8pt;
                 color: #666;
                 border-top: 1px solid #ccc;
                 padding-top: 2px;
                 padding-bottom: 4px;
+            }}
+        }}
+
+        @page :first {{
+            margin: 0.1in 0.3in 0.4in 0.3in;
+            @top-left {{
+                content: none;
+            }}
+            @top-right {{
+                content: none;
             }}
         }}
         """
@@ -1407,6 +1442,25 @@ class PDFService:
         css_path = template_dir / 'style.css'
         css_content = css_path.read_text(encoding='utf-8', errors='replace') if css_path.exists() else ''
 
+        # Build report info for print running header/footer
+        report_number = report_data.get('report_number', '')
+        report_label = f"Report #{report_number}" if report_number else ''
+
+        prop = report_data.get('property', {}) or {}
+        if isinstance(prop, dict):
+            addr_parts = [p for p in [
+                prop.get('address', ''),
+                prop.get('city', ''),
+                prop.get('state', ''),
+                prop.get('zipcode', ''),
+            ] if p]
+            property_address = ', '.join(addr_parts)
+        else:
+            property_address = ''
+
+        report_label_safe = html_escape(report_label)
+        property_address_safe = html_escape(property_address)
+
         # Print button style (screen only — CSS already hides it on print)
         print_btn_style = """
         .print-btn {
@@ -1419,15 +1473,90 @@ class PDFService:
         .print-btn:hover { background: #374151; }
         """
 
+        # Repeating print header/footer via <thead>/<tfoot> table layout.
+        # Browsers repeat table-header-group/table-footer-group on every
+        # printed page — the only reliable cross-browser technique.
+        print_hf_css = """
+        /* Table wrapper: invisible on screen */
+        .print-layout { width: 100%; border-collapse: collapse; }
+        .print-layout,
+        .print-layout > tbody,
+        .print-layout > tbody > tr,
+        .print-layout > tbody > tr > td { display: block; padding: 0; margin: 0; border: none; }
+        .print-layout > thead,
+        .print-layout > tfoot { display: none; }
+
+        @media print {
+            .print-layout          { display: table; width: 100%; }
+            .print-layout > thead  { display: table-header-group; }
+            .print-layout > tfoot  { display: table-footer-group; }
+            .print-layout > tbody  { display: table-row-group; }
+            .print-layout > tbody > tr { display: table-row; }
+            .print-layout > tbody > tr > td { display: table-cell; vertical-align: top; padding: 0; }
+            .print-layout > thead td,
+            .print-layout > tfoot td { padding: 0; }
+
+            .print-running-header {
+                display: flex;
+                justify-content: space-between;
+                padding: 4px 0;
+                border-bottom: 1px solid #ccc;
+                font-size: 9pt;
+                color: #444;
+            }
+            .print-running-footer {
+                display: flex;
+                justify-content: space-between;
+                padding: 2px 0;
+                border-top: 1px solid #ccc;
+                font-size: 8pt;
+                color: #666;
+            }
+            .print-page-counter::before {
+                content: "Page " counter(page);
+            }
+        }
+
+        /* Wider page margins to accommodate repeating header/footer */
+        @page {
+            size: letter;
+            margin: 0.4in 0.3in;
+        }
+        """
+
         html_content = html_content.replace(
             '<link rel="stylesheet" href="style.css">',
-            f'<style>{css_content}\n{print_btn_style}</style>'
+            f'<style>{css_content}\n{print_btn_style}\n{print_hf_css}</style>'
         )
 
-        # Inject print button
+        # Inject print button (outside the table wrapper)
         html_content = html_content.replace(
             '<body>',
-            '<body><button class="print-btn" onclick="window.print()">&#128438; Print / Save as PDF</button>'
+            '<body>'
+            '<button class="print-btn" onclick="window.print()">&#128438; Print / Save as PDF</button>'
+        )
+
+        # Wrap .page-wrapper in a table for repeating print header/footer
+        table_open = (
+            f'<table class="print-layout"><thead><tr><td>'
+            f'<div class="print-running-header">'
+            f'<span>{report_label_safe}</span><span>{property_address_safe}</span>'
+            f'</div></td></tr></thead>'
+            f'<tfoot><tr><td>'
+            f'<div class="print-running-footer">'
+            f'<span>{report_label_safe}</span>'
+            f'<span class="print-page-counter"></span>'
+            f'<span>{property_address_safe}</span>'
+            f'</div></td></tr></tfoot>'
+            f'<tbody><tr><td>'
+        )
+        html_content = html_content.replace(
+            '<div class="page-wrapper">',
+            f'{table_open}<div class="page-wrapper">'
+        )
+        html_content = html_content.replace(
+            '</body>',
+            '</td></tr></tbody></table></body>'
         )
 
         # Sanitize surrogate characters that Windows file paths/fonts can introduce

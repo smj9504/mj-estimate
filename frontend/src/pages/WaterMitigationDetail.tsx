@@ -4,7 +4,7 @@
  * Responsive: optimized for mobile and desktop
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -33,8 +33,10 @@ import {
   SwapOutlined,
   InfoCircleOutlined
 } from '@ant-design/icons';
+import { useQueryClient } from '@tanstack/react-query';
 import waterMitigationService from '../services/waterMitigationService';
 import { companyService } from '../services/companyService';
+import api from '../services/api';
 import type { WaterMitigationJob, JobStatusHistory, JobStatus } from '../types/waterMitigation';
 import type { Company } from '../types';
 import { JOB_STATUS_OPTIONS } from '../types/waterMitigation';
@@ -52,9 +54,50 @@ const { useBreakpoint } = Grid;
 const WaterMitigationDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const [activeTab, setActiveTab] = useState('details');
+
+  // Prefetch photos data on tab hover for instant tab switch
+  const prefetchPhotos = useCallback(() => {
+    if (!id) return;
+    const queryKey = ['files-infinite', 'water-mitigation', id, 'image', 20, undefined];
+    // Only prefetch if not already cached
+    if (!queryClient.getQueryData(queryKey)) {
+      queryClient.prefetchInfiniteQuery({
+        queryKey,
+        queryFn: async () => {
+          const response = await api.get(`/api/water-mitigation/jobs/${id}/photos`, {
+            params: { page: 1, page_size: 20, sort_by: 'captured_date', sort_order: 'desc' }
+          });
+          const data = response.data;
+          const baseURL = api.defaults.baseURL || '';
+          const items = data.items.map((photo: any) => {
+            const imageUrl = photo.preview_url
+              ? (photo.preview_url.startsWith('http') ? photo.preview_url : `${baseURL}${photo.preview_url}`)
+              : `${baseURL}/api/water-mitigation/photos/${photo.id}/preview?size=web`;
+            const thumbUrl = photo.thumbnail_url
+              ? (photo.thumbnail_url.startsWith('http') ? photo.thumbnail_url : `${baseURL}${photo.thumbnail_url}`)
+              : imageUrl;
+            const originalUrl = `${baseURL}/api/water-mitigation/photos/${photo.id}/preview?size=original`;
+            return {
+              id: photo.id, filename: photo.file_name, originalName: photo.file_name,
+              url: imageUrl, fileUrl: originalUrl, thumbnailUrl: thumbUrl,
+              contentType: photo.mime_type || 'image/jpeg', mimeType: photo.mime_type,
+              size: photo.file_size || 0, category: photo.category || '',
+              description: photo.description || '',
+              uploadDate: photo.captured_date || photo.created_at,
+              createdAt: photo.created_at, updatedAt: photo.updated_at,
+            };
+          });
+          return { items, total: data.total, page: data.page, page_size: data.page_size, total_pages: data.total_pages };
+        },
+        initialPageParam: 1,
+        staleTime: 5 * 60 * 1000,
+      });
+    }
+  }, [id, queryClient]);
   const [loading, setLoading] = useState(false);
   const [job, setJob] = useState<WaterMitigationJob | null>(null);
   const [statusHistory, setStatusHistory] = useState<JobStatusHistory[]>([]);
@@ -766,7 +809,7 @@ const WaterMitigationDetail: React.FC = () => {
             },
             {
               key: 'photos',
-              label: `Photos (${job.photo_count || 0})`,
+              label: <span onMouseEnter={prefetchPhotos}>{`Photos (${job.photo_count || 0})`}</span>,
               children: id ? (
                 <WaterMitigationPhotosTab
                   jobId={id}

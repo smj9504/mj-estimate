@@ -36,6 +36,10 @@ import {
   UpOutlined,
   DownOutlined,
   PictureOutlined,
+  SnippetsOutlined,
+  UploadOutlined,
+  CopyOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -715,6 +719,11 @@ const InvoiceCreation: React.FC = () => {
 
   // Collapse active keys state for controlling which sections are expanded
   const [activeKeys, setActiveKeys] = useState<string[]>([]);
+
+  // JSON paste modal state
+  const [jsonPasteVisible, setJsonPasteVisible] = useState(false);
+  const [jsonPasteValue, setJsonPasteValue] = useState('');
+  const [jsonPasteError, setJsonPasteError] = useState<string | null>(null);
 
   // Setup sensors for drag interactions
   // PointerSensor for mouse/stylus; TouchSensor with delay for mobile (prevents scroll/drag conflict)
@@ -2405,6 +2414,124 @@ const InvoiceCreation: React.FC = () => {
     }
   };
 
+  // JSON paste handler - parses pasted JSON and fills the form
+  const handleJsonPaste = () => {
+    setJsonPasteError(null);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonPasteValue);
+    } catch (e) {
+      setJsonPasteError('Invalid JSON format. Please check your JSON syntax.');
+      return;
+    }
+
+    try {
+      // 1. Client info
+      if (parsed.client) {
+        const c = parsed.client;
+        setUseCustomClient(true);
+        form.setFieldsValue({
+          client_name: c.name || '',
+          client_address: c.address || '',
+          client_city: c.city || '',
+          client_state: c.state || '',
+          client_zipcode: c.zipcode || '',
+          client_phone: c.phone || '',
+          client_email: c.email || '',
+        });
+      }
+
+      // 2. Insurance info
+      if (parsed.insurance) {
+        const ins = parsed.insurance;
+        setShowInsurance(true);
+        form.setFieldsValue({
+          insurance_company: ins.company || '',
+          insurance_policy_number: ins.policy_number || '',
+          insurance_claim_number: ins.claim_number || '',
+          insurance_deductible: ins.deductible || 0,
+        });
+      }
+
+      // 3. Sections & items
+      if (parsed.sections && Array.isArray(parsed.sections)) {
+        const newSections: InvoiceSection[] = parsed.sections.map((sec: any, sIdx: number) => ({
+          id: generateId(),
+          title: sec.title || `Section ${sIdx + 1}`,
+          showSubtotal: true,
+          sort_order: sIdx,
+          items: (sec.items || []).map((item: any, iIdx: number) => ({
+            name: item.name || item.description || '',
+            description: item.description || item.name || '',
+            quantity: parseFloat(item.quantity) || 1,
+            unit: (item.unit || 'EA').toUpperCase(),
+            rate: parseFloat(item.rate) || 0,
+            amount: (parseFloat(item.quantity) || 1) * (parseFloat(item.rate) || 0),
+            taxable: item.taxable !== false,
+            primary_group: sec.title || `Section ${sIdx + 1}`,
+            sort_order: iIdx,
+            note: item.note || '',
+          })),
+          subtotal: (sec.items || []).reduce((sum: number, item: any) =>
+            sum + (parseFloat(item.quantity) || 1) * (parseFloat(item.rate) || 0), 0),
+        }));
+        setSections(newSections);
+        setActiveKeys(newSections.map(s => s.id));
+      }
+
+      // 4. Tax
+      if (parsed.tax_rate !== undefined) {
+        setTaxMethod('percentage');
+        setTaxRate(parseFloat(parsed.tax_rate) || 0);
+        form.setFieldsValue({ tax_rate: parseFloat(parsed.tax_rate) || 0 });
+      }
+      if (parsed.tax_method === 'specific' && parsed.tax_amount !== undefined) {
+        setTaxMethod('specific');
+        setSpecificTaxAmount(parseFloat(parsed.tax_amount) || 0);
+        form.setFieldsValue({ tax_amount: parseFloat(parsed.tax_amount) || 0 });
+      }
+
+      // 5. Adjustments
+      if (parsed.adjustments && Array.isArray(parsed.adjustments)) {
+        const newAdjustments: Adjustment[] = parsed.adjustments.map((adj: any, idx: number) => ({
+          id: `adj-${Date.now()}-${idx}`,
+          name: adj.name || '',
+          percentage: parseFloat(adj.percentage) || 0,
+          type: adj.type === 'subtract' ? 'subtract' : 'add',
+          order: adj.order || idx + 1,
+        }));
+        setAdjustments(newAdjustments);
+      }
+
+      // 6. Payments
+      if (parsed.payments && Array.isArray(parsed.payments)) {
+        const newPayments: PaymentRecord[] = parsed.payments.map((p: any) => ({
+          amount: parseFloat(p.amount) || 0,
+          date: p.date ? dayjs(p.date) : null,
+          method: p.method || '',
+          reference: p.reference || '',
+          top_note: p.top_note || '',
+          bottom_note: p.bottom_note || '',
+        }));
+        setPayments(newPayments);
+      }
+
+      // 7. Notes & payment terms
+      if (parsed.notes) form.setFieldsValue({ notes: parsed.notes });
+      if (parsed.payment_terms) form.setFieldsValue({ payment_terms: parsed.payment_terms });
+
+      // 8. Invoice date / due date
+      if (parsed.date) form.setFieldsValue({ date: dayjs(parsed.date) });
+      if (parsed.due_date) form.setFieldsValue({ due_date: dayjs(parsed.due_date) });
+
+      setJsonPasteVisible(false);
+      setJsonPasteValue('');
+      message.success('JSON data applied successfully!');
+    } catch (e: any) {
+      setJsonPasteError(`Failed to apply JSON data: ${e.message}`);
+    }
+  };
+
   const columns = [
     {
       title: '#',
@@ -2562,7 +2689,21 @@ const InvoiceCreation: React.FC = () => {
 
   return (
     <div style={{ padding: '24px' }}>
-      <Title level={2}>{isEditMode ? 'Edit Invoice' : 'Create Invoice'}</Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Title level={2} style={{ margin: 0 }}>{isEditMode ? 'Edit Invoice' : 'Create Invoice'}</Title>
+        {!isEditMode && (
+          <Button
+            type="primary"
+            ghost
+            size="large"
+            icon={<SnippetsOutlined />}
+            onClick={() => { setJsonPasteVisible(true); setJsonPasteError(null); }}
+            data-testid="json-paste-button"
+          >
+            Import JSON
+          </Button>
+        )}
+      </div>
       
       <Form
         form={form}
@@ -3968,6 +4109,182 @@ const InvoiceCreation: React.FC = () => {
             title="Receipt Preview"
           />
         )}
+      </Modal>
+
+      {/* JSON Import Modal */}
+      <Modal
+        title={<span><SnippetsOutlined style={{ marginRight: 8 }} />Import JSON to Fill Invoice</span>}
+        open={jsonPasteVisible}
+        onOk={handleJsonPaste}
+        onCancel={() => { setJsonPasteVisible(false); setJsonPasteValue(''); setJsonPasteError(null); }}
+        width={800}
+        okText="Apply to Form"
+        cancelText="Cancel"
+        okButtonProps={{ disabled: !jsonPasteValue.trim(), icon: <SaveOutlined /> }}
+        data-testid="json-paste-modal"
+      >
+        {/* Input Methods */}
+        <div style={{ marginBottom: 16 }}>
+          <Space size="middle">
+            <Upload
+              accept=".json"
+              showUploadList={false}
+              beforeUpload={(file) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                  const content = e.target?.result as string;
+                  setJsonPasteValue(content);
+                  setJsonPasteError(null);
+                };
+                reader.readAsText(file);
+                return false; // prevent actual upload
+              }}
+            >
+              <Button icon={<UploadOutlined />}>Upload .json File</Button>
+            </Upload>
+            <Typography.Text type="secondary">or paste JSON below</Typography.Text>
+          </Space>
+        </div>
+
+        <Input.TextArea
+          rows={14}
+          value={jsonPasteValue}
+          onChange={(e) => { setJsonPasteValue(e.target.value); setJsonPasteError(null); }}
+          placeholder="Paste your JSON here..."
+          style={{ fontFamily: 'monospace', fontSize: 12, marginBottom: 8 }}
+          data-testid="json-paste-textarea"
+        />
+
+        {jsonPasteError && (
+          <div style={{ color: '#ff4d4f', marginTop: 4, marginBottom: 8 }} data-testid="json-paste-error">
+            {jsonPasteError}
+          </div>
+        )}
+
+        {/* JSON Format Guide */}
+        <Collapse
+          size="small"
+          items={[{
+            key: 'guide',
+            label: <span><InfoCircleOutlined style={{ marginRight: 6 }} />JSON Format Guide & Example</span>,
+            children: (
+              <div>
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
+                  All fields are optional except <Typography.Text code>client.name</Typography.Text> and <Typography.Text code>sections</Typography.Text>.
+                  Items default to <Typography.Text code>taxable: true</Typography.Text>.
+                </Typography.Paragraph>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <Typography.Text strong style={{ fontSize: 12 }}>Available Fields:</Typography.Text>
+                    <ul style={{ fontSize: 12, margin: '4px 0', paddingLeft: 16 }}>
+                      <li><Typography.Text code>client</Typography.Text> — name, address, city, state, zipcode, phone, email</li>
+                      <li><Typography.Text code>insurance</Typography.Text> — company, policy_number, claim_number, deductible</li>
+                      <li><Typography.Text code>sections[]</Typography.Text> — title, items[]</li>
+                      <li><Typography.Text code>items[]</Typography.Text> — description, quantity, unit, rate, taxable</li>
+                      <li><Typography.Text code>tax_rate</Typography.Text> — percentage (e.g., 8.25)</li>
+                      <li><Typography.Text code>adjustments[]</Typography.Text> — name, percentage, type (add/subtract)</li>
+                      <li><Typography.Text code>payments[]</Typography.Text> — amount, date, method, reference</li>
+                      <li><Typography.Text code>payment_terms</Typography.Text>, <Typography.Text code>notes</Typography.Text></li>
+                    </ul>
+                  </div>
+                  <div>
+                    <Typography.Text strong style={{ fontSize: 12 }}>Payment Methods:</Typography.Text>
+                    <div style={{ fontSize: 11, marginTop: 4, lineHeight: '1.8' }}>
+                      CA=Cash, CK=Check, CC=Credit Card, DC=Debit Card, BT=Bank Transfer, PP=PayPal, VM=Venmo, ZL=Zelle, OT=Other
+                    </div>
+                    <Typography.Text strong style={{ fontSize: 12, marginTop: 8, display: 'block' }}>Unit Examples:</Typography.Text>
+                    <div style={{ fontSize: 11, marginTop: 4, lineHeight: '1.8' }}>
+                      SF=Sq Ft, LF=Lin Ft, EA=Each, HR=Hour, SY=Sq Yd, CF=Cu Ft, LS=Lump Sum
+                    </div>
+                  </div>
+                </div>
+                <Typography.Text strong style={{ fontSize: 12 }}>Full Example:</Typography.Text>
+                <pre style={{
+                  background: '#f5f5f5', padding: 12, borderRadius: 6, fontSize: 11,
+                  maxHeight: 280, overflow: 'auto', marginTop: 4, lineHeight: '1.5',
+                  border: '1px solid #e8e8e8',
+                }}>
+{`{
+  "client": {
+    "name": "John Smith",
+    "address": "123 Main St",
+    "city": "Los Angeles",
+    "state": "CA",
+    "zipcode": "90001",
+    "phone": "213-555-1234",
+    "email": "john@example.com"
+  },
+  "insurance": {
+    "company": "State Farm",
+    "policy_number": "POL-123456",
+    "claim_number": "CLM-789012",
+    "deductible": 1000
+  },
+  "sections": [
+    {
+      "title": "Demo & Removal",
+      "items": [
+        { "description": "Remove wet drywall", "quantity": 120, "unit": "SF", "rate": 2.50, "taxable": true },
+        { "description": "Remove wet insulation", "quantity": 120, "unit": "SF", "rate": 1.75 }
+      ]
+    },
+    {
+      "title": "Drying Equipment",
+      "items": [
+        { "description": "Air mover rental (3 days)", "quantity": 4, "unit": "EA", "rate": 75.00, "taxable": false },
+        { "description": "Dehumidifier rental (3 days)", "quantity": 2, "unit": "EA", "rate": 150.00, "taxable": false }
+      ]
+    }
+  ],
+  "tax_rate": 8.25,
+  "adjustments": [
+    { "name": "O&P", "percentage": 10, "type": "add" },
+    { "name": "Discount", "percentage": 5, "type": "subtract" }
+  ],
+  "payments": [
+    { "amount": 500, "date": "04-07-2026", "method": "CK", "reference": "Check #1234" }
+  ],
+  "payment_terms": "Net 30",
+  "notes": "Work completed per insurance approval."
+}`}
+                </pre>
+                <Button
+                  size="small"
+                  icon={<CopyOutlined />}
+                  style={{ marginTop: 8 }}
+                  onClick={() => {
+                    const example = JSON.stringify({
+                      client: { name: "John Smith", address: "123 Main St", city: "Los Angeles", state: "CA", zipcode: "90001", phone: "213-555-1234", email: "john@example.com" },
+                      insurance: { company: "State Farm", policy_number: "POL-123456", claim_number: "CLM-789012", deductible: 1000 },
+                      sections: [
+                        { title: "Demo & Removal", items: [
+                          { description: "Remove wet drywall", quantity: 120, unit: "SF", rate: 2.50, taxable: true },
+                          { description: "Remove wet insulation", quantity: 120, unit: "SF", rate: 1.75 },
+                        ]},
+                        { title: "Drying Equipment", items: [
+                          { description: "Air mover rental (3 days)", quantity: 4, unit: "EA", rate: 75.00, taxable: false },
+                          { description: "Dehumidifier rental (3 days)", quantity: 2, unit: "EA", rate: 150.00, taxable: false },
+                        ]},
+                      ],
+                      tax_rate: 8.25,
+                      adjustments: [
+                        { name: "O&P", percentage: 10, type: "add" },
+                        { name: "Discount", percentage: 5, type: "subtract" },
+                      ],
+                      payments: [{ amount: 500, date: "04-07-2026", method: "CK", reference: "Check #1234" }],
+                      payment_terms: "Net 30",
+                      notes: "Work completed per insurance approval.",
+                    }, null, 2);
+                    navigator.clipboard.writeText(example);
+                    message.success('Example JSON copied to clipboard!');
+                  }}
+                >
+                  Copy Example
+                </Button>
+              </div>
+            ),
+          }]}
+        />
       </Modal>
     </div>
   );

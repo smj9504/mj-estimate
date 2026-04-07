@@ -145,6 +145,13 @@ temp/
 /playwright-report/
 /playwright/.cache/
 /tests/
+/frontend/test-results/
+/frontend/playwright-report/
+/frontend/playwright/.cache/
+/frontend/e2e/screenshots/
+/frontend/e2e/test-output/
+/frontend/e2e/test-output-*.html
+/frontend/e2e/*.pdf
 
 # Docker
 .dockerignore

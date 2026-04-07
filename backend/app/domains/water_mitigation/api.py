@@ -382,8 +382,20 @@ async def list_photos(
         sort_by: Field to sort by (default: captured_date)
         sort_order: Sort order 'asc' or 'desc' (default: desc)
     """
-    from app.core.cache import get_cache
-    
+    import time as _time
+
+    # In-memory response cache for photo listings (30-second TTL)
+    # Dramatically reduces DB load for repeated requests (tab switches, polling)
+    if not hasattr(list_photos, '_cache'):
+        list_photos._cache = {}
+        list_photos._cache_ts = {}
+
+    cache_key = f"{job_id}:{page}:{page_size}:{sort_by}:{sort_order}:{category_filter}:{uncategorized_only}"
+    cached = list_photos._cache.get(cache_key)
+    cached_ts = list_photos._cache_ts.get(cache_key, 0)
+    if cached and (_time.time() - cached_ts) < 30:
+        return cached
+
     # Limit page_size to prevent excessive queries
     page_size = min(page_size, 200)
     page = max(page, 1)
@@ -412,11 +424,10 @@ async def list_photos(
     else:
         total_pages = None
 
-    # Batch fetch CompanyCam URLs from cache or API
-    cache = get_cache()
+    # Identify CompanyCam photos that need URL resolution
     companycam_photos = []
     companycam_external_ids = []
-    
+
     for photo in photos:
         if photo.source == 'companycam' and photo.external_id:
             companycam_photos.append(photo)
@@ -424,15 +435,16 @@ async def list_photos(
                 companycam_external_ids.append(int(photo.external_id))
             except (ValueError, TypeError):
                 continue
-    
-    # Batch fetch CompanyCam URLs if needed
+
+    # Only fetch CompanyCam URLs if there are CompanyCam photos (skip entirely otherwise)
     companycam_urls = {}  # {external_id: {'thumbnail': url, 'web': url}}
     if companycam_external_ids:
+        from app.core.cache import get_cache
         from app.core.config import settings
 
-        from ..integrations.companycam.client import CompanyCamClient
-        
-        # Check cache first for all photos, and also check file_path
+        cache = get_cache()
+
+        # Check cache and file_path for existing URLs
         for photo in companycam_photos:
             try:
                 external_id = int(photo.external_id)
@@ -440,13 +452,11 @@ async def list_photos(
                 cache_key_web = f"companycam:photo:url:{external_id}:web"
                 thumbnail_url = await cache.get(cache_key_thumbnail)
                 web_url = await cache.get(cache_key_web)
-                
+
                 # Also check if file_path contains a CompanyCam URL
                 if not thumbnail_url and photo.file_path and \
                    photo.file_path.startswith('https://img.companycam.com'):
-                    # Extract size from URL if possible, or use as web URL
                     web_url = photo.file_path
-                    # Try to derive thumbnail URL from web URL
                     if 'rs:fit:400:400' in photo.file_path:
                         thumbnail_url = photo.file_path.replace(
                             'rs:fit:400:400', 'rs:fit:250:250'
@@ -455,7 +465,7 @@ async def list_photos(
                         thumbnail_url = photo.file_path.replace(
                             'rs:fit:4032:4032', 'rs:fit:250:250'
                         )
-                
+
                 if thumbnail_url and web_url:
                     companycam_urls[external_id] = {
                         'thumbnail': thumbnail_url,
@@ -463,55 +473,54 @@ async def list_photos(
                     }
             except (ValueError, TypeError):
                 continue
-        
+
         # Fetch missing URLs from API in batch with timeout
         missing_ids = [eid for eid in companycam_external_ids if eid not in companycam_urls]
         if missing_ids and settings.ENABLE_INTEGRATIONS and settings.COMPANYCAM_API_KEY:
             try:
                 import asyncio
-                
+
+                from ..integrations.companycam.client import CompanyCamClient
+
                 companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
-                
-                # Set timeout to 2 seconds to prevent blocking the response
-                # If timeout, we'll fallback to preview endpoint URLs
+
                 try:
                     photos_data = await asyncio.wait_for(
                         companycam_client.get_photos_batch(missing_ids),
-                        timeout=2.0  # 2 second timeout
+                        timeout=2.0
                     )
-                    
+
                     for external_id in missing_ids:
                         photo_data = photos_data.get(external_id)
                         if not photo_data or 'uris' not in photo_data:
                             continue
-                        
+
                         uris = photo_data['uris']
                         if not isinstance(uris, list):
                             continue
-                        
+
                         thumbnail_url = None
                         web_url = None
-                        
+
                         for uri_item in uris:
                             if not isinstance(uri_item, dict):
                                 continue
-                            
+
                             uri_type = uri_item.get('type')
                             uri_value = uri_item.get('uri') or uri_item.get('url')
-                            
+
                             if not uri_type or not uri_value:
                                 continue
-                            
+
                             # Cache all size URLs
                             cache_key = f"companycam:photo:url:{external_id}:{uri_type}"
                             await cache.set(cache_key, uri_value, ttl=86400)
-                            
-                            # Extract thumbnail and web URLs
+
                             if uri_type == 'thumbnail':
                                 thumbnail_url = uri_value
                             elif uri_type == 'web':
                                 web_url = uri_value
-                        
+
                         if thumbnail_url or web_url:
                             companycam_urls[external_id] = {
                                 'thumbnail': thumbnail_url,
@@ -519,7 +528,6 @@ async def list_photos(
                             }
                 except asyncio.TimeoutError:
                     logger.warning(f"CompanyCam batch fetch timed out after 2s for {len(missing_ids)} photos, using preview endpoints")
-                    # Timeout occurred - URLs will fallback to preview endpoint
                 except Exception as e:
                     logger.warning(f"Failed to batch fetch CompanyCam URLs: {e}")
             except Exception as e:
@@ -529,14 +537,12 @@ async def list_photos(
     items = []
     for photo in photos:
         photo_dict = service.photo_repo._convert_to_dict(photo)
-        
+
         # Generate preview URL based on photo source and storage
         preview_url = None
         thumbnail_url = None
-        
-        # Use stored thumbnail URL only if it's a publicly accessible URL (CDN, etc.)
-        # Google Drive URLs are NOT publicly accessible (Shared Drive requires auth)
-        # Local storage paths (e.g. "water-mitigation/job/photos/thumb_xxx.webp") are NOT valid URLs
+
+        # Use stored public thumbnail URL (CDN, etc.) - not gdrive (requires auth)
         storage_prov = getattr(photo, 'storage_provider', None)
         if (photo.storage_thumbnail_url
             and photo.storage_thumbnail_url.startswith('http')
@@ -549,36 +555,45 @@ async def list_photos(
             try:
                 external_id = int(photo.external_id)
                 urls = companycam_urls.get(external_id, {})
-                
-                # Use cached URLs if available
+
                 if urls.get('thumbnail') and urls.get('web'):
                     thumbnail_url = urls['thumbnail']
                     preview_url = urls['web']
                 else:
-                    # Fallback to preview endpoint (will use cache or fetch)
                     preview_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=web"
                     thumbnail_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=thumbnail"
             except (ValueError, TypeError):
-                # Invalid external_id, use preview endpoint
                 preview_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=web"
                 thumbnail_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=thumbnail"
-        
+
         # For local/cloud storage photos, use preview endpoint
         else:
             preview_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=web"
             thumbnail_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=thumbnail"
-        
+
         photo_dict['preview_url'] = preview_url
         photo_dict['thumbnail_url'] = thumbnail_url
         items.append(photo_dict)
 
-    return {
+    result = {
         "items": items,
         "total": total,
         "page": page,
         "page_size": page_size,
         "total_pages": total_pages
     }
+
+    # Cache result (evict old entries if cache grows too large)
+    list_photos._cache[cache_key] = result
+    list_photos._cache_ts[cache_key] = _time.time()
+    if len(list_photos._cache) > 100:
+        # Evict oldest entries
+        oldest_keys = sorted(list_photos._cache_ts, key=list_photos._cache_ts.get)[:50]
+        for k in oldest_keys:
+            list_photos._cache.pop(k, None)
+            list_photos._cache_ts.pop(k, None)
+
+    return result
 
 
 class BatchPreviewRequest(BaseModel):
@@ -916,10 +931,14 @@ async def preview_photo(
     # Handle local storage - optimize and serve file
     local_file_path = Path(file_path)
     if not local_file_path.exists():
+        # Try with STORAGE_BASE_DIR prefix (file_path is relative to storage root)
+        from app.core.config import settings as app_settings
+        local_file_path = Path(app_settings.STORAGE_BASE_DIR) / file_path
+    if not local_file_path.exists():
         logger.error(f"Local file not found for photo {photo_id}: {file_path}")
         raise HTTPException(status_code=404, detail="Photo file not found on disk")
 
-    # Optimize image for web/thumbnail sizes
+    # Optimize image for web/thumbnail sizes with disk cache
     if size in ("thumbnail", "web") and media_type.startswith('image/'):
         try:
             import io
@@ -932,33 +951,57 @@ async def preview_photo(
             max_size = (250, 250) if size == "thumbnail" else (800, 800)
             quality = 80 if size == "thumbnail" else 85
 
-            # Read and optimize image
+            # Build disk cache path: .cache/previews/<size>/<photo_id>.webp
+            cache_dir = local_file_path.parent / ".cache" / "previews" / size
+            cache_file = cache_dir / f"{photo_id}.webp"
+
+            # Check disk cache first - skip optimization entirely if cached
+            if cache_file.exists():
+                # Validate cache is newer than original
+                if cache_file.stat().st_mtime >= local_file_path.stat().st_mtime:
+                    return FileResponse(
+                        path=str(cache_file),
+                        media_type='image/webp',
+                        headers={
+                            "Content-Disposition": "inline",
+                            "Cache-Control": "public, max-age=604800, immutable",
+                        }
+                    )
+
+            # Cache miss - optimize and save to disk
             with open(local_file_path, 'rb') as f:
                 file_data = io.BytesIO(f.read())
-            
+
             optimizer = ImageOptimizer()
             optimized_file, metadata = optimizer.optimize(
                 file_data,
                 max_size=max_size,
                 quality=quality,
-                format='WebP',  # Use WebP for better compression
+                format='WebP',
                 preserve_exif=False
             )
 
-            # Read optimized bytes
             optimized_bytes = optimized_file.read()
-            
-            logger.debug(
-                f"Optimized {size} image for photo {photo_id}: "
-                f"{metadata.get('compression_ratio', '0%')} reduction"
-            )
+
+            # Write to disk cache (async-safe: write to temp then rename)
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                tmp_file = cache_file.with_suffix('.tmp')
+                tmp_file.write_bytes(optimized_bytes)
+                tmp_file.rename(cache_file)
+                logger.debug(
+                    f"Cached {size} preview for photo {photo_id}: "
+                    f"{metadata.get('compression_ratio', '0%')} reduction"
+                )
+            except Exception as cache_err:
+                logger.warning(f"Failed to cache preview for {photo_id}: {cache_err}")
 
             return Response(
                 content=optimized_bytes,
                 media_type='image/webp',
                 headers={
                     "Content-Disposition": "inline",
-                    "Cache-Control": "public, max-age=86400"  # Cache for 24 hours
+                    "Cache-Control": "public, max-age=604800, immutable",
                 }
             )
         except Exception as e:
@@ -970,7 +1013,7 @@ async def preview_photo(
         media_type=media_type,
         headers={
             "Content-Disposition": "inline",
-            "Cache-Control": "public, max-age=3600"  # Cache for 1 hour
+            "Cache-Control": "public, max-age=3600"
         }
     )
 

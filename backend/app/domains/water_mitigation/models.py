@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -204,6 +205,12 @@ class WMPhoto(Base, BaseModel):
 
     upload_status = Column(String(50), default='completed')
     uploaded_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+
+    # Crew upload metadata (populated when source='crew_upload')
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    device_model = Column(String(200), nullable=True)
+    upload_link_id = Column(UUIDType(), ForeignKey("upload_links.id"), nullable=True)
 
     # Trash/Deletion tracking
     is_trashed = Column(Boolean, default=False)

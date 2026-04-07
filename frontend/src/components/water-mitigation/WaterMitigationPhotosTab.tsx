@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress, Grid } from 'antd';
-import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined } from '@ant-design/icons';
+import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import api from '../../services/api';
@@ -121,6 +121,13 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const exportPollingRef = useRef<boolean>(false);
   const exportTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Crew Upload Link state
+  const [uploadLinkModalVisible, setUploadLinkModalVisible] = useState(false);
+  const [uploadLinks, setUploadLinks] = useState<any[]>([]);
+  const [creatingLink, setCreatingLink] = useState(false);
+  const [linkCrewName, setLinkCrewName] = useState('');
+  const [linkLabel, setLinkLabel] = useState('');
 
   // Update current project ID when prop changes
   useEffect(() => {
@@ -384,6 +391,74 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       percent,
       currentFilename: exportStatus.current_filename
     };
+  };
+
+  // ─── Crew Upload Link handlers ───
+  const fetchUploadLinks = useCallback(async () => {
+    try {
+      const res = await api.get(`/api/crew-upload/admin/links/water-mitigation/${jobId}`);
+      setUploadLinks(res.data.items || []);
+    } catch {
+      // Endpoint may not exist yet
+    }
+  }, [jobId]);
+
+  const handleCreateUploadLink = async () => {
+    setCreatingLink(true);
+    try {
+      const res = await api.post('/api/crew-upload/admin/links', {
+        context: 'water-mitigation',
+        context_id: jobId,
+        crew_name: linkCrewName || undefined,
+        label: linkLabel || undefined,
+        expires_in_days: 7,
+      });
+      const link = res.data;
+      const url = `${window.location.origin}/upload/${link.token}`;
+      setUploadLinks(prev => [{ ...link, upload_url: url }, ...prev]);
+      setLinkCrewName('');
+      setLinkLabel('');
+      message.success('Upload link created');
+
+      // Auto-copy to clipboard
+      try {
+        await navigator.clipboard.writeText(url);
+        message.info('Link copied to clipboard');
+      } catch {
+        // Clipboard not available
+      }
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to create link');
+    } finally {
+      setCreatingLink(false);
+    }
+  };
+
+  const handleDeactivateLink = async (linkId: string) => {
+    try {
+      await api.put(`/api/crew-upload/admin/links/${linkId}/deactivate`);
+      setUploadLinks(prev => prev.map(l => l.id === linkId ? { ...l, is_active: false } : l));
+      message.success('Link deactivated');
+    } catch {
+      message.error('Failed to deactivate link');
+    }
+  };
+
+  const handleCopyLink = async (token: string) => {
+    const url = `${window.location.origin}/upload/${token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      message.success('Link copied!');
+    } catch {
+      // Fallback
+      const input = document.createElement('input');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      message.success('Link copied!');
+    }
   };
 
   // Check initial status on mount
@@ -773,6 +848,28 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
               </Button>
             </Tooltip>
           )}
+
+          {/* Crew Upload Link Button */}
+          <Tooltip title="Create shareable upload link for crew">
+            <Button
+              type="default"
+              icon={<ShareAltOutlined />}
+              onClick={() => {
+                setUploadLinkModalVisible(true);
+                fetchUploadLinks();
+              }}
+              size={isMobile ? 'small' : 'middle'}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                fontWeight: 500,
+                color: 'white'
+              }}
+            >
+              {isMobile ? 'Link' : 'Upload Link'}
+            </Button>
+          </Tooltip>
         </div>
       </div>
 
@@ -1089,6 +1186,110 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           <Text type="secondary">
             This may take a while for jobs with many photos. Progress will be shown in the header.
           </Text>
+        </Space>
+      </Modal>
+
+      {/* Crew Upload Link Modal */}
+      <Modal
+        title="Crew Upload Links"
+        open={uploadLinkModalVisible}
+        onCancel={() => setUploadLinkModalVisible(false)}
+        footer={null}
+        width={520}
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {/* Create new link */}
+          <div style={{
+            background: '#fafafa',
+            borderRadius: 8,
+            padding: 16,
+            border: '1px solid #f0f0f0',
+          }}>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>New Upload Link</Text>
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Input
+                placeholder="Crew name (optional)"
+                value={linkCrewName}
+                onChange={e => setLinkCrewName(e.target.value)}
+                size="small"
+              />
+              <Input
+                placeholder="Label - e.g. Kitchen photos (optional)"
+                value={linkLabel}
+                onChange={e => setLinkLabel(e.target.value)}
+                size="small"
+              />
+              <Button
+                type="primary"
+                icon={<ShareAltOutlined />}
+                onClick={handleCreateUploadLink}
+                loading={creatingLink}
+                block
+              >
+                Create Link (7 days)
+              </Button>
+            </Space>
+          </div>
+
+          {/* Existing links */}
+          {uploadLinks.length > 0 && (
+            <div>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>Existing Links</Text>
+              <List
+                size="small"
+                dataSource={uploadLinks}
+                renderItem={(link: any) => {
+                  const isExpired = new Date(link.expires_at) < new Date();
+                  const isActive = link.is_active && !isExpired;
+                  return (
+                    <List.Item
+                      style={{ padding: '8px 0' }}
+                      actions={isActive ? [
+                        <Tooltip title="Copy link" key="copy">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<CopyOutlined />}
+                            onClick={() => handleCopyLink(link.token)}
+                          />
+                        </Tooltip>,
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          key="deactivate"
+                          onClick={() => handleDeactivateLink(link.id)}
+                        >
+                          Deactivate
+                        </Button>,
+                      ] : undefined}
+                    >
+                      <List.Item.Meta
+                        title={
+                          <Space size={4}>
+                            <span>{link.crew_name || link.label || 'Upload Link'}</span>
+                            {isActive ? (
+                              <Tag color="green" style={{ fontSize: 11 }}>Active</Tag>
+                            ) : (
+                              <Tag color="default" style={{ fontSize: 11 }}>
+                                {isExpired ? 'Expired' : 'Inactive'}
+                              </Tag>
+                            )}
+                          </Space>
+                        }
+                        description={
+                          <span style={{ fontSize: 12 }}>
+                            {link.upload_count || 0} files uploaded
+                            {link.expires_at && ` · Expires ${new Date(link.expires_at).toLocaleDateString()}`}
+                          </span>
+                        }
+                      />
+                    </List.Item>
+                  );
+                }}
+              />
+            </div>
+          )}
         </Space>
       </Modal>
     </div>

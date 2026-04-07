@@ -378,6 +378,10 @@ async def create_invoice(invoice_data: InvoiceCreate, db=Depends(get_db)):
             'taxable': item.taxable if hasattr(item, 'taxable') else True,
             'note': item.note if hasattr(item, 'note') else None,
             'images': [img.dict() for img in item.images] if item.images else [],
+            # Section/Group fields — must be preserved so sections survive a round-trip
+            'primary_group': item.primary_group if hasattr(item, 'primary_group') else None,
+            'secondary_group': item.secondary_group if hasattr(item, 'secondary_group') else None,
+            'sort_order': item.sort_order if hasattr(item, 'sort_order') else 0,
         }
         for item in invoice_data.items
     ]

@@ -85,6 +85,9 @@ const PDFEditor = lazy(() => import('./pages/PDFEditor'));
 // Reference Pages
 const XactimateCheatSheet = lazy(() => import('./pages/XactimateCheatSheet'));
 
+// Crew Upload (Public)
+const CrewUploadPage = lazy(() => import('./pages/CrewUploadPage'));
+
 // Error Pages
 const NotFound = lazy(() => import('./pages/NotFound'));
 const Unauthorized = lazy(() => import('./pages/Unauthorized'));
@@ -164,6 +167,15 @@ const router = createBrowserRouter([
     element: (
       <Suspense fallback={<PageLoader />}>
         <OAuthCallback />
+      </Suspense>
+    )
+  },
+  // Crew Upload (공개 - 인증 불필요, 현장 crew용)
+  {
+    path: "/upload/:token",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <CrewUploadPage />
       </Suspense>
     )
   },

@@ -91,7 +91,7 @@ const LazyImage: React.FC<LazyImageProps> = memo(({ src, fallbackSrc, alt, enabl
         loading={enableLazyLoading ? "lazy" : "eager"}
         decoding="async"
         // @ts-ignore - fetchpriority is a valid HTML attribute
-        fetchpriority="low"
+        fetchpriority={enableLazyLoading ? "low" : "high"}
         onLoad={() => setIsLoaded(true)}
         onError={(e) => {
           // Fallback to full image if thumbnail fails
@@ -564,9 +564,7 @@ const FileGrid: React.FC<FileGridProps> = ({
   }, [handleFileSelect]);
 
   // Use virtual scrolling for large lists (50+ items) to improve performance
-  // Increased threshold to reduce issues with scroll position tracking
-  // TEMPORARILY DISABLED for debugging icon error
-  const useVirtualScrolling = false; // files.length > 50;
+  const useVirtualScrolling = files.length > 50;
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const scrollPositionRef = useRef<{ scrollTop: number; scrollLeft: number } | null>(null);
@@ -683,7 +681,7 @@ const FileGrid: React.FC<FileGridProps> = ({
             children: Cell
           })
         ) : (
-          files.map((file) => (
+          files.map((file, index) => (
             <FileCardItem
               key={file.id}
               file={file}
@@ -692,7 +690,7 @@ const FileGrid: React.FC<FileGridProps> = ({
               fileCategory={fileCategory}
               showImagePreview={showImagePreview}
               showImageInfo={showImageInfo}
-              enableLazyLoading={enableLazyLoading}
+              enableLazyLoading={index >= responsiveColumns * 3 ? enableLazyLoading : false}
               imageQuality={imageQuality}
               onSelect={handleFileSelectMemo}
               onPreview={handlePreview}

@@ -141,6 +141,9 @@ from app.domains.water_mitigation.sketch_models import (
 )
 from app.domains.work_order.api import router as work_order_router
 from app.domains.xactimate.api import router as xactimate_router
+from app.domains.crew_upload.api import public_router as crew_upload_public_router
+from app.domains.crew_upload.api import admin_router as crew_upload_admin_router
+from app.domains.crew_upload.models import UploadLink, UploadSession
 from app.domains.insurance_extraction.models import (
     InsurancePdfExtraction,
     InsurancePdfExtractionItem,
@@ -532,6 +535,18 @@ if material_detection_available:
     if training_api_available:
         app.include_router(training_router, prefix="/api/material-detection", tags=["ML Training"])
         logger.info("Training API routes registered")
+
+# Crew Upload endpoints (public + admin)
+app.include_router(
+    crew_upload_public_router,
+    prefix="/api/crew-upload",
+    tags=["Crew Upload (Public)"]
+)
+app.include_router(
+    crew_upload_admin_router,
+    prefix="/api/crew-upload/admin",
+    tags=["Crew Upload (Admin)"]
+)
 
 # External Integrations endpoints (conditionally loaded)
 if settings.ENABLE_INTEGRATIONS:
