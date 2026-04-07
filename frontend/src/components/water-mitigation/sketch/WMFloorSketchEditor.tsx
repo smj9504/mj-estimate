@@ -51,6 +51,7 @@ import type {
   WMEquipmentPlacement,
   WMContainmentZone,
   WMFloorProtection,
+  WMContentProtection,
 } from '../../../types/wmSketch';
 import {
   EQUIPMENT_CONFIG,
@@ -67,10 +68,13 @@ import {
   calcDemoZoneSqft,
   calcContainmentSqft,
   calcFloorProtectionSqft,
+  calcContentProtectionSqft,
 } from './utils/wmCalculations';
 import {
   DEFAULT_CONTAINMENT_COLOR,
+  DEFAULT_CONTAINMENT_HEIGHT_FT,
   DEFAULT_FLOOR_PROTECTION_COLOR,
+  DEFAULT_CONTENT_PROTECTION_COLOR,
   DEFAULT_PAPER_WIDTH_FT,
 } from './utils/wmDefaults';
 import WMFloorPlanSource from './WMFloorPlanSource';
@@ -186,11 +190,13 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
   }, [overlayData.demolition_zones, materialTypes]);
 
   const { containment_zones, floor_protections, equipment_placements } = overlayData;
+  const contentProtections = overlayData.content_protections ?? [];
   const containTotal = containment_zones.reduce((s, c) => s + c.calculated_sqft, 0);
   const protTotal = floor_protections.reduce((s, p) => s + p.calculated_sqft, 0);
+  const contentProtTotal = contentProtections.reduce((s, cp) => s + cp.calculated_sqft, 0);
   const eqCount = equipment_placements.length;
 
-  if (byType.length === 0 && containment_zones.length === 0 && floor_protections.length === 0 && eqCount === 0) {
+  if (byType.length === 0 && containment_zones.length === 0 && floor_protections.length === 0 && contentProtections.length === 0 && eqCount === 0) {
     return (
       <div
         style={{
@@ -244,6 +250,11 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
           Floor Prot: {protTotal.toFixed(1)} SF
         </Tag>
       )}
+      {contentProtections.length > 0 && (
+        <Tag color="#8B5CF6" style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}>
+          Content Prot: {contentProtTotal.toFixed(1)} SF
+        </Tag>
+      )}
       {eqCount > 0 && (
         <Tag style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}>
           Equipment: {eqCount}
@@ -285,10 +296,13 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     updateContainment,
     addFloorProtection,
     updateFloorProtection,
+    addContentProtection,
+    updateContentProtection,
     removeDemolitionZone,
     removeEquipment,
     removeContainment,
     removeFloorProtection,
+    removeContentProtection,
     loadOverlayData,
     markSaved,
     undo,
@@ -453,7 +467,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       if (
         activeTool === 'demolition' ||
         activeTool === 'containment' ||
-        activeTool === 'floor_protection'
+        activeTool === 'floor_protection' ||
+        activeTool === 'content_protection'
       ) {
         // Wall and baseboard (LF-unit) demo types cannot be drawn on the 2D canvas.
         // They are added via the sidebar "Add" button only.
@@ -528,7 +543,14 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       const wPx = Math.abs(currentX - startX);
       const hPx = Math.abs(currentY - startY);
 
-      if (wPx < minPx || hPx < minPx) {
+      // Containment uses line distance; other tools use rect dimensions
+      if (state.activeTool === 'containment') {
+        const lineLenPx = Math.sqrt(wPx * wPx + hPx * hPx);
+        if (lineLenPx < minPx) {
+          setDrawState(INITIAL_DRAW_STATE);
+          return;
+        }
+      } else if (wPx < minPx || hPx < minPx) {
         setDrawState(INITIAL_DRAW_STATE);
         return;
       }
@@ -576,15 +598,23 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         // Auto-select the new zone so the sidebar opens for dimension input
         selectElement({ element_id: newId, element_type: 'demolition' });
       } else if (activeTool === 'containment') {
+        // Containment is a line — use the drag to determine length and angle
+        const dx = currentX - startX;
+        const dy = currentY - startY;
+        const lengthPx = Math.sqrt(dx * dx + dy * dy);
+        const lengthFt = pixelsToFeet(lengthPx, scale);
+        const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+        const heightFt = DEFAULT_CONTAINMENT_HEIGHT_FT;
         const zone: WMContainmentZone = {
           id: generateOverlayId(),
           floor_sketch_id: floorSketch.id,
           containment_type: 'No zipper',
-          x,
-          y,
-          width_ft: dim1Ft,
-          height_ft: dim2Ft,
-          calculated_sqft: calcContainmentSqft(dim1Ft, dim2Ft),
+          x: startX,
+          y: startY,
+          length_ft: lengthFt,
+          height_ft: heightFt,
+          rotation: angleDeg,
+          calculated_sqft: calcContainmentSqft(lengthFt, heightFt),
           color: DEFAULT_CONTAINMENT_COLOR,
         };
         addContainment(zone);
@@ -605,6 +635,20 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           color: DEFAULT_FLOOR_PROTECTION_COLOR,
         };
         addFloorProtection(prot);
+      } else if (activeTool === 'content_protection') {
+        const contentProt: WMContentProtection = {
+          id: generateOverlayId(),
+          floor_sketch_id: floorSketch.id,
+          protection_type: 'Plastic sheeting',
+          width_ft: dim1Ft,
+          length_ft: dim2Ft,
+          x,
+          y,
+          rotation: 0,
+          calculated_sqft: calcContentProtectionSqft(dim1Ft, dim2Ft),
+          color: DEFAULT_CONTENT_PROTECTION_COLOR,
+        };
+        addContentProtection(contentProt);
       }
 
       setDrawState(INITIAL_DRAW_STATE);
@@ -619,6 +663,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       selectElement,
       addContainment,
       addFloorProtection,
+      addContentProtection,
     ]
   );
 
@@ -631,8 +676,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       else if (type === 'equipment') updateEquipment({ id, x, y });
       else if (type === 'containment') updateContainment({ id, x, y });
       else if (type === 'floor_protection') updateFloorProtection({ id, x, y });
+      else if (type === 'content_protection') updateContentProtection({ id, x, y });
     },
-    [updateDemolitionZone, updateEquipment, updateContainment, updateFloorProtection]
+    [updateDemolitionZone, updateEquipment, updateContainment, updateFloorProtection, updateContentProtection]
   );
 
   // Transform end (resize)
@@ -646,15 +692,20 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           calculated_sqft: calcDemoZoneSqft(widthFt, heightFt),
         });
       } else if (type === 'containment') {
+        // For containment: widthFt = new length_ft, heightFt = new rotation
+        const lengthFt = widthFt;
+        const rotation = heightFt;
+        const existingZone = state.overlayData.containment_zones.find((z) => z.id === id);
+        const polyHeight = existingZone?.height_ft ?? 8;
         updateContainment({
           id,
-          width_ft: widthFt,
-          height_ft: heightFt,
-          calculated_sqft: calcContainmentSqft(widthFt, heightFt),
+          length_ft: lengthFt,
+          rotation,
+          calculated_sqft: calcContainmentSqft(lengthFt, polyHeight),
         });
       }
     },
-    [updateDemolitionZone, updateContainment]
+    [updateDemolitionZone, updateContainment, state.overlayData.containment_zones]
   );
 
   // ------------------------------------------------------------------
@@ -664,7 +715,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     (id: string, type: string) => {
       selectElement({
         element_id: id,
-        element_type: type as 'demolition' | 'equipment' | 'containment' | 'floor_protection',
+        element_type: type as 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection',
       });
     },
     [selectElement]
@@ -705,6 +756,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         else if (element_type === 'equipment') removeEquipment(element_id);
         else if (element_type === 'containment') removeContainment(element_id);
         else if (element_type === 'floor_protection') removeFloorProtection(element_id);
+        else if (element_type === 'content_protection') removeContentProtection(element_id);
       }
     };
 
@@ -727,6 +779,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     removeEquipment,
     removeContainment,
     removeFloorProtection,
+    removeContentProtection,
   ]);
 
   // ------------------------------------------------------------------
@@ -769,6 +822,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   const activeMaterialColor = React.useMemo(() => {
     if (state.activeTool === 'containment') return DEFAULT_CONTAINMENT_COLOR;
     if (state.activeTool === 'floor_protection') return DEFAULT_FLOOR_PROTECTION_COLOR;
+    if (state.activeTool === 'content_protection') return DEFAULT_CONTENT_PROTECTION_COLOR;
     const mat =
       materialTypes.find((m) => m.id === state.activeMaterialTypeId) ??
       DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === state.activeMaterialTypeId);
@@ -970,6 +1024,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           onDeleteContainment={removeContainment}
           onUpdateProtection={(id, updates) => updateFloorProtection({ id, ...updates })}
           onDeleteProtection={removeFloorProtection}
+          onUpdateContentProtection={(id, updates) => updateContentProtection({ id, ...updates })}
+          onDeleteContentProtection={removeContentProtection}
           onSelectElement={handleSelectElement}
           onMaterialTypesChange={() => {/* material types are fixed for now */}}
           width={280}

@@ -155,11 +155,20 @@ export function calcFloorProtectionSqft(
 }
 
 /**
- * Calculate square footage for a containment zone rectangle: widthFt × heightFt.
+ * Calculate square footage for a containment barrier: lengthFt × heightFt.
+ * lengthFt = span on floor plan, heightFt = poly height (ceiling height).
  * Rounds to 2 decimal places.
  */
-export function calcContainmentSqft(widthFt: number, heightFt: number): number {
-  return Math.round(widthFt * heightFt * 100) / 100;
+export function calcContainmentSqft(lengthFt: number, heightFt: number): number {
+  return Math.round(lengthFt * heightFt * 100) / 100;
+}
+
+/**
+ * Calculate square footage for a content protection area: widthFt × lengthFt.
+ * Rounds to 2 decimal places.
+ */
+export function calcContentProtectionSqft(widthFt: number, lengthFt: number): number {
+  return Math.round(widthFt * lengthFt * 100) / 100;
 }
 
 // ============================================================================
@@ -265,6 +274,15 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
     0
   );
 
+  // ------------------------------------------------------------------
+  // Content protection totals
+  // ------------------------------------------------------------------
+  const contentProtections = overlayData.content_protections ?? [];
+  const contentProtectionTotalSqft = contentProtections.reduce(
+    (sum, cp) => Math.round((sum + cp.calculated_sqft) * 100) / 100,
+    0
+  );
+
   return {
     demolition_by_type,
     containment: {
@@ -274,6 +292,10 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
     floor_protection: {
       count: overlayData.floor_protections.length,
       total_sqft: floorProtectionTotalSqft,
+    },
+    content_protection: {
+      count: contentProtections.length,
+      total_sqft: contentProtectionTotalSqft,
     },
     equipment_counts,
   };

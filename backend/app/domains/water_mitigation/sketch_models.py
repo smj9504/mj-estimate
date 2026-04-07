@@ -103,6 +103,11 @@ class WMFloorSketch(Base, BaseModel):
         back_populates="floor_sketch",
         cascade="all, delete-orphan",
     )
+    content_protections = relationship(
+        "WMContentProtection",
+        back_populates="floor_sketch",
+        cascade="all, delete-orphan",
+    )
 
 
 class WMDemolitionZone(Base, BaseModel):
@@ -198,8 +203,9 @@ class WMContainmentZone(Base, BaseModel):
     """
     Containment Zone overlay element on a floor sketch.
 
-    Represents a contained work area (negative pressure zone, etc.)
-    drawn as a rectangle with a containment type label.
+    Represents a poly sheeting barrier drawn as a line on the floor plan.
+    length_ft = barrier span on the floor, height_ft = poly height (ceiling).
+    calculated_sqft = length_ft * height_ft.
     """
 
     __tablename__ = "wm_containment_zones"
@@ -220,9 +226,13 @@ class WMContainmentZone(Base, BaseModel):
     x = Column(Float, nullable=False)
     y = Column(Float, nullable=False)
 
-    # Dimensions in decimal feet (nullable; can be pixel-only initially)
+    # Line dimensions
+    length_ft = Column(DECIMAL(10, 4), nullable=True)  # barrier span on floor plan
+    height_ft = Column(DECIMAL(10, 4), nullable=True)  # poly height (ceiling)
+    rotation = Column(Float, default=0.0, nullable=True)  # angle in degrees
+
+    # Legacy rectangle fields (deprecated — use length_ft instead)
     width_ft = Column(DECIMAL(10, 4), nullable=True)
-    height_ft = Column(DECIMAL(10, 4), nullable=True)
 
     calculated_sqft = Column(DECIMAL(12, 2), nullable=False)
     color = Column(String(7), default="#0066FF", nullable=False)
@@ -267,3 +277,41 @@ class WMFloorProtection(Base, BaseModel):
 
     # Relationships
     floor_sketch = relationship("WMFloorSketch", back_populates="floor_protections")
+
+
+class WMContentProtection(Base, BaseModel):
+    """
+    Content Protection overlay element on a floor sketch.
+
+    Represents an area where contents (furniture etc.) are covered with
+    vinyl/plastic sheeting for protection. Drawn as a rectangle on the canvas.
+    """
+
+    __tablename__ = "wm_content_protections"
+    __table_args__ = (
+        Index("ix_wm_content_protections_floor_sketch", "floor_sketch_id"),
+        {"extend_existing": True},
+    )
+
+    floor_sketch_id = Column(
+        UUIDType(),
+        ForeignKey("wm_floor_sketches.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    protection_type = Column(String(100), default="Plastic sheeting", nullable=False)
+
+    # Canvas position
+    x = Column(Float, nullable=False)
+    y = Column(Float, nullable=False)
+
+    # Dimensions in decimal feet
+    width_ft = Column(DECIMAL(10, 4), nullable=False)
+    length_ft = Column(DECIMAL(10, 4), nullable=False)
+    rotation = Column(Float, default=0.0, nullable=False)
+
+    calculated_sqft = Column(DECIMAL(12, 2), nullable=False)
+    color = Column(String(7), default="#8B5CF6", nullable=False)
+
+    # Relationships
+    floor_sketch = relationship("WMFloorSketch", back_populates="content_protections")

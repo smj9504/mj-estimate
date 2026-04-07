@@ -69,10 +69,11 @@ const WMFloorSummaryPanel: React.FC<WMFloorSummaryProps> = ({ summary }) => {
   const hasDemolition = summary.demolition_by_type.length > 0;
   const hasContainment = summary.containment.count > 0;
   const hasFloorProtection = summary.floor_protection.count > 0;
+  const hasContentProtection = summary.content_protection.count > 0;
   const equipmentTypes = Object.entries(summary.equipment_counts) as [EquipmentType, number][];
   const hasEquipment = equipmentTypes.some(([, count]) => count > 0);
 
-  const isEmpty = !hasDemolition && !hasContainment && !hasFloorProtection && !hasEquipment;
+  const isEmpty = !hasDemolition && !hasContainment && !hasFloorProtection && !hasContentProtection && !hasEquipment;
 
   if (isEmpty) {
     return (
@@ -162,10 +163,29 @@ const WMFloorSummaryPanel: React.FC<WMFloorSummaryProps> = ({ summary }) => {
           </>
         )}
 
+        {/* Content Protection section */}
+        {hasContentProtection && (
+          <>
+            {(hasDemolition || hasContainment || hasFloorProtection) && <Divider style={{ margin: '6px 0' }} />}
+            <SummaryRow
+              label={
+                <Text style={{ fontSize: 12 }}>
+                  Content Protection
+                  <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
+                    {summary.content_protection.count}x
+                  </Text>
+                </Text>
+              }
+              value={`${summary.content_protection.total_sqft.toFixed(0)} SF`}
+              secondary={`${summary.content_protection.total_sqft.toFixed(2)} SF`}
+            />
+          </>
+        )}
+
         {/* Equipment section */}
         {hasEquipment && (
           <>
-            {(hasDemolition || hasContainment || hasFloorProtection) && (
+            {(hasDemolition || hasContainment || hasFloorProtection || hasContentProtection) && (
               <Divider style={{ margin: '6px 0' }} />
             )}
             <Text

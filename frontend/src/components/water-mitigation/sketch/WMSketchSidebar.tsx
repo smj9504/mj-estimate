@@ -36,6 +36,7 @@ import {
   ToolOutlined,
   GoldOutlined,
   ColumnWidthOutlined,
+  SkinOutlined,
   BarChartOutlined,
 } from '@ant-design/icons';
 import type {
@@ -47,11 +48,13 @@ import type {
   WMEquipmentPlacement,
   WMContainmentZone,
   WMFloorProtection,
+  WMContentProtection,
 } from '../../../types/wmSketch';
 import WMDemolitionPanel from './panels/WMDemolitionPanel';
 import WMEquipmentPanel from './panels/WMEquipmentPanel';
 import WMContainmentPanel from './panels/WMContainmentPanel';
 import WMFloorProtectionPanel from './panels/WMFloorProtectionPanel';
+import WMContentProtectionPanel from './panels/WMContentProtectionPanel';
 import WMFloorSummaryPanel from './panels/WMFloorSummaryPanel';
 import WMMaterialTypeManager from './panels/WMMaterialTypeManager';
 
@@ -73,6 +76,8 @@ export interface WMSketchSidebarProps {
   onDeleteContainment: (id: string) => void;
   onUpdateProtection: (id: string, updates: Partial<WMFloorProtection>) => void;
   onDeleteProtection: (id: string) => void;
+  onUpdateContentProtection: (id: string, updates: Partial<WMContentProtection>) => void;
+  onDeleteContentProtection: (id: string) => void;
   onSelectElement: (id: string, type: string) => void;
   onMaterialTypesChange: (types: DemoMaterialType[]) => void;
   /** Optional width override, defaults to 280 */
@@ -85,6 +90,7 @@ const SELECTION_PANEL_MAP: Record<string, string> = {
   equipment: 'equipment',
   containment: 'containment',
   floor_protection: 'floor_protection',
+  content_protection: 'content_protection',
 };
 
 /** Small pill badge for panel headers */
@@ -149,6 +155,8 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
   onDeleteContainment,
   onUpdateProtection,
   onDeleteProtection,
+  onUpdateContentProtection,
+  onDeleteContentProtection,
   onSelectElement,
   onMaterialTypesChange,
   width = 280,
@@ -170,6 +178,7 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
   const equipCount = overlayData.equipment_placements.length;
   const containCount = overlayData.containment_zones.length;
   const protCount = overlayData.floor_protections.length;
+  const contentProtCount = (overlayData.content_protections ?? []).length;
   const demoTotalSqft = useMemo(
     () => summary.demolition_by_type.reduce((s, d) => s + d.total_sqft, 0),
     [summary.demolition_by_type]
@@ -184,6 +193,8 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
     selection?.element_type === 'containment' ? selection.element_id : null;
   const selectedProtId =
     selection?.element_type === 'floor_protection' ? selection.element_id : null;
+  const selectedContentProtId =
+    selection?.element_type === 'content_protection' ? selection.element_id : null;
 
   const panelItems = [
     {
@@ -285,6 +296,30 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
           onUpdateProtection={onUpdateProtection}
           onDeleteProtection={onDeleteProtection}
           onSelectProtection={(id) => onSelectElement(id, 'floor_protection')}
+        />
+      ),
+    },
+    {
+      key: 'content_protection',
+      label: (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <SkinOutlined style={{ color: '#8B5CF6', fontSize: 13 }} />
+          <Text style={{ fontSize: 13, fontWeight: 500 }}>Content Protection</Text>
+          <div style={{ flex: 1 }} />
+          {summary.content_protection.total_sqft > 0 ? (
+            <AreaBadge sqft={summary.content_protection.total_sqft} color="#8B5CF6" />
+          ) : (
+            <CountBadge count={contentProtCount} color="#8B5CF6" />
+          )}
+        </div>
+      ),
+      children: (
+        <WMContentProtectionPanel
+          protections={overlayData.content_protections ?? []}
+          selectedProtectionId={selectedContentProtId}
+          onUpdateProtection={onUpdateContentProtection}
+          onDeleteProtection={onDeleteContentProtection}
+          onSelectProtection={(id) => onSelectElement(id, 'content_protection')}
         />
       ),
     },

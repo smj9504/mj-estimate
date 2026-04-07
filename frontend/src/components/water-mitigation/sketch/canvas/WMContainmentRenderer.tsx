@@ -1,20 +1,14 @@
 /**
  * WMContainmentRenderer
- * Renders a containment zone as a dashed blue rectangle on a Konva layer.
- * Supports selection, drag, and transformer-based resize.
+ * Renders a containment barrier as a thick dashed blue line on a Konva layer.
+ * Represents a poly sheeting wall on the floor plan.
  *
- * Usage:
- *   <WMContainmentRenderer
- *     zone={zone}
- *     isSelected={selectedId === zone.id}
- *     scalePixelsPerFoot={20}
- *     onSelect={(id) => setSelectedId(id)}
- *     onDragEnd={(id, x, y) => updatePosition(id, x, y)}
- *   />
+ * When selected, shows draggable endpoint handles to adjust direction and length.
+ * Supports selection, drag (whole line), and endpoint manipulation.
  */
 
-import React, { useRef, useEffect, useCallback } from 'react';
-import { Group, Rect, Text, Transformer } from 'react-konva';
+import React, { useCallback } from 'react';
+import { Group, Line, Circle, Rect, Text } from 'react-konva';
 import Konva from 'konva';
 import { WMContainmentZone } from '../../../../types/wmSketch';
 
@@ -24,15 +18,15 @@ export interface WMContainmentRendererProps {
   scalePixelsPerFoot: number;
   onSelect: (id: string) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
-  onTransformEnd?: (id: string, widthFt: number, heightFt: number) => void;
+  /** Called when an endpoint handle is dragged — provides new length (ft) and rotation (deg) */
+  onTransformEnd?: (id: string, lengthFt: number, rotationDeg: number) => void;
 }
 
-/** Containment zones use a fixed blue palette */
-const CONTAINMENT_FILL = 'rgba(33, 150, 243, 0.08)';
+/** Containment lines use a blue palette */
 const CONTAINMENT_STROKE = '#2196F3';
-const CONTAINMENT_DASH: number[] = [8, 4];
-
-const DEFAULT_SIZE_PX = 80;
+const CONTAINMENT_DASH: number[] = [10, 5];
+const LINE_WIDTH = 4;
+const HANDLE_RADIUS = 6;
 
 const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
   zone,
@@ -42,33 +36,11 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
   onDragEnd,
   onTransformEnd,
 }) => {
-  const rectRef = useRef<Konva.Rect>(null);
-  const transformerRef = useRef<Konva.Transformer>(null);
-
-  const widthPx =
-    zone.width_ft !== undefined && zone.width_ft > 0
-      ? zone.width_ft * scalePixelsPerFoot
-      : DEFAULT_SIZE_PX;
-  const heightPx =
-    zone.height_ft !== undefined && zone.height_ft > 0
-      ? zone.height_ft * scalePixelsPerFoot
-      : DEFAULT_SIZE_PX;
+  const lengthPx = zone.length_ft * scalePixelsPerFoot;
 
   const labelText = zone.label
     ? zone.label
-    : `${zone.containment_type}${zone.calculated_sqft > 0 ? ` - ${Math.round(zone.calculated_sqft)} SF` : ''}`;
-
-  // Attach / detach transformer
-  useEffect(() => {
-    if (!transformerRef.current || !rectRef.current) return;
-    if (isSelected) {
-      transformerRef.current.nodes([rectRef.current]);
-      transformerRef.current.getLayer()?.batchDraw();
-    } else {
-      transformerRef.current.nodes([]);
-      transformerRef.current.getLayer()?.batchDraw();
-    }
-  }, [isSelected]);
+    : `${zone.containment_type}${zone.calculated_sqft > 0 ? ` ${Math.round(zone.calculated_sqft)} SF` : ''}`;
 
   const handleClick = useCallback(() => {
     onSelect(zone.id);
@@ -81,106 +53,148 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
     [zone.id, onDragEnd],
   );
 
-  const handleTransformEnd = useCallback(() => {
-    if (!rectRef.current) return;
-    const node = rectRef.current;
-    const scaleX = node.scaleX();
-    const scaleY = node.scaleY();
-    node.scaleX(1);
-    node.scaleY(1);
+  // -----------------------------------------------------------------------
+  // Endpoint handle drag — recalculates length and rotation from new endpoint
+  // -----------------------------------------------------------------------
+  const handleEndpointDrag = useCallback(
+    (e: Konva.KonvaEventObject<DragEvent>) => {
+      if (!onTransformEnd) return;
 
-    const newWidthPx = Math.max(20, node.width() * scaleX);
-    const newHeightPx = Math.max(20, node.height() * scaleY);
+      const handle = e.target;
+      // Handle position is in the Group's local coordinate space (rotated)
+      // We need the stage-space position to recalculate angle
+      const stage = handle.getStage();
+      if (!stage) return;
 
-    onTransformEnd?.(
-      zone.id,
-      newWidthPx / scalePixelsPerFoot,
-      newHeightPx / scalePixelsPerFoot,
-    );
-  }, [zone.id, scalePixelsPerFoot, onTransformEnd]);
+      // Get the absolute position of the dragged handle
+      const handleAbsPos = handle.getAbsolutePosition();
+      // Get the start point (Group origin) absolute position
+      const group = handle.getParent();
+      if (!group) return;
+      const startAbsPos = group.getAbsolutePosition();
 
-  const textPadX = 6;
+      // Account for stage transform
+      const stageTransform = stage.getAbsoluteTransform().copy().invert();
+      const startCanvas = stageTransform.point(startAbsPos);
+      const endCanvas = stageTransform.point(handleAbsPos);
+
+      const dx = endCanvas.x - startCanvas.x;
+      const dy = endCanvas.y - startCanvas.y;
+      const newLengthPx = Math.sqrt(dx * dx + dy * dy);
+      const newLengthFt = newLengthPx / scalePixelsPerFoot;
+      const newAngleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+
+      // Reset handle position to the new calculated length along the line
+      // (it will be re-rendered at the correct position)
+      handle.position({ x: newLengthFt * scalePixelsPerFoot, y: 0 });
+
+      onTransformEnd(zone.id, Math.max(0.5, newLengthFt), newAngleDeg);
+    },
+    [zone.id, scalePixelsPerFoot, onTransformEnd],
+  );
 
   return (
-    <>
-      <Group
-        x={zone.x}
-        y={zone.y}
-        draggable
-        onClick={handleClick}
-        onTap={handleClick}
-        onDragEnd={handleDragEnd}
-      >
-        {/* Containment zone fill */}
-        <Rect
-          ref={rectRef}
-          width={widthPx}
-          height={heightPx}
-          fill={CONTAINMENT_FILL}
-          stroke={CONTAINMENT_STROKE}
-          strokeWidth={2}
-          dash={CONTAINMENT_DASH}
-          cornerRadius={2}
-        />
+    <Group
+      x={zone.x}
+      y={zone.y}
+      rotation={zone.rotation}
+      draggable
+      onClick={handleClick}
+      onTap={handleClick}
+      onDragEnd={handleDragEnd}
+    >
+      {/* Containment barrier line */}
+      <Line
+        points={[0, 0, lengthPx, 0]}
+        stroke={CONTAINMENT_STROKE}
+        strokeWidth={LINE_WIDTH}
+        dash={CONTAINMENT_DASH}
+        lineCap="round"
+      />
 
-        {/* Selection highlight */}
-        {isSelected && (
+      {/* Hit area — wider invisible line for easier clicking */}
+      <Line
+        points={[0, 0, lengthPx, 0]}
+        stroke="transparent"
+        strokeWidth={16}
+      />
+
+      {/* Selection highlight */}
+      {isSelected && (
+        <Line
+          points={[0, 0, lengthPx, 0]}
+          stroke="#1890ff"
+          strokeWidth={LINE_WIDTH + 4}
+          dash={[4, 3]}
+          lineCap="round"
+          listening={false}
+        />
+      )}
+
+      {/* Label (shown above the line) */}
+      {lengthPx > 40 && (
+        <>
           <Rect
-            width={widthPx}
-            height={heightPx}
-            fill="transparent"
-            stroke="#1890ff"
-            strokeWidth={2}
-            dash={[4, 3]}
+            x={lengthPx / 2 - 50}
+            y={-22}
+            width={100}
+            height={16}
+            fill="rgba(255,255,255,0.9)"
+            cornerRadius={2}
             listening={false}
           />
-        )}
+          <Text
+            x={lengthPx / 2 - 50}
+            y={-21}
+            width={100}
+            text={labelText}
+            fontSize={10}
+            fontFamily="'Inter', 'Segoe UI', sans-serif"
+            fill={CONTAINMENT_STROKE}
+            align="center"
+            listening={false}
+            wrap="none"
+            ellipsis
+          />
+        </>
+      )}
 
-        {/* Label */}
-        {widthPx > 30 && heightPx > 20 && (
-          <>
-            <Rect
-              x={textPadX}
-              y={heightPx / 2 - 9}
-              width={widthPx - textPadX * 2}
-              height={18}
-              fill="rgba(255,255,255,0.8)"
-              cornerRadius={2}
-              listening={false}
-            />
-            <Text
-              x={textPadX}
-              y={heightPx / 2 - 8}
-              width={widthPx - textPadX * 2}
-              text={labelText}
-              fontSize={11}
-              fontFamily="'Inter', 'Segoe UI', sans-serif"
-              fill={CONTAINMENT_STROKE}
-              align="center"
-              listening={false}
-              wrap="none"
-              ellipsis
-            />
-          </>
-        )}
-      </Group>
+      {/* Endpoint handles (visible only when selected) */}
+      {isSelected && (
+        <>
+          {/* Start point handle (fixed — moves the whole line via group drag) */}
+          <Circle
+            x={0}
+            y={0}
+            radius={HANDLE_RADIUS}
+            fill="#ffffff"
+            stroke={CONTAINMENT_STROKE}
+            strokeWidth={2}
+            listening={false}
+          />
 
-      <Transformer
-        ref={transformerRef}
-        rotateEnabled={false}
-        borderStroke="#2196F3"
-        borderDash={[3, 3]}
-        anchorSize={8}
-        anchorCornerRadius={2}
-        anchorStroke="#2196F3"
-        anchorFill="#ffffff"
-        onTransformEnd={handleTransformEnd}
-        boundBoxFunc={(oldBox, newBox) => {
-          if (newBox.width < 20 || newBox.height < 20) return oldBox;
-          return newBox;
-        }}
-      />
-    </>
+          {/* End point handle (draggable — adjusts length and direction) */}
+          <Circle
+            x={lengthPx}
+            y={0}
+            radius={HANDLE_RADIUS}
+            fill={CONTAINMENT_STROKE}
+            stroke="#ffffff"
+            strokeWidth={2}
+            draggable
+            onDragEnd={handleEndpointDrag}
+            onMouseEnter={(e) => {
+              const stage = e.target.getStage();
+              if (stage) stage.container().style.cursor = 'grab';
+            }}
+            onMouseLeave={(e) => {
+              const stage = e.target.getStage();
+              if (stage) stage.container().style.cursor = '';
+            }}
+          />
+        </>
+      )}
+    </Group>
   );
 };
 

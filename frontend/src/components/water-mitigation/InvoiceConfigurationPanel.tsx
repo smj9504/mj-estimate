@@ -228,89 +228,88 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
     fetchJobData();
   }, [jobId]);
 
-  // Reload line items when template changes
+  // Load WTR line items + template items (independent of template selection)
   useEffect(() => {
-    const reloadLineItemsForTemplate = async () => {
-      if (!selectedTemplateId) return;
-
+    const loadLineItemOptions = async () => {
       try {
         setLoadingLineItems(true);
-        console.log('[InvoiceConfig] Loading template:', selectedTemplateId);
-        const templateDetail = await lineItemService.getTemplate(selectedTemplateId);
-        console.log('[InvoiceConfig] Template detail:', templateDetail);
-        console.log('[InvoiceConfig] Template items:', templateDetail.template_items);
 
-        const templateLineItems: LineItemOption[] = [];
-
-        if (templateDetail.template_items) {
-          for (const tli of templateDetail.template_items) {
-            console.log('[InvoiceConfig] Processing TLI:', tli);
-            if (tli.line_item) {
-              // Reference mode: real line item from database
-              console.log('[InvoiceConfig] Using line_item reference:', tli.line_item);
-              templateLineItems.push({
-                ...tli.line_item,
-                _isEmbedded: false,
-                _isFromTemplate: true, // Mark as from template for grouping
-              } as LineItemOption);
-            } else if (tli.embedded_data) {
-              // Embedded mode: item data stored directly in template
-              console.log('[InvoiceConfig] Using embedded_data:', tli.embedded_data);
-              templateLineItems.push({
-                id: tli.id, // This is template_line_item.id, NOT line_item.id
-                description: tli.embedded_data.description || 'Unknown',
-                item: tli.embedded_data.item_code || '',
-                unit: tli.embedded_data.unit || 'EA',
-                untaxed_unit_price: tli.embedded_data.rate || 0,
-                type: 'CUSTOM',
-                is_active: true,
-                _isEmbedded: true, // Flag to identify embedded items
-                _isFromTemplate: true, // Mark as from template for grouping
-                _embeddedData: tli.embedded_data, // Store original embedded data
-              } as LineItemOption);
-            } else {
-              console.log('[InvoiceConfig] TLI has neither line_item nor embedded_data');
-            }
-          }
-        } else {
-          console.log('[InvoiceConfig] No template_items found in template');
-        }
-
-        // Also load all line items from the library for full selection
-        console.log('[InvoiceConfig] Loading all line items from library...');
-        const allLineItems = await lineItemService.getLineItems({
+        // 1. Load WTR category line items (small set ~33 items, fast)
+        const wtrItems = await lineItemService.getLineItems({
           page: 1,
           is_active: true,
-          page_size: 1000, // Get all active line items
+          cat: 'WTR',
+          page_size: 100,
         });
-        console.log('[InvoiceConfig] All line items from library:', allLineItems.items?.length || 0);
+        const wtrLineItems: LineItemOption[] = (wtrItems.items || []).map(item => ({
+          ...item,
+          _isEmbedded: false,
+          _isFromTemplate: false,
+        } as LineItemOption));
 
-        // Create a set of template item IDs to avoid duplicates
-        const templateItemIds = new Set(templateLineItems.map(item => item.id));
+        // 2. If template is selected, also load template-specific items
+        const templateLineItems: LineItemOption[] = [];
+        if (selectedTemplateId) {
+          try {
+            const templateDetail = await lineItemService.getTemplate(selectedTemplateId);
+            if (templateDetail.template_items) {
+              for (const tli of templateDetail.template_items) {
+                if (tli.line_item) {
+                  templateLineItems.push({
+                    ...tli.line_item,
+                    _isEmbedded: false,
+                    _isFromTemplate: true,
+                  } as LineItemOption);
+                } else if (tli.embedded_data) {
+                  templateLineItems.push({
+                    id: tli.id,
+                    description: tli.embedded_data.description || 'Unknown',
+                    item: tli.embedded_data.item_code || '',
+                    unit: tli.embedded_data.unit || 'EA',
+                    untaxed_unit_price: tli.embedded_data.rate || 0,
+                    type: 'CUSTOM',
+                    is_active: true,
+                    _isEmbedded: true,
+                    _isFromTemplate: true,
+                    _embeddedData: tli.embedded_data,
+                  } as LineItemOption);
+                }
+              }
+            }
+          } catch (error) {
+            console.error('[InvoiceConfig] Failed to load template items:', error);
+          }
+        }
 
-        // Add library items that are not already in template
-        const libraryItems: LineItemOption[] = (allLineItems.items || [])
-          .filter(item => !templateItemIds.has(item.id))
-          .map(item => ({
+        // 3. Merge: template items first, then WTR items (deduped)
+        const seenIds = new Set(templateLineItems.map(item => item.id));
+        const dedupedWtr = wtrLineItems.filter(item => !seenIds.has(item.id));
+        const combined = [...templateLineItems, ...dedupedWtr];
+
+        setLineItems(combined);
+      } catch (error) {
+        console.error('[InvoiceConfig] Failed to load line items:', error);
+        // Fallback: try loading without category filter
+        try {
+          const fallback = await lineItemService.getLineItems({
+            page: 1,
+            is_active: true,
+            page_size: 100,
+          });
+          setLineItems((fallback.items || []).map(item => ({
             ...item,
             _isEmbedded: false,
             _isFromTemplate: false,
-          } as LineItemOption));
-
-        // Combine: template items first, then library items
-        const combinedLineItems = [...templateLineItems, ...libraryItems];
-        console.log('[InvoiceConfig] Combined line items:', combinedLineItems.length,
-          `(${templateLineItems.length} from template, ${libraryItems.length} from library)`);
-
-        setLineItems(combinedLineItems);
-      } catch (error) {
-        console.error('[InvoiceConfig] Failed to reload line items for template:', error);
+          } as LineItemOption)));
+        } catch {
+          console.error('[InvoiceConfig] Fallback line items load also failed');
+        }
       } finally {
         setLoadingLineItems(false);
       }
     };
 
-    reloadLineItemsForTemplate();
+    loadLineItemOptions();
   }, [selectedTemplateId, jobCompanyId]);
 
   // Auto-generate when template is selected and configs are empty

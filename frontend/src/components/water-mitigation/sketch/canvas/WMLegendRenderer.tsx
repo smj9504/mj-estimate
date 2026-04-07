@@ -49,7 +49,7 @@ const SHADOW_OFFSET = 2;
 // ---------------------------------------------------------------------------
 
 interface LegendRow {
-  kind: 'material' | 'equipment' | 'containment' | 'floor_protection';
+  kind: 'material' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection';
   color: string;
   label: string;
 }
@@ -93,6 +93,16 @@ function buildRows(
       kind: 'floor_protection',
       color: '#FFD700',
       label: `Floor Protection (${overlayData.floor_protections.length})`,
+    });
+  }
+
+  // Content protection
+  const contentProtections = overlayData.content_protections ?? [];
+  if (contentProtections.length > 0) {
+    rows.push({
+      kind: 'content_protection',
+      color: '#8B5CF6',
+      label: `Content Protection (${contentProtections.length})`,
     });
   }
 
@@ -161,16 +171,25 @@ const WMLegendRenderer: React.FC<WMLegendRendererProps> = ({
         return (
           <Group key={`legend-row-${i}`}>
             {row.kind === 'containment' ? (
-              // Containment: dashed blue rect swatch
+              // Containment: dashed blue line swatch
+              <Line
+                points={[PADDING, swatchY + SWATCH_SIZE / 2, PADDING + SWATCH_SIZE, swatchY + SWATCH_SIZE / 2]}
+                stroke={row.color}
+                strokeWidth={3}
+                dash={[4, 2]}
+                lineCap="round"
+              />
+            ) : row.kind === 'content_protection' ? (
+              // Content protection: purple cross-hatched rect swatch
               <Rect
                 x={PADDING}
                 y={swatchY}
                 width={SWATCH_SIZE}
                 height={SWATCH_SIZE}
-                fill="rgba(33,150,243,0.1)"
+                fill={row.color}
+                opacity={0.4}
                 stroke={row.color}
-                strokeWidth={1.5}
-                dash={[3, 2]}
+                strokeWidth={1}
                 cornerRadius={1}
               />
             ) : row.kind === 'floor_protection' ? (

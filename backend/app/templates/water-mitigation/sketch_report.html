@@ -407,6 +407,12 @@
         <span>Floor Protection</span>
       </div>
       {% endif %}
+      {% if item.summary.content_protection_sqft > 0 %}
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#8B5CF6;opacity:0.5;"></div>
+        <span>Content Protection</span>
+      </div>
+      {% endif %}
     </div>
 
     <!-- Summary Tables -->
@@ -480,7 +486,7 @@
         <div style="color:#aaa; font-size:9px; font-style:italic; padding:8px 0;">No equipment placed.</div>
         {% endif %}
 
-        {% if item.summary.containment_sqft > 0 or item.summary.protection_sqft > 0 %}
+        {% if item.summary.containment_sqft > 0 or item.summary.protection_sqft > 0 or item.summary.content_protection_sqft > 0 %}
         <div style="margin-top:10px;">
           <div class="summary-block-title">Additional Areas</div>
           <table class="other-summary-table">
@@ -494,6 +500,12 @@
             <tr>
               <td>Floor Protection</td>
               <td class="text-right">{{ "%.1f"|format(item.summary.protection_sqft) }} SF</td>
+            </tr>
+            {% endif %}
+            {% if item.summary.content_protection_sqft > 0 %}
+            <tr>
+              <td>Content Protection</td>
+              <td class="text-right">{{ "%.1f"|format(item.summary.content_protection_sqft) }} SF</td>
             </tr>
             {% endif %}
           </table>

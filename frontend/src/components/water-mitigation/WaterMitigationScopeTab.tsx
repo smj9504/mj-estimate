@@ -387,7 +387,8 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
             unit: item.unit as UnitType,
             quantity: quantity || undefined,
             include_in_debris: item.default_include_in_debris || false,
-            material_weight_id: item.material_weight_id || undefined
+            material_weight_id: item.material_weight_id || undefined,
+            line_item_id: item.line_item_id || undefined,
           };
           await waterMitigationService.scope.items.create(createData);
           successCount++;

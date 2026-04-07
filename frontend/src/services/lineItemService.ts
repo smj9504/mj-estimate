@@ -229,14 +229,26 @@ class LineItemService {
    */
   async getLineItems(params?: {
     search?: string;
+    search_term?: string;
     category?: string;
+    cat?: string;
     type?: string;
     is_active?: boolean;
     page?: number;
     page_size?: number;
   }): Promise<PaginatedResponse<LineItem>> {
     try {
-      const response = await apiClient.get('/api/line-items/', { params });
+      // Map frontend param names to backend API params
+      const apiParams: Record<string, any> = { ...params };
+      if (apiParams.category && !apiParams.cat) {
+        apiParams.cat = apiParams.category;
+        delete apiParams.category;
+      }
+      if (apiParams.search && !apiParams.search_term) {
+        apiParams.search_term = apiParams.search;
+        delete apiParams.search;
+      }
+      const response = await apiClient.get('/api/line-items/', { params: apiParams });
       return response.data;
     } catch (error) {
       throw new LineItemServiceError(

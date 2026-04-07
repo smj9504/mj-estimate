@@ -1,23 +1,18 @@
 /**
- * WMContainmentPanel - Sidebar panel for managing containment zones.
+ * WMContainmentPanel - Sidebar panel for managing containment barriers.
  *
- * When a zone is selected: shows an editable form (type, width, height, sqft).
+ * Containment barriers are displayed as lines on the floor plan.
+ * length_ft = barrier span on floor, height_ft = poly height (ceiling).
+ * sqft = length_ft * height_ft.
+ *
+ * When a zone is selected: shows an editable form (type, length, height, sqft).
  * When nothing is selected: shows a summary list and total area.
- *
- * Usage:
- *   <WMContainmentPanel
- *     zones={overlayData.containmentZones}
- *     selectedZoneId={selection?.elementType === 'containment' ? selection.elementId : null}
- *     onUpdateZone={(id, updates) => handleUpdateContainment(id, updates)}
- *     onDeleteZone={(id) => handleDeleteContainment(id)}
- *     onSelectZone={(id) => handleSelect(id, 'containment')}
- *   />
  */
 import React, { useMemo } from 'react';
 import { Button, Select, Space, Typography, Divider, Popconfirm, Tooltip } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
 import type { WMContainmentZone } from '../../../../types/wmSketch';
-import { calcContainmentSqft } from '../utils/wmCalculations';
+import { calcContainmentSqft, formatDimension } from '../utils/wmCalculations';
 import { CONTAINMENT_TYPE_PRESETS } from '../utils/wmDefaults';
 import DimensionInput from './DimensionInput';
 
@@ -53,8 +48,8 @@ const ZoneEditForm: React.FC<{
   onDelete: () => void;
 }> = ({ zone, onUpdate, onDelete }) => {
   const calculatedSqft = useMemo(
-    () => calcContainmentSqft(zone.width_ft ?? 0, zone.height_ft ?? 0),
-    [zone.width_ft, zone.height_ft]
+    () => calcContainmentSqft(zone.length_ft, zone.height_ft),
+    [zone.length_ft, zone.height_ft]
   );
 
   return (
@@ -75,25 +70,25 @@ const ZoneEditForm: React.FC<{
         />
       </div>
 
-      {/* Width / Height */}
+      {/* Length / Height */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <DimensionInput
-          label="Width"
-          value={zone.width_ft ?? 0}
+          label="Length (span)"
+          value={zone.length_ft}
           onChange={(ft) =>
             onUpdate({
-              width_ft: ft,
-              calculated_sqft: calcContainmentSqft(ft, zone.height_ft ?? 0),
+              length_ft: ft,
+              calculated_sqft: calcContainmentSqft(ft, zone.height_ft),
             })
           }
         />
         <DimensionInput
-          label="Height"
-          value={zone.height_ft ?? 0}
+          label="Height (poly)"
+          value={zone.height_ft}
           onChange={(ft) =>
             onUpdate({
               height_ft: ft,
-              calculated_sqft: calcContainmentSqft(zone.width_ft ?? 0, ft),
+              calculated_sqft: calcContainmentSqft(zone.length_ft, ft),
             })
           }
         />
@@ -110,7 +105,7 @@ const ZoneEditForm: React.FC<{
           alignItems: 'center',
         }}
       >
-        <Text style={{ fontSize: 12, color: '#666' }}>Area</Text>
+        <Text style={{ fontSize: 12, color: '#666' }}>Area (poly)</Text>
         <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>
           {calculatedSqft.toFixed(2)} SF
         </Text>
@@ -118,14 +113,14 @@ const ZoneEditForm: React.FC<{
 
       {/* Delete */}
       <Popconfirm
-        title="Delete this containment zone?"
+        title="Delete this containment barrier?"
         onConfirm={onDelete}
         okText="Delete"
         okType="danger"
         cancelText="Cancel"
       >
         <Button type="default" danger size="small" icon={<DeleteOutlined />} block>
-          Delete Zone
+          Delete Barrier
         </Button>
       </Popconfirm>
     </Space>
@@ -160,7 +155,7 @@ const WMContainmentPanel: React.FC<WMContainmentPanelProps> = ({
         >
           <ContainmentSwatch color={selectedZone.color} />
           <Text style={{ fontSize: 12, fontWeight: 500, flex: 1 }}>
-            {selectedZone.containment_type || 'Containment Zone'}
+            {selectedZone.containment_type || 'Containment Barrier'}
           </Text>
           <Tooltip title="Deselect (click empty canvas area)">
             <Text type="secondary" style={{ fontSize: 11 }}>
@@ -195,7 +190,7 @@ const WMContainmentPanel: React.FC<WMContainmentPanelProps> = ({
             }}
           >
             <Text style={{ fontSize: 12 }}>
-              Total Containment ({zones.length} zone{zones.length !== 1 ? 's' : ''})
+              Total Containment ({zones.length} barrier{zones.length !== 1 ? 's' : ''})
             </Text>
             <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>
               {totalSqft.toFixed(2)} SF
@@ -208,7 +203,7 @@ const WMContainmentPanel: React.FC<WMContainmentPanelProps> = ({
       {/* Zone list */}
       {zones.length === 0 ? (
         <Text type="secondary" style={{ fontSize: 12 }}>
-          No containment zones added. Select the Containment tool and draw on the canvas.
+          No containment barriers added. Select the Containment tool and draw a line on the canvas.
         </Text>
       ) : (
         <Space direction="vertical" size={2} style={{ width: '100%' }}>
@@ -231,19 +226,17 @@ const WMContainmentPanel: React.FC<WMContainmentPanelProps> = ({
               <ContainmentSwatch color={zone.color} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <Text style={{ fontSize: 12 }}>
-                  {zone.containment_type || `Zone ${i + 1}`}
+                  {zone.containment_type || `Barrier ${i + 1}`}
                 </Text>
-                {zone.label && (
-                  <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                    {zone.label}
-                  </Text>
-                )}
+                <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>
+                  {formatDimension(zone.length_ft)} long, {formatDimension(zone.height_ft)} high
+                </Text>
               </div>
               <Text
                 type="secondary"
                 style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}
               >
-                {zone.calculated_sqft.toFixed(2)} SF
+                {zone.calculated_sqft.toFixed(1)} SF
               </Text>
             </div>
           ))}

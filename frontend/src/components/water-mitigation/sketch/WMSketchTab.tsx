@@ -70,6 +70,7 @@ function ensureOverlayIds(overlay: WMOverlayData): WMOverlayData {
     equipment_placements: fix(overlay.equipment_placements),
     containment_zones: fix(overlay.containment_zones),
     floor_protections: fix(overlay.floor_protections),
+    content_protections: fix(overlay.content_protections ?? []),
   };
   return patched ? result : overlay;
 }

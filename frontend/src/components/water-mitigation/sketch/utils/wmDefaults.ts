@@ -35,11 +35,21 @@ export const DEFAULT_PAPER_WIDTH_FT = 3;
 export const DEFAULT_FLOOR_PROTECTION_COLOR = '#FFD700';
 
 // ============================================================================
+// Content Protection Defaults
+// ============================================================================
+
+/** Default fill/stroke color for content protection overlays */
+export const DEFAULT_CONTENT_PROTECTION_COLOR = '#8B5CF6';
+
+// ============================================================================
 // Containment Defaults
 // ============================================================================
 
 /** Default fill/stroke color for containment zone overlays */
 export const DEFAULT_CONTAINMENT_COLOR = '#0066FF';
+
+/** Default poly sheeting height in feet (standard ceiling height) */
+export const DEFAULT_CONTAINMENT_HEIGHT_FT = 8;
 
 // ============================================================================
 // Preset Label Lists
@@ -75,4 +85,14 @@ export const PROTECTION_TYPE_PRESETS: string[] = [
   'Heavy duty paper & tape',
   'Plastic sheeting',
   'Ram board',
+];
+
+/**
+ * Common content protection material options.
+ * Shown in the content-protection form as quick-select values.
+ */
+export const CONTENT_PROTECTION_TYPE_PRESETS: string[] = [
+  'Plastic sheeting',
+  'Moving blanket',
+  'Cardboard cover',
 ];

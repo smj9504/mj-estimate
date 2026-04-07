@@ -44,6 +44,7 @@ import {
   ToolOutlined,
   DashOutlined,
   ColumnWidthOutlined,
+  SkinOutlined,
   UndoOutlined,
   RedoOutlined,
   SaveOutlined,
@@ -351,7 +352,21 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             size="small"
             onClick={() => onToolChange('floor_protection')}
           >
-            Protection
+            Floor Prot
+          </Button>
+        </Tooltip>
+      </SpaceCompact>
+
+      {/* Group 6 — Content Protection */}
+      <SpaceCompact>
+        <Tooltip title="Draw content protection area (vinyl cover)">
+          <Button
+            type={toolButtonType('content_protection')}
+            icon={<SkinOutlined />}
+            size="small"
+            onClick={() => onToolChange('content_protection')}
+          >
+            Content Prot
           </Button>
         </Tooltip>
       </SpaceCompact>

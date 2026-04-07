@@ -13,6 +13,7 @@ import type {
   WMEquipmentPlacement,
   WMContainmentZone,
   WMFloorProtection,
+  WMContentProtection,
   WMSketchTool,
   WMSketchSelection,
   EquipmentType,
@@ -74,6 +75,11 @@ type WMSketchAction =
   | { type: 'ADD_FLOOR_PROTECTION'; payload: WMFloorProtection }
   | { type: 'UPDATE_FLOOR_PROTECTION'; payload: Partial<WMFloorProtection> & { id: string } }
   | { type: 'REMOVE_FLOOR_PROTECTION'; payload: string }
+
+  // Content protection
+  | { type: 'ADD_CONTENT_PROTECTION'; payload: WMContentProtection }
+  | { type: 'UPDATE_CONTENT_PROTECTION'; payload: Partial<WMContentProtection> & { id: string } }
+  | { type: 'REMOVE_CONTENT_PROTECTION'; payload: string }
 
   // Persistence
   | { type: 'LOAD_OVERLAY_DATA'; payload: WMOverlayData }
@@ -350,6 +356,59 @@ function wmSketchReducer(
     }
 
     // ------------------------------------------------------------------
+    // Content protection
+    // ------------------------------------------------------------------
+    case 'ADD_CONTENT_PROTECTION': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const existing = state.overlayData.content_protections ?? [];
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          content_protections: [...existing, action.payload],
+        },
+      };
+    }
+
+    case 'UPDATE_CONTENT_PROTECTION': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          content_protections: updateById(
+            state.overlayData.content_protections ?? [],
+            action.payload
+          ),
+        },
+      };
+    }
+
+    case 'REMOVE_CONTENT_PROTECTION': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        selection:
+          state.selection?.element_id === action.payload ? null : state.selection,
+        overlayData: {
+          ...state.overlayData,
+          content_protections: (state.overlayData.content_protections ?? []).filter(
+            (cp) => cp.id !== action.payload
+          ),
+        },
+      };
+    }
+
+    // ------------------------------------------------------------------
     // Persistence
     // ------------------------------------------------------------------
     case 'LOAD_OVERLAY_DATA':
@@ -454,6 +513,11 @@ export interface WMSketchStateReturn {
   addFloorProtection: (fp: WMFloorProtection) => void;
   updateFloorProtection: (patch: Partial<WMFloorProtection> & { id: string }) => void;
   removeFloorProtection: (id: string) => void;
+
+  // Content protection
+  addContentProtection: (cp: WMContentProtection) => void;
+  updateContentProtection: (patch: Partial<WMContentProtection> & { id: string }) => void;
+  removeContentProtection: (id: string) => void;
 
   // Persistence
   loadOverlayData: (data: WMOverlayData) => void;
@@ -590,6 +654,24 @@ export function useWMSketchState(
     []
   );
 
+  // Content protection
+  const addContentProtection = useCallback(
+    (cp: WMContentProtection) =>
+      dispatch({ type: 'ADD_CONTENT_PROTECTION', payload: cp }),
+    []
+  );
+
+  const updateContentProtection = useCallback(
+    (patch: Partial<WMContentProtection> & { id: string }) =>
+      dispatch({ type: 'UPDATE_CONTENT_PROTECTION', payload: patch }),
+    []
+  );
+
+  const removeContentProtection = useCallback(
+    (id: string) => dispatch({ type: 'REMOVE_CONTENT_PROTECTION', payload: id }),
+    []
+  );
+
   // Persistence
   const loadOverlayData = useCallback(
     (data: WMOverlayData) =>
@@ -622,6 +704,9 @@ export function useWMSketchState(
     addFloorProtection,
     updateFloorProtection,
     removeFloorProtection,
+    addContentProtection,
+    updateContentProtection,
+    removeContentProtection,
     loadOverlayData,
     markSaved,
     undo,

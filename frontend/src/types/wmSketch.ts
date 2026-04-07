@@ -29,6 +29,7 @@ export type WMSketchTool =
   | 'equipment'
   | 'containment'
   | 'floor_protection'
+  | 'content_protection'
   | 'pan';
 
 // ============================================================================
@@ -162,9 +163,10 @@ export interface WMEquipmentPlacement {
 }
 
 /**
- * A containment zone (e.g. poly sheeting barrier) drawn on the canvas.
- * width_ft / height_ft are optional because some containment types are drawn
- * as free-form rectangles sized interactively.
+ * A containment barrier (poly sheeting) drawn on the canvas as a line.
+ * Represents a wall-like barrier on the floor plan.
+ * length_ft is the span on the floor plan, height_ft is the poly height
+ * (typically ceiling height ~8ft). sqft = length_ft * height_ft.
  */
 export interface WMContainmentZone {
   id: string;
@@ -173,12 +175,18 @@ export interface WMContainmentZone {
   containment_type: string;
   x: number;
   y: number;
-  width_ft?: number;
-  height_ft?: number;
-  /** Computed square footage: width_ft * height_ft when both are set */
+  /** Length of the containment barrier on the floor plan in feet */
+  length_ft: number;
+  /** Height of the poly sheeting in feet (default 8, ceiling height) */
+  height_ft: number;
+  /** Rotation angle in degrees */
+  rotation: number;
+  /** Computed square footage: length_ft * height_ft */
   calculated_sqft: number;
   color: string;
   label?: string;
+  /** @deprecated Legacy field — use length_ft instead */
+  width_ft?: number;
 }
 
 /**
@@ -203,6 +211,29 @@ export interface WMFloorProtection {
   color: string;
 }
 
+/**
+ * A content protection area drawn on the canvas as a rectangle.
+ * Used when contents are covered with vinyl/plastic sheeting for protection.
+ * Square footage is width_ft * length_ft.
+ */
+export interface WMContentProtection {
+  id: string;
+  floor_sketch_id: string;
+  /** E.g. "Plastic sheeting", "Moving blanket" */
+  protection_type: string;
+  x: number;
+  y: number;
+  /** Width of the covered area in feet */
+  width_ft: number;
+  /** Length of the covered area in feet */
+  length_ft: number;
+  /** Rotation angle in degrees */
+  rotation: number;
+  /** Computed: width_ft * length_ft */
+  calculated_sqft: number;
+  color: string;
+}
+
 // ============================================================================
 // Overlay Data (aggregates all element types for one floor)
 // ============================================================================
@@ -216,6 +247,7 @@ export interface WMOverlayData {
   equipment_placements: WMEquipmentPlacement[];
   containment_zones: WMContainmentZone[];
   floor_protections: WMFloorProtection[];
+  content_protections: WMContentProtection[];
 }
 
 /** Convenience constant for initialising a new, empty overlay */
@@ -224,6 +256,7 @@ export const EMPTY_OVERLAY_DATA: WMOverlayData = {
   equipment_placements: [],
   containment_zones: [],
   floor_protections: [],
+  content_protections: [],
 };
 
 // ============================================================================
@@ -320,6 +353,10 @@ export interface WMFloorSummary {
     count: number;
     total_sqft: number;
   };
+  content_protection: {
+    count: number;
+    total_sqft: number;
+  };
   /** Count of each equipment type placed on this floor */
   equipment_counts: Record<EquipmentType, number>;
 }
@@ -334,5 +371,5 @@ export interface WMFloorSummary {
  */
 export interface WMSketchSelection {
   element_id: string;
-  element_type: 'demolition' | 'equipment' | 'containment' | 'floor_protection';
+  element_type: 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection';
 }

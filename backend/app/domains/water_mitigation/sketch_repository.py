@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.domains.water_mitigation.sketch_models import (
     WMContainmentZone,
+    WMContentProtection,
     WMDemolitionZone,
     WMEquipmentPlacement,
     WMFloorProtection,
@@ -51,6 +52,7 @@ class SketchRepository:
                 selectinload(WMFloorSketch.equipment_placements),
                 selectinload(WMFloorSketch.containment_zones),
                 selectinload(WMFloorSketch.floor_protections),
+                selectinload(WMFloorSketch.content_protections),
             )
         )
         result = self.db.execute(query)
@@ -119,6 +121,11 @@ class SketchRepository:
                 WMFloorProtection.floor_sketch_id == floor_sketch_id
             )
         )
+        self.db.execute(
+            delete(WMContentProtection).where(
+                WMContentProtection.floor_sketch_id == floor_sketch_id
+            )
+        )
 
         # --- Step 2: insert new child rows ---
         for zone_data in overlay_data.demolition_zones:
@@ -149,6 +156,13 @@ class SketchRepository:
             )
             self.db.add(protect)
 
+        for content_data in overlay_data.content_protections:
+            content = WMContentProtection(
+                floor_sketch_id=floor_sketch_id,
+                **content_data.dict(),
+            )
+            self.db.add(content)
+
         # --- Step 3: flush to assign IDs, then build JSONB snapshot ---
         self.db.flush()
 
@@ -160,6 +174,7 @@ class SketchRepository:
                 selectinload(WMFloorSketch.equipment_placements),
                 selectinload(WMFloorSketch.containment_zones),
                 selectinload(WMFloorSketch.floor_protections),
+                selectinload(WMFloorSketch.content_protections),
             )
         )
         sketch = self.db.execute(query).scalar_one_or_none()
@@ -219,8 +234,10 @@ class SketchRepository:
                     "containment_type": c.containment_type,
                     "x": c.x,
                     "y": c.y,
+                    "length_ft": float(c.length_ft) if c.length_ft else 0,
+                    "height_ft": float(c.height_ft) if c.height_ft else 0,
+                    "rotation": c.rotation or 0,
                     "width_ft": float(c.width_ft) if c.width_ft else None,
-                    "height_ft": float(c.height_ft) if c.height_ft else None,
                     "calculated_sqft": float(c.calculated_sqft) if c.calculated_sqft else 0,
                     "color": c.color,
                     "label": c.label,
@@ -241,6 +258,21 @@ class SketchRepository:
                     "color": fp.color,
                 }
                 for fp in sketch.floor_protections
+            ],
+            "content_protections": [
+                {
+                    "id": str(cp.id),
+                    "floor_sketch_id": str(cp.floor_sketch_id),
+                    "protection_type": cp.protection_type,
+                    "x": cp.x,
+                    "y": cp.y,
+                    "width_ft": float(cp.width_ft) if cp.width_ft else 0,
+                    "length_ft": float(cp.length_ft) if cp.length_ft else 0,
+                    "rotation": cp.rotation,
+                    "calculated_sqft": float(cp.calculated_sqft) if cp.calculated_sqft else 0,
+                    "color": cp.color,
+                }
+                for cp in sketch.content_protections
             ],
         }
         sketch.overlay_data = snapshot

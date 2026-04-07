@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.domains.water_mitigation.models import WaterMitigationJob
 from app.domains.water_mitigation.sketch_models import (
     WMContainmentZone,
+    WMContentProtection,
     WMDemolitionZone,
     WMEquipmentPlacement,
     WMFloorProtection,
@@ -131,6 +132,10 @@ class SketchPdfService:
         for prot in (floor.floor_protections or []):
             parts.extend(self._render_floor_protection(prot, scale))
 
+        # Content protection areas
+        for cp in (floor.content_protections or []):
+            parts.extend(self._render_content_protection(cp, scale))
+
         # Equipment icons
         for equip in (floor.equipment_placements or []):
             parts.extend(self._render_equipment(equip))
@@ -240,28 +245,70 @@ class SketchPdfService:
         parts.append("</g>")
         return parts
 
-    def _render_containment_zone(self, zone: WMContainmentZone, scale: float) -> List[str]:
-        zone_w = float(zone.width_ft or 0) * scale
-        zone_h = float(zone.height_ft or 0) * scale
-        if zone_w <= 0 or zone_h <= 0:
+    def _render_containment_zone(
+        self, zone: WMContainmentZone, scale: float
+    ) -> List[str]:
+        import math
+
+        length_ft = float(zone.length_ft or 0)
+        if length_ft <= 0:
             return []
+
+        length_px = length_ft * scale
         color = zone.color or "#0066FF"
+        rotation = float(zone.rotation or 0)
+        rad = math.radians(rotation)
+        x1 = float(zone.x)
+        y1 = float(zone.y)
+        x2 = x1 + length_px * math.cos(rad)
+        y2 = y1 + length_px * math.sin(rad)
+
         parts = [
-            f'<rect x="{zone.x:.1f}" y="{zone.y:.1f}" '
-            f'width="{zone_w:.1f}" height="{zone_h:.1f}" '
-            f'fill="{color}" fill-opacity="0.07" '
-            f'stroke="{color}" stroke-width="1.5" stroke-dasharray="6 3" rx="1"/>'
+            f'<line x1="{x1:.1f}" y1="{y1:.1f}" '
+            f'x2="{x2:.1f}" y2="{y2:.1f}" '
+            f'stroke="{color}" stroke-width="4" '
+            f'stroke-dasharray="10 5" '
+            f'stroke-linecap="round"/>'
         ]
-        if zone.label:
-            cx = zone.x + zone_w / 2
-            cy = zone.y + zone_h / 2
+
+        # Label at midpoint
+        label = zone.label or zone.containment_type
+        if label and length_px > 40:
+            mx = (x1 + x2) / 2
+            my = (y1 + y2) / 2
             parts.append(
-                f'<text x="{cx:.1f}" y="{cy:.1f}" '
-                f'text-anchor="middle" dominant-baseline="middle" '
-                f'font-size="9" font-family="Arial" fill="{color}">'
-                f'{html_lib.escape(zone.label)}</text>'
+                f'<text x="{mx:.1f}" y="{my - 8:.1f}" '
+                f'text-anchor="middle" font-size="8" '
+                f'font-family="Arial" fill="{color}">'
+                f'{html_lib.escape(label)}</text>'
             )
         return parts
+
+    def _render_content_protection(
+        self, cp: WMContentProtection, scale: float
+    ) -> List[str]:
+        cp_w = float(cp.width_ft) * scale
+        cp_h = float(cp.length_ft) * scale
+        if cp_w <= 0 or cp_h <= 0:
+            return []
+        color = cp.color or "#8B5CF6"
+        rotation = float(cp.rotation or 0)
+        cx = cp.x + cp_w / 2
+        cy = cp.y + cp_h / 2
+        t = ""
+        if rotation != 0:
+            t = (
+                f' transform="rotate({rotation:.1f}'
+                f' {cx:.1f} {cy:.1f})"'
+            )
+        return [
+            f'<g{t}>'
+            f'<rect x="{cp.x:.1f}" y="{cp.y:.1f}" '
+            f'width="{cp_w:.1f}" height="{cp_h:.1f}" '
+            f'fill="{color}" fill-opacity="0.2" '
+            f'stroke="{color}" stroke-width="1.5" rx="1"/>'
+            f'</g>'
+        ]
 
     def _render_floor_protection(self, prot: WMFloorProtection, scale: float) -> List[str]:
         prot_w = float(prot.length_ft) * scale
@@ -359,18 +406,27 @@ class SketchPdfService:
             equip_counts[display] = equip_counts.get(display, 0) + 1
 
         containment_sqft = sum(
-            float(z.calculated_sqft or 0) for z in (floor.containment_zones or [])
+            float(z.calculated_sqft or 0)
+            for z in (floor.containment_zones or [])
         )
         protection_sqft = sum(
-            float(p.calculated_sqft or 0) for p in (floor.floor_protections or [])
+            float(p.calculated_sqft or 0)
+            for p in (floor.floor_protections or [])
         )
-        total_demo = sum(d["total_sqft"] for d in demo_by_material.values())
+        content_prot_sqft = sum(
+            float(cp.calculated_sqft or 0)
+            for cp in (floor.content_protections or [])
+        )
+        total_demo = sum(
+            d["total_sqft"] for d in demo_by_material.values()
+        )
 
         return {
             "demo_by_material": list(demo_by_material.values()),
             "equip_counts": equip_counts,
             "containment_sqft": containment_sqft,
             "protection_sqft": protection_sqft,
+            "content_protection_sqft": content_prot_sqft,
             "total_demo_sqft": total_demo,
         }
 

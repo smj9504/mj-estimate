@@ -84,8 +84,10 @@ class WMContainmentZoneBase(PydanticBaseModel):
     containment_type: str = Field("No zipper", max_length=100)
     x: float
     y: float
-    width_ft: Optional[Decimal] = Field(None, ge=0)
+    length_ft: Optional[Decimal] = Field(None, ge=0)
     height_ft: Optional[Decimal] = Field(None, ge=0)
+    rotation: float = 0.0
+    width_ft: Optional[Decimal] = Field(None, ge=0)  # legacy
     calculated_sqft: Decimal = Field(..., ge=0)
     color: str = Field("#0066FF", max_length=7)
     label: Optional[str] = Field(None, max_length=255)
@@ -136,6 +138,36 @@ class WMFloorProtectionSchema(WMFloorProtectionBase):
 
 
 # =============================================================================
+# Content Protection Schemas
+# =============================================================================
+
+class WMContentProtectionBase(PydanticBaseModel):
+    """Shared fields for content protection create/update"""
+    protection_type: str = Field("Plastic sheeting", max_length=100)
+    x: float
+    y: float
+    width_ft: Decimal = Field(..., ge=0)
+    length_ft: Decimal = Field(..., ge=0)
+    rotation: float = 0.0
+    calculated_sqft: Decimal = Field(..., ge=0)
+    color: str = Field("#8B5CF6", max_length=7)
+
+
+class WMContentProtectionCreate(WMContentProtectionBase):
+    """Create a content protection area"""
+    pass
+
+
+class WMContentProtectionSchema(WMContentProtectionBase):
+    """Full content protection representation"""
+    id: UUID
+    floor_sketch_id: UUID
+
+    class Config:
+        from_attributes = True
+
+
+# =============================================================================
 # Overlay Data Container
 # =============================================================================
 
@@ -150,6 +182,7 @@ class WMOverlayData(PydanticBaseModel):
     equipment_placements: List[WMEquipmentPlacementCreate] = Field(default_factory=list)
     containment_zones: List[WMContainmentZoneCreate] = Field(default_factory=list)
     floor_protections: List[WMFloorProtectionCreate] = Field(default_factory=list)
+    content_protections: List[WMContentProtectionCreate] = Field(default_factory=list)
 
 
 # =============================================================================

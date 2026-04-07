@@ -29,7 +29,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { Layer, Rect } from 'react-konva';
+import { Layer, Line, Rect } from 'react-konva';
 import {
   WMOverlayData,
   WMSketchTool,
@@ -41,6 +41,7 @@ import WMDemolitionRenderer from './WMDemolitionRenderer';
 import WMEquipmentRenderer from './WMEquipmentRenderer';
 import WMContainmentRenderer from './WMContainmentRenderer';
 import WMFloorProtectionRenderer from './WMFloorProtectionRenderer';
+import WMContentProtectionRenderer from './WMContentProtectionRenderer';
 import WMLegendRenderer from './WMLegendRenderer';
 
 export interface WMOverlayLayerProps {
@@ -88,7 +89,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   overlayData,
   scalePixelsPerFoot,
   selectedId,
-  activeTool: _activeTool,
+  activeTool,
   materialTypes,
   isDrawing,
   drawStart,
@@ -130,10 +131,13 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
 
   const selectContainHandler = useCallback((id: string) => onSelectElement(id, 'containment'), [onSelectElement]);
   const dragContainHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'containment', x, y), [onDragEnd]);
-  const transformContainHandler = useCallback((id: string, w: number, h: number) => onTransformEnd?.(id, 'containment', w, h), [onTransformEnd]);
+  const transformContainHandler = useCallback((id: string, lengthFt: number, rotation: number) => onTransformEnd?.(id, 'containment', lengthFt, rotation), [onTransformEnd]);
 
   const selectProtectHandler = useCallback((id: string) => onSelectElement(id, 'floor_protection'), [onSelectElement]);
   const dragProtectHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'floor_protection', x, y), [onDragEnd]);
+
+  const selectContentProtHandler = useCallback((id: string) => onSelectElement(id, 'content_protection'), [onSelectElement]);
+  const dragContentProtHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'content_protection', x, y), [onDragEnd]);
 
   // ---------------------------------------------------------------------------
   // Rubber-band preview rect dimensions
@@ -170,7 +174,8 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   )).length;
   const extraRows =
     (overlayData.containment_zones.length > 0 ? 1 : 0) +
-    (overlayData.floor_protections.length > 0 ? 1 : 0);
+    (overlayData.floor_protections.length > 0 ? 1 : 0) +
+    ((overlayData.content_protections ?? []).length > 0 ? 1 : 0);
   const totalRows = materialRowCount + equipRowCount + extraRows;
   const estimatedLegendHeight = 10 + 20 + 6 + totalRows * 18 + 10;
   const legendY = canvasHeight - estimatedLegendHeight - LEGEND_MARGIN;
@@ -192,7 +197,19 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         />
       ))}
 
-      {/* 2. Containment zones */}
+      {/* 2. Content protection areas */}
+      {(overlayData.content_protections ?? []).map((cp) => (
+        <WMContentProtectionRenderer
+          key={cp.id}
+          protection={cp}
+          isSelected={selectedId === cp.id}
+          scalePixelsPerFoot={scalePixelsPerFoot}
+          onSelect={selectContentProtHandler}
+          onDragEnd={dragContentProtHandler}
+        />
+      ))}
+
+      {/* 3. Containment barriers (lines) */}
       {overlayData.containment_zones.map((zone) => (
         <WMContainmentRenderer
           key={zone.id}
@@ -205,7 +222,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         />
       ))}
 
-      {/* 3. Demolition zones — wall / baseboard types are excluded from canvas */}
+      {/* 4. Demolition zones — wall / baseboard types are excluded from canvas */}
       {overlayData.demolition_zones
         .filter((zone) => isCanvasRenderable(zone, materialTypes))
         .map((zone) => (
@@ -220,7 +237,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
           />
         ))}
 
-      {/* 4. Equipment placements (on top of zone fills) */}
+      {/* 5. Equipment placements (on top of zone fills) */}
       {overlayData.equipment_placements.map((placement) => (
         <WMEquipmentRenderer
           key={placement.id}
@@ -231,8 +248,21 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         />
       ))}
 
-      {/* 5. Rubber-band drawing preview */}
-      {isDrawing && drawStart && drawCurrent && rubberW > 2 && rubberH > 2 && (
+      {/* 6. Rubber-band drawing preview */}
+      {isDrawing && drawStart && drawCurrent && activeTool === 'containment' && (
+        // Containment: line preview from start to current
+        <Line
+          points={[drawStart.x, drawStart.y, drawCurrent.x, drawCurrent.y]}
+          stroke={activeMaterialColor}
+          strokeWidth={4}
+          dash={[10, 5]}
+          lineCap="round"
+          opacity={0.7}
+          listening={false}
+        />
+      )}
+      {isDrawing && drawStart && drawCurrent && activeTool !== 'containment' && rubberW > 2 && rubberH > 2 && (
+        // Other tools: rectangle preview
         <Rect
           x={rubberX}
           y={rubberY}
@@ -247,7 +277,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         />
       )}
 
-      {/* 6. Legend (always rendered on top) */}
+      {/* 7. Legend (always rendered on top) */}
       {totalRows > 0 && (
         <WMLegendRenderer
           overlayData={overlayData}
