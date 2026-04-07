@@ -1422,7 +1422,11 @@ REPORT REQUIREMENTS:
 
 TONE: Professional field report. Written as a licensed technician, not a lawyer.
 Avoid: wear and tear, deterioration, age-related, neglect, deferred maintenance,
-       excessive repetition of "sudden", overly legal or defensive phrasing.`}</div>
+       excessive repetition of "sudden", overly legal or defensive phrasing.
+
+FORMATTING: Output each paragraph as a single continuous line. Do not wrap or
+break text manually at any column width. Let the receiving application handle
+word wrap. Do not wrap output in code blocks or markdown formatting.`}</div>
       </Modal>
     </div>
   );
