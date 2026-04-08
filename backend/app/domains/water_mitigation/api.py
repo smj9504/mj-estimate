@@ -935,6 +935,33 @@ async def preview_photo(
         from app.core.config import settings as app_settings
         local_file_path = Path(app_settings.STORAGE_BASE_DIR) / file_path
     if not local_file_path.exists():
+        # Fallback: try cloud storage using configured provider (e.g. gdrive in production)
+        storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else getattr(photo, 'storage_file_id', None)
+        if storage_file_id:
+            try:
+                import io
+
+                from fastapi.responses import StreamingResponse
+
+                from ..storage.factory import StorageFactory
+                from app.core.config import settings as app_settings_cs
+                configured_provider = app_settings_cs.STORAGE_PROVIDER.lower()
+                if configured_provider != 'local':
+                    logger.info(f"Local file missing for photo {photo_id}, trying {configured_provider} with file_id {storage_file_id}")
+                    storage = StorageFactory.get_instance(configured_provider)
+                    if hasattr(storage, 'download'):
+                        photo_bytes = storage.download(storage_file_id)
+                        return StreamingResponse(
+                            io.BytesIO(photo_bytes),
+                            media_type=media_type,
+                            headers={
+                                "Content-Disposition": "inline",
+                                "Cache-Control": "public, max-age=86400"
+                            }
+                        )
+            except Exception as cs_err:
+                logger.warning(f"Cloud storage fallback failed for photo {photo_id}: {cs_err}")
+
         logger.error(f"Local file not found for photo {photo_id}: {file_path}")
         raise HTTPException(status_code=404, detail="Photo file not found on disk")
 
