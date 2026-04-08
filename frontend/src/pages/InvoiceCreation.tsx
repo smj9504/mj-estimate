@@ -74,6 +74,7 @@ import { DEFAULT_UNIT } from '../constants/units';
 import ItemCodeSelector from '../components/estimate/ItemCodeSelector';
 import { EstimateLineItem } from '../services/estimateService';
 import SortableSection from '../components/common/SortableSection';
+import MultiSelectActionBar from '../components/common/MultiSelectActionBar';
 import LineItemTemplateSelector from '../components/line-items/LineItemTemplateSelector';
 import LineItemTemplateManager from '../components/line-items/LineItemTemplateManager';
 import TemplateBuilderBar from '../components/line-items/TemplateBuilderBar';
@@ -294,6 +295,8 @@ interface SectionPanelProps {
   setEditingIndex: (index: number | null) => void;
   itemForm: any;
   setItemModalVisible: (visible: boolean) => void;
+  selectedRowKeys?: string[];
+  onRowSelection?: (keys: string[]) => void;
 }
 
 const SectionPanel: React.FC<SectionPanelProps> = ({
@@ -318,6 +321,8 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
   setEditingIndex,
   itemForm,
   setItemModalVisible,
+  selectedRowKeys = [],
+  onRowSelection,
 }) => {
   return (
     <div
@@ -425,9 +430,9 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
           ) : (
             <DraggableTable
               className="draggable-table invoice-items-table"
-              dataSource={section.items.map((item) => ({
+              dataSource={section.items.map((item, idx) => ({
                 ...item,
-                key: item.id  // Use stable item ID
+                key: item.id || `${sectionIndex}-${idx}`
               }))}
               onReorder={() => {}}
               pagination={false}
@@ -435,13 +440,18 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
               showDragHandle={true}
               dragHandlePosition="start"
               dragColumnWidth={30}
-              getRowId={(record: any) => `item-${sectionIndex}-${record.id}`}  // Include sectionIndex for drag handling
+              getRowId={(record: any) => `item-${sectionIndex}-${record.id}`}
               disableDrag={false}
               sectionIndex={sectionIndex}
               dragType="item"
               activeId={activeId}
               scroll={{ x: 600 }}
               resizableColumns={true}
+              rowSelection={onRowSelection ? {
+                selectedRowKeys,
+                onChange: (keys: React.Key[]) => onRowSelection(keys as string[]),
+                type: 'checkbox' as const,
+              } : undefined}
               columns={[
                 {
                   title: 'Description',
@@ -720,6 +730,9 @@ const InvoiceCreation: React.FC = () => {
   // Collapse active keys state for controlling which sections are expanded
   const [activeKeys, setActiveKeys] = useState<string[]>([]);
 
+  // Multi-select state for line items
+  const [selectedItemKeys, setSelectedItemKeys] = useState<{[sectionIndex: number]: string[]}>({});
+
   // JSON paste modal state
   const [jsonPasteVisible, setJsonPasteVisible] = useState(false);
   const [jsonPasteValue, setJsonPasteValue] = useState('');
@@ -973,6 +986,140 @@ const InvoiceCreation: React.FC = () => {
       return sum + amount;
     }, 0);
   };
+
+  // Multi-select row selection handler
+  const handleItemRowSelection = (sectionIndex: number, keys: string[]) => {
+    setSelectedItemKeys(prev => ({
+      ...prev,
+      [sectionIndex]: keys
+    }));
+  };
+
+  // Extract item ID from DraggableTable row key (format: "item-{sectionIndex}-{itemId}")
+  const extractItemId = (rowKey: string): string => {
+    const firstDash = rowKey.indexOf('-');
+    if (firstDash === -1) return rowKey;
+    const secondDash = rowKey.indexOf('-', firstDash + 1);
+    if (secondDash === -1) return rowKey;
+    return rowKey.substring(secondDash + 1);
+  };
+
+  // Collect all selected items across sections
+  const getSelectedItems = useCallback(() => {
+    const result: { item: InvoiceItem; sectionIndex: number; itemIndex: number }[] = [];
+    Object.entries(selectedItemKeys).forEach(([sectionIdx, keys]) => {
+      const si = parseInt(sectionIdx);
+      const section = sections[si];
+      if (!section) return;
+      keys.forEach(key => {
+        // key format from DraggableTable: "item-{sectionIndex}-{itemId}"
+        const itemId = extractItemId(key);
+        const itemIndex = section.items.findIndex(item => item.id === itemId);
+        if (itemIndex !== -1) {
+          result.push({ item: section.items[itemIndex], sectionIndex: si, itemIndex });
+        }
+      });
+    });
+    return result;
+  }, [selectedItemKeys, sections]);
+
+  // Move selected items to a target section
+  const handleMoveToSection = useCallback((targetSectionIndex: number) => {
+    const selected = getSelectedItems();
+    if (selected.length === 0) return;
+
+    const newSections = sections.map((section) => ({ ...section, items: [...section.items] }));
+    const targetTitle = newSections[targetSectionIndex].title;
+    const itemsToMove = selected.map(s => ({
+      ...s.item,
+      primary_group: targetTitle,
+    }));
+
+    // Remove from source sections
+    const removeMap = new Map<number, Set<number>>();
+    selected.forEach(s => {
+      if (!removeMap.has(s.sectionIndex)) removeMap.set(s.sectionIndex, new Set());
+      removeMap.get(s.sectionIndex)!.add(s.itemIndex);
+    });
+
+    removeMap.forEach((indices, si) => {
+      newSections[si] = {
+        ...newSections[si],
+        items: newSections[si].items.filter((_, idx) => !indices.has(idx)),
+      };
+      newSections[si].subtotal = calculateSectionSubtotal(newSections[si].items);
+    });
+
+    // Add to target
+    newSections[targetSectionIndex] = {
+      ...newSections[targetSectionIndex],
+      items: [...newSections[targetSectionIndex].items, ...itemsToMove],
+    };
+    newSections[targetSectionIndex].subtotal = calculateSectionSubtotal(newSections[targetSectionIndex].items);
+
+    setSections(newSections);
+    setSelectedItemKeys({});
+    message.success(`${selected.length} item(s) moved to "${targetTitle}"`);
+  }, [sections, getSelectedItems]);
+
+  // Copy selected items to a target section
+  const handleCopyToSection = useCallback((targetSectionIndex: number) => {
+    const selected = getSelectedItems();
+    if (selected.length === 0) return;
+
+    const targetTitle = sections[targetSectionIndex].title;
+    const copiedItems = selected.map(s => ({
+      ...s.item,
+      id: generateId(),
+      primary_group: targetTitle,
+    }));
+
+    const newSections = sections.map((section, i) => {
+      if (i !== targetSectionIndex) return section;
+      const newItems = [...section.items, ...copiedItems];
+      return { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems) };
+    });
+
+    setSections(newSections);
+    setSelectedItemKeys({});
+    message.success(`${selected.length} item(s) copied to "${targetTitle}"`);
+  }, [sections, getSelectedItems]);
+
+  // Delete all selected items across sections
+  const handleDeleteAllSelected = useCallback(() => {
+    const selected = getSelectedItems();
+    if (selected.length === 0) return;
+
+    Modal.confirm({
+      title: 'Delete Selected Items',
+      content: `Are you sure you want to delete ${selected.length} selected item(s)?`,
+      okText: 'Delete',
+      okType: 'danger',
+      onOk: () => {
+        const removeMap = new Map<number, Set<number>>();
+        selected.forEach(s => {
+          if (!removeMap.has(s.sectionIndex)) removeMap.set(s.sectionIndex, new Set());
+          removeMap.get(s.sectionIndex)!.add(s.itemIndex);
+        });
+
+        const newSections = sections.map((section, i) => {
+          const indices = removeMap.get(i);
+          if (!indices) return section;
+          const filteredItems = section.items.filter((_, idx) => !indices.has(idx));
+          return { ...section, items: filteredItems, subtotal: calculateSectionSubtotal(filteredItems) };
+        });
+
+        setSections(newSections);
+        setSelectedItemKeys({});
+        message.success(`${selected.length} item(s) deleted`);
+      },
+    });
+  }, [sections, getSelectedItems]);
+
+  // Clear all selections
+  const handleClearSelection = useCallback(() => {
+    setSelectedItemKeys({});
+  }, []);
 
   // Add items to a specific section
   const addItemsToSection = (sectionIndex: number, itemsToAdd: EstimateLineItem[]) => {
@@ -3104,6 +3251,8 @@ const InvoiceCreation: React.FC = () => {
                       setEditingIndex={setEditingIndex}
                       itemForm={itemForm}
                       setItemModalVisible={setItemModalVisible}
+                      selectedRowKeys={selectedItemKeys[sectionIndex] || []}
+                      onRowSelection={(keys) => handleItemRowSelection(sectionIndex, keys)}
                     />
                   </SortableSectionItem>
                 ))}
@@ -4180,7 +4329,7 @@ const InvoiceCreation: React.FC = () => {
                       <li><Typography.Text code>client</Typography.Text> — name, address, city, state, zipcode, phone, email</li>
                       <li><Typography.Text code>insurance</Typography.Text> — company, policy_number, claim_number, deductible</li>
                       <li><Typography.Text code>sections[]</Typography.Text> — title, items[]</li>
-                      <li><Typography.Text code>items[]</Typography.Text> — description, quantity, unit, rate, taxable</li>
+                      <li><Typography.Text code>items[]</Typography.Text> — description, note, quantity, unit, rate, taxable</li>
                       <li><Typography.Text code>tax_rate</Typography.Text> — percentage (e.g., 8.25)</li>
                       <li><Typography.Text code>adjustments[]</Typography.Text> — name, percentage, type (add/subtract)</li>
                       <li><Typography.Text code>payments[]</Typography.Text> — amount, date, method, reference</li>
@@ -4222,30 +4371,45 @@ const InvoiceCreation: React.FC = () => {
   },
   "sections": [
     {
-      "title": "Demo & Removal",
+      "title": "Main Level",
       "items": [
-        { "description": "Remove wet drywall", "quantity": 120, "unit": "SF", "rate": 2.50, "taxable": true },
-        { "description": "Remove wet insulation", "quantity": 120, "unit": "SF", "rate": 1.75 }
+        { "description": "Kitchen", "note": "Demo and rebuild of water-damaged cabinets and flooring", "quantity": 1, "unit": "LS", "rate": 4500.00 },
+        { "description": "Living Room", "note": "Remove and replace carpet, pad, and baseboards", "quantity": 1, "unit": "LS", "rate": 2800.00 },
+        { "description": "Hallway", "note": "Drywall repair and paint (2 coats)", "quantity": 1, "unit": "LS", "rate": 1200.00 }
       ]
     },
     {
-      "title": "Drying Equipment",
+      "title": "Basement Level",
       "items": [
-        { "description": "Air mover rental (3 days)", "quantity": 4, "unit": "EA", "rate": 75.00, "taxable": false },
-        { "description": "Dehumidifier rental (3 days)", "quantity": 2, "unit": "EA", "rate": 150.00, "taxable": false }
+        { "description": "Rec Room", "note": "Full demo of damaged drywall, insulation, and flooring", "quantity": 1, "unit": "LS", "rate": 5200.00 },
+        { "description": "Utility Room", "note": "Replace water heater and damaged drywall", "quantity": 1, "unit": "LS", "rate": 3100.00 }
+      ]
+    },
+    {
+      "title": "Roof",
+      "items": [
+        { "description": "Remove and replace damaged shingles (wind damage)", "quantity": 15, "unit": "SQ", "rate": 350.00 },
+        { "description": "Replace damaged flashing and seal", "quantity": 1, "unit": "LS", "rate": 800.00 }
+      ]
+    },
+    {
+      "title": "General Conditions",
+      "items": [
+        { "description": "Dumpster rental and debris removal", "note": "2 x 20yd dumpsters", "quantity": 2, "unit": "EA", "rate": 450.00, "taxable": false },
+        { "description": "Permit and inspection fees", "quantity": 1, "unit": "LS", "rate": 350.00, "taxable": false },
+        { "description": "Project supervision and coordination", "quantity": 40, "unit": "HR", "rate": 75.00, "taxable": false }
       ]
     }
   ],
   "tax_rate": 8.25,
   "adjustments": [
-    { "name": "O&P", "percentage": 10, "type": "add" },
-    { "name": "Discount", "percentage": 5, "type": "subtract" }
+    { "name": "O&P", "percentage": 10, "type": "add" }
   ],
   "payments": [
-    { "amount": 500, "date": "04-07-2026", "method": "CK", "reference": "Check #1234" }
+    { "amount": 5000, "date": "04-01-2026", "method": "CK", "reference": "Check #1234" }
   ],
   "payment_terms": "Net 30",
-  "notes": "Work completed per insurance approval."
+  "notes": "Water damage restoration per insurance approval. Claim #CLM-789012."
 }`}
                 </pre>
                 <Button
@@ -4257,23 +4421,34 @@ const InvoiceCreation: React.FC = () => {
                       client: { name: "John Smith", address: "123 Main St", city: "Los Angeles", state: "CA", zipcode: "90001", phone: "213-555-1234", email: "john@example.com" },
                       insurance: { company: "State Farm", policy_number: "POL-123456", claim_number: "CLM-789012", deductible: 1000 },
                       sections: [
-                        { title: "Demo & Removal", items: [
-                          { description: "Remove wet drywall", quantity: 120, unit: "SF", rate: 2.50, taxable: true },
-                          { description: "Remove wet insulation", quantity: 120, unit: "SF", rate: 1.75 },
+                        { title: "Main Level", items: [
+                          { description: "Kitchen", note: "Demo and rebuild of water-damaged cabinets and flooring", quantity: 1, unit: "LS", rate: 4500.00 },
+                          { description: "Living Room", note: "Remove and replace carpet, pad, and baseboards", quantity: 1, unit: "LS", rate: 2800.00 },
+                          { description: "Hallway", note: "Drywall repair and paint (2 coats)", quantity: 1, unit: "LS", rate: 1200.00 },
                         ]},
-                        { title: "Drying Equipment", items: [
-                          { description: "Air mover rental (3 days)", quantity: 4, unit: "EA", rate: 75.00, taxable: false },
-                          { description: "Dehumidifier rental (3 days)", quantity: 2, unit: "EA", rate: 150.00, taxable: false },
+                        { title: "Basement Level", items: [
+                          { description: "Rec Room", note: "Flood cut at 2ft, mold remediation included", quantity: 1, unit: "LS", rate: 5200.00 },
+                          { description: "Full demo of damaged drywall, insulation, and flooring", quantity: 1, unit: "LS", rate: 3100.00 },
+                        ]},
+                        { title: "Roof", items: [
+                          { description: "Remove and replace damaged shingles (wind damage)", quantity: 15, unit: "SQ", rate: 350.00 },
+                          { description: "Replace damaged flashing and seal", quantity: 1, unit: "LS", rate: 800.00 },
+                        ]},
+                        { title: "General Conditions", items: [
+                          { description: "Dumpster rental and debris removal", note: "2 x 20yd dumpsters", quantity: 2, unit: "EA", rate: 450.00, taxable: false },
+                          { description: "Permit and inspection fees", quantity: 1, unit: "LS", rate: 350.00, taxable: false },
+                          { description: "Project supervision and coordination", quantity: 40, unit: "HR", rate: 75.00, taxable: false },
                         ]},
                       ],
                       tax_rate: 8.25,
                       adjustments: [
                         { name: "O&P", percentage: 10, type: "add" },
-                        { name: "Discount", percentage: 5, type: "subtract" },
                       ],
-                      payments: [{ amount: 500, date: "04-07-2026", method: "CK", reference: "Check #1234" }],
+                      payments: [
+                        { amount: 5000, date: "04-01-2026", method: "CK", reference: "Check #1234" },
+                      ],
                       payment_terms: "Net 30",
-                      notes: "Work completed per insurance approval.",
+                      notes: "Water damage restoration per insurance approval. Claim #CLM-789012.",
                     }, null, 2);
                     navigator.clipboard.writeText(example);
                     message.success('Example JSON copied to clipboard!');
@@ -4286,6 +4461,16 @@ const InvoiceCreation: React.FC = () => {
           }]}
         />
       </Modal>
+
+      {/* Multi-Select Action Bar */}
+      <MultiSelectActionBar
+        selectedItemKeys={selectedItemKeys}
+        sections={sections.map((s, i) => ({ id: s.id, title: s.title, index: i }))}
+        onMoveToSection={handleMoveToSection}
+        onCopyToSection={handleCopyToSection}
+        onDeleteSelected={handleDeleteAllSelected}
+        onClearSelection={handleClearSelection}
+      />
     </div>
   );
 };

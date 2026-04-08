@@ -48,7 +48,8 @@ code {
   }
 
   /* Hide button text labels on very small screens to save space */
-  .section-btn-text {
+  .section-btn-text,
+  .action-bar-btn-text {
     display: none;
   }
 

@@ -29,6 +29,7 @@ import {
 } from '@ant-design/icons';
 import SortableSection from '../components/common/SortableSection';
 import SectionItemsTable from '../components/estimate/SectionItemsTable';
+import MultiSelectActionBar from '../components/common/MultiSelectActionBar';
 import {
   DndContext,
   DragOverlay,
@@ -692,6 +693,133 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
 
     message.success(`${selectedKeys.length} item(s) deleted successfully`);
   };
+
+  // Extract item ID from DraggableTable row key (format: "item-{sectionIndex}-{itemId}")
+  const extractItemId = (rowKey: string): string => {
+    const firstDash = rowKey.indexOf('-');
+    if (firstDash === -1) return rowKey;
+    const secondDash = rowKey.indexOf('-', firstDash + 1);
+    if (secondDash === -1) return rowKey;
+    return rowKey.substring(secondDash + 1);
+  };
+
+  // Collect all selected items across sections
+  const getSelectedItems = useCallback(() => {
+    const result: { item: EstimateLineItem; sectionIndex: number; itemIndex: number }[] = [];
+    Object.entries(selectedItemKeys).forEach(([sectionIdx, keys]) => {
+      const si = parseInt(sectionIdx);
+      const section = sections[si];
+      if (!section) return;
+      keys.forEach(key => {
+        const itemId = extractItemId(key);
+        const itemIndex = section.items.findIndex(item => item.id === itemId);
+        if (itemIndex !== -1) {
+          result.push({ item: section.items[itemIndex], sectionIndex: si, itemIndex });
+        }
+      });
+    });
+    return result;
+  }, [selectedItemKeys, sections]);
+
+  // Move selected items to a target section
+  const handleMoveToSection = useCallback((targetSectionIndex: number) => {
+    const selected = getSelectedItems();
+    if (selected.length === 0) return;
+
+    const newSections = sections.map((section, i) => ({ ...section, items: [...section.items] }));
+
+    // Collect items to move (with their new primary_group)
+    const targetTitle = newSections[targetSectionIndex].title;
+    const itemsToMove = selected.map(s => ({
+      ...s.item,
+      primary_group: targetTitle,
+    }));
+
+    // Remove from source sections (process in reverse to keep indices valid)
+    const removeMap = new Map<number, Set<number>>();
+    selected.forEach(s => {
+      if (!removeMap.has(s.sectionIndex)) removeMap.set(s.sectionIndex, new Set());
+      removeMap.get(s.sectionIndex)!.add(s.itemIndex);
+    });
+
+    removeMap.forEach((indices, si) => {
+      newSections[si] = {
+        ...newSections[si],
+        items: newSections[si].items.filter((_, idx) => !indices.has(idx)),
+      };
+      newSections[si].subtotal = calculateSectionSubtotal(newSections[si].items);
+    });
+
+    // Add to target
+    newSections[targetSectionIndex] = {
+      ...newSections[targetSectionIndex],
+      items: [...newSections[targetSectionIndex].items, ...itemsToMove],
+    };
+    newSections[targetSectionIndex].subtotal = calculateSectionSubtotal(newSections[targetSectionIndex].items);
+
+    setSections(newSections);
+    setSelectedItemKeys({});
+    message.success(`${selected.length} item(s) moved to "${targetTitle}"`);
+  }, [sections, getSelectedItems]);
+
+  // Copy selected items to a target section
+  const handleCopyToSection = useCallback((targetSectionIndex: number) => {
+    const selected = getSelectedItems();
+    if (selected.length === 0) return;
+
+    const targetTitle = sections[targetSectionIndex].title;
+    const copiedItems = selected.map(s => ({
+      ...s.item,
+      id: generateId(),
+      primary_group: targetTitle,
+    }));
+
+    const newSections = sections.map((section, i) => {
+      if (i !== targetSectionIndex) return section;
+      const newItems = [...section.items, ...copiedItems];
+      return { ...section, items: newItems, subtotal: calculateSectionSubtotal(newItems) };
+    });
+
+    setSections(newSections);
+    setSelectedItemKeys({});
+    message.success(`${selected.length} item(s) copied to "${targetTitle}"`);
+  }, [sections, getSelectedItems]);
+
+  // Delete all selected items across sections
+  const handleDeleteAllSelected = useCallback(() => {
+    const selected = getSelectedItems();
+    if (selected.length === 0) return;
+
+    Modal.confirm({
+      title: 'Delete Selected Items',
+      content: `Are you sure you want to delete ${selected.length} selected item(s)?`,
+      okText: 'Delete',
+      okType: 'danger',
+      onOk: () => {
+        const removeMap = new Map<number, Set<number>>();
+        selected.forEach(s => {
+          if (!removeMap.has(s.sectionIndex)) removeMap.set(s.sectionIndex, new Set());
+          removeMap.get(s.sectionIndex)!.add(s.itemIndex);
+        });
+
+        const newSections = sections.map((section, i) => {
+          const indices = removeMap.get(i);
+          if (!indices) return section;
+          const filteredItems = section.items.filter((_, idx) => !indices.has(idx));
+          return { ...section, items: filteredItems, subtotal: calculateSectionSubtotal(filteredItems) };
+        });
+
+        setSections(newSections);
+        setSelectedItemKeys({});
+        message.success(`${selected.length} item(s) deleted`);
+      },
+    });
+  }, [sections, getSelectedItems]);
+
+  // Clear all selections
+  const handleClearSelection = useCallback(() => {
+    setSelectedItemKeys({});
+  }, []);
 
   const calculateSectionSubtotal = (items: EstimateLineItem[]): number => {
     return items.reduce((sum, item) => sum + (item.total || 0), 0);
@@ -2019,6 +2147,16 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
           onPressEnter={handleSectionNameUpdate}
         />
       </Modal>
+
+      {/* Multi-Select Action Bar */}
+      <MultiSelectActionBar
+        selectedItemKeys={selectedItemKeys}
+        sections={sections.map((s, i) => ({ id: s.id, title: s.title, index: i }))}
+        onMoveToSection={handleMoveToSection}
+        onCopyToSection={handleCopyToSection}
+        onDeleteSelected={handleDeleteAllSelected}
+        onClearSelection={handleClearSelection}
+      />
     </div>
   );
 };
