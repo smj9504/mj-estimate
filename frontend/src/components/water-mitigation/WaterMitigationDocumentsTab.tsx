@@ -141,8 +141,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
         return;
       }
 
-      if (!mitigationStartDate) {
-        message.error('Mitigation Start Date is required for EWA document. Please update the job information.');
+      if (!dateOfLoss) {
+        message.error('Date of Loss is required for EWA document. Please update the job information.');
         return;
       }
     }
@@ -362,9 +362,9 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               {selectedDocType === 'EWA' ? (
                 <>
                   <strong>EWA requires exactly 1 photo.</strong>
-                  {!mitigationStartDate && (
+                  {!dateOfLoss && (
                     <span style={{ color: '#ff4d4f', display: 'block', marginTop: 4 }}>
-                      ⚠️ Mitigation Start Date is missing. Please update job information before generating EWA.
+                      ⚠️ Date of Loss is missing. Please update job information before generating EWA.
                     </span>
                   )}
                 </>

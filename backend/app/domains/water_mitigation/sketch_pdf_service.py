@@ -55,7 +55,7 @@ _LF_DEMOLITION_MATERIALS = frozenset(
 
 # Wall SF types drawn as lines when height is implicit (dimension2_ft == 0)
 _WALL_LINE_SF_MATERIALS = frozenset(
-    {"wall_drywall", "wall_drywall_2ft", "insulation"}
+    {"wall_drywall", "wall_drywall_2ft", "wall_drywall_4ft", "insulation"}
 )
 
 # Display names for PDF legend / summary (aligned with frontend defaults)
@@ -66,6 +66,7 @@ _DEMO_MATERIAL_LABELS: Dict[str, str] = {
     "ceiling": "Ceiling",
     "wall_drywall": "Wall/Drywall",
     "wall_drywall_2ft": "Wall - Drywall 2ft",
+    "wall_drywall_4ft": "Wall - Drywall 4ft",
     "insulation": "Insulation",
     "baseboard": "Baseboard",
     "baseboard_quarter_round": "Baseboard+Quarter Round",

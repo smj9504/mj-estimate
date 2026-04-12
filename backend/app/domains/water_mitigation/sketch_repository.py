@@ -33,11 +33,20 @@ class SketchRepository:
     # =========================================================================
 
     def get_floor_sketches_by_job(self, job_id: UUID) -> List[WMFloorSketch]:
-        """Return all floor sketches for a job ordered by floor_order."""
+        """Return all floor sketches for a job ordered by floor_order,
+        with child overlay rows eager-loaded so callers always get
+        authoritative data (not stale JSONB snapshots)."""
         query = (
             select(WMFloorSketch)
             .where(WMFloorSketch.job_id == job_id)
             .order_by(WMFloorSketch.floor_order)
+            .options(
+                selectinload(WMFloorSketch.demolition_zones),
+                selectinload(WMFloorSketch.equipment_placements),
+                selectinload(WMFloorSketch.containment_zones),
+                selectinload(WMFloorSketch.floor_protections),
+                selectinload(WMFloorSketch.content_protections),
+            )
         )
         result = self.db.execute(query)
         return list(result.scalars().all())
@@ -208,6 +217,9 @@ class SketchRepository:
                     "dimension2_ft": float(z.dimension2_ft) if z.dimension2_ft else 0,
                     "rotation": z.rotation,
                     "calculated_sqft": float(z.calculated_sqft) if z.calculated_sqft else 0,
+                    "height_ft": float(z.height_ft) if z.height_ft else None,
+                    "include_pad": z.include_pad or False,
+                    "include_insulation": z.include_insulation or False,
                     "label": z.label,
                     "display_order": z.display_order,
                     "scope_item_id": str(z.scope_item_id) if z.scope_item_id else None,

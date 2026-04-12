@@ -40,6 +40,52 @@ from app.domains.water_mitigation.invoice_calculation_config import (
 
 logger = logging.getLogger(__name__)
 
+# =====================================================
+# Sketch scope item name → Standard Scope Item name
+# Resolves naming mismatches between sketch-generated
+# scope items and admin-configured standard scope items.
+# =====================================================
+_SCOPE_STANDARD_ALIASES: Dict[str, str] = {
+    "wall/drywall": "drywall - wall",
+    "wall - drywall 2ft": "drywall - 2ft",
+    "wall - drywall 4ft": "drywall - 4ft",
+    "containment": "containment barrier",
+    "containment zipper": "containment zipper",
+}
+
+# =====================================================
+# Scope item → line item keyword matching
+# Used as 3rd-tier fallback when Standard Scope Item
+# and template fuzzy matching both fail.
+# Each entry: (include_keywords, exclude_keywords)
+# All include keywords must appear; any exclude keyword
+# disqualifies the candidate.
+# =====================================================
+_SCOPE_LINE_ITEM_ALIASES: Dict[str, Tuple[List[str], List[str]]] = {
+    # --- Demolition: Wall/Drywall ---
+    "wall/drywall": (
+        ["tear out", "drywall"],
+        ["2'", "4'", "per lf"],
+    ),
+    "wall - drywall 2ft": (
+        ["tear out", "drywall", "2"],
+        [],
+    ),
+    "wall - drywall 4ft": (
+        ["tear out", "drywall", "4"],
+        [],
+    ),
+    # --- Containment ---
+    "containment": (
+        ["containment", "barrier"],
+        ["zipper", "peel", "seal"],
+    ),
+    "containment zipper": (
+        ["zipper"],
+        ["containment barrier"],
+    ),
+}
+
 
 class InvoiceConfigService:
     """Service for managing invoice item configurations"""
@@ -352,13 +398,32 @@ class InvoiceConfigService:
                         continue
 
                 item_name_lower = scope_item.name.lower().strip()
+                logger.info(
+                    f"[AutoGenerate] Processing scope item: "
+                    f"'{scope_item.name}' (lower='{item_name_lower}')"
+                )
 
                 # =====================================================
                 # Step 3: Check Standard Scope Item mapping FIRST
+                # Order: exact → alias → fuzzy substring
                 # =====================================================
                 std_item = standard_mappings.get(item_name_lower)
 
-                # Try fuzzy match if exact match not found
+                # Try alias lookup (handles sketch name mismatches)
+                if not std_item:
+                    alias_std = _SCOPE_STANDARD_ALIASES.get(
+                        item_name_lower
+                    )
+                    if alias_std:
+                        std_item = standard_mappings.get(alias_std)
+                        if std_item:
+                            logger.info(
+                                f"[AutoGenerate] STD ALIAS: "
+                                f"'{item_name_lower}' → "
+                                f"'{alias_std}'"
+                            )
+
+                # Try fuzzy match if exact/alias not found
                 if not std_item:
                     for std_name, std in standard_mappings.items():
                         if item_name_lower in std_name or std_name in item_name_lower:
@@ -369,19 +434,69 @@ class InvoiceConfigService:
                 std_mapping_found = False
                 if std_item and (std_item.line_item_id or std_item.custom_line_item_name):
                     std_mapping_found = True
-                    logger.debug(f"[AutoGenerate] Using Standard Scope Item mapping for: {scope_item.name}")
+                    logger.info(f"[AutoGenerate] STD MATCH: '{scope_item.name}' → line_item_id={std_item.line_item_id}")
 
                 # =====================================================
                 # Step 4: Fall back to template matching if no standard mapping
+                # Order: exact → keyword alias → fuzzy substring
                 # =====================================================
                 template_matched = None
                 if not std_mapping_found:
-                    template_matched = template_rate_map.get(item_name_lower)
+                    # 4a: Exact match by name
+                    template_matched = template_rate_map.get(
+                        item_name_lower
+                    )
+
+                    # 4b: Keyword alias match (precise, takes priority
+                    #     over fuzzy to avoid mis-matches)
                     if not template_matched:
-                        for key, value in template_rate_map.items():
-                            if item_name_lower in key or key in item_name_lower:
-                                template_matched = value
+                        alias = _SCOPE_LINE_ITEM_ALIASES.get(
+                            item_name_lower
+                        )
+                        if alias:
+                            inc_kw, exc_kw = alias
+                            for key, val in template_rate_map.items():
+                                if (
+                                    all(k in key for k in inc_kw)
+                                    and not any(
+                                        k in key for k in exc_kw
+                                    )
+                                ):
+                                    template_matched = val
+                                    logger.info(
+                                        f"[AutoGenerate] ALIAS "
+                                        f"match: "
+                                        f"{scope_item.name} → {key}"
+                                    )
+                                    break
+
+                    # 4c: Fuzzy substring match (last resort)
+                    if not template_matched:
+                        for key, val in template_rate_map.items():
+                            if (
+                                item_name_lower in key
+                                or key in item_name_lower
+                            ):
+                                template_matched = val
                                 break
+
+                # Log match result
+                if std_mapping_found:
+                    logger.info(
+                        f"[AutoGenerate] '{scope_item.name}' → "
+                        f"StandardScopeItem (line_item_id="
+                        f"{std_item.line_item_id})"
+                    )
+                elif template_matched:
+                    logger.info(
+                        f"[AutoGenerate] '{scope_item.name}' → "
+                        f"Template match: {template_matched}"
+                    )
+                else:
+                    logger.info(
+                        f"[AutoGenerate] '{scope_item.name}' → "
+                        f"NO MATCH"
+                    )
 
                 # Determine calculation type
                 is_equipment = any(kw in item_name_lower for kw in EQUIPMENT_KEYWORDS)
@@ -410,6 +525,19 @@ class InvoiceConfigService:
                 # Add default note from standard item
                 if std_item and std_item.default_invoice_note:
                     config_kwargs["default_note"] = std_item.default_invoice_note
+                # Auto-generate demolition material note
+                elif "drywall" in item_name_lower:
+                    if "wall" in item_name_lower:
+                        config_kwargs["default_note"] = "wall"
+                    elif "ceiling" in item_name_lower:
+                        config_kwargs["default_note"] = "ceiling"
+                elif "baseboard" in item_name_lower:
+                    if "quarter round" in item_name_lower:
+                        config_kwargs["default_note"] = (
+                            "baseboard + quarter round"
+                        )
+                    else:
+                        config_kwargs["default_note"] = "baseboard"
                 # Auto-generate equipment note if not already set
                 elif is_equipment and not config_kwargs.get("default_note"):
                     # Use placeholder format: {qty} Unit(s) @ {days} days

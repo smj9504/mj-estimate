@@ -238,6 +238,7 @@ class SketchService:
         "ceiling": "Ceiling",
         "wall_drywall": "Wall/Drywall",
         "wall_drywall_2ft": "Wall - Drywall 2ft",
+        "wall_drywall_4ft": "Wall - Drywall 4ft",
         "baseboard": "Baseboard",
         "baseboard_quarter_round": "Baseboard+Quarter Round",
         "toe_kick": "Toe Kick",
@@ -252,6 +253,7 @@ class SketchService:
         "ceiling": "SF",
         "wall_drywall": "SF",
         "wall_drywall_2ft": "SF",
+        "wall_drywall_4ft": "SF",
         "baseboard": "LF",
         "baseboard_quarter_round": "LF",
         "toe_kick": "LF",
@@ -330,7 +332,7 @@ class SketchService:
                 if sqft > 0:
                     demo_groups[mt] = demo_groups.get(mt, 0) + sqft
                 # Accumulate carpet pad area
-                if mt == "carpet" and getattr(zone, "include_pad", False) and sqft > 0:
+                if mt == "carpet" and zone.include_pad and sqft > 0:
                     carpet_pad_sqft += sqft
                 # Accumulate insulation area (from wall/ceiling checkbox)
                 if getattr(zone, "include_insulation", False) and sqft > 0:

@@ -398,7 +398,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
     await handleAutoGenerateInternal(overwrite, true);
   };
 
-  // Update configuration
+  // Update configuration (optimistic local state update)
   const handleUpdateConfig = async (
     configId: string,
     updates: InvoiceItemConfigUpdate
@@ -406,26 +406,70 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
     try {
       setSaving(true);
       await waterMitigationService.invoiceConfig.update(configId, updates);
-      message.success('Configuration updated');
-      loadConfigs();
+
+      // Patch only the updated config in local state
+      setConfigs(prev => prev.map(cfg => {
+        if (cfg.id !== configId) return cfg;
+
+        // Convert null values to undefined for type compatibility
+        const sanitized: Partial<InvoiceItemConfig> = {};
+        for (const [k, v] of Object.entries(updates)) {
+          (sanitized as any)[k] = v === null ? undefined : v;
+        }
+
+        const patched: InvoiceItemConfig = { ...cfg, ...sanitized };
+
+        // Recompute derived fields when line item changes
+        if ('line_item_id' in updates) {
+          if (updates.line_item_id) {
+            const li = lineItems.find(i => i.id === updates.line_item_id);
+            if (li) {
+              patched.line_item_description = li.description;
+              patched.line_item_rate = li.untaxed_unit_price ?? 0;
+              patched.effective_rate = li.untaxed_unit_price ?? 0;
+              patched.custom_name = undefined;
+              patched.custom_rate = undefined;
+              patched.custom_unit = undefined;
+            }
+          } else if (updates.custom_name) {
+            patched.line_item_description = updates.custom_name;
+            patched.line_item_rate = updates.custom_rate ?? 0;
+            patched.effective_rate = updates.custom_rate ?? 0;
+          } else {
+            patched.line_item_description = undefined;
+            patched.line_item_rate = 0;
+            patched.effective_rate = 0;
+          }
+        }
+
+        // Recalculate amount
+        const rate = patched.effective_rate ?? patched.line_item_rate ?? 0;
+        const qty = patched.calculated_quantity ?? patched.scope_item_quantity ?? 0;
+        patched.calculated_amount = qty * rate;
+
+        return patched;
+      }));
+
       onConfigChange?.();
     } catch (error) {
       message.error('Failed to update configuration');
+      // Refetch on error to restore consistent state
+      loadConfigs();
     } finally {
       setSaving(false);
       setEditingCell(null);
     }
   };
 
-  // Delete configuration
+  // Delete configuration (optimistic local state update)
   const handleDeleteConfig = async (configId: string) => {
     try {
       await waterMitigationService.invoiceConfig.delete(configId);
-      message.success('Configuration deleted');
-      loadConfigs();
+      setConfigs(prev => prev.filter(cfg => cfg.id !== configId));
       onConfigChange?.();
     } catch (error) {
       message.error('Failed to delete configuration');
+      loadConfigs();
     }
   };
 
@@ -695,7 +739,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
       key: 'effective_rate',
       width: 80,
       render: (rate: number) => (
-        <Text>${(rate || 0).toFixed(2)}</Text>
+        <Text>${Number(rate || 0).toFixed(2)}</Text>
       )
     },
     {
@@ -704,7 +748,7 @@ const InvoiceConfigurationPanel: React.FC<InvoiceConfigurationPanelProps> = ({
       key: 'calculated_amount',
       width: 100,
       render: (amount: number) => (
-        <Text strong>${(amount || 0).toFixed(2)}</Text>
+        <Text strong>${Number(amount || 0).toFixed(2)}</Text>
       )
     },
     {

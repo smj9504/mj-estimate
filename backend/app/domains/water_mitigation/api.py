@@ -1984,11 +1984,11 @@ async def generate_document_pdf(
         # Generate PDF based on document type
         if request.document_type == 'EWA':
             # EWA: Template with overlay + 1 photo
-            # EWA uses mitigation_start_date for the date field
-            if not request.mitigation_start_date:
+            # EWA uses date_of_loss for the date field
+            if not request.date_of_loss:
                 raise HTTPException(
                     status_code=400,
-                    detail="mitigation_start_date is required for EWA document generation"
+                    detail="date_of_loss is required for EWA document generation"
                 )
 
             # Get rotation for the EWA photo (if any)
@@ -1998,7 +1998,7 @@ async def generate_document_pdf(
 
             generate_ewa_pdf(
                 job_address=request.job_address,
-                date_of_loss=request.mitigation_start_date,  # EWA uses start date, not date_of_loss
+                date_of_loss=request.date_of_loss,
                 photo_path=photo_paths[0],  # EWA requires exactly 1 photo (validated in schema)
                 output_path=str(output_path),
                 rotation=ewa_rotation,

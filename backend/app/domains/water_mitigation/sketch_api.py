@@ -29,6 +29,7 @@ from app.domains.water_mitigation.sketch_schemas import (
     GenerateScopeResponse,
     WMBackgroundImageResponse,
     WMContainmentZoneSchema,
+    WMContentProtectionSchema,
     WMDemolitionZoneSchema,
     WMEquipmentPlacementSchema,
     WMFloorProtectionSchema,
@@ -97,13 +98,56 @@ def get_floor_sketches(
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
 ):
-    """Return all floor sketches for a job ordered by floor_order."""
+    """Return all floor sketches for a job ordered by floor_order.
+
+    Builds overlay_data from child tables (authoritative) rather than
+    the JSONB snapshot, which may be missing fields added after the
+    sketch was last saved (e.g. include_pad, include_insulation).
+    """
     service = SketchService(db)
     sketches = service.get_floor_sketches(job_id)
-    return WMFloorSketchListResponse(
-        items=[WMFloorSketchResponse.from_orm(s) for s in sketches],
-        total=len(sketches),
-    )
+
+    from decimal import Decimal as Dec
+
+    def _to_json(obj):
+        """Recursively convert Decimal → float for JSON safety."""
+        if isinstance(obj, dict):
+            return {k: _to_json(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_to_json(i) for i in obj]
+        if isinstance(obj, Dec):
+            return float(obj)
+        return obj
+
+    items = []
+    for s in sketches:
+        resp = WMFloorSketchResponse.from_orm(s)
+        # Override JSONB snapshot with authoritative child-table data
+        resp.overlay_data = _to_json({
+            "demolition_zones": [
+                WMDemolitionZoneSchema.from_orm(z).dict()
+                for z in (s.demolition_zones or [])
+            ],
+            "equipment_placements": [
+                WMEquipmentPlacementSchema.from_orm(e).dict()
+                for e in (s.equipment_placements or [])
+            ],
+            "containment_zones": [
+                WMContainmentZoneSchema.from_orm(c).dict()
+                for c in (s.containment_zones or [])
+            ],
+            "floor_protections": [
+                WMFloorProtectionSchema.from_orm(p).dict()
+                for p in (s.floor_protections or [])
+            ],
+            "content_protections": [
+                WMContentProtectionSchema.from_orm(cp).dict()
+                for cp in (s.content_protections or [])
+            ],
+        })
+        items.append(resp)
+
+    return WMFloorSketchListResponse(items=items, total=len(items))
 
 
 @router.post(
