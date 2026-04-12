@@ -27,6 +27,9 @@ const CONTAINMENT_STROKE = '#2196F3';
 const CONTAINMENT_DASH: number[] = [10, 5];
 const LINE_WIDTH = 4;
 const HANDLE_RADIUS = 6;
+/** Zipper indicator */
+const ZIPPER_DOT_RADIUS = 5;
+const ZIPPER_DOT_COLOR = '#E53935';
 
 const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
   zone,
@@ -37,10 +40,11 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
   onTransformEnd,
 }) => {
   const lengthPx = zone.length_ft * scalePixelsPerFoot;
+  const zipperCount = zone.zipper_count || 0;
 
   const labelText = zone.label
     ? zone.label
-    : `${zone.containment_type}${zone.calculated_sqft > 0 ? ` ${Math.round(zone.calculated_sqft)} SF` : ''}`;
+    : `${zone.calculated_sqft > 0 ? `${Math.round(zone.calculated_sqft)} SF` : zone.containment_type}${zipperCount > 0 ? ` | ${zipperCount} Zipper` : ''}`;
 
   const handleClick = useCallback(() => {
     onSelect(zone.id);
@@ -156,6 +160,27 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
             wrap="none"
             ellipsis
           />
+        </>
+      )}
+
+      {/* Zipper indicators — red dots evenly spaced along the line */}
+      {zipperCount > 0 && lengthPx > 20 && (
+        <>
+          {Array.from({ length: zipperCount }, (_, i) => {
+            const pos = lengthPx * (i + 1) / (zipperCount + 1);
+            return (
+              <Circle
+                key={`zip-${i}`}
+                x={pos}
+                y={0}
+                radius={ZIPPER_DOT_RADIUS}
+                fill={ZIPPER_DOT_COLOR}
+                stroke="#ffffff"
+                strokeWidth={1.5}
+                listening={false}
+              />
+            );
+          })}
         </>
       )}
 

@@ -26,6 +26,7 @@ import {
   Empty,
   Button,
   message,
+  Modal,
   Space,
   Typography,
   Card,
@@ -35,6 +36,7 @@ import {
   PlusOutlined,
   EnvironmentOutlined,
   FilePdfOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import wmSketchService from '../../../services/wmSketchService';
 import type {
@@ -99,6 +101,7 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [scopeGenerating, setScopeGenerating] = useState(false);
 
   // Material types are constant for now; could be customised per-job later
   const materialTypes = DEFAULT_DEMO_MATERIAL_TYPES;
@@ -261,9 +264,17 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
   );
 
   const handleSave = useCallback(
-    async (overlayData: WMOverlayData) => {
+    async (overlayData: WMOverlayData, canvasSize?: { width: number; height: number }) => {
       if (!activeFloorId) return;
       await wmSketchService.saveOverlayData(activeFloorId, overlayData);
+      // Persist the actual canvas dimensions so PDF rendering
+      // uses the same coordinate system the user sees.
+      if (canvasSize) {
+        await wmSketchService.updateFloorSketch(activeFloorId, {
+          canvas_width: canvasSize.width,
+          canvas_height: canvasSize.height,
+        });
+      }
     },
     [activeFloorId]
   );
@@ -298,6 +309,29 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
     );
   }, [activeFloorId]);
 
+  const handleScaleChanged = useCallback(
+    async (scalePixelsPerFoot: number) => {
+      if (!activeFloorId) return;
+      // Optimistic update
+      setFloors((prev) =>
+        prev.map((f) =>
+          f.id === activeFloorId
+            ? { ...f, scale_pixels_per_foot: scalePixelsPerFoot }
+            : f
+        )
+      );
+      // Persist to server
+      try {
+        await wmSketchService.updateFloorSketch(activeFloorId, {
+          scale_pixels_per_foot: scalePixelsPerFoot,
+        });
+      } catch {
+        message.error('Failed to save scale calibration.');
+      }
+    },
+    [activeFloorId]
+  );
+
   const handleGeneratePdf = useCallback(async () => {
     setPdfGenerating(true);
     try {
@@ -310,6 +344,44 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
       setPdfGenerating(false);
     }
   }, [jobId, jobAddress]);
+
+  const handleGenerateScope = useCallback(() => {
+    Modal.confirm({
+      title: 'Generate Scope of Work',
+      content: (
+        <div>
+          <p>
+            Sketch 데이터를 기반으로 Scope of Work를 자동 생성합니다.
+          </p>
+          <p style={{ fontSize: 12, color: '#8c8c8c' }}>
+            각 Floor별로 Location이 생성되며, Demolition / Equipment /
+            Containment / Floor Protection / Content Protection 항목이
+            자동으로 추가됩니다.
+          </p>
+        </div>
+      ),
+      okText: 'Generate',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setScopeGenerating(true);
+        try {
+          const result = await wmSketchService.generateScopeFromSketch(jobId);
+          if (result.success) {
+            message.success(result.message);
+            if (result.warnings.length > 0) {
+              result.warnings.forEach((w) => message.warning(w));
+            }
+          } else {
+            message.error(result.message);
+          }
+        } catch {
+          message.error('Failed to generate Scope of Work. Please try again.');
+        } finally {
+          setScopeGenerating(false);
+        }
+      },
+    });
+  }, [jobId]);
 
   // ------------------------------------------------------------------
   // Derived: active floor
@@ -391,7 +463,18 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
             — {floors.length} floor{floors.length !== 1 ? 's' : ''}
           </Text>
         )}
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <Tooltip title={floors.length === 0 ? 'Add a floor sketch first' : 'Generate Scope of Work from sketch data'}>
+            <Button
+              icon={<FileTextOutlined />}
+              size="small"
+              loading={scopeGenerating}
+              disabled={floors.length === 0}
+              onClick={handleGenerateScope}
+            >
+              Generate Scope
+            </Button>
+          </Tooltip>
           <Tooltip title={floors.length === 0 ? 'Add a floor sketch first' : 'Download PDF Report'}>
             <Button
               icon={<FilePdfOutlined />}
@@ -464,6 +547,7 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
             onSave={handleSave}
             onImageUploaded={handleImageUploaded}
             onImageRemoved={handleImageRemoved}
+            onScaleChanged={handleScaleChanged}
           />
         ) : (
           <div

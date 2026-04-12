@@ -7,6 +7,7 @@ and floor protections.
 """
 
 from sqlalchemy import (
+    Boolean,
     DECIMAL,
     Column,
     Float,
@@ -64,6 +65,8 @@ class WMFloorSketch(Base, BaseModel):
 
     # Background image (used when source_type="image")
     background_image_url = Column(String(1000), nullable=True)
+    storage_file_id = Column(String(500), nullable=True)      # Provider-specific file ID (e.g. GDrive file ID)
+    storage_provider = Column(String(50), nullable=True)       # 'local', 'gdrive', 'gcs', 's3'
 
     # Canvas configuration
     canvas_width = Column(Integer, default=1200, nullable=False)
@@ -151,6 +154,12 @@ class WMDemolitionZone(Base, BaseModel):
     label = Column(String(255), nullable=True)
     display_order = Column(Integer, default=0, nullable=False)
 
+    # Wall height in feet (for wall SF calculation: dimension1_ft * height_ft)
+    height_ft = Column(DECIMAL(10, 4), nullable=True)
+
+    # Carpet pad — when True, scope generation creates a "Carpet Pad" line item
+    include_pad = Column(Boolean, default=False, nullable=False, server_default="false")
+
     # Optional link to scope item for invoice tracking
     scope_item_id = Column(
         UUIDType(),
@@ -220,7 +229,7 @@ class WMContainmentZone(Base, BaseModel):
         nullable=False,
     )
 
-    containment_type = Column(String(100), default="No zipper", nullable=False)
+    containment_type = Column(String(100), default="Standard", nullable=False)
 
     # Canvas position
     x = Column(Float, nullable=False)
@@ -237,6 +246,9 @@ class WMContainmentZone(Base, BaseModel):
     calculated_sqft = Column(DECIMAL(12, 2), nullable=False)
     color = Column(String(7), default="#0066FF", nullable=False)
     label = Column(String(255), nullable=True)
+
+    # Zipper count (EA) — 0 means no zipper (default)
+    zipper_count = Column(Integer, default=0, nullable=False, server_default="0")
 
     # Relationships
     floor_sketch = relationship("WMFloorSketch", back_populates="containment_zones")

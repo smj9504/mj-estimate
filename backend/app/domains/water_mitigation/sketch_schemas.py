@@ -28,6 +28,8 @@ class WMDemolitionZoneBase(PydanticBaseModel):
     dimension2_ft: Decimal = Field(..., ge=0)
     rotation: float = 0.0
     calculated_sqft: Decimal = Field(..., ge=0)
+    height_ft: Optional[Decimal] = Field(None, ge=0, description="Wall height in feet for SF calculation")
+    include_pad: bool = Field(False, description="Include carpet pad with this carpet zone")
     label: Optional[str] = Field(None, max_length=255)
     display_order: int = 0
     scope_item_id: Optional[UUID] = None
@@ -81,7 +83,7 @@ class WMEquipmentPlacementSchema(WMEquipmentPlacementBase):
 
 class WMContainmentZoneBase(PydanticBaseModel):
     """Shared fields for containment zone create/update"""
-    containment_type: str = Field("No zipper", max_length=100)
+    containment_type: str = Field("Standard", max_length=100)
     x: float
     y: float
     length_ft: Optional[Decimal] = Field(None, ge=0)
@@ -91,6 +93,7 @@ class WMContainmentZoneBase(PydanticBaseModel):
     calculated_sqft: Decimal = Field(..., ge=0)
     color: str = Field("#0066FF", max_length=7)
     label: Optional[str] = Field(None, max_length=255)
+    zipper_count: int = Field(0, ge=0, description="Number of zippers (EA)")
 
 
 class WMContainmentZoneCreate(WMContainmentZoneBase):
@@ -278,3 +281,34 @@ class WMBackgroundImageResponse(PydanticBaseModel):
     floor_sketch_id: UUID
     background_image_url: Optional[str]
     message: str
+
+
+# =============================================================================
+# Generate Scope of Work from Sketch
+# =============================================================================
+
+class GenerateScopeRequest(PydanticBaseModel):
+    """Request options for generating Scope of Work from sketch data"""
+    clear_existing: bool = Field(
+        False,
+        description="If true, delete all existing scope locations/items before generating"
+    )
+
+
+class GeneratedScopeItemSummary(PydanticBaseModel):
+    """Summary of a single generated scope item"""
+    name: str
+    item_type: str
+    quantity: float
+    unit: str
+    floor_label: str
+
+
+class GenerateScopeResponse(PydanticBaseModel):
+    """Response after generating Scope of Work from sketch data"""
+    success: bool
+    message: str
+    locations_created: int = 0
+    items_created: int = 0
+    items: List[GeneratedScopeItemSummary] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)

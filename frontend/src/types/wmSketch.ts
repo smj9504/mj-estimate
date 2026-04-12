@@ -26,6 +26,7 @@ export type EquipmentIconShape = 'circle' | 'triangle' | 'cylinder';
 export type WMSketchTool =
   | 'select'
   | 'demolition'
+  | 'demolition_line'
   | 'equipment'
   | 'containment'
   | 'floor_protection'
@@ -127,8 +128,12 @@ export interface WMDemolitionZone {
   dimension2_ft: number;
   /** Rotation angle in degrees */
   rotation: number;
-  /** Computed area (dimension1_ft * dimension2_ft for SF, perimeter for LF) */
+  /** Computed area (dimension1_ft * dimension2_ft for SF, or length for LF) */
   calculated_sqft: number;
+  /** Wall height in feet — used for wall SF calculation (length * height) */
+  height_ft?: number;
+  /** When true, carpet pad is included with this carpet demolition zone */
+  include_pad?: boolean;
   label?: string;
   /** Controls stacking / display order in the summary list */
   display_order: number;
@@ -185,6 +190,8 @@ export interface WMContainmentZone {
   calculated_sqft: number;
   color: string;
   label?: string;
+  /** Number of zippers attached to this containment barrier (EA) */
+  zipper_count: number;
   /** @deprecated Legacy field — use length_ft instead */
   width_ft?: number;
 }

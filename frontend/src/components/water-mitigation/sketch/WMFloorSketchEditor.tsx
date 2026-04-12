@@ -57,7 +57,7 @@ import {
   EQUIPMENT_CONFIG,
   DEFAULT_DEMO_MATERIAL_TYPES,
 } from '../../../types/wmSketch';
-import WMBackgroundImageLayer from './canvas/WMBackgroundImageLayer';
+import WMBackgroundImageLayer, { type ImageLoadStatus } from './canvas/WMBackgroundImageLayer';
 import WMOverlayLayer from './canvas/WMOverlayLayer';
 import { useWMSketchState } from './hooks/useWMSketchState';
 import { useWMCalculations } from './hooks/useWMCalculations';
@@ -80,6 +80,7 @@ import {
 import WMFloorPlanSource from './WMFloorPlanSource';
 import WMSketchToolbar from './WMSketchToolbar';
 import WMSketchSidebar from './WMSketchSidebar';
+import WMScaleCalibration from './canvas/WMScaleCalibration';
 
 const { Text } = Typography;
 
@@ -91,9 +92,10 @@ export interface WMFloorSketchEditorProps {
   floorSketch: WMFloorSketch;
   materialTypes: DemoMaterialType[];
   onOverlayChanged: (overlayData: WMOverlayData) => void;
-  onSave: (overlayData: WMOverlayData) => Promise<void>;
+  onSave: (overlayData: WMOverlayData, canvasSize?: { width: number; height: number }) => Promise<void>;
   onImageUploaded: (file: File) => Promise<void>;
   onImageRemoved: () => Promise<void>;
+  onScaleChanged?: (scalePixelsPerFoot: number) => void;
 }
 
 // ============================================================================
@@ -265,6 +267,17 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
 };
 
 // ============================================================================
+// Spinner keyframes (injected once into <head>)
+// ============================================================================
+const SPINNER_STYLE_ID = 'wm-sketch-spinner';
+if (typeof document !== 'undefined' && !document.getElementById(SPINNER_STYLE_ID)) {
+  const style = document.createElement('style');
+  style.id = SPINNER_STYLE_ID;
+  style.textContent = '@keyframes wmSpinner{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
+  document.head.appendChild(style);
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -275,8 +288,14 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   onSave,
   onImageUploaded,
   onImageRemoved,
+  onScaleChanged,
 }) => {
   const { token } = theme.useToken();
+
+  // ------------------------------------------------------------------
+  // Scale calibration state
+  // ------------------------------------------------------------------
+  const [isCalibrating, setIsCalibrating] = useState(false);
 
   // ------------------------------------------------------------------
   // State management
@@ -325,6 +344,12 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   }, [state.overlayData, onOverlayChanged]);
 
   // ------------------------------------------------------------------
+  // Canvas / Stage sizing via ResizeObserver
+  // ------------------------------------------------------------------
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
+
+  // ------------------------------------------------------------------
   // Persistence
   // ------------------------------------------------------------------
   const { save, isSaving } = useWMSketchPersistence({
@@ -333,17 +358,21 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     isDirty: state.isDirty,
     onSaved: markSaved,
     autoSaveInterval: 30_000, // auto-save every 30s when dirty
+    canvasSize: stageSize,
   });
 
   const handleSave = useCallback(async () => {
     try {
-      await onSave(state.overlayData);
+      await onSave(state.overlayData, {
+        width: stageSize.width,
+        height: stageSize.height,
+      });
       markSaved();
       message.success('Floor sketch saved.');
     } catch {
       // onSave is responsible for error display
     }
-  }, [onSave, state.overlayData, markSaved]);
+  }, [onSave, state.overlayData, markSaved, stageSize]);
 
   // Use the persistence hook save for Ctrl+S (already wired to service)
   const handleSaveShortcut = useCallback(async () => {
@@ -353,12 +382,6 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       // error handled inside hook
     }
   }, [save]);
-
-  // ------------------------------------------------------------------
-  // Canvas / Stage sizing via ResizeObserver
-  // ------------------------------------------------------------------
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -466,6 +489,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
 
       if (
         activeTool === 'demolition' ||
+        activeTool === 'demolition_line' ||
         activeTool === 'containment' ||
         activeTool === 'floor_protection' ||
         activeTool === 'content_protection'
@@ -543,8 +567,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       const wPx = Math.abs(currentX - startX);
       const hPx = Math.abs(currentY - startY);
 
-      // Containment uses line distance; other tools use rect dimensions
-      if (state.activeTool === 'containment') {
+      // Line tools (containment, demolition_line) use distance; others use rect
+      if (state.activeTool === 'containment' || state.activeTool === 'demolition_line') {
         const lineLenPx = Math.sqrt(wPx * wPx + hPx * hPx);
         if (lineLenPx < minPx) {
           setDrawState(INITIAL_DRAW_STATE);
@@ -597,8 +621,41 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         addDemolitionZone(zone);
         // Auto-select the new zone so the sidebar opens for dimension input
         selectElement({ element_id: newId, element_type: 'demolition' });
+      } else if (activeTool === 'demolition_line') {
+        // Wall / baseboard line — drag determines length and angle
+        const dx = currentX - startX;
+        const dy = currentY - startY;
+        const lengthPx = Math.sqrt(dx * dx + dy * dy);
+        const lengthFt = pixelsToFeet(lengthPx, scale);
+        const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+
+        const matId = state.activeMaterialTypeId ?? 'wall_drywall';
+        const matDef =
+          materialTypes.find((m) => m.id === matId) ??
+          DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === matId);
+        const isLF = matDef?.unit === 'LF';
+        const defaultHeight = 8; // default wall height in feet
+        const newId = generateOverlayId();
+
+        const zone: WMDemolitionZone = {
+          id: newId,
+          floor_sketch_id: floorSketch.id,
+          material_type: matId,
+          surface: matDef?.surface ?? 'wall',
+          color: matDef?.color ?? '#FFB6C1',
+          x: startX,
+          y: startY,
+          dimension1_ft: lengthFt,
+          dimension2_ft: isLF ? 0 : 0, // user enters width for wall SF in panel
+          height_ft: isLF ? undefined : defaultHeight,
+          rotation: angleDeg,
+          calculated_sqft: isLF ? lengthFt : lengthFt * defaultHeight,
+          display_order: state.overlayData.demolition_zones.length,
+        };
+        addDemolitionZone(zone);
+        selectElement({ element_id: newId, element_type: 'demolition' });
       } else if (activeTool === 'containment') {
-        // Containment is a line — use the drag to determine length and angle
+        // Containment is a line — drag determines length and angle
         const dx = currentX - startX;
         const dy = currentY - startY;
         const lengthPx = Math.sqrt(dx * dx + dy * dy);
@@ -608,7 +665,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         const zone: WMContainmentZone = {
           id: generateOverlayId(),
           floor_sketch_id: floorSketch.id,
-          containment_type: 'No zipper',
+          containment_type: 'Standard',
           x: startX,
           y: startY,
           length_ft: lengthFt,
@@ -616,12 +673,15 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           rotation: angleDeg,
           calculated_sqft: calcContainmentSqft(lengthFt, heightFt),
           color: DEFAULT_CONTAINMENT_COLOR,
+          zipper_count: 0,
         };
         addContainment(zone);
       } else if (activeTool === 'floor_protection') {
         const paperWidth = DEFAULT_PAPER_WIDTH_FT;
         const lengthFt = pixelsToFeet(Math.max(wPx, hPx), scale);
-        const rotation = wPx >= hPx ? 0 : 90;
+        // Renderer draws width=paperWidth (narrow), height=length (long),
+        // so rotation=0 is vertical. For horizontal drag, rotate -90.
+        const rotation = wPx >= hPx ? -90 : 0;
         const prot: WMFloorProtection = {
           id: generateOverlayId(),
           floor_sketch_id: floorSketch.id,
@@ -685,12 +745,34 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   const handleTransformEnd = useCallback(
     (id: string, type: string, widthFt: number, heightFt: number) => {
       if (type === 'demolition') {
-        updateDemolitionZone({
-          id,
-          dimension1_ft: widthFt,
-          dimension2_ft: heightFt,
-          calculated_sqft: calcDemoZoneSqft(widthFt, heightFt),
-        });
+        // Check if this is a wall/baseboard line zone
+        const zone = state.overlayData.demolition_zones.find((z) => z.id === id);
+        const mat = zone
+          ? materialTypes.find((m) => m.id === zone.material_type) ??
+            DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === zone.material_type)
+          : null;
+        const isWallLine = mat && (mat.surface === 'wall' || mat.unit === 'LF');
+
+        if (isWallLine && zone) {
+          // widthFt = new length, heightFt = new rotation
+          const lengthFt = widthFt;
+          const rotation = heightFt;
+          const isLF = mat.unit === 'LF';
+          const wallHeight = zone.height_ft ?? 8;
+          updateDemolitionZone({
+            id,
+            dimension1_ft: lengthFt,
+            rotation,
+            calculated_sqft: isLF ? lengthFt : lengthFt * wallHeight,
+          });
+        } else {
+          updateDemolitionZone({
+            id,
+            dimension1_ft: widthFt,
+            dimension2_ft: heightFt,
+            calculated_sqft: calcDemoZoneSqft(widthFt, heightFt),
+          });
+        }
       } else if (type === 'containment') {
         // For containment: widthFt = new length_ft, heightFt = new rotation
         const lengthFt = widthFt;
@@ -705,7 +787,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         });
       }
     },
-    [updateDemolitionZone, updateContainment, state.overlayData.containment_zones]
+    [updateDemolitionZone, updateContainment, state.overlayData.containment_zones, state.overlayData.demolition_zones, materialTypes]
   );
 
   // ------------------------------------------------------------------
@@ -786,13 +868,34 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // Image import / removal
   // ------------------------------------------------------------------
   const [imageSourceType, setImageSourceType] = useState(floorSketch.source_type);
+  /**
+   * Resolve the background image URL.
+   * Cloud-stored images (e.g. Google Drive viewer URLs) cannot be
+   * loaded directly by <img>; use the backend proxy endpoint instead.
+   */
+  const resolveImageUrl = (url: string | undefined | null): string | null => {
+    if (!url) return null;
+    // Already a proxy / local URL – use as-is
+    if (url.startsWith('/') || url.startsWith('blob:')) return url;
+    // Google Drive viewer URL → proxy
+    if (url.includes('drive.google.com/file/d/')) {
+      return `/api/water-mitigation/sketch/floors/${floorSketch.id}/background-image/preview`;
+    }
+    // Other absolute URLs that aren't directly loadable
+    if (url.startsWith('http')) {
+      return `/api/water-mitigation/sketch/floors/${floorSketch.id}/background-image/preview`;
+    }
+    return url;
+  };
+
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(
-    floorSketch.background_image_url ?? null
+    resolveImageUrl(floorSketch.background_image_url)
   );
+  const [bgImageStatus, setBgImageStatus] = useState<ImageLoadStatus>('idle');
 
   useEffect(() => {
     setImageSourceType(floorSketch.source_type);
-    setBackgroundImageUrl(floorSketch.background_image_url ?? null);
+    setBackgroundImageUrl(resolveImageUrl(floorSketch.background_image_url));
   }, [floorSketch.id, floorSketch.source_type, floorSketch.background_image_url]);
 
   const handleImageImported = useCallback(
@@ -800,11 +903,22 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       setBackgroundImageUrl(objectUrl);
       try {
         await onImageUploaded(file);
+        // Auto-open calibration after successful upload
+        setIsCalibrating(true);
       } catch {
         message.error('Failed to upload floor plan image.');
       }
     },
     [onImageUploaded]
+  );
+
+  const handleCalibrated = useCallback(
+    (newScale: number) => {
+      setIsCalibrating(false);
+      onScaleChanged?.(newScale);
+      message.success(`Scale calibrated: ${newScale.toFixed(1)} px/ft`);
+    },
+    [onScaleChanged]
   );
 
   const handleImageRemoved = useCallback(async () => {
@@ -862,6 +976,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         onSourceTypeChange={setImageSourceType}
         onImageImported={handleImageImported}
         onImageRemoved={handleImageRemoved}
+        onCalibrateScale={() => setIsCalibrating(true)}
+        isCalibrated={floorSketch.scale_pixels_per_foot !== 20}
+        scalePixelsPerFoot={floorSketch.scale_pixels_per_foot}
       />
 
       {/* Toolbar */}
@@ -967,6 +1084,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                   imageUrl={backgroundImageUrl}
                   canvasWidth={stageSize.width}
                   canvasHeight={stageSize.height}
+                  onStatusChange={setBgImageStatus}
                 />
               </Layer>
             )}
@@ -980,32 +1098,65 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
               />
             )}
 
-            {/* Layer 3 — Overlay elements */}
-            <WMOverlayLayer
-              overlayData={state.overlayData}
-              scalePixelsPerFoot={floorSketch.scale_pixels_per_foot}
-              selectedId={state.selection?.element_id ?? null}
-              activeTool={state.activeTool}
-              materialTypes={materialTypes}
-              isDrawing={drawState.isDrawing}
-              drawStart={
-                drawState.isDrawing
-                  ? { x: drawState.startX, y: drawState.startY }
-                  : null
-              }
-              drawCurrent={
-                drawState.isDrawing
-                  ? { x: drawState.currentX, y: drawState.currentY }
-                  : null
-              }
-              activeMaterialColor={activeMaterialColor}
-              onSelectElement={handleSelectElement}
-              onDragEnd={handleDragEnd}
-              onTransformEnd={handleTransformEnd}
-              canvasWidth={stageSize.width / stageScale}
-              canvasHeight={stageSize.height / stageScale}
-            />
+            {/* Layer 3 — Overlay elements (hidden while background image is loading) */}
+            {!(imageSourceType === 'image' && bgImageStatus === 'loading') && (
+              <WMOverlayLayer
+                overlayData={state.overlayData}
+                scalePixelsPerFoot={floorSketch.scale_pixels_per_foot}
+                selectedId={state.selection?.element_id ?? null}
+                activeTool={state.activeTool}
+                materialTypes={materialTypes}
+                isDrawing={drawState.isDrawing}
+                drawStart={
+                  drawState.isDrawing
+                    ? { x: drawState.startX, y: drawState.startY }
+                    : null
+                }
+                drawCurrent={
+                  drawState.isDrawing
+                    ? { x: drawState.currentX, y: drawState.currentY }
+                    : null
+                }
+                activeMaterialColor={activeMaterialColor}
+                onSelectElement={handleSelectElement}
+                onDragEnd={handleDragEnd}
+                onTransformEnd={handleTransformEnd}
+                canvasWidth={stageSize.width / stageScale}
+                canvasHeight={stageSize.height / stageScale}
+              />
+            )}
           </Stage>
+
+          {/* Loading overlay while background image is loading */}
+          {imageSourceType === 'image' && bgImageStatus === 'loading' && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(250,250,250,0.85)',
+                zIndex: 10,
+                pointerEvents: 'none',
+              }}
+            >
+              <div style={{ textAlign: 'center' }}>
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    border: '3px solid #e0e0e0',
+                    borderTop: '3px solid #1890ff',
+                    borderRadius: '50%',
+                    animation: 'wmSpinner 0.8s linear infinite',
+                    margin: '0 auto 8px',
+                  }}
+                />
+                <div style={{ fontSize: 12, color: '#888' }}>Loading floor plan...</div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Sidebar */}
@@ -1034,6 +1185,18 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
 
       {/* Status bar */}
       <StatusBar overlayData={state.overlayData} materialTypes={materialTypes} />
+
+      {/* Scale calibration overlay */}
+      {isCalibrating && backgroundImageUrl && (
+        <WMScaleCalibration
+          imageUrl={backgroundImageUrl}
+          canvasWidth={stageSize.width}
+          canvasHeight={stageSize.height}
+          currentScale={floorSketch.scale_pixels_per_foot}
+          onCalibrated={handleCalibrated}
+          onCancel={() => setIsCalibrating(false)}
+        />
+      )}
     </div>
   );
 };

@@ -1328,6 +1328,34 @@ def list_trashed_photos(
     return {"items": photos, "total": len(photos)}
 
 
+@router.get("/photos/trash/stats")
+def get_trash_stats(
+    job_id: Optional[UUID] = None,
+    service: WaterMitigationService = Depends(get_wm_service)
+):
+    """Get trash statistics (total count, expiring soon, retention policy)"""
+    try:
+        return service.get_trash_stats(job_id=job_id)
+    except Exception as e:
+        logger.error(f"Failed to get trash stats: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/photos/trash/cleanup")
+def cleanup_trash(
+    retention_days: int = 30,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Manually trigger cleanup of photos in trash for more than retention_days.
+    Permanently deletes from cloud storage and database."""
+    result = service.cleanup_expired_trash(retention_days=retention_days)
+    db.commit()
+    return result
+
+
 # CompanyCam project search endpoint
 @router.get("/jobs/{job_id}/search-companycam-projects")
 async def search_companycam_projects(

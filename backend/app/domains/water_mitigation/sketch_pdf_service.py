@@ -7,9 +7,11 @@ Generates a PDF report from floor sketch data, including:
 - Material summary tables per floor
 """
 
+import base64
 import html as html_lib
 import io
 import logging
+import mimetypes
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -92,6 +94,67 @@ class SketchPdfService:
     # SVG Generation
     # ──────────────────────────────────────────────────────────────────────
 
+    def _load_background_image_data_uri(self, floor: WMFloorSketch) -> Optional[str]:
+        """
+        Load the background image for a floor sketch and return a base64
+        data-URI suitable for embedding in SVG/HTML.
+
+        Returns None if there is no background image or it cannot be loaded.
+        """
+        bg_url = getattr(floor, "background_image_url", None)
+        if not bg_url:
+            return None
+
+        provider = getattr(floor, "storage_provider", None) or "local"
+        file_id = getattr(floor, "storage_file_id", None)
+
+        image_bytes: Optional[bytes] = None
+
+        # Cloud storage
+        if provider != "local" and file_id:
+            try:
+                from app.domains.storage.factory import StorageFactory
+                storage = StorageFactory.get_instance(provider)
+                image_bytes = storage.download(file_id)
+            except Exception as exc:
+                logger.warning(
+                    "Could not download background image for sketch %s "
+                    "from %s: %s", floor.id, provider, exc,
+                )
+
+        # Local storage fallback
+        if image_bytes is None and bg_url:
+            local_path = None
+            if bg_url.startswith("/uploads/"):
+                from app.core.config import settings as app_settings
+                rel = bg_url.replace("/uploads/", "", 1)
+                base = getattr(app_settings, "STORAGE_BASE_DIR", "uploads")
+                candidate = Path(base) / rel
+                if candidate.exists():
+                    local_path = candidate
+                else:
+                    candidate = (
+                        Path(__file__).parent.parent.parent / "uploads" / rel
+                    )
+                    if candidate.exists():
+                        local_path = candidate
+            if local_path:
+                try:
+                    image_bytes = local_path.read_bytes()
+                except Exception as exc:
+                    logger.warning(
+                        "Could not read local background image %s: %s",
+                        local_path, exc,
+                    )
+
+        if not image_bytes:
+            return None
+
+        # Detect MIME type
+        mime = mimetypes.guess_type(bg_url or "image.jpg")[0] or "image/jpeg"
+        b64 = base64.b64encode(image_bytes).decode("ascii")
+        return f"data:{mime};base64,{b64}"
+
     def _generate_floor_svg(self, floor: WMFloorSketch) -> str:
         """
         Render a floor sketch as an inline SVG string.
@@ -106,13 +169,22 @@ class SketchPdfService:
 
         parts: List[str] = []
 
-        # Background fill
-        parts.append(
-            f'<rect width="{canvas_w}" height="{canvas_h}" fill="#fafafa" rx="4"/>'
-        )
+        # Background: uploaded image or plain fill
+        bg_data_uri = self._load_background_image_data_uri(floor)
+        if bg_data_uri:
+            parts.append(
+                f'<image href="{bg_data_uri}" '
+                f'x="0" y="0" width="{canvas_w}" height="{canvas_h}" '
+                f'preserveAspectRatio="xMidYMid meet"/>'
+            )
+        else:
+            parts.append(
+                f'<rect width="{canvas_w}" height="{canvas_h}" fill="#fafafa" rx="4"/>'
+            )
 
-        # Subtle grid
-        parts.extend(self._build_grid(canvas_w, canvas_h, scale))
+        # Subtle grid (only when no background image)
+        if not bg_data_uri:
+            parts.extend(self._build_grid(canvas_w, canvas_h, scale))
 
         # Canvas border
         parts.append(
@@ -145,6 +217,7 @@ class SketchPdfService:
 
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" '
+            f'xmlns:xlink="http://www.w3.org/1999/xlink" '
             f'viewBox="0 0 {canvas_w:.0f} {canvas_h:.0f}" '
             f'width="{canvas_w:.0f}" height="{canvas_h:.0f}" '
             f'style="max-width:100%;height:auto;display:block;">'
@@ -442,6 +515,45 @@ class SketchPdfService:
             loader=FileSystemLoader(str(template_dir)),
             autoescape=False,  # We escape manually where needed
         )
+
+        _MONTH_NAMES = [
+            "", "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        ]
+        _MONTH_ABBR = [
+            "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ]
+
+        def _format_en(dt: datetime, fmt: str) -> str:
+            """Format a datetime using explicit English month names.
+
+            Windows Korean locale makes strftime('%B') return '4월' etc.,
+            which corrupts in PDF rendering.  We handle %B and %b ourselves
+            and delegate the rest to strftime.
+            """
+            result = fmt.replace("%B", _MONTH_NAMES[dt.month])
+            result = result.replace("%b", _MONTH_ABBR[dt.month])
+            return dt.strftime(result)
+
+        def _fmt_date(value, fmt: str = "%B %d, %Y") -> str:
+            """Safe date formatter that handles datetime, date, string, and None."""
+            if value is None:
+                return "—"
+            if isinstance(value, str):
+                for pattern in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                    try:
+                        return _format_en(datetime.strptime(value, pattern), fmt)
+                    except ValueError:
+                        continue
+                return value
+            try:
+                return _format_en(value, fmt)
+            except (AttributeError, TypeError):
+                return str(value)
+
+        env.filters["fmt_date"] = _fmt_date
+
         template = env.get_template("sketch_report.html")
         return template.render(
             job=job,
@@ -460,6 +572,14 @@ class SketchPdfService:
         # Define everything inside run_in_thread so the coroutine is created
         # fresh within the worker thread (avoids cross-thread coroutine issues).
         def run_in_thread() -> bytes:
+            import sys
+
+            # On Windows, asyncio.run() creates a SelectorEventLoop by default,
+            # which does NOT support subprocesses. Playwright needs subprocess
+            # support, so we must switch to ProactorEventLoop.
+            if sys.platform == "win32":
+                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
             async def _generate() -> bytes:
                 from playwright.async_api import async_playwright
 

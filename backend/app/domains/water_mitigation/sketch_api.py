@@ -25,6 +25,8 @@ from app.domains.water_mitigation.sketch_models import (
     WMFloorSketch,
 )
 from app.domains.water_mitigation.sketch_schemas import (
+    GenerateScopeRequest,
+    GenerateScopeResponse,
     WMBackgroundImageResponse,
     WMContainmentZoneSchema,
     WMDemolitionZoneSchema,
@@ -315,6 +317,168 @@ async def remove_background_image(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Background Image Preview (proxy for cloud storage)
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/floors/{floor_sketch_id}/background-image/preview",
+    summary="Serve the background image for a floor sketch",
+)
+async def preview_background_image(
+    floor_sketch_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """
+    Proxy endpoint that serves the floor sketch background image
+    from whatever storage provider was used (local, gdrive, etc.).
+
+    This allows the frontend to load images with a simple URL
+    regardless of the underlying storage backend.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    service = SketchService(db)
+    sketch = service.repository.get_floor_sketch(floor_sketch_id)
+    if not sketch:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Floor sketch not found",
+        )
+
+    provider = getattr(sketch, "storage_provider", None)
+    file_id = getattr(sketch, "storage_file_id", None)
+    bg_url = sketch.background_image_url or ""
+
+    # Fallback: extract GDrive file_id from stored URL
+    # for data uploaded before storage_file_id was added
+    if not file_id and "drive.google.com/file/d/" in bg_url:
+        import re
+
+        m = re.search(
+            r"drive\.google\.com/file/d/([^/]+)", bg_url
+        )
+        if m:
+            file_id = m.group(1)
+            provider = provider or "gdrive"
+            logger.info(
+                "Extracted GDrive file_id %s from URL "
+                "for sketch %s",
+                file_id,
+                floor_sketch_id,
+            )
+
+    # Cloud storage: download via provider and stream back
+    if provider and provider != "local" and file_id:
+        try:
+            storage = StorageFactory.get_instance(provider)
+            photo_bytes = storage.download(file_id)
+            return StreamingResponse(
+                io.BytesIO(photo_bytes),
+                media_type="image/jpeg",
+                headers={
+                    "Content-Disposition": "inline",
+                    "Cache-Control": (
+                        "public, max-age=86400"
+                    ),
+                },
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to serve background image "
+                "for sketch %s: %s",
+                floor_sketch_id,
+                exc,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Failed to load background image"
+                ),
+            )
+
+    # Local storage fallback
+    if bg_url.startswith("/uploads/"):
+        from pathlib import Path
+
+        from app.core.config import settings as app_settings
+
+        rel = bg_url.replace("/uploads/", "", 1)
+        base = getattr(
+            app_settings, "STORAGE_BASE_DIR", "uploads"
+        )
+        local_path = Path(base) / rel
+        if not local_path.exists():
+            local_path = (
+                Path(__file__).parent.parent.parent
+                / "uploads"
+                / rel
+            )
+        if local_path.exists():
+            return StreamingResponse(
+                open(local_path, "rb"),
+                media_type="image/jpeg",
+                headers={
+                    "Content-Disposition": "inline",
+                    "Cache-Control": (
+                        "public, max-age=86400"
+                    ),
+                },
+            )
+
+    raise HTTPException(
+        status_code=404,
+        detail="Background image not found",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Generate Scope of Work from Sketch
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/jobs/{job_id}/generate-scope",
+    response_model=GenerateScopeResponse,
+    summary="Generate Scope of Work from sketch overlay data",
+)
+def generate_scope_from_sketch(
+    job_id: UUID,
+    options: GenerateScopeRequest = GenerateScopeRequest(),
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """
+    Generate WMScopeLocations and WMScopeItems from the sketch data.
+
+    Reads all floor sketches for the job and creates scope items for
+    demolition zones, equipment, containment, floor protection, and
+    content protection based on the overlay data.
+
+    Set clear_existing=true to remove all existing scope locations before
+    generating new ones.
+    """
+    import logging
+    _logger = logging.getLogger(__name__)
+
+    service = SketchService(db)
+    try:
+        result = service.generate_scope_from_sketch(job_id, options)
+        if result.success:
+            db.commit()
+        return result
+    except Exception as exc:
+        _logger.exception(
+            "Error generating scope from sketch for job %s", job_id
+        )
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating scope of work: {str(exc)}",
         )
 
 

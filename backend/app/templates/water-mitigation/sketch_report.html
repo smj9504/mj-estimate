@@ -67,38 +67,41 @@
       margin-bottom: 10px;
     }
 
-    .info-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0;
+    .info-table {
+      width: 100%;
+      border-collapse: collapse;
       border: 1px solid #e0e0e0;
       border-radius: 4px;
-      overflow: hidden;
     }
-    .info-row {
-      display: flex;
+    .info-table td {
+      padding: 5px 8px;
       border-bottom: 1px solid #f0f0f0;
+      font-size: 10px;
+      color: #1a1a1a;
+      vertical-align: top;
     }
-    .info-row:last-child { border-bottom: none; }
-    .info-label {
-      width: 120px;
-      min-width: 120px;
+    .info-table tr:last-child td { border-bottom: none; }
+    .info-table .info-label {
+      width: 110px;
       font-weight: 600;
       color: #555;
       font-size: 9px;
       text-transform: uppercase;
       letter-spacing: 0.4px;
-      padding: 5px 8px;
       background: #fafafa;
       border-right: 1px solid #e0e0e0;
     }
-    .info-value {
-      flex: 1;
-      padding: 5px 8px;
+    .info-table .info-value {
       color: #1a1a1a;
       font-size: 10px;
     }
-    .info-value.empty { color: #aaa; font-style: italic; }
+    .info-table .col-divider {
+      width: 0;
+      padding: 0;
+      border-left: 1px solid #e0e0e0;
+      border-right: none;
+    }
+    .info-table .info-value.empty { color: #aaa; font-style: italic; }
 
     /* ── Floor Page Break ───────────────────────────────── */
     .floor-section {
@@ -115,15 +118,23 @@
       border-bottom: 1px solid #e0e0e0;
       padding-bottom: 6px;
       margin-bottom: 14px;
+      gap: 12px;
     }
     .floor-title {
       font-size: 14px;
       font-weight: 700;
       color: #1a1a1a;
+      white-space: nowrap;
+      flex-shrink: 0;
     }
     .floor-address {
       font-size: 9px;
       color: #888;
+      text-align: right;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
     }
 
     /* ── Sketch Canvas ──────────────────────────────────── */
@@ -276,7 +287,7 @@
       <div class="report-subtitle">Floor Plan &amp; Material Summary</div>
     </div>
     <div class="report-meta">
-      <div><strong>Report Date:</strong> {{ report_date.strftime('%B %d, %Y') }}</div>
+      <div><strong>Report Date:</strong> {{ report_date | fmt_date }}</div>
       {% if job.claim_number %}
       <div><strong>Claim #:</strong> {{ job.claim_number }}</div>
       {% endif %}
@@ -286,83 +297,68 @@
   <!-- ── Jobsite Information ────────────────────────────── -->
   <div class="section">
     <div class="section-title">Jobsite Information</div>
-    <div class="info-grid">
-      <!-- Left column -->
-      <div>
-        <div class="info-row">
-          <div class="info-label">Property</div>
-          <div class="info-value {% if not job.property_address %}empty{% endif %}">
-            {{ job.property_address or 'N/A' }}
-          </div>
-        </div>
-        <div class="info-row">
-          <div class="info-label">Homeowner</div>
-          <div class="info-value {% if not job.homeowner_name %}empty{% endif %}">
-            {{ job.homeowner_name or '—' }}
-          </div>
-        </div>
-        <div class="info-row">
-          <div class="info-label">Phone</div>
-          <div class="info-value {% if not job.homeowner_phone %}empty{% endif %}">
-            {{ job.homeowner_phone or '—' }}
-          </div>
-        </div>
-        <div class="info-row">
-          <div class="info-label">Email</div>
-          <div class="info-value {% if not job.homeowner_email %}empty{% endif %}">
-            {{ job.homeowner_email or '—' }}
-          </div>
-        </div>
-        <div class="info-row">
-          <div class="info-label">Date of Loss</div>
-          <div class="info-value {% if not job.date_of_loss %}empty{% endif %}">
-            {% if job.date_of_loss %}{{ job.date_of_loss.strftime('%B %d, %Y') }}{% else %}—{% endif %}
-          </div>
-        </div>
-      </div>
-      <!-- Right column -->
-      <div>
-        <div class="info-row">
-          <div class="info-label">Insurance Co.</div>
-          <div class="info-value {% if not job.insurance_company %}empty{% endif %}">
-            {{ job.insurance_company or '—' }}
-          </div>
-        </div>
-        <div class="info-row">
-          <div class="info-label">Policy #</div>
-          <div class="info-value {% if not job.insurance_policy_number %}empty{% endif %}">
-            {{ job.insurance_policy_number or '—' }}
-          </div>
-        </div>
-        <div class="info-row">
-          <div class="info-label">Claim #</div>
-          <div class="info-value {% if not job.claim_number %}empty{% endif %}">
-            {{ job.claim_number or '—' }}
-          </div>
-        </div>
-        <div class="info-row">
-          <div class="info-label">Adjuster</div>
-          <div class="info-value {% if not job.adjuster_name %}empty{% endif %}">
-            {{ job.adjuster_name or '—' }}
-          </div>
-        </div>
-        <div class="info-row">
-          <div class="info-label">Adjuster Phone</div>
-          <div class="info-value {% if not job.adjuster_phone %}empty{% endif %}">
-            {{ job.adjuster_phone or '—' }}
-          </div>
-        </div>
-      </div>
-    </div>
+    <table class="info-table">
+      <tr>
+        <td class="info-label">Property</td>
+        <td class="info-value {% if not job.property_address %}empty{% endif %}">
+          {{ job.property_address or 'N/A' }}
+        </td>
+        <td class="col-divider"></td>
+        <td class="info-label">Insurance Co.</td>
+        <td class="info-value {% if not job.insurance_company %}empty{% endif %}">
+          {{ job.insurance_company or '—' }}
+        </td>
+      </tr>
+      <tr>
+        <td class="info-label">Homeowner</td>
+        <td class="info-value {% if not job.homeowner_name %}empty{% endif %}">
+          {{ job.homeowner_name or '—' }}
+        </td>
+        <td class="col-divider"></td>
+        <td class="info-label">Policy #</td>
+        <td class="info-value {% if not job.insurance_policy_number %}empty{% endif %}">
+          {{ job.insurance_policy_number or '—' }}
+        </td>
+      </tr>
+      <tr>
+        <td class="info-label">Phone</td>
+        <td class="info-value {% if not job.homeowner_phone %}empty{% endif %}">
+          {{ job.homeowner_phone or '—' }}
+        </td>
+        <td class="col-divider"></td>
+        <td class="info-label">Claim #</td>
+        <td class="info-value {% if not job.claim_number %}empty{% endif %}">
+          {{ job.claim_number or '—' }}
+        </td>
+      </tr>
+      <tr>
+        <td class="info-label">Email</td>
+        <td class="info-value {% if not job.homeowner_email %}empty{% endif %}">
+          {{ job.homeowner_email or '—' }}
+        </td>
+        <td class="col-divider"></td>
+        <td class="info-label"></td>
+        <td class="info-value"></td>
+      </tr>
+      <tr>
+        <td class="info-label">Date of Loss</td>
+        <td class="info-value {% if not job.date_of_loss %}empty{% endif %}">
+          {{ job.date_of_loss | fmt_date }}
+        </td>
+        <td class="col-divider"></td>
+        <td class="info-label"></td>
+        <td class="info-value"></td>
+      </tr>
+    </table>
 
     {% if job.mitigation_start_date or job.mitigation_end_date %}
     <div style="margin-top:8px;">
       <div class="info-row" style="border:1px solid #e0e0e0; border-radius:4px;">
         <div class="info-label">Mitigation Period</div>
         <div class="info-value">
-          {% if job.mitigation_start_date %}{{ job.mitigation_start_date.strftime('%b %d, %Y') }}{% else %}—{% endif %}
+          {{ job.mitigation_start_date | fmt_date('%B %d, %Y') }}
           &nbsp;→&nbsp;
-          {% if job.mitigation_end_date %}{{ job.mitigation_end_date.strftime('%b %d, %Y') }}{% else %}Ongoing{% endif %}
+          {% if job.mitigation_end_date %}{{ job.mitigation_end_date | fmt_date('%B %d, %Y') }}{% else %}Ongoing{% endif %}
         </div>
       </div>
     </div>

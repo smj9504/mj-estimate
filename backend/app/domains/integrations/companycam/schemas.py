@@ -120,6 +120,7 @@ class WebhookPhotoData(BaseModel):
     updated_at: int   # Unix timestamp
     processing_status: str  # "processed" means photo is finalized
     description: Optional[str] = None
+    tags: Optional[List[Any]] = []  # Tags from CompanyCam (str or dict)
 
 class PhotoCreatedWebhookPayload(BaseModel):
     """

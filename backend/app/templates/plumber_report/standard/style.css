@@ -255,11 +255,6 @@ body {
 }
 
 /* ── Print ── */
-@page {
-  size: letter;
-  margin: 0.1in 0.3in 0.3in 0.3in;
-}
-
 @media print {
   .print-btn { display: none !important; }
   body { background: white; margin: 0; }

@@ -120,23 +120,45 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
   );
 
   const handleTransformEnd = useCallback(() => {
-    if (!rectRef.current) return;
+    if (!rectRef.current || !groupRef.current) return;
     const node = rectRef.current;
+    const group = groupRef.current;
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
-
-    // Reset scale and bake into width/height
-    node.scaleX(1);
-    node.scaleY(1);
 
     const newWidthPx = Math.max(20, node.width() * scaleX);
     const newHeightPx = Math.max(20, node.height() * scaleY);
 
+    // The transformer may shift the Rect's local position (e.g. when
+    // resizing from the left/top anchor). Fold that offset back into
+    // the Group's position so the zone stays where the user placed it.
+    const rectX = node.x();
+    const rectY = node.y();
+    if (rectX !== 0 || rectY !== 0) {
+      // Convert the Rect's local offset to the parent (stage) coordinate
+      // system, accounting for rotation.
+      const rad = ((group.rotation() || 0) * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      group.x(group.x() + rectX * cos - rectY * sin);
+      group.y(group.y() + rectX * sin + rectY * cos);
+      node.x(0);
+      node.y(0);
+    }
+
+    // Reset scale and bake into width/height
+    node.scaleX(1);
+    node.scaleY(1);
+    node.width(newWidthPx);
+    node.height(newHeightPx);
+
     const newWidthFt = newWidthPx / scalePixelsPerFoot;
     const newHeightFt = newHeightPx / scalePixelsPerFoot;
 
+    // Report both new position and new dimensions
+    onDragEnd(zone.id, group.x(), group.y());
     onTransformEnd?.(zone.id, newWidthFt, newHeightFt);
-  }, [zone.id, scalePixelsPerFoot, onTransformEnd]);
+  }, [zone.id, scalePixelsPerFoot, onDragEnd, onTransformEnd]);
 
   const textPadX = 4;
 

@@ -86,3 +86,8 @@ alembic==1.13.1
 
 # Redis Caching (async)
 aioredis==2.0.1
+
+# Xactimate Helper Tool - AI Pipeline
+anthropic>=0.39.0  # Claude API for Vision + LLM matching
+pgvector>=0.3.6  # PostgreSQL vector similarity search
+numpy>=1.26.0  # Required by pgvector

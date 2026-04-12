@@ -262,6 +262,25 @@ async def process_photo_created_event(
                     if uri_type:
                         uris[uri_type] = uri_obj.get("url", "")
 
+                # Extract tags from photo data
+                # CompanyCam tags can be:
+                # - List[Dict]: [{"id":1,"display_value":"Day 1",...}]
+                # - List[str]: ["Day 1", "Kitchen"]
+                raw_tags = photo_data.get("tags", [])
+                parsed_tags = []
+                if raw_tags and isinstance(raw_tags, list):
+                    for t in raw_tags:
+                        if isinstance(t, dict):
+                            tag_val = (
+                                t.get("display_value")
+                                or t.get("value")
+                                or t.get("name", "")
+                            )
+                            if tag_val:
+                                parsed_tags.append(tag_val)
+                        elif isinstance(t, str) and t.strip():
+                            parsed_tags.append(t.strip())
+
                 # Build dict format that matches PhotoCreatedWebhook schema
                 webhook_payload = {
                     "type": "photo.created",  # Add required 'type' field
@@ -270,6 +289,7 @@ async def process_photo_created_event(
                         "project_id": int(project_id) if project_id else 0,
                         "creator_id": int(photo_data.get("creator_id") or user_data.get("id", 0)),
                         "photo_description": photo_data.get("description"),
+                        "tags": parsed_tags,
                         "uris": {
                             "original": uris.get("original", ""),
                             "large": uris.get("large"),
@@ -296,6 +316,11 @@ async def process_photo_created_event(
                 }
 
                 webhook_data = PhotoCreatedWebhook(**webhook_payload)
+                if parsed_tags:
+                    logger.info(
+                        f"CompanyCam photo {photo_data.get('id')} "
+                        f"tags: {parsed_tags}"
+                    )
             else:
                 # Legacy format
                 webhook_data = PhotoCreatedWebhook(**payload)

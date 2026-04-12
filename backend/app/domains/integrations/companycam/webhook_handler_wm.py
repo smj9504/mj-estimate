@@ -661,6 +661,23 @@ class CompanyCamWaterMitigationHandler:
             UserData,
         )
 
+        # Parse tags: CompanyCam API may return
+        # List[Dict] or List[str]
+        raw_tags = photo.get("tags", [])
+        parsed_tags = []
+        if raw_tags and isinstance(raw_tags, list):
+            for t in raw_tags:
+                if isinstance(t, dict):
+                    tag_val = (
+                        t.get("display_value")
+                        or t.get("value")
+                        or t.get("name", "")
+                    )
+                    if tag_val:
+                        parsed_tags.append(tag_val)
+                elif isinstance(t, str) and t.strip():
+                    parsed_tags.append(t.strip())
+
         # Build PhotoCreatedWebhook structure
         return PhotoCreatedWebhook(
             photo=PhotoData(
@@ -671,7 +688,7 @@ class CompanyCamWaterMitigationHandler:
                     thumbnail=photo.get("uris", {}).get("thumbnail")
                 ),
                 photo_description=photo.get("photo_description"),
-                tags=photo.get("tags", []),
+                tags=parsed_tags,
                 coordinates=PhotoCoordinates(**photo["coordinates"]) if photo.get("coordinates") else None,
                 created_at=photo.get("created_at"),
                 captured_at=photo.get("captured_at")
@@ -1145,7 +1162,8 @@ class CompanyCamWaterMitigationHandler:
                 mime_type='image/jpeg',  # CompanyCam photos are typically JPEG
                 title=webhook_data.photo.photo_description,
                 description=webhook_data.photo.photo_description,
-                captured_date=captured_date
+                captured_date=captured_date,
+                companycam_tags=webhook_data.photo.tags or []
             )
 
             logger.info(f"Successfully saved CompanyCam photo {webhook_data.photo.id} to WM job {job_id}")

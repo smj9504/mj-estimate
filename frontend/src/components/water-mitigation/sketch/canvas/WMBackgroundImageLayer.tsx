@@ -17,12 +17,16 @@
 import React, { useState, useEffect } from 'react';
 import { Image as KonvaImage } from 'react-konva';
 
+export type ImageLoadStatus = 'idle' | 'loading' | 'loaded' | 'error';
+
 export interface WMBackgroundImageLayerProps {
   imageUrl: string | null;
   canvasWidth: number;
   canvasHeight: number;
   /** Opacity of the background image (default: 0.9) */
   opacity?: number;
+  /** Called when load status changes */
+  onStatusChange?: (status: ImageLoadStatus) => void;
 }
 
 interface FittedImage {
@@ -58,14 +62,20 @@ const WMBackgroundImageLayer: React.FC<WMBackgroundImageLayerProps> = ({
   canvasWidth,
   canvasHeight,
   opacity = 0.9,
+  onStatusChange,
 }) => {
   const [fitted, setFitted] = useState<FittedImage | null>(null);
+  const onStatusRef = React.useRef(onStatusChange);
+  onStatusRef.current = onStatusChange;
 
   useEffect(() => {
     if (!imageUrl) {
       setFitted(null);
+      onStatusRef.current?.('idle');
       return;
     }
+
+    onStatusRef.current?.('loading');
 
     let cancelled = false;
     const img = new window.Image();
@@ -74,9 +84,12 @@ const WMBackgroundImageLayer: React.FC<WMBackgroundImageLayerProps> = ({
       if (cancelled) return;
       const dims = fitContain(img.naturalWidth, img.naturalHeight, canvasWidth, canvasHeight);
       setFitted({ image: img, ...dims });
+      onStatusRef.current?.('loaded');
     };
     img.onerror = () => {
-      if (!cancelled) setFitted(null);
+      if (cancelled) return;
+      setFitted(null);
+      onStatusRef.current?.('error');
     };
     img.src = imageUrl;
 

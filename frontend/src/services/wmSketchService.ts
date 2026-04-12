@@ -122,6 +122,37 @@ const wmSketchService = {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   },
+  // ============================================================================
+  // Generate Scope of Work from Sketch
+  // ============================================================================
+
+  /**
+   * Generate Scope of Work locations & items from sketch overlay data.
+   * Creates scope items for demolition, equipment, containment, floor/content protection.
+   */
+  generateScopeFromSketch: async (
+    jobId: string,
+    options: { clear_existing?: boolean } = {}
+  ): Promise<{
+    success: boolean;
+    message: string;
+    locations_created: number;
+    items_created: number;
+    items: Array<{
+      name: string;
+      item_type: string;
+      quantity: number;
+      unit: string;
+      floor_label: string;
+    }>;
+    warnings: string[];
+  }> => {
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/generate-scope`,
+      options
+    );
+    return response.data;
+  },
 };
 
 export default wmSketchService;

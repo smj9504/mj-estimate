@@ -85,6 +85,9 @@ const PDFEditor = lazy(() => import('./pages/PDFEditor'));
 // Reference Pages
 const XactimateCheatSheet = lazy(() => import('./pages/XactimateCheatSheet'));
 
+// Xactimate Helper Tool
+const XactimateHelper = lazy(() => import('./pages/XactimateHelper'));
+
 // Crew Upload (Public)
 const CrewUploadPage = lazy(() => import('./pages/CrewUploadPage'));
 
@@ -674,6 +677,19 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <XactimateCheatSheet />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Xactimate Helper Tool
+  {
+    path: "/xactimate-helper",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <XactimateHelper />
           </Suspense>
         </Layout>
       </ProtectedRoute>

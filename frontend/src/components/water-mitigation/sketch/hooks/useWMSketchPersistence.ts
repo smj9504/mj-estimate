@@ -31,6 +31,8 @@ export interface UseWMSketchPersistenceOptions {
    * while isDirty is true. Defaults to 0 (disabled).
    */
   autoSaveInterval?: number;
+  /** Current canvas size — persisted alongside overlay data so PDF uses matching coordinates */
+  canvasSize?: { width: number; height: number } | null;
 }
 
 export interface UseWMSketchPersistenceReturn {
@@ -54,6 +56,7 @@ export function useWMSketchPersistence({
   isDirty,
   onSaved,
   autoSaveInterval = 0,
+  canvasSize,
 }: UseWMSketchPersistenceOptions): UseWMSketchPersistenceReturn {
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
@@ -63,6 +66,9 @@ export function useWMSketchPersistence({
   // reads the current value without being recreated on every render.
   const overlayDataRef = useRef<WMOverlayData>(overlayData);
   overlayDataRef.current = overlayData;
+
+  const canvasSizeRef = useRef(canvasSize);
+  canvasSizeRef.current = canvasSize;
 
   const isDirtyRef = useRef<boolean>(isDirty);
   isDirtyRef.current = isDirty;
@@ -86,6 +92,14 @@ export function useWMSketchPersistence({
         floorSketchId,
         overlayDataRef.current
       );
+      // Persist canvas dimensions so PDF uses the same coordinate system
+      const cs = canvasSizeRef.current;
+      if (cs) {
+        await wmSketchService.updateFloorSketch(floorSketchId, {
+          canvas_width: cs.width,
+          canvas_height: cs.height,
+        });
+      }
       setLastSavedAt(new Date());
       onSaved();
     } catch (err: unknown) {

@@ -32,6 +32,7 @@ import {
   UploadOutlined,
   DeleteOutlined,
   ScissorOutlined,
+  AimOutlined,
 } from '@ant-design/icons';
 import type { FloorPlanSourceType } from '../../../types/wmSketch';
 import { useImageImport } from './hooks/useImageImport';
@@ -46,6 +47,12 @@ export interface WMFloorPlanSourceProps {
   onSourceTypeChange: (type: FloorPlanSourceType) => void;
   onImageImported: (file: File, objectUrl: string) => void;
   onImageRemoved: () => void;
+  /** Trigger scale calibration mode */
+  onCalibrateScale?: () => void;
+  /** Whether scale has been calibrated (not default 20px/ft) */
+  isCalibrated?: boolean;
+  /** Current scale value in px/ft */
+  scalePixelsPerFoot?: number;
 }
 
 // ============================================================================
@@ -60,6 +67,9 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
   onSourceTypeChange,
   onImageImported,
   onImageRemoved,
+  onCalibrateScale,
+  isCalibrated,
+  scalePixelsPerFoot,
 }) => {
   const {
     fileInputRef,
@@ -145,6 +155,25 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
                   }}
                 />
               </Tooltip>
+              {onCalibrateScale && (
+                <>
+                  <div style={{ width: 1, height: 20, background: '#d9d9d9' }} />
+                  <Tooltip title={isCalibrated
+                    ? `Scale: ${scalePixelsPerFoot?.toFixed(1)} px/ft — click to re-calibrate`
+                    : 'Set scale by drawing a reference line on a known dimension'
+                  }>
+                    <Button
+                      size="small"
+                      icon={<AimOutlined />}
+                      type={isCalibrated ? 'default' : 'primary'}
+                      ghost={!isCalibrated}
+                      onClick={onCalibrateScale}
+                    >
+                      {isCalibrated ? `${scalePixelsPerFoot?.toFixed(1)} px/ft` : 'Calibrate Scale'}
+                    </Button>
+                  </Tooltip>
+                </>
+              )}
             </Space>
           ) : (
             // Drop zone / upload prompt

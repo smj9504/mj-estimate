@@ -141,8 +141,17 @@ from app.domains.water_mitigation.sketch_models import (
 )
 from app.domains.work_order.api import router as work_order_router
 from app.domains.xactimate.api import router as xactimate_router
+from app.domains.xactimate_helper.api import router as xactimate_helper_router
+from app.domains.xactimate_helper.models import (  # noqa: F401
+    XactLineItem, XactAssembly, XactAssemblyItem,
+    XactRoom, XactCorrectionFeedback, XactItemDescription,
+)
 from app.domains.crew_upload.api import public_router as crew_upload_public_router
 from app.domains.crew_upload.api import admin_router as crew_upload_admin_router
+from app.domains.water_mitigation.trash_scheduler import (
+    start_trash_scheduler,
+    stop_trash_scheduler,
+)
 from app.domains.crew_upload.models import UploadLink, UploadSession
 from app.domains.insurance_extraction.models import (
     InsurancePdfExtraction,
@@ -202,6 +211,52 @@ error_logger = get_error_logger()
 app_logger = logging.getLogger(__name__)
 
 
+def _auto_add_columns():
+    """Add new nullable columns if they don't exist yet."""
+    from sqlalchemy import inspect, text
+    from app.core.database_factory import get_database
+
+    db = get_database()
+    engine = db.engine
+    insp = inspect(engine)
+
+    _needed = [
+        (
+            "wm_floor_sketches",
+            "storage_file_id",
+            "VARCHAR(500)",
+        ),
+        (
+            "wm_floor_sketches",
+            "storage_provider",
+            "VARCHAR(50)",
+        ),
+    ]
+
+    existing = {}
+    for table, col, _ in _needed:
+        if table not in existing:
+            try:
+                cols = insp.get_columns(table)
+                existing[table] = {
+                    c["name"] for c in cols
+                }
+            except Exception:
+                existing[table] = set()
+
+    with engine.begin() as conn:
+        for table, col, col_type in _needed:
+            if col not in existing.get(table, set()):
+                stmt = (
+                    f"ALTER TABLE {table} "
+                    f"ADD COLUMN {col} {col_type}"
+                )
+                conn.execute(text(stmt))
+                print(
+                    f"[MIGRATION] Added {table}.{col}"
+                )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -225,6 +280,20 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 print(f"[STARTUP] Scheduler skipped: {e}")
 
+        # Start trash cleanup scheduler (always active, independent of integrations)
+        try:
+            start_trash_scheduler()
+            print("[STARTUP] Trash cleanup scheduler started (daily at 3AM ET)")
+        except Exception as e:
+            print(f"[STARTUP] Trash scheduler skipped: {e}")
+
+        # Lightweight auto-migration for new nullable columns
+        try:
+            _auto_add_columns()
+            print("[STARTUP] Column migration check done")
+        except Exception as e:
+            print(f"[STARTUP] Column migration skipped: {e}")
+
         print("[STARTUP] Ready - database/storage initialize on first use")
         yield
         
@@ -245,6 +314,9 @@ async def lifespan(app: FastAPI):
             if settings.ENABLE_INTEGRATIONS:
                 stop_scheduler()
                 logger.info("Integration services stopped")
+
+            # Stop trash cleanup scheduler
+            stop_trash_scheduler()
 
             db_factory.reset()
             # Services cleanup handled individually
@@ -470,6 +542,7 @@ app.include_router(staff_router, prefix="/api/staff", tags=["Staff Management"])
 # Line Items System endpoints
 app.include_router(line_items_router, prefix="/api/line-items", tags=["Line Items"])
 app.include_router(xactimate_router, prefix="/api/xactimate", tags=["Xactimate"])
+app.include_router(xactimate_helper_router, prefix="/api/xactimate", tags=["Xactimate Helper"])
 
 # Dashboard and Analytics endpoints
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard & Analytics"])

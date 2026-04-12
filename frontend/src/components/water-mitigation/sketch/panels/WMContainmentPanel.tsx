@@ -9,7 +9,7 @@
  * When nothing is selected: shows a summary list and total area.
  */
 import React, { useMemo } from 'react';
-import { Button, Select, Space, Typography, Divider, Popconfirm, Tooltip } from 'antd';
+import { Button, InputNumber, Select, Space, Typography, Divider, Popconfirm, Tooltip } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
 import type { WMContainmentZone } from '../../../../types/wmSketch';
 import { calcContainmentSqft, formatDimension } from '../utils/wmCalculations';
@@ -111,6 +111,23 @@ const ZoneEditForm: React.FC<{
         </Text>
       </div>
 
+      {/* Zipper count */}
+      <div>
+        <Text style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>
+          Zipper (EA)
+        </Text>
+        <InputNumber
+          size="small"
+          min={0}
+          max={20}
+          precision={0}
+          value={zone.zipper_count || 0}
+          onChange={(value) => onUpdate({ zipper_count: value ?? 0 })}
+          style={{ width: '100%' }}
+          addonAfter="EA"
+        />
+      </div>
+
       {/* Delete */}
       <Popconfirm
         title="Delete this containment barrier?"
@@ -138,6 +155,11 @@ const WMContainmentPanel: React.FC<WMContainmentPanelProps> = ({
 
   const totalSqft = useMemo(
     () => zones.reduce((sum, z) => sum + z.calculated_sqft, 0),
+    [zones]
+  );
+
+  const totalZippers = useMemo(
+    () => zones.reduce((sum, z) => sum + (z.zipper_count || 0), 0),
     [zones]
   );
 
@@ -192,9 +214,16 @@ const WMContainmentPanel: React.FC<WMContainmentPanelProps> = ({
             <Text style={{ fontSize: 12 }}>
               Total Containment ({zones.length} barrier{zones.length !== 1 ? 's' : ''})
             </Text>
-            <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>
-              {totalSqft.toFixed(2)} SF
-            </Text>
+            <div style={{ textAlign: 'right' }}>
+              <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>
+                {totalSqft.toFixed(2)} SF
+              </Text>
+              {totalZippers > 0 && (
+                <Text style={{ fontSize: 11, color: '#E53935', display: 'block', fontWeight: 500 }}>
+                  {totalZippers} Zipper (EA)
+                </Text>
+              )}
+            </div>
           </div>
           <Divider style={{ margin: '0 0 8px 0' }} />
         </>
@@ -227,6 +256,11 @@ const WMContainmentPanel: React.FC<WMContainmentPanelProps> = ({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <Text style={{ fontSize: 12 }}>
                   {zone.containment_type || `Barrier ${i + 1}`}
+                  {(zone.zipper_count || 0) > 0 && (
+                    <span style={{ color: '#E53935', fontWeight: 500, marginLeft: 4 }}>
+                      ({zone.zipper_count} Zipper)
+                    </span>
+                  )}
                 </Text>
                 <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>
                   {formatDimension(zone.length_ft)} long, {formatDimension(zone.height_ft)} high

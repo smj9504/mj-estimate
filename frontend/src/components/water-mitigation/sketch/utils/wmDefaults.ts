@@ -72,8 +72,7 @@ export const FLOOR_LABEL_PRESETS: string[] = [
  * Shown in the containment-zone form as quick-select values.
  */
 export const CONTAINMENT_TYPE_PRESETS: string[] = [
-  'No zipper',
-  'With zipper',
+  'Standard',
   'Full enclosure',
 ];
 

@@ -14,6 +14,7 @@ from uuid import UUID
 from fastapi import UploadFile
 from PIL import Image
 from PIL.ExifTags import TAGS
+from sqlalchemy.sql import func
 
 from app.core.config import settings
 from app.core.interfaces import DatabaseSession
@@ -26,6 +27,7 @@ from .models import (
     WMDocument,
     WMJobStatusHistory,
     WMPhoto,
+    WMPhotoCategory,
     WMReportConfig,
 )
 from .repository import (
@@ -508,7 +510,8 @@ class WaterMitigationService:
         captured_date: Optional[datetime] = None,
         companycam_thumbnail_url: Optional[str] = None,
         companycam_web_url: Optional[str] = None,
-        skip_duplicate_check: bool = False
+        skip_duplicate_check: bool = False,
+        companycam_tags: Optional[List[str]] = None
     ) -> WMPhoto:
         """
         Save CompanyCam photo to Water Mitigation job
@@ -527,6 +530,8 @@ class WaterMitigationService:
             companycam_web_url: CDN web-size URL
             skip_duplicate_check: Skip DB duplicate query
                 when caller already filtered (e.g. sync flow)
+            companycam_tags: Tags from CompanyCam photo,
+                auto-mapped to WM photo categories
 
         Returns:
             Created WMPhoto record
@@ -637,6 +642,20 @@ class WaterMitigationService:
             or upload_result.thumbnail_url
         )
 
+        # Map first CompanyCam tag to legacy category field
+        category_value = ''
+        if companycam_tags:
+            first_tag = companycam_tags[0]
+            if isinstance(first_tag, dict):
+                category_value = (
+                    first_tag.get('display_value')
+                    or first_tag.get('value')
+                    or first_tag.get('name', '')
+                )
+            else:
+                category_value = str(first_tag)
+            category_value = category_value.strip()
+
         photo_data = {
             'job_id': job_id,
             'source': 'companycam',
@@ -649,6 +668,7 @@ class WaterMitigationService:
             'title': title,
             'description': description,
             'captured_date': captured_date,
+            'category': category_value,
             'upload_status': 'completed',
             'storage_provider': storage_provider_type,
             'storage_file_id': upload_result.file_id,
@@ -667,6 +687,18 @@ class WaterMitigationService:
                 f"Created WMPhoto record for CompanyCam "
                 f"photo {companycam_photo_id}"
             )
+
+            # Auto-assign categories from CompanyCam tags
+            if companycam_tags:
+                logger.info(
+                    f"Assigning categories from CompanyCam "
+                    f"tags {companycam_tags} to photo "
+                    f"{companycam_photo_id}"
+                )
+                self._assign_categories_from_tags(
+                    created_photo, job_id, companycam_tags
+                )
+
             return created_photo
         except Exception as e:
             # Handle race condition
@@ -686,21 +718,129 @@ class WaterMitigationService:
                     return existing
             raise
 
+    def _assign_categories_from_tags(
+        self,
+        photo: WMPhoto,
+        job_id: UUID,
+        tags: List[str]
+    ) -> None:
+        """
+        Map CompanyCam tags to WM photo categories.
+
+        For each tag:
+        - Find existing PhotoCategory by name (case-insensitive)
+        - If not found, auto-create a new category
+        - Create WMPhotoCategory association
+
+        Args:
+            photo: Created WMPhoto record
+            job_id: Water mitigation job ID
+            tags: List of tag strings from CompanyCam
+        """
+        # Get job to find company_id for category scope
+        job = self.job_repo.get_by_id(job_id)
+        if not job:
+            return
+
+        company_id = (
+            job.get('company_id') if isinstance(job, dict)
+            else getattr(job, 'company_id', None)
+        )
+        if not company_id:
+            logger.warning(
+                f"Job {job_id} has no company_id. "
+                f"Skipping category assignment from tags."
+            )
+            return
+
+        for tag in tags:
+            # Handle both string tags and dict tags
+            # (CompanyCam API may return either format)
+            if isinstance(tag, dict):
+                tag_name = (
+                    tag.get('display_value')
+                    or tag.get('value')
+                    or tag.get('name', '')
+                )
+            else:
+                tag_name = str(tag)
+            tag_name = tag_name.strip()
+            if not tag_name:
+                continue
+
+            try:
+                # Find existing category (case-insensitive)
+                existing_category = self.session.query(
+                    PhotoCategory
+                ).filter(
+                    PhotoCategory.client_id == company_id,
+                    func.lower(PhotoCategory.category_name)
+                    == tag_name.lower()
+                ).first()
+
+                if existing_category:
+                    category = existing_category
+                else:
+                    # Auto-create new category from tag
+                    category = PhotoCategory(
+                        client_id=company_id,
+                        category_name=tag_name,
+                        category_type='companycam',
+                        color_code='#1890ff',
+                        is_active=True
+                    )
+                    self.session.add(category)
+                    self.session.flush()
+                    logger.info(
+                        f"Auto-created category '{tag_name}' "
+                        f"from CompanyCam tag"
+                    )
+
+                # Create photo-category association
+                association = WMPhotoCategory(
+                    photo_id=photo.id,
+                    category_id=category.id
+                )
+                self.session.add(association)
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to assign category '{tag_name}' "
+                    f"to photo {photo.id}: {e}"
+                )
+                continue
+
+        try:
+            self.session.flush()
+        except Exception as e:
+            logger.warning(
+                f"Failed to flush category assignments: {e}"
+            )
+
     def get_job_photos(self, job_id: UUID) -> List[WMPhoto]:
         """Get all photos for a job"""
         return self.photo_repo.find_by_job(job_id)
 
     def delete_photo(self, photo_id: UUID) -> bool:
-        """Delete photo and its file"""
+        """Delete photo and its file (local + cloud storage)"""
         photo = self.photo_repo.get_by_id(photo_id)
         if not photo:
             return False
 
-        # Delete file from disk
+        # Delete file from storage provider
         try:
-            if photo.file_path and os.path.exists(photo.file_path):
+            if photo.storage_provider and photo.storage_provider != 'local' and photo.storage_file_id:
+                # Cloud storage deletion (gdrive, gcs, s3, etc.)
+                storage = StorageFactory.get_instance(photo.storage_provider)
+                deleted = storage.delete(photo.storage_file_id)
+                if deleted:
+                    logger.info(f"Deleted photo from {photo.storage_provider}: {photo.storage_file_id}")
+                else:
+                    logger.warning(f"Failed to delete photo from {photo.storage_provider}: {photo.storage_file_id}")
+            elif photo.file_path and os.path.exists(photo.file_path):
+                # Local storage deletion
                 os.remove(photo.file_path)
-                logger.info(f"Deleted photo file: {photo.file_path}")
+                logger.info(f"Deleted local photo file: {photo.file_path}")
         except Exception as e:
             logger.error(f"Failed to delete photo file: {e}")
 
@@ -749,6 +889,98 @@ class WaterMitigationService:
 
         photos = query.order_by(WMPhoto.trashed_at.desc()).all()
         return [self._photo_to_dict(photo) for photo in photos]
+
+    def cleanup_expired_trash(self, retention_days: int = 30) -> Dict[str, Any]:
+        """Permanently delete photos that have been in trash for more than retention_days.
+        Deletes from cloud storage first, then from database.
+
+        Returns:
+            Dict with deleted_count, failed_count, and details
+        """
+        from datetime import timedelta, timezone
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
+
+        # Find expired trashed photos
+        expired_photos = (
+            self.photo_repo.session.query(WMPhoto)
+            .filter(
+                WMPhoto.is_trashed == True,
+                WMPhoto.trashed_at != None,
+                WMPhoto.trashed_at < cutoff_date
+            )
+            .all()
+        )
+
+        if not expired_photos:
+            logger.info("No expired trashed photos to clean up")
+            return {"deleted_count": 0, "failed_count": 0, "total_expired": 0}
+
+        deleted_count = 0
+        failed_count = 0
+        failed_ids = []
+
+        for photo in expired_photos:
+            try:
+                # Delete from storage provider
+                storage_deleted = False
+                if photo.storage_provider and photo.storage_provider != 'local' and photo.storage_file_id:
+                    storage = StorageFactory.get_instance(photo.storage_provider)
+                    storage_deleted = storage.delete(photo.storage_file_id)
+                    if storage_deleted:
+                        logger.info(f"Trash cleanup: deleted from {photo.storage_provider}: {photo.storage_file_id}")
+                    else:
+                        logger.warning(f"Trash cleanup: storage delete failed for {photo.storage_file_id}")
+                elif photo.file_path and os.path.exists(photo.file_path):
+                    os.remove(photo.file_path)
+                    storage_deleted = True
+
+                # Delete from database regardless of storage result
+                self.photo_repo.delete(photo.id)
+                deleted_count += 1
+            except Exception as e:
+                logger.error(f"Trash cleanup failed for photo {photo.id}: {e}")
+                failed_count += 1
+                failed_ids.append(str(photo.id))
+
+        logger.info(f"Trash cleanup complete: {deleted_count} deleted, {failed_count} failed out of {len(expired_photos)} expired")
+
+        return {
+            "deleted_count": deleted_count,
+            "failed_count": failed_count,
+            "total_expired": len(expired_photos),
+            "failed_ids": failed_ids
+        }
+
+    def get_trash_stats(self, job_id: Optional[UUID] = None) -> Dict[str, Any]:
+        """Get trash statistics including counts and auto-delete info"""
+        query = self.photo_repo.session.query(WMPhoto).filter(WMPhoto.is_trashed == True)
+        if job_id:
+            query = query.filter(WMPhoto.job_id == job_id)
+
+        photos = query.all()
+        total = len(photos)
+
+        if total == 0:
+            return {"total": 0, "expiring_soon": 0, "oldest_trashed_at": None, "retention_days": 30}
+
+        from datetime import timedelta, timezone
+        now = datetime.now(timezone.utc)
+
+        def _make_aware(dt):
+            return dt.replace(tzinfo=timezone.utc) if dt and dt.tzinfo is None else dt
+
+        expiring_soon = sum(
+            1 for p in photos
+            if p.trashed_at and (now - _make_aware(p.trashed_at)).days >= 23
+        )
+        oldest = min((p.trashed_at for p in photos if p.trashed_at), default=None)
+
+        return {
+            "total": total,
+            "expiring_soon": expiring_soon,
+            "oldest_trashed_at": oldest.isoformat() if oldest else None,
+            "retention_days": 30
+        }
 
     def _photo_to_dict(self, photo: WMPhoto) -> Dict[str, Any]:
         """Convert WMPhoto model to dictionary"""
@@ -1266,6 +1498,9 @@ class WaterMitigationService:
                                 f"companycam_{photo_id}.jpg"
                             )
 
+                            # Extract tags for category mapping
+                            cc_tags = cc_photo.get('tags', [])
+
                             # Save to storage and DB
                             await self.save_companycam_photo(
                                 job_id=job_id,
@@ -1282,7 +1517,8 @@ class WaterMitigationService:
                                     thumbnail_url
                                 ),
                                 companycam_web_url=web_url,
-                                skip_duplicate_check=True
+                                skip_duplicate_check=True,
+                                companycam_tags=cc_tags
                             )
                             synced_count += 1
                             batch_saved += 1
@@ -1534,5 +1770,6 @@ class WaterMitigationService:
             description=cc_photo.get('description'),
             captured_date=captured_date,
             companycam_thumbnail_url=thumbnail_url,
-            companycam_web_url=web_url
+            companycam_web_url=web_url,
+            companycam_tags=cc_photo.get('tags', [])
         )

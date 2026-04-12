@@ -1299,22 +1299,26 @@ class PDFService:
         context['include_financial'] = include_financial
         context['generated_date'] = datetime.now().strftime("%B %d, %Y")
         
-        # Load template
+        # Load template and render HTML
         template = env.get_template('template.html')
         html_content = template.render(**context)
-        
-        # Load CSS
+
+        # Remove external CSS link - we load CSS via stylesheets param (same as invoice PDF)
+        html_content = html_content.replace(
+            '<link rel="stylesheet" href="style.css">', ''
+        )
+
+        # Load style.css as stylesheet object
         css_path = template_dir / 'style.css'
         stylesheets = []
         if css_path.exists():
             with open(css_path, 'r', encoding='utf-8') as f:
                 stylesheets.append(CSS(string=f.read()))
-        
-        # Build header/footer text values from context
+
+        # Build header/footer text values
         report_number = report_data.get('report_number', '')
         report_label = f"Report #{report_number}" if report_number else ''
 
-        # Build property address for header/footer
         prop = report_data.get('property', {}) or {}
         if isinstance(prop, dict):
             addr_parts = [p for p in [
@@ -1327,71 +1331,69 @@ class PDFService:
         else:
             property_address = ''
 
-        # Add page CSS with header (pages 2+) and footer (all pages)
+        # Page CSS for header/footer - follows same pattern as invoice PDF
+        # First page: no header, no footer
+        # Pages 2+: no header, footer only
         page_css = f"""
         @page {{
             size: letter;
-            margin: 0.4in 0.3in 0.4in 0.3in;
-
-            @top-left {{
-                content: "{report_label}";
-                font-size: 9pt;
-                color: #444;
-                border-bottom: 1px solid #ccc;
-                padding-bottom: 4px;
-            }}
-
-            @top-right {{
-                content: "{property_address}";
-                font-size: 9pt;
-                color: #444;
-                text-align: right;
-                border-bottom: 1px solid #ccc;
-                padding-bottom: 4px;
-            }}
+            margin: 0.3in 0.3in 0.6in 0.3in;
 
             @bottom-left {{
                 content: "{report_label}";
                 font-size: 8pt;
                 color: #666;
-                border-top: 1px solid #ccc;
-                padding-top: 2px;
-                padding-bottom: 4px;
+                border-top: 0.5pt solid #ccc;
+                padding-top: 4px;
             }}
 
             @bottom-center {{
                 content: "Page " counter(page) " of " counter(pages);
                 font-size: 8pt;
                 color: #666;
-                border-top: 1px solid #ccc;
-                padding-top: 2px;
-                padding-bottom: 4px;
+                border-top: 0.5pt solid #ccc;
+                padding-top: 4px;
             }}
 
             @bottom-right {{
                 content: "{property_address}";
                 font-size: 8pt;
                 color: #666;
-                border-top: 1px solid #ccc;
-                padding-top: 2px;
-                padding-bottom: 4px;
+                border-top: 0.5pt solid #ccc;
+                padding-top: 4px;
             }}
         }}
 
         @page :first {{
-            margin: 0.1in 0.3in 0.4in 0.3in;
+            margin: 0.1in 0.3in 0.3in 0.3in;
             @top-left {{
                 content: none;
             }}
             @top-right {{
                 content: none;
             }}
+            @bottom-left {{
+                content: none;
+            }}
+            @bottom-center {{
+                content: none;
+            }}
+            @bottom-right {{
+                content: none;
+            }}
+        }}
+
+        .report-footer {{
+            display: none !important;
         }}
         """
         stylesheets.append(CSS(string=page_css))
-        
-        # Generate PDF
-        pdf_document = HTML(string=html_content, base_url=str(template_dir)).write_pdf(stylesheets=stylesheets)
+
+        # Generate PDF - same pattern as invoice: stylesheets param
+        pdf_document = HTML(
+            string=html_content,
+            base_url=str(template_dir)
+        ).write_pdf(stylesheets=stylesheets)
 
         return pdf_document
 
