@@ -81,6 +81,7 @@ import WMFloorPlanSource from './WMFloorPlanSource';
 import WMSketchToolbar from './WMSketchToolbar';
 import WMSketchSidebar from './WMSketchSidebar';
 import WMScaleCalibration from './canvas/WMScaleCalibration';
+import WMLegendOverlay from './canvas/WMLegendOverlay';
 
 const { Text } = Typography;
 
@@ -304,7 +305,10 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     state,
     setTool,
     selectElement,
+    toggleSelectElement,
     deselect,
+    selectedIds,
+    batchMoveSelected,
     setActiveMaterialType,
     setActiveEquipmentType,
     addDemolitionZone,
@@ -344,7 +348,13 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   }, [state.overlayData, onOverlayChanged]);
 
   // ------------------------------------------------------------------
-  // Canvas / Stage sizing via ResizeObserver
+  // Fixed canvas size (logical coordinate system — never changes with viewport)
+  // ------------------------------------------------------------------
+  const canvasWidth = floorSketch.canvas_width || 1200;
+  const canvasHeight = floorSketch.canvas_height || 900;
+
+  // ------------------------------------------------------------------
+  // Viewport sizing via ResizeObserver (only affects the Stage DOM element)
   // ------------------------------------------------------------------
   const containerRef = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
@@ -358,21 +368,19 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     isDirty: state.isDirty,
     onSaved: markSaved,
     autoSaveInterval: 30_000, // auto-save every 30s when dirty
-    canvasSize: stageSize,
   });
 
   const handleSave = useCallback(async () => {
     try {
-      await onSave(state.overlayData, {
-        width: stageSize.width,
-        height: stageSize.height,
-      });
+      // Do NOT pass viewport stageSize as canvasSize — the logical canvas
+      // dimensions are fixed and must not change with the browser window.
+      await onSave(state.overlayData);
       markSaved();
       message.success('Floor sketch saved.');
     } catch {
       // onSave is responsible for error display
     }
-  }, [onSave, state.overlayData, markSaved, stageSize]);
+  }, [onSave, state.overlayData, markSaved]);
 
   // Use the persistence hook save for Ctrl+S (already wired to service)
   const handleSaveShortcut = useCallback(async () => {
@@ -468,8 +476,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // ------------------------------------------------------------------
   const handleMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
-      // Middle mouse or space+left = pan
-      if (e.evt.button === 1 || spaceDown) {
+      // Middle mouse or space+left or pan tool = pan
+      if (e.evt.button === 1 || spaceDown || state.activeTool === 'pan') {
         isPanningRef.current = true;
         lastPointerRef.current = { x: e.evt.clientX, y: e.evt.clientY };
         return;
@@ -729,16 +737,25 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
 
   // ------------------------------------------------------------------
   // Canvas drag-end (element position update)
+  // When multiple elements are selected and the dragged element is one
+  // of them, all selected elements move together by the same delta.
   // ------------------------------------------------------------------
   const handleDragEnd = useCallback(
     (id: string, type: string, x: number, y: number) => {
+      // Multi-select batch move: if 2+ elements selected and dragged element is one of them
+      if (selectedIds.size > 1 && selectedIds.has(id)) {
+        batchMoveSelected(id, x, y);
+        return;
+      }
+
+      // Single element move
       if (type === 'demolition') updateDemolitionZone({ id, x, y });
       else if (type === 'equipment') updateEquipment({ id, x, y });
       else if (type === 'containment') updateContainment({ id, x, y });
       else if (type === 'floor_protection') updateFloorProtection({ id, x, y });
       else if (type === 'content_protection') updateContentProtection({ id, x, y });
     },
-    [updateDemolitionZone, updateEquipment, updateContainment, updateFloorProtection, updateContentProtection]
+    [selectedIds, batchMoveSelected, updateDemolitionZone, updateEquipment, updateContainment, updateFloorProtection, updateContentProtection]
   );
 
   // Transform end (resize)
@@ -791,16 +808,21 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   );
 
   // ------------------------------------------------------------------
-  // Select handler
+  // Select handler (Ctrl+click = toggle multi-select)
   // ------------------------------------------------------------------
   const handleSelectElement = useCallback(
-    (id: string, type: string) => {
-      selectElement({
+    (id: string, type: string, ctrlKey?: boolean) => {
+      const sel: import('../../../types/wmSketch').WMSketchSelection = {
         element_id: id,
         element_type: type as 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection',
-      });
+      };
+      if (ctrlKey) {
+        toggleSelectElement(sel);
+      } else {
+        selectElement(sel);
+      }
     },
-    [selectElement]
+    [selectElement, toggleSelectElement]
   );
 
   // ------------------------------------------------------------------
@@ -832,13 +854,19 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         return;
       }
 
-      if ((e.key === 'Delete' || e.key === 'Backspace') && state.selection) {
-        const { element_id, element_type } = state.selection;
-        if (element_type === 'demolition') removeDemolitionZone(element_id);
-        else if (element_type === 'equipment') removeEquipment(element_id);
-        else if (element_type === 'containment') removeContainment(element_id);
-        else if (element_type === 'floor_protection') removeFloorProtection(element_id);
-        else if (element_type === 'content_protection') removeContentProtection(element_id);
+      // Tool shortcuts
+      if (e.key === 'v' || e.key === 'V') { setTool('select'); return; }
+      if (e.key === 'h' || e.key === 'H') { setTool('pan'); return; }
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && state.selections.length > 0) {
+        for (const sel of state.selections) {
+          const { element_id, element_type } = sel;
+          if (element_type === 'demolition') removeDemolitionZone(element_id);
+          else if (element_type === 'equipment') removeEquipment(element_id);
+          else if (element_type === 'containment') removeContainment(element_id);
+          else if (element_type === 'floor_protection') removeFloorProtection(element_id);
+          else if (element_type === 'content_protection') removeContentProtection(element_id);
+        }
       }
     };
 
@@ -856,7 +884,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     undo,
     redo,
     handleSaveShortcut,
-    state.selection,
+    setTool,
+    state.selections,
     removeDemolitionZone,
     removeEquipment,
     removeContainment,
@@ -947,8 +976,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // Cursor style
   // ------------------------------------------------------------------
   const getCursor = () => {
-    if (spaceDown || isPanningRef.current) return 'grab';
-    if (state.activeTool === 'pan') return 'grab';
+    if (isPanningRef.current) return 'grabbing';
+    if (spaceDown || state.activeTool === 'pan') return 'grab';
     if (state.activeTool === 'select') return 'default';
     if (state.activeTool === 'equipment') return 'crosshair';
     return 'crosshair';
@@ -1077,23 +1106,23 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
             }}
             style={{ display: 'block' }}
           >
-            {/* Layer 1 — Background image */}
+            {/* Layer 1 — Background image (fitted to fixed canvas, not viewport) */}
             {imageSourceType === 'image' && (
               <Layer listening={false}>
                 <WMBackgroundImageLayer
                   imageUrl={backgroundImageUrl}
-                  canvasWidth={stageSize.width}
-                  canvasHeight={stageSize.height}
+                  canvasWidth={canvasWidth}
+                  canvasHeight={canvasHeight}
                   onStatusChange={setBgImageStatus}
                 />
               </Layer>
             )}
 
-            {/* Layer 2 — Reference grid */}
+            {/* Layer 2 — Reference grid (sized to fixed canvas) */}
             {imageSourceType === 'sketch' && (
               <GridLayer
-                width={stageSize.width / stageScale + 100}
-                height={stageSize.height / stageScale + 100}
+                width={canvasWidth}
+                height={canvasHeight}
                 scalePixelsPerFoot={floorSketch.scale_pixels_per_foot}
               />
             )}
@@ -1103,7 +1132,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
               <WMOverlayLayer
                 overlayData={state.overlayData}
                 scalePixelsPerFoot={floorSketch.scale_pixels_per_foot}
-                selectedId={state.selection?.element_id ?? null}
+                selectedIds={selectedIds}
                 activeTool={state.activeTool}
                 materialTypes={materialTypes}
                 isDrawing={drawState.isDrawing}
@@ -1121,11 +1150,17 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                 onSelectElement={handleSelectElement}
                 onDragEnd={handleDragEnd}
                 onTransformEnd={handleTransformEnd}
-                canvasWidth={stageSize.width / stageScale}
-                canvasHeight={stageSize.height / stageScale}
+                canvasWidth={canvasWidth}
+                canvasHeight={canvasHeight}
               />
             )}
           </Stage>
+
+          {/* Legend overlay — HTML-based, fixed to bottom-right, unaffected by zoom/pan */}
+          <WMLegendOverlay
+            overlayData={state.overlayData}
+            materialTypes={materialTypes}
+          />
 
           {/* Loading overlay while background image is loading */}
           {imageSourceType === 'image' && bgImageStatus === 'loading' && (

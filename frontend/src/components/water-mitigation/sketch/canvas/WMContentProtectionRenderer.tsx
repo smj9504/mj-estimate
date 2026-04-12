@@ -14,7 +14,7 @@ export interface WMContentProtectionRendererProps {
   protection: WMContentProtection;
   isSelected: boolean;
   scalePixelsPerFoot: number;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
 }
 
@@ -33,8 +33,8 @@ const WMContentProtectionRenderer: React.FC<WMContentProtectionRendererProps> = 
 
   const labelText = `${Math.round(protection.calculated_sqft)} SF`;
 
-  const handleClick = useCallback(() => {
-    onSelect(protection.id);
+  const handleClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    onSelect(protection.id, e.evt.ctrlKey || e.evt.metaKey);
   }, [protection.id, onSelect]);
 
   const handleDragEnd = useCallback(

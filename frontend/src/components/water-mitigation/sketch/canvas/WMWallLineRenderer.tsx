@@ -1,50 +1,64 @@
 /**
- * WMContainmentRenderer
- * Renders a containment barrier as a thick dashed blue line on a Konva layer.
- * Represents a poly sheeting wall on the floor plan.
+ * WMWallLineRenderer
+ * Renders a wall demolition or baseboard/quarter-round zone as a line
+ * on the Konva canvas. Walls are thicker solid lines; baseboards are
+ * thinner dashed lines. Both support drag and endpoint manipulation.
  *
- * When selected, shows draggable endpoint handles to adjust direction and length.
- * Supports selection, drag (whole line), and endpoint manipulation.
+ * - Wall (SF): drawn as a thick line; area = length_ft * height_ft
+ * - Baseboard / Quarter Round (LF): drawn as a thinner dashed line; value = length in LF
  */
 
 import React, { useCallback } from 'react';
 import { Group, Line, Circle, Rect, Text } from 'react-konva';
 import Konva from 'konva';
-import { WMContainmentZone } from '../../../../types/wmSketch';
+import { WMDemolitionZone, DemoMaterialType, DEFAULT_DEMO_MATERIAL_TYPES } from '../../../../types/wmSketch';
 
-export interface WMContainmentRendererProps {
-  zone: WMContainmentZone;
+export interface WMWallLineRendererProps {
+  zone: WMDemolitionZone;
   isSelected: boolean;
   scalePixelsPerFoot: number;
+  materialTypes: DemoMaterialType[];
   onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
-  /** Called when an endpoint handle is dragged — provides new length (ft) and rotation (deg) */
   onTransformEnd?: (id: string, lengthFt: number, rotationDeg: number) => void;
 }
 
-/** Containment lines use a blue palette */
-const CONTAINMENT_STROKE = '#2196F3';
-const CONTAINMENT_DASH: number[] = [10, 5];
-const LINE_WIDTH = 4;
-const HANDLE_RADIUS = 6;
-/** Zipper indicator */
-const ZIPPER_DOT_RADIUS = 5;
-const ZIPPER_DOT_COLOR = '#E53935';
+function getMaterial(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]) {
+  return (
+    materialTypes.find((m) => m.id === zone.material_type) ??
+    DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === zone.material_type)
+  );
+}
 
-const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
+const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
   zone,
   isSelected,
   scalePixelsPerFoot,
+  materialTypes,
   onSelect,
   onDragEnd,
   onTransformEnd,
 }) => {
-  const lengthPx = zone.length_ft * scalePixelsPerFoot;
-  const zipperCount = zone.zipper_count || 0;
+  const mat = getMaterial(zone, materialTypes);
+  const isLF = mat?.unit === 'LF';
 
-  const labelText = zone.label
-    ? zone.label
-    : `${zone.calculated_sqft > 0 ? `${Math.round(zone.calculated_sqft)} SF` : zone.containment_type}${zipperCount > 0 ? ` | ${zipperCount} Zipper` : ''}`;
+  // dimension1_ft stores the line length
+  const lengthPx = zone.dimension1_ft * scalePixelsPerFoot;
+  const color = zone.color || mat?.color || '#FF5722';
+
+  // Line styling
+  const lineWidth = isLF ? 3 : 5;
+  const dash = isLF ? [8, 4] : undefined;
+
+  // Label
+  let labelText = '';
+  if (isLF) {
+    labelText = `${zone.dimension1_ft.toFixed(2)} LF`;
+  } else {
+    const sqft = zone.calculated_sqft || 0;
+    labelText = sqft > 0 ? `${sqft.toFixed(2)} SF` : `${zone.dimension1_ft.toFixed(2)}'`;
+  }
+  if (zone.label) labelText = zone.label;
 
   const handleClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     onSelect(zone.id, e.evt.ctrlKey || e.evt.metaKey);
@@ -57,27 +71,18 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
     [zone.id, onDragEnd],
   );
 
-  // -----------------------------------------------------------------------
-  // Endpoint handle drag — recalculates length and rotation from new endpoint
-  // -----------------------------------------------------------------------
   const handleEndpointDrag = useCallback(
     (e: Konva.KonvaEventObject<DragEvent>) => {
       if (!onTransformEnd) return;
-
       const handle = e.target;
-      // Handle position is in the Group's local coordinate space (rotated)
-      // We need the stage-space position to recalculate angle
       const stage = handle.getStage();
       if (!stage) return;
 
-      // Get the absolute position of the dragged handle
       const handleAbsPos = handle.getAbsolutePosition();
-      // Get the start point (Group origin) absolute position
       const group = handle.getParent();
       if (!group) return;
       const startAbsPos = group.getAbsolutePosition();
 
-      // Account for stage transform
       const stageTransform = stage.getAbsoluteTransform().copy().invert();
       const startCanvas = stageTransform.point(startAbsPos);
       const endCanvas = stageTransform.point(handleAbsPos);
@@ -88,14 +93,14 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
       const newLengthFt = newLengthPx / scalePixelsPerFoot;
       const newAngleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
 
-      // Reset handle position to the new calculated length along the line
-      // (it will be re-rendered at the correct position)
       handle.position({ x: newLengthFt * scalePixelsPerFoot, y: 0 });
-
       onTransformEnd(zone.id, Math.max(0.5, newLengthFt), newAngleDeg);
     },
     [zone.id, scalePixelsPerFoot, onTransformEnd],
   );
+
+  // Don't render if no length
+  if (lengthPx <= 0) return null;
 
   return (
     <Group
@@ -107,16 +112,17 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
       onTap={handleClick}
       onDragEnd={handleDragEnd}
     >
-      {/* Containment barrier line */}
+      {/* Main line */}
       <Line
         points={[0, 0, lengthPx, 0]}
-        stroke={CONTAINMENT_STROKE}
-        strokeWidth={LINE_WIDTH}
-        dash={CONTAINMENT_DASH}
+        stroke={color}
+        strokeWidth={lineWidth}
+        dash={dash}
         lineCap="round"
+        opacity={0.8}
       />
 
-      {/* Hit area — wider invisible line for easier clicking */}
+      {/* Hit area */}
       <Line
         points={[0, 0, lengthPx, 0]}
         stroke="transparent"
@@ -128,14 +134,14 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
         <Line
           points={[0, 0, lengthPx, 0]}
           stroke="#1890ff"
-          strokeWidth={LINE_WIDTH + 4}
+          strokeWidth={lineWidth + 4}
           dash={[4, 3]}
           lineCap="round"
           listening={false}
         />
       )}
 
-      {/* Label (shown above the line) */}
+      {/* Label */}
       {lengthPx > 40 && (
         <>
           <Rect
@@ -154,7 +160,8 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
             text={labelText}
             fontSize={10}
             fontFamily="'Inter', 'Segoe UI', sans-serif"
-            fill={CONTAINMENT_STROKE}
+            fill={color}
+            fontStyle="bold"
             align="center"
             listening={false}
             wrap="none"
@@ -163,58 +170,61 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
         </>
       )}
 
-      {/* Zipper indicators — red dots evenly spaced along the line */}
-      {zipperCount > 0 && lengthPx > 20 && (
+      {/* Insulation indicator badge */}
+      {zone.include_insulation && lengthPx > 50 && (
         <>
-          {Array.from({ length: zipperCount }, (_, i) => {
-            const pos = lengthPx * (i + 1) / (zipperCount + 1);
-            return (
-              <Circle
-                key={`zip-${i}`}
-                x={pos}
-                y={0}
-                radius={ZIPPER_DOT_RADIUS}
-                fill={ZIPPER_DOT_COLOR}
-                stroke="#ffffff"
-                strokeWidth={1.5}
-                listening={false}
-              />
-            );
-          })}
+          <Rect
+            x={lengthPx / 2 + 54}
+            y={-22}
+            width={28}
+            height={14}
+            fill="#E91E63"
+            cornerRadius={3}
+            listening={false}
+          />
+          <Text
+            x={lengthPx / 2 + 54}
+            y={-21}
+            width={28}
+            text="INS"
+            fontSize={9}
+            fontFamily="'Inter', 'Segoe UI', sans-serif"
+            fill="#ffffff"
+            fontStyle="bold"
+            align="center"
+            listening={false}
+          />
         </>
       )}
 
-      {/* Endpoint handles (visible only when selected) */}
+      {/* Endpoint handles (only when selected) */}
       {isSelected && (
         <>
-          {/* Start point handle (fixed — moves the whole line via group drag) */}
           <Circle
             x={0}
             y={0}
-            radius={HANDLE_RADIUS}
+            radius={5}
             fill="#ffffff"
-            stroke={CONTAINMENT_STROKE}
+            stroke={color}
             strokeWidth={2}
             listening={false}
           />
-
-          {/* End point handle (draggable — adjusts length and direction) */}
           <Circle
             x={lengthPx}
             y={0}
-            radius={HANDLE_RADIUS}
-            fill={CONTAINMENT_STROKE}
+            radius={5}
+            fill={color}
             stroke="#ffffff"
             strokeWidth={2}
             draggable
             onDragEnd={handleEndpointDrag}
             onMouseEnter={(e) => {
-              const stage = e.target.getStage();
-              if (stage) stage.container().style.cursor = 'grab';
+              const s = e.target.getStage();
+              if (s) s.container().style.cursor = 'grab';
             }}
             onMouseLeave={(e) => {
-              const stage = e.target.getStage();
-              if (stage) stage.container().style.cursor = '';
+              const s = e.target.getStage();
+              if (s) s.container().style.cursor = '';
             }}
           />
         </>
@@ -223,4 +233,4 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
   );
 };
 
-export default React.memo(WMContainmentRenderer);
+export default React.memo(WMWallLineRenderer);

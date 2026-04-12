@@ -42,12 +42,13 @@ import WMEquipmentRenderer from './WMEquipmentRenderer';
 import WMContainmentRenderer from './WMContainmentRenderer';
 import WMFloorProtectionRenderer from './WMFloorProtectionRenderer';
 import WMContentProtectionRenderer from './WMContentProtectionRenderer';
-import WMLegendRenderer from './WMLegendRenderer';
+import WMWallLineRenderer from './WMWallLineRenderer';
 
 export interface WMOverlayLayerProps {
   overlayData: WMOverlayData;
   scalePixelsPerFoot: number;
-  selectedId: string | null;
+  /** Set of currently selected element IDs (supports multi-select) */
+  selectedIds: Set<string>;
   activeTool: WMSketchTool;
   materialTypes: DemoMaterialType[];
 
@@ -58,37 +59,44 @@ export interface WMOverlayLayerProps {
   activeMaterialColor: string;
 
   // Callbacks
-  onSelectElement: (id: string, type: string) => void;
+  onSelectElement: (id: string, type: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, type: string, x: number, y: number) => void;
   onTransformEnd?: (id: string, type: string, widthFt: number, heightFt: number) => void;
 
-  // Canvas dimensions used to position the legend
+  // Canvas dimensions (kept for potential future use)
   canvasWidth: number;
   canvasHeight: number;
 }
 
-// Padding from the canvas edge for the legend box
-const LEGEND_MARGIN = 10;
-const LEGEND_WIDTH = 170;
 
 /**
- * Returns true if a demolition zone should be rendered on the 2D canvas.
- * Wall zones (surface === 'wall') and linear-foot items (unit === 'LF',
- * i.e. baseboards) cannot be meaningfully represented as 2D rectangles on
- * a floor plan, so they are managed exclusively through the sidebar panel.
+ * Returns true if a demolition zone is a rectangle (floor/ceiling) type
+ * rendered via WMDemolitionRenderer.
  */
-function isCanvasRenderable(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]): boolean {
+function isRectZone(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]): boolean {
   const mat =
     materialTypes.find((m) => m.id === zone.material_type) ??
     DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === zone.material_type);
-  if (!mat) return true; // unknown material — show it rather than silently hide
+  if (!mat) return true;
   return mat.surface !== 'wall' && mat.unit !== 'LF';
+}
+
+/**
+ * Returns true if a demolition zone is a wall/baseboard line type
+ * rendered via WMWallLineRenderer.
+ */
+function isLineZone(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]): boolean {
+  const mat =
+    materialTypes.find((m) => m.id === zone.material_type) ??
+    DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === zone.material_type);
+  if (!mat) return false;
+  return mat.surface === 'wall' || mat.unit === 'LF';
 }
 
 const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   overlayData,
   scalePixelsPerFoot,
-  selectedId,
+  selectedIds,
   activeTool,
   materialTypes,
   isDrawing,
@@ -98,9 +106,11 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   onSelectElement,
   onDragEnd,
   onTransformEnd,
-  canvasWidth,
-  canvasHeight,
+  canvasWidth: _canvasWidth,
+  canvasHeight: _canvasHeight,
 }) => {
+  // Helper: check if an element is in the selection set
+  const isSelected = (id: string) => selectedIds.has(id);
   // ---------------------------------------------------------------------------
   // Callback factories (stable references via useCallback)
   // ---------------------------------------------------------------------------
@@ -121,22 +131,22 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
     [onTransformEnd],
   );
 
-  // Stable per-type handlers
-  const selectDemoHandler = useCallback((id: string) => onSelectElement(id, 'demolition'), [onSelectElement]);
+  // Stable per-type handlers (ctrlKey forwarded for multi-select)
+  const selectDemoHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'demolition', ctrlKey), [onSelectElement]);
   const dragDemoHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'demolition', x, y), [onDragEnd]);
   const transformDemoHandler = useCallback((id: string, w: number, h: number) => onTransformEnd?.(id, 'demolition', w, h), [onTransformEnd]);
 
-  const selectEquipHandler = useCallback((id: string) => onSelectElement(id, 'equipment'), [onSelectElement]);
+  const selectEquipHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'equipment', ctrlKey), [onSelectElement]);
   const dragEquipHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'equipment', x, y), [onDragEnd]);
 
-  const selectContainHandler = useCallback((id: string) => onSelectElement(id, 'containment'), [onSelectElement]);
+  const selectContainHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'containment', ctrlKey), [onSelectElement]);
   const dragContainHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'containment', x, y), [onDragEnd]);
   const transformContainHandler = useCallback((id: string, lengthFt: number, rotation: number) => onTransformEnd?.(id, 'containment', lengthFt, rotation), [onTransformEnd]);
 
-  const selectProtectHandler = useCallback((id: string) => onSelectElement(id, 'floor_protection'), [onSelectElement]);
+  const selectProtectHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'floor_protection', ctrlKey), [onSelectElement]);
   const dragProtectHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'floor_protection', x, y), [onDragEnd]);
 
-  const selectContentProtHandler = useCallback((id: string) => onSelectElement(id, 'content_protection'), [onSelectElement]);
+  const selectContentProtHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'content_protection', ctrlKey), [onSelectElement]);
   const dragContentProtHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'content_protection', x, y), [onDragEnd]);
 
   // ---------------------------------------------------------------------------
@@ -155,42 +165,29 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   }
 
   // ---------------------------------------------------------------------------
-  // Legend position (bottom-right corner)
+  // When the user is in a drawing tool, overlay elements should not capture
+  // mouse events — otherwise draggable Groups and Transformers intercept
+  // mouseDown/mouseMove/mouseUp, blocking consecutive drawing.
   // ---------------------------------------------------------------------------
-  const legendX = canvasWidth - LEGEND_WIDTH - LEGEND_MARGIN;
-
-  // Approximate legend height: we don't know it exactly until render, so
-  // estimate based on row count to roughly position it.
-  // Only count canvas-visible (non-wall, non-LF) zones for legend row estimation
-  const usedMaterialIds = new Set(
-    overlayData.demolition_zones
-      .filter((z) => isCanvasRenderable(z, materialTypes))
-      .map((z) => z.material_type),
-  );
-  const materialRowCount = materialTypes.filter((mt) => usedMaterialIds.has(mt.id)).length;
-  const equipRowCount = Object.keys(overlayData.equipment_placements.reduce(
-    (acc, p) => { acc[p.equipment_type] = true; return acc; },
-    {} as Record<string, boolean>,
-  )).length;
-  const extraRows =
-    (overlayData.containment_zones.length > 0 ? 1 : 0) +
-    (overlayData.floor_protections.length > 0 ? 1 : 0) +
-    ((overlayData.content_protections ?? []).length > 0 ? 1 : 0);
-  const totalRows = materialRowCount + equipRowCount + extraRows;
-  const estimatedLegendHeight = 10 + 20 + 6 + totalRows * 18 + 10;
-  const legendY = canvasHeight - estimatedLegendHeight - LEGEND_MARGIN;
+  const isDrawingTool =
+    activeTool === 'demolition' ||
+    activeTool === 'demolition_line' ||
+    activeTool === 'containment' ||
+    activeTool === 'floor_protection' ||
+    activeTool === 'content_protection' ||
+    activeTool === 'equipment';
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <Layer>
+    <Layer listening={!isDrawingTool}>
       {/* 1. Floor protections (bottom-most overlay) */}
       {overlayData.floor_protections.map((fp) => (
         <WMFloorProtectionRenderer
           key={fp.id}
           protection={fp}
-          isSelected={selectedId === fp.id}
+          isSelected={isSelected(fp.id)}
           scalePixelsPerFoot={scalePixelsPerFoot}
           onSelect={selectProtectHandler}
           onDragEnd={dragProtectHandler}
@@ -202,7 +199,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         <WMContentProtectionRenderer
           key={cp.id}
           protection={cp}
-          isSelected={selectedId === cp.id}
+          isSelected={isSelected(cp.id)}
           scalePixelsPerFoot={scalePixelsPerFoot}
           onSelect={selectContentProtHandler}
           onDragEnd={dragContentProtHandler}
@@ -214,7 +211,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         <WMContainmentRenderer
           key={zone.id}
           zone={zone}
-          isSelected={selectedId === zone.id}
+          isSelected={isSelected(zone.id)}
           scalePixelsPerFoot={scalePixelsPerFoot}
           onSelect={selectContainHandler}
           onDragEnd={dragContainHandler}
@@ -222,15 +219,31 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         />
       ))}
 
-      {/* 4. Demolition zones — wall / baseboard types are excluded from canvas */}
+      {/* 4a. Demolition zones — rectangle types (floor/ceiling) */}
       {overlayData.demolition_zones
-        .filter((zone) => isCanvasRenderable(zone, materialTypes))
+        .filter((zone) => isRectZone(zone, materialTypes))
         .map((zone) => (
           <WMDemolitionRenderer
             key={zone.id}
             zone={zone}
-            isSelected={selectedId === zone.id}
+            isSelected={isSelected(zone.id)}
             scalePixelsPerFoot={scalePixelsPerFoot}
+            onSelect={selectDemoHandler}
+            onDragEnd={dragDemoHandler}
+            onTransformEnd={transformDemoHandler}
+          />
+        ))}
+
+      {/* 4b. Demolition zones — wall / baseboard line types */}
+      {overlayData.demolition_zones
+        .filter((zone) => isLineZone(zone, materialTypes))
+        .map((zone) => (
+          <WMWallLineRenderer
+            key={zone.id}
+            zone={zone}
+            isSelected={isSelected(zone.id)}
+            scalePixelsPerFoot={scalePixelsPerFoot}
+            materialTypes={materialTypes}
             onSelect={selectDemoHandler}
             onDragEnd={dragDemoHandler}
             onTransformEnd={transformDemoHandler}
@@ -242,7 +255,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         <WMEquipmentRenderer
           key={placement.id}
           placement={placement}
-          isSelected={selectedId === placement.id}
+          isSelected={isSelected(placement.id)}
           onSelect={selectEquipHandler}
           onDragEnd={dragEquipHandler}
         />
@@ -261,7 +274,18 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
           listening={false}
         />
       )}
-      {isDrawing && drawStart && drawCurrent && activeTool !== 'containment' && rubberW > 2 && rubberH > 2 && (
+      {isDrawing && drawStart && drawCurrent && activeTool === 'demolition_line' && (
+        <Line
+          points={[drawStart.x, drawStart.y, drawCurrent.x, drawCurrent.y]}
+          stroke={activeMaterialColor}
+          strokeWidth={4}
+          dash={[8, 4]}
+          lineCap="round"
+          opacity={0.7}
+          listening={false}
+        />
+      )}
+      {isDrawing && drawStart && drawCurrent && activeTool !== 'containment' && activeTool !== 'demolition_line' && rubberW > 2 && rubberH > 2 && (
         // Other tools: rectangle preview
         <Rect
           x={rubberX}
@@ -277,15 +301,6 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         />
       )}
 
-      {/* 7. Legend (always rendered on top) */}
-      {totalRows > 0 && (
-        <WMLegendRenderer
-          overlayData={overlayData}
-          x={legendX}
-          y={legendY}
-          materialTypes={materialTypes}
-        />
-      )}
     </Layer>
   );
 };

@@ -23,7 +23,7 @@ export interface WMFloorProtectionRendererProps {
   protection: WMFloorProtection;
   isSelected: boolean;
   scalePixelsPerFoot: number;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
 }
 
@@ -40,10 +40,10 @@ const WMFloorProtectionRenderer: React.FC<WMFloorProtectionRendererProps> = ({
   const widthPx = protection.paper_width_ft * scalePixelsPerFoot;
   const lengthPx = protection.length_ft * scalePixelsPerFoot;
 
-  const labelText = `${protection.length_ft}'${protection.calculated_sqft > 0 ? ` (${Math.round(protection.calculated_sqft)} SF)` : ''}`;
+  const labelText = `${protection.calculated_sqft > 0 ? `${protection.calculated_sqft.toFixed(2)} SF` : `${protection.length_ft.toFixed(2)}'`}`;
 
-  const handleClick = useCallback(() => {
-    onSelect(protection.id);
+  const handleClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    onSelect(protection.id, e.evt.ctrlKey || e.evt.metaKey);
   }, [protection.id, onSelect]);
 
   const handleDragEnd = useCallback(

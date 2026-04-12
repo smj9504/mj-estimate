@@ -24,7 +24,7 @@ import { WMEquipmentPlacement, EQUIPMENT_CONFIG } from '../../../../types/wmSket
 export interface WMEquipmentRendererProps {
   placement: WMEquipmentPlacement;
   isSelected: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
 }
 
@@ -142,8 +142,8 @@ const WMEquipmentRenderer: React.FC<WMEquipmentRendererProps> = ({
 }) => {
   const config = EQUIPMENT_CONFIG[placement.equipment_type];
 
-  const handleClick = useCallback(() => {
-    onSelect(placement.id);
+  const handleClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    onSelect(placement.id, e.evt.ctrlKey || e.evt.metaKey);
   }, [placement.id, onSelect]);
 
   const handleDragEnd = useCallback(

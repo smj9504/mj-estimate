@@ -33,7 +33,7 @@ export interface WMDemolitionRendererProps {
   zone: WMDemolitionZone;
   isSelected: boolean;
   scalePixelsPerFoot: number;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onTransformEnd?: (id: string, width: number, height: number) => void;
 }
@@ -108,8 +108,8 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
     }
   }, [isSelected]);
 
-  const handleClick = useCallback(() => {
-    onSelect(zone.id);
+  const handleClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    onSelect(zone.id, e.evt.ctrlKey || e.evt.metaKey);
   }, [zone.id, onSelect]);
 
   const handleDragEnd = useCallback(
@@ -258,6 +258,60 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
               listening={false}
               wrap="none"
               ellipsis
+            />
+          </>
+        )}
+
+        {/* Carpet pad indicator badge */}
+        {zone.include_pad && widthPx > 30 && heightPx > 14 && (
+          <>
+            <Rect
+              x={widthPx - 30}
+              y={2}
+              width={28}
+              height={14}
+              fill="#52c41a"
+              cornerRadius={3}
+              listening={false}
+            />
+            <Text
+              x={widthPx - 30}
+              y={3}
+              width={28}
+              text="PAD"
+              fontSize={9}
+              fontFamily="'Inter', 'Segoe UI', sans-serif"
+              fill="#ffffff"
+              fontStyle="bold"
+              align="center"
+              listening={false}
+            />
+          </>
+        )}
+
+        {/* Insulation indicator badge */}
+        {zone.include_insulation && widthPx > 30 && heightPx > 14 && (
+          <>
+            <Rect
+              x={widthPx - (zone.include_pad ? 62 : 30)}
+              y={2}
+              width={28}
+              height={14}
+              fill="#E91E63"
+              cornerRadius={3}
+              listening={false}
+            />
+            <Text
+              x={widthPx - (zone.include_pad ? 62 : 30)}
+              y={3}
+              width={28}
+              text="INS"
+              fontSize={9}
+              fontFamily="'Inter', 'Segoe UI', sans-serif"
+              fill="#ffffff"
+              fontStyle="bold"
+              align="center"
+              listening={false}
             />
           </>
         )}

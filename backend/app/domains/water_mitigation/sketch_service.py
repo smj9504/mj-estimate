@@ -240,6 +240,7 @@ class SketchService:
         "wall_drywall_2ft": "Wall - Drywall 2ft",
         "baseboard": "Baseboard",
         "baseboard_quarter_round": "Baseboard+Quarter Round",
+        "insulation": "Insulation",
     }
 
     # Material type → item_type classification
@@ -252,6 +253,7 @@ class SketchService:
         "wall_drywall_2ft": "SF",
         "baseboard": "LF",
         "baseboard_quarter_round": "LF",
+        "insulation": "SF",
     }
 
     def generate_scope_from_sketch(
@@ -318,11 +320,19 @@ class SketchService:
 
             # --- Demolition zones: group by material_type ---
             demo_groups: dict[str, float] = {}
+            carpet_pad_sqft: float = 0.0
+            insulation_sqft: float = 0.0
             for zone in (sketch.demolition_zones or []):
                 mt = zone.material_type or "unknown"
                 sqft = float(zone.calculated_sqft or 0)
                 if sqft > 0:
                     demo_groups[mt] = demo_groups.get(mt, 0) + sqft
+                # Accumulate carpet pad area
+                if mt == "carpet" and getattr(zone, "include_pad", False) and sqft > 0:
+                    carpet_pad_sqft += sqft
+                # Accumulate insulation area (from wall/ceiling checkbox)
+                if getattr(zone, "include_insulation", False) and sqft > 0:
+                    insulation_sqft += sqft
 
             for material_type, total_qty in demo_groups.items():
                 name = self._MATERIAL_TYPE_NAMES.get(material_type, material_type)
@@ -342,6 +352,46 @@ class SketchService:
                 all_items.append(GeneratedScopeItemSummary(
                     name=name, item_type="demolition",
                     quantity=round(total_qty, 2), unit=unit,
+                    floor_label=floor_label,
+                ))
+
+            # Carpet Pad — separate line item
+            if carpet_pad_sqft > 0:
+                pad_item = WMScopeItem(
+                    location_id=location.id,
+                    item_type="demolition",
+                    name="Carpet Pad",
+                    quantity=Decimal(str(round(carpet_pad_sqft, 2))),
+                    unit="SF",
+                    include_in_debris=True,
+                    display_order=item_order,
+                )
+                self.db.add(pad_item)
+                items_created += 1
+                item_order += 1
+                all_items.append(GeneratedScopeItemSummary(
+                    name="Carpet Pad", item_type="demolition",
+                    quantity=round(carpet_pad_sqft, 2), unit="SF",
+                    floor_label=floor_label,
+                ))
+
+            # Insulation — separate line item from checkbox
+            if insulation_sqft > 0:
+                ins_item = WMScopeItem(
+                    location_id=location.id,
+                    item_type="demolition",
+                    name="Insulation",
+                    quantity=Decimal(str(round(insulation_sqft, 2))),
+                    unit="SF",
+                    include_in_debris=True,
+                    display_order=item_order,
+                )
+                self.db.add(ins_item)
+                items_created += 1
+                item_order += 1
+                all_items.append(GeneratedScopeItemSummary(
+                    name="Insulation", item_type="demolition",
+                    quantity=round(insulation_sqft, 2), unit="SF",
                     floor_label=floor_label,
                 ))
 

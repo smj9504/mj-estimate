@@ -90,10 +90,12 @@
       letter-spacing: 0.4px;
       background: #fafafa;
       border-right: 1px solid #e0e0e0;
+      white-space: nowrap;
     }
     .info-table .info-value {
       color: #1a1a1a;
       font-size: 10px;
+      white-space: nowrap;
     }
     .info-table .col-divider {
       width: 0;
@@ -337,8 +339,10 @@
           {{ job.homeowner_email or '—' }}
         </td>
         <td class="col-divider"></td>
-        <td class="info-label"></td>
-        <td class="info-value"></td>
+        <td class="info-label">Adjuster</td>
+        <td class="info-value {% if not job.adjuster_name %}empty{% endif %}">
+          {{ job.adjuster_name or '—' }}
+        </td>
       </tr>
       <tr>
         <td class="info-label">Date of Loss</td>
@@ -346,8 +350,10 @@
           {{ job.date_of_loss | fmt_date }}
         </td>
         <td class="col-divider"></td>
-        <td class="info-label"></td>
-        <td class="info-value"></td>
+        <td class="info-label">Adjuster Phone</td>
+        <td class="info-value {% if not job.adjuster_phone %}empty{% endif %}">
+          {{ job.adjuster_phone or '—' }}
+        </td>
       </tr>
     </table>
 
@@ -439,6 +445,18 @@
               <td class="text-right">{{ "%.1f"|format(mat.total_sqft) }}</td>
             </tr>
             {% endfor %}
+          {% if item.summary.carpet_pad_sqft > 0 %}
+            <tr style="background:#f0fff0;">
+              <td colspan="3" style="padding-left:20px; color:#52c41a; font-style:italic;">+ Carpet Pad</td>
+              <td class="text-right" style="color:#52c41a;">{{ "%.1f"|format(item.summary.carpet_pad_sqft) }}</td>
+            </tr>
+          {% endif %}
+          {% if item.summary.insulation_sqft > 0 %}
+            <tr style="background:#fce4ec;">
+              <td colspan="3" style="padding-left:20px; color:#E91E63; font-style:italic;">+ Insulation</td>
+              <td class="text-right" style="color:#E91E63;">{{ "%.1f"|format(item.summary.insulation_sqft) }}</td>
+            </tr>
+          {% endif %}
           </tbody>
           <tfoot>
             <tr class="total-row">

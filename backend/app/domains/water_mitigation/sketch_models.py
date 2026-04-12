@@ -160,6 +160,9 @@ class WMDemolitionZone(Base, BaseModel):
     # Carpet pad — when True, scope generation creates a "Carpet Pad" line item
     include_pad = Column(Boolean, default=False, nullable=False, server_default="false")
 
+    # Insulation — when True, scope generation creates an "Insulation" line item
+    include_insulation = Column(Boolean, default=False, nullable=False, server_default="false")
+
     # Optional link to scope item for invoice tracking
     scope_item_id = Column(
         UUIDType(),

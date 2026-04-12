@@ -459,6 +459,8 @@ class SketchPdfService:
     def _compute_floor_summary(self, floor: WMFloorSketch) -> Dict[str, Any]:
         """Aggregate overlay data into report-friendly summary dicts."""
         demo_by_material: Dict[str, Dict] = {}
+        carpet_pad_sqft: float = 0.0
+        insulation_sqft: float = 0.0
         for zone in (floor.demolition_zones or []):
             key = zone.material_type or "Unknown"
             if key not in demo_by_material:
@@ -470,7 +472,12 @@ class SketchPdfService:
                     "total_sqft": 0.0,
                 }
             demo_by_material[key]["count"] += 1
-            demo_by_material[key]["total_sqft"] += float(zone.calculated_sqft or 0)
+            sqft = float(zone.calculated_sqft or 0)
+            demo_by_material[key]["total_sqft"] += sqft
+            if key == "carpet" and getattr(zone, "include_pad", False) and sqft > 0:
+                carpet_pad_sqft += sqft
+            if getattr(zone, "include_insulation", False) and sqft > 0:
+                insulation_sqft += sqft
 
         equip_counts: Dict[str, int] = {}
         for equip in (floor.equipment_placements or []):
@@ -501,6 +508,8 @@ class SketchPdfService:
             "protection_sqft": protection_sqft,
             "content_protection_sqft": content_prot_sqft,
             "total_demo_sqft": total_demo,
+            "carpet_pad_sqft": carpet_pad_sqft,
+            "insulation_sqft": insulation_sqft,
         }
 
     # ──────────────────────────────────────────────────────────────────────

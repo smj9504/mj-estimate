@@ -64,6 +64,7 @@ export const DEFAULT_DEMO_MATERIAL_TYPES: DemoMaterialType[] = [
   { id: 'ceiling',                name: 'Ceiling',                   surface: 'ceiling', color: '#228B22', unit: 'SF' },
   { id: 'wall_drywall',           name: 'Wall/Drywall',              surface: 'wall',    color: '#FFB6C1', unit: 'SF' },
   { id: 'wall_drywall_2ft',       name: 'Wall - Drywall 2ft',        surface: 'wall',    color: '#DB7093', unit: 'SF' },
+  { id: 'insulation',             name: 'Insulation',                surface: 'wall',    color: '#E91E63', unit: 'SF' },
   { id: 'baseboard',              name: 'Baseboard',                 surface: 'wall',    color: '#DEB887', unit: 'LF' },
   { id: 'baseboard_quarter_round',name: 'Baseboard+Quarter Round',   surface: 'wall',    color: '#D2B48C', unit: 'LF' },
 ];
@@ -134,6 +135,8 @@ export interface WMDemolitionZone {
   height_ft?: number;
   /** When true, carpet pad is included with this carpet demolition zone */
   include_pad?: boolean;
+  /** When true, insulation demo is included with this wall/ceiling zone */
+  include_insulation?: boolean;
   label?: string;
   /** Controls stacking / display order in the summary list */
   display_order: number;

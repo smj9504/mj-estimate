@@ -24,6 +24,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Button,
+  Checkbox,
   Input,
   Select,
   Space,
@@ -85,13 +86,20 @@ const ZoneEditForm: React.FC<{
 }> = ({ zone, materialTypes, onUpdate, onDelete }) => {
   const selectedMaterial = materialTypes.find((m) => m.id === zone.material_type);
   const unit = selectedMaterial?.unit ?? 'SF';
-  const areaLabel = unit === 'LF' ? 'LF' : 'SF';
-  const needsDimensions = zone.dimension1_ft === 0 || zone.dimension2_ft === 0;
+  const isWallSF = selectedMaterial?.surface === 'wall' && unit === 'SF';
+  const isLF = unit === 'LF';
+  const isLineType = isWallSF || isLF;
+  const areaLabel = isLF ? 'LF' : 'SF';
 
-  const calculatedArea = useMemo(
-    () => calcDemoZoneSqft(zone.dimension1_ft, zone.dimension2_ft),
-    [zone.dimension1_ft, zone.dimension2_ft]
-  );
+  const needsDimensions = isLineType
+    ? zone.dimension1_ft === 0
+    : zone.dimension1_ft === 0 || zone.dimension2_ft === 0;
+
+  const calculatedArea = useMemo(() => {
+    if (isLF) return zone.dimension1_ft;
+    if (isWallSF) return zone.dimension1_ft * (zone.height_ft ?? 8);
+    return calcDemoZoneSqft(zone.dimension1_ft, zone.dimension2_ft);
+  }, [zone.dimension1_ft, zone.dimension2_ft, zone.height_ft, isLF, isWallSF]);
 
   const handleMaterialChange = (value: string) => {
     const mat = materialTypes.find((m) => m.id === value);
@@ -146,29 +154,65 @@ const ZoneEditForm: React.FC<{
         </Select>
       </div>
 
-      {/* Dimensions */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      {/* Dimensions — layout depends on zone type */}
+      {isLF ? (
+        /* Baseboard / Quarter Round: length only */
         <DimensionInput
-          label="Dimension 1"
+          label="Length"
           value={zone.dimension1_ft}
           onChange={(ft) =>
-            onUpdate({
-              dimension1_ft: ft,
-              calculated_sqft: calcDemoZoneSqft(ft, zone.dimension2_ft),
-            })
+            onUpdate({ dimension1_ft: ft, calculated_sqft: ft })
           }
         />
-        <DimensionInput
-          label="Dimension 2"
-          value={zone.dimension2_ft}
-          onChange={(ft) =>
-            onUpdate({
-              dimension2_ft: ft,
-              calculated_sqft: calcDemoZoneSqft(zone.dimension1_ft, ft),
-            })
-          }
-        />
-      </div>
+      ) : isWallSF ? (
+        /* Wall (SF): length + height → area */
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <DimensionInput
+            label="Length"
+            value={zone.dimension1_ft}
+            onChange={(ft) =>
+              onUpdate({
+                dimension1_ft: ft,
+                calculated_sqft: ft * (zone.height_ft ?? 8),
+              })
+            }
+          />
+          <DimensionInput
+            label="Height"
+            value={zone.height_ft ?? 8}
+            onChange={(ft) =>
+              onUpdate({
+                height_ft: ft,
+                calculated_sqft: zone.dimension1_ft * ft,
+              })
+            }
+          />
+        </div>
+      ) : (
+        /* Floor / Ceiling: two dimensions */
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <DimensionInput
+            label="Dimension 1"
+            value={zone.dimension1_ft}
+            onChange={(ft) =>
+              onUpdate({
+                dimension1_ft: ft,
+                calculated_sqft: calcDemoZoneSqft(ft, zone.dimension2_ft),
+              })
+            }
+          />
+          <DimensionInput
+            label="Dimension 2"
+            value={zone.dimension2_ft}
+            onChange={(ft) =>
+              onUpdate({
+                dimension2_ft: ft,
+                calculated_sqft: calcDemoZoneSqft(zone.dimension1_ft, ft),
+              })
+            }
+          />
+        </div>
+      )}
 
       {/* Calculated area (read-only) */}
       <div
@@ -187,6 +231,37 @@ const ZoneEditForm: React.FC<{
           {needsDimensions ? '—' : `${calculatedArea.toFixed(2)} ${areaLabel}`}
         </Text>
       </div>
+
+      {/* Carpet Pad checkbox — only for carpet material */}
+      {zone.material_type === 'carpet' && (
+        <Checkbox
+          checked={zone.include_pad ?? false}
+          onChange={(e) => onUpdate({ include_pad: e.target.checked })}
+        >
+          <span style={{ fontSize: 12 }}>Include Carpet Pad</span>
+          {zone.include_pad && !needsDimensions && (
+            <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
+              (+{calculatedArea.toFixed(2)} SF)
+            </Text>
+          )}
+        </Checkbox>
+      )}
+
+      {/* Insulation checkbox — for wall/ceiling materials (not insulation itself) */}
+      {(selectedMaterial?.surface === 'wall' || selectedMaterial?.surface === 'ceiling')
+        && zone.material_type !== 'insulation' && (
+        <Checkbox
+          checked={zone.include_insulation ?? false}
+          onChange={(e) => onUpdate({ include_insulation: e.target.checked })}
+        >
+          <span style={{ fontSize: 12 }}>Include Insulation</span>
+          {zone.include_insulation && !needsDimensions && (
+            <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
+              (+{calculatedArea.toFixed(2)} SF)
+            </Text>
+          )}
+        </Checkbox>
+      )}
 
       {/* Label */}
       <div>

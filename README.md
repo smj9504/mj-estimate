@@ -1,633 +1,331 @@
-# MJ Estimate - Professional Insurance Estimate and Work Order Management System
+# MJ Estimate
 
-A comprehensive full-stack application for insurance restoration contractors to manage estimates, invoices, work orders, and water mitigation projects.
+보험 복구(Insurance Restoration) 전문 업체를 위한 견적서 / 송장 / 작업관리 / 수해복구 통합 시스템.
 
-## Overview
+React 18 + TypeScript 프론트엔드, FastAPI 백엔드, PostgreSQL 데이터베이스.
 
-MJ Estimate is an enterprise-grade management system built specifically for insurance restoration contractors. It streamlines the entire workflow from initial estimate creation through water mitigation, reconstruction, and final invoicing.
+## Quick Start
 
-### Key Capabilities
+```bash
+# 동시 시작 (Windows)
+start_servers.bat
 
-- **Estimate and Invoice Management** - Create professional estimates and invoices with customizable templates
-- **Work Order System** - Complete work order lifecycle management with staff assignment and tracking
-- **Water Mitigation** - Specialized water damage assessment and mitigation workflow with photo management
-- **AI Photo Classification** - Automatic photo categorization using Gemini Vision API with rule-based validation
-- **Scope of Work Management** - Room-based scope items, demolition tracking, and debris calculation
-- **Reconstruction Estimates** - Material detection, pack-out calculations, and debris estimation
-- **Interior Sketching** - Interactive canvas-based floor plan and interior sketching tool
-- **AI Photo Analysis** - Intelligent room analysis and item detection from photos
-- **External Integrations** - CompanyCam, Google Sheets, and Slack integrations
-- **Google Drive Export** - OAuth 2.0 integration for user-level Google Drive file export
-- **Analytics and Reporting** - Comprehensive dashboard with business insights
-- **Multi-user Support** - Role-based access control (Admin, Manager, Staff)
+# 또는 수동 시작
+# Terminal 1 — Backend
+cd backend && .venv\Scripts\activate && uvicorn app.main:app --reload --port 8000
+
+# Terminal 2 — Frontend
+cd frontend && npm start
+```
+
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| Swagger Docs | http://localhost:8000/docs |
+| ReDoc | http://localhost:8000/redoc |
+| PgAdmin (Docker) | http://localhost:8080 |
+
+## Tech Stack
+
+### Backend
+- **FastAPI** 0.104 · Python 3.9+ (3.12 recommended)
+- **Pydantic** 2.9 · **SQLAlchemy** 2.0 · **Alembic** 1.13
+- **PostgreSQL** 13+ (Docker dev / NeonDB prod) · SQLite optional
+- **JWT** (python-jose) · **bcrypt** 4.3
+- **Google Drive / GCS / Local** — 스토리지 추상화 계층
+- **OpenAI** GPT-4 Vision · **Gemini** 1.5 Flash — AI 분석
+
+### Frontend
+- **React** 18.3 · **TypeScript** 4.9
+- **Ant Design** 5.27 · **Zustand** 5 · **TanStack React Query** 5
+- **React Router** 6.26 · **Konva** 8.4 / React-Konva 18.2
+- **Recharts** 3.1 · **CRACO** — CRA config override
+- Lazy Loading + Code Splitting (50%+ 초기 로드 단축)
+
+### External Integrations (선택적)
+- **CompanyCam** — Webhook 기반 사진 동기화
+- **Google Sheets** — 양방향 자동 동기화 (5분 주기)
+- **Slack** — 실시간 알림
+- **Gemini Vision** — 사진 자동 분류
+- **OpenAI GPT-4 Vision** — 방 사진 분석 / 아이템 감지
 
 ## Architecture
 
-### Technology Stack
-
-#### Backend
-- **Framework**: FastAPI 0.104+ (Python 3.9+)
-- **Database**: PostgreSQL with SQLAlchemy ORM
-- **Architecture**: Domain-Driven Design (DDD)
-- **Authentication**: JWT with bcrypt password hashing
-- **File Storage**: Google Drive / Google Cloud Storage / Local
-- **API Documentation**: Auto-generated OpenAPI (Swagger)
-
-#### Frontend
-- **Framework**: React 18.3+ with TypeScript 4.9+
-- **UI Library**: Ant Design 5.27+
-- **State Management**: Zustand + TanStack React Query
-- **Routing**: React Router v7
-- **Canvas Drawing**: Konva.js and React-Konva
-- **Charts**: Recharts and Ant Design Charts
-- **Build Tool**: Create React App with CRACO
-- **Performance**: React Lazy Loading + Code Splitting
-
-#### External Integrations
-- **Photo Management**: CompanyCam API (webhook-based photo sync)
-- **Spreadsheets**: Google Sheets API (bidirectional sync)
-- **Notifications**: Slack Webhooks
-- **AI Classification**: Google Gemini Vision API (photo categorization)
-- **AI Analysis**: OpenAI GPT-4 Vision (room item detection)
-
-### System Architecture
-
 ```
-+-------------------------------------------------------------+
-|                     Frontend (React)                         |
-|  +----------+  +----------+  +----------+  +----------+     |
-|  |Dashboard |  |Estimates |  |Work      |  |Water     |     |
-|  |          |  |& Invoices|  |Orders    |  |Mitigation|     |
-|  +----------+  +----------+  +----------+  +----------+     |
-|       |              |              |              |         |
-|  +----------------------------------------------------------+
-|  |        React Query (API State Management)                |
-|  +----------------------------------------------------------+
-+-------------------------------------------------------------+
-                              | HTTP/REST API
-+-------------------------------------------------------------+
-|                    Backend (FastAPI)                         |
-|  +----------------------------------------------------------+
-|  |               Domain Layer (Business Logic)              |
-|  +----------+----------+----------+----------+--------------+
-|  |  Auth    | Company  | Estimate |  Work    |  Water       |
-|  |          |          | Invoice  |  Order   |  Mitigation  |
-|  +----------+----------+----------+----------+--------------+
-|  |  Pack    |  Photo   | Material | Interior | Integration  |
-|  |  Calc    | Analysis |Detection | Sketch   | (External)   |
-|  +----------+----------+----------+----------+--------------+
-|                              |                               |
-|  +----------------------------------------------------------+
-|  |          Repository Layer (Data Access)                  |
-|  +----------------------------------------------------------+
-+-------------------------------------------------------------+
-                              |
-+-------------------------------------------------------------+
-|                PostgreSQL Database                           |
-|  +----------+----------+----------+----------+----------+   |
-|  |  Users   |Companies |Estimates |  Work    |  Photos  |   |
-|  |  Roles   |Licenses  |Invoices  |  Orders  |  Files   |   |
-|  +----------+----------+----------+----------+----------+   |
-+-------------------------------------------------------------+
+┌─────────────────────────────────────────────────────────┐
+│                  Frontend (React 18)                     │
+│  Dashboard │ Estimates │ Invoices │ Work Orders │ WM     │
+│  Pack Calc │ Xactimate Helper │ Plumber Report │ Admin   │
+├─────────────────────────────────────────────────────────┤
+│            React Query + Zustand (State)                 │
+└────────────────────────┬────────────────────────────────┘
+                         │ REST API
+┌────────────────────────┴────────────────────────────────┐
+│                   Backend (FastAPI)                       │
+│  ┌─────────────────────────────────────────────────────┐ │
+│  │              Domain Layer (DDD)                     │ │
+│  │  auth · company · estimate · invoice · work_order   │ │
+│  │  water_mitigation · pack_calculation · sketch       │ │
+│  │  photo_analysis · material_detection · plumber_rpt  │ │
+│  │  xactimate · xactimate_helper · crew_upload         │ │
+│  │  line_items · payment · receipt · storage · file    │ │
+│  │  integrations (companycam · google_sheets · slack)  │ │
+│  └─────────────────────────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────┐ │
+│  │          Repository Layer (Data Access)             │ │
+│  └─────────────────────────────────────────────────────┘ │
+└────────────────────────┬────────────────────────────────┘
+                         │
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+     PostgreSQL    Google Drive    External APIs
+     (NeonDB)     (File Storage)  (CompanyCam, Sheets, Slack)
 ```
 
 ## Project Structure
 
 ```
 mj-react-app/
-├── backend/                    # FastAPI Backend
+├── backend/
 │   ├── app/
-│   │   ├── core/              # Core configuration and database
-│   │   │   ├── config.py      # Environment settings
-│   │   │   ├── database_factory.py  # Database abstraction
-│   │   │   └── logging_config.py    # Logging setup
-│   │   ├── common/            # Shared components
-│   │   │   ├── base_repository.py   # Repository pattern base
-│   │   │   └── services/      # Common services (PDF, etc.)
-│   │   ├── domains/           # Business domains (DDD)
-│   │   │   ├── auth/          # Authentication and authorization
-│   │   │   ├── company/       # Company and client management
-│   │   │   ├── invoice/       # Invoice creation and management
-│   │   │   ├── estimate/      # Estimate workflows
-│   │   │   ├── work_order/    # Work order lifecycle
-│   │   │   ├── water_mitigation/  # Water damage projects
-│   │   │   │   ├── ai_classification_service.py  # Gemini Vision AI
-│   │   │   │   └── ...
-│   │   │   ├── reconstruction_estimate/  # Reconstruction
-│   │   │   ├── pack_calculation/  # Pack-out calculations
-│   │   │   ├── photo_analysis/    # AI photo analysis
-│   │   │   ├── material_detection/  # AI material detection
-│   │   │   ├── sketch/        # Interior sketching
-│   │   │   ├── integrations/  # External service integrations
-│   │   │   │   ├── companycam/    # CompanyCam API
-│   │   │   │   ├── google_sheets/ # Google Sheets sync
-│   │   │   │   └── slack/         # Slack notifications
-│   │   │   ├── line_items/    # Line item catalog
-│   │   │   ├── receipt/       # Receipt management
-│   │   │   ├── staff/         # Staff and permissions
-│   │   │   ├── payment/       # Payment tracking
-│   │   │   ├── document/      # Document management
-│   │   │   ├── file/          # File storage management
-│   │   │   ├── storage/       # Multi-provider storage
-│   │   │   └── dashboard/     # Analytics and dashboard
-│   │   ├── templates/         # Jinja2 PDF templates
-│   │   └── main.py           # FastAPI application entry
-│   ├── alembic/              # Database migrations
-│   ├── tests/                # Backend tests
-│   ├── scripts/              # Utility scripts
-│   ├── docs/                 # Backend documentation
-│   ├── requirements.txt      # Python dependencies
-│   ├── .env.development      # Development environment vars
-│   └── .env.production       # Production environment vars
+│   │   ├── core/                    # Config, DB factory, interfaces
+│   │   ├── common/                  # Base repository, PDF service
+│   │   ├── domains/                 # Business domains (DDD)
+│   │   │   ├── auth/                # JWT 인증/인가
+│   │   │   ├── company/             # 회사 관리
+│   │   │   ├── estimate/            # 견적서
+│   │   │   ├── invoice/             # 송장
+│   │   │   ├── work_order/          # 작업 지시서
+│   │   │   ├── water_mitigation/    # 수해복구 (사진·스케치·PDF·AI분류)
+│   │   │   ├── pack_calculation/    # Pack-out 계산
+│   │   │   ├── photo_analysis/      # AI 사진 분석
+│   │   │   ├── material_detection/  # AI 자재 감지
+│   │   │   ├── reconstruction_estimate/ # 복구 견적
+│   │   │   ├── sketch/              # 인테리어 스케치
+│   │   │   ├── plumber_report/      # Plumber 리포트
+│   │   │   ├── xactimate/           # Xactimate 코드 관리
+│   │   │   ├── xactimate_helper/    # Xactimate AI 도우미
+│   │   │   ├── crew_upload/         # Crew 사진 업로드
+│   │   │   ├── line_items/          # 라인 아이템 카탈로그
+│   │   │   ├── payment/             # 결제 추적
+│   │   │   ├── payment_config/      # 결제 설정
+│   │   │   ├── receipt/             # 영수증
+│   │   │   ├── pdf_editor/          # PDF 편집기
+│   │   │   ├── storage/             # 멀티 스토리지 추상화
+│   │   │   ├── file/                # 파일 관리
+│   │   │   ├── document/            # 문서 관리
+│   │   │   ├── staff/               # 직원 관리
+│   │   │   ├── dashboard/           # 대시보드 통계
+│   │   │   ├── analytics/           # 분석
+│   │   │   ├── admin/               # 관리자
+│   │   │   ├── credit/              # 크레딧
+│   │   │   ├── insurance_extraction/ # 보험 정보 추출
+│   │   │   ├── template/            # 템플릿 관리
+│   │   │   └── integrations/        # 외부 통합
+│   │   │       ├── companycam/      # CompanyCam webhook
+│   │   │       ├── google_sheets/   # Google Sheets 동기화
+│   │   │       └── slack/           # Slack 알림
+│   │   ├── templates/               # Jinja2 PDF 템플릿
+│   │   └── main.py                  # FastAPI 진입점
+│   ├── alembic/                     # DB 마이그레이션
+│   ├── .env.development             # 개발 환경변수
+│   └── .env.production              # 프로덕션 환경변수
 │
-├── frontend/                  # React Frontend
+├── frontend/
 │   ├── src/
-│   │   ├── components/       # Reusable React components
-│   │   │   ├── auth/         # Authentication components
-│   │   │   ├── common/       # Shared UI components
-│   │   │   ├── estimate/     # Estimate-specific components
-│   │   │   ├── invoice/      # Invoice-specific components
-│   │   │   ├── work-order/   # Work order components
-│   │   │   ├── water-mitigation/  # Water mitigation UI
-│   │   │   ├── pack-calculation/  # Pack calculation UI
-│   │   │   └── sketch/       # Canvas drawing components
-│   │   ├── pages/            # Main application pages
-│   │   ├── services/         # API integration layer
-│   │   ├── contexts/         # React Context providers
-│   │   ├── hooks/            # Custom React hooks
-│   │   ├── types/            # TypeScript type definitions
-│   │   ├── utils/            # Utility functions
-│   │   └── App.tsx           # Main app with routing
-│   ├── public/               # Static assets
-│   ├── package.json          # Node dependencies
-│   └── tsconfig.json         # TypeScript configuration
+│   │   ├── components/              # 도메인별 컴포넌트
+│   │   │   ├── common/              # 공통 UI
+│   │   │   ├── estimate/            # 견적서
+│   │   │   ├── invoice/             # 송장
+│   │   │   ├── work-order/          # 작업 지시서
+│   │   │   ├── water-mitigation/    # 수해복구
+│   │   │   │   └── sketch/          # Floor Sketch Editor
+│   │   │   │       ├── canvas/      # Konva 렌더러
+│   │   │   │       ├── panels/      # 사이드바 패널
+│   │   │   │       ├── hooks/       # 커스텀 훅
+│   │   │   │       └── utils/       # 계산·기본값
+│   │   │   ├── pack-calculation/    # Pack 계산기
+│   │   │   ├── xactimate-helper/    # Xactimate 도우미
+│   │   │   ├── plumber-report/      # Plumber 리포트
+│   │   │   ├── sketch/              # 인테리어 스케치
+│   │   │   ├── insurance-extraction/ # 보험 추출
+│   │   │   ├── dashboard/           # 대시보드
+│   │   │   └── admin/               # 관리자
+│   │   ├── pages/                   # 페이지 컴포넌트 (47개)
+│   │   ├── services/                # API 통신 계층 (31개)
+│   │   ├── types/                   # TypeScript 타입 정의
+│   │   ├── contexts/                # React Context
+│   │   ├── hooks/                   # 공통 커스텀 훅
+│   │   ├── utils/                   # 유틸리티
+│   │   ├── config/                  # 프론트엔드 설정
+│   │   └── App.tsx                  # 라우팅 + Lazy Loading
+│   ├── e2e/                         # Playwright E2E 테스트
+│   └── public/                      # 정적 파일
 │
-├── docs/                     # Project documentation
-├── docker-compose.yml        # Production Docker setup
-├── docker-compose.dev.yml    # Development Docker setup
-└── README.md                 # This file
+├── docs/                            # 프로젝트 문서
+├── docker-compose.dev.yml           # 개발용 Docker (PG + Redis + PgAdmin)
+├── docker-compose.yml               # 프로덕션 Docker
+├── render.yaml                      # Render 배포 설정
+├── playwright.config.ts             # E2E 테스트 설정
+└── start_servers.bat                # 원클릭 서버 시작 (Windows)
 ```
 
-## Complete Feature List
+## Features
 
-### Backend API Features
+### Estimate & Invoice (견적서 · 송장)
+- 견적서/송장 CRUD, 자동 번호 생성
+- 라인 아이템 빌더 (세금·할인·그룹핑)
+- Insurance 견적서 (Claim, ACV/RCV, Depreciation)
+- PDF 생성 (커스텀 Jinja2 템플릿)
+- 견적서 → 송장 변환, 복제 기능
+- 결제 추적, 영수증 생성
 
-#### 1. Authentication and Authorization (`/api/auth`)
-- JWT-based authentication with refresh tokens
-- User registration and login
-- Password reset functionality
-- Role-based access control (Admin, Manager, Staff)
-- Staff management with hierarchical permissions
+### Work Order (작업 지시서)
+- 직원 배정, 상태 추적, 우선순위
+- Trade별 비용 계산
+- 파일 첨부, 일괄 작업
+- 대시보드 통계
 
-#### 2. Company Management (`/api/companies`)
-- Company profile creation and management
-- Company-specific numbering sequences
-- Logo upload and management
-- Contact information and address tracking
-- Multi-tenant support
+### Water Mitigation (수해복구)
+- Job 생성 · 상태 추적 · 이력 관리
+- 사진 갤러리 (날짜별 정리, 벌크 작업)
+- **AI 사진 자동 분류** (Gemini Vision) — 10개 카테고리
+- **Scope of Work** — 위치/방 관리, 공식 기반 항목, 잔해 계산
+- **Floor Sketch Editor** — Konva 기반 인터랙티브 도면
+  - Demolition Zone / Containment / Floor Protection / Content Protection / Equipment 배치
+  - 이미지 Import + **Scale Calibration** (reference line으로 px/ft 비율 설정)
+  - Undo/Redo, Auto-save, PDF 리포트 생성
+- CompanyCam webhook 사진 동기화
+- 사진 Trash (soft delete / restore / 자동 삭제 스케줄러)
 
-#### 3. Estimate Management (`/api/estimates`)
-- Full CRUD operations for estimates
-- Multiple estimate types (Standard, Insurance)
-- Auto-generate estimate numbers per company
-- Line items with taxes and discounts
-- Room-based organization
-- PDF generation with custom templates
-- Estimate to invoice conversion
-- Duplicate/clone functionality
-- Acceptance/rejection workflows
-- Insurance estimate support:
-  - Claim numbers and policy details
-  - Deductible tracking
-  - Depreciation calculations
-  - ACV/RCV calculations
+### Xactimate Helper
+- Xactimate 코드 조회 및 AI 기반 Scope 작성 도우미
+- ScopeBuilder UI로 방별 항목 구성
 
-#### 4. Invoice Management (`/api/invoices`)
-- Full invoice lifecycle management
-- Auto-generated invoice numbers
-- Flexible line items with tax calculations
-- Client-specific and company-specific invoices
-- Payment tracking with multiple payment records
-- Adjustments and line-item grouping
-- HTML and PDF generation
-- Invoice duplication
-- Receipt generation (HTML/PDF)
-- Tax methods (percentage/specific amount)
-- Operational percent (OP) handling
-- Discount management
-- Payment history tracking
+### Pack Calculator
+- AI 방 사진 분석 (GPT-4 Vision)
+- 템플릿 기반 아이템 인벤토리 계산
+- 저장 용량 계산, 밀도 보정
+- 벌크 텍스트 파싱
 
-#### 5. Work Order System (`/api/work-orders`)
-- Complete work order lifecycle
-- Status tracking with multiple states
-- Staff assignment and creation tracking
-- Trade-based cost calculation
-- Priority levels (Low, Medium, High, Urgent)
-- Additional costs management
-- Batch operations
-- Company filtering
-- Staff-specific work order retrieval
-- Dashboard statistics
-- File attachment with counting
-- Cost breakdown calculations
+### Plumber Report
+- AI 기반 Plumber 리포트 생성
+- 커스텀 PDF 템플릿
 
-#### 6. Water Mitigation (`/api/water-mitigation`)
-- Job creation and management
-- Photo attachment and organization by date
-- Job status tracking with history
-- Photo categorization
-- **AI Photo Classification** (Gemini Vision):
-  - Automatic photo categorization
-  - Categories: wet-area, pre-mitigation-moving, demolition, containment, drying-process, day-1, day-2, day-3, documentation, uncategorized
-  - Rule-based post-processing (meter color, demolition state, equipment status)
-  - User correction tracking for analytics
-- **Scope of Work Management**:
-  - Scope locations (rooms/areas)
-  - Scope items (work items with formulas)
-  - Demolition type tracking
-  - Debris calculation with dumpster recommendations
-- Bulk date operations
-- Report generation (multiple formats)
-- Report templates and configuration
-- CompanyCam webhook integration for photo sync
-- Cloud storage support
-- Photo soft delete (trash/restore)
-- Optimized batch photo loading
+### Admin & Analytics
+- 역할 기반 대시보드 (Admin / Manager / Staff)
+- API 사용량 모니터링, 시스템 설정
+- 사용자 · 자재 · 문서 유형 관리
 
-#### 7. Pack Calculation (`/api/pack-calculation`)
-- AI-powered room analysis via photo
-- Template-based room inventory calculation
-- Storage multiplier calculations
-- Density modifiers for items
-- Bulk text parsing for item entry
-- Item material mapping
-- ML training data management
-- Analysis caching for performance
-- Multiple input methods (structured, text, image)
+### External Integrations
+- **CompanyCam** — Webhook 사진 동기화 (photo.created/deleted)
+- **Google Sheets** — 양방향 자동 동기화, 중복 방지
+- **Slack** — 작업 알림
+- **Google Drive** — 파일 스토리지 (OAuth 2.0)
 
-#### 8. Photo Analysis (`/api/photo-analysis`)
-- AI vision-powered room photo analysis
-- Item detection and categorization
-- Room type classification
-- Multi-photo support (1-10 photos)
-- Analysis caching
-- Confidence scoring
-
-#### 9. Reconstruction Estimate (`/api/reconstruction-estimate`)
-- Debris calculation
-- Material estimation
-- Content packout analysis
-- Multi-room support
-- Cost aggregation
-
-#### 10. Material Detection (`/api/material-detection`)
-- Background job processing
-- Multiple provider support (Roboflow, Google Vision)
-- Confidence threshold configuration
-- Image analysis pipeline
-- Job status tracking
-- Health monitoring
-
-#### 11. Line Items (`/api/line-items`)
-- Predefined line item library
-- Category and subcategory organization
-- Xactimate integration
-- Pricing templates
-- Usage tracking
-
-#### 12. Payment System (`/api/payments`, `/api/payment-config`)
-- Payment method configuration
-- Payment tracking and recording
-- Tax configuration
-- Discount management
-- Payment terms setup
-
-#### 13. PDF Editor (`/api/pdf-editor`)
-- Template-based PDF generation
-- Custom field mapping
-- Form generation
-- Document preview
-- Export functionality
-- PDF compression option
-
-#### 14. File and Document Management (`/api/files`, `/api/documents`)
-- Multi-storage provider support:
-  - Local filesystem
-  - Google Drive (30GB free)
-  - Google Cloud Storage
-  - AWS S3 (extensible)
-  - Azure Blob (extensible)
-- Google OAuth 2.0 for user-level Drive access
-- File upload/download
-- File organization by context
-- Document type classification
-- Document search
-
-#### 15. Dashboard and Analytics (`/api/dashboard`, `/api/analytics`)
-- Real-time dashboard statistics
-- Company metrics
-- Work order analytics
-- Financial reporting
-- API usage metrics
-
-#### 16. External Integrations (`/api/integrations`)
-
-**CompanyCam Integration:**
-- Webhook-based photo sync (photo.created, photo.deleted)
-- Project search and auto-match by address
-- Batch photo loading optimization
-- Real-time photo updates
-
-**Google Sheets Integration:**
-- Bidirectional sync (read/write)
-- Auto-scheduled sync (every 5 minutes during business hours)
-- Duplicate lead prevention via street address matching
-- Lead import automation
-
-**Slack Integration:**
-- Notification templates
-- Real-time alerts for work order updates
-- Batch notification grouping
-
-### Frontend Features
-
-#### Authentication and Security
-- Login page with email/password
-- Forgot password flow
-- Password reset functionality
-- Google OAuth callback handling
-- Protected route system with role-based access
-
-#### Dashboard
-- Role-based dashboards (Admin/Manager/Staff)
-- Company overview
-- Quick statistics
-- Recent activity feed
-- Work order summary
-
-#### Estimate Management
-- Estimate creation form with line item builder
-- Room-based grouping
-- Real-time tax calculation
-- Insurance estimate support with ACV/RCV
-- PDF preview and generation
-- Save and continue functionality
-- Estimate editing
-
-#### Invoice Management
-- Full invoice creation workflow
-- Real-time line item calculation
-- Tax configuration
-- Payment tracking
-- Adjustments support
-- Section grouping
-- PDF/HTML preview
-- Invoice duplication
-- Edit existing invoices
-
-#### Work Orders
-- Work order creation with staff assignment
-- Status tracking and updates
-- Cost calculation by trade
-- Priority assignment
-- File attachment with gallery view
-- List view with filtering and search
-- Detail view with full information
-
-#### Water Mitigation
-- Job creation and management
-- Photo gallery with date-based categorization
-- AI-powered photo classification with confidence display
-- Multi-select and bulk operations
-- Status tracking with history
-- Scope of Work management:
-  - Location/room management
-  - Scope item entry with formula support
-  - Debris calculation with breakdown
-- Report generation with templates
-- Photo organization tools
-- Search and filter capabilities
-
-#### Pack Calculator
-- Room photo upload
-- AI-powered room analysis
-- Item list generation with quantities
-- Material mapping
-- Template-based calculation
-- Bulk text parsing for fast entry
-- History and list view
-
-#### Admin Features
-- Admin dashboard with system metrics
-- API usage monitoring
-- System configuration
-- User management
-- Material management
-- Document types management
-- Cache monitoring
-
-## Quick Start
+## Setup
 
 ### Prerequisites
-
-- **Node.js** 16+ and npm
+- **Node.js** 16+ · **npm**
 - **Python** 3.9+ (3.12 recommended)
-- **PostgreSQL** 13+ (or use Docker)
-- **Git**
+- **PostgreSQL** 13+ (or Docker)
 
-### Installation
-
-#### 1. Clone the Repository
-```bash
-git clone <repository-url>
-cd mj-react-app
-```
-
-#### 2. Backend Setup
+### Backend
 ```bash
 cd backend
-
-# Create virtual environment
 python -m venv .venv
 
-# Activate virtual environment
-# Windows:
+# Windows
 .venv\Scripts\activate
-# Mac/Linux:
+# Mac/Linux
 source .venv/bin/activate
 
-# Install dependencies
 pip install -r requirements.txt
-
-# Setup environment variables
-copy .env.example .env.development
-# Edit .env.development with your configuration
-
-# Run database migrations
-alembic upgrade head
-
-# Start backend server
+copy .env.example .env.development   # 환경변수 설정
+alembic upgrade head                  # DB 마이그레이션
 uvicorn app.main:app --reload --port 8000
 ```
 
-#### 3. Frontend Setup
+### Frontend
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Start development server
-npm start
+npm start          # http://localhost:3000
 ```
 
-### Quick Start (Automated)
-
-**Windows:**
+### Docker (개발)
 ```bash
-start_servers.bat
+docker-compose -f docker-compose.dev.yml up -d
+# PostgreSQL :5433, PgAdmin :8080, Redis :6379
 ```
 
-This will start both backend and frontend servers automatically.
+## Environment Variables
 
-### Docker Setup
-
-```bash
-# Development
-docker-compose -f docker-compose.dev.yml up
-
-# Production
-docker-compose up
-```
-
-## Application URLs
-
-| Service | URL | Description |
-|---------|-----|-------------|
-| Frontend | http://localhost:3000 | React application |
-| Backend API | http://localhost:8000 | FastAPI REST API |
-| API Docs (Swagger) | http://localhost:8000/docs | Interactive API documentation |
-| API Docs (ReDoc) | http://localhost:8000/redoc | Alternative API documentation |
-| PgAdmin (Docker) | http://localhost:8080 | Database management UI |
-
-## Environment Configuration
-
-### Backend (.env.development)
-
+### Backend (`backend/.env.development`)
 ```bash
 # Database
-DATABASE_URL=postgresql://user:password@localhost:5432/mjestimate_dev
+DATABASE_URL=postgresql://mjestimate:dev_password_2024@localhost:5433/mjestimate_dev
 DATABASE_TYPE=postgresql
 
 # Security
-SECRET_KEY=your-secret-key-here
+SECRET_KEY=your-secret-key
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 
-# Storage (choose one provider)
-STORAGE_PROVIDER=local  # Options: local, gdrive, gcs, s3
+# Storage
+STORAGE_PROVIDER=local              # local | gdrive | gcs
 STORAGE_BASE_DIR=uploads
 
-# Google Drive (if using gdrive)
+# Google Drive (production)
 GDRIVE_SERVICE_ACCOUNT_FILE=./secrets/service-account-key.json
 GDRIVE_ROOT_FOLDER_ID=your_folder_id
 
-# Google OAuth 2.0 (for user-level Drive access)
-GOOGLE_OAUTH_CLIENT_ID=your_client_id
-GOOGLE_OAUTH_CLIENT_SECRET=your_client_secret
-GOOGLE_OAUTH_REDIRECT_URI=http://localhost:3000/oauth/google/callback
-
-# External Integrations (optional)
+# Integrations (optional)
 ENABLE_INTEGRATIONS=true
-COMPANYCAM_API_KEY=your-companycam-key
-COMPANYCAM_WEBHOOK_TOKEN=your-webhook-token
-SLACK_WEBHOOK_URL=your-slack-webhook-url
-GOOGLE_SHEETS_WATER_MITIGATION_ID=your_spreadsheet_id
+COMPANYCAM_API_KEY=your-key
+SLACK_WEBHOOK_URL=your-url
+GOOGLE_SHEETS_WATER_MITIGATION_ID=your-id
 
-# AI Features
-OPENAI_API_KEY=your-openai-key
-GEMINI_API_KEY=your-gemini-key
+# AI
+OPENAI_API_KEY=your-key
+GEMINI_API_KEY=your-key
 ENABLE_AI_PHOTO_CLASSIFICATION=true
-GEMINI_MODEL=gemini-1.5-flash
 ```
 
-### Frontend (.env)
-
+### Frontend (`frontend/.env`)
 ```bash
 REACT_APP_API_URL=http://localhost:8000
 REACT_APP_ENV=development
 ```
 
-## Production Deployment
+> **주의**: `.env` 파일은 각 서브프로젝트(backend/, frontend/) 폴더 안에만 위치. Root에 생성 금지.
 
-### Recommended Stack
-```
-Frontend: Vercel (Free)
-Backend:  Render ($7/month for always-on)
-Database: NeonDB (Free tier - 0.5GB)
-Storage:  Google Drive (30GB free)
-```
+## Domain Pattern (Backend DDD)
 
-**Total Cost**: ~$7/month for stable production
-
-### Deployment Architecture
+각 도메인은 동일한 5-파일 패턴:
 ```
-+-------------+      +--------------+      +--------------+
-|   Vercel    | ---> |    Render    | ---> |   NeonDB     |
-|  (Frontend) |      |  (Backend)   |      | (PostgreSQL) |
-|    Free     |      |    $7/mo     |      |     Free     |
-+-------------+      +--------------+      +--------------+
-        |                    |
-        |                    +---> Google Drive (File Storage)
-        |                    +---> Google Sheets (Scheduled Sync)
-        |                    +---> CompanyCam (Webhooks)
-        |                    +---> Slack (Notifications)
+domains/{name}/
+├── models.py       # SQLAlchemy 모델
+├── schemas.py      # Pydantic Request/Response 스키마
+├── repository.py   # Data access layer
+├── service.py      # Business logic
+└── api.py          # FastAPI 라우터
 ```
 
-Full deployment guide: See [DEPLOYMENT.md](./DEPLOYMENT.md)
-
-## Development Guide
-
-### Adding a New Domain (Backend)
-
-1. Create domain directory:
-```bash
-mkdir -p backend/app/domains/new_domain
-```
-
-2. Create domain files following the DDD pattern:
-- `models.py` - Database models
-- `schemas.py` - Pydantic schemas
-- `repository.py` - Data access layer
-- `service.py` - Business logic
-- `api.py` - REST endpoints
-
-3. Register router in `main.py`:
+`main.py`에서 라우터 등록:
 ```python
 from app.domains.new_domain.api import router as new_domain_router
 app.include_router(new_domain_router, prefix="/api/new-domain", tags=["New Domain"])
 ```
 
-### Adding a New Page (Frontend)
+## Adding a New Page (Frontend)
 
-1. Create page component:
 ```typescript
-// src/pages/NewPage.tsx
-import React from 'react';
-
-const NewPage: React.FC = () => {
-  return <div>New Page Content</div>;
-};
-
-export default NewPage;
-```
-
-2. Add lazy import and route in `App.tsx`:
-```typescript
-// Add lazy import at top
+// 1. src/App.tsx 상단 — lazy import
 const NewPage = lazy(() => import('./pages/NewPage'));
 
-// Add route (MUST wrap in Suspense)
+// 2. Router — 반드시 Suspense로 감싸기
 {
   path: "/new-page",
   element: (
@@ -642,96 +340,55 @@ const NewPage = lazy(() => import('./pages/NewPage'));
 }
 ```
 
-### Database Migrations
+## Database Migrations
 
 ```bash
-# Create a new migration
+cd backend
 alembic revision --autogenerate -m "Add new table"
-
-# Apply migrations
 alembic upgrade head
-
-# Rollback
 alembic downgrade -1
 ```
 
 ## Testing
 
-### Backend Tests
 ```bash
-cd backend
-pytest                           # Run all tests
-pytest tests/test_estimates.py   # Run specific test file
-pytest --cov=app tests/          # Run with coverage
+# Backend
+cd backend && pytest
+cd backend && pytest --cov=app tests/
+
+# Frontend
+cd frontend && npm test
+
+# E2E (Playwright)
+npx playwright test
 ```
 
-### Frontend Tests
-```bash
-cd frontend
-npm test                         # Run tests
-npm test -- --coverage           # Run with coverage
+## Production Deployment
+
+```
+Frontend:  Vercel (Free)
+Backend:   Render ($7/month, always-on)
+Database:  NeonDB (Free tier, 0.5GB)
+Storage:   Google Drive (30GB free)
+──────────────────────────────
+Total: ~$7/month
 ```
 
-## Troubleshooting
-
-### Common Issues
-
-#### Backend won't start
-```bash
-# Check Python version
-python --version  # Should be 3.9+
-
-# Check if port 8000 is in use
-netstat -ano | findstr :8000
-
-# Verify database connection
-psql -h localhost -U postgres -d mjestimate_dev
+```
+┌─────────────┐      ┌──────────────┐      ┌──────────────┐
+│   Vercel    │ ───> │    Render    │ ───> │   NeonDB     │
+│  (Frontend) │      │  (Backend)   │      │ (PostgreSQL) │
+│    Free     │      │    $7/mo     │      │     Free     │
+└─────────────┘      └──────────────┘      └──────────────┘
+                             │
+                             ├──> Google Drive (Storage)
+                             ├──> Google Sheets (Auto-sync)
+                             ├──> CompanyCam (Webhook)
+                             └──> Slack (Notifications)
 ```
 
-#### Frontend won't start
-```bash
-# Clear node_modules and reinstall
-rm -rf node_modules package-lock.json
-npm install
-
-# Check if port 3000 is in use
-netstat -ano | findstr :3000
-```
-
-#### CompanyCam webhook not working
-```bash
-# Check webhook configuration
-curl http://localhost:8000/api/integrations/health
-
-# View recent webhooks
-curl http://localhost:8000/api/integrations/webhook-events?service_name=companycam
-```
-
-## API Documentation
-
-Once the backend is running, comprehensive API documentation is available at:
-
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-## Contributing
-
-### Branch Strategy
-- `main` - Production-ready code
-- `develop` - Development branch
-- `feature/*` - Feature branches
-- `hotfix/*` - Emergency fixes
-
-Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+배포 상세: [DEPLOYMENT.md](./DEPLOYMENT.md)
 
 ## License
 
-Copyright 2024 MJ Estimate. All rights reserved.
-
-## Support
-
-For support, please contact the development team or create an issue in the repository.
-
----
-
-**Built for insurance restoration contractors**
+Copyright 2024-2025 MJ Estimate. All rights reserved.

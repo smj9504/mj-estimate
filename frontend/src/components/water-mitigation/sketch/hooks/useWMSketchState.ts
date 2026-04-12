@@ -6,7 +6,7 @@
  * helpers so consumers never call raw dispatch.
  */
 
-import { useReducer, useCallback } from 'react';
+import { useReducer, useCallback, useMemo } from 'react';
 import type {
   WMOverlayData,
   WMDemolitionZone,
@@ -33,6 +33,9 @@ const MAX_UNDO_STACK = 50;
 export interface WMSketchLocalState {
   overlayData: WMOverlayData;
   activeTool: WMSketchTool;
+  /** Currently selected elements (supports multi-select via Ctrl+click) */
+  selections: WMSketchSelection[];
+  /** @deprecated Use selections instead — kept as getter for single-select compat */
   selection: WMSketchSelection | null;
   /** ID of the DemoMaterialType currently active in the demolition tool */
   activeMaterialTypeId: string | null;
@@ -52,6 +55,7 @@ type WMSketchAction =
   // Tool & selection
   | { type: 'SET_TOOL'; payload: WMSketchTool }
   | { type: 'SELECT_ELEMENT'; payload: WMSketchSelection }
+  | { type: 'TOGGLE_SELECT_ELEMENT'; payload: WMSketchSelection }
   | { type: 'DESELECT' }
   | { type: 'SET_ACTIVE_MATERIAL_TYPE'; payload: string | null }
   | { type: 'SET_ACTIVE_EQUIPMENT_TYPE'; payload: EquipmentType | null }
@@ -80,6 +84,9 @@ type WMSketchAction =
   | { type: 'ADD_CONTENT_PROTECTION'; payload: WMContentProtection }
   | { type: 'UPDATE_CONTENT_PROTECTION'; payload: Partial<WMContentProtection> & { id: string } }
   | { type: 'REMOVE_CONTENT_PROTECTION'; payload: string }
+
+  // Batch operations
+  | { type: 'BATCH_MOVE_SELECTED'; payload: { draggedId: string; newX: number; newY: number } }
 
   // Persistence
   | { type: 'LOAD_OVERLAY_DATA'; payload: WMOverlayData }
@@ -129,11 +136,27 @@ function wmSketchReducer(
     case 'SET_TOOL':
       return { ...state, activeTool: action.payload };
 
-    case 'SELECT_ELEMENT':
-      return { ...state, selection: action.payload };
+    case 'SELECT_ELEMENT': {
+      const newSelections = [action.payload];
+      return { ...state, selections: newSelections, selection: action.payload };
+    }
+
+    case 'TOGGLE_SELECT_ELEMENT': {
+      const exists = state.selections.some(
+        (s) => s.element_id === action.payload.element_id
+      );
+      const newSelections = exists
+        ? state.selections.filter((s) => s.element_id !== action.payload.element_id)
+        : [...state.selections, action.payload];
+      return {
+        ...state,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
+      };
+    }
 
     case 'DESELECT':
-      return { ...state, selection: null };
+      return { ...state, selections: [], selection: null };
 
     case 'SET_ACTIVE_MATERIAL_TYPE':
       return { ...state, activeMaterialTypeId: action.payload };
@@ -174,13 +197,14 @@ function wmSketchReducer(
 
     case 'REMOVE_DEMOLITION_ZONE': {
       const { undoStack, redoStack } = pushUndo(state);
+      const newSelections = state.selections.filter((s) => s.element_id !== action.payload);
       return {
         ...state,
         undoStack,
         redoStack,
         isDirty: true,
-        selection:
-          state.selection?.element_id === action.payload ? null : state.selection,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
         overlayData: {
           ...state.overlayData,
           demolition_zones: state.overlayData.demolition_zones.filter(
@@ -229,13 +253,14 @@ function wmSketchReducer(
 
     case 'REMOVE_EQUIPMENT': {
       const { undoStack, redoStack } = pushUndo(state);
+      const newSelections = state.selections.filter((s) => s.element_id !== action.payload);
       return {
         ...state,
         undoStack,
         redoStack,
         isDirty: true,
-        selection:
-          state.selection?.element_id === action.payload ? null : state.selection,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
         overlayData: {
           ...state.overlayData,
           equipment_placements: state.overlayData.equipment_placements.filter(
@@ -284,13 +309,14 @@ function wmSketchReducer(
 
     case 'REMOVE_CONTAINMENT': {
       const { undoStack, redoStack } = pushUndo(state);
+      const newSelections = state.selections.filter((s) => s.element_id !== action.payload);
       return {
         ...state,
         undoStack,
         redoStack,
         isDirty: true,
-        selection:
-          state.selection?.element_id === action.payload ? null : state.selection,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
         overlayData: {
           ...state.overlayData,
           containment_zones: state.overlayData.containment_zones.filter(
@@ -339,13 +365,14 @@ function wmSketchReducer(
 
     case 'REMOVE_FLOOR_PROTECTION': {
       const { undoStack, redoStack } = pushUndo(state);
+      const newSelections = state.selections.filter((s) => s.element_id !== action.payload);
       return {
         ...state,
         undoStack,
         redoStack,
         isDirty: true,
-        selection:
-          state.selection?.element_id === action.payload ? null : state.selection,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
         overlayData: {
           ...state.overlayData,
           floor_protections: state.overlayData.floor_protections.filter(
@@ -392,18 +419,70 @@ function wmSketchReducer(
 
     case 'REMOVE_CONTENT_PROTECTION': {
       const { undoStack, redoStack } = pushUndo(state);
+      const newSelections = state.selections.filter((s) => s.element_id !== action.payload);
       return {
         ...state,
         undoStack,
         redoStack,
         isDirty: true,
-        selection:
-          state.selection?.element_id === action.payload ? null : state.selection,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
         overlayData: {
           ...state.overlayData,
           content_protections: (state.overlayData.content_protections ?? []).filter(
             (cp) => cp.id !== action.payload
           ),
+        },
+      };
+    }
+
+    // ------------------------------------------------------------------
+    // Batch move all selected elements (single undo entry)
+    // ------------------------------------------------------------------
+    case 'BATCH_MOVE_SELECTED': {
+      const { draggedId, newX, newY } = action.payload;
+      const selectedIdSet = new Set(state.selections.map((s) => s.element_id));
+
+      // Find the dragged element's old position to compute the delta
+      let oldX = 0;
+      let oldY = 0;
+      const allElements = [
+        ...state.overlayData.demolition_zones,
+        ...state.overlayData.equipment_placements,
+        ...state.overlayData.containment_zones,
+        ...state.overlayData.floor_protections,
+        ...(state.overlayData.content_protections ?? []),
+      ];
+      const draggedEl = allElements.find((el) => el.id === draggedId);
+      if (draggedEl) {
+        oldX = draggedEl.x;
+        oldY = draggedEl.y;
+      }
+      const dx = newX - oldX;
+      const dy = newY - oldY;
+
+      const moveIfSelected = <T extends { id: string; x: number; y: number }>(
+        items: T[],
+      ): T[] =>
+        items.map((item) =>
+          selectedIdSet.has(item.id)
+            ? { ...item, x: item.x + dx, y: item.y + dy }
+            : item,
+        );
+
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          demolition_zones: moveIfSelected(state.overlayData.demolition_zones),
+          equipment_placements: moveIfSelected(state.overlayData.equipment_placements),
+          containment_zones: moveIfSelected(state.overlayData.containment_zones),
+          floor_protections: moveIfSelected(state.overlayData.floor_protections),
+          content_protections: moveIfSelected(state.overlayData.content_protections ?? []),
         },
       };
     }
@@ -419,6 +498,7 @@ function wmSketchReducer(
         isDirty: false,
         undoStack: [],
         redoStack: [],
+        selections: [],
         selection: null,
       };
 
@@ -438,6 +518,7 @@ function wmSketchReducer(
         undoStack: remainingUndo,
         redoStack: [state.overlayData, ...state.redoStack],
         isDirty: true,
+        selections: [],
         selection: null,
       };
     }
@@ -452,6 +533,7 @@ function wmSketchReducer(
         redoStack: remainingRedo,
         undoStack: [state.overlayData, ...state.undoStack],
         isDirty: true,
+        selections: [],
         selection: null,
       };
     }
@@ -471,6 +553,7 @@ function createInitialState(
   return {
     overlayData: initialOverlay,
     activeTool: 'select',
+    selections: [],
     selection: null,
     activeMaterialTypeId: null,
     activeEquipmentType: null,
@@ -490,7 +573,12 @@ export interface WMSketchStateReturn {
   // Tool & selection
   setTool: (tool: WMSketchTool) => void;
   selectElement: (selection: WMSketchSelection) => void;
+  toggleSelectElement: (selection: WMSketchSelection) => void;
   deselect: () => void;
+  /** Set of currently selected element IDs (for O(1) lookup) */
+  selectedIds: Set<string>;
+  /** Move all selected elements by the delta computed from dragged element */
+  batchMoveSelected: (draggedId: string, newX: number, newY: number) => void;
   setActiveMaterialType: (id: string | null) => void;
   setActiveEquipmentType: (type: EquipmentType | null) => void;
 
@@ -568,7 +656,19 @@ export function useWMSketchState(
     []
   );
 
+  const toggleSelectElement = useCallback(
+    (selection: WMSketchSelection) =>
+      dispatch({ type: 'TOGGLE_SELECT_ELEMENT', payload: selection }),
+    []
+  );
+
   const deselect = useCallback(() => dispatch({ type: 'DESELECT' }), []);
+
+  const batchMoveSelected = useCallback(
+    (draggedId: string, newX: number, newY: number) =>
+      dispatch({ type: 'BATCH_MOVE_SELECTED', payload: { draggedId, newX, newY } }),
+    []
+  );
 
   const setActiveMaterialType = useCallback(
     (id: string | null) =>
@@ -685,11 +785,20 @@ export function useWMSketchState(
   const undo = useCallback(() => dispatch({ type: 'UNDO' }), []);
   const redo = useCallback(() => dispatch({ type: 'REDO' }), []);
 
+  // Memoised set of selected element IDs for O(1) lookup in renderers
+  const selectedIds = useMemo(
+    () => new Set(state.selections.map((s) => s.element_id)),
+    [state.selections]
+  );
+
   return {
     state,
     setTool,
     selectElement,
+    toggleSelectElement,
     deselect,
+    selectedIds,
+    batchMoveSelected,
     setActiveMaterialType,
     setActiveEquipmentType,
     addDemolitionZone,

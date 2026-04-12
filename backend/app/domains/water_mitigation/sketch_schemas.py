@@ -30,6 +30,7 @@ class WMDemolitionZoneBase(PydanticBaseModel):
     calculated_sqft: Decimal = Field(..., ge=0)
     height_ft: Optional[Decimal] = Field(None, ge=0, description="Wall height in feet for SF calculation")
     include_pad: bool = Field(False, description="Include carpet pad with this carpet zone")
+    include_insulation: bool = Field(False, description="Include insulation demo with wall/ceiling zone")
     label: Optional[str] = Field(None, max_length=255)
     display_order: int = 0
     scope_item_id: Optional[UUID] = None

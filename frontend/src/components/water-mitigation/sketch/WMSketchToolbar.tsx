@@ -101,6 +101,18 @@ const ColorSwatch: React.FC<{ color: string }> = ({ color }) => (
 );
 
 // ============================================================================
+// Hand / Pan icon (not available in @ant-design/icons v5.6)
+// ============================================================================
+
+const HandIcon: React.FC = () => (
+  <span role="img" className="anticon" style={{ display: 'inline-flex' }}>
+    <svg viewBox="0 0 1024 1024" width="1em" height="1em" fill="currentColor">
+      <path d="M456.4 138.6c-26.5 0-48 21.5-48 48v301.2h-0.2V302.6c0-26.5-21.5-48-48-48s-48 21.5-48 48v256.6l-44.4-73.6c-14-23.3-44.3-30.8-67.5-16.7-23.3 14-30.8 44.3-16.7 67.5l142 235.6c6.2 10.3 15.2 35.2 15.2 56.6v51.4c0 17.7 14.3 32 32 32h352c17.7 0 32-14.3 32-32V768c0-27 10-53.3 28.1-73.4l78-86.6c17.5-19.4 27.3-44.8 27.3-71.2V302.6c0-26.5-21.5-48-48-48s-48 21.5-48 48v186h-0.2V234.6c0-26.5-21.5-48-48-48s-48 21.5-48 48v254h-0.2V186.6c0-26.5-21.5-48-48-48z" />
+    </svg>
+  </span>
+);
+
+// ============================================================================
 // Equipment shape icon helper
 // ============================================================================
 
@@ -157,19 +169,49 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   // ------------------------------------------------------------------
   // Demolition dropdown menu
   // ------------------------------------------------------------------
-  const demoMenuItems: MenuProps['items'] = materialTypes.map((mt) => ({
-    key: mt.id,
-    label: (
-      <Space size={6}>
-        <ColorSwatch color={mt.color} />
-        <span>{mt.name}</span>
-      </Space>
-    ),
-    onClick: () => {
-      onMaterialTypeChange(mt.id);
-      onToolChange('demolition');
-    },
-  }));
+  // Separate floor/ceiling materials from wall/baseboard materials
+  const rectMaterials = materialTypes.filter((m) => m.surface !== 'wall' && m.unit !== 'LF');
+  const lineMaterials = materialTypes.filter((m) => m.surface === 'wall' || m.unit === 'LF');
+
+  const demoMenuItems: MenuProps['items'] = [
+    ...rectMaterials.map((mt) => ({
+      key: mt.id,
+      label: (
+        <Space size={6}>
+          <ColorSwatch color={mt.color} />
+          <span>{mt.name}</span>
+        </Space>
+      ),
+      onClick: () => {
+        onMaterialTypeChange(mt.id);
+        onToolChange('demolition');
+      },
+    })),
+    ...(lineMaterials.length > 0
+      ? [
+          { type: 'divider' as const, key: 'wall-divider' },
+          {
+            key: 'wall-header',
+            label: <span style={{ fontSize: 11, color: '#8c8c8c' }}>Wall / Baseboard (line)</span>,
+            disabled: true,
+          },
+          ...lineMaterials.map((mt) => ({
+            key: mt.id,
+            label: (
+              <Space size={6}>
+                <ColorSwatch color={mt.color} />
+                <span>{mt.name}</span>
+                <span style={{ fontSize: 10, color: '#8c8c8c' }}>{mt.unit}</span>
+              </Space>
+            ),
+            onClick: () => {
+              onMaterialTypeChange(mt.id);
+              onToolChange('demolition_line');
+            },
+          })),
+        ]
+      : []),
+  ];
 
   // ------------------------------------------------------------------
   // Equipment dropdown menu
@@ -202,8 +244,14 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   // ------------------------------------------------------------------
   // Button style helper
   // ------------------------------------------------------------------
-  const toolButtonType = (tool: WMSketchTool) =>
-    activeTool === tool ? ('primary' as const) : ('default' as const);
+  const toolButtonType = (tool: WMSketchTool) => {
+    if (tool === 'demolition') {
+      return (activeTool === 'demolition' || activeTool === 'demolition_line')
+        ? ('primary' as const)
+        : ('default' as const);
+    }
+    return activeTool === tool ? ('primary' as const) : ('default' as const);
+  };
 
   return (
     <div
@@ -218,7 +266,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
         minHeight: 44,
       }}
     >
-      {/* Group 1 — Select */}
+      {/* Group 1 — Select + Pan */}
       <SpaceCompact>
         <Tooltip title="Select / Move (V)">
           <Button
@@ -229,6 +277,14 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           >
             Select
           </Button>
+        </Tooltip>
+        <Tooltip title="Pan / Hand (H)">
+          <Button
+            type={toolButtonType('pan')}
+            icon={<HandIcon />}
+            size="small"
+            onClick={() => onToolChange('pan')}
+          />
         </Tooltip>
       </SpaceCompact>
 
@@ -421,6 +477,8 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
         content={
           <div style={{ minWidth: 200 }}>
             {[
+              ['V', 'Select tool'],
+              ['H', 'Hand / Pan tool'],
               ['Ctrl+Z', 'Undo'],
               ['Ctrl+Y', 'Redo'],
               ['Ctrl+S', 'Save'],
