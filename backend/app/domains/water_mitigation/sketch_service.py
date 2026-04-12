@@ -240,6 +240,7 @@ class SketchService:
         "wall_drywall_2ft": "Wall - Drywall 2ft",
         "baseboard": "Baseboard",
         "baseboard_quarter_round": "Baseboard+Quarter Round",
+        "toe_kick": "Toe Kick",
         "insulation": "Insulation",
     }
 
@@ -253,6 +254,7 @@ class SketchService:
         "wall_drywall_2ft": "SF",
         "baseboard": "LF",
         "baseboard_quarter_round": "LF",
+        "toe_kick": "LF",
         "insulation": "SF",
     }
 

@@ -84,7 +84,7 @@ class WMEquipmentPlacementSchema(WMEquipmentPlacementBase):
 
 class WMContainmentZoneBase(PydanticBaseModel):
     """Shared fields for containment zone create/update"""
-    containment_type: str = Field("Standard", max_length=100)
+    containment_type: str = Field("Containment", max_length=100)
     x: float
     y: float
     length_ft: Optional[Decimal] = Field(None, ge=0)

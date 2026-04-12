@@ -35,7 +35,7 @@ export interface WMDemolitionRendererProps {
   scalePixelsPerFoot: number;
   onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
-  onTransformEnd?: (id: string, width: number, height: number) => void;
+  onTransformEnd?: (id: string, width: number, height: number, rotation?: number) => void;
 }
 
 /** Warning stroke color used when dimensions have not been entered yet */
@@ -129,14 +129,20 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
     const newWidthPx = Math.max(20, node.width() * scaleX);
     const newHeightPx = Math.max(20, node.height() * scaleY);
 
+    // Transfer the Rect's rotation into the Group so they don't compound.
+    // The Transformer applies rotation to the Rect; we want it on the Group.
+    const nodeRotation = node.rotation();
+    if (nodeRotation !== 0) {
+      group.rotation(group.rotation() + nodeRotation);
+      node.rotation(0);
+    }
+
     // The transformer may shift the Rect's local position (e.g. when
     // resizing from the left/top anchor). Fold that offset back into
     // the Group's position so the zone stays where the user placed it.
     const rectX = node.x();
     const rectY = node.y();
     if (rectX !== 0 || rectY !== 0) {
-      // Convert the Rect's local offset to the parent (stage) coordinate
-      // system, accounting for rotation.
       const rad = ((group.rotation() || 0) * Math.PI) / 180;
       const cos = Math.cos(rad);
       const sin = Math.sin(rad);
@@ -154,10 +160,11 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
 
     const newWidthFt = newWidthPx / scalePixelsPerFoot;
     const newHeightFt = newHeightPx / scalePixelsPerFoot;
+    const newRotation = group.rotation();
 
-    // Report both new position and new dimensions
+    // Report new position, dimensions, and rotation
     onDragEnd(zone.id, group.x(), group.y());
-    onTransformEnd?.(zone.id, newWidthFt, newHeightFt);
+    onTransformEnd?.(zone.id, newWidthFt, newHeightFt, newRotation);
   }, [zone.id, scalePixelsPerFoot, onDragEnd, onTransformEnd]);
 
   const textPadX = 4;
@@ -337,7 +344,8 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
       {/* Transformer for resize handles — rendered outside Group so it sits on top */}
       <Transformer
         ref={transformerRef}
-        rotateEnabled={false}
+        rotateEnabled={true}
+        rotateAnchorOffset={20}
         borderStroke="#1890ff"
         borderDash={[3, 3]}
         anchorSize={8}

@@ -540,7 +540,6 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
           </div>
         ) : activeFloor ? (
           <WMFloorSketchEditor
-            key={activeFloor.id}
             floorSketch={activeFloor}
             materialTypes={materialTypes}
             onOverlayChanged={handleOverlayChanged}

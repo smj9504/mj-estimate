@@ -67,6 +67,7 @@ export const DEFAULT_DEMO_MATERIAL_TYPES: DemoMaterialType[] = [
   { id: 'insulation',             name: 'Insulation',                surface: 'wall',    color: '#E91E63', unit: 'SF' },
   { id: 'baseboard',              name: 'Baseboard',                 surface: 'wall',    color: '#DEB887', unit: 'LF' },
   { id: 'baseboard_quarter_round',name: 'Baseboard+Quarter Round',   surface: 'wall',    color: '#D2B48C', unit: 'LF' },
+  { id: 'toe_kick',               name: 'Toe Kick',                  surface: 'wall',    color: '#A0522D', unit: 'LF' },
 ];
 
 // ============================================================================

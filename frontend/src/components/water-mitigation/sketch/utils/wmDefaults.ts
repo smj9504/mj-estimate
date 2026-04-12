@@ -72,9 +72,18 @@ export const FLOOR_LABEL_PRESETS: string[] = [
  * Shown in the containment-zone form as quick-select values.
  */
 export const CONTAINMENT_TYPE_PRESETS: string[] = [
-  'Standard',
+  'Containment',
   'Full enclosure',
 ];
+
+/** Human-readable containment type (legacy DB/API value "Standard" → Containment). */
+export function formatContainmentTypeLabel(
+  type: string | undefined | null
+): string {
+  const t = (type ?? '').trim();
+  if (!t || t === 'Standard') return 'Containment';
+  return t;
+}
 
 /**
  * Common floor protection material options.

@@ -41,6 +41,44 @@ EQUIPMENT_CONFIG: Dict[str, Dict[str, str]] = {
 }
 
 
+def _containment_type_display(containment_type: Optional[str]) -> str:
+    """Legacy default 'Standard' should read as Containment in PDF labels."""
+    t = (containment_type or "").strip()
+    if not t or t == "Standard":
+        return "Containment"
+    return t
+
+# Linear LF demolition types (matches DEFAULT_DEMO_MATERIAL_TYPES in wmSketch.ts)
+_LF_DEMOLITION_MATERIALS = frozenset(
+    {"baseboard", "baseboard_quarter_round", "toe_kick"}
+)
+
+# Wall SF types drawn as lines when height is implicit (dimension2_ft == 0)
+_WALL_LINE_SF_MATERIALS = frozenset(
+    {"wall_drywall", "wall_drywall_2ft", "insulation"}
+)
+
+# Display names for PDF legend / summary (aligned with frontend defaults)
+_DEMO_MATERIAL_LABELS: Dict[str, str] = {
+    "wood_floor": "Wood Floor",
+    "carpet": "Carpet",
+    "tile": "Tile",
+    "ceiling": "Ceiling",
+    "wall_drywall": "Wall/Drywall",
+    "wall_drywall_2ft": "Wall - Drywall 2ft",
+    "insulation": "Insulation",
+    "baseboard": "Baseboard",
+    "baseboard_quarter_round": "Baseboard+Quarter Round",
+    "toe_kick": "Toe Kick",
+}
+
+_DEMO_MATERIAL_UNITS: Dict[str, str] = {
+    "baseboard": "LF",
+    "baseboard_quarter_round": "LF",
+    "toe_kick": "LF",
+}
+
+
 class SketchPdfService:
     """Generates PDF sketch reports for water mitigation jobs."""
 
@@ -266,7 +304,70 @@ class SketchPdfService:
             f'text-anchor="middle" font-size="8" font-family="Arial" fill="#777">10 ft</text>',
         ]
 
+    @staticmethod
+    def _demolition_zone_is_line(zone: WMDemolitionZone) -> bool:
+        """True for LF runs and wall SF segments stored as a line (d2 == 0)."""
+        mt = (zone.material_type or "").strip()
+        d1 = float(zone.dimension1_ft or 0)
+        d2 = float(zone.dimension2_ft or 0)
+        if d1 <= 0:
+            return False
+        if mt in _LF_DEMOLITION_MATERIALS:
+            return True
+        if mt in _WALL_LINE_SF_MATERIALS and d2 <= 0.0001:
+            return True
+        return False
+
+    def _render_demo_line_zone(self, zone: WMDemolitionZone, scale: float) -> List[str]:
+        """SVG for LF / wall line demolition (canvas pixels + length in feet)."""
+        import math
+
+        length_ft = float(zone.dimension1_ft or 0)
+        if length_ft <= 0:
+            return []
+        length_px = length_ft * scale
+        color = zone.color or "#888888"
+        rotation = float(zone.rotation or 0)
+        rad = math.radians(rotation)
+        x1 = float(zone.x)
+        y1 = float(zone.y)
+        x2 = x1 + length_px * math.cos(rad)
+        y2 = y1 + length_px * math.sin(rad)
+        mt = zone.material_type or ""
+        is_lf = mt in _LF_DEMOLITION_MATERIALS
+        stroke_w = 3.5 if is_lf else 4.5
+        dash_part = ' stroke-dasharray="8 4"' if is_lf else ""
+
+        parts: List[str] = [
+            f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+            f'stroke="{color}" stroke-width="{stroke_w}" stroke-linecap="round"'
+            f"{dash_part}/>",
+        ]
+
+        if length_px >= 36:
+            mx = (x1 + x2) / 2
+            my = (y1 + y2) / 2
+            label = _DEMO_MATERIAL_LABELS.get(mt, mt)
+            label_esc = html_lib.escape(label)
+            unit = "LF" if is_lf else "SF"
+            qty = float(zone.calculated_sqft or 0)
+            parts.append(
+                f'<text x="{mx:.1f}" y="{my - 6:.1f}" '
+                f'text-anchor="middle" font-size="8" font-family="Arial" '
+                f'fill="{color}" font-weight="600">{label_esc}</text>'
+            )
+            parts.append(
+                f'<text x="{mx:.1f}" y="{my + 6:.1f}" '
+                f'text-anchor="middle" font-size="7" font-family="Arial" fill="#555">'
+                f"{length_ft:.1f}&apos; · {qty:.1f} {unit}</text>"
+            )
+
+        return parts
+
     def _render_demo_zone(self, zone: WMDemolitionZone, scale: float) -> List[str]:
+        if self._demolition_zone_is_line(zone):
+            return self._render_demo_line_zone(zone, scale)
+
         zone_w = float(zone.dimension1_ft) * scale
         zone_h = float(zone.dimension2_ft) * scale
         if zone_w <= 0 or zone_h <= 0:
@@ -345,7 +446,7 @@ class SketchPdfService:
         ]
 
         # Label at midpoint
-        label = zone.label or zone.containment_type
+        label = zone.label or _containment_type_display(zone.containment_type)
         if label and length_px > 40:
             mx = (x1 + x2) / 2
             my = (y1 + y2) / 2
@@ -384,26 +485,24 @@ class SketchPdfService:
         ]
 
     def _render_floor_protection(self, prot: WMFloorProtection, scale: float) -> List[str]:
-        prot_w = float(prot.length_ft) * scale
-        prot_h = float(prot.paper_width_ft) * scale
+        # Match WMFloorProtectionRenderer (Konva): narrow width = paper roll,
+        # height = run length; group at (x,y) rotates around top-left like Konva.
+        prot_w = float(prot.paper_width_ft) * scale
+        prot_h = float(prot.length_ft) * scale
         if prot_w <= 0 or prot_h <= 0:
             return []
         color = prot.color or "#FFD700"
-        cx = prot.x + prot_w / 2
-        cy = prot.y + prot_h / 2
         rotation = float(prot.rotation or 0)
-        transform_attr = (
-            f' transform="rotate({rotation:.1f} {cx:.1f} {cy:.1f})"'
-            if rotation != 0
-            else ""
-        )
+        x = float(prot.x)
+        y = float(prot.y)
+        rot_part = f" rotate({rotation:.1f})" if abs(rotation) > 0.0001 else ""
         return [
-            f'<g{transform_attr}>'
-            f'<rect x="{prot.x:.1f}" y="{prot.y:.1f}" '
+            f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">'
+            f'<rect x="0" y="0" '
             f'width="{prot_w:.1f}" height="{prot_h:.1f}" '
             f'fill="{color}" fill-opacity="0.45" '
             f'stroke="{color}" stroke-width="1.5" rx="1"/>'
-            f'</g>'
+            f"</g>"
         ]
 
     def _render_equipment(self, equip: WMEquipmentPlacement) -> List[str]:
@@ -461,23 +560,35 @@ class SketchPdfService:
         demo_by_material: Dict[str, Dict] = {}
         carpet_pad_sqft: float = 0.0
         insulation_sqft: float = 0.0
+        total_demo_sf: float = 0.0
+        total_demo_lf: float = 0.0
+
         for zone in (floor.demolition_zones or []):
             key = zone.material_type or "Unknown"
+            unit = _DEMO_MATERIAL_UNITS.get(key, "SF")
             if key not in demo_by_material:
                 demo_by_material[key] = {
                     "material": key,
+                    "material_name": _DEMO_MATERIAL_LABELS.get(
+                        key, key.replace("_", " ").title()
+                    ),
                     "surface": zone.surface or "",
                     "color": zone.color or "#888888",
                     "count": 0,
                     "total_sqft": 0.0,
+                    "unit": unit,
                 }
             demo_by_material[key]["count"] += 1
-            sqft = float(zone.calculated_sqft or 0)
-            demo_by_material[key]["total_sqft"] += sqft
-            if key == "carpet" and getattr(zone, "include_pad", False) and sqft > 0:
-                carpet_pad_sqft += sqft
-            if getattr(zone, "include_insulation", False) and sqft > 0:
-                insulation_sqft += sqft
+            qty = float(zone.calculated_sqft or 0)
+            demo_by_material[key]["total_sqft"] += qty
+            if unit == "LF":
+                total_demo_lf += qty
+            else:
+                total_demo_sf += qty
+            if key == "carpet" and getattr(zone, "include_pad", False) and qty > 0:
+                carpet_pad_sqft += qty
+            if getattr(zone, "include_insulation", False) and qty > 0:
+                insulation_sqft += qty
 
         equip_counts: Dict[str, int] = {}
         for equip in (floor.equipment_placements or []):
@@ -497,9 +608,6 @@ class SketchPdfService:
             float(cp.calculated_sqft or 0)
             for cp in (floor.content_protections or [])
         )
-        total_demo = sum(
-            d["total_sqft"] for d in demo_by_material.values()
-        )
 
         return {
             "demo_by_material": list(demo_by_material.values()),
@@ -507,7 +615,9 @@ class SketchPdfService:
             "containment_sqft": containment_sqft,
             "protection_sqft": protection_sqft,
             "content_protection_sqft": content_prot_sqft,
-            "total_demo_sqft": total_demo,
+            "total_demo_sqft": total_demo_sf,
+            "total_demo_sf": total_demo_sf,
+            "total_demo_lf": total_demo_lf,
             "carpet_pad_sqft": carpet_pad_sqft,
             "insulation_sqft": insulation_sqft,
         }

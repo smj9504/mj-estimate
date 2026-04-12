@@ -334,11 +334,6 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     canRedo,
   } = useWMSketchState(floorSketch.overlay_data);
 
-  // Load overlay when the active floor changes
-  useEffect(() => {
-    loadOverlayData(floorSketch.overlay_data);
-  }, [floorSketch.id, loadOverlayData]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Floor summary (for sidebar)
   const floorSummary = useWMCalculations(state.overlayData);
 
@@ -418,6 +413,19 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   const stageRef = useRef<Konva.Stage>(null);
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
+
+  // ------------------------------------------------------------------
+  // Load overlay & reset view when switching floors (no remount needed)
+  // ------------------------------------------------------------------
+  const prevFloorIdRef = useRef(floorSketch.id);
+  useEffect(() => {
+    if (prevFloorIdRef.current !== floorSketch.id) {
+      prevFloorIdRef.current = floorSketch.id;
+      setStageScale(1);
+      setStagePos({ x: 0, y: 0 });
+    }
+    loadOverlayData(floorSketch.overlay_data);
+  }, [floorSketch.id, loadOverlayData]); // eslint-disable-line react-hooks/exhaustive-deps
   const isPanningRef = useRef(false);
   const lastPointerRef = useRef({ x: 0, y: 0 });
 
@@ -673,7 +681,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         const zone: WMContainmentZone = {
           id: generateOverlayId(),
           floor_sketch_id: floorSketch.id,
-          containment_type: 'Standard',
+          containment_type: 'Containment',
           x: startX,
           y: startY,
           length_ft: lengthFt,
@@ -758,9 +766,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     [selectedIds, batchMoveSelected, updateDemolitionZone, updateEquipment, updateContainment, updateFloorProtection, updateContentProtection]
   );
 
-  // Transform end (resize)
+  // Transform end (resize + rotation)
   const handleTransformEnd = useCallback(
-    (id: string, type: string, widthFt: number, heightFt: number) => {
+    (id: string, type: string, widthFt: number, heightFt: number, rotation?: number) => {
       if (type === 'demolition') {
         // Check if this is a wall/baseboard line zone
         const zone = state.overlayData.demolition_zones.find((z) => z.id === id);
@@ -771,15 +779,15 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         const isWallLine = mat && (mat.surface === 'wall' || mat.unit === 'LF');
 
         if (isWallLine && zone) {
-          // widthFt = new length, heightFt = new rotation
+          // widthFt = new length, heightFt = new rotation (legacy line transform)
           const lengthFt = widthFt;
-          const rotation = heightFt;
+          const rot = heightFt;
           const isLF = mat.unit === 'LF';
           const wallHeight = zone.height_ft ?? 8;
           updateDemolitionZone({
             id,
             dimension1_ft: lengthFt,
-            rotation,
+            rotation: rot,
             calculated_sqft: isLF ? lengthFt : lengthFt * wallHeight,
           });
         } else {
@@ -787,24 +795,41 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
             id,
             dimension1_ft: widthFt,
             dimension2_ft: heightFt,
+            rotation: rotation ?? zone?.rotation ?? 0,
             calculated_sqft: calcDemoZoneSqft(widthFt, heightFt),
           });
         }
       } else if (type === 'containment') {
         // For containment: widthFt = new length_ft, heightFt = new rotation
         const lengthFt = widthFt;
-        const rotation = heightFt;
+        const rot = heightFt;
         const existingZone = state.overlayData.containment_zones.find((z) => z.id === id);
         const polyHeight = existingZone?.height_ft ?? 8;
         updateContainment({
           id,
           length_ft: lengthFt,
-          rotation,
+          rotation: rot,
           calculated_sqft: calcContainmentSqft(lengthFt, polyHeight),
+        });
+      } else if (type === 'floor_protection') {
+        updateFloorProtection({
+          id,
+          paper_width_ft: widthFt,
+          length_ft: heightFt,
+          rotation: rotation ?? 0,
+          calculated_sqft: calcFloorProtectionSqft(widthFt, heightFt),
+        });
+      } else if (type === 'content_protection') {
+        updateContentProtection({
+          id,
+          width_ft: widthFt,
+          length_ft: heightFt,
+          rotation: rotation ?? 0,
+          calculated_sqft: calcContentProtectionSqft(widthFt, heightFt),
         });
       }
     },
-    [updateDemolitionZone, updateContainment, state.overlayData.containment_zones, state.overlayData.demolition_zones, materialTypes]
+    [updateDemolitionZone, updateContainment, updateFloorProtection, updateContentProtection, state.overlayData.containment_zones, state.overlayData.demolition_zones, materialTypes]
   );
 
   // ------------------------------------------------------------------

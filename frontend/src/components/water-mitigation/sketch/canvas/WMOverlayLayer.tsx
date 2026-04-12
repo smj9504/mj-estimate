@@ -61,7 +61,7 @@ export interface WMOverlayLayerProps {
   // Callbacks
   onSelectElement: (id: string, type: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, type: string, x: number, y: number) => void;
-  onTransformEnd?: (id: string, type: string, widthFt: number, heightFt: number) => void;
+  onTransformEnd?: (id: string, type: string, widthFt: number, heightFt: number, rotation?: number) => void;
 
   // Canvas dimensions (kept for potential future use)
   canvasWidth: number;
@@ -126,15 +126,15 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   );
 
   const makeTransformEndHandler = useCallback(
-    (type: string) => (id: string, widthFt: number, heightFt: number) =>
-      onTransformEnd?.(id, type, widthFt, heightFt),
+    (type: string) => (id: string, widthFt: number, heightFt: number, rotation?: number) =>
+      onTransformEnd?.(id, type, widthFt, heightFt, rotation),
     [onTransformEnd],
   );
 
   // Stable per-type handlers (ctrlKey forwarded for multi-select)
   const selectDemoHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'demolition', ctrlKey), [onSelectElement]);
   const dragDemoHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'demolition', x, y), [onDragEnd]);
-  const transformDemoHandler = useCallback((id: string, w: number, h: number) => onTransformEnd?.(id, 'demolition', w, h), [onTransformEnd]);
+  const transformDemoHandler = useCallback((id: string, w: number, h: number, rotation?: number) => onTransformEnd?.(id, 'demolition', w, h, rotation), [onTransformEnd]);
 
   const selectEquipHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'equipment', ctrlKey), [onSelectElement]);
   const dragEquipHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'equipment', x, y), [onDragEnd]);
@@ -145,9 +145,11 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
 
   const selectProtectHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'floor_protection', ctrlKey), [onSelectElement]);
   const dragProtectHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'floor_protection', x, y), [onDragEnd]);
+  const transformProtectHandler = useCallback((id: string, w: number, h: number, rotation?: number) => onTransformEnd?.(id, 'floor_protection', w, h, rotation), [onTransformEnd]);
 
   const selectContentProtHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'content_protection', ctrlKey), [onSelectElement]);
   const dragContentProtHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'content_protection', x, y), [onDragEnd]);
+  const transformContentProtHandler = useCallback((id: string, w: number, h: number, rotation?: number) => onTransformEnd?.(id, 'content_protection', w, h, rotation), [onTransformEnd]);
 
   // ---------------------------------------------------------------------------
   // Rubber-band preview rect dimensions
@@ -191,6 +193,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
           scalePixelsPerFoot={scalePixelsPerFoot}
           onSelect={selectProtectHandler}
           onDragEnd={dragProtectHandler}
+          onTransformEnd={transformProtectHandler}
         />
       ))}
 
@@ -203,6 +206,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
           scalePixelsPerFoot={scalePixelsPerFoot}
           onSelect={selectContentProtHandler}
           onDragEnd={dragContentProtHandler}
+          onTransformEnd={transformContentProtHandler}
         />
       ))}
 

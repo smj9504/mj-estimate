@@ -34,11 +34,23 @@
       border-bottom: 2px solid #1a1a1a;
       margin-bottom: 20px;
     }
+    .company-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1a1a1a;
+      letter-spacing: -0.2px;
+    }
+    .company-detail {
+      font-size: 9px;
+      color: #555;
+      line-height: 1.6;
+    }
     .report-title {
       font-size: 20px;
       font-weight: 700;
       letter-spacing: -0.3px;
       color: #1a1a1a;
+      margin-top: 6px;
     }
     .report-subtitle {
       font-size: 11px;
@@ -285,6 +297,15 @@
   <!-- ── Report Header ──────────────────────────────────── -->
   <div class="report-header">
     <div>
+      {% if job.company %}
+      <div class="company-name">{{ job.company.name }}</div>
+      {% if job.company.address or job.company.city %}
+      <div class="company-detail">{{ [job.company.address, job.company.city, job.company.state, job.company.zipcode]|select|join(', ') }}</div>
+      {% endif %}
+      {% if job.company.phone or job.company.email %}
+      <div class="company-detail">{{ [job.company.phone, job.company.email]|select|join(' · ') }}</div>
+      {% endif %}
+      {% endif %}
       <div class="report-title">Water Mitigation Sketch Report</div>
       <div class="report-subtitle">Floor Plan &amp; Material Summary</div>
     </div>
@@ -339,10 +360,8 @@
           {{ job.homeowner_email or '—' }}
         </td>
         <td class="col-divider"></td>
-        <td class="info-label">Adjuster</td>
-        <td class="info-value {% if not job.adjuster_name %}empty{% endif %}">
-          {{ job.adjuster_name or '—' }}
-        </td>
+        <td class="info-label">&nbsp;</td>
+        <td class="info-value">&nbsp;</td>
       </tr>
       <tr>
         <td class="info-label">Date of Loss</td>
@@ -350,25 +369,20 @@
           {{ job.date_of_loss | fmt_date }}
         </td>
         <td class="col-divider"></td>
-        <td class="info-label">Adjuster Phone</td>
-        <td class="info-value {% if not job.adjuster_phone %}empty{% endif %}">
-          {{ job.adjuster_phone or '—' }}
+        <td class="info-label">&nbsp;</td>
+        <td class="info-value">&nbsp;</td>
+      </tr>
+      {% if job.mitigation_start_date or job.mitigation_end_date %}
+      <tr>
+        <td class="info-label">Mitigation Period</td>
+        <td colspan="4" class="info-value">
+          {{ job.mitigation_start_date | fmt_date('%B %d, %Y') }}
+          &nbsp;&rarr;&nbsp;
+          {% if job.mitigation_end_date %}{{ job.mitigation_end_date | fmt_date('%B %d, %Y') }}{% else %}Ongoing{% endif %}
         </td>
       </tr>
+      {% endif %}
     </table>
-
-    {% if job.mitigation_start_date or job.mitigation_end_date %}
-    <div style="margin-top:8px;">
-      <div class="info-row" style="border:1px solid #e0e0e0; border-radius:4px;">
-        <div class="info-label">Mitigation Period</div>
-        <div class="info-value">
-          {{ job.mitigation_start_date | fmt_date('%B %d, %Y') }}
-          &nbsp;→&nbsp;
-          {% if job.mitigation_end_date %}{{ job.mitigation_end_date | fmt_date('%B %d, %Y') }}{% else %}Ongoing{% endif %}
-        </div>
-      </div>
-    </div>
-    {% endif %}
   </div>
 
   <!-- ── Floor Sketches ─────────────────────────────────── -->
@@ -394,7 +408,7 @@
       {% for mat in item.summary.demo_by_material %}
       <div class="legend-item">
         <div class="legend-swatch" style="background:{{ mat.color }}40; border:1.5px solid {{ mat.color }};"></div>
-        <span>{{ mat.material }}</span>
+        <span>{{ mat.material_name|default(mat.material) }}</span>
       </div>
       {% endfor %}
       {% if item.summary.containment_sqft > 0 %}
@@ -430,7 +444,7 @@
               <th>Material Type</th>
               <th>Surface</th>
               <th class="text-right">Count</th>
-              <th class="text-right">Total SF</th>
+              <th class="text-right">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -438,11 +452,11 @@
             <tr>
               <td>
                 <span class="color-dot" style="background:{{ mat.color }};"></span>
-                {{ mat.material }}
+                {{ mat.material_name|default(mat.material) }}
               </td>
               <td>{{ mat.surface | capitalize }}</td>
               <td class="text-right">{{ mat.count }}</td>
-              <td class="text-right">{{ "%.1f"|format(mat.total_sqft) }}</td>
+              <td class="text-right">{{ "%.1f"|format(mat.total_sqft) }} {{ mat.unit|default('SF') }}</td>
             </tr>
             {% endfor %}
           {% if item.summary.carpet_pad_sqft > 0 %}
@@ -459,10 +473,18 @@
           {% endif %}
           </tbody>
           <tfoot>
+            {% if item.summary.total_demo_sf|default(0) > 0 %}
             <tr class="total-row">
-              <td colspan="3">Total Demolition</td>
-              <td class="text-right">{{ "%.1f"|format(item.summary.total_demo_sqft) }} SF</td>
+              <td colspan="3">Total (area)</td>
+              <td class="text-right">{{ "%.1f"|format(item.summary.total_demo_sf) }} SF</td>
             </tr>
+            {% endif %}
+            {% if item.summary.total_demo_lf|default(0) > 0 %}
+            <tr class="total-row">
+              <td colspan="3">Total (linear)</td>
+              <td class="text-right">{{ "%.1f"|format(item.summary.total_demo_lf) }} LF</td>
+            </tr>
+            {% endif %}
           </tfoot>
         </table>
         {% else %}

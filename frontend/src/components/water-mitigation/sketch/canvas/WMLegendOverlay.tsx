@@ -44,6 +44,14 @@ function buildRows(
     }
   }
 
+  // Carpet Pad — show when any carpet zone has include_pad checked
+  const hasCarpetPad = overlayData.demolition_zones.some(
+    (z) => z.material_type === 'carpet' && z.include_pad
+  );
+  if (hasCarpetPad) {
+    rows.push({ kind: 'material', color: '#52c41a', label: 'Carpet Pad' });
+  }
+
   const equipmentKeys = Object.keys(EQUIPMENT_CONFIG) as EquipmentType[];
   for (const key of equipmentKeys) {
     const count = overlayData.equipment_placements.filter((p) => p.equipment_type === key).length;

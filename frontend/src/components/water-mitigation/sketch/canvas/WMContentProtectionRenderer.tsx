@@ -5,8 +5,8 @@
  * Supports drag and rotation.
  */
 
-import React, { useCallback } from 'react';
-import { Group, Rect, Shape, Text } from 'react-konva';
+import React, { useCallback, useRef, useEffect } from 'react';
+import { Group, Rect, Shape, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
 import { WMContentProtection } from '../../../../types/wmSketch';
 
@@ -16,6 +16,7 @@ export interface WMContentProtectionRendererProps {
   scalePixelsPerFoot: number;
   onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
+  onTransformEnd?: (id: string, widthFt: number, heightFt: number, rotation?: number) => void;
 }
 
 /** Spacing between diagonal hatch lines in pixels */
@@ -27,11 +28,28 @@ const WMContentProtectionRenderer: React.FC<WMContentProtectionRendererProps> = 
   scalePixelsPerFoot,
   onSelect,
   onDragEnd,
+  onTransformEnd,
 }) => {
+  const groupRef = useRef<Konva.Group>(null);
+  const rectRef = useRef<Konva.Rect>(null);
+  const transformerRef = useRef<Konva.Transformer>(null);
+
   const widthPx = protection.width_ft * scalePixelsPerFoot;
   const lengthPx = protection.length_ft * scalePixelsPerFoot;
 
   const labelText = `${Math.round(protection.calculated_sqft)} SF`;
+
+  // Attach / detach transformer
+  useEffect(() => {
+    if (!transformerRef.current || !rectRef.current) return;
+    if (isSelected) {
+      transformerRef.current.nodes([rectRef.current]);
+      transformerRef.current.getLayer()?.batchDraw();
+    } else {
+      transformerRef.current.nodes([]);
+      transformerRef.current.getLayer()?.batchDraw();
+    }
+  }, [isSelected]);
 
   const handleClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     onSelect(protection.id, e.evt.ctrlKey || e.evt.metaKey);
@@ -44,11 +62,55 @@ const WMContentProtectionRenderer: React.FC<WMContentProtectionRendererProps> = 
     [protection.id, onDragEnd],
   );
 
+  const handleTransformEnd = useCallback(() => {
+    if (!rectRef.current || !groupRef.current) return;
+    const node = rectRef.current;
+    const group = groupRef.current;
+    const scaleX = node.scaleX();
+    const scaleY = node.scaleY();
+
+    const newWidthPx = Math.max(10, node.width() * scaleX);
+    const newHeightPx = Math.max(10, node.height() * scaleY);
+
+    // Transfer Rect rotation → Group (Transformer sets rotation on the Rect)
+    const nodeRotation = node.rotation();
+    if (nodeRotation !== 0) {
+      group.rotation(group.rotation() + nodeRotation);
+      node.rotation(0);
+    }
+
+    const rectX = node.x();
+    const rectY = node.y();
+    if (rectX !== 0 || rectY !== 0) {
+      const rad = ((group.rotation() || 0) * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      group.x(group.x() + rectX * cos - rectY * sin);
+      group.y(group.y() + rectX * sin + rectY * cos);
+      node.x(0);
+      node.y(0);
+    }
+
+    node.scaleX(1);
+    node.scaleY(1);
+    node.width(newWidthPx);
+    node.height(newHeightPx);
+
+    const newWidthFt = newWidthPx / scalePixelsPerFoot;
+    const newHeightFt = newHeightPx / scalePixelsPerFoot;
+    const newRotation = group.rotation();
+
+    onDragEnd(protection.id, group.x(), group.y());
+    onTransformEnd?.(protection.id, newWidthFt, newHeightFt, newRotation);
+  }, [protection.id, scalePixelsPerFoot, onDragEnd, onTransformEnd]);
+
   const textPadX = 4;
   const fillColor = protection.color || '#8B5CF6';
 
   return (
+    <>
     <Group
+      ref={groupRef}
       x={protection.x}
       y={protection.y}
       rotation={protection.rotation}
@@ -59,6 +121,7 @@ const WMContentProtectionRenderer: React.FC<WMContentProtectionRendererProps> = 
     >
       {/* Base fill */}
       <Rect
+        ref={rectRef}
         width={widthPx}
         height={lengthPx}
         fill={fillColor}
@@ -148,6 +211,24 @@ const WMContentProtectionRenderer: React.FC<WMContentProtectionRendererProps> = 
         </>
       )}
     </Group>
+
+    <Transformer
+      ref={transformerRef}
+      rotateEnabled={true}
+      rotateAnchorOffset={20}
+      borderStroke="#1890ff"
+      borderDash={[3, 3]}
+      anchorSize={8}
+      anchorCornerRadius={2}
+      anchorStroke="#1890ff"
+      anchorFill="#ffffff"
+      onTransformEnd={handleTransformEnd}
+      boundBoxFunc={(oldBox, newBox) => {
+        if (newBox.width < 10 || newBox.height < 10) return oldBox;
+        return newBox;
+      }}
+    />
+    </>
   );
 };
 

@@ -8,12 +8,15 @@
  * When a zone is selected: shows an editable form (type, length, height, sqft).
  * When nothing is selected: shows a summary list and total area.
  */
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Button, InputNumber, Select, Space, Typography, Divider, Popconfirm, Tooltip } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
 import type { WMContainmentZone } from '../../../../types/wmSketch';
 import { calcContainmentSqft, formatDimension } from '../utils/wmCalculations';
-import { CONTAINMENT_TYPE_PRESETS } from '../utils/wmDefaults';
+import {
+  CONTAINMENT_TYPE_PRESETS,
+  formatContainmentTypeLabel,
+} from '../utils/wmDefaults';
 import DimensionInput from './DimensionInput';
 
 const { Text } = Typography;
@@ -51,6 +54,13 @@ const ZoneEditForm: React.FC<{
     () => calcContainmentSqft(zone.length_ft, zone.height_ft),
     [zone.length_ft, zone.height_ft]
   );
+
+  // Legacy sketches stored default type as "Standard"; normalize to "Containment".
+  useEffect(() => {
+    if (zone.containment_type !== 'Standard') return;
+    onUpdate({ containment_type: 'Containment' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onUpdate is stable enough; avoid re-running on every parent render
+  }, [zone.id, zone.containment_type]);
 
   return (
     <Space direction="vertical" size={10} style={{ width: '100%' }}>
@@ -177,7 +187,8 @@ const WMContainmentPanel: React.FC<WMContainmentPanelProps> = ({
         >
           <ContainmentSwatch color={selectedZone.color} />
           <Text style={{ fontSize: 12, fontWeight: 500, flex: 1 }}>
-            {selectedZone.containment_type || 'Containment Barrier'}
+            {formatContainmentTypeLabel(selectedZone.containment_type) ||
+              'Containment Barrier'}
           </Text>
           <Tooltip title="Deselect (click empty canvas area)">
             <Text type="secondary" style={{ fontSize: 11 }}>
@@ -255,7 +266,8 @@ const WMContainmentPanel: React.FC<WMContainmentPanelProps> = ({
               <ContainmentSwatch color={zone.color} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <Text style={{ fontSize: 12 }}>
-                  {zone.containment_type || `Barrier ${i + 1}`}
+                  {formatContainmentTypeLabel(zone.containment_type) ||
+                    `Barrier ${i + 1}`}
                   {(zone.zipper_count || 0) > 0 && (
                     <span style={{ color: '#E53935', fontWeight: 500, marginLeft: 4 }}>
                       ({zone.zipper_count} Zipper)

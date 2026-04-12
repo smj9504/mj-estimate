@@ -60,6 +60,8 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
   }
   if (zone.label) labelText = zone.label;
 
+  const pendingLabel = isLF ? 'Baseboard (set length)' : 'Wall (set length)';
+
   const handleClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     onSelect(zone.id, e.evt.ctrlKey || e.evt.metaKey);
   }, [zone.id, onSelect]);
@@ -99,8 +101,60 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
     [zone.id, scalePixelsPerFoot, onTransformEnd],
   );
 
-  // Don't render if no length
-  if (lengthPx <= 0) return null;
+  // Zero-length: show a small placeholder so multiple list-only zones are
+  // visible and selectable (they would otherwise stack invisibly at 0 LF).
+  if (lengthPx <= 0) {
+    return (
+      <Group
+        x={zone.x}
+        y={zone.y}
+        rotation={zone.rotation}
+        draggable
+        onClick={handleClick}
+        onTap={handleClick}
+        onDragEnd={handleDragEnd}
+      >
+        <Circle
+          x={0}
+          y={0}
+          radius={14}
+          fill="rgba(0,0,0,0.02)"
+          stroke="transparent"
+        />
+        <Circle
+          x={0}
+          y={0}
+          radius={6}
+          stroke={color}
+          strokeWidth={2}
+          dash={isLF ? [3, 3] : undefined}
+          listening={false}
+        />
+        <Text
+          x={-70}
+          y={-28}
+          width={140}
+          text={pendingLabel}
+          fontSize={9}
+          fontFamily="'Inter', 'Segoe UI', sans-serif"
+          fill="#888"
+          align="center"
+          listening={false}
+        />
+        {isSelected && (
+          <Circle
+            x={0}
+            y={0}
+            radius={10}
+            stroke="#1890ff"
+            strokeWidth={2}
+            dash={[4, 2]}
+            listening={false}
+          />
+        )}
+      </Group>
+    );
+  }
 
   return (
     <Group

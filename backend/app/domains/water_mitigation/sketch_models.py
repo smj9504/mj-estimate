@@ -232,7 +232,7 @@ class WMContainmentZone(Base, BaseModel):
         nullable=False,
     )
 
-    containment_type = Column(String(100), default="Standard", nullable=False)
+    containment_type = Column(String(100), default="Containment", nullable=False)
 
     # Canvas position
     x = Column(Float, nullable=False)

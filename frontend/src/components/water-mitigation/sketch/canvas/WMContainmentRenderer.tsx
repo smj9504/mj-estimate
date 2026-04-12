@@ -11,6 +11,7 @@ import React, { useCallback } from 'react';
 import { Group, Line, Circle, Rect, Text } from 'react-konva';
 import Konva from 'konva';
 import { WMContainmentZone } from '../../../../types/wmSketch';
+import { formatContainmentTypeLabel } from '../utils/wmDefaults';
 
 export interface WMContainmentRendererProps {
   zone: WMContainmentZone;
@@ -44,7 +45,7 @@ const WMContainmentRenderer: React.FC<WMContainmentRendererProps> = ({
 
   const labelText = zone.label
     ? zone.label
-    : `${zone.calculated_sqft > 0 ? `${Math.round(zone.calculated_sqft)} SF` : zone.containment_type}${zipperCount > 0 ? ` | ${zipperCount} Zipper` : ''}`;
+    : `${zone.calculated_sqft > 0 ? `${Math.round(zone.calculated_sqft)} SF` : formatContainmentTypeLabel(zone.containment_type)}${zipperCount > 0 ? ` | ${zipperCount} Zipper` : ''}`;
 
   const handleClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     onSelect(zone.id, e.evt.ctrlKey || e.evt.metaKey);

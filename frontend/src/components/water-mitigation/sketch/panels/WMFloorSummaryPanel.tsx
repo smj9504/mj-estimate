@@ -119,7 +119,18 @@ const WMFloorSummaryPanel: React.FC<WMFloorSummaryProps> = ({ summary }) => {
                 type="secondary"
                 style={{ fontSize: 11, fontVariantNumeric: 'tabular-nums' }}
               >
-                {summary.demolition_by_type.reduce((s, d) => s + d.total_sqft, 0).toFixed(2)} SF total
+                {(() => {
+                  const sf = summary.demolition_by_type
+                    .filter((d) => d.unit === 'SF')
+                    .reduce((s, d) => s + d.total_sqft, 0);
+                  const lf = summary.demolition_by_type
+                    .filter((d) => d.unit === 'LF')
+                    .reduce((s, d) => s + d.total_sqft, 0);
+                  const parts: string[] = [];
+                  if (sf > 0) parts.push(`${sf.toFixed(2)} SF`);
+                  if (lf > 0) parts.push(`${lf.toFixed(2)} LF`);
+                  return parts.length > 0 ? `${parts.join(' · ')} total` : '—';
+                })()}
               </Text>
             </div>
           </>

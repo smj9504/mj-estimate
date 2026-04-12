@@ -297,17 +297,6 @@ interface GroupState {
   [materialType: string]: boolean;
 }
 
-/**
- * Returns true when the zone surface is wall or unit is LF (baseboard).
- * These zones do not appear on the 2D canvas.
- */
-function isListOnlyZone(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]): boolean {
-  const mat =
-    materialTypes.find((m) => m.id === zone.material_type) ??
-    DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === zone.material_type);
-  return mat?.surface === 'wall' || mat?.unit === 'LF';
-}
-
 const SummaryView: React.FC<{
   zones: WMDemolitionZone[];
   materialTypes: DemoMaterialType[];
@@ -349,14 +338,21 @@ const SummaryView: React.FC<{
       materialTypes.find((m) => m.id === materialId) ??
       DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === materialId);
     if (!mat) return;
+    // Stagger canvas position so multiple list-only lines (same material) are
+    // visible and editable instead of stacking at (0,0).
+    const idx = zones.length;
+    const col = idx % 12;
+    const row = Math.floor(idx / 12);
+    const x = 28 + col * 34;
+    const y = 28 + row * 34;
     const zone: WMDemolitionZone = {
       id: generateOverlayId(),
       floor_sketch_id: floorSketchId,
       material_type: mat.id,
       surface: mat.surface,
       color: mat.color,
-      x: 0,
-      y: 0,
+      x,
+      y,
       dimension1_ft: 0,
       dimension2_ft: 0,
       rotation: 0,
