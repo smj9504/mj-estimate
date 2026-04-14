@@ -1593,6 +1593,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     >
       {/* Floor plan source toggle + image upload */}
       <WMFloorPlanSource
+        key={floorSketch.id}
         sourceType={imageSourceType}
         backgroundImageUrl={backgroundImageUrl}
         onSourceTypeChange={setImageSourceType}
