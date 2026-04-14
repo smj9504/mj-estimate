@@ -35,9 +35,9 @@ logger = logging.getLogger(__name__)
 
 # Matches frontend EQUIPMENT_CONFIG in wmSketch.ts
 EQUIPMENT_CONFIG: Dict[str, Dict[str, str]] = {
-    "air_mover":    {"display": "Air Mover",     "color": "#2196F3", "shape": "circle"},
-    "air_scrubber": {"display": "Air Scrubber",  "color": "#4CAF50", "shape": "triangle"},
-    "dehumidifier": {"display": "Dehumidifier",  "color": "#FF9800", "shape": "cylinder"},
+    "air_mover":    {"display": "Air Mover",     "color": "#2196F3", "shape": "circle",   "abbreviation": "AM"},
+    "air_scrubber": {"display": "Air Scrubber",  "color": "#4CAF50", "shape": "triangle", "abbreviation": "AS"},
+    "dehumidifier": {"display": "Dehumidifier",  "color": "#FF9800", "shape": "cylinder", "abbreviation": "DH"},
 }
 
 
@@ -271,6 +271,7 @@ class SketchPdfService:
         parts: List[str] = []
 
         # Background: uploaded image or plain fill
+        has_bg_image = False
         try:
             bg_result = self._load_background_image_data_uri(floor)
         except Exception as exc:
@@ -278,6 +279,7 @@ class SketchPdfService:
             bg_result = None
 
         if bg_result:
+            has_bg_image = True
             bg_data_uri, img_w, img_h = bg_result
             # Use the same fitContain logic as the Konva canvas
             fit = self._fit_contain(img_w, img_h, canvas_w, canvas_h)
@@ -293,7 +295,7 @@ class SketchPdfService:
             )
 
         # Subtle grid (only when no background image)
-        if not bg_data_uri:
+        if not has_bg_image:
             parts.extend(self._build_grid(canvas_w, canvas_h, scale))
 
         # Canvas border

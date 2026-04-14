@@ -182,6 +182,11 @@ class SketchRepository:
         # --- Step 3: flush to assign IDs, then build JSONB snapshot ---
         self.db.flush()
 
+        # Expire all cached objects so selectinload re-fetches the freshly
+        # inserted child rows instead of returning stale relationship
+        # collections from the identity map.
+        self.db.expire_all()
+
         sketch = self.db.execute(
             select(WMFloorSketch)
             .where(WMFloorSketch.id == floor_sketch_id)
@@ -224,6 +229,7 @@ class SketchRepository:
                 "id": str(db_z.id),
                 "floor_sketch_id": str(db_z.floor_sketch_id),
                 "material_type": db_z.material_type,
+                "sub_type": db_z.sub_type,
                 "surface": db_z.surface,
                 "color": db_z.color,
                 "x": float(db_z.x),
