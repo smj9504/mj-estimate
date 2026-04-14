@@ -1077,6 +1077,107 @@ async def preview_photo(
     )
 
 
+@router.get("/photos/{photo_id}/download")
+async def download_photo(
+    photo_id: UUID,
+    service: WaterMitigationService = Depends(get_wm_service)
+):
+    """Download photo as attachment (original quality)"""
+    import io
+    from fastapi.responses import StreamingResponse
+
+    photo = service.photo_repo.get_by_id(str(photo_id))
+    if photo is None:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    source = photo.get('source') if isinstance(photo, dict) else photo.source
+    external_id = photo.get('external_id') if isinstance(photo, dict) else photo.external_id
+    storage_provider = photo.get('storage_provider') if isinstance(photo, dict) else photo.storage_provider
+    file_path = photo.get('file_path') if isinstance(photo, dict) else photo.file_path
+    mime_type = photo.get('mime_type') if isinstance(photo, dict) else photo.mime_type
+    original_filename = photo.get('original_filename') if isinstance(photo, dict) else photo.original_filename
+    media_type = mime_type or 'image/jpeg'
+    safe_filename = original_filename or f"photo_{photo_id}.jpg"
+
+    # CompanyCam photos
+    if source == 'companycam' and external_id:
+        try:
+            from app.core.config import settings
+            from ..integrations.companycam.client import CompanyCamClient
+
+            if not settings.ENABLE_INTEGRATIONS or not settings.COMPANYCAM_API_KEY:
+                raise HTTPException(status_code=503, detail="CompanyCam integration not available")
+
+            companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
+            photo_url = file_path if file_path and file_path.startswith('https://') else None
+            if not photo_url:
+                photo_url = companycam_client.get_photo_url(external_id)
+            if not photo_url:
+                raise HTTPException(status_code=404, detail="CompanyCam photo URL not found")
+
+            photo_bytes = await companycam_client.download_photo(photo_url)
+            return StreamingResponse(
+                io.BytesIO(photo_bytes),
+                media_type=media_type,
+                headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'}
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to download CompanyCam photo {photo_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to download photo")
+
+    # Cloud storage
+    if storage_provider and storage_provider != 'local':
+        try:
+            from ..storage.factory import StorageFactory
+            storage = StorageFactory.get_instance(storage_provider)
+            storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else photo.storage_file_id
+            if storage_file_id and hasattr(storage, 'download'):
+                photo_bytes = storage.download(storage_file_id)
+                return StreamingResponse(
+                    io.BytesIO(photo_bytes),
+                    media_type=media_type,
+                    headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'}
+                )
+        except Exception as e:
+            logger.error(f"Failed to download cloud photo {photo_id}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to download photo")
+
+    # Local storage
+    local_file_path = Path(file_path)
+    if not local_file_path.exists():
+        from app.core.config import settings as app_settings
+        local_file_path = Path(app_settings.STORAGE_BASE_DIR) / file_path
+    if not local_file_path.exists():
+        # Fallback to cloud storage
+        storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else getattr(photo, 'storage_file_id', None)
+        if storage_file_id:
+            try:
+                from ..storage.factory import StorageFactory
+                from app.core.config import settings as app_settings_cs
+                configured_provider = app_settings_cs.STORAGE_PROVIDER.lower()
+                if configured_provider != 'local':
+                    storage = StorageFactory.get_instance(configured_provider)
+                    if hasattr(storage, 'download'):
+                        photo_bytes = storage.download(storage_file_id)
+                        return StreamingResponse(
+                            io.BytesIO(photo_bytes),
+                            media_type=media_type,
+                            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'}
+                        )
+            except Exception:
+                pass
+        raise HTTPException(status_code=404, detail="Photo file not found")
+
+    return FileResponse(
+        path=str(local_file_path),
+        media_type=media_type,
+        filename=safe_filename,
+        headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'}
+    )
+
+
 @router.patch("/photos/{photo_id}/category")
 def update_photo_category(
     photo_id: UUID,

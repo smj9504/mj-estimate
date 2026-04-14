@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 # Valid categories
 VALID_CATEGORIES = [
+    "property-overview",
     "wet-area",
     "personal-properties",
     "pre-mitigation-moving",
@@ -55,18 +56,19 @@ VALID_CATEGORIES = [
 CLASSIFICATION_PROMPT = """Analyze this water mitigation (flood/water damage restoration) photo.
 
 CATEGORIES (pick exactly one):
-1. wet-area — Moisture meter showing HIGH reading, area NOT yet demolished (original walls/floors intact)
-2. personal-properties — Homeowner belongings, furniture, personal items (before moving)
-3. pre-mitigation-moving — Furniture/belongings being moved out, packing process
-4. demolition — Active tear-out of drywall/flooring/baseboards (exposed studs, debris piles)
-5. containment — Plastic sheeting barriers, poly walls, zipper doors
-6. protection — Floor protection (ram board, paper, tape), content protection (plastic wrap on furniture/items)
-7. drying-process — Air movers/dehumidifiers/fans on floor running, OR 3+ units stacked together
-8. day-1 — Moisture meter 0-13% or "LO" + demolition already completed (dry)
-9. day-2 — Moisture meter 14-23% + demolition completed (drying)
-10. day-3 — Moisture meter 24%+ or "HI" + demolition completed (still wet)
-11. documentation — Paperwork, signatures, certificates, authorization forms
-12. uncategorized — None of the above, unclear, or mold visible
+1. property-overview — Exterior/interior overview of the property (front of house, street view, wide-angle room shots showing overall condition)
+2. wet-area — Moisture meter showing HIGH reading, area NOT yet demolished (original walls/floors intact)
+3. personal-properties — Homeowner belongings, furniture, personal items (before moving)
+4. pre-mitigation-moving — Furniture/belongings being moved out, packing process
+5. demolition — Active tear-out of drywall/flooring/baseboards (exposed studs, debris piles)
+6. containment — Plastic sheeting barriers, poly walls, zipper doors
+7. protection — Floor protection (ram board, paper, tape), content protection (plastic wrap on furniture/items)
+8. drying-process — Air movers/dehumidifiers/fans on floor running, OR 3+ units stacked together
+9. day-1 — Moisture meter 0-13% or "LO" + demolition already completed (dry)
+10. day-2 — Moisture meter 14-23% + demolition completed (drying)
+11. day-3 — Moisture meter 24%+ or "HI" + demolition completed (still wet)
+12. documentation — Paperwork, signatures, certificates, authorization forms
+13. uncategorized — None of the above, unclear, or mold visible
 
 MOISTURE METER READING GUIDE:
 - Meters show NUMERIC values (e.g., 22%, 67%, 8.5%) or text ("LO", "HI") on a blue/backlit LCD

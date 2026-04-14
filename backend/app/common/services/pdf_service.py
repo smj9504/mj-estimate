@@ -2450,9 +2450,9 @@ def generate_water_mitigation_report_pdf(
             c.setFont("Helvetica", 8)  # Changed from 7 to 8
             c.drawCentredString(page_width / 2, footer_text_y, section_title)
 
-            # Right text - date
+            # Right text - property address
             c.setFont("Helvetica", 8)
-            c.drawRightString(page_width - margin, footer_text_y, report_date_formatted)
+            c.drawRightString(page_width - margin, footer_text_y, job_data.get('property_address', ''))
 
             c.save()
             page_buffer.seek(0)

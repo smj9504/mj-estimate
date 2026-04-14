@@ -99,6 +99,7 @@ export interface AIClassifyResponse {
 
 // AI photo category labels for display
 export const AI_CATEGORY_LABELS: Record<string, string> = {
+  'property-overview': 'Property Overview',
   'wet-area': 'Wet Area',
   'personal-properties': 'Personal Properties',
   'pre-mitigation-moving': 'Pre-Mitigation Moving',
@@ -114,6 +115,7 @@ export const AI_CATEGORY_LABELS: Record<string, string> = {
 };
 
 export const AI_CATEGORY_COLORS: Record<string, string> = {
+  'property-overview': '#597ef7',
   'wet-area': '#f5222d',
   'personal-properties': '#eb2f96',
   'pre-mitigation-moving': '#fa8c16',

@@ -1,5 +1,5 @@
 import React, { useState, memo, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Card, Image, Typography, Modal, Checkbox, Tag } from 'antd';
+import { Card, Image, Typography, Modal, Checkbox, Tag, message } from 'antd';
 import { Grid } from 'react-window';
 import {
   EyeOutlined,
@@ -344,6 +344,7 @@ interface FileGridProps {
   enableLazyLoading?: boolean;
   containerHeight?: number; // Height for virtual scrolling
   imageQuality?: ImageQuality; // Image quality: 'original' (full res), 'web' (400px), 'thumbnail' (250px)
+  context?: string; // Context for download URL routing
 }
 
 const FileGrid: React.FC<FileGridProps> = ({
@@ -361,7 +362,8 @@ const FileGrid: React.FC<FileGridProps> = ({
   gridColumns = { xs: 3, sm: 4, md: 5, lg: 6, xl: 8 },
   enableLazyLoading = true,
   containerHeight = 600,
-  imageQuality = 'thumbnail'
+  imageQuality = 'thumbnail',
+  context
 }) => {
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
@@ -422,14 +424,35 @@ const FileGrid: React.FC<FileGridProps> = ({
     }
   }, [fileCategory, showImagePreview, onFileClick]);
 
-  const handleDownload = useCallback((file: FileItem) => {
-    const link = document.createElement('a');
-    link.href = fileService.getDownloadUrl(file.id);
-    link.download = file.originalName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }, []);
+  const downloadingRef = useRef<Set<string>>(new Set());
+  const handleDownload = useCallback(async (file: FileItem) => {
+    if (downloadingRef.current.has(file.id)) return;
+    downloadingRef.current.add(file.id);
+    const hide = message.loading('다운로드 중...', 0);
+    try {
+      const url = context === 'water-mitigation'
+        ? `/api/water-mitigation/photos/${file.id}/download`
+        : fileService.getDownloadUrl(file.id);
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = file.originalName || `photo_${file.id}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+      message.success('다운로드 완료');
+    } catch (err) {
+      console.error('Download failed:', err);
+      message.error('다운로드 실패');
+    } finally {
+      hide();
+      downloadingRef.current.delete(file.id);
+    }
+  }, [context]);
 
   const handleDelete = useCallback(async (file: FileItem, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -710,6 +733,7 @@ const FileGrid: React.FC<FileGridProps> = ({
         onCancel={() => setPreviewVisible(false)}
         width="80%"
         style={{ top: 20 }}
+        destroyOnHidden
       >
         <Image
           src={previewImage}

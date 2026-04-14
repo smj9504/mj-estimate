@@ -1271,6 +1271,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           // Water mitigation specific categories
           categories={[
             'uncategorized',
+            'property-overview',
             'wet-area',
             'personal-properties',
             'pre-mitigation-moving',

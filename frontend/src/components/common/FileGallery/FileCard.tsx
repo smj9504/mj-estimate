@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Card, Typography, Space, Button, Modal, Image, Tag, Tooltip, Checkbox } from 'antd';
+import React, { useState, useRef } from 'react';
+import { Card, Typography, Space, Button, Modal, Image, Tag, Tooltip, Checkbox, message } from 'antd';
 import {
   EyeOutlined,
   DownloadOutlined,
@@ -93,19 +93,35 @@ const FileCard: React.FC<FileCardProps> = ({
     }
   };
 
-  const handleDownload = (file: FileItem, e: React.MouseEvent) => {
+  const downloadingRef = useRef<Set<string>>(new Set());
+  const handleDownload = async (file: FileItem, e: React.MouseEvent) => {
     e.stopPropagation();
-    const link = document.createElement('a');
-    // Use context-aware download URL
-    if (context === 'water-mitigation') {
-      link.href = `/api/water-mitigation/photos/${file.id}/download`;
-    } else {
-      link.href = fileService.getDownloadUrl(file.id);
+    if (downloadingRef.current.has(file.id)) return;
+    downloadingRef.current.add(file.id);
+    const hide = message.loading('다운로드 중...', 0);
+    try {
+      const url = context === 'water-mitigation'
+        ? `/api/water-mitigation/photos/${file.id}/download`
+        : fileService.getDownloadUrl(file.id);
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = file.originalName || `photo_${file.id}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+      message.success('다운로드 완료');
+    } catch (err) {
+      console.error('Download failed:', err);
+      message.error('다운로드 실패');
+    } finally {
+      hide();
+      downloadingRef.current.delete(file.id);
     }
-    link.download = file.originalName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   const handleDelete = async (file: FileItem, e: React.MouseEvent) => {

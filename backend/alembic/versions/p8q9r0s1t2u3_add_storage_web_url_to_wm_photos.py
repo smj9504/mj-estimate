@@ -5,7 +5,7 @@ Revises: o7p8q9r0s1t2
 Create Date: 2026-04-14
 
 Adds:
-  - storage_web_url VARCHAR(1000) to water_mitigation_photos for CDN web-size URL caching
+  - storage_web_url VARCHAR(1000) to wm_photos for CDN web-size URL caching
 """
 
 from alembic import op
@@ -19,10 +19,10 @@ depends_on = None
 
 def upgrade() -> None:
     op.add_column(
-        'water_mitigation_photos',
+        'wm_photos',
         sa.Column('storage_web_url', sa.String(1000), nullable=True)
     )
 
 
 def downgrade() -> None:
-    op.drop_column('water_mitigation_photos', 'storage_web_url')
+    op.drop_column('wm_photos', 'storage_web_url')

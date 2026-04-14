@@ -47,6 +47,8 @@ interface TrashedPhoto {
   file_name: string;
   file_path: string;
   thumbnail_url?: string;
+  storage_thumbnail_url?: string;
+  storage_web_url?: string;
   trashed_at: string;
   trash_reason: string;
   category?: string;
@@ -329,7 +331,7 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
                       onClick={() => toggleSelection(photo.id)}
                     >
                       <Image
-                        src={photo.thumbnail_url || photo.file_path}
+                        src={photo.storage_thumbnail_url || photo.storage_web_url || photo.thumbnail_url || `/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`}
                         alt={photo.file_name}
                         style={{
                           position: 'absolute',

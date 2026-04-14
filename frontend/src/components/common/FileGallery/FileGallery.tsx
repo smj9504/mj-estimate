@@ -83,9 +83,12 @@ const FileGallery: React.FC<FileGalleryProps> = ({
   const {
     files,
     loading,
+    fetching,
     error,
     uploadFiles,
     deleteFile,
+    deleteFileSilent,
+    bulkDeleteInProgressRef,
     updateFileCategory,
     refetch,
     hasNextPage,
@@ -328,31 +331,33 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       cancelText: 'Cancel',
       onOk: async () => {
         const totalFiles = currentSelectedFiles.length;
-        const BATCH_SIZE = 5; // Process 5 files at a time
+        const BATCH_SIZE = 5;
         let deletedCount = 0;
 
-        // Create batches for parallel processing
         const batches: string[][] = [];
         for (let i = 0; i < totalFiles; i += BATCH_SIZE) {
           batches.push(currentSelectedFiles.slice(i, i + BATCH_SIZE));
         }
 
-        const hideProgress = message.loading(`Deleting files 0/${totalFiles}...`, 0);
+        const msgKey = 'bulk-delete-progress';
+        message.loading({ content: `Deleting files 0/${totalFiles}...`, key: msgKey, duration: 0 });
+        bulkDeleteInProgressRef.current = true;
 
         try {
           for (const batch of batches) {
-            await Promise.all(batch.map(fileId => deleteFile(fileId)));
+            await Promise.all(batch.map(fileId => deleteFileSilent(fileId)));
             deletedCount += batch.length;
-            hideProgress();
-            message.loading(`Deleting files ${deletedCount}/${totalFiles}...`, 0);
+            message.loading({ content: `Deleting files ${deletedCount}/${totalFiles}...`, key: msgKey, duration: 0 });
           }
 
-          hideProgress();
           handleFileSelectionChange(new Set());
-          message.success(`${totalFiles} file(s) deleted successfully`);
+          message.success({ content: `${totalFiles} file(s) deleted successfully`, key: msgKey, duration: 3 });
         } catch (error) {
-          hideProgress();
-          message.error(`Failed to delete some files (${deletedCount}/${totalFiles} completed)`);
+          message.error({ content: `Failed to delete some files (${deletedCount}/${totalFiles} completed)`, key: msgKey, duration: 5 });
+        } finally {
+          bulkDeleteInProgressRef.current = false;
+          // Single invalidation after all deletes complete
+          refetch();
         }
       }
     });
@@ -384,11 +389,10 @@ const FileGallery: React.FC<FileGalleryProps> = ({
             }
           }
 
-          // Force refetch to update UI
-          await refetch();
-
           handleFileSelectionChange(new Set());
           message.success(`Category updated for ${currentSelectedFiles.length} file(s)`);
+          // Background refetch (non-blocking)
+          refetch();
         } catch (error) {
           console.error('Failed to update categories:', error);
           message.error('Failed to update categories');
@@ -704,7 +708,8 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       onCategoryChange: updateFileCategory,
       fileCategory,
       showImagePreview,
-      showDocumentDetails
+      showDocumentDetails,
+      context
     };
 
     // FileList-specific props
@@ -798,6 +803,9 @@ const FileGallery: React.FC<FileGalleryProps> = ({
     );
   };
 
+  // Show fetching state (filter change, refetch) — not initial load
+  const isFilterFetching = fetching && !loading;
+
   const renderFileView = () => {
     if (loading) {
       return (
@@ -818,7 +826,7 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       );
     }
 
-    if (filteredFiles.length === 0) {
+    if (filteredFiles.length === 0 && !isFilterFetching) {
       return (
         <Empty
           description={allowUpload ? "No files found. Upload files to get started." : "No files found"}
@@ -858,7 +866,8 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       onCategoryChange: updateFileCategory,
       fileCategory,
       showImagePreview,
-      showDocumentDetails
+      showDocumentDetails,
+      context
     };
 
     let content;
@@ -910,7 +919,9 @@ const FileGallery: React.FC<FileGalleryProps> = ({
       {renderHeader()}
 
       <div style={{ flex: 1, overflow: 'auto', marginTop: 16 }}>
-        {renderFileView()}
+        <Spin spinning={isFilterFetching} tip="Loading photos...">
+          {renderFileView()}
+        </Spin>
       </div>
 
       {/* Upload Modal */}

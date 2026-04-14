@@ -137,13 +137,15 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [updatingPhotoDates, setUpdatingPhotoDates] = useState(false);
-  const [reportDate, setReportDate] = useState<dayjs.Dayjs | null>(dayjs()); // Default to today
+  // Default report date: mitigation end date + 1, fallback to today
+  const [reportDate, setReportDate] = useState<dayjs.Dayjs | null>(
+    mitigationEndDate ? dayjs(mitigationEndDate).add(1, 'day') : dayjs()
+  );
 
-  // Generate default filename: {address}-{report title}
+  // Generate default filename: Water Mitigation Photo - {address}
   const getDefaultFilename = () => {
     const addressPart = jobAddress ? jobAddress.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '-') : '';
-    const titlePart = coverTitle ? coverTitle.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '-') : 'Report';
-    return `${addressPart}-${titlePart}`;
+    return addressPart ? `Water-Mitigation-Photo-${addressPart}` : 'Water-Mitigation-Photo-Report';
   };
 
   // React Query client for cache invalidation
@@ -652,14 +654,15 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
 
     // Count photos by category for display
     const categorizedPhotos = availablePhotos.filter(p => p.category);
+    const normalize = (s: string) => s.toLowerCase().replace(/[\s\-_]/g, '');
     const day2Photos = categorizedPhotos.filter(p =>
-      p.category?.toLowerCase().replace(/\s/g, '').includes('day2')
+      normalize(p.category || '').includes('day2')
     );
     const day3Photos = categorizedPhotos.filter(p =>
-      p.category?.toLowerCase().replace(/\s/g, '').includes('day3')
+      normalize(p.category || '').includes('day3')
     );
     const otherPhotos = categorizedPhotos.filter(p => {
-      const cat = p.category?.toLowerCase().replace(/\s/g, '') || '';
+      const cat = normalize(p.category || '');
       return !cat.includes('day2') && !cat.includes('day3');
     });
 

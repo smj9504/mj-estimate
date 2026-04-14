@@ -74,11 +74,11 @@ export const useFileGallery = ({
         }
       }
 
-      // Invalidate and refetch files
-      await queryClient.invalidateQueries({
+      // Invalidate queries in parallel (non-blocking)
+      queryClient.invalidateQueries({
         queryKey: ['files', context, contextId, fileCategory]
       });
-      await queryClient.invalidateQueries({
+      queryClient.invalidateQueries({
         queryKey: ['files-infinite', context, contextId, fileCategory]
       });
 
@@ -100,7 +100,6 @@ export const useFileGallery = ({
 
       // Use pagination API for water-mitigation photos
       if (context === 'water-mitigation' && fileCategory === 'image') {
-        // Dynamic page size: smaller for first page (faster initial load), larger for subsequent pages
         const dynamicPageSize = pageParam === 1 ? 20 : 30;
 
         const params: Record<string, any> = {
@@ -110,7 +109,7 @@ export const useFileGallery = ({
           sort_order: 'desc'
         };
 
-        // Add category filter if specified
+        // Add category filter for server-side filtering
         if (normalizedCategoryFilter) {
           params.category_filter = Array.isArray(normalizedCategoryFilter)
             ? normalizedCategoryFilter.join(',')
@@ -227,6 +226,7 @@ export const useFileGallery = ({
     : (regularQuery.data || []);
 
   const loading = enableInfiniteScroll ? infiniteQuery.isLoading : regularQuery.isLoading;
+  const fetching = enableInfiniteScroll ? infiniteQuery.isFetching : regularQuery.isFetching;
   const error = enableInfiniteScroll ? infiniteQuery.error : regularQuery.error;
   const refetch = enableInfiniteScroll ? infiniteQuery.refetch : regularQuery.refetch;
 
@@ -270,6 +270,9 @@ export const useFileGallery = ({
     }
   });
 
+  // Flag to suppress individual toast during bulk delete
+  const bulkDeleteInProgressRef = useRef(false);
+
   // Delete mutation (uses trash for water-mitigation photos, hard delete for others)
   const deleteMutation = useMutation({
     mutationFn: async (fileId: string) => {
@@ -287,32 +290,22 @@ export const useFileGallery = ({
       }
     },
     onSuccess: () => {
-      // Invalidate and refetch files
-      queryClient.invalidateQueries({
-        queryKey: ['files', context, contextId, fileCategory]
-      });
-      queryClient.invalidateQueries({
-        queryKey: ['files-infinite', context, contextId, fileCategory]
-      });
-
-      // Also invalidate file count queries
-      queryClient.invalidateQueries({
-        queryKey: ['work-order-images-count', contextId]
-      });
-      queryClient.invalidateQueries({
-        queryKey: ['work-order-documents-count', contextId]
-      });
-
-      // Invalidate trashed photos query
-      queryClient.invalidateQueries({
-        queryKey: ['trashed-photos', contextId]
-      });
-
-      message.success('File moved to trash');
+      // Skip per-file invalidation during bulk delete (will invalidate once at the end)
+      if (!bulkDeleteInProgressRef.current) {
+        // Invalidate all relevant queries (non-blocking, parallel)
+        queryClient.invalidateQueries({ queryKey: ['files', context, contextId, fileCategory] });
+        queryClient.invalidateQueries({ queryKey: ['files-infinite', context, contextId, fileCategory] });
+        queryClient.invalidateQueries({ queryKey: ['work-order-images-count', contextId] });
+        queryClient.invalidateQueries({ queryKey: ['work-order-documents-count', contextId] });
+        queryClient.invalidateQueries({ queryKey: ['trashed-photos', contextId] });
+        message.success('File moved to trash');
+      }
     },
     onError: (error: any) => {
       console.error('Trash failed:', error);
-      message.error(`Failed to move to trash: ${error.message || 'Unknown error'}`);
+      if (!bulkDeleteInProgressRef.current) {
+        message.error(`Failed to move to trash: ${error.message || 'Unknown error'}`);
+      }
     }
   });
 
@@ -355,6 +348,11 @@ export const useFileGallery = ({
     deleteMutation.mutate(fileId);
   }, [deleteMutation]);
 
+  // Bulk-aware delete: returns a Promise that resolves when done
+  const deleteFileSilent = useCallback(async (fileId: string) => {
+    return deleteMutation.mutateAsync(fileId);
+  }, [deleteMutation]);
+
   // Update file category function with batching
   const updateFileCategory = useCallback(async (fileId: string, category: string) => {
     // Add to batch
@@ -377,9 +375,12 @@ export const useFileGallery = ({
     error,
     uploadFiles,
     deleteFile,
+    deleteFileSilent,
+    bulkDeleteInProgressRef,
     updateFileCategory,
     uploading: uploadMutation.isPending,
     deleting: deleteMutation.isPending,
+    fetching,
     uploadProgress,
     refetch,
     // Infinite scroll specific
