@@ -67,6 +67,63 @@ import type {
 
 const BASE_URL = '/api/water-mitigation';
 
+// ─── AI Classification Types ───
+
+export interface AIClassifyMetadata {
+  meter_visible: boolean;
+  meter_color: 'red' | 'yellow' | 'green' | null;
+  is_demolished: boolean;
+  equipment_count: number;
+  equipment_status: 'operating' | 'stacked' | null;
+  mold_visible: boolean;
+}
+
+export interface AIClassifyResult {
+  photo_id: string;
+  category: string;
+  confidence: number;
+  metadata: AIClassifyMetadata;
+  analyzed_at?: string;
+  cached?: boolean;
+  original_category?: string;
+  rule_applied?: string;
+  error?: string;
+}
+
+export interface AIClassifyResponse {
+  success: boolean;
+  classified: number;
+  failed: number;
+  results: AIClassifyResult[];
+}
+
+// AI photo category labels for display
+export const AI_CATEGORY_LABELS: Record<string, string> = {
+  'wet-area': 'Wet Area',
+  'pre-mitigation-moving': 'Pre-Mitigation Moving',
+  'demolition': 'Demolition',
+  'containment': 'Containment',
+  'drying-process': 'Drying Process',
+  'day-1': 'Day 1',
+  'day-2': 'Day 2',
+  'day-3': 'Day 3',
+  'documentation': 'Documentation',
+  'uncategorized': 'Uncategorized',
+};
+
+export const AI_CATEGORY_COLORS: Record<string, string> = {
+  'wet-area': '#f5222d',
+  'pre-mitigation-moving': '#fa8c16',
+  'demolition': '#faad14',
+  'containment': '#a0d911',
+  'drying-process': '#1890ff',
+  'day-1': '#ff4d4f',
+  'day-2': '#ffc53d',
+  'day-3': '#52c41a',
+  'documentation': '#722ed1',
+  'uncategorized': '#bfbfbf',
+};
+
 // Job Management
 export const waterMitigationService = {
   // Create new job
@@ -339,7 +396,47 @@ export const waterMitigationService = {
     cancelExport: async (jobId: string): Promise<{ success: boolean; message: string }> => {
       const response = await api.post(`${BASE_URL}/jobs/${jobId}/export-to-gdrive/cancel`);
       return response.data;
-    }
+    },
+
+    // ─── AI Photo Classification ───
+
+    // Classify multiple photos using AI
+    aiClassify: async (photoIds: string[], forceRefresh: boolean = false): Promise<AIClassifyResponse> => {
+      const response = await api.post(`${BASE_URL}/photos/ai-classify`, {
+        photo_ids: photoIds,
+        force_refresh: forceRefresh,
+      });
+      return response.data;
+    },
+
+    // Classify a single photo using AI
+    aiClassifySingle: async (photoId: string, forceRefresh: boolean = false): Promise<AIClassifyResult> => {
+      const response = await api.post(
+        `${BASE_URL}/photos/${photoId}/ai-classify?force_refresh=${forceRefresh}`
+      );
+      return response.data;
+    },
+
+    // Apply AI classification to photo (updates the photo's category)
+    aiApply: async (photoId: string): Promise<any> => {
+      const response = await api.post(`${BASE_URL}/photos/${photoId}/ai-apply`);
+      return response.data;
+    },
+
+    // Apply AI classification to multiple photos (batch)
+    aiApplyBulk: async (photoIds: string[]): Promise<{ applied: number; failed: number }> => {
+      let applied = 0;
+      let failed = 0;
+      for (const id of photoIds) {
+        try {
+          await api.post(`${BASE_URL}/photos/${id}/ai-apply`);
+          applied++;
+        } catch {
+          failed++;
+        }
+      }
+      return { applied, failed };
+    },
   },
 
   // Document Management
@@ -393,7 +490,42 @@ export const waterMitigationService = {
     // Get document preview URL (opens in browser)
     getPreviewUrl: (documentId: string): string => {
       return `${BASE_URL}/documents/${documentId}/preview`;
-    }
+    },
+
+    // Upload annotated PDF with annotation data for re-editing
+    uploadAnnotatedPdf: async (
+      jobId: string,
+      pdfBlob: Blob,
+      filename: string,
+      annotationData?: string,
+      documentId?: string
+    ): Promise<any> => {
+      const formData = new FormData();
+      formData.append('pdf_file', pdfBlob, filename);
+      formData.append('filename', filename);
+      if (annotationData) formData.append('annotation_data', annotationData);
+      if (documentId) formData.append('document_id', documentId);
+
+      const response = await api.post(
+        `${BASE_URL}/jobs/${jobId}/documents/upload-annotated-pdf`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      return response.data;
+    },
+
+    // Upload source PDF for annotation
+    uploadSourcePdf: async (jobId: string, file: File): Promise<{ filename: string; url: string }> => {
+      const formData = new FormData();
+      formData.append('pdf_file', file);
+
+      const response = await api.post(
+        `${BASE_URL}/jobs/${jobId}/documents/upload-source-pdf`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      return response.data;
+    },
   },
 
   // Report Config Management

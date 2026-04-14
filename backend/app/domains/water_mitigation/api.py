@@ -2167,6 +2167,154 @@ def delete_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/jobs/{job_id}/documents/upload-annotated-pdf", response_model=WMDocumentResponse)
+async def upload_annotated_pdf(
+    job_id: UUID,
+    pdf_file: UploadFile = File(...),
+    filename: str = Form(...),
+    annotation_data: str = Form(None),
+    document_id: str = Form(None),
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Upload an annotated PDF with annotation data for re-editing.
+
+    If document_id is provided, updates the existing document.
+    Otherwise creates a new document record.
+    """
+    import json
+    import os
+
+    try:
+        # Validate file type
+        if not pdf_file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+
+        # Create output directory
+        output_dir = Path("storage/water-mitigation/documents") / str(job_id)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        safe_filename = filename if filename.endswith('.pdf') else f"{filename}.pdf"
+        output_path = output_dir / safe_filename
+
+        # Write PDF file
+        content = await pdf_file.read()
+        with open(output_path, 'wb') as f:
+            f.write(content)
+
+        file_size = os.path.getsize(output_path)
+
+        if document_id:
+            # Update existing document
+            existing = service.document_repo.get_by_id(document_id)
+            if not existing:
+                raise HTTPException(status_code=404, detail="Document not found")
+
+            # Delete old file if path changed
+            existing_dict = service.document_repo._convert_to_dict(existing)
+            old_path = Path(existing_dict.get('file_path', ''))
+            if old_path.exists() and str(old_path) != str(output_path):
+                try:
+                    os.unlink(old_path)
+                except Exception:
+                    pass
+
+            update_data = {
+                "filename": safe_filename,
+                "file_path": str(output_path),
+                "file_size": file_size,
+                "annotation_data": annotation_data,
+            }
+            updated = service.document_repo.update(document_id, update_data)
+            db.commit()
+            return updated
+        else:
+            # Create new document
+            document_data = {
+                "job_id": str(job_id),
+                "document_type": "annotated_pdf",
+                "filename": safe_filename,
+                "file_path": str(output_path),
+                "file_size": file_size,
+                "mime_type": "application/pdf",
+                "title": safe_filename,
+                "annotation_data": annotation_data,
+                "photo_count": 0,
+                "is_active": True,
+            }
+            created = service.document_repo.create(document_data)
+            db.commit()
+            return created
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to upload annotated PDF: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/jobs/{job_id}/documents/upload-source-pdf")
+async def upload_source_pdf(
+    job_id: UUID,
+    pdf_file: UploadFile = File(...)
+):
+    """Upload a source PDF for annotation. Returns the PDF as a proxied URL.
+
+    Stores the file temporarily so the frontend can access it via URL.
+    """
+    import os
+
+    try:
+        if not pdf_file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+
+        # Store in a temp/source directory
+        output_dir = Path("storage/water-mitigation/documents") / str(job_id) / "source"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        safe_filename = pdf_file.filename or "upload.pdf"
+        output_path = output_dir / safe_filename
+
+        content = await pdf_file.read()
+        with open(output_path, 'wb') as f:
+            f.write(content)
+
+        file_size = os.path.getsize(output_path)
+
+        return {
+            "filename": safe_filename,
+            "file_path": str(output_path),
+            "file_size": file_size,
+            "url": f"/api/water-mitigation/jobs/{job_id}/documents/source-pdf/{safe_filename}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to upload source PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs/{job_id}/documents/source-pdf/{filename}")
+def serve_source_pdf(
+    job_id: UUID,
+    filename: str
+):
+    """Serve a source PDF file for annotation viewer."""
+    file_path = Path("storage/water-mitigation/documents") / str(job_id) / "source" / filename
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Source PDF not found")
+
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/pdf",
+        filename=filename
+    )
+
+
 # Report config endpoints
 @router.get("/jobs/{job_id}/report-config", response_model=ReportConfigResponse)
 def get_report_config(
@@ -2713,45 +2861,82 @@ async def ai_classify_photos(
                 failed += 1
                 continue
 
-            # Read image data
+            # Read image data - try local → cloud storage → CompanyCam API
+            image_data = None
+            mime_type = photo_dict.get('mime_type', 'image/jpeg')
+            source = photo_dict.get('source', 'local')
+            external_id = photo_dict.get('external_id')
+            storage_provider = settings.STORAGE_PROVIDER
+
             try:
-                # Handle different storage providers
-                storage_provider = photo_dict.get('storage_provider', 'local')
+                # 1) Try local file
+                from app.core.config import settings as app_settings
+                base_dir = Path(app_settings.STORAGE_BASE_DIR)
+                local_path = base_dir / file_path
 
-                if storage_provider == 'local':
-                    from app.core.config import settings as app_settings
-                    base_dir = Path(app_settings.STORAGE_BASE_DIR)
-                    local_path = base_dir / file_path
-
-                    if not local_path.exists():
-                        results.append({
-                            "photo_id": photo_id,
-                            "error": f"Local file not found: {file_path}"
-                        })
-                        failed += 1
-                        continue
-
+                if local_path.exists():
                     with open(local_path, 'rb') as f:
                         image_data = f.read()
 
-                    mime_type = photo_dict.get('mime_type', 'image/jpeg')
-                else:
-                    # For cloud storage, use URL
-                    result = await ai_classification_service.classify_photo_from_url(file_path)
-                    if "error" not in result:
-                        ai_classification_service.save_result(db, photo_id, result)
-                        results.append({
-                            "photo_id": photo_id,
-                            "cached": False,
-                            **result
-                        })
-                        classified += 1
-                    else:
-                        results.append({
-                            "photo_id": photo_id,
-                            **result
-                        })
-                        failed += 1
+                # 2) Try cloud storage (GDrive, GCS, etc.)
+                if image_data is None and storage_provider and storage_provider.lower() != 'local':
+                    try:
+                        from ..storage.factory import StorageFactory
+                        storage = StorageFactory.get_instance(storage_provider)
+                        storage_file_id = photo_dict.get('storage_file_id')
+
+                        if storage_file_id and hasattr(storage, 'download'):
+                            image_data = storage.download(storage_file_id)
+                            logger.info(f"AI classify: downloaded photo {photo_id} from {storage_provider}")
+                        elif hasattr(storage, 'download'):
+                            image_data = storage.download(file_path)
+                            logger.info(f"AI classify: downloaded photo {photo_id} from {storage_provider} via file_path")
+                    except Exception as e:
+                        logger.warning(f"AI classify: cloud storage failed for {photo_id}: {e}")
+
+                # 3) Try CompanyCam API (fresh URL)
+                if image_data is None and source == 'companycam' and external_id:
+                    try:
+                        from app.core.cache import get_cache
+                        from ..integrations.companycam.client import CompanyCamClient
+
+                        if settings.ENABLE_INTEGRATIONS and settings.COMPANYCAM_API_KEY:
+                            cache = get_cache()
+                            companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
+
+                            # Try cached URL first
+                            cache_key = f"companycam:photo:url:{external_id}:original"
+                            photo_url = await cache.get(cache_key)
+
+                            if not photo_url:
+                                # Get fresh URL from CompanyCam API
+                                photo_data = await companycam_client.get_photo(int(external_id))
+                                if 'uris' in photo_data:
+                                    uris = photo_data['uris']
+                                    if isinstance(uris, list):
+                                        for uri in uris:
+                                            if isinstance(uri, dict) and uri.get('type') in ('original', 'large'):
+                                                photo_url = uri.get('uri') or uri.get('url')
+                                                if photo_url:
+                                                    await cache.set(cache_key, photo_url, ttl=86400)
+                                                    break
+                                    elif isinstance(uris, dict):
+                                        photo_url = uris.get('original') or uris.get('large')
+                                        if photo_url:
+                                            await cache.set(cache_key, photo_url, ttl=86400)
+
+                            if photo_url:
+                                logger.info(f"AI classify: downloading CompanyCam photo {external_id}")
+                                image_data = await companycam_client.download_photo(photo_url)
+                    except Exception as e:
+                        logger.warning(f"AI classify: CompanyCam API failed for {photo_id}: {e}")
+
+                if image_data is None:
+                    results.append({
+                        "photo_id": photo_id,
+                        "error": "No local file, cloud storage, or CompanyCam URL available"
+                    })
+                    failed += 1
                     continue
 
             except Exception as e:

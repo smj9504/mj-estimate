@@ -39,6 +39,20 @@ const WMContentProtectionRenderer: React.FC<WMContentProtectionRendererProps> = 
 
   const labelText = `${Math.round(protection.calculated_sqft)} SF`;
 
+  // Reset Konva node transform state when dimensions change from props
+  useEffect(() => {
+    const node = rectRef.current;
+    if (!node) return;
+    node.scaleX(1);
+    node.scaleY(1);
+    node.x(0);
+    node.y(0);
+    node.rotation(0);
+    node.width(widthPx);
+    node.height(lengthPx);
+    node.getLayer()?.batchDraw();
+  }, [widthPx, lengthPx]);
+
   // Attach / detach transformer
   useEffect(() => {
     if (!transformerRef.current || !rectRef.current) return;

@@ -249,6 +249,9 @@ class WMDocument(Base, BaseModel):
     source_photo_ids = Column(Text)  # JSON: ["uuid1", "uuid2", ...]
     photo_count = Column(Integer, default=0)
 
+    # Annotation data for re-editing (JSON: texts, signatures per page)
+    annotation_data = Column(Text)  # JSON: PdfAnnotationData
+
     # Status
     is_active = Column(Boolean, default=True)
     generated_by_id = Column(UUIDType(), ForeignKey("staff.id"))

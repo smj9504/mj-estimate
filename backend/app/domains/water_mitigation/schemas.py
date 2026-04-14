@@ -412,6 +412,7 @@ class WMDocumentResponse(WMDocumentBase):
     mime_type: str
     photo_count: int
     source_photo_ids: Optional[str] = None  # JSON string of photo IDs
+    annotation_data: Optional[str] = None  # JSON string of annotation data for re-editing
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime] = None

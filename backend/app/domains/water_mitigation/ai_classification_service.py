@@ -2,24 +2,27 @@
 AI Photo Classification Service for Water Mitigation
 
 Uses Gemini Vision API for photo classification with rule-based post-processing.
-Implements the classification logic from AI_PHOTO_CLASSIFICATION_IMPLEMENTATION_PLAN.md
 
 Categories:
 - wet-area: Red meter + no demolition (water detected, before work)
 - pre-mitigation-moving: Furniture/items being moved
 - demolition: Active demolition work
 - containment: Plastic barriers, containment setup
-- drying-process: Equipment operating or stacked (3+)
+- drying-process: Drying equipment operating or stacked (3+)
 - day-1: Red meter + demolition complete
 - day-2: Yellow meter + demolition
 - day-3: Green meter + demolition
 - documentation: Paperwork, signatures
 - uncategorized: Anything else, mold detected, needs manual review
 
-Cost: ~$1.5/month with Gemini 1.5 Flash (0.075$/1M input tokens)
+Cost optimization:
+- Images resized to max 1024px before sending (70%+ token savings)
+- gemini-2.0-flash-lite default ($0.0375/1M input tokens)
+- Cache layer avoids duplicate API calls
 """
 
 import base64
+import io
 import json
 import logging
 from datetime import datetime
@@ -45,58 +48,71 @@ VALID_CATEGORIES = [
     "uncategorized"
 ]
 
-# System prompt for Gemini
-CLASSIFICATION_PROMPT = """You are analyzing water mitigation (flood/water damage restoration) photos.
+# Optimized prompt - concise for token savings, precise for accuracy
+CLASSIFICATION_PROMPT = """Analyze this water mitigation (flood/water damage restoration) photo.
 
-Your task is to:
-1. Classify the photo into one of these categories:
-   - wet-area: Water damaged area with moisture meter showing RED (high moisture), no demolition yet
-   - pre-mitigation-moving: Furniture, belongings, or items being moved out of the area
-   - demolition: Active demolition work (removing drywall, flooring, baseboards)
-   - containment: Plastic sheeting, barriers, containment setup for work areas
-   - drying-process: Drying equipment (fans, dehumidifiers, air movers) operating or stacked
-   - day-1: Moisture meter showing RED, demolition already completed
-   - day-2: Moisture meter showing YELLOW (medium moisture), demolition completed
-   - day-3: Moisture meter showing GREEN (dry), demolition completed
-   - documentation: Paperwork, signatures, certificates, written documents
-   - uncategorized: Anything that doesn't fit above categories
+CATEGORIES (pick exactly one):
+1. wet-area — Moisture meter showing RED, area NOT yet demolished
+2. pre-mitigation-moving — Furniture/belongings being moved out
+3. demolition — Active tear-out of drywall/flooring/baseboards (exposed studs, debris piles)
+4. containment — Plastic sheeting barriers, poly walls, zipper doors
+5. drying-process — Air movers/dehumidifiers/fans on floor running, OR 3+ units stacked together
+6. day-1 — Moisture meter RED + demolition already completed (exposed studs visible)
+7. day-2 — Moisture meter YELLOW + demolition completed
+8. day-3 — Moisture meter GREEN + demolition completed
+9. documentation — Paperwork, signatures, certificates, authorization forms
+10. uncategorized — None of the above, unclear, or mold visible
 
-2. Extract these metadata fields:
-   - meter_visible: Is a moisture meter visible in the photo? (true/false)
-   - meter_color: If meter visible, what color is displayed? (red/yellow/green/null)
-   - is_demolished: Is there evidence of demolition work completed? (true/false)
-   - equipment_count: Number of drying equipment visible (0 if none)
-   - equipment_status: Status of equipment - "operating" if running/active, "stacked" if stored/stacked, null if no equipment
-   - mold_visible: Is there visible mold or mold-like growth? (true/false)
+KEY VISUAL CUES:
+- Moisture meters: handheld devices with colored digital display (red=wet, yellow=drying, green=dry)
+- Demolition complete: exposed wall studs, removed baseboards, cut drywall lines visible
+- Air movers: small blue/red fan units on floor; dehumidifiers: larger boxy units
+- Containment: translucent plastic sheets hung from ceiling to floor
 
-IMPORTANT RULES:
-- If you see mold, always set mold_visible: true (will be reclassified to uncategorized)
-- For drying equipment: look for air movers, dehumidifiers, fans, blowers
-- "Operating" equipment: positioned on floor, appearing to be in use, cables visible
-- "Stacked" equipment: piled up, stored together, not actively running
-- Moisture meters often appear as handheld devices with digital displays
+Respond ONLY with valid JSON:
+{"category":"<name>","confidence":0.85,"metadata":{"meter_visible":false,"meter_color":null,"is_demolished":false,"equipment_count":0,"equipment_status":null,"mold_visible":false}}
 
-Respond ONLY with valid JSON in this exact format:
-{
-  "category": "category-name",
-  "confidence": 0.85,
-  "metadata": {
-    "meter_visible": true,
-    "meter_color": "red",
-    "is_demolished": false,
-    "equipment_count": 0,
-    "equipment_status": null,
-    "mold_visible": false
-  }
-}
-"""
+metadata fields:
+- meter_visible: boolean — is a moisture meter in the photo?
+- meter_color: "red"|"yellow"|"green"|null
+- is_demolished: boolean — evidence of completed demolition (exposed studs)?
+- equipment_count: int — number of drying machines visible
+- equipment_status: "operating"|"stacked"|null — operating=on floor running, stacked=stored/piled
+- mold_visible: boolean — visible mold or mold-like growth?"""
+
+
+def _resize_image(image_data: bytes, max_size: int = 1024) -> tuple[bytes, str]:
+    """
+    Resize image to max_size px on longest side. Returns (resized_bytes, mime_type).
+    Converts to JPEG for consistent, smaller payloads.
+    """
+    try:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(image_data))
+
+        # Convert RGBA/P to RGB for JPEG
+        if img.mode in ("RGBA", "P", "LA"):
+            img = img.convert("RGB")
+
+        # Only resize if larger than max_size
+        if max(img.size) > max_size:
+            img.thumbnail((max_size, max_size), Image.LANCZOS)
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=80, optimize=True)
+        return buf.getvalue(), "image/jpeg"
+
+    except Exception as e:
+        logger.warning(f"Image resize failed, using original: {e}")
+        return image_data, "image/jpeg"
 
 
 def validate_and_correct(ai_result: dict) -> dict:
     """
     Apply rule-based post-processing to validate and correct AI classification.
 
-    Rules from implementation plan:
+    Rules:
     - Rule 0: Mold detected → uncategorized
     - Rule 1: Meter color + demolition state → correct category
     - Rule 2: Equipment status validation for drying-process
@@ -148,7 +164,6 @@ def validate_and_correct(ai_result: dict) -> dict:
         equipment_count = metadata.get("equipment_count", 0)
 
         if equipment_status == "operating":
-            # Operating equipment: 1+ is OK
             if equipment_count < 1:
                 corrections.append({
                     "rule": "drying_no_equipment",
@@ -158,7 +173,6 @@ def validate_and_correct(ai_result: dict) -> dict:
                 })
                 category = "uncategorized"
         elif equipment_status == "stacked":
-            # Stacked equipment: need 3+ to be drying-process
             if equipment_count < 3:
                 corrections.append({
                     "rule": "drying_stacked_insufficient",
@@ -168,7 +182,6 @@ def validate_and_correct(ai_result: dict) -> dict:
                 })
                 category = "uncategorized"
         elif equipment_status is None and equipment_count == 0:
-            # No equipment at all
             corrections.append({
                 "rule": "drying_no_equipment",
                 "reason": "장비 미감지 → uncategorized",
@@ -187,16 +200,14 @@ def validate_and_correct(ai_result: dict) -> dict:
 
     if corrections:
         result["original_category"] = original_category
-        result["rule_applied"] = corrections[-1]["rule"]  # Last applied rule
+        result["rule_applied"] = corrections[-1]["rule"]
         result["corrections"] = corrections
 
     return result
 
 
 class AIClassificationService:
-    """
-    AI Photo Classification Service using Gemini Vision API.
-    """
+    """AI Photo Classification Service using Gemini Vision API."""
 
     def __init__(self):
         self.enabled = settings.ENABLE_AI_PHOTO_CLASSIFICATION
@@ -205,14 +216,20 @@ class AIClassificationService:
         self._model = None
 
     def _get_model(self):
-        """Lazy load Gemini model"""
+        """Lazy load Gemini model."""
         if self._model is None:
             if not self.api_key:
                 raise ValueError("GEMINI_API_KEY is not configured")
 
             import google.generativeai as genai
             genai.configure(api_key=self.api_key)
-            self._model = genai.GenerativeModel(self.model_name)
+            self._model = genai.GenerativeModel(
+                self.model_name,
+                generation_config=genai.GenerationConfig(
+                    temperature=0.1,  # Low temp for consistent classification
+                    max_output_tokens=256,  # JSON response is small
+                ),
+            )
 
         return self._model
 
@@ -224,12 +241,7 @@ class AIClassificationService:
         """
         Classify a single photo using Gemini Vision API.
 
-        Args:
-            image_data: Raw image bytes
-            mime_type: Image MIME type (image/jpeg, image/png, etc.)
-
-        Returns:
-            Classification result with category, confidence, metadata
+        Images are resized to 1024px max before sending to reduce costs.
         """
         if not self.enabled:
             return {
@@ -242,17 +254,21 @@ class AIClassificationService:
         try:
             model = self._get_model()
 
-            # Prepare image for Gemini
-            image_part = {
-                "mime_type": mime_type,
-                "data": base64.b64encode(image_data).decode("utf-8")
-            }
+            # Resize image for cost savings
+            resized_data, resized_mime = _resize_image(image_data)
+
+            # Build proper Gemini content parts
+            import google.generativeai as genai
+
+            image_part = genai.types.BlobDict(
+                mime_type=resized_mime,
+                data=resized_data,
+            )
 
             # Call Gemini Vision API
-            response = model.generate_content([
-                CLASSIFICATION_PROMPT,
-                image_part
-            ])
+            response = model.generate_content(
+                [CLASSIFICATION_PROMPT, image_part]
+            )
 
             # Parse response
             response_text = response.text.strip()
@@ -260,7 +276,14 @@ class AIClassificationService:
             # Clean up JSON response (remove markdown code blocks if present)
             if response_text.startswith("```"):
                 lines = response_text.split("\n")
-                response_text = "\n".join(lines[1:-1])
+                # Remove first line (```json) and last line (```)
+                json_lines = []
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith("```"):
+                        continue
+                    json_lines.append(line)
+                response_text = "\n".join(json_lines)
 
             ai_result = json.loads(response_text)
 
@@ -268,13 +291,17 @@ class AIClassificationService:
             if ai_result.get("category") not in VALID_CATEGORIES:
                 ai_result["category"] = "uncategorized"
 
+            # Ensure metadata exists
+            if "metadata" not in ai_result:
+                ai_result["metadata"] = {}
+
             # Apply rule-based corrections
             corrected_result = validate_and_correct(ai_result)
 
             return corrected_result
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Gemini response: {e}")
+            logger.error(f"Failed to parse Gemini response: {e}, raw: {response_text[:200] if 'response_text' in dir() else 'N/A'}")
             return {
                 "category": "uncategorized",
                 "confidence": 0.0,
@@ -291,15 +318,7 @@ class AIClassificationService:
             }
 
     async def classify_photo_from_url(self, photo_url: str) -> dict:
-        """
-        Classify a photo from URL.
-
-        Args:
-            photo_url: URL of the image to classify
-
-        Returns:
-            Classification result
-        """
+        """Classify a photo from URL."""
         import httpx
 
         try:
@@ -326,16 +345,7 @@ class AIClassificationService:
         session: Session,
         photo_id: str
     ) -> Optional[dict]:
-        """
-        Get cached classification result for a photo.
-
-        Args:
-            session: Database session
-            photo_id: Photo UUID
-
-        Returns:
-            Cached AI result or None
-        """
+        """Get cached classification result for a photo."""
         from app.domains.water_mitigation.models import PhotoAnalysisCache
 
         cache = session.query(PhotoAnalysisCache).filter(
@@ -353,17 +363,9 @@ class AIClassificationService:
         photo_id: str,
         ai_result: dict
     ) -> None:
-        """
-        Save classification result to cache.
-
-        Args:
-            session: Database session
-            photo_id: Photo UUID
-            ai_result: Classification result to cache
-        """
+        """Save classification result to cache."""
         from app.domains.water_mitigation.models import PhotoAnalysisCache
 
-        # Check for existing cache
         existing = session.query(PhotoAnalysisCache).filter(
             PhotoAnalysisCache.photo_id == photo_id
         ).first()
@@ -387,14 +389,7 @@ class AIClassificationService:
         photo_id: str,
         corrected_category: str
     ) -> None:
-        """
-        Mark a classification as user-corrected (for analytics).
-
-        Args:
-            session: Database session
-            photo_id: Photo UUID
-            corrected_category: The category user selected
-        """
+        """Mark a classification as user-corrected (for analytics)."""
         from app.domains.water_mitigation.models import PhotoAnalysisCache
 
         cache = session.query(PhotoAnalysisCache).filter(
@@ -402,7 +397,6 @@ class AIClassificationService:
         ).first()
 
         if cache:
-            # Update AI result with user correction info
             ai_result = cache.ai_result or {}
             ai_result["user_correction"] = {
                 "original_ai_category": ai_result.get("category"),

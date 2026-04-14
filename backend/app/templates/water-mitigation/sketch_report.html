@@ -142,7 +142,7 @@
       flex-shrink: 0;
     }
     .floor-address {
-      font-size: 9px;
+      font-size: 10px;
       color: #888;
       text-align: right;
       white-space: nowrap;
@@ -172,6 +172,12 @@
       font-size: 10px;
       font-style: italic;
     }
+    .no-data {
+      color: #aaa;
+      font-size: 10px;
+      font-style: italic;
+      padding: 8px 0;
+    }
 
     /* ── Summary Tables ─────────────────────────────────── */
     .summary-grid {
@@ -182,7 +188,7 @@
     }
     .summary-block { }
     .summary-block-title {
-      font-size: 9px;
+      font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -192,7 +198,7 @@
     .summary-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 9px;
+      font-size: 10px;
     }
     .summary-table th {
       background: #f5f5f5;
@@ -203,7 +209,7 @@
       color: #444;
       text-transform: uppercase;
       letter-spacing: 0.3px;
-      font-size: 8px;
+      font-size: 9px;
     }
     .summary-table td {
       padding: 4px 6px;
@@ -233,7 +239,7 @@
       justify-content: space-between;
       padding: 3px 0;
       border-bottom: 1px solid #f0f0f0;
-      font-size: 9px;
+      font-size: 10px;
     }
     .equip-row:last-child { border-bottom: none; }
     .equip-label { color: #444; }
@@ -242,7 +248,7 @@
     .other-summary-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 9px;
+      font-size: 10px;
     }
     .other-summary-table td {
       padding: 4px 6px;
@@ -255,7 +261,7 @@
       border: 1px solid #e0e0e0;
       border-radius: 4px;
       padding: 8px 10px;
-      font-size: 9px;
+      font-size: 10px;
       color: #444;
       background: #fafafa;
       margin-top: 10px;
@@ -274,7 +280,7 @@
       display: flex;
       align-items: center;
       gap: 5px;
-      font-size: 8px;
+      font-size: 10px;
       color: #555;
     }
     .legend-swatch {
@@ -488,7 +494,7 @@
           </tfoot>
         </table>
         {% else %}
-        <div style="color:#aaa; font-size:9px; font-style:italic; padding:8px 0;">No demolition zones recorded.</div>
+        <div class="no-data">No demolition zones recorded.</div>
         {% endif %}
       </div>
 
@@ -519,7 +525,7 @@
           </tfoot>
         </table>
         {% else %}
-        <div style="color:#aaa; font-size:9px; font-style:italic; padding:8px 0;">No equipment placed.</div>
+        <div class="no-data">No equipment placed.</div>
         {% endif %}
 
         {% if item.summary.containment_sqft > 0 or item.summary.protection_sqft > 0 or item.summary.content_protection_sqft > 0 %}

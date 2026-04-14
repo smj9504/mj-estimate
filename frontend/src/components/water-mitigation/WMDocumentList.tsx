@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { List, Button, Popconfirm, message, Tag, Typography, Checkbox, Space } from 'antd';
-import { FilePdfOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
+import { FilePdfOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined } from '@ant-design/icons';
 import waterMitigationService from '../../services/waterMitigationService';
 
 const { Text } = Typography;
@@ -12,6 +12,7 @@ const { Text } = Typography;
 interface WMDocumentListProps {
   jobId: string;
   onDelete?: () => void;
+  onEditAnnotation?: (documentId: string, annotationData: string | null, previewUrl: string) => void;
 }
 
 interface Document {
@@ -20,11 +21,12 @@ interface Document {
   document_type: string;
   file_size: number;
   photo_count: number;
+  annotation_data?: string | null;
   created_at: string;
 }
 
 const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListProps>(
-  ({ jobId, onDelete }, ref) => {
+  ({ jobId, onDelete, onEditAnnotation }, ref) => {
     const [documents, setDocuments] = useState<Document[]>([]);
     const [loading, setLoading] = useState(false);
     const [deleting, setDeleting] = useState<string | null>(null);
@@ -128,7 +130,8 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
   const getDocumentTypeLabel = (type: string) => {
     const labels: Record<string, { label: string; color: string }> = {
       'COS': { label: 'Certificate of Satisfaction', color: 'green' },
-      'EWA': { label: 'Emergency Work Agreement', color: 'blue' }
+      'EWA': { label: 'Emergency Work Agreement', color: 'blue' },
+      'annotated_pdf': { label: 'Annotated PDF', color: 'purple' },
     };
     return labels[type] || { label: type, color: 'default' };
   };
@@ -204,6 +207,20 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
         return (
           <List.Item
             actions={[
+              ...(doc.document_type === 'annotated_pdf' && onEditAnnotation ? [
+                <Button
+                  key="edit"
+                  type="text"
+                  icon={<EditOutlined />}
+                  onClick={() => onEditAnnotation(
+                    doc.id,
+                    doc.annotation_data || null,
+                    waterMitigationService.documents.getPreviewUrl(doc.id)
+                  )}
+                >
+                  Edit
+                </Button>
+              ] : []),
               <Button
                 key="preview"
                 type="text"

@@ -4,12 +4,16 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress, Grid } from 'antd';
-import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined } from '@ant-design/icons';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress, Grid, Table, Select } from 'antd';
+import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import api from '../../services/api';
-import waterMitigationService from '../../services/waterMitigationService';
+import waterMitigationService, {
+  AI_CATEGORY_LABELS,
+  AI_CATEGORY_COLORS,
+  type AIClassifyResult,
+} from '../../services/waterMitigationService';
 import type { CompanyCamSyncResult } from '../../types/waterMitigation';
 
 const { Text, Title } = Typography;
@@ -128,6 +132,14 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const [creatingLink, setCreatingLink] = useState(false);
   const [linkCrewName, setLinkCrewName] = useState('');
   const [linkLabel, setLinkLabel] = useState('');
+
+  // AI Classification state
+  const [aiModalVisible, setAiModalVisible] = useState(false);
+  const [aiResults, setAiResults] = useState<AIClassifyResult[]>([]);
+  const [aiClassifying, setAiClassifying] = useState(false);
+  const [aiApplying, setAiApplying] = useState(false);
+  // Track per-result overrides: photo_id -> user-selected category
+  const [aiOverrides, setAiOverrides] = useState<Record<string, string>>({});
 
   // Update current project ID when prop changes
   useEffect(() => {
@@ -392,6 +404,90 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       currentFilename: exportStatus.current_filename
     };
   };
+
+  // ─── AI Classification handlers ───
+  const handleAiClassify = useCallback(async () => {
+    setAiClassifying(true);
+    setAiResults([]);
+    setAiOverrides({});
+    setAiModalVisible(true);
+
+    try {
+      // Fetch all photos for this job to get IDs
+      const params = new URLSearchParams({ page_size: '500', page: '1' });
+      const response = await api.get(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
+      const items = response.data.items || response.data.photos || [];
+
+      // Filter to uncategorized or photos without a category
+      const uncategorized = items.filter(
+        (p: any) => !p.category || p.category === '' || p.category === 'uncategorized'
+      );
+
+      if (uncategorized.length === 0) {
+        message.info('All photos already have categories assigned.');
+        setAiClassifying(false);
+        return;
+      }
+
+      const photoIds = uncategorized.map((p: any) => p.id);
+
+      // Classify in batches of 10 to avoid timeout
+      const batchSize = 10;
+      const allResults: AIClassifyResult[] = [];
+
+      for (let i = 0; i < photoIds.length; i += batchSize) {
+        const batch = photoIds.slice(i, i + batchSize);
+        try {
+          const result = await waterMitigationService.photos.aiClassify(batch, false);
+          allResults.push(...result.results);
+          // Update results progressively
+          setAiResults([...allResults]);
+        } catch (err: any) {
+          console.error('AI batch classification failed:', err);
+        }
+      }
+
+      if (allResults.length === 0) {
+        message.warning('AI classification returned no results. Check GEMINI_API_KEY configuration.');
+      }
+    } catch (error: any) {
+      console.error('AI classification failed:', error);
+      message.error(`AI classification failed: ${error?.response?.data?.detail || error.message || 'Unknown error'}`);
+    } finally {
+      setAiClassifying(false);
+    }
+  }, [jobId]);
+
+  const handleAiApplyAll = useCallback(async () => {
+    setAiApplying(true);
+    try {
+      const successResults = aiResults.filter(r => !r.error && r.category !== 'uncategorized');
+      let applied = 0;
+      let failed = 0;
+
+      for (const result of successResults) {
+        try {
+          // Use override if user changed the category, otherwise use AI suggestion
+          const category = aiOverrides[result.photo_id] || result.category;
+          await waterMitigationService.photos.updateCategory(result.photo_id, category);
+          applied++;
+        } catch {
+          failed++;
+        }
+      }
+
+      message.success(`Applied categories to ${applied} photos${failed > 0 ? ` (${failed} failed)` : ''}`);
+      setAiModalVisible(false);
+
+      // Refresh gallery
+      queryClient.invalidateQueries({ queryKey: ['files', 'water-mitigation', jobId] });
+      queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
+    } catch (error: any) {
+      message.error(`Failed to apply: ${error.message}`);
+    } finally {
+      setAiApplying(false);
+    }
+  }, [aiResults, aiOverrides, jobId, queryClient]);
 
   // ─── Crew Upload Link handlers ───
   const fetchUploadLinks = useCallback(async () => {
@@ -849,6 +945,26 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             </Tooltip>
           )}
 
+          {/* AI Photo Classification Button */}
+          <Tooltip title="Auto-classify uncategorized photos using AI">
+            <Button
+              type="default"
+              icon={<RobotOutlined />}
+              onClick={handleAiClassify}
+              loading={aiClassifying}
+              size={isMobile ? 'small' : 'middle'}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                fontWeight: 500,
+                color: 'white'
+              }}
+            >
+              {isMobile ? 'AI' : 'AI Classify'}
+            </Button>
+          </Tooltip>
+
           {/* Crew Upload Link Button */}
           <Tooltip title="Create shareable upload link for crew">
             <Button
@@ -1291,6 +1407,177 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             </div>
           )}
         </Space>
+      </Modal>
+      {/* AI Classification Results Modal */}
+      <Modal
+        title={
+          <Space>
+            <RobotOutlined style={{ color: '#722ed1' }} />
+            <span>AI Photo Classification</span>
+          </Space>
+        }
+        open={aiModalVisible}
+        onCancel={() => {
+          if (!aiClassifying) setAiModalVisible(false);
+        }}
+        width={800}
+        footer={
+          <Space>
+            <Button onClick={() => setAiModalVisible(false)} disabled={aiApplying}>
+              Cancel
+            </Button>
+            <Button
+              type="primary"
+              icon={<ThunderboltOutlined />}
+              onClick={handleAiApplyAll}
+              loading={aiApplying}
+              disabled={aiClassifying || aiResults.filter(r => !r.error && r.category !== 'uncategorized').length === 0}
+            >
+              Apply All ({aiResults.filter(r => !r.error && (aiOverrides[r.photo_id] || r.category) !== 'uncategorized').length} photos)
+            </Button>
+          </Space>
+        }
+      >
+        {aiClassifying && (
+          <div style={{ textAlign: 'center', padding: '20px 0' }}>
+            <Spin size="large" />
+            <div style={{ marginTop: 12 }}>
+              <Text>Analyzing photos with AI...</Text>
+              {aiResults.length > 0 && (
+                <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+                  {aiResults.length} photos classified so far
+                </Text>
+              )}
+            </div>
+          </div>
+        )}
+
+        {aiResults.length > 0 && (
+          <>
+            <div style={{ marginBottom: 12 }}>
+              <Space>
+                <Tag color="green">{aiResults.filter(r => !r.error && r.category !== 'uncategorized').length} classified</Tag>
+                <Tag color="orange">{aiResults.filter(r => r.category === 'uncategorized' && !r.error).length} uncategorized</Tag>
+                {aiResults.filter(r => r.error).length > 0 && (
+                  <Tag color="red">{aiResults.filter(r => r.error).length} failed</Tag>
+                )}
+              </Space>
+            </div>
+
+            <Table
+              dataSource={aiResults}
+              rowKey="photo_id"
+              size="small"
+              pagination={{ pageSize: 10, showSizeChanger: false }}
+              scroll={{ y: 400 }}
+              columns={[
+                {
+                  title: 'Photo ID',
+                  dataIndex: 'photo_id',
+                  width: 100,
+                  render: (id: string) => (
+                    <Text copyable={{ text: id }} style={{ fontSize: 11 }}>
+                      {id.slice(0, 8)}...
+                    </Text>
+                  ),
+                },
+                {
+                  title: 'AI Category',
+                  dataIndex: 'category',
+                  width: 180,
+                  render: (category: string, record: AIClassifyResult) => {
+                    if (record.error) {
+                      return <Tag color="red">Error</Tag>;
+                    }
+                    const overridden = aiOverrides[record.photo_id];
+                    const displayCat = overridden || category;
+                    return (
+                      <Select
+                        size="small"
+                        value={displayCat}
+                        onChange={(val) => {
+                          setAiOverrides(prev => ({ ...prev, [record.photo_id]: val }));
+                        }}
+                        style={{ width: '100%' }}
+                        options={Object.entries(AI_CATEGORY_LABELS).map(([value, label]) => ({
+                          value,
+                          label: (
+                            <Space size={4}>
+                              <span style={{
+                                display: 'inline-block',
+                                width: 8,
+                                height: 8,
+                                borderRadius: '50%',
+                                background: AI_CATEGORY_COLORS[value] || '#bfbfbf',
+                              }} />
+                              {label}
+                            </Space>
+                          ),
+                        }))}
+                      />
+                    );
+                  },
+                },
+                {
+                  title: 'Confidence',
+                  dataIndex: 'confidence',
+                  width: 90,
+                  render: (val: number, record: AIClassifyResult) => {
+                    if (record.error) return '-';
+                    const pct = Math.round(val * 100);
+                    return (
+                      <Progress
+                        percent={pct}
+                        size="small"
+                        strokeColor={pct >= 80 ? '#52c41a' : pct >= 60 ? '#faad14' : '#ff4d4f'}
+                        format={(p) => `${p}%`}
+                      />
+                    );
+                  },
+                },
+                {
+                  title: 'Details',
+                  dataIndex: 'metadata',
+                  render: (meta: any, record: AIClassifyResult) => {
+                    if (record.error) {
+                      return <Text type="danger" style={{ fontSize: 11 }}>{record.error}</Text>;
+                    }
+                    if (!meta) return '-';
+                    const tags: React.ReactNode[] = [];
+                    if (meta.meter_visible) {
+                      tags.push(
+                        <Tag key="meter" color={
+                          meta.meter_color === 'red' ? 'red' :
+                          meta.meter_color === 'yellow' ? 'gold' :
+                          meta.meter_color === 'green' ? 'green' : 'default'
+                        }>
+                          Meter: {meta.meter_color || '?'}
+                        </Tag>
+                      );
+                    }
+                    if (meta.is_demolished) tags.push(<Tag key="demo" color="volcano">Demolished</Tag>);
+                    if (meta.equipment_count > 0) {
+                      tags.push(<Tag key="equip" color="blue">{meta.equipment_count} equip ({meta.equipment_status || '?'})</Tag>);
+                    }
+                    if (meta.mold_visible) tags.push(<Tag key="mold" color="red">Mold!</Tag>);
+                    if (record.rule_applied) {
+                      tags.push(<Tag key="rule" color="purple">Rule: {record.rule_applied}</Tag>);
+                    }
+                    return tags.length > 0 ? <Space size={2} wrap>{tags}</Space> : <Text type="secondary">-</Text>;
+                  },
+                },
+              ]}
+            />
+          </>
+        )}
+
+        {!aiClassifying && aiResults.length === 0 && (
+          <Alert
+            type="info"
+            message="No uncategorized photos found"
+            description="All photos in this job already have categories assigned."
+          />
+        )}
       </Modal>
     </div>
   );

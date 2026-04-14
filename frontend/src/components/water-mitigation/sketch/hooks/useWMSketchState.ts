@@ -14,6 +14,10 @@ import type {
   WMContainmentZone,
   WMFloorProtection,
   WMContentProtection,
+  WMTextAnnotation,
+  WMShapeAnnotation,
+  WMWall,
+  WMRoom,
   WMSketchTool,
   WMSketchSelection,
   EquipmentType,
@@ -84,6 +88,26 @@ type WMSketchAction =
   | { type: 'ADD_CONTENT_PROTECTION'; payload: WMContentProtection }
   | { type: 'UPDATE_CONTENT_PROTECTION'; payload: Partial<WMContentProtection> & { id: string } }
   | { type: 'REMOVE_CONTENT_PROTECTION'; payload: string }
+
+  // Text annotations
+  | { type: 'ADD_TEXT_ANNOTATION'; payload: WMTextAnnotation }
+  | { type: 'UPDATE_TEXT_ANNOTATION'; payload: Partial<WMTextAnnotation> & { id: string } }
+  | { type: 'REMOVE_TEXT_ANNOTATION'; payload: string }
+
+  // Shape annotations
+  | { type: 'ADD_SHAPE'; payload: WMShapeAnnotation }
+  | { type: 'UPDATE_SHAPE'; payload: Partial<WMShapeAnnotation> & { id: string } }
+  | { type: 'REMOVE_SHAPE'; payload: string }
+
+  // Walls
+  | { type: 'ADD_WALL'; payload: WMWall }
+  | { type: 'UPDATE_WALL'; payload: Partial<WMWall> & { id: string } }
+  | { type: 'REMOVE_WALL'; payload: string }
+
+  // Rooms
+  | { type: 'ADD_ROOM'; payload: WMRoom }
+  | { type: 'UPDATE_ROOM'; payload: Partial<WMRoom> & { id: string } }
+  | { type: 'REMOVE_ROOM'; payload: string }
 
   // Batch operations
   | { type: 'BATCH_MOVE_SELECTED'; payload: { draggedId: string; newX: number; newY: number } }
@@ -437,6 +461,201 @@ function wmSketchReducer(
     }
 
     // ------------------------------------------------------------------
+    // Text annotations
+    // ------------------------------------------------------------------
+    case 'ADD_TEXT_ANNOTATION': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const existing = state.overlayData.text_annotations ?? [];
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          text_annotations: [...existing, action.payload],
+        },
+      };
+    }
+
+    case 'UPDATE_TEXT_ANNOTATION': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          text_annotations: updateById(
+            state.overlayData.text_annotations ?? [],
+            action.payload
+          ),
+        },
+      };
+    }
+
+    case 'REMOVE_TEXT_ANNOTATION': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const newSelections = state.selections.filter((s) => s.element_id !== action.payload);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
+        overlayData: {
+          ...state.overlayData,
+          text_annotations: (state.overlayData.text_annotations ?? []).filter(
+            (t) => t.id !== action.payload
+          ),
+        },
+      };
+    }
+
+    // ------------------------------------------------------------------
+    // Shape annotations
+    // ------------------------------------------------------------------
+    case 'ADD_SHAPE': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const existing = state.overlayData.shapes ?? [];
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          shapes: [...existing, action.payload],
+        },
+      };
+    }
+
+    case 'UPDATE_SHAPE': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          shapes: updateById(state.overlayData.shapes ?? [], action.payload),
+        },
+      };
+    }
+
+    case 'REMOVE_SHAPE': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const newSelections = state.selections.filter((s) => s.element_id !== action.payload);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
+        overlayData: {
+          ...state.overlayData,
+          shapes: (state.overlayData.shapes ?? []).filter((s) => s.id !== action.payload),
+        },
+      };
+    }
+
+    // ------------------------------------------------------------------
+    // Walls
+    // ------------------------------------------------------------------
+    case 'ADD_WALL': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const existing = state.overlayData.walls ?? [];
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: { ...state.overlayData, walls: [...existing, action.payload] },
+      };
+    }
+
+    case 'UPDATE_WALL': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          walls: updateById(state.overlayData.walls ?? [], action.payload),
+        },
+      };
+    }
+
+    case 'REMOVE_WALL': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const newSelections = state.selections.filter((s) => s.element_id !== action.payload);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
+        overlayData: {
+          ...state.overlayData,
+          walls: (state.overlayData.walls ?? []).filter((w) => w.id !== action.payload),
+        },
+      };
+    }
+
+    // ------------------------------------------------------------------
+    // Rooms
+    // ------------------------------------------------------------------
+    case 'ADD_ROOM': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const existing = state.overlayData.rooms ?? [];
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: { ...state.overlayData, rooms: [...existing, action.payload] },
+      };
+    }
+
+    case 'UPDATE_ROOM': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          rooms: updateById(state.overlayData.rooms ?? [], action.payload),
+        },
+      };
+    }
+
+    case 'REMOVE_ROOM': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const newSelections = state.selections.filter((s) => s.element_id !== action.payload);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
+        overlayData: {
+          ...state.overlayData,
+          rooms: (state.overlayData.rooms ?? []).filter((r) => r.id !== action.payload),
+        },
+      };
+    }
+
+    // ------------------------------------------------------------------
     // Batch move all selected elements (single undo entry)
     // ------------------------------------------------------------------
     case 'BATCH_MOVE_SELECTED': {
@@ -452,6 +671,8 @@ function wmSketchReducer(
         ...state.overlayData.containment_zones,
         ...state.overlayData.floor_protections,
         ...(state.overlayData.content_protections ?? []),
+        ...(state.overlayData.text_annotations ?? []),
+        ...(state.overlayData.shapes ?? []),
       ];
       const draggedEl = allElements.find((el) => el.id === draggedId);
       if (draggedEl) {
@@ -483,6 +704,8 @@ function wmSketchReducer(
           containment_zones: moveIfSelected(state.overlayData.containment_zones),
           floor_protections: moveIfSelected(state.overlayData.floor_protections),
           content_protections: moveIfSelected(state.overlayData.content_protections ?? []),
+          text_annotations: moveIfSelected(state.overlayData.text_annotations ?? []),
+          shapes: moveIfSelected(state.overlayData.shapes ?? []),
         },
       };
     }
@@ -606,6 +829,26 @@ export interface WMSketchStateReturn {
   addContentProtection: (cp: WMContentProtection) => void;
   updateContentProtection: (patch: Partial<WMContentProtection> & { id: string }) => void;
   removeContentProtection: (id: string) => void;
+
+  // Text annotations
+  addTextAnnotation: (annotation: WMTextAnnotation) => void;
+  updateTextAnnotation: (patch: Partial<WMTextAnnotation> & { id: string }) => void;
+  removeTextAnnotation: (id: string) => void;
+
+  // Shape annotations
+  addShape: (shape: WMShapeAnnotation) => void;
+  updateShape: (patch: Partial<WMShapeAnnotation> & { id: string }) => void;
+  removeShape: (id: string) => void;
+
+  // Walls
+  addWall: (wall: WMWall) => void;
+  updateWall: (patch: Partial<WMWall> & { id: string }) => void;
+  removeWall: (id: string) => void;
+
+  // Rooms
+  addRoom: (room: WMRoom) => void;
+  updateRoom: (patch: Partial<WMRoom> & { id: string }) => void;
+  removeRoom: (id: string) => void;
 
   // Persistence
   loadOverlayData: (data: WMOverlayData) => void;
@@ -772,6 +1015,75 @@ export function useWMSketchState(
     []
   );
 
+  // Text annotations
+  const addTextAnnotation = useCallback(
+    (annotation: WMTextAnnotation) =>
+      dispatch({ type: 'ADD_TEXT_ANNOTATION', payload: annotation }),
+    []
+  );
+
+  const updateTextAnnotation = useCallback(
+    (patch: Partial<WMTextAnnotation> & { id: string }) =>
+      dispatch({ type: 'UPDATE_TEXT_ANNOTATION', payload: patch }),
+    []
+  );
+
+  const removeTextAnnotation = useCallback(
+    (id: string) => dispatch({ type: 'REMOVE_TEXT_ANNOTATION', payload: id }),
+    []
+  );
+
+  // Shape annotations
+  const addShape = useCallback(
+    (shape: WMShapeAnnotation) => dispatch({ type: 'ADD_SHAPE', payload: shape }),
+    []
+  );
+
+  const updateShape = useCallback(
+    (patch: Partial<WMShapeAnnotation> & { id: string }) =>
+      dispatch({ type: 'UPDATE_SHAPE', payload: patch }),
+    []
+  );
+
+  const removeShape = useCallback(
+    (id: string) => dispatch({ type: 'REMOVE_SHAPE', payload: id }),
+    []
+  );
+
+  // Walls
+  const addWall = useCallback(
+    (wall: WMWall) => dispatch({ type: 'ADD_WALL', payload: wall }),
+    []
+  );
+
+  const updateWall = useCallback(
+    (patch: Partial<WMWall> & { id: string }) =>
+      dispatch({ type: 'UPDATE_WALL', payload: patch }),
+    []
+  );
+
+  const removeWall = useCallback(
+    (id: string) => dispatch({ type: 'REMOVE_WALL', payload: id }),
+    []
+  );
+
+  // Rooms
+  const addRoom = useCallback(
+    (room: WMRoom) => dispatch({ type: 'ADD_ROOM', payload: room }),
+    []
+  );
+
+  const updateRoom = useCallback(
+    (patch: Partial<WMRoom> & { id: string }) =>
+      dispatch({ type: 'UPDATE_ROOM', payload: patch }),
+    []
+  );
+
+  const removeRoom = useCallback(
+    (id: string) => dispatch({ type: 'REMOVE_ROOM', payload: id }),
+    []
+  );
+
   // Persistence
   const loadOverlayData = useCallback(
     (data: WMOverlayData) =>
@@ -816,6 +1128,18 @@ export function useWMSketchState(
     addContentProtection,
     updateContentProtection,
     removeContentProtection,
+    addTextAnnotation,
+    updateTextAnnotation,
+    removeTextAnnotation,
+    addShape,
+    updateShape,
+    removeShape,
+    addWall,
+    updateWall,
+    removeWall,
+    addRoom,
+    updateRoom,
+    removeRoom,
     loadOverlayData,
     markSaved,
     undo,

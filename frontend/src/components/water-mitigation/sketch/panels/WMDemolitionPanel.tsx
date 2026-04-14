@@ -247,8 +247,9 @@ const ZoneEditForm: React.FC<{
         </Checkbox>
       )}
 
-      {/* Insulation checkbox — for wall/ceiling materials (not insulation itself) */}
+      {/* Insulation checkbox — for wall/ceiling SF materials only (not trim/baseboard LF) */}
       {(selectedMaterial?.surface === 'wall' || selectedMaterial?.surface === 'ceiling')
+        && selectedMaterial?.unit === 'SF'
         && zone.material_type !== 'insulation' && (
         <Checkbox
           checked={zone.include_insulation ?? false}

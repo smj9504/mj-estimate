@@ -30,7 +30,8 @@
  *   />
  */
 import React, { useMemo, useEffect, useState } from 'react';
-import { Badge, Collapse, Space, Typography } from 'antd';
+import { Badge, Button, Collapse, Input, InputNumber, Space, Typography } from 'antd';
+import { DeleteOutlined } from '@ant-design/icons';
 import {
   AppstoreOutlined,
   ToolOutlined,
@@ -38,6 +39,8 @@ import {
   ColumnWidthOutlined,
   SkinOutlined,
   BarChartOutlined,
+  BorderOutlined,
+  GatewayOutlined,
 } from '@ant-design/icons';
 import type {
   WMOverlayData,
@@ -49,6 +52,8 @@ import type {
   WMContainmentZone,
   WMFloorProtection,
   WMContentProtection,
+  WMWall,
+  WMRoom,
 } from '../../../types/wmSketch';
 import WMDemolitionPanel from './panels/WMDemolitionPanel';
 import WMEquipmentPanel from './panels/WMEquipmentPanel';
@@ -78,6 +83,12 @@ export interface WMSketchSidebarProps {
   onDeleteProtection: (id: string) => void;
   onUpdateContentProtection: (id: string, updates: Partial<WMContentProtection>) => void;
   onDeleteContentProtection: (id: string) => void;
+  onUpdateWall?: (id: string, updates: Partial<WMWall>) => void;
+  onDeleteWall?: (id: string) => void;
+  onUpdateRoom?: (id: string, updates: Partial<WMRoom>) => void;
+  onDeleteRoom?: (id: string) => void;
+  /** Pixels per foot — needed for wall length recalculation */
+  scalePixelsPerFoot?: number;
   onSelectElement: (id: string, type: string) => void;
   onMaterialTypesChange: (types: DemoMaterialType[]) => void;
   /** Optional width override, defaults to 280 */
@@ -91,6 +102,8 @@ const SELECTION_PANEL_MAP: Record<string, string> = {
   containment: 'containment',
   floor_protection: 'floor_protection',
   content_protection: 'content_protection',
+  wall: 'floor_plan',
+  room: 'floor_plan',
 };
 
 /** Small pill badge for panel headers */
@@ -157,6 +170,11 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
   onDeleteProtection,
   onUpdateContentProtection,
   onDeleteContentProtection,
+  onUpdateWall,
+  onDeleteWall,
+  onUpdateRoom,
+  onDeleteRoom,
+  scalePixelsPerFoot = 20,
   onSelectElement,
   onMaterialTypesChange,
   width = 280,
@@ -195,6 +213,13 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
     selection?.element_type === 'floor_protection' ? selection.element_id : null;
   const selectedContentProtId =
     selection?.element_type === 'content_protection' ? selection.element_id : null;
+  const selectedWallId =
+    selection?.element_type === 'wall' ? selection.element_id : null;
+  const selectedRoomId =
+    selection?.element_type === 'room' ? selection.element_id : null;
+
+  const wallCount = (overlayData.walls ?? []).length;
+  const roomCount = (overlayData.rooms ?? []).length;
 
   const panelItems = [
     {
@@ -321,6 +346,161 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
           onDeleteProtection={onDeleteContentProtection}
           onSelectProtection={(id) => onSelectElement(id, 'content_protection')}
         />
+      ),
+    },
+    {
+      key: 'floor_plan',
+      label: (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <BorderOutlined style={{ color: '#333', fontSize: 13 }} />
+          <Text style={{ fontSize: 13, fontWeight: 500 }}>Floor Plan</Text>
+          <div style={{ flex: 1 }} />
+          <CountBadge count={wallCount + roomCount} color="#333" />
+        </div>
+      ),
+      children: (
+        <div style={{ fontSize: 12 }}>
+          {/* Walls list */}
+          {(overlayData.walls ?? []).length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <Text strong style={{ fontSize: 11, color: '#8c8c8c' }}>
+                Walls ({(overlayData.walls ?? []).length})
+              </Text>
+              {(overlayData.walls ?? []).map((w, idx) => {
+                const isSel = w.id === selectedWallId;
+                return (
+                  <div
+                    key={w.id}
+                    onClick={() => onSelectElement(w.id, 'wall')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 6px',
+                      marginTop: 2,
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      background: isSel ? '#e6f7ff' : 'transparent',
+                      border: isSel ? '1px solid #91d5ff' : '1px solid transparent',
+                    }}
+                  >
+                    <span style={{ flex: 1, fontSize: 12 }}>Wall {idx + 1}</span>
+                    <InputNumber
+                      size="small"
+                      value={w.length_ft}
+                      min={0.1}
+                      step={0.5}
+                      style={{ width: 70 }}
+                      addonAfter="ft"
+                      onChange={(val) => {
+                        if (val == null || !onUpdateWall) return;
+                        const dx = w.end_x - w.start_x;
+                        const dy = w.end_y - w.start_y;
+                        const oldLenPx = Math.sqrt(dx * dx + dy * dy);
+                        if (oldLenPx < 1) return;
+                        // Recalculate end point: keep same angle, change length
+                        const newLenPx = val * scalePixelsPerFoot;
+                        const ratio = newLenPx / oldLenPx;
+                        onUpdateWall(w.id, {
+                          length_ft: val,
+                          end_x: w.start_x + dx * ratio,
+                          end_y: w.start_y + dy * ratio,
+                        });
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    {onDeleteWall && (
+                      <Button
+                        size="small"
+                        type="text"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteWall(w.id);
+                        }}
+                        style={{ padding: '0 4px' }}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Rooms list */}
+          {(overlayData.rooms ?? []).length > 0 && (
+            <div>
+              <Text strong style={{ fontSize: 11, color: '#8c8c8c' }}>
+                Rooms ({(overlayData.rooms ?? []).length})
+              </Text>
+              {(overlayData.rooms ?? []).map((r) => {
+                const isSel = r.id === selectedRoomId;
+                return (
+                  <div
+                    key={r.id}
+                    onClick={() => onSelectElement(r.id, 'room')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 6px',
+                      marginTop: 2,
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      background: isSel ? '#e6f7ff' : 'transparent',
+                      border: isSel ? '1px solid #91d5ff' : '1px solid transparent',
+                    }}
+                  >
+                    <Input
+                      size="small"
+                      value={r.name}
+                      style={{ flex: 1 }}
+                      onChange={(e) => onUpdateRoom?.(r.id, { name: e.target.value })}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <span style={{ fontSize: 11, color: '#666', whiteSpace: 'nowrap' }}>
+                      {r.area_sqft.toFixed(0)} SF
+                    </span>
+                    <InputNumber
+                      size="small"
+                      value={r.height_ft}
+                      min={1}
+                      max={30}
+                      step={0.5}
+                      style={{ width: 65 }}
+                      addonAfter="H"
+                      onChange={(val) => {
+                        if (val == null) return;
+                        onUpdateRoom?.(r.id, { height_ft: val });
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    {onDeleteRoom && (
+                      <Button
+                        size="small"
+                        type="text"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteRoom(r.id);
+                        }}
+                        style={{ padding: '0 4px' }}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {wallCount === 0 && roomCount === 0 && (
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              Use the Wall tool (W) to draw walls. Rooms are auto-detected when walls form a closed shape.
+            </Text>
+          )}
+        </div>
       ),
     },
     {

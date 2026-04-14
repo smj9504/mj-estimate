@@ -51,8 +51,18 @@ router = APIRouter(tags=["WM Sketches"])
 # ---------------------------------------------------------------------------
 
 def _build_detail_response(sketch: WMFloorSketch) -> WMFloorSketchDetailResponse:
-    """Convert a WMFloorSketch ORM object to WMFloorSketchDetailResponse."""
-    return WMFloorSketchDetailResponse(
+    """Convert a WMFloorSketch ORM object to WMFloorSketchDetailResponse.
+
+    Merges authoritative child-table data (demolition, equipment, etc.)
+    with JSONB-only data (text_annotations, shapes, walls, rooms).
+    """
+    # JSONB snapshot has text_annotations, shapes, walls, rooms
+    # that are NOT stored in separate DB tables
+    jsonb = sketch.overlay_data if isinstance(
+        sketch.overlay_data, dict
+    ) else {}
+
+    resp = WMFloorSketchDetailResponse(
         id=sketch.id,
         job_id=sketch.job_id,
         floor_label=sketch.floor_label,
@@ -82,6 +92,59 @@ def _build_detail_response(sketch: WMFloorSketch) -> WMFloorSketchDetailResponse
             for p in (sketch.floor_protections or [])
         ],
     )
+    # Attach JSONB-only overlay fields to the response
+    # These are returned in overlay_data for the frontend
+    resp.overlay_data = _merge_overlay_response(
+        resp, jsonb
+    )
+    return resp
+
+
+def _merge_overlay_response(
+    resp: "WMFloorSketchDetailResponse",
+    jsonb: dict,
+) -> dict:
+    """Build a complete overlay_data dict merging DB records with JSONB."""
+    from decimal import Decimal as Dec
+
+    def _to_json(obj):
+        if isinstance(obj, dict):
+            return {k: _to_json(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_to_json(i) for i in obj]
+        if isinstance(obj, Dec):
+            return float(obj)
+        if isinstance(obj, UUID):
+            return str(obj)
+        return obj
+
+    return _to_json({
+        "demolition_zones": [
+            z.dict() if hasattr(z, 'dict') else z
+            for z in (resp.demolition_zones or [])
+        ],
+        "equipment_placements": [
+            e.dict() if hasattr(e, 'dict') else e
+            for e in (resp.equipment_placements or [])
+        ],
+        "containment_zones": [
+            c.dict() if hasattr(c, 'dict') else c
+            for c in (resp.containment_zones or [])
+        ],
+        "floor_protections": [
+            p.dict() if hasattr(p, 'dict') else p
+            for p in (resp.floor_protections or [])
+        ],
+        "content_protections": jsonb.get(
+            "content_protections", []
+        ),
+        "text_annotations": jsonb.get(
+            "text_annotations", []
+        ),
+        "shapes": jsonb.get("shapes", []),
+        "walls": jsonb.get("walls", []),
+        "rooms": jsonb.get("rooms", []),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +185,10 @@ def get_floor_sketches(
     items = []
     for s in sketches:
         resp = WMFloorSketchResponse.from_orm(s)
-        # Override JSONB snapshot with authoritative child-table data
+        jsonb = s.overlay_data if isinstance(
+            s.overlay_data, dict
+        ) else {}
+        # Merge DB child records with JSONB-only data
         resp.overlay_data = _to_json({
             "demolition_zones": [
                 WMDemolitionZoneSchema.from_orm(z).dict()
@@ -144,6 +210,12 @@ def get_floor_sketches(
                 WMContentProtectionSchema.from_orm(cp).dict()
                 for cp in (s.content_protections or [])
             ],
+            "text_annotations": jsonb.get(
+                "text_annotations", []
+            ),
+            "shapes": jsonb.get("shapes", []),
+            "walls": jsonb.get("walls", []),
+            "rooms": jsonb.get("rooms", []),
         })
         items.append(resp)
 

@@ -136,11 +136,18 @@ class SketchRepository:
             )
         )
 
+        # Fields that exist only on the frontend / JSONB, not in the DB table
+        _DEMO_ZONE_SKIP = {"pixel_width", "pixel_height"}
+
         # --- Step 2: insert new child rows ---
         for zone_data in overlay_data.demolition_zones:
+            d = {
+                k: v for k, v in zone_data.dict().items()
+                if k not in _DEMO_ZONE_SKIP
+            }
             zone = WMDemolitionZone(
                 floor_sketch_id=floor_sketch_id,
-                **zone_data.dict(),
+                **d,
             )
             self.db.add(zone)
 
@@ -175,7 +182,7 @@ class SketchRepository:
         # --- Step 3: flush to assign IDs, then build JSONB snapshot ---
         self.db.flush()
 
-        query = (
+        sketch = self.db.execute(
             select(WMFloorSketch)
             .where(WMFloorSketch.id == floor_sketch_id)
             .options(
@@ -185,106 +192,187 @@ class SketchRepository:
                 selectinload(WMFloorSketch.floor_protections),
                 selectinload(WMFloorSketch.content_protections),
             )
-        )
-        sketch = self.db.execute(query).scalar_one_or_none()
+        ).scalar_one_or_none()
         if sketch is None:
             raise ValueError(
                 f"Floor sketch {floor_sketch_id} not found"
             )
 
-        import json
-        from decimal import Decimal
+        # ── Helper: serialise a Pydantic model to a JSON-safe dict ──
+        def _to_dict(obj):
+            d = obj.dict() if hasattr(obj, 'dict') else obj
+            # Convert Decimal / UUID to JSON-safe types
+            from decimal import Decimal as _Dec
+            out = {}
+            for k, v in d.items():
+                if isinstance(v, _Dec):
+                    out[k] = float(v)
+                elif isinstance(v, UUID):
+                    out[k] = str(v)
+                else:
+                    out[k] = v
+            return out
 
-        def _default(obj):
-            if isinstance(obj, Decimal):
-                return float(obj)
-            if isinstance(obj, UUID):
-                return str(obj)
-            raise TypeError
+        # ── Build JSONB snapshot ──
+        # DB child records provide server-generated IDs.
+        # Frontend input (overlay_data) provides pixel_width/height
+        # and other canvas-only fields.
+        # We merge both: DB record + frontend extras.
+        def _merge_demo(db_z, idx):
+            """Merge DB record with frontend overlay_data."""
+            base = {
+                "id": str(db_z.id),
+                "floor_sketch_id": str(db_z.floor_sketch_id),
+                "material_type": db_z.material_type,
+                "surface": db_z.surface,
+                "color": db_z.color,
+                "x": float(db_z.x),
+                "y": float(db_z.y),
+                "dimension1_ft": float(
+                    db_z.dimension1_ft
+                ) if db_z.dimension1_ft else 0,
+                "dimension2_ft": float(
+                    db_z.dimension2_ft
+                ) if db_z.dimension2_ft else 0,
+                "rotation": float(db_z.rotation or 0),
+                "calculated_sqft": float(
+                    db_z.calculated_sqft
+                ) if db_z.calculated_sqft else 0,
+                "height_ft": float(
+                    db_z.height_ft
+                ) if db_z.height_ft else None,
+                "include_pad": db_z.include_pad or False,
+                "include_insulation": (
+                    db_z.include_insulation or False
+                ),
+                "label": db_z.label,
+                "display_order": db_z.display_order,
+                "scope_item_id": str(
+                    db_z.scope_item_id
+                ) if db_z.scope_item_id else None,
+            }
+            # Merge pixel dimensions from frontend input
+            if idx < len(overlay_data.demolition_zones):
+                src = overlay_data.demolition_zones[idx]
+                pw = getattr(src, 'pixel_width', None)
+                ph = getattr(src, 'pixel_height', None)
+                if pw:
+                    base["pixel_width"] = float(pw)
+                if ph:
+                    base["pixel_height"] = float(ph)
+            return base
 
-        # Build JSONB from actual DB records so IDs are included
+        def _equip_dict(e):
+            return {
+                "id": str(e.id),
+                "floor_sketch_id": str(e.floor_sketch_id),
+                "equipment_type": e.equipment_type,
+                "x": float(e.x),
+                "y": float(e.y),
+                "icon_shape": e.icon_shape,
+                "color": e.color,
+                "label": e.label,
+            }
+
+        def _contain_dict(c):
+            return {
+                "id": str(c.id),
+                "floor_sketch_id": str(c.floor_sketch_id),
+                "containment_type": c.containment_type,
+                "x": float(c.x),
+                "y": float(c.y),
+                "length_ft": float(
+                    c.length_ft
+                ) if c.length_ft else 0,
+                "height_ft": float(
+                    c.height_ft
+                ) if c.height_ft else 0,
+                "rotation": float(c.rotation or 0),
+                "calculated_sqft": float(
+                    c.calculated_sqft
+                ) if c.calculated_sqft else 0,
+                "color": c.color,
+                "label": c.label,
+                "zipper_count": (
+                    c.zipper_count if hasattr(c, 'zipper_count')
+                    else 0
+                ),
+            }
+
+        def _fp_dict(fp):
+            return {
+                "id": str(fp.id),
+                "floor_sketch_id": str(fp.floor_sketch_id),
+                "protection_type": fp.protection_type,
+                "paper_width_ft": float(fp.paper_width_ft),
+                "x": float(fp.x),
+                "y": float(fp.y),
+                "length_ft": float(
+                    fp.length_ft
+                ) if fp.length_ft else 0,
+                "rotation": float(fp.rotation or 0),
+                "calculated_sqft": float(
+                    fp.calculated_sqft
+                ) if fp.calculated_sqft else 0,
+                "color": fp.color,
+            }
+
+        def _cp_dict(cp):
+            return {
+                "id": str(cp.id),
+                "floor_sketch_id": str(cp.floor_sketch_id),
+                "protection_type": cp.protection_type,
+                "x": float(cp.x),
+                "y": float(cp.y),
+                "width_ft": float(
+                    cp.width_ft
+                ) if cp.width_ft else 0,
+                "length_ft": float(
+                    cp.length_ft
+                ) if cp.length_ft else 0,
+                "rotation": float(cp.rotation or 0),
+                "calculated_sqft": float(
+                    cp.calculated_sqft
+                ) if cp.calculated_sqft else 0,
+                "color": cp.color,
+            }
+
         snapshot = {
             "demolition_zones": [
-                {
-                    "id": str(z.id),
-                    "floor_sketch_id": str(z.floor_sketch_id),
-                    "material_type": z.material_type,
-                    "surface": z.surface,
-                    "color": z.color,
-                    "x": z.x,
-                    "y": z.y,
-                    "dimension1_ft": float(z.dimension1_ft) if z.dimension1_ft else 0,
-                    "dimension2_ft": float(z.dimension2_ft) if z.dimension2_ft else 0,
-                    "rotation": z.rotation,
-                    "calculated_sqft": float(z.calculated_sqft) if z.calculated_sqft else 0,
-                    "height_ft": float(z.height_ft) if z.height_ft else None,
-                    "include_pad": z.include_pad or False,
-                    "include_insulation": z.include_insulation or False,
-                    "label": z.label,
-                    "display_order": z.display_order,
-                    "scope_item_id": str(z.scope_item_id) if z.scope_item_id else None,
-                }
-                for z in sketch.demolition_zones
+                _merge_demo(z, i)
+                for i, z in enumerate(sketch.demolition_zones)
             ],
             "equipment_placements": [
-                {
-                    "id": str(e.id),
-                    "floor_sketch_id": str(e.floor_sketch_id),
-                    "equipment_type": e.equipment_type,
-                    "x": e.x,
-                    "y": e.y,
-                    "icon_shape": e.icon_shape,
-                    "color": e.color,
-                    "label": e.label,
-                }
+                _equip_dict(e)
                 for e in sketch.equipment_placements
             ],
             "containment_zones": [
-                {
-                    "id": str(c.id),
-                    "floor_sketch_id": str(c.floor_sketch_id),
-                    "containment_type": c.containment_type,
-                    "x": c.x,
-                    "y": c.y,
-                    "length_ft": float(c.length_ft) if c.length_ft else 0,
-                    "height_ft": float(c.height_ft) if c.height_ft else 0,
-                    "rotation": c.rotation or 0,
-                    "width_ft": float(c.width_ft) if c.width_ft else None,
-                    "calculated_sqft": float(c.calculated_sqft) if c.calculated_sqft else 0,
-                    "color": c.color,
-                    "label": c.label,
-                }
+                _contain_dict(c)
                 for c in sketch.containment_zones
             ],
             "floor_protections": [
-                {
-                    "id": str(fp.id),
-                    "floor_sketch_id": str(fp.floor_sketch_id),
-                    "protection_type": fp.protection_type,
-                    "paper_width_ft": fp.paper_width_ft,
-                    "x": fp.x,
-                    "y": fp.y,
-                    "length_ft": float(fp.length_ft) if fp.length_ft else 0,
-                    "rotation": fp.rotation,
-                    "calculated_sqft": float(fp.calculated_sqft) if fp.calculated_sqft else 0,
-                    "color": fp.color,
-                }
+                _fp_dict(fp)
                 for fp in sketch.floor_protections
             ],
             "content_protections": [
-                {
-                    "id": str(cp.id),
-                    "floor_sketch_id": str(cp.floor_sketch_id),
-                    "protection_type": cp.protection_type,
-                    "x": cp.x,
-                    "y": cp.y,
-                    "width_ft": float(cp.width_ft) if cp.width_ft else 0,
-                    "length_ft": float(cp.length_ft) if cp.length_ft else 0,
-                    "rotation": cp.rotation,
-                    "calculated_sqft": float(cp.calculated_sqft) if cp.calculated_sqft else 0,
-                    "color": cp.color,
-                }
+                _cp_dict(cp)
                 for cp in sketch.content_protections
+            ],
+            "text_annotations": [
+                _to_dict(ta)
+                for ta in (overlay_data.text_annotations or [])
+            ],
+            "shapes": [
+                _to_dict(s)
+                for s in (overlay_data.shapes or [])
+            ],
+            "walls": [
+                _to_dict(w)
+                for w in (overlay_data.walls or [])
+            ],
+            "rooms": [
+                r.dict() if hasattr(r, 'dict') else r
+                for r in (overlay_data.rooms or [])
             ],
         }
         sketch.overlay_data = snapshot

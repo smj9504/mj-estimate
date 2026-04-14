@@ -48,6 +48,20 @@ const WMFloorProtectionRenderer: React.FC<WMFloorProtectionRendererProps> = ({
 
   const labelText = `${protection.calculated_sqft > 0 ? `${protection.calculated_sqft.toFixed(2)} SF` : `${protection.length_ft.toFixed(2)}'`}`;
 
+  // Reset Konva node transform state when dimensions change from props
+  useEffect(() => {
+    const node = rectRef.current;
+    if (!node) return;
+    node.scaleX(1);
+    node.scaleY(1);
+    node.x(0);
+    node.y(0);
+    node.rotation(0);
+    node.width(widthPx);
+    node.height(lengthPx);
+    node.getLayer()?.batchDraw();
+  }, [widthPx, lengthPx]);
+
   // Attach / detach transformer
   useEffect(() => {
     if (!transformerRef.current || !rectRef.current) return;

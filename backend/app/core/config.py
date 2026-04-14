@@ -224,7 +224,7 @@ class Settings(BaseSettings):
 
     # Gemini Vision API Settings (AI-powered photo classification)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
     ENABLE_AI_PHOTO_CLASSIFICATION: bool = os.getenv("ENABLE_AI_PHOTO_CLASSIFICATION", "true").lower() == "true"
 
     # Storage Configuration

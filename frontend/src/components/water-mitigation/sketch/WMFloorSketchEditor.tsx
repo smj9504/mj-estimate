@@ -52,10 +52,19 @@ import type {
   WMContainmentZone,
   WMFloorProtection,
   WMContentProtection,
+  WMTextAnnotation,
+  WMShapeAnnotation,
+  WMWall,
+  WMRoom,
 } from '../../../types/wmSketch';
 import {
   EQUIPMENT_CONFIG,
   DEFAULT_DEMO_MATERIAL_TYPES,
+  SHAPE_PRESETS,
+  WALL_SNAP_THRESHOLD,
+  DEFAULT_WALL_THICKNESS,
+  DEFAULT_WALL_COLOR,
+  DEFAULT_ROOM_COLOR,
 } from '../../../types/wmSketch';
 import WMBackgroundImageLayer, { type ImageLoadStatus } from './canvas/WMBackgroundImageLayer';
 import WMOverlayLayer from './canvas/WMOverlayLayer';
@@ -118,6 +127,48 @@ const INITIAL_DRAW_STATE: DrawState = {
   currentX: 0,
   currentY: 0,
 };
+
+// ============================================================================
+// Geometry helpers for room detection
+// ============================================================================
+
+/** Ray-casting point-in-polygon test */
+function isPointInPolygon(point: { x: number; y: number }, polygon: { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    const intersect =
+      yi > point.y !== yj > point.y &&
+      point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/** Signed area of a polygon (shoelace formula) */
+function polygonArea(polygon: { x: number; y: number }[]): number {
+  let area = 0;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    area += (polygon[j].x + polygon[i].x) * (polygon[j].y - polygon[i].y);
+  }
+  return area / 2;
+}
+
+/** Find the closest point on a line segment to a given point */
+function closestPointOnSegment(
+  px: number, py: number,
+  ax: number, ay: number,
+  bx: number, by: number,
+): { x: number; y: number; t: number } {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return { x: ax, y: ay, t: 0 };
+  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return { x: ax + t * dx, y: ay + t * dy, t };
+}
 
 // ============================================================================
 // Grid Layer (lightweight SVG-style Konva lines)
@@ -297,6 +348,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // Scale calibration state
   // ------------------------------------------------------------------
   const [isCalibrating, setIsCalibrating] = useState(false);
+  const [activeShapePresetId, setActiveShapePresetId] = useState<string | null>(null);
 
   // ------------------------------------------------------------------
   // State management
@@ -321,11 +373,23 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     updateFloorProtection,
     addContentProtection,
     updateContentProtection,
+    addTextAnnotation,
+    updateTextAnnotation,
+    removeTextAnnotation,
     removeDemolitionZone,
     removeEquipment,
     removeContainment,
     removeFloorProtection,
     removeContentProtection,
+    addShape,
+    updateShape,
+    removeShape,
+    addWall,
+    updateWall,
+    removeWall,
+    addRoom,
+    updateRoom,
+    removeRoom,
     loadOverlayData,
     markSaved,
     undo,
@@ -461,8 +525,278 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // Drawing state
   // ------------------------------------------------------------------
   const [drawState, setDrawState] = useState<DrawState>(INITIAL_DRAW_STATE);
+  // Refs to avoid stale closures in Konva event handlers.
+  // Updated every render so event callbacks always see latest values.
+  const drawStateRef = useRef(drawState);
+  drawStateRef.current = drawState;
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const materialTypesRef = useRef(materialTypes);
+  materialTypesRef.current = materialTypes;
+  // These refs are initialised with null and assigned later,
+  // after the variables they track are declared further down.
+  const wallDrawStartRef = useRef<{ x: number; y: number } | null>(null);
+  const spaceDownRef = useRef(false);
+  const activeShapePresetIdRef = useRef<string | null>(null);
+  activeShapePresetIdRef.current = activeShapePresetId;
+  const floorSketchRef = useRef(floorSketch);
+  floorSketchRef.current = floorSketch;
+
+  // Wrapper to update both state and ref synchronously
+  const setDrawStateSync = useCallback((next: DrawState) => {
+    drawStateRef.current = next;
+    setDrawState(next);
+  }, []);
   // Space key for pan mode
   const [spaceDown, setSpaceDown] = useState(false);
+  spaceDownRef.current = spaceDown;
+
+  // ------------------------------------------------------------------
+  // Wall drawing state (click-click paradigm)
+  // ------------------------------------------------------------------
+  const [wallDrawStart, setWallDrawStart] = useState<{ x: number; y: number } | null>(null);
+  wallDrawStartRef.current = wallDrawStart;
+  const [wallDrawCursor, setWallDrawCursor] = useState<{ x: number; y: number } | null>(null);
+  const [wallSnapEnd, setWallSnapEnd] = useState<{ x: number; y: number } | null>(null);
+
+  /**
+   * Find the nearest existing wall endpoint within snap threshold.
+   * Returns the snapped point or the original point if no snap.
+   */
+  const snapToWallEndpoint = useCallback(
+    (pos: { x: number; y: number }): { point: { x: number; y: number }; snapped: boolean } => {
+      const walls = state.overlayData.walls ?? [];
+      let closestDist = WALL_SNAP_THRESHOLD;
+      let closestPt: { x: number; y: number } | null = null;
+
+      for (const w of walls) {
+        for (const ep of [{ x: w.start_x, y: w.start_y }, { x: w.end_x, y: w.end_y }]) {
+          const d = Math.hypot(ep.x - pos.x, ep.y - pos.y);
+          if (d < closestDist) {
+            closestDist = d;
+            closestPt = ep;
+          }
+        }
+      }
+
+      if (closestPt) return { point: closestPt, snapped: true };
+      return { point: pos, snapped: false };
+    },
+    [state.overlayData.walls]
+  );
+
+  /**
+   * Constrain a point to horizontal or vertical relative to start
+   * when Shift is held.
+   */
+  const constrainToAxis = useCallback(
+    (start: { x: number; y: number }, end: { x: number; y: number }): { x: number; y: number } => {
+      const dx = Math.abs(end.x - start.x);
+      const dy = Math.abs(end.y - start.y);
+      if (dx > dy) return { x: end.x, y: start.y }; // horizontal
+      return { x: start.x, y: end.y }; // vertical
+    },
+    []
+  );
+
+  /**
+   * Detect rooms: find the smallest closed polygon formed by walls that
+   * contains the given point. Simplified flood-fill approach using
+   * connected wall endpoints.
+   */
+  const detectRoomAtPoint = useCallback(
+    (clickPos: { x: number; y: number }): { x: number; y: number }[] | null => {
+      const walls = state.overlayData.walls ?? [];
+      if (walls.length < 3) return null;
+
+      // Build adjacency graph: endpoint → list of connected endpoints
+      const EPS = 5; // tolerance for endpoint grouping
+      const pointKey = (p: { x: number; y: number }) =>
+        `${Math.round(p.x / EPS) * EPS},${Math.round(p.y / EPS) * EPS}`;
+
+      // Use string[] arrays instead of Set to avoid downlevelIteration issues
+      const adj = new Map<string, string[]>();
+      const keyToPoint = new Map<string, { x: number; y: number }>();
+
+      for (const w of walls) {
+        const sk = pointKey({ x: w.start_x, y: w.start_y });
+        const ek = pointKey({ x: w.end_x, y: w.end_y });
+        keyToPoint.set(sk, { x: w.start_x, y: w.start_y });
+        keyToPoint.set(ek, { x: w.end_x, y: w.end_y });
+
+        if (!adj.has(sk)) adj.set(sk, []);
+        if (!adj.has(ek)) adj.set(ek, []);
+        const skArr = adj.get(sk)!;
+        const ekArr = adj.get(ek)!;
+        if (skArr.indexOf(ek) === -1) skArr.push(ek);
+        if (ekArr.indexOf(sk) === -1) ekArr.push(sk);
+      }
+
+      // Find the smallest closed polygon that contains the click point using BFS
+      const allNodes = Array.from(adj.keys());
+      let bestCycle: string[] | null = null;
+      let bestArea = Infinity;
+
+      for (const startNode of allNodes) {
+        const neighbors = adj.get(startNode);
+        if (!neighbors || neighbors.length < 2) continue;
+
+        // BFS to find short cycles from startNode
+        const queue: { path: string[]; visitedSet: string[] }[] = [];
+        for (let ni = 0; ni < neighbors.length; ni++) {
+          queue.push({ path: [startNode, neighbors[ni]], visitedSet: [startNode, neighbors[ni]] });
+        }
+
+        while (queue.length > 0) {
+          const { path, visitedSet } = queue.shift()!;
+          const current = path[path.length - 1];
+          const currentNeighbors = adj.get(current);
+          if (!currentNeighbors) continue;
+
+          for (let ni = 0; ni < currentNeighbors.length; ni++) {
+            const next = currentNeighbors[ni];
+            if (next === startNode && path.length >= 3) {
+              // Found a cycle!
+              const polygon = path.map((k) => keyToPoint.get(k)!);
+              if (isPointInPolygon(clickPos, polygon)) {
+                const area = Math.abs(polygonArea(polygon));
+                if (area < bestArea && area > 100) {
+                  bestArea = area;
+                  bestCycle = path;
+                }
+              }
+              continue;
+            }
+            if (visitedSet.indexOf(next) !== -1 || path.length >= 8) continue;
+            queue.push({ path: [...path, next], visitedSet: [...visitedSet, next] });
+          }
+        }
+      }
+
+      if (bestCycle) {
+        return bestCycle.map((k) => keyToPoint.get(k)!);
+      }
+
+      return null;
+    },
+    [state.overlayData.walls]
+  );
+
+  /**
+   * Auto-detect and create rooms from closed wall polygons.
+   * Called after a wall is placed or a wall endpoint is dragged.
+   * Checks each vertex to find new closed polygons not already covered by an existing room.
+   *
+   * @param wallsOverride optional walls array (for checking just-added walls not yet in state)
+   */
+  const autoDetectRooms = useCallback(
+    (wallsOverride?: WMWall[]) => {
+      const walls = wallsOverride ?? (state.overlayData.walls ?? []);
+      if (walls.length < 3) return;
+
+      const existingRooms = state.overlayData.rooms ?? [];
+
+      // Build adjacency graph
+      const EPS = 5;
+      const pointKey = (p: { x: number; y: number }) =>
+        `${Math.round(p.x / EPS) * EPS},${Math.round(p.y / EPS) * EPS}`;
+
+      const adj = new Map<string, string[]>();
+      const keyToPoint = new Map<string, { x: number; y: number }>();
+
+      for (const w of walls) {
+        const sk = pointKey({ x: w.start_x, y: w.start_y });
+        const ek = pointKey({ x: w.end_x, y: w.end_y });
+        keyToPoint.set(sk, { x: w.start_x, y: w.start_y });
+        keyToPoint.set(ek, { x: w.end_x, y: w.end_y });
+        if (!adj.has(sk)) adj.set(sk, []);
+        if (!adj.has(ek)) adj.set(ek, []);
+        const skArr = adj.get(sk)!;
+        const ekArr = adj.get(ek)!;
+        if (skArr.indexOf(ek) === -1) skArr.push(ek);
+        if (ekArr.indexOf(sk) === -1) ekArr.push(sk);
+      }
+
+      // Find all minimal cycles
+      const allNodes = Array.from(adj.keys());
+      const foundCycles: { x: number; y: number }[][] = [];
+      const cycleSignatures = new Set<string>();
+
+      for (const startNode of allNodes) {
+        const neighbors = adj.get(startNode);
+        if (!neighbors || neighbors.length < 2) continue;
+
+        const queue: { path: string[]; visited: string[] }[] = [];
+        for (const n of neighbors) {
+          queue.push({ path: [startNode, n], visited: [startNode, n] });
+        }
+
+        while (queue.length > 0) {
+          const { path, visited } = queue.shift()!;
+          const current = path[path.length - 1];
+          const currentNeighbors = adj.get(current);
+          if (!currentNeighbors) continue;
+
+          for (const next of currentNeighbors) {
+            if (next === startNode && path.length >= 3) {
+              const polygon = path.map((k) => keyToPoint.get(k)!);
+              const area = Math.abs(polygonArea(polygon));
+              if (area > 100) {
+                // Create a canonical signature (sorted keys) to avoid duplicate cycles
+                const sig = [...path].sort().join('|');
+                if (!cycleSignatures.has(sig)) {
+                  cycleSignatures.add(sig);
+                  foundCycles.push(polygon);
+                }
+              }
+              continue;
+            }
+            if (visited.indexOf(next) !== -1 || path.length >= 8) continue;
+            queue.push({ path: [...path, next], visited: [...visited, next] });
+          }
+        }
+      }
+
+      // For each found cycle, check if a room with similar boundary already exists
+      for (const polygon of foundCycles) {
+        const centroid = {
+          x: polygon.reduce((s, p) => s + p.x, 0) / polygon.length,
+          y: polygon.reduce((s, p) => s + p.y, 0) / polygon.length,
+        };
+
+        // Check if any existing room centroid is close to this polygon's centroid
+        const alreadyExists = existingRooms.some((room) => {
+          if (!room.boundary || room.boundary.length < 3) return false;
+          const rc = {
+            x: room.boundary.reduce((s, p) => s + p.x, 0) / room.boundary.length,
+            y: room.boundary.reduce((s, p) => s + p.y, 0) / room.boundary.length,
+          };
+          return Math.hypot(rc.x - centroid.x, rc.y - centroid.y) < 30;
+        });
+
+        if (!alreadyExists) {
+          const scale = floorSketch.scale_pixels_per_foot;
+          const areaPixels = Math.abs(polygonArea(polygon));
+          const areaSqft = areaPixels / (scale * scale);
+          const roomNum = existingRooms.length + foundCycles.indexOf(polygon) + 1;
+          const newId = generateOverlayId();
+          const room: WMRoom = {
+            id: newId,
+            floor_sketch_id: floorSketch.id,
+            name: `Room ${roomNum}`,
+            boundary: polygon,
+            color: DEFAULT_ROOM_COLOR,
+            height_ft: 8,
+            area_sqft: areaSqft,
+            wall_ids: [],
+          };
+          addRoom(room);
+          message.success(`Room auto-detected (${areaSqft.toFixed(0)} SF)`);
+        }
+      }
+    },
+    [state.overlayData.walls, state.overlayData.rooms, floorSketch.scale_pixels_per_foot, floorSketch.id, addRoom]
+  );
 
   // Helper: get canvas-space coordinates from a Konva event
   const getCanvasPos = useCallback(
@@ -484,8 +818,11 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // ------------------------------------------------------------------
   const handleMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const st = stateRef.current;
+      const mats = materialTypesRef.current;
+      const fs = floorSketchRef.current;
       // Middle mouse or space+left or pan tool = pan
-      if (e.evt.button === 1 || spaceDown || state.activeTool === 'pan') {
+      if (e.evt.button === 1 || spaceDownRef.current || st.activeTool === 'pan') {
         isPanningRef.current = true;
         lastPointerRef.current = { x: e.evt.clientX, y: e.evt.clientY };
         return;
@@ -493,7 +830,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       if (e.evt.button !== 0) return;
 
       const pos = getCanvasPos(e);
-      const { activeTool } = state;
+      const { activeTool } = st;
 
       if (activeTool === 'select') {
         // Deselect when clicking on empty stage
@@ -513,16 +850,16 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         // Wall and baseboard (LF-unit) demo types cannot be drawn on the 2D canvas.
         // They are added via the sidebar "Add" button only.
         if (activeTool === 'demolition') {
-          const matId = state.activeMaterialTypeId ?? materialTypes[0]?.id ?? 'wood_floor';
+          const matId = st.activeMaterialTypeId ?? mats[0]?.id ?? 'wood_floor';
           const matDef =
-            materialTypes.find((m) => m.id === matId) ??
+            mats.find((m) => m.id === matId) ??
             DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === matId);
           if (matDef?.surface === 'wall' || matDef?.unit === 'LF') {
             return; // block canvas drawing for wall / baseboard types
           }
         }
 
-        setDrawState({
+        setDrawStateSync({
           isDrawing: true,
           startX: pos.x,
           startY: pos.y,
@@ -533,11 +870,11 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       }
 
       if (activeTool === 'equipment') {
-        const equipType = state.activeEquipmentType ?? 'air_mover';
+        const equipType = st.activeEquipmentType ?? 'air_mover';
         const cfg = EQUIPMENT_CONFIG[equipType];
         const placement: WMEquipmentPlacement = {
           id: generateOverlayId(),
-          floor_sketch_id: floorSketch.id,
+          floor_sketch_id: fs.id,
           equipment_type: equipType,
           x: pos.x,
           y: pos.y,
@@ -546,8 +883,182 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         };
         addEquipment(placement);
       }
+
+      if (activeTool === 'shape') {
+        const presetId = activeShapePresetIdRef.current ?? SHAPE_PRESETS[0].id;
+        const preset = SHAPE_PRESETS.find((p) => p.id === presetId) ?? SHAPE_PRESETS[0];
+        const newId = generateOverlayId();
+        const shape: WMShapeAnnotation = {
+          id: newId,
+          floor_sketch_id: fs.id,
+          preset_id: preset.id,
+          shape_type: preset.shape_type,
+          x: pos.x - preset.default_width / 2,
+          y: pos.y - preset.default_height / 2,
+          width: preset.default_width,
+          height: preset.default_height,
+          rotation: 0,
+          fill_color: preset.fill_color,
+          stroke_color: preset.stroke_color,
+          stroke_width: 2,
+          opacity: 0.7,
+          label: preset.abbreviation,
+        };
+        addShape(shape);
+        selectElement({ element_id: newId, element_type: 'shape' });
+      }
+
+      if (activeTool === 'text') {
+        const newId = generateOverlayId();
+        const annotation: WMTextAnnotation = {
+          id: newId,
+          floor_sketch_id: fs.id,
+          x: pos.x,
+          y: pos.y,
+          text: 'Text',
+          font_size: 16,
+          color: '#333333',
+          bold: false,
+        };
+        addTextAnnotation(annotation);
+        selectElement({ element_id: newId, element_type: 'text' });
+      }
+
+      // ---- Wall tool: click-click paradigm ----
+      if (activeTool === 'wall') {
+        const snapped = snapToWallEndpoint(pos);
+        const wds = wallDrawStartRef.current;
+        if (!wds) {
+          // First click — set start point
+          setWallDrawStart(snapped.point);
+          setWallDrawCursor(snapped.point);
+        } else {
+          // Second click — finalize wall
+          let endPoint = snapped.point;
+          if (e.evt.shiftKey) endPoint = constrainToAxis(wds, endPoint);
+          else if (snapped.snapped) endPoint = snapped.point;
+
+          const dx = endPoint.x - wds.x;
+          const dy = endPoint.y - wds.y;
+          const lengthPx = Math.sqrt(dx * dx + dy * dy);
+          if (lengthPx > 5) {
+            const lengthFt = pixelsToFeet(lengthPx, fs.scale_pixels_per_foot);
+            const newId = generateOverlayId();
+            const wall: WMWall = {
+              id: newId,
+              floor_sketch_id: fs.id,
+              start_x: wds.x,
+              start_y: wds.y,
+              end_x: endPoint.x,
+              end_y: endPoint.y,
+              thickness: DEFAULT_WALL_THICKNESS,
+              color: DEFAULT_WALL_COLOR,
+              length_ft: lengthFt,
+            };
+            addWall(wall);
+
+            // Auto-detect rooms from closed wall polygons
+            // Pass the updated walls list (state hasn't flushed yet)
+            const updatedWalls = [...(st.overlayData.walls ?? []), wall];
+            autoDetectRooms(updatedWalls);
+
+            // Continue drawing from end point (chain walls)
+            setWallDrawStart(endPoint);
+            setWallDrawCursor(endPoint);
+          }
+        }
+        return;
+      }
+
+      // ---- Room tool: detect room from enclosed walls ----
+      if (activeTool === 'room') {
+        const boundary = detectRoomAtPoint(pos);
+        if (boundary) {
+          const existingRooms = st.overlayData.rooms ?? [];
+          const roomNum = existingRooms.length + 1;
+          const areaPixels = Math.abs(polygonArea(boundary));
+          const scale = fs.scale_pixels_per_foot;
+          const areaSqft = areaPixels / (scale * scale);
+          const newId = generateOverlayId();
+          const room: WMRoom = {
+            id: newId,
+            floor_sketch_id: fs.id,
+            name: `Room ${roomNum}`,
+            boundary,
+            color: DEFAULT_ROOM_COLOR,
+            height_ft: 8,
+            area_sqft: areaSqft,
+            wall_ids: [],
+          };
+          addRoom(room);
+          selectElement({ element_id: newId, element_type: 'room' });
+          message.success(`Room ${roomNum} detected (${areaSqft.toFixed(0)} SF)`);
+        } else {
+          message.info('No enclosed area found. Draw walls that form a closed shape first.');
+        }
+        return;
+      }
+
+      // ---- Wall Split tool ----
+      if (activeTool === 'wall_split') {
+        const walls = st.overlayData.walls ?? [];
+        let closestWall: WMWall | null = null;
+        let closestDist = 10; // max distance threshold
+        let splitPoint = { x: 0, y: 0 };
+
+        for (const w of walls) {
+          const cp = closestPointOnSegment(pos.x, pos.y, w.start_x, w.start_y, w.end_x, w.end_y);
+          const dist = Math.hypot(cp.x - pos.x, cp.y - pos.y);
+          if (dist < closestDist && cp.t > 0.05 && cp.t < 0.95) {
+            closestDist = dist;
+            closestWall = w;
+            splitPoint = { x: cp.x, y: cp.y };
+          }
+        }
+
+        if (closestWall) {
+          const scale = fs.scale_pixels_per_foot;
+          // Create two new walls from the split
+          const wall1: WMWall = {
+            id: generateOverlayId(),
+            floor_sketch_id: fs.id,
+            start_x: closestWall.start_x,
+            start_y: closestWall.start_y,
+            end_x: splitPoint.x,
+            end_y: splitPoint.y,
+            thickness: closestWall.thickness,
+            color: closestWall.color,
+            length_ft: pixelsToFeet(
+              Math.hypot(splitPoint.x - closestWall.start_x, splitPoint.y - closestWall.start_y),
+              scale
+            ),
+          };
+          const wall2: WMWall = {
+            id: generateOverlayId(),
+            floor_sketch_id: fs.id,
+            start_x: splitPoint.x,
+            start_y: splitPoint.y,
+            end_x: closestWall.end_x,
+            end_y: closestWall.end_y,
+            thickness: closestWall.thickness,
+            color: closestWall.color,
+            length_ft: pixelsToFeet(
+              Math.hypot(closestWall.end_x - splitPoint.x, closestWall.end_y - splitPoint.y),
+              scale
+            ),
+          };
+          removeWall(closestWall.id);
+          addWall(wall1);
+          addWall(wall2);
+          message.success('Wall split into two segments.');
+        } else {
+          message.info('Click closer to a wall to split it.');
+        }
+        return;
+      }
     },
-    [state, spaceDown, getCanvasPos, deselect, addEquipment, floorSketch.id, materialTypes]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [getCanvasPos, deselect, addEquipment, addShape, addTextAnnotation, selectElement, snapToWallEndpoint, constrainToAxis, addWall, detectRoomAtPoint, addRoom, removeWall, autoDetectRooms, setDrawStateSync]
   );
 
   const handleMouseMove = useCallback(
@@ -561,12 +1072,40 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         return;
       }
 
-      if (!drawState.isDrawing) return;
+      // Wall drawing preview (tracks cursor while first click is placed)
+      const wds = wallDrawStartRef.current;
+      if (stateRef.current.activeTool === 'wall' && wds) {
+        const pos = getCanvasPos(e);
+        let endPos = pos;
+        if (e.evt.shiftKey) endPos = constrainToAxis(wds, pos);
+        const snap = snapToWallEndpoint(endPos);
+        setWallDrawCursor(snap.snapped ? snap.point : endPos);
+        setWallSnapEnd(snap.snapped ? snap.point : null);
+        return;
+      }
+
+      const ds = drawStateRef.current;
+      if (!ds.isDrawing) return;
 
       const pos = getCanvasPos(e);
-      setDrawState((prev) => ({ ...prev, currentX: pos.x, currentY: pos.y }));
+
+      // Shift constraint for line tools (containment, demolition_line)
+      if (
+        e.evt.shiftKey &&
+        (stateRef.current.activeTool === 'containment' || stateRef.current.activeTool === 'demolition_line')
+      ) {
+        const start = { x: ds.startX, y: ds.startY };
+        const constrained = constrainToAxis(start, pos);
+        const prev = drawStateRef.current;
+        setDrawStateSync({ ...prev, currentX: constrained.x, currentY: constrained.y });
+        return;
+      }
+
+      const prev = drawStateRef.current;
+      setDrawStateSync({ ...prev, currentX: pos.x, currentY: pos.y });
     },
-    [drawState.isDrawing, getCanvasPos]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [getCanvasPos, snapToWallEndpoint, constrainToAxis, setDrawStateSync]
   );
 
   const handleMouseUp = useCallback(
@@ -576,42 +1115,46 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         return;
       }
 
-      if (!drawState.isDrawing) return;
+      const ds = drawStateRef.current;
+      if (!ds.isDrawing) return;
 
-      const { startX, startY, currentX, currentY } = drawState;
+      const { startX, startY, currentX, currentY } = ds;
       const minPx = 5; // ignore tiny accidental drags
       const wPx = Math.abs(currentX - startX);
       const hPx = Math.abs(currentY - startY);
 
+      const st = stateRef.current;
+      const fs = floorSketchRef.current;
       // Line tools (containment, demolition_line) use distance; others use rect
-      if (state.activeTool === 'containment' || state.activeTool === 'demolition_line') {
+      if (st.activeTool === 'containment' || st.activeTool === 'demolition_line') {
         const lineLenPx = Math.sqrt(wPx * wPx + hPx * hPx);
         if (lineLenPx < minPx) {
-          setDrawState(INITIAL_DRAW_STATE);
+          setDrawStateSync(INITIAL_DRAW_STATE);
           return;
         }
       } else if (wPx < minPx || hPx < minPx) {
-        setDrawState(INITIAL_DRAW_STATE);
+        setDrawStateSync(INITIAL_DRAW_STATE);
         return;
       }
 
       const x = Math.min(startX, currentX);
       const y = Math.min(startY, currentY);
-      const scale = floorSketch.scale_pixels_per_foot;
+      const scale = fs.scale_pixels_per_foot;
       const dim1Ft = pixelsToFeet(wPx, scale);
       const dim2Ft = pixelsToFeet(hPx, scale);
 
-      const { activeTool, activeMaterialTypeId } = state;
+      const { activeTool, activeMaterialTypeId } = st;
 
+      const mats = materialTypesRef.current;
       if (activeTool === 'demolition') {
-        const matId = activeMaterialTypeId ?? materialTypes[0]?.id ?? 'wood_floor';
+        const matId = activeMaterialTypeId ?? mats[0]?.id ?? 'wood_floor';
         const matDef =
-          materialTypes.find((m) => m.id === matId) ??
+          mats.find((m) => m.id === matId) ??
           DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === matId);
 
         // Wall and baseboard types must not be placed via canvas drag.
         if (matDef?.surface === 'wall' || matDef?.unit === 'LF') {
-          setDrawState(INITIAL_DRAW_STATE);
+          setDrawStateSync(INITIAL_DRAW_STATE);
           return;
         }
 
@@ -620,7 +1163,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         // The raw pixel size from the drag is stored for visual rendering only.
         const zone: WMDemolitionZone = {
           id: newId,
-          floor_sketch_id: floorSketch.id,
+          floor_sketch_id: fs.id,
           material_type: matId,
           surface: matDef?.surface ?? 'floor',
           color: matDef?.color ?? '#B8860B',
@@ -630,7 +1173,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           dimension2_ft: 0,
           rotation: 0,
           calculated_sqft: 0,
-          display_order: state.overlayData.demolition_zones.length,
+          display_order: stateRef.current.overlayData.demolition_zones.length,
           pixel_width: wPx,
           pixel_height: hPx,
         };
@@ -645,9 +1188,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         const lengthFt = pixelsToFeet(lengthPx, scale);
         const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
 
-        const matId = state.activeMaterialTypeId ?? 'wall_drywall';
+        const matId = st.activeMaterialTypeId ?? 'wall_drywall';
         const matDef =
-          materialTypes.find((m) => m.id === matId) ??
+          mats.find((m) => m.id === matId) ??
           DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === matId);
         const isLF = matDef?.unit === 'LF';
         const defaultHeight = 8; // default wall height in feet
@@ -655,7 +1198,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
 
         const zone: WMDemolitionZone = {
           id: newId,
-          floor_sketch_id: floorSketch.id,
+          floor_sketch_id: fs.id,
           material_type: matId,
           surface: matDef?.surface ?? 'wall',
           color: matDef?.color ?? '#FFB6C1',
@@ -666,7 +1209,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           height_ft: isLF ? undefined : defaultHeight,
           rotation: angleDeg,
           calculated_sqft: isLF ? lengthFt : lengthFt * defaultHeight,
-          display_order: state.overlayData.demolition_zones.length,
+          display_order: stateRef.current.overlayData.demolition_zones.length,
         };
         addDemolitionZone(zone);
         selectElement({ element_id: newId, element_type: 'demolition' });
@@ -680,7 +1223,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         const heightFt = DEFAULT_CONTAINMENT_HEIGHT_FT;
         const zone: WMContainmentZone = {
           id: generateOverlayId(),
-          floor_sketch_id: floorSketch.id,
+          floor_sketch_id: fs.id,
           containment_type: 'Containment',
           x: startX,
           y: startY,
@@ -700,7 +1243,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         const rotation = wPx >= hPx ? -90 : 0;
         const prot: WMFloorProtection = {
           id: generateOverlayId(),
-          floor_sketch_id: floorSketch.id,
+          floor_sketch_id: fs.id,
           protection_type: 'Heavy duty paper & tape',
           paper_width_ft: paperWidth,
           x,
@@ -714,7 +1257,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       } else if (activeTool === 'content_protection') {
         const contentProt: WMContentProtection = {
           id: generateOverlayId(),
-          floor_sketch_id: floorSketch.id,
+          floor_sketch_id: fs.id,
           protection_type: 'Plastic sheeting',
           width_ft: dim1Ft,
           length_ft: dim2Ft,
@@ -727,20 +1270,10 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         addContentProtection(contentProt);
       }
 
-      setDrawState(INITIAL_DRAW_STATE);
+      setDrawStateSync(INITIAL_DRAW_STATE);
     },
-    [
-      drawState,
-      state,
-      floorSketch.id,
-      floorSketch.scale_pixels_per_foot,
-      materialTypes,
-      addDemolitionZone,
-      selectElement,
-      addContainment,
-      addFloorProtection,
-      addContentProtection,
-    ]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [addDemolitionZone, selectElement, addContainment, addFloorProtection, addContentProtection, setDrawStateSync]
   );
 
   // ------------------------------------------------------------------
@@ -762,8 +1295,10 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       else if (type === 'containment') updateContainment({ id, x, y });
       else if (type === 'floor_protection') updateFloorProtection({ id, x, y });
       else if (type === 'content_protection') updateContentProtection({ id, x, y });
+      else if (type === 'text') updateTextAnnotation({ id, x, y });
+      else if (type === 'shape') updateShape({ id, x, y });
     },
-    [selectedIds, batchMoveSelected, updateDemolitionZone, updateEquipment, updateContainment, updateFloorProtection, updateContentProtection]
+    [selectedIds, batchMoveSelected, updateDemolitionZone, updateEquipment, updateContainment, updateFloorProtection, updateContentProtection, updateTextAnnotation, updateShape]
   );
 
   // Transform end (resize + rotation)
@@ -827,9 +1362,17 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           rotation: rotation ?? 0,
           calculated_sqft: calcContentProtectionSqft(widthFt, heightFt),
         });
+      } else if (type === 'shape') {
+        // widthFt/heightFt are actually pixel dimensions for shapes
+        updateShape({
+          id,
+          width: widthFt,
+          height: heightFt,
+          rotation: rotation ?? 0,
+        });
       }
     },
-    [updateDemolitionZone, updateContainment, updateFloorProtection, updateContentProtection, state.overlayData.containment_zones, state.overlayData.demolition_zones, materialTypes]
+    [updateDemolitionZone, updateContainment, updateFloorProtection, updateContentProtection, updateShape, state.overlayData.containment_zones, state.overlayData.demolition_zones, materialTypes]
   );
 
   // ------------------------------------------------------------------
@@ -839,7 +1382,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     (id: string, type: string, ctrlKey?: boolean) => {
       const sel: import('../../../types/wmSketch').WMSketchSelection = {
         element_id: id,
-        element_type: type as 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection',
+        element_type: type as 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection' | 'text' | 'shape',
       };
       if (ctrlKey) {
         toggleSelectElement(sel);
@@ -879,9 +1422,22 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         return;
       }
 
+      // Cancel wall drawing on Escape
+      if (e.key === 'Escape') {
+        if (wallDrawStart) {
+          setWallDrawStart(null);
+          setWallDrawCursor(null);
+          setWallSnapEnd(null);
+        }
+        return;
+      }
+
       // Tool shortcuts
-      if (e.key === 'v' || e.key === 'V') { setTool('select'); return; }
-      if (e.key === 'h' || e.key === 'H') { setTool('pan'); return; }
+      if (e.key === 'v' || e.key === 'V') { setTool('select'); setWallDrawStart(null); return; }
+      if (e.key === 'h' || e.key === 'H') { setTool('pan'); setWallDrawStart(null); return; }
+      if (e.key === 't' || e.key === 'T') { setTool('text'); setWallDrawStart(null); return; }
+      if (e.key === 'w' || e.key === 'W') { setTool('wall'); return; }
+      if (e.key === 'r' || e.key === 'R') { setTool('room'); return; }
 
       if ((e.key === 'Delete' || e.key === 'Backspace') && state.selections.length > 0) {
         for (const sel of state.selections) {
@@ -891,6 +1447,10 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           else if (element_type === 'containment') removeContainment(element_id);
           else if (element_type === 'floor_protection') removeFloorProtection(element_id);
           else if (element_type === 'content_protection') removeContentProtection(element_id);
+          else if (element_type === 'text') removeTextAnnotation(element_id);
+          else if (element_type === 'shape') removeShape(element_id);
+          else if (element_type === 'wall') removeWall(element_id);
+          else if (element_type === 'room') removeRoom(element_id);
         }
       }
     };
@@ -916,6 +1476,11 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     removeContainment,
     removeFloorProtection,
     removeContentProtection,
+    removeTextAnnotation,
+    removeShape,
+    removeWall,
+    removeRoom,
+    wallDrawStart,
   ]);
 
   // ------------------------------------------------------------------
@@ -1005,6 +1570,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     if (spaceDown || state.activeTool === 'pan') return 'grab';
     if (state.activeTool === 'select') return 'default';
     if (state.activeTool === 'equipment') return 'crosshair';
+    if (state.activeTool === 'text') return 'text';
+    if (state.activeTool === 'wall' || state.activeTool === 'wall_split') return 'crosshair';
+    if (state.activeTool === 'room') return 'pointer';
     return 'crosshair';
   };
 
@@ -1040,6 +1608,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         activeTool={state.activeTool}
         activeMaterialTypeId={state.activeMaterialTypeId}
         activeEquipmentType={state.activeEquipmentType}
+        activeShapePresetId={activeShapePresetId}
         materialTypes={materialTypes}
         onToolChange={setTool}
         onMaterialTypeChange={(id) => {
@@ -1049,6 +1618,10 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         onEquipmentTypeChange={(type) => {
           setActiveEquipmentType(type);
           setTool('equipment');
+        }}
+        onShapePresetChange={(presetId) => {
+          setActiveShapePresetId(presetId);
+          setTool('shape');
         }}
         onSave={handleSave}
         onUndo={undo}
@@ -1127,7 +1700,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
             onMouseUp={handleMouseUp}
             onMouseLeave={() => {
               isPanningRef.current = false;
-              if (drawState.isDrawing) setDrawState(INITIAL_DRAW_STATE);
+              if (drawStateRef.current.isDrawing) setDrawStateSync(INITIAL_DRAW_STATE);
             }}
             style={{ display: 'block' }}
           >
@@ -1175,6 +1748,51 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                 onSelectElement={handleSelectElement}
                 onDragEnd={handleDragEnd}
                 onTransformEnd={handleTransformEnd}
+                onUpdateTextAnnotation={(id, patch) => updateTextAnnotation({ id, ...patch })}
+                onWallDragEndpoint={(wallId, endpoint, x, y) => {
+                  const snap = snapToWallEndpoint({ x, y });
+                  const pt = snap.point;
+                  const wall = (state.overlayData.walls ?? []).find((w) => w.id === wallId);
+                  if (!wall) return;
+                  const otherX = endpoint === 'start' ? wall.end_x : wall.start_x;
+                  const otherY = endpoint === 'start' ? wall.end_y : wall.start_y;
+                  const newLength = pixelsToFeet(
+                    Math.hypot(pt.x - otherX, pt.y - otherY),
+                    floorSketch.scale_pixels_per_foot
+                  );
+                  updateWall({
+                    id: wallId,
+                    ...(endpoint === 'start'
+                      ? { start_x: pt.x, start_y: pt.y }
+                      : { end_x: pt.x, end_y: pt.y }),
+                    length_ft: newLength,
+                  });
+
+                  // Auto-detect rooms after wall endpoint is moved
+                  const updatedWalls = (state.overlayData.walls ?? []).map((w) =>
+                    w.id === wallId
+                      ? {
+                          ...w,
+                          ...(endpoint === 'start'
+                            ? { start_x: pt.x, start_y: pt.y }
+                            : { end_x: pt.x, end_y: pt.y }),
+                          length_ft: newLength,
+                        }
+                      : w
+                  );
+                  autoDetectRooms(updatedWalls);
+                }}
+                wallPreview={
+                  wallDrawStart && wallDrawCursor
+                    ? {
+                        startX: wallDrawStart.x,
+                        startY: wallDrawStart.y,
+                        endX: wallDrawCursor.x,
+                        endY: wallDrawCursor.y,
+                        snappedEnd: wallSnapEnd,
+                      }
+                    : null
+                }
                 canvasWidth={canvasWidth}
                 canvasHeight={canvasHeight}
               />
@@ -1226,7 +1844,19 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           materialTypes={materialTypes}
           summary={floorSummary}
           floorSketchId={floorSketch.id}
-          onUpdateDemolitionZone={(id, updates) => updateDemolitionZone({ id, ...updates })}
+          onUpdateDemolitionZone={(id, updates) => {
+            // Sync pixel dimensions when real dimensions change
+            // so the visual rect resizes smoothly instead of jumping
+            const scale = floorSketch.scale_pixels_per_foot;
+            const patch: Partial<WMDemolitionZone> & { id: string } = { id, ...updates };
+            if (updates.dimension1_ft != null) {
+              patch.pixel_width = updates.dimension1_ft * scale;
+            }
+            if (updates.dimension2_ft != null) {
+              patch.pixel_height = updates.dimension2_ft * scale;
+            }
+            updateDemolitionZone(patch);
+          }}
           onDeleteDemolitionZone={removeDemolitionZone}
           onAddDemolitionZone={addDemolitionZone}
           onUpdateEquipment={(id, updates) => updateEquipment({ id, ...updates })}
@@ -1237,6 +1867,11 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           onDeleteProtection={removeFloorProtection}
           onUpdateContentProtection={(id, updates) => updateContentProtection({ id, ...updates })}
           onDeleteContentProtection={removeContentProtection}
+          onUpdateWall={(id, updates) => updateWall({ id, ...updates })}
+          onDeleteWall={removeWall}
+          onUpdateRoom={(id, updates) => updateRoom({ id, ...updates })}
+          onDeleteRoom={removeRoom}
+          scalePixelsPerFoot={floorSketch.scale_pixels_per_foot}
           onSelectElement={handleSelectElement}
           onMaterialTypesChange={() => {/* material types are fixed for now */}}
           width={280}

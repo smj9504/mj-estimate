@@ -2,6 +2,7 @@
 Water Mitigation service layer
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -452,13 +453,14 @@ class WaterMitigationService:
         # Upload to storage
         try:
             file_stream = BytesIO(file_content)
-            upload_result = storage.upload(
+            upload_result = await asyncio.to_thread(
+                storage.upload,
                 file_data=file_stream,
                 filename=file.filename or f"photo_{datetime.utcnow().timestamp()}.jpg",
                 context="water-mitigation",
                 context_id=str(job_id),
                 category="photos",
-                content_type=file.content_type
+                content_type=file.content_type,
             )
             
             # Get file path (works for both local and cloud storage)
@@ -610,13 +612,14 @@ class WaterMitigationService:
             )
 
             file_stream = BytesIO(photo_bytes)
-            upload_result = storage.upload(
+            upload_result = await asyncio.to_thread(
+                storage.upload,
                 file_data=file_stream,
                 filename=unique_filename,
                 context="water-mitigation",
                 context_id=str(job_id),
                 category="photos",
-                content_type=mime_type
+                content_type=mime_type,
             )
 
             file_path = upload_result.file_path
@@ -1502,7 +1505,7 @@ class WaterMitigationService:
                             cc_tags = cc_photo.get('tags', [])
 
                             # Save to storage and DB
-                            await self.save_companycam_photo(
+                            wm_photo = await self.save_companycam_photo(
                                 job_id=job_id,
                                 photo_bytes=photo_bytes,
                                 filename=filename,
@@ -1522,6 +1525,29 @@ class WaterMitigationService:
                             )
                             synced_count += 1
                             batch_saved += 1
+
+                            # AI classify using already-downloaded bytes (no extra network cost)
+                            if settings.ENABLE_AI_PHOTO_CLASSIFICATION and settings.GEMINI_API_KEY:
+                                try:
+                                    from .ai_classification_service import ai_classification_service
+                                    ai_result = await ai_classification_service.classify_photo(
+                                        photo_bytes, 'image/jpeg'
+                                    )
+                                    if "error" not in ai_result:
+                                        wm_photo_id = str(wm_photo.id)
+                                        ai_classification_service.save_result(
+                                            self.session, wm_photo_id, ai_result
+                                        )
+                                        # Auto-apply category if confidence >= 0.7
+                                        category = ai_result.get("category", "uncategorized")
+                                        confidence = ai_result.get("confidence", 0)
+                                        if category != "uncategorized" and confidence >= 0.7:
+                                            wm_photo.category = category
+                                except Exception as ai_err:
+                                    logger.warning(
+                                        f"AI classify failed for {photo_id}, "
+                                        f"skipping: {ai_err}"
+                                    )
                         except Exception as e:
                             msg = (
                                 f"Failed to save photo "

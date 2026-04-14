@@ -35,6 +35,9 @@ import {
   WMSketchTool,
   DemoMaterialType,
   WMDemolitionZone,
+  WMTextAnnotation,
+  WMShapeAnnotation,
+  WMWall,
 } from '../../../../types/wmSketch';
 import { DEFAULT_DEMO_MATERIAL_TYPES } from '../../../../types/wmSketch';
 import WMDemolitionRenderer from './WMDemolitionRenderer';
@@ -43,6 +46,9 @@ import WMContainmentRenderer from './WMContainmentRenderer';
 import WMFloorProtectionRenderer from './WMFloorProtectionRenderer';
 import WMContentProtectionRenderer from './WMContentProtectionRenderer';
 import WMWallLineRenderer from './WMWallLineRenderer';
+import WMTextRenderer from './WMTextRenderer';
+import WMShapeRenderer from './WMShapeRenderer';
+import { WMWallRenderer, WMRoomRenderer, WMWallPreview } from './WMFloorPlanRenderer';
 
 export interface WMOverlayLayerProps {
   overlayData: WMOverlayData;
@@ -62,6 +68,11 @@ export interface WMOverlayLayerProps {
   onSelectElement: (id: string, type: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, type: string, x: number, y: number) => void;
   onTransformEnd?: (id: string, type: string, widthFt: number, heightFt: number, rotation?: number) => void;
+  onUpdateTextAnnotation?: (id: string, patch: Partial<WMTextAnnotation>) => void;
+  onWallDragEndpoint?: (wallId: string, endpoint: 'start' | 'end', x: number, y: number) => void;
+
+  // Wall drawing preview
+  wallPreview?: { startX: number; startY: number; endX: number; endY: number; snappedEnd?: { x: number; y: number } | null } | null;
 
   // Canvas dimensions (kept for potential future use)
   canvasWidth: number;
@@ -106,6 +117,9 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   onSelectElement,
   onDragEnd,
   onTransformEnd,
+  onUpdateTextAnnotation,
+  onWallDragEndpoint,
+  wallPreview,
   canvasWidth: _canvasWidth,
   canvasHeight: _canvasHeight,
 }) => {
@@ -151,6 +165,14 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   const dragContentProtHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'content_protection', x, y), [onDragEnd]);
   const transformContentProtHandler = useCallback((id: string, w: number, h: number, rotation?: number) => onTransformEnd?.(id, 'content_protection', w, h, rotation), [onTransformEnd]);
 
+  const selectTextHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'text', ctrlKey), [onSelectElement]);
+  const dragTextHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'text', x, y), [onDragEnd]);
+  const updateTextHandler = useCallback((id: string, patch: Partial<WMTextAnnotation>) => onUpdateTextAnnotation?.(id, patch), [onUpdateTextAnnotation]);
+
+  const selectShapeHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'shape', ctrlKey), [onSelectElement]);
+  const dragShapeHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'shape', x, y), [onDragEnd]);
+  const transformShapeHandler = useCallback((id: string, w: number, h: number, rotation?: number) => onTransformEnd?.(id, 'shape', w, h, rotation), [onTransformEnd]);
+
   // ---------------------------------------------------------------------------
   // Rubber-band preview rect dimensions
   // ---------------------------------------------------------------------------
@@ -177,13 +199,47 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
     activeTool === 'containment' ||
     activeTool === 'floor_protection' ||
     activeTool === 'content_protection' ||
-    activeTool === 'equipment';
+    activeTool === 'equipment' ||
+    activeTool === 'text' ||
+    activeTool === 'shape' ||
+    activeTool === 'wall' ||
+    activeTool === 'room' ||
+    activeTool === 'wall_split';
+
+  // Wall/room handlers
+  const selectWallHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'wall', ctrlKey), [onSelectElement]);
+  const wallDragEndpointHandler = useCallback(
+    (wallId: string, endpoint: 'start' | 'end', x: number, y: number) => onWallDragEndpoint?.(wallId, endpoint, x, y),
+    [onWallDragEndpoint]
+  );
+  const selectRoomHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'room', ctrlKey), [onSelectElement]);
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
   return (
     <Layer listening={!isDrawingTool}>
+      {/* 0a. Rooms (very bottom — floor fill) */}
+      {(overlayData.rooms ?? []).map((room) => (
+        <WMRoomRenderer
+          key={room.id}
+          room={room}
+          isSelected={isSelected(room.id)}
+          onSelect={selectRoomHandler}
+        />
+      ))}
+
+      {/* 0b. Walls (above rooms, below overlays) */}
+      {(overlayData.walls ?? []).map((wall) => (
+        <WMWallRenderer
+          key={wall.id}
+          wall={wall}
+          isSelected={isSelected(wall.id)}
+          onSelect={selectWallHandler}
+          onDragEndpoint={wallDragEndpointHandler}
+        />
+      ))}
+
       {/* 1. Floor protections (bottom-most overlay) */}
       {overlayData.floor_protections.map((fp) => (
         <WMFloorProtectionRenderer
@@ -265,7 +321,31 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         />
       ))}
 
-      {/* 6. Rubber-band drawing preview */}
+      {/* 6. Shape annotations (doors, cabinets, fixtures) */}
+      {(overlayData.shapes ?? []).map((shape) => (
+        <WMShapeRenderer
+          key={shape.id}
+          shape={shape}
+          isSelected={isSelected(shape.id)}
+          onSelect={selectShapeHandler}
+          onDragEnd={dragShapeHandler}
+          onTransformEnd={transformShapeHandler}
+        />
+      ))}
+
+      {/* 7. Text annotations (on top of everything else) */}
+      {(overlayData.text_annotations ?? []).map((annotation) => (
+        <WMTextRenderer
+          key={annotation.id}
+          annotation={annotation}
+          isSelected={isSelected(annotation.id)}
+          onSelect={selectTextHandler}
+          onDragEnd={dragTextHandler}
+          onUpdate={updateTextHandler}
+        />
+      ))}
+
+      {/* 8. Rubber-band drawing preview */}
       {isDrawing && drawStart && drawCurrent && activeTool === 'containment' && (
         // Containment: line preview from start to current
         <Line
@@ -302,6 +382,17 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
           strokeWidth={2}
           dash={[6, 3]}
           listening={false}
+        />
+      )}
+
+      {/* 8. Wall drawing preview */}
+      {wallPreview && (
+        <WMWallPreview
+          startX={wallPreview.startX}
+          startY={wallPreview.startY}
+          endX={wallPreview.endX}
+          endY={wallPreview.endY}
+          snappedEnd={wallPreview.snappedEnd}
         />
       )}
 

@@ -96,6 +96,21 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
 
   const { widthPx, heightPx, hasDimensions } = resolveRenderSize(zone, scalePixelsPerFoot);
 
+  // When dimensions change externally (sidebar input), reset any lingering
+  // Konva transform state so the Rect matches the new React-driven size.
+  useEffect(() => {
+    const node = rectRef.current;
+    if (!node) return;
+    node.scaleX(1);
+    node.scaleY(1);
+    node.x(0);
+    node.y(0);
+    node.rotation(0);
+    node.width(widthPx);
+    node.height(heightPx);
+    node.getLayer()?.batchDraw();
+  }, [widthPx, heightPx]);
+
   // Attach / detach the transformer when selection changes
   useEffect(() => {
     if (!transformerRef.current || !rectRef.current) return;

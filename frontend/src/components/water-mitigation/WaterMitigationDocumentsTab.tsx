@@ -1,14 +1,17 @@
 /**
  * Water Mitigation Documents Tab
  * Manages document creation from uploaded photos with PDF generation
+ * Supports PDF annotation (text + signature) with re-editing capability
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Tabs, Grid } from 'antd';
-import { FilePdfOutlined, PlusOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined } from '@ant-design/icons';
+import { FilePdfOutlined, PlusOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined, EditOutlined } from '@ant-design/icons';
 import FileGallery from '../common/FileGallery/FileGallery';
 import WMDocumentList from './WMDocumentList';
 import WMInvoiceList from './WMInvoiceList';
+import WMPdfAnnotator from './pdf-annotator/WMPdfAnnotator';
+import type { PdfAnnotationData } from './pdf-annotator/types';
 import waterMitigationService from '../../services/waterMitigationService';
 import { useWaterMitigationPhotos } from '../../hooks/useWaterMitigationPhotos';
 
@@ -63,6 +66,10 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [compressPdf, setCompressPdf] = useState<boolean>(false);  // Compress PDF option
   const [creatingPdf, setCreatingPdf] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('documents');
+  const [annotatorOpen, setAnnotatorOpen] = useState(false);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | undefined>(undefined);
+  const [editingAnnotations, setEditingAnnotations] = useState<PdfAnnotationData | null>(null);
+  const [editingSourceUrl, setEditingSourceUrl] = useState<string | undefined>(undefined);
   const documentListRef = useRef<any>(null);
   const invoiceListRef = useRef<any>(null);
 
@@ -200,6 +207,42 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     return DOCUMENT_TYPES.find(dt => dt.value === selectedDocType);
   };
 
+  // --- PDF Annotator Handlers ---
+
+  const handleOpenAnnotator = () => {
+    setEditingDocumentId(undefined);
+    setEditingAnnotations(null);
+    setEditingSourceUrl(undefined);
+    setAnnotatorOpen(true);
+  };
+
+  const handleEditAnnotatedDocument = useCallback((documentId: string, annotationDataJson: string | null, previewUrl: string) => {
+    setEditingDocumentId(documentId);
+    setEditingSourceUrl(previewUrl);
+    if (annotationDataJson) {
+      try {
+        setEditingAnnotations(JSON.parse(annotationDataJson));
+      } catch {
+        setEditingAnnotations(null);
+      }
+    } else {
+      setEditingAnnotations(null);
+    }
+    setAnnotatorOpen(true);
+  }, []);
+
+  const handleAnnotatorSave = async (pdfBlob: Blob, filename: string, annotationData: PdfAnnotationData) => {
+    await waterMitigationService.documents.uploadAnnotatedPdf(
+      jobId,
+      pdfBlob,
+      filename,
+      JSON.stringify(annotationData),
+      editingDocumentId
+    );
+    setAnnotatorOpen(false);
+    documentListRef.current?.refresh();
+  };
+
   return (
     <div className="wm-documents-tab" style={{ height: isMobile ? 'auto' : 'calc(100vh - 180px)', minHeight: isMobile ? 'calc(100vh - 250px)' : undefined, padding: isMobile ? '8px' : '16px' }}>
       <Tabs
@@ -216,13 +259,19 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
             ),
             children: (
               <div>
-                <div style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <Button
                     type="primary"
                     icon={<PlusOutlined />}
                     onClick={handleCreateDocument}
                   >
                     Create Document
+                  </Button>
+                  <Button
+                    icon={<EditOutlined />}
+                    onClick={handleOpenAnnotator}
+                  >
+                    Annotate PDF
                   </Button>
                 </div>
                 <div style={{ height: isMobile ? 'auto' : 'calc(100vh - 300px)', overflow: 'auto' }}>
@@ -232,6 +281,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
                     onDelete={() => {
                       // Refresh list after delete
                     }}
+                    onEditAnnotation={handleEditAnnotatedDocument}
                   />
                 </div>
               </div>
@@ -538,6 +588,27 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
             </div>
           )}
         </Space>
+      </Modal>
+
+      {/* PDF Annotator Modal */}
+      <Modal
+        title={editingDocumentId ? "Edit Annotated PDF" : "Annotate PDF"}
+        open={annotatorOpen}
+        onCancel={() => setAnnotatorOpen(false)}
+        footer={null}
+        width="95vw"
+        style={{ top: 20 }}
+        styles={{ body: { height: 'calc(100vh - 120px)', padding: 0, overflow: 'hidden' } }}
+        destroyOnClose
+      >
+        <WMPdfAnnotator
+          jobId={jobId}
+          documentId={editingDocumentId}
+          existingAnnotations={editingAnnotations}
+          sourcePdfUrl={editingSourceUrl}
+          onSave={handleAnnotatorSave}
+          onClose={() => setAnnotatorOpen(false)}
+        />
       </Modal>
     </div>
   );

@@ -133,12 +133,13 @@ class SketchPdfService:
     # SVG Generation
     # ──────────────────────────────────────────────────────────────────────
 
-    def _load_background_image_data_uri(self, floor: WMFloorSketch) -> Optional[str]:
+    def _load_background_image_data_uri(
+        self, floor: WMFloorSketch
+    ) -> Optional[tuple]:
         """
-        Load the background image for a floor sketch and return a base64
-        data-URI suitable for embedding in SVG/HTML.
+        Load the background image for a floor sketch.
 
-        Returns None if there is no background image or it cannot be loaded.
+        Returns (data_uri, img_width, img_height) or None.
         """
         bg_url = getattr(floor, "background_image_url", None)
         if not bg_url:
@@ -192,7 +193,45 @@ class SketchPdfService:
         # Detect MIME type
         mime = mimetypes.guess_type(bg_url or "image.jpg")[0] or "image/jpeg"
         b64 = base64.b64encode(image_bytes).decode("ascii")
-        return f"data:{mime};base64,{b64}"
+
+        # Read actual image dimensions for contain-fit calculation
+        img_w, img_h = self._get_image_dimensions(image_bytes)
+        return f"data:{mime};base64,{b64}", img_w, img_h
+
+    @staticmethod
+    def _get_image_dimensions(
+        image_bytes: bytes,
+    ) -> tuple:
+        """Read width/height from image bytes using PIL or fallback."""
+        try:
+            from PIL import Image as PILImage
+            img = PILImage.open(io.BytesIO(image_bytes))
+            return img.size  # (width, height)
+        except Exception:
+            return (0, 0)
+
+    @staticmethod
+    def _fit_contain(
+        img_w: float, img_h: float,
+        canvas_w: float, canvas_h: float,
+    ) -> dict:
+        """
+        Replicate the frontend fitContain logic:
+        scale image to fit canvas, center it.
+        """
+        if img_w <= 0 or img_h <= 0:
+            return {"x": 0, "y": 0, "width": canvas_w, "height": canvas_h}
+        scale_x = canvas_w / img_w
+        scale_y = canvas_h / img_h
+        s = min(scale_x, scale_y)
+        w = img_w * s
+        h = img_h * s
+        return {
+            "x": (canvas_w - w) / 2,
+            "y": (canvas_h - h) / 2,
+            "width": w,
+            "height": h,
+        }
 
     def _generate_floor_svg(self, floor: WMFloorSketch) -> str:
         """
@@ -209,12 +248,21 @@ class SketchPdfService:
         parts: List[str] = []
 
         # Background: uploaded image or plain fill
-        bg_data_uri = self._load_background_image_data_uri(floor)
-        if bg_data_uri:
+        try:
+            bg_result = self._load_background_image_data_uri(floor)
+        except Exception as exc:
+            logger.warning("Failed to load background image: %s", exc)
+            bg_result = None
+
+        if bg_result:
+            bg_data_uri, img_w, img_h = bg_result
+            # Use the same fitContain logic as the Konva canvas
+            fit = self._fit_contain(img_w, img_h, canvas_w, canvas_h)
             parts.append(
                 f'<image href="{bg_data_uri}" '
-                f'x="0" y="0" width="{canvas_w}" height="{canvas_h}" '
-                f'preserveAspectRatio="xMidYMid meet"/>'
+                f'x="{fit["x"]:.1f}" y="{fit["y"]:.1f}" '
+                f'width="{fit["width"]:.1f}" height="{fit["height"]:.1f}" '
+                f'preserveAspectRatio="none"/>'
             )
         else:
             parts.append(
@@ -231,25 +279,69 @@ class SketchPdfService:
             f'stroke="#d0d0d0" stroke-width="1.5" rx="2"/>'
         )
 
-        # Demolition zones (filled rectangles)
-        for zone in (floor.demolition_zones or []):
-            parts.extend(self._render_demo_zone(zone, scale))
+        # ── DEBUG: log overlay_data source for troubleshooting ──
+        logger.info(
+            "PDF SVG for floor %s: canvas=%sx%s, scale=%.1f",
+            getattr(floor, 'id', '?'), canvas_w, canvas_h, scale,
+        )
+        _overlay_raw = getattr(floor, "overlay_data", None)
+        if isinstance(_overlay_raw, dict):
+            for _k in ("demolition_zones", "equipment_placements",
+                        "shapes", "walls", "rooms", "text_annotations"):
+                _items = _overlay_raw.get(_k, [])
+                if _items:
+                    _sample = _items[0]
+                    logger.info(
+                        "  overlay_data.%s: %d items, first=%s",
+                        _k, len(_items),
+                        {k: v for k, v in _sample.items()
+                         if k in ("x", "y", "start_x", "start_y",
+                                  "width", "height", "dimension1_ft",
+                                  "pixel_width", "pixel_height")}
+                    )
 
-        # Containment zones (dashed rectangles)
-        for zone in (floor.containment_zones or []):
-            parts.extend(self._render_containment_zone(zone, scale))
+        # ── Read ALL overlay elements from the JSONB snapshot ──
+        # This ensures coordinates match the canvas exactly (the JSONB
+        # is the source of truth written by the frontend save).
+        overlay = getattr(floor, "overlay_data", None)
+        if not isinstance(overlay, dict):
+            overlay = {}
+
+        # Rooms (lowest layer — floor fill)
+        for room in overlay.get("rooms", []):
+            parts.extend(self._render_room(room))
+
+        # Walls (above rooms)
+        for wall in overlay.get("walls", []):
+            parts.extend(self._render_wall(wall))
 
         # Floor protection strips
-        for prot in (floor.floor_protections or []):
-            parts.extend(self._render_floor_protection(prot, scale))
+        for prot in overlay.get("floor_protections", []):
+            parts.extend(self._render_floor_protection_from_dict(prot, scale))
 
         # Content protection areas
-        for cp in (floor.content_protections or []):
-            parts.extend(self._render_content_protection(cp, scale))
+        for cp in overlay.get("content_protections", []):
+            parts.extend(self._render_content_protection_from_dict(cp, scale))
+
+        # Containment zones (dashed lines)
+        for zone in overlay.get("containment_zones", []):
+            parts.extend(self._render_containment_from_dict(zone, scale))
+
+        # Demolition zones (filled rectangles / lines)
+        for zone in overlay.get("demolition_zones", []):
+            parts.extend(self._render_demo_zone_from_dict(zone, scale))
 
         # Equipment icons
-        for equip in (floor.equipment_placements or []):
-            parts.extend(self._render_equipment(equip))
+        for equip in overlay.get("equipment_placements", []):
+            parts.extend(self._render_equipment_from_dict(equip))
+
+        # Shape annotations (doors, cabinets, fixtures)
+        for shape in overlay.get("shapes", []):
+            parts.extend(self._render_shape_annotation(shape))
+
+        # Text annotations
+        for ta in overlay.get("text_annotations", []):
+            parts.extend(self._render_text_annotation(ta))
 
         # Scale indicator (bottom-right)
         parts.extend(self._build_scale_indicator(canvas_w, canvas_h, scale))
@@ -302,7 +394,7 @@ class SketchPdfService:
             f'<line x1="{bx + bar_px:.1f}" y1="{by - 4:.1f}" '
             f'x2="{bx + bar_px:.1f}" y2="{by + 4:.1f}" stroke="#888" stroke-width="1.5"/>',
             f'<text x="{bx + bar_px / 2:.1f}" y="{by - 7:.1f}" '
-            f'text-anchor="middle" font-size="8" font-family="Arial" fill="#777">10 ft</text>',
+            f'text-anchor="middle" font-size="10" font-family="Arial" fill="#777">10 ft</text>',
         ]
 
     @staticmethod
@@ -354,12 +446,12 @@ class SketchPdfService:
             qty = float(zone.calculated_sqft or 0)
             parts.append(
                 f'<text x="{mx:.1f}" y="{my - 6:.1f}" '
-                f'text-anchor="middle" font-size="8" font-family="Arial" '
+                f'text-anchor="middle" font-size="10" font-family="Arial" '
                 f'fill="{color}" font-weight="600">{label_esc}</text>'
             )
             parts.append(
                 f'<text x="{mx:.1f}" y="{my + 6:.1f}" '
-                f'text-anchor="middle" font-size="7" font-family="Arial" fill="#555">'
+                f'text-anchor="middle" font-size="10" font-family="Arial" fill="#555">'
                 f"{length_ft:.1f}&apos; · {qty:.1f} {unit}</text>"
             )
 
@@ -374,46 +466,45 @@ class SketchPdfService:
         if zone_w <= 0 or zone_h <= 0:
             return []
         color = zone.color or "#FF5722"
-        cx = zone.x + zone_w / 2
-        cy = zone.y + zone_h / 2
         rotation = float(zone.rotation or 0)
+        x, y = float(zone.x), float(zone.y)
 
-        parts: List[str] = []
-        transform_attr = (
-            f' transform="rotate({rotation:.1f} {cx:.1f} {cy:.1f})"'
-            if rotation != 0
-            else ""
+        rot_part = (
+            f" rotate({rotation:.1f})"
+            if abs(rotation) > 0.0001 else ""
         )
 
+        parts: List[str] = []
         parts.append(
-            f'<g{transform_attr}>'
-            f'<rect x="{zone.x:.1f}" y="{zone.y:.1f}" '
+            f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">'
+            f'<rect x="0" y="0" '
             f'width="{zone_w:.1f}" height="{zone_h:.1f}" '
             f'fill="{color}" fill-opacity="0.22" '
             f'stroke="{color}" stroke-width="1.5" rx="1"/>'
         )
 
-        # Label only if zone is large enough
         if zone_w >= 40 and zone_h >= 25:
+            cx = zone_w / 2
+            cy = zone_h / 2
             label = html_lib.escape(zone.material_type or "")
             dim = f'{float(zone.dimension1_ft):.1f}\'×{float(zone.dimension2_ft):.1f}\''
             sqft = f'{float(zone.calculated_sqft):.0f} SF'
             parts.append(
                 f'<text x="{cx:.1f}" y="{cy - 9:.1f}" '
-                f'text-anchor="middle" dominant-baseline="auto" '
-                f'font-size="9" font-family="Arial" fill="{color}" font-weight="600">'
+                f'text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="{color}" font-weight="600">'
                 f'{label}</text>'
             )
             parts.append(
                 f'<text x="{cx:.1f}" y="{cy + 3:.1f}" '
-                f'text-anchor="middle" dominant-baseline="auto" '
-                f'font-size="8" font-family="Arial" fill="#555">'
+                f'text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="#555">'
                 f'{dim}</text>'
             )
             parts.append(
                 f'<text x="{cx:.1f}" y="{cy + 14:.1f}" '
-                f'text-anchor="middle" dominant-baseline="auto" '
-                f'font-size="8" font-family="Arial" fill="#666">'
+                f'text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="#666">'
                 f'{sqft}</text>'
             )
 
@@ -453,7 +544,7 @@ class SketchPdfService:
             my = (y1 + y2) / 2
             parts.append(
                 f'<text x="{mx:.1f}" y="{my - 8:.1f}" '
-                f'text-anchor="middle" font-size="8" '
+                f'text-anchor="middle" font-size="10" '
                 f'font-family="Arial" fill="{color}">'
                 f'{html_lib.escape(label)}</text>'
             )
@@ -468,17 +559,14 @@ class SketchPdfService:
             return []
         color = cp.color or "#8B5CF6"
         rotation = float(cp.rotation or 0)
-        cx = cp.x + cp_w / 2
-        cy = cp.y + cp_h / 2
-        t = ""
-        if rotation != 0:
-            t = (
-                f' transform="rotate({rotation:.1f}'
-                f' {cx:.1f} {cy:.1f})"'
-            )
+        x, y = float(cp.x), float(cp.y)
+        rot_part = (
+            f" rotate({rotation:.1f})"
+            if abs(rotation) > 0.0001 else ""
+        )
         return [
-            f'<g{t}>'
-            f'<rect x="{cp.x:.1f}" y="{cp.y:.1f}" '
+            f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">'
+            f'<rect x="0" y="0" '
             f'width="{cp_w:.1f}" height="{cp_h:.1f}" '
             f'fill="{color}" fill-opacity="0.2" '
             f'stroke="{color}" stroke-width="1.5" rx="1"/>'
@@ -518,7 +606,7 @@ class SketchPdfService:
                 f'<circle cx="{x:.1f}" cy="{y:.1f}" r="11" '
                 f'fill="{color}" fill-opacity="0.88" stroke="#fff" stroke-width="1.5"/>',
                 f'<text x="{x:.1f}" y="{y + 4:.1f}" '
-                f'text-anchor="middle" font-size="9" font-family="Arial" '
+                f'text-anchor="middle" font-size="10" font-family="Arial" '
                 f'fill="#fff" font-weight="700">AM</text>',
             ]
         elif shape == "triangle":
@@ -527,7 +615,7 @@ class SketchPdfService:
                 f'<polygon points="{pts}" fill="{color}" fill-opacity="0.88" '
                 f'stroke="#fff" stroke-width="1.5"/>',
                 f'<text x="{x:.1f}" y="{y + 6:.1f}" '
-                f'text-anchor="middle" font-size="8" font-family="Arial" '
+                f'text-anchor="middle" font-size="10" font-family="Arial" '
                 f'fill="#fff" font-weight="700">AS</text>',
             ]
         else:  # cylinder (dehumidifier)
@@ -539,7 +627,7 @@ class SketchPdfService:
                 f'<ellipse cx="{x:.1f}" cy="{y + 6:.1f}" rx="10" ry="4" '
                 f'fill="{color}" fill-opacity="0.95" stroke="#fff" stroke-width="1"/>',
                 f'<text x="{x:.1f}" y="{y + 3:.1f}" '
-                f'text-anchor="middle" font-size="8" font-family="Arial" '
+                f'text-anchor="middle" font-size="10" font-family="Arial" '
                 f'fill="#fff" font-weight="700">DH</text>',
             ]
 
@@ -547,8 +635,385 @@ class SketchPdfService:
         if equip.label:
             parts.append(
                 f'<text x="{x:.1f}" y="{y + 24:.1f}" '
-                f'text-anchor="middle" font-size="8" font-family="Arial" fill="#555">'
+                f'text-anchor="middle" font-size="10" font-family="Arial" fill="#555">'
                 f'{html_lib.escape(equip.label)}</text>'
+            )
+        return parts
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Dict-based renderers (read from overlay_data JSONB snapshot)
+    # ──────────────────────────────────────────────────────────────────────
+
+    def _render_demo_zone_from_dict(self, z: Dict[str, Any], scale: float) -> List[str]:
+        """SVG for a demolition zone read from the JSONB overlay_data dict."""
+        import math
+
+        mt = z.get("material_type", "")
+        d1 = float(z.get("dimension1_ft", 0))
+        d2 = float(z.get("dimension2_ft", 0))
+        x = float(z.get("x", 0))
+        y = float(z.get("y", 0))
+        color = z.get("color", "#FF5722")
+        rotation = float(z.get("rotation", 0))
+
+        # Check if this is a line-type (LF or wall-SF with no d2)
+        is_lf = mt in _LF_DEMOLITION_MATERIALS
+        is_wall_line = mt in _WALL_LINE_SF_MATERIALS and d2 <= 0.0001
+        if is_lf or is_wall_line:
+            if d1 <= 0:
+                return []
+            length_px = d1 * scale
+            rad = math.radians(rotation)
+            x1, y1 = x, y
+            x2 = x1 + length_px * math.cos(rad)
+            y2 = y1 + length_px * math.sin(rad)
+            stroke_w = 3.5 if is_lf else 4.5
+            dash_part = ' stroke-dasharray="8 4"' if is_lf else ""
+            parts = [
+                f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+                f'stroke="{color}" stroke-width="{stroke_w}" stroke-linecap="round"'
+                f'{dash_part}/>'
+            ]
+            if length_px >= 36:
+                mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+                label = _DEMO_MATERIAL_LABELS.get(mt, mt)
+                qty = float(z.get("calculated_sqft", 0))
+                unit = "LF" if is_lf else "SF"
+                parts.append(
+                    f'<text x="{mx:.1f}" y="{my - 6:.1f}" text-anchor="middle" '
+                    f'font-size="10" font-family="Arial" fill="{color}" font-weight="600">'
+                    f'{html_lib.escape(label)}</text>'
+                )
+                parts.append(
+                    f'<text x="{mx:.1f}" y="{my + 6:.1f}" text-anchor="middle" '
+                    f'font-size="10" font-family="Arial" fill="#555">'
+                    f'{d1:.1f}&apos; · {qty:.1f} {unit}</text>'
+                )
+            return parts
+
+        # Rectangle zone — use pixel_width/pixel_height as fallback
+        zone_w = d1 * scale if d1 > 0 else float(z.get("pixel_width", 0))
+        zone_h = d2 * scale if d2 > 0 else float(z.get("pixel_height", 0))
+        if zone_w <= 0 or zone_h <= 0:
+            return []
+
+        # Konva rotates around Group origin (top-left).
+        # SVG equivalent: translate(x,y) rotate(angle)
+        rot_part = (
+            f" rotate({rotation:.1f})"
+            if abs(rotation) > 0.0001 else ""
+        )
+        has_dims = d1 > 0 and d2 > 0
+        stroke_dash = "" if has_dims else ' stroke-dasharray="6 4"'
+        fill_opacity = "0.22" if has_dims else "0.15"
+
+        parts = [
+            f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">'
+            f'<rect x="0" y="0" '
+            f'width="{zone_w:.1f}" height="{zone_h:.1f}" '
+            f'fill="{color}" fill-opacity="{fill_opacity}" '
+            f'stroke="{color}" stroke-width="1.5" rx="1"{stroke_dash}/>'
+        ]
+
+        if has_dims and zone_w >= 40 and zone_h >= 25:
+            cx = zone_w / 2
+            cy = zone_h / 2
+            sqft = float(z.get("calculated_sqft", 0))
+            label = html_lib.escape(z.get("material_type", ""))
+            parts.append(
+                f'<text x="{cx:.1f}" y="{cy - 9:.1f}" text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="{color}" font-weight="600">'
+                f'{label}</text>'
+            )
+            parts.append(
+                f'<text x="{cx:.1f}" y="{cy + 3:.1f}" text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="#555">'
+                f'{d1:.1f}&apos;×{d2:.1f}&apos;</text>'
+            )
+            parts.append(
+                f'<text x="{cx:.1f}" y="{cy + 14:.1f}" text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="#666">'
+                f'{sqft:.0f} SF</text>'
+            )
+
+        parts.append("</g>")
+        return parts
+
+    def _render_containment_from_dict(self, z: Dict[str, Any], scale: float) -> List[str]:
+        """SVG for a containment zone from JSONB dict."""
+        import math
+        length_ft = float(z.get("length_ft", 0))
+        if length_ft <= 0:
+            return []
+        length_px = length_ft * scale
+        color = z.get("color", "#0066FF")
+        rotation = float(z.get("rotation", 0))
+        rad = math.radians(rotation)
+        x1, y1 = float(z.get("x", 0)), float(z.get("y", 0))
+        x2 = x1 + length_px * math.cos(rad)
+        y2 = y1 + length_px * math.sin(rad)
+        parts = [
+            f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
+            f'stroke="{color}" stroke-width="4" stroke-dasharray="10 5" stroke-linecap="round"/>'
+        ]
+        label = z.get("label") or z.get("containment_type", "")
+        if label and length_px > 40:
+            mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+            parts.append(
+                f'<text x="{mx:.1f}" y="{my - 8:.1f}" text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="{color}">'
+                f'{html_lib.escape(label)}</text>'
+            )
+        return parts
+
+    def _render_floor_protection_from_dict(self, p: Dict[str, Any], scale: float) -> List[str]:
+        """SVG for a floor protection strip from JSONB dict."""
+        prot_w = float(p.get("paper_width_ft", 0)) * scale
+        prot_h = float(p.get("length_ft", 0)) * scale
+        if prot_w <= 0 or prot_h <= 0:
+            return []
+        color = p.get("color", "#FFD700")
+        rotation = float(p.get("rotation", 0))
+        x, y = float(p.get("x", 0)), float(p.get("y", 0))
+        rot_part = f" rotate({rotation:.1f})" if abs(rotation) > 0.0001 else ""
+        return [
+            f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">'
+            f'<rect x="0" y="0" width="{prot_w:.1f}" height="{prot_h:.1f}" '
+            f'fill="{color}" fill-opacity="0.45" stroke="{color}" stroke-width="1.5" rx="1"/>'
+            f'</g>'
+        ]
+
+    def _render_content_protection_from_dict(self, cp: Dict[str, Any], scale: float) -> List[str]:
+        """SVG for a content protection area from JSONB dict."""
+        cp_w = float(cp.get("width_ft", 0)) * scale
+        cp_h = float(cp.get("length_ft", 0)) * scale
+        if cp_w <= 0 or cp_h <= 0:
+            return []
+        color = cp.get("color", "#8B5CF6")
+        rotation = float(cp.get("rotation", 0))
+        x, y = float(cp.get("x", 0)), float(cp.get("y", 0))
+        rot_part = f" rotate({rotation:.1f})" if abs(rotation) > 0.0001 else ""
+        return [
+            f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">'
+            f'<rect x="0" y="0" '
+            f'width="{cp_w:.1f}" height="{cp_h:.1f}" '
+            f'fill="{color}" fill-opacity="0.2" stroke="{color}" stroke-width="1.5" rx="1"/></g>'
+        ]
+
+    def _render_equipment_from_dict(self, equip: Dict[str, Any]) -> List[str]:
+        """SVG for an equipment icon from JSONB dict."""
+        eq_type = equip.get("equipment_type", "air_mover")
+        cfg = EQUIPMENT_CONFIG.get(eq_type, {})
+        color = equip.get("color") or cfg.get("color", "#999999")
+        shape = equip.get("icon_shape") or cfg.get("shape", "circle")
+        abbr = cfg.get("abbreviation", "")
+        x, y = float(equip.get("x", 0)), float(equip.get("y", 0))
+        parts: List[str] = []
+
+        if shape == "circle":
+            parts += [
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="11" '
+                f'fill="{color}" fill-opacity="0.88" stroke="#fff" stroke-width="1.5"/>',
+                f'<text x="{x:.1f}" y="{y + 4:.1f}" text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="#fff" font-weight="700">{abbr}</text>',
+            ]
+        elif shape == "triangle":
+            pts = f"{x:.1f},{y - 11:.1f} {x - 10:.1f},{y + 8:.1f} {x + 10:.1f},{y + 8:.1f}"
+            parts += [
+                f'<polygon points="{pts}" fill="{color}" fill-opacity="0.88" '
+                f'stroke="#fff" stroke-width="1.5"/>',
+                f'<text x="{x:.1f}" y="{y + 6:.1f}" text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="#fff" font-weight="700">{abbr}</text>',
+            ]
+        else:
+            parts += [
+                f'<rect x="{x - 10:.1f}" y="{y - 8:.1f}" width="20" height="14" '
+                f'fill="{color}" fill-opacity="0.88"/>',
+                f'<ellipse cx="{x:.1f}" cy="{y - 8:.1f}" rx="10" ry="4" '
+                f'fill="{color}" fill-opacity="0.7" stroke="#fff" stroke-width="1"/>',
+                f'<ellipse cx="{x:.1f}" cy="{y + 6:.1f}" rx="10" ry="4" '
+                f'fill="{color}" fill-opacity="0.95" stroke="#fff" stroke-width="1"/>',
+                f'<text x="{x:.1f}" y="{y + 3:.1f}" text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="#fff" font-weight="700">{abbr}</text>',
+            ]
+
+        label = (equip.get("label") or "").strip()
+        if label:
+            parts.append(
+                f'<text x="{x:.1f}" y="{y + 24:.1f}" text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="#555">{html_lib.escape(label)}</text>'
+            )
+        return parts
+
+    def _render_wall(self, wall: Dict[str, Any]) -> List[str]:
+        """SVG for a floor plan wall segment."""
+        sx = float(wall.get("start_x", 0))
+        sy = float(wall.get("start_y", 0))
+        ex = float(wall.get("end_x", 0))
+        ey = float(wall.get("end_y", 0))
+        thickness = float(wall.get("thickness", 4))
+        color = wall.get("color", "#333333")
+        length_ft = float(wall.get("length_ft", 0))
+
+        parts: List[str] = [
+            f'<line x1="{sx:.1f}" y1="{sy:.1f}" '
+            f'x2="{ex:.1f}" y2="{ey:.1f}" '
+            f'stroke="{color}" stroke-width="{thickness:.1f}" '
+            f'stroke-linecap="round"/>'
+        ]
+
+        # Length label at midpoint
+        if length_ft > 0:
+            mx = (sx + ex) / 2
+            my = (sy + ey) / 2 - 6
+            parts.append(
+                f'<text x="{mx:.1f}" y="{my:.1f}" '
+                f'font-size="10" fill="#595959" '
+                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
+                f'text-anchor="middle">'
+                f'{length_ft:.1f}\'</text>'
+            )
+
+        return parts
+
+    def _render_room(self, room: Dict[str, Any]) -> List[str]:
+        """SVG for a room polygon fill."""
+        boundary = room.get("boundary", [])
+        if not boundary or len(boundary) < 3:
+            return []
+
+        color = room.get("color", "rgba(173,216,230,0.3)")
+        name = room.get("name", "")
+        area = float(room.get("area_sqft", 0))
+
+        points_str = " ".join(f'{p["x"]:.1f},{p["y"]:.1f}' for p in boundary)
+
+        parts: List[str] = [
+            f'<polygon points="{points_str}" '
+            f'fill="{color}" stroke="#0066cc" stroke-width="1" opacity="0.6"/>'
+        ]
+
+        # Centroid for labels
+        cx = sum(p["x"] for p in boundary) / len(boundary)
+        cy = sum(p["y"] for p in boundary) / len(boundary)
+
+        if name:
+            parts.append(
+                f'<text x="{cx:.1f}" y="{cy - 4:.1f}" '
+                f'font-size="13" font-weight="700" fill="#333" '
+                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
+                f'text-anchor="middle">'
+                f'{html_lib.escape(name)}</text>'
+            )
+        if area > 0:
+            parts.append(
+                f'<text x="{cx:.1f}" y="{cy + 12:.1f}" '
+                f'font-size="11" fill="#666" '
+                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
+                f'text-anchor="middle">'
+                f'{area:.0f} SF</text>'
+            )
+
+        return parts
+
+    def _render_shape_annotation(
+        self, shape: Dict[str, Any]
+    ) -> List[str]:
+        """SVG for a shape annotation (rectangle or circle).
+
+        Uses translate(x,y) rotate(angle) to match Konva Group
+        rotation around the top-left origin.
+        """
+        shape_type = shape.get("shape_type", "rectangle")
+        x = float(shape.get("x", 0))
+        y = float(shape.get("y", 0))
+        w = float(shape.get("width", 50))
+        h = float(shape.get("height", 50))
+        rotation = float(shape.get("rotation", 0))
+        fill = shape.get("fill_color", "#E8E8E8")
+        stroke = shape.get("stroke_color", "#666666")
+        stroke_w = float(shape.get("stroke_width", 2))
+        opacity = float(shape.get("opacity", 0.7))
+        label = (shape.get("label") or "").strip()
+
+        rot_part = (
+            f" rotate({rotation:.1f})"
+            if abs(rotation) > 0.0001 else ""
+        )
+
+        parts: List[str] = [
+            f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">'
+        ]
+
+        if shape_type == "circle":
+            rx = w / 2
+            ry = h / 2
+            parts.append(
+                f'<ellipse cx="{rx:.1f}" cy="{ry:.1f}" '
+                f'rx="{rx:.1f}" ry="{ry:.1f}" '
+                f'fill="{fill}" fill-opacity="{opacity:.2f}" '
+                f'stroke="{stroke}" stroke-width="{stroke_w:.1f}"/>'
+            )
+        else:
+            parts.append(
+                f'<rect x="0" y="0" '
+                f'width="{w:.1f}" height="{h:.1f}" '
+                f'fill="{fill}" fill-opacity="{opacity:.2f}" '
+                f'stroke="{stroke}" stroke-width="{stroke_w:.1f}" '
+                f'rx="2"/>'
+            )
+
+        # Label centered inside the shape (local coords)
+        if label:
+            lx = w / 2
+            ly = h / 2 + 4
+            escaped = html_lib.escape(label)
+            parts.append(
+                f'<text x="{lx:.1f}" y="{ly:.1f}" '
+                f'font-size="11" font-weight="700" '
+                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
+                f'fill="{stroke}" text-anchor="middle">'
+                f'{escaped}</text>'
+            )
+
+        parts.append('</g>')
+        return parts
+
+    def _render_text_annotation(
+        self, ta: Dict[str, Any]
+    ) -> List[str]:
+        """SVG for a free-form text annotation."""
+        text_val = (ta.get("text") or "").strip()
+        if not text_val:
+            return []
+        x = float(ta.get("x", 0))
+        y = float(ta.get("y", 0))
+        font_size = float(ta.get("font_size", 16))
+        color = ta.get("color", "#333333")
+        bold = ta.get("bold", False)
+        weight = 'font-weight="700"' if bold else ""
+        escaped = html_lib.escape(text_val)
+
+        # Handle multiline text
+        lines = escaped.split("\n")
+        if len(lines) <= 1:
+            return [
+                f'<text x="{x:.1f}" y="{y + font_size:.1f}" '
+                f'font-size="{font_size:.0f}" '
+                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
+                f'fill="{color}" {weight}>'
+                f'{escaped}</text>'
+            ]
+
+        parts: List[str] = []
+        for i, line in enumerate(lines):
+            ly = y + font_size + i * font_size * 1.3
+            parts.append(
+                f'<text x="{x:.1f}" y="{ly:.1f}" '
+                f'font-size="{font_size:.0f}" '
+                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
+                f'fill="{color}" {weight}>'
+                f'{line}</text>'
             )
         return parts
 

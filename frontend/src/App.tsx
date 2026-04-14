@@ -88,6 +88,9 @@ const XactimateCheatSheet = lazy(() => import('./pages/XactimateCheatSheet'));
 // Xactimate Helper Tool
 const XactimateHelper = lazy(() => import('./pages/XactimateHelper'));
 
+// Tools Pages
+const PhotoMetadataEditor = lazy(() => import('./pages/PhotoMetadataEditor'));
+
 // Crew Upload (Public)
 const CrewUploadPage = lazy(() => import('./pages/CrewUploadPage'));
 
@@ -690,6 +693,19 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <XactimateHelper />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Tools Routes
+  {
+    path: "/tools/photo-metadata",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <PhotoMetadataEditor />
           </Suspense>
         </Layout>
       </ProtectedRoute>

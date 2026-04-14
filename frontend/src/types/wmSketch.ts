@@ -31,7 +31,15 @@ export type WMSketchTool =
   | 'containment'
   | 'floor_protection'
   | 'content_protection'
-  | 'pan';
+  | 'text'
+  | 'shape'
+  | 'pan'
+  | 'wall'
+  | 'room'
+  | 'wall_split';
+
+/** Shape types available for annotation shapes */
+export type SketchShapeType = 'rectangle' | 'circle';
 
 // ============================================================================
 // Material Type Configuration
@@ -246,6 +254,148 @@ export interface WMContentProtection {
   color: string;
 }
 
+/**
+ * A free-form text annotation placed on the canvas.
+ * Used for notes, labels, room names, or any descriptive text.
+ */
+export interface WMTextAnnotation {
+  id: string;
+  floor_sketch_id: string;
+  /** Canvas X position in pixels */
+  x: number;
+  /** Canvas Y position in pixels */
+  y: number;
+  /** The text content */
+  text: string;
+  /** Font size in pixels (default 16) */
+  font_size: number;
+  /** Hex color string (default #333333) */
+  color: string;
+  /** Bold text */
+  bold: boolean;
+}
+
+// ============================================================================
+// Shape Annotations (rectangle / circle for doors, cabinets, fixtures, etc.)
+// ============================================================================
+
+/**
+ * Preset configuration for a commonly-used shape (door, cabinet, toilet, etc.)
+ */
+export interface ShapePreset {
+  id: string;
+  /** Display name, e.g. "Door", "Cabinet" */
+  name: string;
+  shape_type: SketchShapeType;
+  /** Default width in canvas pixels */
+  default_width: number;
+  /** Default height in canvas pixels */
+  default_height: number;
+  /** Default fill color */
+  fill_color: string;
+  /** Default stroke color */
+  stroke_color: string;
+  /** Short label displayed inside the shape */
+  abbreviation: string;
+}
+
+/** Built-in shape presets for common floor plan elements */
+export const SHAPE_PRESETS: ShapePreset[] = [
+  { id: 'door',       name: 'Door',       shape_type: 'rectangle', default_width: 36, default_height: 8,  fill_color: '#A0522D', stroke_color: '#6B3410', abbreviation: 'DR' },
+  { id: 'cabinet',    name: 'Cabinet',    shape_type: 'rectangle', default_width: 60, default_height: 30, fill_color: '#D2B48C', stroke_color: '#8B7355', abbreviation: 'CAB' },
+  { id: 'vanity',     name: 'Vanity',     shape_type: 'rectangle', default_width: 48, default_height: 24, fill_color: '#C4A882', stroke_color: '#8B7355', abbreviation: 'VAN' },
+  { id: 'tub',        name: 'Tub/Shower', shape_type: 'rectangle', default_width: 60, default_height: 36, fill_color: '#87CEEB', stroke_color: '#4682B4', abbreviation: 'TUB' },
+  { id: 'toilet',     name: 'Toilet',     shape_type: 'circle',    default_width: 24, default_height: 24, fill_color: '#F0F0F0', stroke_color: '#999999', abbreviation: 'WC' },
+  { id: 'sink',       name: 'Sink',       shape_type: 'circle',    default_width: 20, default_height: 20, fill_color: '#E0E8F0', stroke_color: '#7799BB', abbreviation: 'SK' },
+  { id: 'appliance',  name: 'Appliance',  shape_type: 'rectangle', default_width: 36, default_height: 30, fill_color: '#C0C0C0', stroke_color: '#808080', abbreviation: 'APL' },
+  { id: 'stairs',     name: 'Stairs',     shape_type: 'rectangle', default_width: 40, default_height: 80, fill_color: '#DDD5C0', stroke_color: '#A09070', abbreviation: 'STR' },
+  { id: 'window',     name: 'Window',     shape_type: 'rectangle', default_width: 36, default_height: 6,  fill_color: '#B0D4F1', stroke_color: '#4A90D9', abbreviation: 'WIN' },
+  { id: 'custom_rect',name: 'Rectangle',  shape_type: 'rectangle', default_width: 50, default_height: 50, fill_color: '#E8E8E8', stroke_color: '#666666', abbreviation: '' },
+  { id: 'custom_circle',name: 'Circle',   shape_type: 'circle',    default_width: 40, default_height: 40, fill_color: '#E8E8E8', stroke_color: '#666666', abbreviation: '' },
+];
+
+/**
+ * A shape annotation (rectangle or circle) placed on the canvas.
+ * Used for doors, cabinets, fixtures, and other symbolic floor plan elements.
+ */
+export interface WMShapeAnnotation {
+  id: string;
+  floor_sketch_id: string;
+  /** Which preset was used (references ShapePreset.id, or 'custom_rect'/'custom_circle') */
+  preset_id: string;
+  shape_type: SketchShapeType;
+  /** Canvas X position in pixels (top-left for rect, center for circle) */
+  x: number;
+  /** Canvas Y position in pixels */
+  y: number;
+  /** Width in canvas pixels */
+  width: number;
+  /** Height in canvas pixels */
+  height: number;
+  /** Rotation angle in degrees */
+  rotation: number;
+  /** Fill color */
+  fill_color: string;
+  /** Stroke/border color */
+  stroke_color: string;
+  /** Stroke width in pixels (default 2) */
+  stroke_width: number;
+  /** Fill opacity 0-1 (default 0.7) */
+  opacity: number;
+  /** Short label inside the shape (e.g. "DR", "CAB") */
+  label: string;
+}
+
+// ============================================================================
+// Floor Plan Elements (walls & rooms)
+// ============================================================================
+
+/** A wall segment drawn on the canvas as a line between two endpoints */
+export interface WMWall {
+  id: string;
+  floor_sketch_id: string;
+  /** Start point X in canvas pixels */
+  start_x: number;
+  /** Start point Y in canvas pixels */
+  start_y: number;
+  /** End point X in canvas pixels */
+  end_x: number;
+  /** End point Y in canvas pixels */
+  end_y: number;
+  /** Visual stroke width in pixels */
+  thickness: number;
+  color: string;
+  /** Calculated length in decimal feet */
+  length_ft: number;
+}
+
+/** A room polygon detected or drawn on the floor plan */
+export interface WMRoom {
+  id: string;
+  floor_sketch_id: string;
+  /** Display name (e.g. "Living Room", "Room 1") */
+  name: string;
+  /** Boundary polygon vertices in canvas pixel coordinates */
+  boundary: { x: number; y: number }[];
+  /** Fill color with transparency */
+  color: string;
+  /** Room height in feet (default 8) — used for wall area calculation */
+  height_ft: number;
+  /** Calculated floor area in square feet */
+  area_sqft: number;
+  /** IDs of walls that form this room's boundary */
+  wall_ids: string[];
+}
+
+/** Snap threshold in canvas pixels for wall endpoint snapping */
+export const WALL_SNAP_THRESHOLD = 15;
+/** Default wall visual thickness */
+export const DEFAULT_WALL_THICKNESS = 4;
+/** Default wall color */
+export const DEFAULT_WALL_COLOR = '#333333';
+/** Default room fill color */
+export const DEFAULT_ROOM_COLOR = 'rgba(173, 216, 230, 0.3)';
+
 // ============================================================================
 // Overlay Data (aggregates all element types for one floor)
 // ============================================================================
@@ -260,6 +410,13 @@ export interface WMOverlayData {
   containment_zones: WMContainmentZone[];
   floor_protections: WMFloorProtection[];
   content_protections: WMContentProtection[];
+  text_annotations: WMTextAnnotation[];
+  /** Shape annotations — doors, cabinets, fixtures, etc. (optional — absent in legacy data) */
+  shapes?: WMShapeAnnotation[];
+  /** Floor plan walls (optional — absent in legacy data) */
+  walls?: WMWall[];
+  /** Floor plan rooms detected from walls (optional — absent in legacy data) */
+  rooms?: WMRoom[];
 }
 
 /** Convenience constant for initialising a new, empty overlay */
@@ -269,6 +426,10 @@ export const EMPTY_OVERLAY_DATA: WMOverlayData = {
   containment_zones: [],
   floor_protections: [],
   content_protections: [],
+  text_annotations: [],
+  shapes: [],
+  walls: [],
+  rooms: [],
 };
 
 // ============================================================================
@@ -383,5 +544,5 @@ export interface WMFloorSummary {
  */
 export interface WMSketchSelection {
   element_id: string;
-  element_type: 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection';
+  element_type: 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection' | 'text' | 'shape' | 'wall' | 'room';
 }

@@ -45,18 +45,24 @@ import {
   DashOutlined,
   ColumnWidthOutlined,
   SkinOutlined,
+  FontSizeOutlined,
   UndoOutlined,
   RedoOutlined,
   SaveOutlined,
   DownOutlined,
   QuestionCircleOutlined,
+  LineOutlined,
+  GatewayOutlined,
+  ScissorOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 import type {
   WMSketchTool,
   DemoMaterialType,
   EquipmentType,
+  ShapePreset,
 } from '../../../types/wmSketch';
-import { EQUIPMENT_CONFIG } from '../../../types/wmSketch';
+import { EQUIPMENT_CONFIG, SHAPE_PRESETS } from '../../../types/wmSketch';
 
 // Space.Compact is available in antd v5+; aliased for readability
 const { Compact: SpaceCompact } = Space;
@@ -69,10 +75,12 @@ export interface WMSketchToolbarProps {
   activeTool: WMSketchTool;
   activeMaterialTypeId: string | null;
   activeEquipmentType: EquipmentType | null;
+  activeShapePresetId?: string | null;
   materialTypes: DemoMaterialType[];
   onToolChange: (tool: WMSketchTool) => void;
   onMaterialTypeChange: (materialTypeId: string) => void;
   onEquipmentTypeChange: (equipmentType: EquipmentType) => void;
+  onShapePresetChange?: (presetId: string) => void;
   onSave: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -148,10 +156,12 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   activeTool,
   activeMaterialTypeId,
   activeEquipmentType,
+  activeShapePresetId = null,
   materialTypes,
   onToolChange,
   onMaterialTypeChange,
   onEquipmentTypeChange,
+  onShapePresetChange = () => {},
   onSave,
   onUndo,
   onRedo,
@@ -165,6 +175,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   // Active material for demo button label
   const activeMaterial = materialTypes.find((m) => m.id === activeMaterialTypeId);
   const activeEquipConfig = activeEquipmentType ? EQUIPMENT_CONFIG[activeEquipmentType] : null;
+  const activeShapePreset = SHAPE_PRESETS.find((p) => p.id === activeShapePresetId);
 
   // ------------------------------------------------------------------
   // Demolition dropdown menu
@@ -242,6 +253,38 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   }));
 
   // ------------------------------------------------------------------
+  // Shape dropdown menu
+  // ------------------------------------------------------------------
+  const shapeMenuItems: MenuProps['items'] = SHAPE_PRESETS.map((preset) => ({
+    key: preset.id,
+    label: (
+      <Space size={6}>
+        <span
+          style={{
+            display: 'inline-block',
+            width: 14,
+            height: 14,
+            borderRadius: preset.shape_type === 'circle' ? '50%' : 2,
+            background: preset.fill_color,
+            border: `1.5px solid ${preset.stroke_color}`,
+            flexShrink: 0,
+          }}
+        />
+        <span>{preset.name}</span>
+        {preset.abbreviation && (
+          <span style={{ fontSize: 10, color: token.colorTextTertiary, fontFamily: 'monospace' }}>
+            ({preset.abbreviation})
+          </span>
+        )}
+      </Space>
+    ),
+    onClick: () => {
+      onShapePresetChange?.(preset.id);
+      onToolChange('shape');
+    },
+  }));
+
+  // ------------------------------------------------------------------
   // Button style helper
   // ------------------------------------------------------------------
   const toolButtonType = (tool: WMSketchTool) => {
@@ -285,6 +328,42 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             size="small"
             onClick={() => onToolChange('pan')}
           />
+        </Tooltip>
+      </SpaceCompact>
+
+      <Divider type="vertical" style={{ margin: '0 4px', height: 20 }} />
+
+      {/* Group 1b — Floor Plan drawing tools */}
+      <SpaceCompact>
+        <Tooltip title="Draw wall (W)">
+          <Button
+            type={toolButtonType('wall')}
+            icon={<LineOutlined />}
+            size="small"
+            onClick={() => onToolChange('wall')}
+          >
+            Wall
+          </Button>
+        </Tooltip>
+        <Tooltip title="Detect room from enclosed walls (R)">
+          <Button
+            type={toolButtonType('room')}
+            icon={<GatewayOutlined />}
+            size="small"
+            onClick={() => onToolChange('room')}
+          >
+            Room
+          </Button>
+        </Tooltip>
+        <Tooltip title="Click on a wall to split it">
+          <Button
+            type={toolButtonType('wall_split')}
+            icon={<ScissorOutlined />}
+            size="small"
+            onClick={() => onToolChange('wall_split')}
+          >
+            Split
+          </Button>
         </Tooltip>
       </SpaceCompact>
 
@@ -427,6 +506,76 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
         </Tooltip>
       </SpaceCompact>
 
+      {/* Group 7 — Shapes (Door, Cabinet, Fixture, etc.) */}
+      <SpaceCompact>
+        <Tooltip title="Place shape (door, cabinet, fixture)">
+          <Button
+            type={toolButtonType('shape')}
+            icon={<AppstoreOutlined />}
+            size="small"
+            onClick={() => {
+              if (!activeShapePresetId) {
+                onShapePresetChange?.(SHAPE_PRESETS[0].id);
+              }
+              onToolChange('shape');
+            }}
+          >
+            {activeShapePreset ? (
+              <Space size={4}>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: 10,
+                    height: 10,
+                    borderRadius: activeShapePreset.shape_type === 'circle' ? '50%' : 2,
+                    background: activeShapePreset.fill_color,
+                    border: `1px solid ${activeShapePreset.stroke_color}`,
+                  }}
+                />
+                <span
+                  style={{
+                    maxWidth: 60,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {activeShapePreset.name}
+                </span>
+              </Space>
+            ) : (
+              'Shape'
+            )}
+          </Button>
+        </Tooltip>
+        <Dropdown
+          menu={{ items: shapeMenuItems }}
+          trigger={['click']}
+          placement="bottomLeft"
+        >
+          <Button
+            type={toolButtonType('shape')}
+            size="small"
+            icon={<DownOutlined style={{ fontSize: 10 }} />}
+            style={{ padding: '0 6px' }}
+          />
+        </Dropdown>
+      </SpaceCompact>
+
+      {/* Group 8 — Text */}
+      <SpaceCompact>
+        <Tooltip title="Add text annotation (T)">
+          <Button
+            type={toolButtonType('text')}
+            icon={<FontSizeOutlined />}
+            size="small"
+            onClick={() => onToolChange('text')}
+          >
+            Text
+          </Button>
+        </Tooltip>
+      </SpaceCompact>
+
       {/* Spacer */}
       <div style={{ flex: 1 }} />
 
@@ -479,6 +628,9 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             {[
               ['V', 'Select tool'],
               ['H', 'Hand / Pan tool'],
+              ['T', 'Text tool'],
+              ['W', 'Wall tool'],
+              ['R', 'Room tool'],
               ['Ctrl+Z', 'Undo'],
               ['Ctrl+Y', 'Redo'],
               ['Ctrl+S', 'Save'],

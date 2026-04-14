@@ -34,6 +34,8 @@ class WMDemolitionZoneBase(PydanticBaseModel):
     label: Optional[str] = Field(None, max_length=255)
     display_order: int = 0
     scope_item_id: Optional[UUID] = None
+    pixel_width: Optional[float] = None
+    pixel_height: Optional[float] = None
 
 
 class WMDemolitionZoneCreate(WMDemolitionZoneBase):
@@ -172,6 +174,77 @@ class WMContentProtectionSchema(WMContentProtectionBase):
 
 
 # =============================================================================
+# Text Annotation Schemas
+# =============================================================================
+
+class WMTextAnnotationBase(PydanticBaseModel):
+    """Shared fields for text annotation create/update"""
+    x: float
+    y: float
+    text: str = Field(..., max_length=500)
+    font_size: float = 16.0
+    color: str = Field("#333333", max_length=7)
+    bold: bool = False
+
+
+class WMTextAnnotationCreate(WMTextAnnotationBase):
+    """Create a text annotation"""
+    pass
+
+
+# =============================================================================
+# Shape Annotation Schemas (doors, cabinets, fixtures, etc.)
+# =============================================================================
+
+class WMShapeAnnotationBase(PydanticBaseModel):
+    """Shared fields for shape annotation create/update"""
+    preset_id: str = Field(..., max_length=50)
+    shape_type: str = Field(..., max_length=20)  # 'rectangle' | 'circle'
+    x: float
+    y: float
+    width: float
+    height: float
+    rotation: float = 0.0
+    fill_color: str = Field("#E8E8E8", max_length=20)
+    stroke_color: str = Field("#666666", max_length=20)
+    stroke_width: float = 2.0
+    opacity: float = 0.7
+    label: str = Field("", max_length=50)
+
+
+class WMShapeAnnotationCreate(WMShapeAnnotationBase):
+    """Create a shape annotation"""
+    pass
+
+
+# =============================================================================
+# Wall & Room Schemas
+# =============================================================================
+
+class WMWallCreate(PydanticBaseModel):
+    """Wall segment on the floor plan"""
+    id: Optional[str] = None
+    start_x: float
+    start_y: float
+    end_x: float
+    end_y: float
+    thickness: float = 4.0
+    color: str = Field("#333333", max_length=20)
+    length_ft: float = 0.0
+
+
+class WMRoomCreate(PydanticBaseModel):
+    """Room polygon detected from walls"""
+    id: Optional[str] = None
+    name: str = Field("Room", max_length=100)
+    boundary: List[Dict[str, float]] = Field(default_factory=list)
+    color: str = Field("rgba(173, 216, 230, 0.3)", max_length=50)
+    height_ft: float = 8.0
+    area_sqft: float = 0.0
+    wall_ids: List[str] = Field(default_factory=list)
+
+
+# =============================================================================
 # Overlay Data Container
 # =============================================================================
 
@@ -187,6 +260,10 @@ class WMOverlayData(PydanticBaseModel):
     containment_zones: List[WMContainmentZoneCreate] = Field(default_factory=list)
     floor_protections: List[WMFloorProtectionCreate] = Field(default_factory=list)
     content_protections: List[WMContentProtectionCreate] = Field(default_factory=list)
+    text_annotations: List[WMTextAnnotationCreate] = Field(default_factory=list)
+    shapes: List[WMShapeAnnotationCreate] = Field(default_factory=list)
+    walls: List[WMWallCreate] = Field(default_factory=list)
+    rooms: List[WMRoomCreate] = Field(default_factory=list)
 
 
 # =============================================================================
@@ -262,6 +339,10 @@ class WMFloorSketchDetailResponse(PydanticBaseModel):
     equipment_placements: List[WMEquipmentPlacementSchema] = Field(default_factory=list)
     containment_zones: List[WMContainmentZoneSchema] = Field(default_factory=list)
     floor_protections: List[WMFloorProtectionSchema] = Field(default_factory=list)
+
+    # Complete overlay_data including JSONB-only fields
+    # (text_annotations, shapes, walls, rooms)
+    overlay_data: Dict[str, Any] = Field(default_factory=dict)
 
     class Config:
         from_attributes = True
