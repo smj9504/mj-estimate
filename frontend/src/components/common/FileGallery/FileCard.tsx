@@ -189,6 +189,7 @@ const FileCard: React.FC<FileCardProps> = ({
         <img
           src={file.url}
           alt={file.originalName}
+          loading="lazy"
           style={{
             width: '100%',
             height: '100%',
