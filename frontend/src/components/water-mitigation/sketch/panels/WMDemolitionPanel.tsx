@@ -43,7 +43,7 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import type { WMDemolitionZone, DemoMaterialType } from '../../../../types/wmSketch';
-import { DEFAULT_DEMO_MATERIAL_TYPES } from '../../../../types/wmSketch';
+import { DEFAULT_DEMO_MATERIAL_TYPES, WOOD_FLOOR_SUB_TYPES, WALL_MATERIAL_SUB_TYPES, WALL_MATERIAL_IDS } from '../../../../types/wmSketch';
 import { calcDemoZoneSqft, generateOverlayId } from '../utils/wmCalculations';
 import DimensionInput from './DimensionInput';
 
@@ -153,6 +153,72 @@ const ZoneEditForm: React.FC<{
           ))}
         </Select>
       </div>
+
+      {/* Wood floor sub-type selector */}
+      {zone.material_type === 'wood_floor' && (
+        <div>
+          <Text style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>
+            Floor Type
+          </Text>
+          <Select
+            size="small"
+            value={zone.sub_type || undefined}
+            onChange={(value) => {
+              const subCfg = WOOD_FLOOR_SUB_TYPES.find((s) => s.id === value);
+              onUpdate({
+                sub_type: value,
+                ...(subCfg ? { color: subCfg.color } : {}),
+              });
+            }}
+            placeholder="Select floor type"
+            style={{ width: '100%' }}
+            allowClear
+            onClear={() => onUpdate({ sub_type: undefined, color: '#B8860B' })}
+          >
+            {WOOD_FLOOR_SUB_TYPES.map((s) => (
+              <Select.Option key={s.id} value={s.id}>
+                <Space size={6}>
+                  <ColorSwatch color={s.color} />
+                  <span>{s.name}</span>
+                </Space>
+              </Select.Option>
+            ))}
+          </Select>
+        </div>
+      )}
+
+      {/* Wall material sub-type selector */}
+      {WALL_MATERIAL_IDS.has(zone.material_type) && (
+        <div>
+          <Text style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>
+            Wall Material
+          </Text>
+          <Select
+            size="small"
+            value={zone.sub_type || undefined}
+            onChange={(value) => {
+              const subCfg = WALL_MATERIAL_SUB_TYPES.find((s) => s.id === value);
+              onUpdate({
+                sub_type: value,
+                ...(subCfg ? { color: subCfg.color } : {}),
+              });
+            }}
+            placeholder="Select wall material"
+            style={{ width: '100%' }}
+            allowClear
+            onClear={() => onUpdate({ sub_type: undefined, color: selectedMaterial?.color ?? '#FFB6C1' })}
+          >
+            {WALL_MATERIAL_SUB_TYPES.map((s) => (
+              <Select.Option key={s.id} value={s.id}>
+                <Space size={6}>
+                  <ColorSwatch color={s.color} />
+                  <span>{s.name}</span>
+                </Space>
+              </Select.Option>
+            ))}
+          </Select>
+        </div>
+      )}
 
       {/* Dimensions — layout depends on zone type */}
       {isLF ? (
@@ -519,6 +585,22 @@ const SummaryView: React.FC<{
                       )}
                       <Text style={{ fontSize: 11, flex: 1 }}>
                         {zone.label || `Zone ${i + 1}`}
+                        {zone.material_type === 'wood_floor' && zone.sub_type && (
+                          <Tag
+                            style={{ marginLeft: 4, fontSize: 9, lineHeight: '14px', padding: '0 3px' }}
+                            color="orange"
+                          >
+                            {WOOD_FLOOR_SUB_TYPES.find((s) => s.id === zone.sub_type)?.name ?? zone.sub_type}
+                          </Tag>
+                        )}
+                        {WALL_MATERIAL_IDS.has(zone.material_type) && zone.sub_type && (
+                          <Tag
+                            style={{ marginLeft: 4, fontSize: 9, lineHeight: '14px', padding: '0 3px' }}
+                            color="magenta"
+                          >
+                            {WALL_MATERIAL_SUB_TYPES.find((s) => s.id === zone.sub_type)?.name ?? zone.sub_type}
+                          </Tag>
+                        )}
                       </Text>
                       <Text
                         type="secondary"

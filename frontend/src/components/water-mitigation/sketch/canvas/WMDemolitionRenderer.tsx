@@ -26,7 +26,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { Group, Rect, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
-import { WMDemolitionZone } from '../../../../types/wmSketch';
+import { WMDemolitionZone, WOOD_FLOOR_SUB_TYPES } from '../../../../types/wmSketch';
 import { formatDimensionCompact } from '../utils/wmCalculations';
 
 export interface WMDemolitionRendererProps {
@@ -350,6 +350,38 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
             />
           </>
         )}
+
+        {/* Wood floor sub-type badge (top-left) */}
+        {zone.material_type === 'wood_floor' && zone.sub_type && widthPx > 40 && heightPx > 14 && (() => {
+          const stCfg = WOOD_FLOOR_SUB_TYPES.find((s) => s.id === zone.sub_type);
+          const stLabel = stCfg?.name ?? zone.sub_type;
+          const badgeW = Math.min(stLabel.length * 6 + 8, widthPx - 4);
+          return (
+            <>
+              <Rect
+                x={2}
+                y={2}
+                width={badgeW}
+                height={14}
+                fill="#B8860B"
+                cornerRadius={3}
+                listening={false}
+              />
+              <Text
+                x={2}
+                y={3}
+                width={badgeW}
+                text={stLabel}
+                fontSize={9}
+                fontFamily="'Inter', 'Segoe UI', sans-serif"
+                fill="#ffffff"
+                fontStyle="bold"
+                align="center"
+                listening={false}
+              />
+            </>
+          );
+        })()}
 
         {/* Optional custom label beneath dimension text */}
         {zone.label && widthPx > 40 && heightPx > 38 && (

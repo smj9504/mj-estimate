@@ -14,6 +14,9 @@ import type {
 import {
   DEFAULT_DEMO_MATERIAL_TYPES,
   EQUIPMENT_CONFIG,
+  WOOD_FLOOR_SUB_TYPES,
+  WALL_MATERIAL_SUB_TYPES,
+  WALL_MATERIAL_IDS,
 } from '../../../../types/wmSketch';
 
 // ============================================================================
@@ -209,27 +212,44 @@ export function feetToPixels(ft: number, scalePixelsPerFoot: number): number {
  */
 export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
   // ------------------------------------------------------------------
-  // Demolition — group by material_type
+  // Demolition — group by (material_type, sub_type)
   // ------------------------------------------------------------------
   const demoByTypeMap = new Map<string, MaterialTypeSummary>();
 
   for (const zone of overlayData.demolition_zones) {
-    const existing = demoByTypeMap.get(zone.material_type);
+    // Key includes sub_type so wood floor variants are separate groups
+    const groupKey = `${zone.material_type}|${zone.sub_type || ''}`;
+    const existing = demoByTypeMap.get(groupKey);
 
     if (existing) {
       existing.count += 1;
       existing.total_sqft = Math.round((existing.total_sqft + zone.calculated_sqft) * 100) / 100;
     } else {
-      // Look up name/unit from defaults; fall back gracefully for custom types.
       const materialDef = DEFAULT_DEMO_MATERIAL_TYPES.find(
         (m) => m.id === zone.material_type
       );
+      let displayName = materialDef?.name ?? zone.material_type;
+      let displayColor = zone.color;
 
-      demoByTypeMap.set(zone.material_type, {
+      // Append sub-type name for wood floor
+      if (zone.material_type === 'wood_floor' && zone.sub_type) {
+        const stCfg = WOOD_FLOOR_SUB_TYPES.find((s) => s.id === zone.sub_type);
+        displayName = `${displayName} (${stCfg?.name ?? zone.sub_type})`;
+        displayColor = stCfg?.color ?? zone.color;
+      }
+
+      // Append sub-type name for wall materials
+      if (WALL_MATERIAL_IDS.has(zone.material_type) && zone.sub_type) {
+        const stCfg = WALL_MATERIAL_SUB_TYPES.find((s) => s.id === zone.sub_type);
+        displayName = `${displayName} (${stCfg?.name ?? zone.sub_type})`;
+        displayColor = stCfg?.color ?? zone.color;
+      }
+
+      demoByTypeMap.set(groupKey, {
         material_type: zone.material_type,
-        material_name: materialDef?.name ?? zone.material_type,
+        material_name: displayName,
         surface: zone.surface,
-        color: zone.color,
+        color: displayColor,
         count: 1,
         total_sqft: zone.calculated_sqft,
         unit: materialDef?.unit ?? 'SF',

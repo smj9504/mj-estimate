@@ -134,7 +134,8 @@ class WMDemolitionZone(Base, BaseModel):
     )
 
     # Material classification
-    material_type = Column(String(100), nullable=False)  # "Wood Floor", "Carpet", "Tile", "Ceiling", "Wall/Drywall", "Baseboard"
+    material_type = Column(String(100), nullable=False)  # "wood_floor", "carpet", "tile", "ceiling", "wall_drywall", "baseboard"
+    sub_type = Column(String(100), nullable=True)  # floor: hardwood/engineered/laminate/lvp; wall: drywall/wall_panel/plaster/wood_panel
     surface = Column(String(50), nullable=False)  # "floor", "wall", "ceiling"
     color = Column(String(7), nullable=False)
 

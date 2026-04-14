@@ -42,6 +42,73 @@ export type WMSketchTool =
 export type SketchShapeType = 'rectangle' | 'circle';
 
 // ============================================================================
+// Wood Floor Sub-type Configuration
+// ============================================================================
+
+/** Sub-type identifier for wood floor materials */
+export type WoodFloorSubType =
+  | 'hardwood'
+  | 'engineered'
+  | 'laminate'
+  | 'lvp';
+
+/** Configuration for a wood floor sub-type */
+export interface WoodFloorSubTypeConfig {
+  id: WoodFloorSubType;
+  name: string;
+  /** Distinguishing color shade (slightly varies from base #B8860B) */
+  color: string;
+}
+
+/**
+ * Available sub-types for wood_floor material.
+ * Used in sketch UI, scope generation, and PDF reporting.
+ */
+export const WOOD_FLOOR_SUB_TYPES: WoodFloorSubTypeConfig[] = [
+  { id: 'hardwood',   name: 'Hardwood',        color: '#B8860B' },
+  { id: 'engineered', name: 'Engineered Wood',  color: '#CD950C' },
+  { id: 'laminate',   name: 'Laminate',         color: '#A0760A' },
+  { id: 'lvp',        name: 'LVP',              color: '#8B7355' },
+];
+
+// ============================================================================
+// Wall Material Sub-type Configuration
+// ============================================================================
+
+/** Sub-type identifier for wall materials (drywall, wall panel, etc.) */
+export type WallMaterialSubType =
+  | 'drywall'
+  | 'wall_panel'
+  | 'plaster'
+  | 'wood_panel';
+
+/** Configuration for a wall material sub-type */
+export interface WallMaterialSubTypeConfig {
+  id: WallMaterialSubType;
+  name: string;
+  /** Distinguishing color shade */
+  color: string;
+}
+
+/**
+ * Available sub-types for wall demolition materials.
+ * Used in sketch UI, scope generation, and PDF reporting.
+ */
+export const WALL_MATERIAL_SUB_TYPES: WallMaterialSubTypeConfig[] = [
+  { id: 'drywall',     name: 'Drywall',      color: '#FFB6C1' },
+  { id: 'wall_panel',  name: 'Wall Panel',   color: '#E8A090' },
+  { id: 'plaster',     name: 'Plaster',      color: '#C4A8D0' },
+  { id: 'wood_panel',  name: 'Wood Panel',   color: '#C8A870' },
+];
+
+/** Wall demolition material IDs that support wall material sub-types */
+export const WALL_MATERIAL_IDS = new Set([
+  'wall_drywall',
+  'wall_drywall_2ft',
+  'wall_drywall_4ft',
+]);
+
+// ============================================================================
 // Material Type Configuration
 // ============================================================================
 
@@ -126,6 +193,8 @@ export interface WMDemolitionZone {
   floor_sketch_id: string;
   /** References DemoMaterialType.id */
   material_type: string;
+  /** Sub-type within a material (e.g. 'hardwood' | 'engineered' | 'laminate' | 'lvp' for wood_floor) */
+  sub_type?: string;
   surface: DemoSurface;
   /** Hex color (copied from material type at creation, can be overridden) */
   color: string;

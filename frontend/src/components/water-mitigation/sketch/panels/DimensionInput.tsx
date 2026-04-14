@@ -36,8 +36,8 @@ const DimensionInput: React.FC<DimensionInputProps> = ({
 
   const handleFocus = useCallback(() => {
     setFocused(true);
-    // When user focuses, show current value as raw feet string so they can edit
-    setRawInput(value > 0 ? String(value) : '');
+    // Show current value rounded to 2 decimal places for clean editing
+    setRawInput(value > 0 ? String(Math.round(value * 100) / 100) : '');
     setIsInvalid(false);
   }, [value]);
 
@@ -45,7 +45,7 @@ const DimensionInput: React.FC<DimensionInputProps> = ({
     setRawInput(e.target.value);
   }, []);
 
-  const handleBlur = useCallback(() => {
+  const commitValue = useCallback(() => {
     setFocused(false);
     if (rawInput.trim() === '') {
       setIsInvalid(false);
@@ -59,6 +59,16 @@ const DimensionInput: React.FC<DimensionInputProps> = ({
       onChange(parsed);
     }
   }, [rawInput, onChange]);
+
+  const handleBlur = useCallback(() => {
+    commitValue();
+  }, [commitValue]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    }
+  }, []);
 
   const displayValue = focused ? rawInput : (value > 0 ? formatDimension(value) : '');
 
@@ -75,6 +85,7 @@ const DimensionInput: React.FC<DimensionInputProps> = ({
         onFocus={handleFocus}
         onChange={handleChange}
         onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
         status={isInvalid ? 'error' : undefined}
         style={{
           borderColor: isInvalid ? '#ff4d4f' : undefined,

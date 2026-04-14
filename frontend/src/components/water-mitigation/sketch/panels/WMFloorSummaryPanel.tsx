@@ -98,9 +98,9 @@ const WMFloorSummaryPanel: React.FC<WMFloorSummaryProps> = ({ summary }) => {
             >
               Tear Out
             </Text>
-            {summary.demolition_by_type.map((item) => (
+            {summary.demolition_by_type.map((item, idx) => (
               <SummaryRow
-                key={item.material_type}
+                key={`${item.material_type}-${item.material_name}-${idx}`}
                 label={
                   <>
                     <ColorSwatch color={item.color} />

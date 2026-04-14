@@ -20,6 +20,11 @@ from pydantic import Field
 class WMDemolitionZoneBase(PydanticBaseModel):
     """Shared fields for demolition zone create/update"""
     material_type: str = Field(..., max_length=100)
+    sub_type: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="Sub-type within material",
+    )
     surface: str = Field(..., max_length=50)
     color: str = Field(..., max_length=7)
     x: float

@@ -245,6 +245,27 @@ class SketchService:
         "insulation": "Insulation",
     }
 
+    # Wood floor sub-type display names
+    _WOOD_FLOOR_SUB_TYPE_NAMES = {
+        "hardwood": "Hardwood",
+        "engineered": "Engineered Wood",
+        "laminate": "Laminate",
+        "lvp": "LVP",
+    }
+
+    # Wall material sub-type display names
+    _WALL_MATERIAL_SUB_TYPE_NAMES = {
+        "drywall": "Drywall",
+        "wall_panel": "Wall Panel",
+        "plaster": "Plaster",
+        "wood_panel": "Wood Panel",
+    }
+
+    # Wall demolition material IDs that support wall material sub-types
+    _WALL_MATERIAL_IDS = frozenset({
+        "wall_drywall", "wall_drywall_2ft", "wall_drywall_4ft",
+    })
+
     # Material type → item_type classification
     _DEMOLITION_MATERIAL_UNITS = {
         "wood_floor": "SF",
@@ -322,15 +343,18 @@ class SketchService:
 
             item_order = 0
 
-            # --- Demolition zones: group by material_type ---
-            demo_groups: dict[str, float] = {}
+            # --- Demolition zones: group by (material_type, sub_type) ---
+            # Key = (material_type, sub_type or "")
+            demo_groups: dict[tuple[str, str], float] = {}
             carpet_pad_sqft: float = 0.0
             insulation_sqft: float = 0.0
             for zone in (sketch.demolition_zones or []):
                 mt = zone.material_type or "unknown"
+                st = getattr(zone, "sub_type", None) or ""
                 sqft = float(zone.calculated_sqft or 0)
+                key = (mt, st)
                 if sqft > 0:
-                    demo_groups[mt] = demo_groups.get(mt, 0) + sqft
+                    demo_groups[key] = demo_groups.get(key, 0) + sqft
                 # Accumulate carpet pad area
                 if mt == "carpet" and zone.include_pad and sqft > 0:
                     carpet_pad_sqft += sqft
@@ -338,9 +362,27 @@ class SketchService:
                 if getattr(zone, "include_insulation", False) and sqft > 0:
                     insulation_sqft += sqft
 
-            for material_type, total_qty in demo_groups.items():
-                name = self._MATERIAL_TYPE_NAMES.get(material_type, material_type)
-                unit = self._DEMOLITION_MATERIAL_UNITS.get(material_type, "SF")
+            for (material_type, sub_type), total_qty in demo_groups.items():
+                base_name = self._MATERIAL_TYPE_NAMES.get(
+                    material_type, material_type,
+                )
+                # Append sub-type for wood floor
+                if material_type == "wood_floor" and sub_type:
+                    st_name = self._WOOD_FLOOR_SUB_TYPE_NAMES.get(
+                        sub_type, sub_type,
+                    )
+                    name = f"{base_name} ({st_name})"
+                # Append sub-type for wall materials
+                elif material_type in self._WALL_MATERIAL_IDS and sub_type:
+                    st_name = self._WALL_MATERIAL_SUB_TYPE_NAMES.get(
+                        sub_type, sub_type,
+                    )
+                    name = f"{base_name} ({st_name})"
+                else:
+                    name = base_name
+                unit = self._DEMOLITION_MATERIAL_UNITS.get(
+                    material_type, "SF",
+                )
                 item = WMScopeItem(
                     location_id=location.id,
                     item_type="demolition",

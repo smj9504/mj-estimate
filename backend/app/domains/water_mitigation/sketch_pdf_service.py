@@ -73,6 +73,29 @@ _DEMO_MATERIAL_LABELS: Dict[str, str] = {
     "toe_kick": "Toe Kick",
 }
 
+# Wood floor sub-type display names for PDF
+_WOOD_FLOOR_SUB_TYPE_LABELS: Dict[str, str] = {
+    "hardwood": "Hardwood",
+    "engineered": "Engineered Wood",
+    "laminate": "Laminate",
+    "lvp": "LVP",
+}
+
+# Wall material sub-type display names for PDF
+_WALL_MATERIAL_SUB_TYPE_LABELS: Dict[str, str] = {
+    "drywall": "Drywall",
+    "wall_panel": "Wall Panel",
+    "plaster": "Plaster",
+    "wood_panel": "Wood Panel",
+}
+
+# Wall demolition material IDs that support sub-types
+_WALL_MATERIAL_IDS = frozenset({
+    "wall_drywall",
+    "wall_drywall_2ft",
+    "wall_drywall_4ft",
+})
+
 _DEMO_MATERIAL_UNITS: Dict[str, str] = {
     "baseboard": "LF",
     "baseboard_quarter_round": "LF",
@@ -486,7 +509,13 @@ class SketchPdfService:
         if zone_w >= 40 and zone_h >= 25:
             cx = zone_w / 2
             cy = zone_h / 2
-            label = html_lib.escape(zone.material_type or "")
+            mt = zone.material_type or ""
+            st = getattr(zone, "sub_type", None) or ""
+            base_label = _DEMO_MATERIAL_LABELS.get(mt, mt)
+            if mt == "wood_floor" and st:
+                st_label = _WOOD_FLOOR_SUB_TYPE_LABELS.get(st, st)
+                base_label = f"{base_label} ({st_label})"
+            label = html_lib.escape(base_label)
             dim = f'{float(zone.dimension1_ft):.1f}\'×{float(zone.dimension2_ft):.1f}\''
             sqft = f'{float(zone.calculated_sqft):.0f} SF'
             parts.append(
@@ -719,7 +748,14 @@ class SketchPdfService:
             cx = zone_w / 2
             cy = zone_h / 2
             sqft = float(z.get("calculated_sqft", 0))
-            label = html_lib.escape(z.get("material_type", ""))
+            base_lbl = _DEMO_MATERIAL_LABELS.get(mt, mt)
+            z_st = z.get("sub_type") or ""
+            if mt == "wood_floor" and z_st:
+                st_lbl = _WOOD_FLOOR_SUB_TYPE_LABELS.get(
+                    z_st, z_st,
+                )
+                base_lbl = f"{base_lbl} ({st_lbl})"
+            label = html_lib.escape(base_lbl)
             parts.append(
                 f'<text x="{cx:.1f}" y="{cy - 9:.1f}" text-anchor="middle" '
                 f'font-size="10" font-family="Arial" fill="{color}" font-weight="600">'
@@ -1030,14 +1066,31 @@ class SketchPdfService:
         total_demo_lf: float = 0.0
 
         for zone in (floor.demolition_zones or []):
-            key = zone.material_type or "Unknown"
-            unit = _DEMO_MATERIAL_UNITS.get(key, "SF")
+            mt = zone.material_type or "Unknown"
+            st = getattr(zone, "sub_type", None) or ""
+            # Group key includes sub_type for wood floor and wall materials
+            key = f"{mt}|{st}" if st else mt
+            unit = _DEMO_MATERIAL_UNITS.get(mt, "SF")
             if key not in demo_by_material:
+                base_name = _DEMO_MATERIAL_LABELS.get(
+                    mt, mt.replace("_", " ").title()
+                )
+                if mt == "wood_floor" and st:
+                    st_label = _WOOD_FLOOR_SUB_TYPE_LABELS.get(
+                        st, st.replace("_", " ").title()
+                    )
+                    display_name = f"{base_name} ({st_label})"
+                elif mt in _WALL_MATERIAL_IDS and st:
+                    st_label = _WALL_MATERIAL_SUB_TYPE_LABELS.get(
+                        st, st.replace("_", " ").title()
+                    )
+                    display_name = f"{base_name} ({st_label})"
+                else:
+                    display_name = base_name
                 demo_by_material[key] = {
-                    "material": key,
-                    "material_name": _DEMO_MATERIAL_LABELS.get(
-                        key, key.replace("_", " ").title()
-                    ),
+                    "material": mt,
+                    "sub_type": st,
+                    "material_name": display_name,
                     "surface": zone.surface or "",
                     "color": zone.color or "#888888",
                     "count": 0,
@@ -1051,7 +1104,7 @@ class SketchPdfService:
                 total_demo_lf += qty
             else:
                 total_demo_sf += qty
-            if key == "carpet" and getattr(zone, "include_pad", False) and qty > 0:
+            if mt == "carpet" and getattr(zone, "include_pad", False) and qty > 0:
                 carpet_pad_sqft += qty
             if getattr(zone, "include_insulation", False) and qty > 0:
                 insulation_sqft += qty

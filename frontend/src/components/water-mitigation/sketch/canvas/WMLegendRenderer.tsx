@@ -19,6 +19,9 @@ import {
   DemoMaterialType,
   EQUIPMENT_CONFIG,
   EquipmentType,
+  WOOD_FLOOR_SUB_TYPES,
+  WALL_MATERIAL_SUB_TYPES,
+  WALL_MATERIAL_IDS,
 } from '../../../../types/wmSketch';
 
 export interface WMLegendRendererProps {
@@ -60,11 +63,35 @@ function buildRows(
 ): LegendRow[] {
   const rows: LegendRow[] = [];
 
-  // Materials that actually appear in demolition zones
-  const usedMaterialIds = new Set(overlayData.demolition_zones.map((z) => z.material_type));
+  // Materials that actually appear in demolition zones (wood floor split by sub-type)
+  const usedPairs = new Set<string>();
+  for (const z of overlayData.demolition_zones) {
+    usedPairs.add(`${z.material_type}|${z.sub_type || ''}`);
+  }
   for (const mt of materialTypes) {
-    if (usedMaterialIds.has(mt.id)) {
-      rows.push({ kind: 'material', color: mt.color, label: mt.name });
+    if (mt.id === 'wood_floor') {
+      for (const st of WOOD_FLOOR_SUB_TYPES) {
+        if (usedPairs.has(`wood_floor|${st.id}`)) {
+          rows.push({ kind: 'material', color: st.color, label: `${mt.name} (${st.name})` });
+        }
+      }
+      if (usedPairs.has('wood_floor|')) {
+        rows.push({ kind: 'material', color: mt.color, label: mt.name });
+      }
+    } else if (WALL_MATERIAL_IDS.has(mt.id)) {
+      for (const st of WALL_MATERIAL_SUB_TYPES) {
+        if (usedPairs.has(`${mt.id}|${st.id}`)) {
+          rows.push({ kind: 'material', color: st.color, label: `${mt.name} (${st.name})` });
+        }
+      }
+      if (usedPairs.has(`${mt.id}|`)) {
+        rows.push({ kind: 'material', color: mt.color, label: mt.name });
+      }
+    } else {
+      const hasAny = overlayData.demolition_zones.some((z) => z.material_type === mt.id);
+      if (hasAny) {
+        rows.push({ kind: 'material', color: mt.color, label: mt.name });
+      }
     }
   }
 

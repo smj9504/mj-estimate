@@ -480,17 +480,33 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
 
   // ------------------------------------------------------------------
+  // Fit-to-view: compute scale to fit logical canvas into viewport
+  // ------------------------------------------------------------------
+  const fitScale = Math.min(
+    stageSize.width / canvasWidth,
+    stageSize.height / canvasHeight,
+  );
+
   // Load overlay & reset view when switching floors (no remount needed)
   // ------------------------------------------------------------------
   const prevFloorIdRef = useRef(floorSketch.id);
   useEffect(() => {
     if (prevFloorIdRef.current !== floorSketch.id) {
       prevFloorIdRef.current = floorSketch.id;
-      setStageScale(1);
+      setStageScale(fitScale);
       setStagePos({ x: 0, y: 0 });
     }
     loadOverlayData(floorSketch.overlay_data);
   }, [floorSketch.id, loadOverlayData]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Also update scale when viewport resizes (initial load)
+  const initialFitDoneRef = useRef(false);
+  useEffect(() => {
+    if (!initialFitDoneRef.current && fitScale > 0 && fitScale < 1) {
+      initialFitDoneRef.current = true;
+      setStageScale(fitScale);
+    }
+  }, [fitScale]);
   const isPanningRef = useRef(false);
   const lastPointerRef = useRef({ x: 0, y: 0 });
 
@@ -1563,18 +1579,32 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
    * Resolve the background image URL.
    * Cloud-stored images (e.g. Google Drive viewer URLs) cannot be
    * loaded directly by <img>; use the backend proxy endpoint instead.
+   *
+   * In production the frontend (Vercel) and backend (Render) are on
+   * different origins, so relative paths like "/api/..." would resolve
+   * against the Vercel domain — which cannot serve images. We must
+   * prepend the backend origin for Image() loads (which bypass axios).
    */
   const resolveImageUrl = (url: string | undefined | null): string | null => {
     if (!url) return null;
-    // Already a proxy / local URL – use as-is
-    if (url.startsWith('/') || url.startsWith('blob:')) return url;
+    // blob: URLs are local object URLs — use as-is
+    if (url.startsWith('blob:')) return url;
+
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const backendOrigin = isLocal ? '' : 'https://mjestimate-backend.onrender.com';
+    const proxyPath = `/api/water-mitigation/sketch/floors/${floorSketch.id}/background-image/preview`;
+
+    // Relative path starting with / (e.g. "/api/.../preview" or "/uploads/...")
+    if (url.startsWith('/')) {
+      return `${backendOrigin}${url}`;
+    }
     // Google Drive viewer URL → proxy
     if (url.includes('drive.google.com/file/d/')) {
-      return `/api/water-mitigation/sketch/floors/${floorSketch.id}/background-image/preview`;
+      return `${backendOrigin}${proxyPath}`;
     }
     // Other absolute URLs that aren't directly loadable
     if (url.startsWith('http')) {
-      return `/api/water-mitigation/sketch/floors/${floorSketch.id}/background-image/preview`;
+      return `${backendOrigin}${proxyPath}`;
     }
     return url;
   };
