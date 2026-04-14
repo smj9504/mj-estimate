@@ -195,6 +195,7 @@ class WMPhoto(Base, BaseModel):
     storage_provider = Column(String(20), default='local')  # 'local' | 'gdrive' | 's3' | 'azure'
     storage_file_id = Column(String(500))  # Provider-specific file ID
     storage_thumbnail_url = Column(String(1000))  # Thumbnail URL from provider
+    storage_web_url = Column(String(1000))  # Web-size URL from provider (e.g. CompanyCam CDN)
     storage_folder_path = Column(String(500))  # Hierarchical path in storage
 
     # Metadata

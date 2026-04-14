@@ -56,6 +56,7 @@ import type {
   WMShapeAnnotation,
   WMWall,
   WMRoom,
+  WMSketchSelection,
 } from '../../../types/wmSketch';
 import {
   EQUIPMENT_CONFIG,
@@ -492,6 +493,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   }, [floorSketch.id, loadOverlayData]); // eslint-disable-line react-hooks/exhaustive-deps
   const isPanningRef = useRef(false);
   const lastPointerRef = useRef({ x: 0, y: 0 });
+
+  // Clipboard for copy/paste
+  const clipboardRef = useRef<Array<{ type: string; data: Record<string, unknown> }>>([]);
 
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -1422,6 +1426,62 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         return;
       }
 
+      // Copy (Ctrl+C)
+      if (cmd && e.key === 'c' && state.selections.length > 0) {
+        e.preventDefault();
+        const items: Array<{ type: string; data: Record<string, unknown> }> = [];
+        for (const sel of state.selections) {
+          const { element_id, element_type } = sel;
+          let found: Record<string, unknown> | undefined;
+          if (element_type === 'demolition') found = state.overlayData.demolition_zones.find((z) => z.id === element_id) as unknown as Record<string, unknown>;
+          else if (element_type === 'equipment') found = state.overlayData.equipment_placements.find((e) => e.id === element_id) as unknown as Record<string, unknown>;
+          else if (element_type === 'containment') found = state.overlayData.containment_zones.find((c) => c.id === element_id) as unknown as Record<string, unknown>;
+          else if (element_type === 'floor_protection') found = state.overlayData.floor_protections.find((fp) => fp.id === element_id) as unknown as Record<string, unknown>;
+          else if (element_type === 'content_protection') found = (state.overlayData.content_protections ?? []).find((cp) => cp.id === element_id) as unknown as Record<string, unknown>;
+          else if (element_type === 'text') found = (state.overlayData.text_annotations ?? []).find((t) => t.id === element_id) as unknown as Record<string, unknown>;
+          else if (element_type === 'shape') found = (state.overlayData.shapes ?? []).find((s) => s.id === element_id) as unknown as Record<string, unknown>;
+          if (found) items.push({ type: element_type, data: { ...found } });
+        }
+        if (items.length > 0) {
+          clipboardRef.current = items;
+          message.info(`${items.length}개 요소 복사됨`);
+        }
+        return;
+      }
+
+      // Paste (Ctrl+V)
+      if (cmd && e.key === 'v' && clipboardRef.current.length > 0) {
+        e.preventDefault();
+        const PASTE_OFFSET = 20;
+        const newSelections: import('../../../types/wmSketch').WMSketchSelection[] = [];
+        for (const item of clipboardRef.current) {
+          const newId = generateOverlayId();
+          const cloned = { ...item.data, id: newId, x: (item.data.x as number) + PASTE_OFFSET, y: (item.data.y as number) + PASTE_OFFSET };
+          if (item.type === 'demolition') addDemolitionZone(cloned as unknown as WMDemolitionZone);
+          else if (item.type === 'equipment') addEquipment(cloned as unknown as WMEquipmentPlacement);
+          else if (item.type === 'containment') addContainment(cloned as unknown as WMContainmentZone);
+          else if (item.type === 'floor_protection') addFloorProtection(cloned as unknown as WMFloorProtection);
+          else if (item.type === 'content_protection') addContentProtection(cloned as unknown as WMContentProtection);
+          else if (item.type === 'text') addTextAnnotation(cloned as unknown as WMTextAnnotation);
+          else if (item.type === 'shape') addShape(cloned as unknown as WMShapeAnnotation);
+          newSelections.push({ element_id: newId, element_type: item.type as WMSketchSelection['element_type'] });
+        }
+        // Update clipboard positions so repeated paste cascades
+        clipboardRef.current = clipboardRef.current.map((item) => ({
+          ...item,
+          data: { ...item.data, x: (item.data.x as number) + PASTE_OFFSET, y: (item.data.y as number) + PASTE_OFFSET },
+        }));
+        // Select pasted elements
+        if (newSelections.length > 0) {
+          selectElement(newSelections[0]);
+          for (let i = 1; i < newSelections.length; i++) {
+            toggleSelectElement(newSelections[i]);
+          }
+        }
+        message.info(`${newSelections.length}개 요소 붙여넣기 완료`);
+        return;
+      }
+
       // Cancel wall drawing on Escape
       if (e.key === 'Escape') {
         if (wallDrawStart) {
@@ -1432,12 +1492,14 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         return;
       }
 
-      // Tool shortcuts
-      if (e.key === 'v' || e.key === 'V') { setTool('select'); setWallDrawStart(null); return; }
-      if (e.key === 'h' || e.key === 'H') { setTool('pan'); setWallDrawStart(null); return; }
-      if (e.key === 't' || e.key === 'T') { setTool('text'); setWallDrawStart(null); return; }
-      if (e.key === 'w' || e.key === 'W') { setTool('wall'); return; }
-      if (e.key === 'r' || e.key === 'R') { setTool('room'); return; }
+      // Tool shortcuts (only without Ctrl/Cmd to avoid conflict with copy/paste)
+      if (!cmd) {
+        if (e.key === 'v' || e.key === 'V') { setTool('select'); setWallDrawStart(null); return; }
+        if (e.key === 'h' || e.key === 'H') { setTool('pan'); setWallDrawStart(null); return; }
+        if (e.key === 't' || e.key === 'T') { setTool('text'); setWallDrawStart(null); return; }
+        if (e.key === 'w' || e.key === 'W') { setTool('wall'); return; }
+        if (e.key === 'r' || e.key === 'R') { setTool('room'); return; }
+      }
 
       if ((e.key === 'Delete' || e.key === 'Backspace') && state.selections.length > 0) {
         for (const sel of state.selections) {
@@ -1481,6 +1543,16 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     removeWall,
     removeRoom,
     wallDrawStart,
+    state.overlayData,
+    addDemolitionZone,
+    addEquipment,
+    addContainment,
+    addFloorProtection,
+    addContentProtection,
+    addTextAnnotation,
+    addShape,
+    selectElement,
+    toggleSelectElement,
   ]);
 
   // ------------------------------------------------------------------
@@ -1888,6 +1960,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           imageUrl={backgroundImageUrl}
           canvasWidth={stageSize.width}
           canvasHeight={stageSize.height}
+          logicalCanvasWidth={canvasWidth}
+          logicalCanvasHeight={canvasHeight}
           currentScale={floorSketch.scale_pixels_per_foot}
           onCalibrated={handleCalibrated}
           onCancel={() => setIsCalibrating(false)}

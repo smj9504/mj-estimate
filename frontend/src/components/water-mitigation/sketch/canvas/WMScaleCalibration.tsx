@@ -36,6 +36,9 @@ export interface WMScaleCalibrationProps {
   imageUrl: string;
   canvasWidth: number;
   canvasHeight: number;
+  /** Logical canvas dimensions where overlay elements are drawn (fixed coordinate system) */
+  logicalCanvasWidth: number;
+  logicalCanvasHeight: number;
   currentScale: number;
   onCalibrated: (scalePixelsPerFoot: number) => void;
   onCancel: () => void;
@@ -87,6 +90,8 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
   imageUrl,
   canvasWidth,
   canvasHeight,
+  logicalCanvasWidth,
+  logicalCanvasHeight,
   currentScale,
   onCalibrated,
   onCancel,
@@ -121,8 +126,27 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
   const stageRef = useRef<any>(null);
 
   const pixelDist = pointA && pointB ? distance(pointA, pointB) : 0;
-  const computedScale = realFeet && realFeet > 0 && pixelDist > 0
+
+  // Compute scale in viewport pixels, then convert to logical canvas pixels.
+  // The calibration stage renders the image fitted to viewport dimensions,
+  // but elements are placed in the logical canvas coordinate system where
+  // the same image is fitted to (logicalCanvasWidth × logicalCanvasHeight).
+  const viewportScale = realFeet && realFeet > 0 && pixelDist > 0
     ? pixelDist / realFeet
+    : null;
+
+  // Ratio to convert viewport pixels → logical canvas pixels
+  const logicalToViewportRatio = (loadedImage && imageFit)
+    ? imageFit.scale / fitContain(
+        loadedImage.naturalWidth,
+        loadedImage.naturalHeight,
+        logicalCanvasWidth,
+        logicalCanvasHeight,
+      ).scale
+    : 1;
+
+  const computedScale = viewportScale
+    ? viewportScale / logicalToViewportRatio
     : null;
 
   // Get stage pointer position

@@ -639,7 +639,7 @@ class WaterMitigationService:
             raise
 
         # Create photo record
-        # Prefer CompanyCam CDN thumbnail URL (faster loading)
+        # Prefer CompanyCam CDN URLs (faster loading, no proxy needed)
         thumbnail_url = (
             companycam_thumbnail_url
             or upload_result.thumbnail_url
@@ -676,6 +676,7 @@ class WaterMitigationService:
             'storage_provider': storage_provider_type,
             'storage_file_id': upload_result.file_id,
             'storage_thumbnail_url': thumbnail_url,
+            'storage_web_url': companycam_web_url,
             'storage_folder_path': upload_result.folder_path
         }
 
@@ -1000,6 +1001,7 @@ class WaterMitigationService:
             'storage_provider': photo.storage_provider,
             'storage_file_id': photo.storage_file_id,
             'storage_thumbnail_url': photo.storage_thumbnail_url,
+            'storage_web_url': getattr(photo, 'storage_web_url', None),
             'title': photo.title,
             'description': photo.description,
             'captured_date': photo.captured_date.isoformat() if photo.captured_date else None,

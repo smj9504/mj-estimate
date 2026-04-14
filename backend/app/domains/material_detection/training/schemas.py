@@ -213,6 +213,8 @@ class AutoLabelResponse(BaseModel):
 
 class TrainingJobCreate(BaseModel):
     """Create new training job"""
+    model_config = {"protected_namespaces": ()}
+
     job_name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     dataset_id: UUID
@@ -231,6 +233,8 @@ class TrainingJobCreate(BaseModel):
 
 class TrainingJobResponse(BaseModel):
     """Training job response"""
+    model_config = {"protected_namespaces": (), "from_attributes": True}
+
     id: UUID
     job_name: str
     description: Optional[str]
@@ -274,14 +278,13 @@ class TrainingJobResponse(BaseModel):
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
-
 
 # ===== Model Version Schemas =====
 
 class ModelVersionCreate(BaseModel):
     """Create new model version"""
+    model_config = {"protected_namespaces": ()}
+
     version: str = Field(..., pattern=r"^v\d+\.\d+\.\d+$")  # e.g., 'v1.0.0'
     name: Optional[str] = None
     description: Optional[str] = None
@@ -299,6 +302,8 @@ class ModelVersionDeploy(BaseModel):
 
 class ModelVersionResponse(BaseModel):
     """Model version response"""
+    model_config = {"protected_namespaces": (), "from_attributes": True}
+
     id: UUID
     version: str
     name: Optional[str]
@@ -313,9 +318,6 @@ class ModelVersionResponse(BaseModel):
     traffic_percentage: int
     created_by_id: UUID
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # ===== Cost Estimation Schemas =====

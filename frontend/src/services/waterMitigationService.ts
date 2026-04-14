@@ -100,9 +100,11 @@ export interface AIClassifyResponse {
 // AI photo category labels for display
 export const AI_CATEGORY_LABELS: Record<string, string> = {
   'wet-area': 'Wet Area',
+  'personal-properties': 'Personal Properties',
   'pre-mitigation-moving': 'Pre-Mitigation Moving',
   'demolition': 'Demolition',
   'containment': 'Containment',
+  'protection': 'Protection',
   'drying-process': 'Drying Process',
   'day-1': 'Day 1',
   'day-2': 'Day 2',
@@ -113,9 +115,11 @@ export const AI_CATEGORY_LABELS: Record<string, string> = {
 
 export const AI_CATEGORY_COLORS: Record<string, string> = {
   'wet-area': '#f5222d',
+  'personal-properties': '#eb2f96',
   'pre-mitigation-moving': '#fa8c16',
   'demolition': '#faad14',
   'containment': '#a0d911',
+  'protection': '#13c2c2',
   'drying-process': '#1890ff',
   'day-1': '#ff4d4f',
   'day-2': '#ffc53d',
@@ -315,9 +319,15 @@ export const waterMitigationService = {
 
     // Update photo category
     updateCategory: async (photoId: string, category: string): Promise<any> => {
-      const formData = new FormData();
-      formData.append('category', category);
-      const response = await api.patch(`${BASE_URL}/photos/${photoId}/category`, formData);
+      const response = await api.patch(
+        `${BASE_URL}/photos/${photoId}/category?category=${encodeURIComponent(category || 'uncategorized')}`
+      );
+      return response.data;
+    },
+
+    // Bulk set individual categories for multiple photos (single request)
+    bulkSetCategories: async (updates: { photo_id: string; category: string }[]): Promise<{ applied: number; failed: number }> => {
+      const response = await api.post(`${BASE_URL}/photos/bulk-set-categories`, { updates });
       return response.data;
     },
 
@@ -401,11 +411,11 @@ export const waterMitigationService = {
     // ─── AI Photo Classification ───
 
     // Classify multiple photos using AI
-    aiClassify: async (photoIds: string[], forceRefresh: boolean = false): Promise<AIClassifyResponse> => {
+    aiClassify: async (photoIds: string[], forceRefresh: boolean = false, signal?: AbortSignal): Promise<AIClassifyResponse> => {
       const response = await api.post(`${BASE_URL}/photos/ai-classify`, {
         photo_ids: photoIds,
         force_refresh: forceRefresh,
-      });
+      }, { signal });
       return response.data;
     },
 
@@ -414,6 +424,12 @@ export const waterMitigationService = {
       const response = await api.post(
         `${BASE_URL}/photos/${photoId}/ai-classify?force_refresh=${forceRefresh}`
       );
+      return response.data;
+    },
+
+    // Get cached AI classification results for a job
+    aiResults: async (jobId: string): Promise<{ total: number; results: AIClassifyResult[] }> => {
+      const response = await api.get(`${BASE_URL}/jobs/${jobId}/ai-results`);
       return response.data;
     },
 

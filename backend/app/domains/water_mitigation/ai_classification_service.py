@@ -4,14 +4,15 @@ AI Photo Classification Service for Water Mitigation
 Uses Gemini Vision API for photo classification with rule-based post-processing.
 
 Categories:
-- wet-area: Red meter + no demolition (water detected, before work)
+- wet-area: High meter reading + no demolition (water detected, before work)
 - pre-mitigation-moving: Furniture/items being moved
 - demolition: Active demolition work
 - containment: Plastic barriers, containment setup
+- protection: Floor/content protection (paper, tape, plastic wrap)
 - drying-process: Drying equipment operating or stacked (3+)
-- day-1: Red meter + demolition complete
-- day-2: Yellow meter + demolition
-- day-3: Green meter + demolition
+- day-1: Low/dry meter (0-13%/LO) + demolition complete
+- day-2: Medium meter (14-23%) + demolition complete
+- day-3: High/wet meter (24%+/HI) + demolition complete
 - documentation: Paperwork, signatures
 - uncategorized: Anything else, mold detected, needs manual review
 
@@ -37,45 +38,64 @@ logger = logging.getLogger(__name__)
 # Valid categories
 VALID_CATEGORIES = [
     "wet-area",
+    "personal-properties",
     "pre-mitigation-moving",
     "demolition",
     "containment",
+    "protection",
     "drying-process",
     "day-1",
     "day-2",
     "day-3",
     "documentation",
-    "uncategorized"
+    "uncategorized",
 ]
 
 # Optimized prompt - concise for token savings, precise for accuracy
 CLASSIFICATION_PROMPT = """Analyze this water mitigation (flood/water damage restoration) photo.
 
 CATEGORIES (pick exactly one):
-1. wet-area — Moisture meter showing RED, area NOT yet demolished
-2. pre-mitigation-moving — Furniture/belongings being moved out
-3. demolition — Active tear-out of drywall/flooring/baseboards (exposed studs, debris piles)
-4. containment — Plastic sheeting barriers, poly walls, zipper doors
-5. drying-process — Air movers/dehumidifiers/fans on floor running, OR 3+ units stacked together
-6. day-1 — Moisture meter RED + demolition already completed (exposed studs visible)
-7. day-2 — Moisture meter YELLOW + demolition completed
-8. day-3 — Moisture meter GREEN + demolition completed
-9. documentation — Paperwork, signatures, certificates, authorization forms
-10. uncategorized — None of the above, unclear, or mold visible
+1. wet-area — Moisture meter showing HIGH reading, area NOT yet demolished (original walls/floors intact)
+2. personal-properties — Homeowner belongings, furniture, personal items (before moving)
+3. pre-mitigation-moving — Furniture/belongings being moved out, packing process
+4. demolition — Active tear-out of drywall/flooring/baseboards (exposed studs, debris piles)
+5. containment — Plastic sheeting barriers, poly walls, zipper doors
+6. protection — Floor protection (ram board, paper, tape), content protection (plastic wrap on furniture/items)
+7. drying-process — Air movers/dehumidifiers/fans on floor running, OR 3+ units stacked together
+8. day-1 — Moisture meter 0-13% or "LO" + demolition already completed (dry)
+9. day-2 — Moisture meter 14-23% + demolition completed (drying)
+10. day-3 — Moisture meter 24%+ or "HI" + demolition completed (still wet)
+11. documentation — Paperwork, signatures, certificates, authorization forms
+12. uncategorized — None of the above, unclear, or mold visible
 
-KEY VISUAL CUES:
-- Moisture meters: handheld devices with colored digital display (red=wet, yellow=drying, green=dry)
-- Demolition complete: exposed wall studs, removed baseboards, cut drywall lines visible
+MOISTURE METER READING GUIDE:
+- Meters show NUMERIC values (e.g., 22%, 67%, 8.5%) or text ("LO", "HI") on a blue/backlit LCD
+- Do NOT judge moisture level by display color — READ THE NUMBER or text on screen
+- Reading interpretation:
+  * "LO" or 0-13% → DRY → meter_color="green" → day-1
+  * 14-23% → DRYING → meter_color="yellow" → day-2
+  * 24%+ or "HI" → WET → meter_color="red" → day-3
+- CRITICAL: Read the actual number on the meter display carefully. Report it in meter_reading.
+
+DEMOLITION DETECTION:
+- Demolished = exposed wall studs, removed baseboards, cut drywall lines, bare subfloor/plywood visible
+- If meter is placed against bare wood subfloor, exposed plywood, or surface where baseboards/drywall have been removed → is_demolished=true
+- If meter is on intact finished wall/floor with baseboards/trim still in place → is_demolished=false
+- Air movers/dehumidifiers visible in background = strong indicator that demolition is complete
+
+OTHER VISUAL CUES:
 - Air movers: small blue/red fan units on floor; dehumidifiers: larger boxy units
 - Containment: translucent plastic sheets hung from ceiling to floor
+- Floor protection: brown/white paper (ram board, kraft paper, rosin paper) laid on floor, painter's tape on edges/seams, plastic sheeting on floor surfaces
 
 Respond ONLY with valid JSON:
-{"category":"<name>","confidence":0.85,"metadata":{"meter_visible":false,"meter_color":null,"is_demolished":false,"equipment_count":0,"equipment_status":null,"mold_visible":false}}
+{"category":"<name>","confidence":0.85,"metadata":{"meter_visible":false,"meter_reading":null,"meter_color":null,"is_demolished":false,"equipment_count":0,"equipment_status":null,"mold_visible":false}}
 
 metadata fields:
 - meter_visible: boolean — is a moisture meter in the photo?
-- meter_color: "red"|"yellow"|"green"|null
-- is_demolished: boolean — evidence of completed demolition (exposed studs)?
+- meter_reading: string|null — exact value shown on meter display (e.g., "22", "67.5", "LO", "HI")
+- meter_color: "red"|"yellow"|"green"|null — derived from reading (green=dry, yellow=drying, red=wet)
+- is_demolished: boolean — evidence of completed demolition?
 - equipment_count: int — number of drying machines visible
 - equipment_status: "operating"|"stacked"|null — operating=on floor running, stacked=stored/piled
 - mold_visible: boolean — visible mold or mold-like growth?"""
@@ -108,12 +128,43 @@ def _resize_image(image_data: bytes, max_size: int = 1024) -> tuple[bytes, str]:
         return image_data, "image/jpeg"
 
 
+def _derive_color_from_reading(reading: str) -> str | None:
+    """
+    Derive meter color from numeric/text reading.
+
+    Returns "green", "yellow", "red", or None if unparseable.
+    """
+    if not reading:
+        return None
+
+    reading = str(reading).strip().upper()
+
+    # Text readings
+    if reading in ("LO", "LOW"):
+        return "green"
+    if reading in ("HI", "HIGH"):
+        return "red"
+
+    # Numeric readings — strip % sign and parse
+    try:
+        value = float(reading.replace("%", "").strip())
+        if value <= 13:
+            return "green"
+        elif value <= 23:
+            return "yellow"
+        else:
+            return "red"
+    except (ValueError, TypeError):
+        return None
+
+
 def validate_and_correct(ai_result: dict) -> dict:
     """
     Apply rule-based post-processing to validate and correct AI classification.
 
     Rules:
     - Rule 0: Mold detected → uncategorized
+    - Rule 0.5: Derive/correct meter_color from meter_reading (numeric)
     - Rule 1: Meter color + demolition state → correct category
     - Rule 2: Equipment status validation for drying-process
     """
@@ -135,24 +186,54 @@ def validate_and_correct(ai_result: dict) -> dict:
             })
             category = "uncategorized"
 
-    # Rule 1: Meter color + demolition state
-    elif metadata.get("meter_visible") and metadata.get("meter_color"):
-        color = metadata["meter_color"].lower()
-        demolished = metadata.get("is_demolished", False)
+    # Rule 0.5: Derive meter_color from meter_reading if available
+    elif metadata.get("meter_visible"):
+        meter_reading = metadata.get("meter_reading")
+        ai_color = (metadata.get("meter_color") or "").lower()
 
-        expected_category = None
+        # Normalize text-based meter_color values
+        if ai_color in ("lo", "low"):
+            ai_color = "green"
+        elif ai_color in ("hi", "high"):
+            ai_color = "red"
 
-        if color == "red":
-            expected_category = "day-1" if demolished else "wet-area"
-        elif color == "yellow":
-            expected_category = "day-2" if demolished else "wet-area"
-        elif color == "green":
-            expected_category = "day-3" if demolished else "wet-area"
+        # If we have a numeric/text reading, derive color from it
+        derived_color = _derive_color_from_reading(meter_reading)
 
-        if expected_category and category != expected_category:
-            corrections.append({
-                "rule": f"meter_{color}_{'demolished' if demolished else 'no_demo'}",
-                "reason": f"미터기 {color} + {'철거완료' if demolished else '철거전'} → {expected_category}",
+        if derived_color:
+            # Reading-based color overrides AI's meter_color
+            if ai_color and ai_color != derived_color:
+                corrections.append({
+                    "rule": "meter_reading_override",
+                    "reason": f"미터기 수치 {meter_reading} → {derived_color} (AI 판단 {ai_color} 보정)",
+                    "from": ai_color,
+                    "to": derived_color
+                })
+            color = derived_color
+            metadata["meter_color"] = derived_color
+        elif ai_color in ("red", "yellow", "green"):
+            color = ai_color
+            metadata["meter_color"] = ai_color
+        else:
+            color = None
+
+        # Rule 1: Meter color + demolition state → correct category
+        if color:
+            demolished = metadata.get("is_demolished", False)
+
+            expected_category = None
+
+            if color == "green":  # 0-13% / LO = dry
+                expected_category = "day-1" if demolished else "wet-area"
+            elif color == "yellow":  # 14-23% = drying
+                expected_category = "day-2" if demolished else "wet-area"
+            elif color == "red":  # 24%+ / HI = wet
+                expected_category = "day-3" if demolished else "wet-area"
+
+            if expected_category and category != expected_category:
+                corrections.append({
+                    "rule": f"meter_{color}_{'demolished' if demolished else 'no_demo'}",
+                    "reason": f"미터기 {color} ({meter_reading or 'N/A'}) + {'철거완료' if demolished else '철거전'} → {expected_category}",
                 "from": category,
                 "to": expected_category
             })
@@ -213,25 +294,18 @@ class AIClassificationService:
         self.enabled = settings.ENABLE_AI_PHOTO_CLASSIFICATION
         self.api_key = settings.GEMINI_API_KEY
         self.model_name = settings.GEMINI_MODEL
-        self._model = None
+        self._client = None
 
-    def _get_model(self):
-        """Lazy load Gemini model."""
-        if self._model is None:
+    def _get_client(self):
+        """Lazy load Gemini client (new google-genai SDK)."""
+        if self._client is None:
             if not self.api_key:
                 raise ValueError("GEMINI_API_KEY is not configured")
 
-            import google.generativeai as genai
-            genai.configure(api_key=self.api_key)
-            self._model = genai.GenerativeModel(
-                self.model_name,
-                generation_config=genai.GenerationConfig(
-                    temperature=0.1,  # Low temp for consistent classification
-                    max_output_tokens=256,  # JSON response is small
-                ),
-            )
+            from google import genai
+            self._client = genai.Client(api_key=self.api_key)
 
-        return self._model
+        return self._client
 
     async def classify_photo(
         self,
@@ -252,22 +326,29 @@ class AIClassificationService:
             }
 
         try:
-            model = self._get_model()
+            client = self._get_client()
 
             # Resize image for cost savings
             resized_data, resized_mime = _resize_image(image_data)
 
-            # Build proper Gemini content parts
-            import google.generativeai as genai
+            from google.genai import types
 
-            image_part = genai.types.BlobDict(
-                mime_type=resized_mime,
+            image_part = types.Part.from_bytes(
                 data=resized_data,
+                mime_type=resized_mime,
             )
 
             # Call Gemini Vision API
-            response = model.generate_content(
-                [CLASSIFICATION_PROMPT, image_part]
+            response = client.models.generate_content(
+                model=self.model_name,
+                contents=[CLASSIFICATION_PROMPT, image_part],
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    max_output_tokens=1024,
+                    thinking_config=types.ThinkingConfig(
+                        thinking_budget=0
+                    ),
+                ),
             )
 
             # Parse response

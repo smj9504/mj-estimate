@@ -541,17 +541,24 @@ async def list_photos(
         # Generate preview URL based on photo source and storage
         preview_url = None
         thumbnail_url = None
+        fallback_preview = f"/api/water-mitigation/photos/{photo.id}/preview?size=web"
+        fallback_thumbnail = f"/api/water-mitigation/photos/{photo.id}/preview?size=thumbnail"
 
-        # Use stored public thumbnail URL (CDN, etc.) - not gdrive (requires auth)
         storage_prov = getattr(photo, 'storage_provider', None)
-        if (photo.storage_thumbnail_url
-            and photo.storage_thumbnail_url.startswith('http')
-            and storage_prov != 'gdrive'):
-            thumbnail_url = photo.storage_thumbnail_url
-            preview_url = photo.storage_thumbnail_url
+        db_thumb = getattr(photo, 'storage_thumbnail_url', None) or ''
+        db_web = getattr(photo, 'storage_web_url', None) or ''
 
-        # For CompanyCam photos, use cached CDN URLs directly (fastest)
-        elif photo.source == 'companycam' and photo.external_id:
+        # Priority 1: DB-stored CDN URLs (fastest — no API/proxy needed)
+        if storage_prov != 'gdrive':
+            if db_thumb.startswith('http') and db_web.startswith('http'):
+                thumbnail_url = db_thumb
+                preview_url = db_web
+            elif db_thumb.startswith('http'):
+                thumbnail_url = db_thumb
+                preview_url = db_thumb
+
+        # Priority 2: CompanyCam Redis-cached CDN URLs
+        if not thumbnail_url and photo.source == 'companycam' and photo.external_id:
             try:
                 external_id = int(photo.external_id)
                 urls = companycam_urls.get(external_id, {})
@@ -559,17 +566,13 @@ async def list_photos(
                 if urls.get('thumbnail') and urls.get('web'):
                     thumbnail_url = urls['thumbnail']
                     preview_url = urls['web']
-                else:
-                    preview_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=web"
-                    thumbnail_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=thumbnail"
             except (ValueError, TypeError):
-                preview_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=web"
-                thumbnail_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=thumbnail"
+                pass
 
-        # For local/cloud storage photos, use preview endpoint
-        else:
-            preview_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=web"
-            thumbnail_url = f"/api/water-mitigation/photos/{photo.id}/preview?size=thumbnail"
+        # Priority 3: Fallback to preview endpoint (proxy)
+        if not thumbnail_url:
+            thumbnail_url = fallback_thumbnail
+            preview_url = fallback_preview
 
         photo_dict['preview_url'] = preview_url
         photo_dict['thumbnail_url'] = thumbnail_url
@@ -818,11 +821,15 @@ async def preview_photo(
                 companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
                 try:
                     photo_data = await companycam_client.get_photo(int(external_id))
+                    backfill_thumb = None
+                    backfill_web = None
                     if 'uris' in photo_data:
                         uris = photo_data['uris']
                         # Handle dict format: {original: url, large: url, thumbnail: url}
                         if isinstance(uris, dict):
                             size_url = uris.get(size) or uris.get('original') or uris.get('large')
+                            backfill_thumb = uris.get('thumbnail')
+                            backfill_web = uris.get('web')
                             if size_url:
                                 await cache.set(cache_key_size_url, size_url, ttl=86400)
                                 logger.debug(f"Using {size} size URL (dict) for {external_id}")
@@ -831,12 +838,16 @@ async def preview_photo(
                             for uri_item in uris:
                                 if isinstance(uri_item, dict):
                                     uri_type = uri_item.get('type') or uri_item.get('size')
+                                    uri_value = uri_item.get('uri') or uri_item.get('url')
+                                    if uri_type == 'thumbnail':
+                                        backfill_thumb = uri_value
+                                    elif uri_type == 'web':
+                                        backfill_web = uri_value
                                     if uri_type == size:
-                                        size_url = uri_item.get('uri') or uri_item.get('url')
+                                        size_url = uri_value
                                         if size_url:
                                             await cache.set(cache_key_size_url, size_url, ttl=86400)
                                             logger.debug(f"Using {size} size URL (list) for {external_id}")
-                                            break
                             # If original not found, try to get the largest available
                             if not size_url and size == 'original':
                                 for uri_item in uris:
@@ -848,6 +859,27 @@ async def preview_photo(
                                                 await cache.set(cache_key_size_url, size_url, ttl=86400)
                                                 logger.debug(f"Using {uri_type} size URL as fallback for {external_id}")
                                                 break
+
+                    # Backfill DB: persist CDN URLs so future requests skip API entirely
+                    if backfill_thumb or backfill_web:
+                        try:
+                            from app.domains.water_mitigation.models import WMPhoto
+                            from app.core.database_factory import get_database
+                            db = get_database()
+                            with db.get_session() as backfill_session:
+                                db_photo = backfill_session.query(WMPhoto).filter(
+                                    WMPhoto.id == photo_id
+                                ).first()
+                                if db_photo:
+                                    if backfill_thumb and not db_photo.storage_thumbnail_url:
+                                        db_photo.storage_thumbnail_url = backfill_thumb
+                                    if backfill_web and not getattr(db_photo, 'storage_web_url', None):
+                                        db_photo.storage_web_url = backfill_web
+                                    backfill_session.commit()
+                                    logger.info(f"Backfilled CDN URLs for photo {photo_id}")
+                        except Exception as bf_err:
+                            logger.warning(f"CDN URL backfill failed for {photo_id}: {bf_err}")
+
                 except Exception as e:
                     logger.warning(f"Failed to get size-specific URL: {e}")
             
@@ -1048,11 +1080,17 @@ async def preview_photo(
 @router.patch("/photos/{photo_id}/category")
 def update_photo_category(
     photo_id: UUID,
-    category: str = Form(...),
+    category: str = Query(None),
+    category_form: Optional[str] = Form(None),
     service: WaterMitigationService = Depends(get_wm_service),
     db: DatabaseSession = Depends(get_db_session)
 ):
-    """Update photo category"""
+    """Update photo category (accepts query param or form field)"""
+    # Support both query param and form data
+    resolved_category = category or category_form
+    if not resolved_category:
+        raise HTTPException(status_code=400, detail="category is required")
+
     try:
         photo = service.photo_repo.get_by_id(str(photo_id))
         if not photo:
@@ -1061,7 +1099,7 @@ def update_photo_category(
         # Update category
         updated = service.photo_repo.update(
             str(photo_id),
-            {"category": category}
+            {"category": resolved_category}
         )
 
         db.commit()
@@ -1111,6 +1149,53 @@ def bulk_update_category(
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to bulk update categories: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BulkSetCategoriesRequest(BaseModel):
+    """Set different categories for multiple photos at once"""
+    updates: List[Dict[str, str]]  # [{"photo_id": "...", "category": "..."}]
+
+
+@router.post("/photos/bulk-set-categories")
+def bulk_set_categories(
+    request: BulkSetCategoriesRequest,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Set individual categories for multiple photos in a single request.
+    Each item has its own photo_id and category.
+    """
+    from .models import WMPhoto
+
+    applied = 0
+    failed = 0
+
+    try:
+        for item in request.updates:
+            photo_id = item.get("photo_id")
+            category = item.get("category")
+            if not photo_id or not category:
+                failed += 1
+                continue
+            try:
+                db.query(WMPhoto).filter(
+                    WMPhoto.id == photo_id
+                ).update({"category": category})
+                applied += 1
+            except Exception:
+                failed += 1
+
+        db.commit()
+
+        return {
+            "applied": applied,
+            "failed": failed,
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to bulk set categories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2783,6 +2868,47 @@ class AIClassifyResponse(BaseModel):
     results: List[dict]
 
 
+@router.get("/jobs/{job_id}/ai-results")
+async def get_ai_results_for_job(
+    job_id: UUID,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """
+    Get all cached AI classification results for a job's photos.
+    Returns results without re-running classification.
+    """
+    from .models import PhotoAnalysisCache, WMPhoto
+
+    # Get all photo IDs for this job that have cached results
+    rows = db.query(
+        WMPhoto.id,
+        PhotoAnalysisCache.ai_result,
+        PhotoAnalysisCache.updated_at,
+    ).join(
+        PhotoAnalysisCache,
+        PhotoAnalysisCache.photo_id == WMPhoto.id,
+    ).filter(
+        WMPhoto.job_id == job_id,
+        WMPhoto.is_trashed == False,
+    ).all()
+
+    results = []
+    for photo_id, ai_result, updated_at in rows:
+        if ai_result:
+            results.append({
+                "photo_id": str(photo_id),
+                "cached": True,
+                "analyzed_at": updated_at.isoformat() if updated_at else None,
+                **ai_result,
+            })
+
+    return {
+        "total": len(results),
+        "results": results,
+    }
+
+
 @router.post("/photos/ai-classify", response_model=AIClassifyResponse)
 async def ai_classify_photos(
     request: AIClassifyRequest,
@@ -2861,80 +2987,84 @@ async def ai_classify_photos(
                 failed += 1
                 continue
 
-            # Read image data - try local → cloud storage → CompanyCam API
+            # Read image data
             image_data = None
             mime_type = photo_dict.get('mime_type', 'image/jpeg')
-            source = photo_dict.get('source', 'local')
-            external_id = photo_dict.get('external_id')
-            storage_provider = settings.STORAGE_PROVIDER
+            storage_file_id = photo_dict.get('storage_file_id')
+            photo_storage_provider = photo_dict.get('storage_provider', '')
 
             try:
                 # 1) Try local file
                 from app.core.config import settings as app_settings
                 base_dir = Path(app_settings.STORAGE_BASE_DIR)
-                local_path = base_dir / file_path
 
-                if local_path.exists():
-                    with open(local_path, 'rb') as f:
+                # Try file_path directly (may be absolute)
+                direct_path = Path(file_path)
+                if direct_path.is_absolute() and direct_path.exists():
+                    with open(direct_path, 'rb') as f:
                         image_data = f.read()
+                else:
+                    # Try relative to base_dir
+                    local_path = base_dir / file_path
+                    if local_path.exists():
+                        with open(local_path, 'rb') as f:
+                            image_data = f.read()
 
-                # 2) Try cloud storage (GDrive, GCS, etc.)
-                if image_data is None and storage_provider and storage_provider.lower() != 'local':
-                    try:
-                        from ..storage.factory import StorageFactory
-                        storage = StorageFactory.get_instance(storage_provider)
-                        storage_file_id = photo_dict.get('storage_file_id')
+                # 2) Try cloud storage with storage_file_id
+                #    Only try providers that could have this file
+                if image_data is None and storage_file_id:
+                    from ..storage.factory import StorageFactory
 
-                        if storage_file_id and hasattr(storage, 'download'):
-                            image_data = storage.download(storage_file_id)
-                            logger.info(f"AI classify: downloaded photo {photo_id} from {storage_provider}")
-                        elif hasattr(storage, 'download'):
-                            image_data = storage.download(file_path)
-                            logger.info(f"AI classify: downloaded photo {photo_id} from {storage_provider} via file_path")
-                    except Exception as e:
-                        logger.warning(f"AI classify: cloud storage failed for {photo_id}: {e}")
+                    providers_to_try = []
 
-                # 3) Try CompanyCam API (fresh URL)
-                if image_data is None and source == 'companycam' and external_id:
-                    try:
-                        from app.core.cache import get_cache
-                        from ..integrations.companycam.client import CompanyCamClient
+                    # Try the photo's own storage provider first
+                    if photo_storage_provider and photo_storage_provider != 'local':
+                        providers_to_try.append(photo_storage_provider)
 
-                        if settings.ENABLE_INTEGRATIONS and settings.COMPANYCAM_API_KEY:
-                            cache = get_cache()
-                            companycam_client = CompanyCamClient(api_key=settings.COMPANYCAM_API_KEY)
+                    # Then try currently configured provider
+                    configured = app_settings.STORAGE_PROVIDER.lower()
+                    if configured != 'local' and configured not in providers_to_try:
+                        providers_to_try.append(configured)
 
-                            # Try cached URL first
-                            cache_key = f"companycam:photo:url:{external_id}:original"
-                            photo_url = await cache.get(cache_key)
+                    for provider in providers_to_try:
+                        try:
+                            storage = StorageFactory.create(provider)
+                            if hasattr(storage, 'download'):
+                                image_data = storage.download(
+                                    storage_file_id
+                                )
+                                logger.info(
+                                    f"AI classify: photo {photo_id} "
+                                    f"from {provider}"
+                                )
+                                break
+                        except Exception:
+                            continue
 
-                            if not photo_url:
-                                # Get fresh URL from CompanyCam API
-                                photo_data = await companycam_client.get_photo(int(external_id))
-                                if 'uris' in photo_data:
-                                    uris = photo_data['uris']
-                                    if isinstance(uris, list):
-                                        for uri in uris:
-                                            if isinstance(uri, dict) and uri.get('type') in ('original', 'large'):
-                                                photo_url = uri.get('uri') or uri.get('url')
-                                                if photo_url:
-                                                    await cache.set(cache_key, photo_url, ttl=86400)
-                                                    break
-                                    elif isinstance(uris, dict):
-                                        photo_url = uris.get('original') or uris.get('large')
-                                        if photo_url:
-                                            await cache.set(cache_key, photo_url, ttl=86400)
-
-                            if photo_url:
-                                logger.info(f"AI classify: downloading CompanyCam photo {external_id}")
-                                image_data = await companycam_client.download_photo(photo_url)
-                    except Exception as e:
-                        logger.warning(f"AI classify: CompanyCam API failed for {photo_id}: {e}")
+                # 3) CompanyCam CDN fallback for companycam-sourced photos
+                if image_data is None and photo_dict.get('source') == 'companycam':
+                    thumbnail_url = photo_dict.get('storage_thumbnail_url', '')
+                    if thumbnail_url and thumbnail_url.startswith('http'):
+                        try:
+                            import httpx
+                            async with httpx.AsyncClient(timeout=15) as client:
+                                resp = await client.get(thumbnail_url)
+                                if resp.status_code == 200:
+                                    image_data = resp.content
+                                    logger.info(
+                                        f"AI classify: photo {photo_id} "
+                                        f"from CompanyCam CDN fallback"
+                                    )
+                        except Exception as cdn_err:
+                            logger.warning(
+                                f"CompanyCam CDN fallback failed "
+                                f"for {photo_id}: {cdn_err}"
+                            )
 
                 if image_data is None:
                     results.append({
                         "photo_id": photo_id,
-                        "error": "No local file, cloud storage, or CompanyCam URL available"
+                        "error": "Photo file not accessible"
                     })
                     failed += 1
                     continue

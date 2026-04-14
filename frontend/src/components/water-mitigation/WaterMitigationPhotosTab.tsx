@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress, Grid, Table, Select } from 'antd';
+import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress, Grid, Table, Select, Row, Col } from 'antd';
 import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
@@ -17,6 +17,107 @@ import waterMitigationService, {
 import type { CompanyCamSyncResult } from '../../types/waterMitigation';
 
 const { Text, Title } = Typography;
+
+// ─── AI Results Grid (extracted to avoid IIFE in JSX) ───
+const AI_PAGE_SIZE = 12;
+
+const AiResultsGrid: React.FC<{
+  results: AIClassifyResult[];
+  filter: string;
+  page: number;
+  onPageChange: (p: number) => void;
+  photoMap: Record<string, any>;
+  overrides: Record<string, string>;
+  onOverride: (photoId: string, val: string) => void;
+}> = ({ results, filter, page, onPageChange, photoMap, overrides, onOverride }) => {
+  const filtered = filter === 'all' ? results
+    : filter === 'classified' ? results.filter(r => !r.error && r.category !== 'uncategorized')
+    : filter === 'uncategorized' ? results.filter(r => r.category === 'uncategorized' && !r.error)
+    : results.filter(r => !!r.error);
+
+  const paged = filtered.slice((page - 1) * AI_PAGE_SIZE, page * AI_PAGE_SIZE);
+  const totalPages = Math.ceil(filtered.length / AI_PAGE_SIZE);
+
+  const categoryOptions = Object.entries(AI_CATEGORY_LABELS).map(([value, label]) => ({
+    value,
+    label: (
+      <Space size={4}>
+        <span style={{
+          display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+          background: AI_CATEGORY_COLORS[value] || '#bfbfbf',
+        }} />
+        {label}
+      </Space>
+    ),
+  }));
+
+  return (
+    <>
+      <Row gutter={[12, 12]}>
+        {paged.map((record) => {
+          const photo = photoMap[record.photo_id];
+          const thumbUrl = photo?._thumbUrl || '';
+          const displayCat = overrides[record.photo_id] || record.category || 'uncategorized';
+          const pct = Math.round((record.confidence || 0) * 100);
+          const meta = record.metadata || null;
+
+          return (
+            <Col key={record.photo_id} xs={12} sm={8} md={6}>
+              <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                <div style={{ height: 130, background: '#fafafa', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  {thumbUrl ? (
+                    <img src={thumbUrl} alt="" loading="lazy" style={{ width: '100%', height: 130, objectFit: 'cover', display: 'block' }}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : (
+                    <CameraOutlined style={{ fontSize: 32, color: '#d9d9d9' }} />
+                  )}
+                </div>
+                <div style={{ padding: '8px 10px' }}>
+                  {record.error ? (
+                    <>
+                      <Tag color="red">Error</Tag>
+                      <Text type="danger" style={{ fontSize: 10, display: 'block', marginTop: 4 }}>{record.error}</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Select size="small" value={displayCat}
+                        onChange={(val) => onOverride(record.photo_id, val)}
+                        style={{ width: '100%', marginBottom: 6 }}
+                        options={categoryOptions} />
+                      <Progress percent={pct} size="small"
+                        strokeColor={pct >= 80 ? '#52c41a' : pct >= 60 ? '#faad14' : '#ff4d4f'}
+                        format={(p) => `${p}%`} style={{ marginBottom: 4 }} />
+                      {meta && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                          {meta.meter_visible && (
+                            <Tag style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}
+                              color={meta.meter_color === 'red' ? 'red' : meta.meter_color === 'yellow' ? 'gold' : meta.meter_color === 'green' ? 'green' : 'default'}>
+                              {meta.meter_color || '?'}
+                            </Tag>
+                          )}
+                          {meta.is_demolished && <Tag style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }} color="volcano">Demo</Tag>}
+                          {meta.equipment_count > 0 && <Tag style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }} color="blue">{meta.equipment_count} equip</Tag>}
+                          {meta.mold_visible && <Tag style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }} color="red">Mold</Tag>}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </Col>
+          );
+        })}
+      </Row>
+      {filtered.length > AI_PAGE_SIZE && (
+        <div style={{ textAlign: 'center', marginTop: 12 }}>
+          <Button size="small" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Prev</Button>
+          <Text style={{ margin: '0 12px', fontSize: 12 }}>{page} / {totalPages}</Text>
+          <Button size="small" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>Next</Button>
+        </div>
+      )}
+    </>
+  );
+};
 
 // Sync status type
 interface SyncStatus {
@@ -138,8 +239,15 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const [aiResults, setAiResults] = useState<AIClassifyResult[]>([]);
   const [aiClassifying, setAiClassifying] = useState(false);
   const [aiApplying, setAiApplying] = useState(false);
+  const [aiProgress, setAiProgress] = useState({ current: 0, total: 0 });
+  const [aiPage, setAiPage] = useState(1);
+  const [aiFilter, setAiFilter] = useState<'all' | 'classified' | 'uncategorized' | 'error'>('all');
   // Track per-result overrides: photo_id -> user-selected category
   const [aiOverrides, setAiOverrides] = useState<Record<string, string>>({});
+  const aiAbortRef = useRef(false);
+  const aiAbortControllerRef = useRef<AbortController | null>(null);
+  // Map photo_id -> photo data for thumbnail display in AI modal
+  const aiPhotoMapRef = useRef<Record<string, any>>({});
 
   // Update current project ID when prop changes
   useEffect(() => {
@@ -406,11 +514,20 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   };
 
   // ─── AI Classification handlers ───
-  const handleAiClassify = useCallback(async () => {
+  const handleAiClassify = useCallback(async (resume = false) => {
+    aiAbortRef.current = false;
     setAiClassifying(true);
-    setAiResults([]);
-    setAiOverrides({});
     setAiModalVisible(true);
+
+    // Fresh start: clear previous results
+    if (!resume) {
+      setAiResults([]);
+      setAiOverrides({});
+      setAiProgress({ current: 0, total: 0 });
+      setAiPage(1);
+      setAiFilter('all');
+      aiPhotoMapRef.current = {};
+    }
 
     try {
       // Fetch all photos for this job to get IDs
@@ -429,25 +546,60 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         return;
       }
 
-      const photoIds = uncategorized.map((p: any) => p.id);
+      // Build photo map for thumbnail display in AI modal
+      const baseURL = api.defaults.baseURL || '';
+      for (const p of uncategorized) {
+        const thumbUrl = p.thumbnail_url
+          ? (p.thumbnail_url.startsWith('http') ? p.thumbnail_url : `${baseURL}${p.thumbnail_url}`)
+          : `${baseURL}/api/water-mitigation/photos/${p.id}/preview?size=web`;
+        aiPhotoMapRef.current[p.id] = { ...p, _thumbUrl: thumbUrl };
+      }
+
+      let photoIds = uncategorized.map((p: any) => p.id);
+
+      // Resume: skip already-classified photo IDs
+      if (resume && aiResults.length > 0) {
+        const doneIds = new Set(aiResults.map(r => r.photo_id));
+        photoIds = photoIds.filter((id: string) => !doneIds.has(id));
+
+        if (photoIds.length === 0) {
+          message.info('All uncategorized photos are already classified.');
+          setAiClassifying(false);
+          return;
+        }
+      }
 
       // Classify in batches of 10 to avoid timeout
       const batchSize = 10;
-      const allResults: AIClassifyResult[] = [];
+      const allResults: AIClassifyResult[] = resume ? [...aiResults] : [];
+      const totalPhotos = (resume ? aiResults.length : 0) + photoIds.length;
+      setAiProgress({ current: allResults.length, total: totalPhotos });
 
       for (let i = 0; i < photoIds.length; i += batchSize) {
+        if (aiAbortRef.current) {
+          message.info(`Stopped. ${allResults.length} photos classified.`);
+          break;
+        }
+
         const batch = photoIds.slice(i, i + batchSize);
+        const controller = new AbortController();
+        aiAbortControllerRef.current = controller;
+
         try {
-          const result = await waterMitigationService.photos.aiClassify(batch, false);
+          const result = await waterMitigationService.photos.aiClassify(batch, false, controller.signal);
           allResults.push(...result.results);
-          // Update results progressively
           setAiResults([...allResults]);
+          setAiProgress({ current: allResults.length, total: totalPhotos });
         } catch (err: any) {
+          if (err.name === 'AbortError' || err.name === 'CanceledError' || err.code === 'ERR_CANCELED') {
+            message.info(`Stopped. ${allResults.length} photos classified.`);
+            break;
+          }
           console.error('AI batch classification failed:', err);
         }
       }
 
-      if (allResults.length === 0) {
+      if (allResults.length === 0 && !aiAbortRef.current) {
         message.warning('AI classification returned no results. Check GEMINI_API_KEY configuration.');
       }
     } catch (error: any) {
@@ -456,27 +608,83 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     } finally {
       setAiClassifying(false);
     }
+  }, [jobId, aiResults]);
+
+  // Load previously cached AI results
+  const handleAiLoadPrevious = useCallback(async () => {
+    try {
+      setAiClassifying(true);
+      setAiModalVisible(true);
+      setAiResults([]);
+      setAiOverrides({});
+      setAiPage(1);
+      setAiFilter('all');
+
+      // Fetch photo data for thumbnails
+      const baseURL = api.defaults.baseURL || '';
+      const params = new URLSearchParams({ page_size: '500', page: '1' });
+      const photoResp = await api.get(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
+      const photos = photoResp.data.items || photoResp.data.photos || [];
+      aiPhotoMapRef.current = {};
+      for (const p of photos) {
+        const thumbUrl = p.thumbnail_url
+          ? (p.thumbnail_url.startsWith('http') ? p.thumbnail_url : `${baseURL}${p.thumbnail_url}`)
+          : `${baseURL}/api/water-mitigation/photos/${p.id}/preview?size=web`;
+        aiPhotoMapRef.current[p.id] = { ...p, _thumbUrl: thumbUrl };
+      }
+
+      // Fetch cached results
+      const data = await waterMitigationService.photos.aiResults(jobId);
+      if (data.results.length === 0) {
+        message.info('No previous AI classification results found.');
+      }
+      setAiResults(data.results);
+      setAiProgress({ current: data.results.length, total: data.results.length });
+    } catch (error: any) {
+      message.error(`Failed to load results: ${error.message}`);
+    } finally {
+      setAiClassifying(false);
+    }
   }, [jobId]);
+
+  const handleAiStop = useCallback(() => {
+    aiAbortRef.current = true;
+    aiAbortControllerRef.current?.abort();
+  }, []);
+
+  const handleAiCancel = useCallback(() => {
+    aiAbortRef.current = true;
+    aiAbortControllerRef.current?.abort();
+    setAiResults([]);
+    setAiOverrides({});
+    setAiModalVisible(false);
+  }, []);
 
   const handleAiApplyAll = useCallback(async () => {
     setAiApplying(true);
     try {
-      const successResults = aiResults.filter(r => !r.error && r.category !== 'uncategorized');
-      let applied = 0;
-      let failed = 0;
+      // Build updates: each photo gets its own category
+      const updates = aiResults
+        .filter(r => {
+          if (r.error) return false;
+          const finalCategory = aiOverrides[r.photo_id] || r.category;
+          return finalCategory && finalCategory !== 'uncategorized';
+        })
+        .map(r => ({
+          photo_id: r.photo_id,
+          category: aiOverrides[r.photo_id] || r.category,
+        }));
 
-      for (const result of successResults) {
-        try {
-          // Use override if user changed the category, otherwise use AI suggestion
-          const category = aiOverrides[result.photo_id] || result.category;
-          await waterMitigationService.photos.updateCategory(result.photo_id, category);
-          applied++;
-        } catch {
-          failed++;
-        }
+      if (updates.length === 0) {
+        message.info('No categories to apply.');
+        setAiApplying(false);
+        return;
       }
 
-      message.success(`Applied categories to ${applied} photos${failed > 0 ? ` (${failed} failed)` : ''}`);
+      // Single bulk API call instead of N individual calls
+      const result = await waterMitigationService.photos.bulkSetCategories(updates);
+
+      message.success(`Applied categories to ${result.applied} photos${result.failed > 0 ? ` (${result.failed} failed)` : ''}`);
       setAiModalVisible(false);
 
       // Refresh gallery
@@ -950,7 +1158,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             <Button
               type="default"
               icon={<RobotOutlined />}
-              onClick={handleAiClassify}
+              onClick={() => { handleAiClassify(false); }}
               loading={aiClassifying}
               size={isMobile ? 'small' : 'middle'}
               style={{
@@ -962,6 +1170,23 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
               }}
             >
               {isMobile ? 'AI' : 'AI Classify'}
+            </Button>
+          </Tooltip>
+          <Tooltip title="View & edit previous AI classification results">
+            <Button
+              type="default"
+              icon={<SearchOutlined />}
+              onClick={handleAiLoadPrevious}
+              size={isMobile ? 'small' : 'middle'}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                fontWeight: 500,
+                color: 'white'
+              }}
+            >
+              {isMobile ? '' : 'AI Results'}
             </Button>
           </Tooltip>
 
@@ -1418,23 +1643,48 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         }
         open={aiModalVisible}
         onCancel={() => {
-          if (!aiClassifying) setAiModalVisible(false);
+          if (aiClassifying) {
+            handleAiCancel();
+          } else {
+            setAiModalVisible(false);
+          }
         }}
-        width={800}
+        width={960}
         footer={
           <Space>
-            <Button onClick={() => setAiModalVisible(false)} disabled={aiApplying}>
-              Cancel
-            </Button>
-            <Button
-              type="primary"
-              icon={<ThunderboltOutlined />}
-              onClick={handleAiApplyAll}
-              loading={aiApplying}
-              disabled={aiClassifying || aiResults.filter(r => !r.error && r.category !== 'uncategorized').length === 0}
-            >
-              Apply All ({aiResults.filter(r => !r.error && (aiOverrides[r.photo_id] || r.category) !== 'uncategorized').length} photos)
-            </Button>
+            {aiClassifying ? (
+              <>
+                <Button onClick={handleAiStop}>
+                  Stop
+                </Button>
+                <Button danger onClick={handleAiCancel}>
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button onClick={() => setAiModalVisible(false)} disabled={aiApplying}>
+                  Close
+                </Button>
+                {aiResults.length > 0 && aiProgress.current < aiProgress.total && (
+                  <Button
+                    icon={<RobotOutlined />}
+                    onClick={() => { handleAiClassify(true); }}
+                  >
+                    Resume ({aiProgress.total - aiProgress.current} remaining)
+                  </Button>
+                )}
+                <Button
+                  type="primary"
+                  icon={<ThunderboltOutlined />}
+                  onClick={handleAiApplyAll}
+                  loading={aiApplying}
+                  disabled={aiResults.filter(r => !r.error && r.category !== 'uncategorized').length === 0}
+                >
+                  Apply All ({aiResults.filter(r => !r.error && (aiOverrides[r.photo_id] || r.category) !== 'uncategorized').length} photos)
+                </Button>
+              </>
+            )}
           </Space>
         }
       >
@@ -1443,130 +1693,45 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             <Spin size="large" />
             <div style={{ marginTop: 12 }}>
               <Text>Analyzing photos with AI...</Text>
-              {aiResults.length > 0 && (
-                <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
-                  {aiResults.length} photos classified so far
-                </Text>
-              )}
+              <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+                {aiProgress.current} / {aiProgress.total} photos
+              </Text>
             </div>
           </div>
         )}
 
         {aiResults.length > 0 && (
           <>
-            <div style={{ marginBottom: 12 }}>
-              <Space>
-                <Tag color="green">{aiResults.filter(r => !r.error && r.category !== 'uncategorized').length} classified</Tag>
-                <Tag color="orange">{aiResults.filter(r => r.category === 'uncategorized' && !r.error).length} uncategorized</Tag>
-                {aiResults.filter(r => r.error).length > 0 && (
-                  <Tag color="red">{aiResults.filter(r => r.error).length} failed</Tag>
-                )}
-              </Space>
+            <div style={{ marginBottom: 12, display: 'flex', gap: 6 }}>
+              {[
+                { key: 'all' as const, label: `All (${aiResults.length})`, color: 'default' },
+                { key: 'classified' as const, label: `Classified (${aiResults.filter(r => !r.error && r.category !== 'uncategorized').length})`, color: 'green' },
+                { key: 'uncategorized' as const, label: `Uncategorized (${aiResults.filter(r => r.category === 'uncategorized' && !r.error).length})`, color: 'orange' },
+                ...(aiResults.some(r => r.error) ? [{ key: 'error' as const, label: `Failed (${aiResults.filter(r => r.error).length})`, color: 'red' }] : []),
+              ].map(f => (
+                <Tag
+                  key={f.key}
+                  color={f.color}
+                  style={{
+                    cursor: 'pointer',
+                    border: aiFilter === f.key ? '2px solid #1890ff' : undefined,
+                    fontWeight: aiFilter === f.key ? 600 : undefined,
+                  }}
+                  onClick={() => { setAiFilter(f.key); setAiPage(1); }}
+                >
+                  {f.label}
+                </Tag>
+              ))}
             </div>
 
-            <Table
-              dataSource={aiResults}
-              rowKey="photo_id"
-              size="small"
-              pagination={{ pageSize: 10, showSizeChanger: false }}
-              scroll={{ y: 400 }}
-              columns={[
-                {
-                  title: 'Photo ID',
-                  dataIndex: 'photo_id',
-                  width: 100,
-                  render: (id: string) => (
-                    <Text copyable={{ text: id }} style={{ fontSize: 11 }}>
-                      {id.slice(0, 8)}...
-                    </Text>
-                  ),
-                },
-                {
-                  title: 'AI Category',
-                  dataIndex: 'category',
-                  width: 180,
-                  render: (category: string, record: AIClassifyResult) => {
-                    if (record.error) {
-                      return <Tag color="red">Error</Tag>;
-                    }
-                    const overridden = aiOverrides[record.photo_id];
-                    const displayCat = overridden || category;
-                    return (
-                      <Select
-                        size="small"
-                        value={displayCat}
-                        onChange={(val) => {
-                          setAiOverrides(prev => ({ ...prev, [record.photo_id]: val }));
-                        }}
-                        style={{ width: '100%' }}
-                        options={Object.entries(AI_CATEGORY_LABELS).map(([value, label]) => ({
-                          value,
-                          label: (
-                            <Space size={4}>
-                              <span style={{
-                                display: 'inline-block',
-                                width: 8,
-                                height: 8,
-                                borderRadius: '50%',
-                                background: AI_CATEGORY_COLORS[value] || '#bfbfbf',
-                              }} />
-                              {label}
-                            </Space>
-                          ),
-                        }))}
-                      />
-                    );
-                  },
-                },
-                {
-                  title: 'Confidence',
-                  dataIndex: 'confidence',
-                  width: 90,
-                  render: (val: number, record: AIClassifyResult) => {
-                    if (record.error) return '-';
-                    const pct = Math.round(val * 100);
-                    return (
-                      <Progress
-                        percent={pct}
-                        size="small"
-                        strokeColor={pct >= 80 ? '#52c41a' : pct >= 60 ? '#faad14' : '#ff4d4f'}
-                        format={(p) => `${p}%`}
-                      />
-                    );
-                  },
-                },
-                {
-                  title: 'Details',
-                  dataIndex: 'metadata',
-                  render: (meta: any, record: AIClassifyResult) => {
-                    if (record.error) {
-                      return <Text type="danger" style={{ fontSize: 11 }}>{record.error}</Text>;
-                    }
-                    if (!meta) return '-';
-                    const tags: React.ReactNode[] = [];
-                    if (meta.meter_visible) {
-                      tags.push(
-                        <Tag key="meter" color={
-                          meta.meter_color === 'red' ? 'red' :
-                          meta.meter_color === 'yellow' ? 'gold' :
-                          meta.meter_color === 'green' ? 'green' : 'default'
-                        }>
-                          Meter: {meta.meter_color || '?'}
-                        </Tag>
-                      );
-                    }
-                    if (meta.is_demolished) tags.push(<Tag key="demo" color="volcano">Demolished</Tag>);
-                    if (meta.equipment_count > 0) {
-                      tags.push(<Tag key="equip" color="blue">{meta.equipment_count} equip ({meta.equipment_status || '?'})</Tag>);
-                    }
-                    if (meta.mold_visible) tags.push(<Tag key="mold" color="red">Mold!</Tag>);
-                    if (record.rule_applied) {
-                      tags.push(<Tag key="rule" color="purple">Rule: {record.rule_applied}</Tag>);
-                    }
-                    return tags.length > 0 ? <Space size={2} wrap>{tags}</Space> : <Text type="secondary">-</Text>;
-                  },
-                },
-              ]}
+            <AiResultsGrid
+              results={aiResults}
+              filter={aiFilter}
+              page={aiPage}
+              onPageChange={setAiPage}
+              photoMap={aiPhotoMapRef.current}
+              overrides={aiOverrides}
+              onOverride={(photoId, val) => setAiOverrides(prev => ({ ...prev, [photoId]: val }))}
             />
           </>
         )}

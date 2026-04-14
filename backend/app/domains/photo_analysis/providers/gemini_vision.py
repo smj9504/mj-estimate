@@ -23,13 +23,14 @@ from app.domains.pack_calculation.templates.base_template import RoomType, Densi
 
 logger = logging.getLogger(__name__)
 
-# Check if google-generativeai is installed
+# Check if google-genai is installed
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
-    logger.warning("google-generativeai package not installed. Run: pip install google-generativeai")
+    logger.warning("google-genai package not installed. Run: pip install google-genai")
 
 
 class GeminiVisionProvider(PhotoAnalysisProvider):
@@ -47,19 +48,18 @@ class GeminiVisionProvider(PhotoAnalysisProvider):
         self.model_name = model or getattr(settings, 'GEMINI_MODEL', 'gemini-1.5-flash')
 
         if not GEMINI_AVAILABLE:
-            logger.warning("google-generativeai package not available")
-            self.model = None
+            logger.warning("google-genai package not available")
+            self.client = None
         elif not self.api_key:
             logger.warning("Gemini API key not configured")
-            self.model = None
+            self.client = None
         else:
             try:
-                genai.configure(api_key=self.api_key)
-                self.model = genai.GenerativeModel(self.model_name)
+                self.client = genai.Client(api_key=self.api_key)
                 logger.info(f"Gemini Vision provider initialized with model: {self.model_name}")
             except Exception as e:
                 logger.error(f"Failed to initialize Gemini: {e}")
-                self.model = None
+                self.client = None
 
         # Configuration
         self.max_tokens = 2000
@@ -73,7 +73,7 @@ class GeminiVisionProvider(PhotoAnalysisProvider):
 
     def is_available(self) -> bool:
         """Check if provider is available"""
-        return GEMINI_AVAILABLE and self.api_key is not None and self.model is not None
+        return GEMINI_AVAILABLE and self.api_key is not None and self.client is not None
 
     def _is_localhost_url(self, url: str) -> bool:
         """Check if URL is a localhost/internal URL."""
@@ -235,12 +235,6 @@ class GeminiVisionProvider(PhotoAnalysisProvider):
         image_bytes = await self._load_image(photo_url)
         optimized_bytes = await self._optimize_image(image_bytes)
 
-        # Prepare image for Gemini
-        image_part = {
-            "mime_type": "image/jpeg",
-            "data": optimized_bytes
-        }
-
         # Retry logic
         last_exception = None
         for attempt in range(self.max_retries):
@@ -249,9 +243,10 @@ class GeminiVisionProvider(PhotoAnalysisProvider):
 
                 # Generate content
                 response = await asyncio.to_thread(
-                    self.model.generate_content,
-                    [prompt, image_part],
-                    generation_config=genai.GenerationConfig(
+                    self.client.models.generate_content,
+                    model=self.model_name,
+                    contents=[prompt, types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg")],
+                    config=types.GenerateContentConfig(
                         temperature=0.2,
                         max_output_tokens=self.max_tokens,
                     )
@@ -362,11 +357,6 @@ class GeminiVisionProvider(PhotoAnalysisProvider):
         image_bytes = await self._load_image(photo_url)
         optimized_bytes = await self._optimize_image(image_bytes)
 
-        image_part = {
-            "mime_type": "image/jpeg",
-            "data": optimized_bytes
-        }
-
         enhanced_prompt = f"""IMPORTANT: You MUST respond with ONLY valid JSON. No explanatory text, no markdown code blocks, just pure JSON.
 
 {prompt}
@@ -379,9 +369,10 @@ Remember: Your entire response must be a valid JSON object. Start with {{ and en
                 logger.info(f"Analyzing photo raw with Gemini (attempt {attempt + 1}/{self.max_retries})")
 
                 response = await asyncio.to_thread(
-                    self.model.generate_content,
-                    [enhanced_prompt, image_part],
-                    generation_config=genai.GenerationConfig(
+                    self.client.models.generate_content,
+                    model=self.model_name,
+                    contents=[enhanced_prompt, types.Part.from_bytes(data=optimized_bytes, mime_type="image/jpeg")],
+                    config=types.GenerateContentConfig(
                         temperature=0.2,
                         max_output_tokens=4000,
                     )
@@ -433,9 +424,10 @@ Remember: Your entire response must be a valid JSON object. Start with {{ and en
                 logger.info(f"Generating text with Gemini (attempt {attempt + 1}/{self.max_retries})")
 
                 response = await asyncio.to_thread(
-                    self.model.generate_content,
-                    prompt,
-                    generation_config=genai.GenerationConfig(
+                    self.client.models.generate_content,
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
                         temperature=0.3,
                         max_output_tokens=max_tokens,
                     )

@@ -79,6 +79,19 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
     [shape.id, onDragEnd],
   );
 
+  // Shift-key snap: snap rotation to 15° increments during transform
+  const handleTransform = useCallback((e: Konva.KonvaEventObject<Event>) => {
+    if (!shapeNodeRef.current || !groupRef.current) return;
+    if (!(e.evt as MouseEvent)?.shiftKey) return;
+
+    const node = shapeNodeRef.current;
+    const group = groupRef.current;
+    const SNAP_ANGLE = 15;
+    const totalRotation = group.rotation() + node.rotation();
+    const snapped = Math.round(totalRotation / SNAP_ANGLE) * SNAP_ANGLE;
+    node.rotation(snapped - group.rotation());
+  }, []);
+
   const handleTransformEnd = useCallback(() => {
     if (!shapeNodeRef.current || !groupRef.current) return;
     const node = shapeNodeRef.current;
@@ -252,6 +265,7 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
         anchorCornerRadius={2}
         anchorStroke="#1890ff"
         anchorFill="#ffffff"
+        onTransform={handleTransform}
         onTransformEnd={handleTransformEnd}
         boundBoxFunc={(oldBox, newBox) => {
           if (newBox.width < 10 || newBox.height < 10) return oldBox;
