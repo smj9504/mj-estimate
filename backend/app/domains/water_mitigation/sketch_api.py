@@ -494,9 +494,26 @@ async def preview_background_image(
         try:
             storage = StorageFactory.get_instance(provider)
             photo_bytes = storage.download(file_id)
+
+            # Detect content type from stored file extension
+            content_type = "image/jpeg"
+            if file_id.endswith(".webp"):
+                content_type = "image/webp"
+            elif file_id.endswith(".png"):
+                content_type = "image/png"
+
+            logger.info(
+                "Serving background image for sketch %s: "
+                "provider=%s, file_id=%s, size=%d bytes",
+                floor_sketch_id,
+                provider,
+                file_id,
+                len(photo_bytes),
+            )
+
             return StreamingResponse(
                 io.BytesIO(photo_bytes),
-                media_type="image/jpeg",
+                media_type=content_type,
                 headers={
                     "Content-Disposition": "inline",
                     "Cache-Control": (

@@ -5,6 +5,11 @@
  * image and enter its real-world length in feet. From that, we compute
  * `scale_pixels_per_foot` so all subsequent drawings are dimensionally accurate.
  *
+ * The Stage is self-sized via ResizeObserver to match the actual visible canvas
+ * area (excluding instruction bar and bottom panel). This ensures the background
+ * image is as large as possible for precise calibration, regardless of monitor
+ * size.
+ *
  * Flow:
  *   1. User clicks two points on the image (or click-drags) to define a line.
  *   2. The pixel distance is displayed; user enters the real-world length.
@@ -13,15 +18,15 @@
  * Usage:
  *   <WMScaleCalibration
  *     imageUrl={backgroundImageUrl}
- *     canvasWidth={stageSize.width}
- *     canvasHeight={stageSize.height}
+ *     logicalCanvasWidth={canvasWidth}
+ *     logicalCanvasHeight={canvasHeight}
  *     currentScale={floorSketch.scale_pixels_per_foot}
  *     onCalibrated={(newScale) => handleScaleChange(newScale)}
  *     onCancel={() => setCalibrating(false)}
  *   />
  */
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { Stage, Layer, Line, Circle, Text as KonvaText, Image as KonvaImage } from 'react-konva';
 import { Button, InputNumber, Space, Typography, Alert, theme } from 'antd';
 import { AimOutlined, CheckOutlined, CloseOutlined, UndoOutlined } from '@ant-design/icons';
@@ -34,8 +39,16 @@ const { Text } = Typography;
 
 export interface WMScaleCalibrationProps {
   imageUrl: string;
-  canvasWidth: number;
-  canvasHeight: number;
+  /**
+   * @deprecated Use logicalCanvasWidth/logicalCanvasHeight instead.
+   * Stage now self-sizes via ResizeObserver.
+   */
+  canvasWidth?: number;
+  /**
+   * @deprecated Use logicalCanvasWidth/logicalCanvasHeight instead.
+   * Stage now self-sizes via ResizeObserver.
+   */
+  canvasHeight?: number;
   /** Logical canvas dimensions where overlay elements are drawn (fixed coordinate system) */
   logicalCanvasWidth: number;
   logicalCanvasHeight: number;
@@ -88,8 +101,6 @@ function midpoint(a: Point, b: Point): Point {
 
 const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
   imageUrl,
-  canvasWidth,
-  canvasHeight,
   logicalCanvasWidth,
   logicalCanvasHeight,
   currentScale,
@@ -97,6 +108,33 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
   onCancel,
 }) => {
   const { token } = theme.useToken();
+
+  // ------------------------------------------------------------------
+  // Self-sizing: measure the actual visible canvas area
+  // ------------------------------------------------------------------
+  const canvasAreaRef = useRef<HTMLDivElement>(null);
+  const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
+
+  useLayoutEffect(() => {
+    const el = canvasAreaRef.current;
+    if (!el) return;
+
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      setStageSize({
+        width: Math.max(300, Math.floor(rect.width)),
+        height: Math.max(200, Math.floor(rect.height)),
+      });
+    };
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    measure(); // initial
+    return () => observer.disconnect();
+  }, []);
+
+  const canvasWidth = stageSize.width;
+  const canvasHeight = stageSize.height;
 
   // Image loading
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
@@ -261,8 +299,11 @@ const WMScaleCalibration: React.FC<WMScaleCalibrationProps> = ({
         </Space>
       </div>
 
-      {/* Canvas area */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      {/* Canvas area — self-measured via ResizeObserver */}
+      <div
+        ref={canvasAreaRef}
+        style={{ flex: 1, position: 'relative', overflow: 'hidden' }}
+      >
         <Stage
           ref={stageRef}
           width={canvasWidth}

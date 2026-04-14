@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domains.integrations.google_sheets.client import (
@@ -369,11 +370,18 @@ class GoogleSheetsSyncService:
         query = select(WaterMitigationJob).where(
             WaterMitigationJob.google_sheet_row_number == row_number,
             WaterMitigationJob.google_sheet_name == sheet_name
-        )
+        ).order_by(WaterMitigationJob.created_at.desc())
         result = self.db.execute(query)
-        job = result.scalar_one_or_none()
+        jobs = result.scalars().all()
 
-        return job
+        if len(jobs) > 1:
+            logger.warning(
+                f"Found {len(jobs)} duplicate jobs for row {row_number}, "
+                f"sheet {sheet_name}. Using most recently updated. "
+                f"IDs: {[str(j.id) for j in jobs]}"
+            )
+
+        return jobs[0] if jobs else None
 
     def _find_job_by_street_address(
         self,
@@ -645,6 +653,16 @@ class GoogleSheetsSyncService:
         Returns:
             Created job
         """
+        # Guard: check for existing job one more time to prevent duplicates
+        # (race condition or address-match miss could lead us here with a dup)
+        existing = self._find_job_by_row_number(row_number, sheet_name)
+        if existing:
+            logger.warning(
+                f"Duplicate prevented: job {existing.id} already exists "
+                f"for row {row_number}, sheet {sheet_name}. Updating instead."
+            )
+            return self._update_job(existing, job_data, row_number, sheet_name)
+
         # Add sync metadata
         job_data["google_sheet_row_number"] = row_number
         job_data["google_sheet_name"] = sheet_name
@@ -655,7 +673,18 @@ class GoogleSheetsSyncService:
         # Create job
         job = WaterMitigationJob(**job_data)
         self.db.add(job)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            logger.warning(
+                f"IntegrityError on create for row {row_number}, sheet {sheet_name}. "
+                f"Fetching existing job instead."
+            )
+            existing = self._find_job_by_row_number(row_number, sheet_name)
+            if existing:
+                return self._update_job(existing, job_data, row_number, sheet_name)
+            raise
         self.db.refresh(job)
 
         return job

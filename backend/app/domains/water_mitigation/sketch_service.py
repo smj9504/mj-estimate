@@ -141,19 +141,17 @@ class SketchService:
         storage = storage_factory.get_instance()
 
         # Remove the previous background image if one exists
-        if sketch.background_image_url:
+        old_file_id = getattr(sketch, "storage_file_id", None)
+        if old_file_id:
             try:
-                # Extract filename from the stored URL for the delete call
-                # e.g. "/uploads/wm_sketch_backgrounds/id/uuid.jpg" → "uuid.jpg"
-                import posixpath
-                file_id = posixpath.basename(sketch.background_image_url)
-                storage.delete(file_id)
+                storage.delete(old_file_id)
             except Exception as exc:
                 # Non-fatal: log and continue with the new upload
                 logger.warning(
                     "Could not delete previous background image for floor sketch "
-                    "%s: %s",
+                    "%s (file_id=%s): %s",
                     floor_sketch_id,
+                    old_file_id,
                     exc,
                 )
 

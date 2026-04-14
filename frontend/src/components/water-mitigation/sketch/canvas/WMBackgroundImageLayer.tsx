@@ -79,17 +79,33 @@ const WMBackgroundImageLayer: React.FC<WMBackgroundImageLayerProps> = ({
 
     let cancelled = false;
     const img = new window.Image();
+    // Try with crossOrigin first (enables canvas export if CORS headers
+    // are present). If that fails (e.g. missing CORS headers in
+    // production), retry without crossOrigin so the image still renders.
     img.crossOrigin = 'anonymous';
-    img.onload = () => {
+
+    const onLoad = (loadedImg: HTMLImageElement) => {
       if (cancelled) return;
-      const dims = fitContain(img.naturalWidth, img.naturalHeight, canvasWidth, canvasHeight);
-      setFitted({ image: img, ...dims });
+      const dims = fitContain(loadedImg.naturalWidth, loadedImg.naturalHeight, canvasWidth, canvasHeight);
+      setFitted({ image: loadedImg, ...dims });
       onStatusRef.current?.('loaded');
     };
+
+    img.onload = () => onLoad(img);
     img.onerror = () => {
       if (cancelled) return;
-      setFitted(null);
-      onStatusRef.current?.('error');
+      // Retry without crossOrigin – image will render but canvas
+      // becomes "tainted" (no export). This is acceptable since the
+      // sketch canvas is not exported on the frontend.
+      const img2 = new window.Image();
+      img2.onload = () => onLoad(img2);
+      img2.onerror = () => {
+        if (cancelled) return;
+        console.error('[WMBackgroundImageLayer] Failed to load image:', imageUrl);
+        setFitted(null);
+        onStatusRef.current?.('error');
+      };
+      img2.src = imageUrl;
     };
     img.src = imageUrl;
 

@@ -499,10 +499,11 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     loadOverlayData(floorSketch.overlay_data);
   }, [floorSketch.id, loadOverlayData]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Also update scale when viewport resizes (initial load)
+  // Fit-to-view on initial load so the logical canvas fills the viewport
+  // regardless of whether the viewport is smaller or larger than 1200×900.
   const initialFitDoneRef = useRef(false);
   useEffect(() => {
-    if (!initialFitDoneRef.current && fitScale > 0 && fitScale < 1) {
+    if (!initialFitDoneRef.current && fitScale > 0) {
       initialFitDoneRef.current = true;
       setStageScale(fitScale);
     }
@@ -1591,7 +1592,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     if (url.startsWith('blob:')) return url;
 
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const backendOrigin = isLocal ? '' : 'https://mjestimate-backend.onrender.com';
+    const backendOrigin = isLocal ? '' : (process.env.REACT_APP_API_URL || 'https://mjestimate-backend.onrender.com');
     const proxyPath = `/api/water-mitigation/sketch/floors/${floorSketch.id}/background-image/preview`;
 
     // Relative path starting with / (e.g. "/api/.../preview" or "/uploads/...")
@@ -1988,8 +1989,6 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       {isCalibrating && backgroundImageUrl && (
         <WMScaleCalibration
           imageUrl={backgroundImageUrl}
-          canvasWidth={stageSize.width}
-          canvasHeight={stageSize.height}
           logicalCanvasWidth={canvasWidth}
           logicalCanvasHeight={canvasHeight}
           currentScale={floorSketch.scale_pixels_per_foot}
