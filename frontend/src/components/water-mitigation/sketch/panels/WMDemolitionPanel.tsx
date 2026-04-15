@@ -43,7 +43,7 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import type { WMDemolitionZone, DemoMaterialType } from '../../../../types/wmSketch';
-import { DEFAULT_DEMO_MATERIAL_TYPES, WOOD_FLOOR_SUB_TYPES, WALL_MATERIAL_SUB_TYPES, WALL_MATERIAL_IDS } from '../../../../types/wmSketch';
+import { DEFAULT_DEMO_MATERIAL_TYPES, WOOD_FLOOR_SUB_TYPES, WALL_MATERIAL_SUB_TYPES, WALL_MATERIAL_IDS, TRIM_SIZE_SUB_TYPES, TRIM_SIZE_MATERIAL_IDS, EA_ITEM_PIXEL_SIZES } from '../../../../types/wmSketch';
 import { calcDemoZoneSqft, generateOverlayId } from '../utils/wmCalculations';
 import DimensionInput from './DimensionInput';
 
@@ -88,18 +88,23 @@ const ZoneEditForm: React.FC<{
   const unit = selectedMaterial?.unit ?? 'SF';
   const isWallSF = selectedMaterial?.surface === 'wall' && unit === 'SF';
   const isLF = unit === 'LF';
+  const isEA = unit === 'EA';
+  const isStair = zone.material_type === 'stair_demo';
   const isLineType = isWallSF || isLF;
-  const areaLabel = isLF ? 'LF' : 'SF';
+  const areaLabel = isEA ? 'EA' : isLF ? 'LF' : 'SF';
 
-  const needsDimensions = isLineType
-    ? zone.dimension1_ft === 0
-    : zone.dimension1_ft === 0 || zone.dimension2_ft === 0;
+  const needsDimensions = isEA
+    ? (isStair && zone.dimension1_ft === 0)
+    : isLineType
+      ? zone.dimension1_ft === 0
+      : zone.dimension1_ft === 0 || zone.dimension2_ft === 0;
 
   const calculatedArea = useMemo(() => {
+    if (isEA) return isStair ? zone.dimension1_ft : 1;
     if (isLF) return zone.dimension1_ft;
     if (isWallSF) return zone.dimension1_ft * (zone.height_ft ?? 8);
     return calcDemoZoneSqft(zone.dimension1_ft, zone.dimension2_ft);
-  }, [zone.dimension1_ft, zone.dimension2_ft, zone.height_ft, isLF, isWallSF]);
+  }, [zone.dimension1_ft, zone.dimension2_ft, zone.height_ft, isLF, isWallSF, isEA, isStair]);
 
   const handleMaterialChange = (value: string) => {
     const mat = materialTypes.find((m) => m.id === value);
@@ -220,8 +225,64 @@ const ZoneEditForm: React.FC<{
         </div>
       )}
 
+      {/* Trim / Door size sub-type selector */}
+      {TRIM_SIZE_MATERIAL_IDS.has(zone.material_type) && (
+        <div>
+          <Text style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>
+            Size
+          </Text>
+          <Select
+            size="small"
+            value={zone.sub_type || undefined}
+            onChange={(value) => {
+              const sizeMap = EA_ITEM_PIXEL_SIZES[zone.material_type] ?? {};
+              const sz = sizeMap[value] ?? sizeMap[''] ?? { w: 36, h: 36 };
+              onUpdate({ sub_type: value, pixel_width: sz.w, pixel_height: sz.h });
+            }}
+            placeholder="Select size"
+            style={{ width: '100%' }}
+            allowClear
+            onClear={() => {
+              const sizeMap = EA_ITEM_PIXEL_SIZES[zone.material_type] ?? {};
+              const sz = sizeMap[''] ?? { w: 36, h: 36 };
+              onUpdate({ sub_type: undefined, pixel_width: sz.w, pixel_height: sz.h });
+            }}
+          >
+            {TRIM_SIZE_SUB_TYPES.map((s) => (
+              <Select.Option key={s.id} value={s.id}>
+                <Space size={6}>
+                  <span>{s.name}</span>
+                  <Text type="secondary" style={{ fontSize: 10 }}>({s.description})</Text>
+                </Space>
+              </Select.Option>
+            ))}
+          </Select>
+        </div>
+      )}
+
       {/* Dimensions — layout depends on zone type */}
-      {isLF ? (
+      {isEA ? (
+        /* EA items: stair needs tread count, others are just 1 EA each */
+        isStair ? (
+          <div>
+            <Text style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>
+              Tread Count
+            </Text>
+            <Input
+              size="small"
+              type="number"
+              min={0}
+              value={zone.dimension1_ft || ''}
+              placeholder="e.g. 12"
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10) || 0;
+                onUpdate({ dimension1_ft: val, calculated_sqft: val });
+              }}
+              style={{ fontVariantNumeric: 'tabular-nums' }}
+            />
+          </div>
+        ) : null
+      ) : isLF ? (
         /* Baseboard / Quarter Round: length only */
         <DimensionInput
           label="Length"
@@ -292,9 +353,11 @@ const ZoneEditForm: React.FC<{
           border: needsDimensions ? '1px solid #ffd591' : '1px solid transparent',
         }}
       >
-        <Text style={{ fontSize: 12, color: '#666' }}>Calculated Area</Text>
+        <Text style={{ fontSize: 12, color: '#666' }}>
+          {isEA ? (isStair ? 'Tread Count' : 'Quantity') : 'Calculated Area'}
+        </Text>
         <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {needsDimensions ? '—' : `${calculatedArea.toFixed(2)} ${areaLabel}`}
+          {needsDimensions ? '—' : isEA ? `${Math.round(calculatedArea)} EA` : `${calculatedArea.toFixed(2)} ${areaLabel}`}
         </Text>
       </div>
 
@@ -412,6 +475,9 @@ const SummaryView: React.FC<{
     const row = Math.floor(idx / 12);
     const x = 28 + col * 34;
     const y = 28 + row * 34;
+    // EA items (except stair) default to qty=1; stair needs tread count entry
+    const isEAType = mat.unit === 'EA';
+    const isStairType = mat.id === 'stair_demo';
     const zone: WMDemolitionZone = {
       id: generateOverlayId(),
       floor_sketch_id: floorSketchId,
@@ -420,18 +486,19 @@ const SummaryView: React.FC<{
       color: mat.color,
       x,
       y,
-      dimension1_ft: 0,
+      dimension1_ft: (isEAType && !isStairType) ? 1 : 0,
       dimension2_ft: 0,
       rotation: 0,
-      calculated_sqft: 0,
+      calculated_sqft: (isEAType && !isStairType) ? 1 : 0,
       display_order: zones.length,
     };
     onAddZone(zone);
   };
 
-  // Wall / baseboard material types available for quick-add
+  // Wall / baseboard / EA material types available for quick-add
   const wallTypes = materialTypes.filter((m) => m.surface === 'wall' && m.unit === 'SF');
   const baseboardTypes = materialTypes.filter((m) => m.unit === 'LF');
+  const eaTypes = materialTypes.filter((m) => m.unit === 'EA');
 
   return (
     <Space direction="vertical" size={4} style={{ width: '100%' }}>
@@ -467,6 +534,40 @@ const SummaryView: React.FC<{
               </Tooltip>
             ))}
             {baseboardTypes.map((m) => (
+              <Tooltip key={m.id} title={`Add ${m.name} entry`}>
+                <Button
+                  size="small"
+                  icon={<PlusOutlined />}
+                  onClick={() => handleAddListOnly(m.id)}
+                  style={{
+                    borderColor: m.color,
+                    color: m.color,
+                    fontSize: 11,
+                  }}
+                >
+                  {m.name}
+                </Button>
+              </Tooltip>
+            ))}
+          </Space>
+        </div>
+      )}
+
+      {eaTypes.length > 0 && (
+        <div
+          style={{
+            padding: '8px',
+            background: '#fafafa',
+            borderRadius: 4,
+            border: '1px solid #f0f0f0',
+            marginBottom: 4,
+          }}
+        >
+          <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block', marginBottom: 6 }}>
+            Trim / Door / Stair Demo (list only — per unit)
+          </Text>
+          <Space wrap size={4}>
+            {eaTypes.map((m) => (
               <Tooltip key={m.id} title={`Add ${m.name} entry`}>
                 <Button
                   size="small"
@@ -543,7 +644,7 @@ const SummaryView: React.FC<{
                   fontVariantNumeric: 'tabular-nums',
                 }}
               >
-                {group.totalSqft.toFixed(2)} {unit}
+                {unit === 'EA' ? Math.round(group.totalSqft) : group.totalSqft.toFixed(2)} {unit}
               </Text>
             </div>
 
@@ -601,6 +702,14 @@ const SummaryView: React.FC<{
                             {WALL_MATERIAL_SUB_TYPES.find((s) => s.id === zone.sub_type)?.name ?? zone.sub_type}
                           </Tag>
                         )}
+                        {TRIM_SIZE_MATERIAL_IDS.has(zone.material_type) && zone.sub_type && (
+                          <Tag
+                            style={{ marginLeft: 4, fontSize: 9, lineHeight: '14px', padding: '0 3px' }}
+                            color="blue"
+                          >
+                            {TRIM_SIZE_SUB_TYPES.find((s) => s.id === zone.sub_type)?.name ?? zone.sub_type}
+                          </Tag>
+                        )}
                       </Text>
                       <Text
                         type="secondary"
@@ -610,7 +719,7 @@ const SummaryView: React.FC<{
                           color: needsDims ? '#fa8c16' : undefined,
                         }}
                       >
-                        {needsDims ? 'needs dims' : `${zone.calculated_sqft.toFixed(2)} ${unit}`}
+                        {needsDims ? 'needs dims' : unit === 'EA' ? `${Math.round(zone.calculated_sqft)} ${unit}` : `${zone.calculated_sqft.toFixed(2)} ${unit}`}
                       </Text>
                     </div>
                   );
@@ -621,19 +730,33 @@ const SummaryView: React.FC<{
         );
       })}
 
-      {zones.length > 0 && (
-        <>
-          <Divider style={{ margin: '4px 0' }} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 6px' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Total ({zones.length} zones)
-            </Text>
-            <Text strong style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
-              {zones.reduce((sum, z) => sum + z.calculated_sqft, 0).toFixed(2)} SF
-            </Text>
-          </div>
-        </>
-      )}
+      {zones.length > 0 && (() => {
+        const sfTotal = zones.filter((z) => {
+          const m = materialTypes.find((mt) => mt.id === z.material_type);
+          return !m || m.unit === 'SF';
+        }).reduce((sum, z) => sum + z.calculated_sqft, 0);
+        const lfTotal = zones.filter((z) => materialTypes.find((mt) => mt.id === z.material_type)?.unit === 'LF')
+          .reduce((sum, z) => sum + z.calculated_sqft, 0);
+        const eaTotal = zones.filter((z) => materialTypes.find((mt) => mt.id === z.material_type)?.unit === 'EA')
+          .reduce((sum, z) => sum + z.calculated_sqft, 0);
+        const parts: string[] = [];
+        if (sfTotal > 0) parts.push(`${sfTotal.toFixed(2)} SF`);
+        if (lfTotal > 0) parts.push(`${lfTotal.toFixed(2)} LF`);
+        if (eaTotal > 0) parts.push(`${Math.round(eaTotal)} EA`);
+        return (
+          <>
+            <Divider style={{ margin: '4px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 6px' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Total ({zones.length} zones)
+              </Text>
+              <Text strong style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+                {parts.join(' + ') || '0'}
+              </Text>
+            </div>
+          </>
+        );
+      })()}
     </Space>
   );
 };

@@ -20,7 +20,7 @@
  *   <WMSketchTab jobId="abc123" jobAddress="6305 Musket Ball Dr" />
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Spin,
   Empty,
@@ -89,13 +89,14 @@ const { Text, Title } = Typography;
 export interface WMSketchTabProps {
   jobId: string;
   jobAddress: string;
+  isActive?: boolean;
 }
 
 // ============================================================================
 // Component
 // ============================================================================
 
-const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
+const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }) => {
   // ------------------------------------------------------------------
   // State
   // ------------------------------------------------------------------
@@ -145,6 +146,22 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress }) => {
       cancelled = true;
     };
   }, [jobId]);
+
+  // Background refresh when tab becomes active
+  const prevActiveRef = useRef(isActive);
+  useEffect(() => {
+    if (isActive && !prevActiveRef.current) {
+      wmSketchService.getFloorSketches(jobId).then((data) => {
+        const withIds = data.map((f) => ({
+          ...f,
+          overlay_data: ensureOverlayIds(f.overlay_data ?? EMPTY_OVERLAY_DATA),
+        }));
+        const sorted = [...withIds].sort((a, b) => a.floor_order - b.floor_order);
+        setFloors(sorted);
+      }).catch(() => { /* silent */ });
+    }
+    prevActiveRef.current = isActive;
+  }, [isActive, jobId]);
 
   // ------------------------------------------------------------------
   // Floor CRUD handlers

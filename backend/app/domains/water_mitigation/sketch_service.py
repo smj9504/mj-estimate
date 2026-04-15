@@ -241,6 +241,10 @@ class SketchService:
         "baseboard_quarter_round": "Baseboard+Quarter Round",
         "toe_kick": "Toe Kick",
         "insulation": "Insulation",
+        "window_trim_demo": "Window Trim Demo",
+        "door_trim_demo": "Door Trim Demo",
+        "door_demo": "Door Demo",
+        "stair_demo": "Stair Tread Demo",
     }
 
     # Wood floor sub-type display names
@@ -264,7 +268,20 @@ class SketchService:
         "wall_drywall", "wall_drywall_2ft", "wall_drywall_4ft",
     })
 
-    # Material type → item_type classification
+    # Trim / door size sub-type display names
+    _TRIM_SIZE_SUB_TYPE_NAMES = {
+        "small": "Small",
+        "medium": "Medium",
+        "large": "Large",
+        "x_large": "X-Large",
+    }
+
+    # Material IDs that support trim size sub-types
+    _TRIM_SIZE_MATERIAL_IDS = frozenset({
+        "window_trim_demo", "door_trim_demo", "door_demo",
+    })
+
+    # Material type → unit classification
     _DEMOLITION_MATERIAL_UNITS = {
         "wood_floor": "SF",
         "carpet": "SF",
@@ -277,6 +294,10 @@ class SketchService:
         "baseboard_quarter_round": "LF",
         "toe_kick": "LF",
         "insulation": "SF",
+        "window_trim_demo": "EA",
+        "door_trim_demo": "EA",
+        "door_demo": "EA",
+        "stair_demo": "EA",
     }
 
     def generate_scope_from_sketch(
@@ -371,8 +392,20 @@ class SketchService:
                     )
                     name = f"{base_name} ({st_name})"
                 # Append sub-type for wall materials
-                elif material_type in self._WALL_MATERIAL_IDS and sub_type:
+                elif (
+                    material_type in self._WALL_MATERIAL_IDS
+                    and sub_type
+                ):
                     st_name = self._WALL_MATERIAL_SUB_TYPE_NAMES.get(
+                        sub_type, sub_type,
+                    )
+                    name = f"{base_name} ({st_name})"
+                # Append size sub-type for trim/door
+                elif (
+                    material_type in self._TRIM_SIZE_MATERIAL_IDS
+                    and sub_type
+                ):
+                    st_name = self._TRIM_SIZE_SUB_TYPE_NAMES.get(
                         sub_type, sub_type,
                     )
                     name = f"{base_name} ({st_name})"

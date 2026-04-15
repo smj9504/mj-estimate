@@ -40,6 +40,7 @@ const TRASH_RETENTION_DAYS = 30;
 
 interface WaterMitigationTrashTabProps {
   jobId: string;
+  isActive?: boolean;
 }
 
 interface TrashedPhoto {
@@ -70,16 +71,25 @@ const getDaysRemainingColor = (days: number): string => {
   return '#8c8c8c';
 };
 
-const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId }) => {
+const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId, isActive }) => {
   const queryClient = useQueryClient();
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
 
   // Fetch trashed photos
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['trashed-photos', jobId],
     queryFn: () => waterMitigationService.photos.getTrashed(jobId),
     staleTime: 30 * 1000,
   });
+
+  // Background refresh when tab becomes active
+  const prevActiveRef = React.useRef(isActive);
+  React.useEffect(() => {
+    if (isActive && !prevActiveRef.current) {
+      refetch();
+    }
+    prevActiveRef.current = isActive;
+  }, [isActive, refetch]);
 
   const trashedPhotos: TrashedPhoto[] = data?.items || [];
 

@@ -66,6 +66,8 @@ import {
   DEFAULT_WALL_THICKNESS,
   DEFAULT_WALL_COLOR,
   DEFAULT_ROOM_COLOR,
+  EA_ITEM_PIXEL_SIZES,
+  getEffectiveRenderMode,
 } from '../../../types/wmSketch';
 import WMBackgroundImageLayer, { type ImageLoadStatus } from './canvas/WMBackgroundImageLayer';
 import WMOverlayLayer from './canvas/WMOverlayLayer';
@@ -224,7 +226,7 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
 
   // Inline summary to avoid extra hook nesting
   const byType = React.useMemo(() => {
-    const map = new Map<string, { name: string; color: string; total: number; unit: 'SF' | 'LF' }>();
+    const map = new Map<string, { name: string; color: string; total: number; unit: 'SF' | 'LF' | 'EA' }>();
     for (const zone of overlayData.demolition_zones) {
       const existing = map.get(zone.material_type);
       const def =
@@ -292,7 +294,7 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
           color={item.color}
           style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}
         >
-          {item.name}: {item.total.toFixed(1)} {item.unit}
+          {item.name}: {item.unit === 'EA' ? Math.round(item.total) : item.total.toFixed(1)} {item.unit}
         </Tag>
       ))}
       {containment_zones.length > 0 && (
@@ -875,8 +877,69 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           const matDef =
             mats.find((m) => m.id === matId) ??
             DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === matId);
+          const effectiveRenderMode = matDef ? getEffectiveRenderMode(matDef) : 'area';
+
+          // Text mode: click-to-place a text label
+          if (effectiveRenderMode === 'text') {
+            const newId = generateOverlayId();
+            const zone: WMDemolitionZone = {
+              id: newId,
+              floor_sketch_id: fs.id,
+              material_type: matId,
+              surface: matDef?.surface ?? 'floor',
+              color: matDef?.color ?? '#333333',
+              x: pos.x,
+              y: pos.y,
+              dimension1_ft: 0,
+              dimension2_ft: 0,
+              rotation: 0,
+              calculated_sqft: 0,
+              display_order: st.overlayData.demolition_zones.length,
+              render_mode: 'text',
+              stroke_style: matDef?.stroke_style,
+              fill_opacity: matDef?.fill_opacity,
+            };
+            addDemolitionZone(zone);
+            selectElement({ element_id: newId, element_type: 'demolition' });
+            return;
+          }
+
+          // EA items or shape mode: click-to-place like equipment
+          if (matDef?.unit === 'EA' || effectiveRenderMode === 'shape') {
+            const sizeMap = EA_ITEM_PIXEL_SIZES[matId] ?? {};
+            const defaultSize = sizeMap[''] ?? { w: 36, h: 36 };
+            const isStair = matId === 'stair_demo';
+            const newId = generateOverlayId();
+            const zone: WMDemolitionZone = {
+              id: newId,
+              floor_sketch_id: fs.id,
+              material_type: matId,
+              surface: matDef?.surface ?? 'wall',
+              color: matDef?.color ?? '#5B9BD5',
+              x: pos.x - defaultSize.w / 2,
+              y: pos.y - defaultSize.h / 2,
+              dimension1_ft: isStair ? 0 : 1,
+              dimension2_ft: 0,
+              rotation: 0,
+              calculated_sqft: isStair ? 0 : 1,
+              display_order: st.overlayData.demolition_zones.length,
+              pixel_width: defaultSize.w,
+              pixel_height: defaultSize.h,
+              render_mode: effectiveRenderMode,
+              stroke_style: matDef?.stroke_style,
+              fill_opacity: matDef?.fill_opacity,
+            };
+            addDemolitionZone(zone);
+            selectElement({ element_id: newId, element_type: 'demolition' });
+            return;
+          }
+          // Line render mode: handled by demolition_line tool activation in toolbar
+          if (effectiveRenderMode === 'line') {
+            return;
+          }
+          // Wall and baseboard (LF-unit) types: sidebar only, no canvas drawing
           if (matDef?.surface === 'wall' || matDef?.unit === 'LF') {
-            return; // block canvas drawing for wall / baseboard types
+            return;
           }
         }
 
@@ -1079,7 +1142,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [getCanvasPos, deselect, addEquipment, addShape, addTextAnnotation, selectElement, snapToWallEndpoint, constrainToAxis, addWall, detectRoomAtPoint, addRoom, removeWall, autoDetectRooms, setDrawStateSync]
+    [getCanvasPos, deselect, addEquipment, addDemolitionZone, addShape, addTextAnnotation, selectElement, snapToWallEndpoint, constrainToAxis, addWall, detectRoomAtPoint, addRoom, removeWall, autoDetectRooms, setDrawStateSync]
   );
 
   const handleMouseMove = useCallback(
@@ -1173,8 +1236,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           mats.find((m) => m.id === matId) ??
           DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === matId);
 
-        // Wall and baseboard types must not be placed via canvas drag.
-        if (matDef?.surface === 'wall' || matDef?.unit === 'LF') {
+        // Wall, baseboard, and EA types must not be placed via canvas drag.
+        if (matDef?.surface === 'wall' || matDef?.unit === 'LF' || matDef?.unit === 'EA') {
           setDrawStateSync(INITIAL_DRAW_STATE);
           return;
         }
@@ -1197,6 +1260,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           display_order: stateRef.current.overlayData.demolition_zones.length,
           pixel_width: wPx,
           pixel_height: hPx,
+          render_mode: matDef?.render_mode,
+          stroke_style: matDef?.stroke_style,
+          fill_opacity: matDef?.fill_opacity,
         };
         addDemolitionZone(zone);
         // Auto-select the new zone so the sidebar opens for dimension input
@@ -1231,6 +1297,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           rotation: angleDeg,
           calculated_sqft: isLF ? lengthFt : lengthFt * defaultHeight,
           display_order: stateRef.current.overlayData.demolition_zones.length,
+          render_mode: matDef?.render_mode || 'line',
+          stroke_style: matDef?.stroke_style,
+          fill_opacity: matDef?.fill_opacity,
         };
         addDemolitionZone(zone);
         selectElement({ element_id: newId, element_type: 'demolition' });
@@ -1346,6 +1415,11 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
             rotation: rot,
             calculated_sqft: isLF ? lengthFt : lengthFt * wallHeight,
           });
+        } else if (mat?.unit === 'EA') {
+          // EA items have fixed sizes — don't update dimensions from transform
+          if (rotation !== undefined) {
+            updateDemolitionZone({ id, rotation });
+          }
         } else {
           updateDemolitionZone({
             id,

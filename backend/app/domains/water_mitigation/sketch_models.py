@@ -171,6 +171,11 @@ class WMDemolitionZone(Base, BaseModel):
         nullable=True,
     )
 
+    # Visual rendering properties (set per material type in Manage Materials)
+    render_mode = Column(String(20), nullable=True)    # 'area' | 'line' | 'shape' | 'text'
+    stroke_style = Column(String(20), nullable=True)   # 'solid' | 'dashed' | 'dotted'
+    fill_opacity = Column(Float, nullable=True)         # 0–1
+
     # Relationships
     floor_sketch = relationship("WMFloorSketch", back_populates="demolition_zones")
     scope_item = relationship("WMScopeItem")

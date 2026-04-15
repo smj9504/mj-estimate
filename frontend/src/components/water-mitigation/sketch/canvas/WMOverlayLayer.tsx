@@ -29,17 +29,18 @@
  */
 
 import React, { useCallback } from 'react';
-import { Layer, Line, Rect } from 'react-konva';
+import { Layer, Line, Rect, Group, Text as TextNode } from 'react-konva';
 import {
   WMOverlayData,
   WMSketchTool,
   DemoMaterialType,
+  DemoRenderMode,
   WMDemolitionZone,
   WMTextAnnotation,
   WMShapeAnnotation,
   WMWall,
 } from '../../../../types/wmSketch';
-import { DEFAULT_DEMO_MATERIAL_TYPES } from '../../../../types/wmSketch';
+import { DEFAULT_DEMO_MATERIAL_TYPES, getEffectiveRenderMode } from '../../../../types/wmSketch';
 import WMDemolitionRenderer from './WMDemolitionRenderer';
 import WMEquipmentRenderer from './WMEquipmentRenderer';
 import WMContainmentRenderer from './WMContainmentRenderer';
@@ -81,27 +82,42 @@ export interface WMOverlayLayerProps {
 
 
 /**
- * Returns true if a demolition zone is a rectangle (floor/ceiling) type
- * rendered via WMDemolitionRenderer.
+ * Resolve the effective render mode for a demolition zone.
+ * Priority: zone.render_mode > material type render_mode > inferred from unit/surface.
  */
-function isRectZone(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]): boolean {
+function getZoneRenderMode(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]): DemoRenderMode {
+  if (zone.render_mode) return zone.render_mode;
   const mat =
     materialTypes.find((m) => m.id === zone.material_type) ??
     DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === zone.material_type);
-  if (!mat) return true;
-  return mat.surface !== 'wall' && mat.unit !== 'LF';
+  if (mat) return getEffectiveRenderMode(mat);
+  return 'area';
 }
 
 /**
- * Returns true if a demolition zone is a wall/baseboard line type
- * rendered via WMWallLineRenderer.
+ * Returns true if a demolition zone should be rendered as a rectangle
+ * (area or shape render modes) via WMDemolitionRenderer.
+ */
+function isRectZone(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]): boolean {
+  const mode = getZoneRenderMode(zone, materialTypes);
+  return mode === 'area' || mode === 'shape';
+}
+
+/**
+ * Returns true if a demolition zone should be rendered as a line
+ * via WMWallLineRenderer.
  */
 function isLineZone(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]): boolean {
-  const mat =
-    materialTypes.find((m) => m.id === zone.material_type) ??
-    DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === zone.material_type);
-  if (!mat) return false;
-  return mat.surface === 'wall' || mat.unit === 'LF';
+  const mode = getZoneRenderMode(zone, materialTypes);
+  return mode === 'line';
+}
+
+/**
+ * Returns true if a demolition zone should be rendered as a text label.
+ */
+function isTextZone(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]): boolean {
+  const mode = getZoneRenderMode(zone, materialTypes);
+  return mode === 'text';
 }
 
 const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
@@ -309,6 +325,56 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
             onTransformEnd={transformDemoHandler}
           />
         ))}
+
+      {/* 4c. Demolition zones — text label mode */}
+      {overlayData.demolition_zones
+        .filter((zone) => isTextZone(zone, materialTypes))
+        .map((zone) => {
+          const mat =
+            materialTypes.find((m) => m.id === zone.material_type) ??
+            DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === zone.material_type);
+          const label = zone.label || mat?.name || zone.material_type;
+          const qty = zone.calculated_sqft > 0
+            ? ` (${mat?.unit === 'EA' ? Math.round(zone.calculated_sqft) : zone.calculated_sqft.toFixed(1)} ${mat?.unit || 'SF'})`
+            : '';
+          return (
+            <React.Fragment key={zone.id}>
+              <Group
+                x={zone.x}
+                y={zone.y}
+                draggable
+                onClick={(e) => selectDemoHandler(zone.id, e.evt.ctrlKey || e.evt.metaKey)}
+                onTap={() => selectDemoHandler(zone.id)}
+                onDragEnd={(e) => dragDemoHandler(zone.id, e.target.x(), e.target.y())}
+              >
+                {/* Background pill */}
+                <Rect
+                  x={-4}
+                  y={-2}
+                  width={Math.max(80, (label.length + qty.length) * 7 + 16)}
+                  height={22}
+                  fill={zone.color}
+                  fillEnabled
+                  opacity={zone.fill_opacity ?? 0.18}
+                  cornerRadius={4}
+                  stroke={isSelected(zone.id) ? '#1890ff' : zone.color}
+                  strokeWidth={isSelected(zone.id) ? 2 : 1}
+                  dash={isSelected(zone.id) ? [4, 2] : undefined}
+                />
+                {/* Label text */}
+                <TextNode
+                  x={0}
+                  y={2}
+                  text={`${label}${qty}`}
+                  fontSize={13}
+                  fontFamily="'Inter', 'Segoe UI', sans-serif"
+                  fontStyle="bold"
+                  fill={zone.color}
+                />
+              </Group>
+            </React.Fragment>
+          );
+        })}
 
       {/* 5. Equipment placements (on top of zone fills) */}
       {overlayData.equipment_placements.map((placement) => (

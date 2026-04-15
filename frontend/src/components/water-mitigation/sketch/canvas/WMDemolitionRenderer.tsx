@@ -26,7 +26,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { Group, Rect, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
-import { WMDemolitionZone, WOOD_FLOOR_SUB_TYPES } from '../../../../types/wmSketch';
+import { WMDemolitionZone, WOOD_FLOOR_SUB_TYPES, EA_MATERIAL_IDS, EA_ITEM_PIXEL_SIZES, TRIM_SIZE_SUB_TYPES, type DemoStrokeStyle } from '../../../../types/wmSketch';
 import { formatDimensionCompact } from '../utils/wmCalculations';
 
 export interface WMDemolitionRendererProps {
@@ -55,10 +55,31 @@ function buildDimensionLabel(dim1_ft: number, dim2_ft: number, sqft: number): st
  * Resolve the pixel dimensions used for canvas rendering.
  * Returns { widthPx, heightPx, hasDimensions }
  */
+/** Short abbreviation labels for EA material types */
+const EA_ABBREVIATIONS: Record<string, string> = {
+  window_trim_demo: 'WT',
+  door_trim_demo: 'DT',
+  door_demo: 'DR',
+  stair_demo: 'STR',
+};
+
 function resolveRenderSize(
   zone: WMDemolitionZone,
   scalePixelsPerFoot: number,
-): { widthPx: number; heightPx: number; hasDimensions: boolean } {
+): { widthPx: number; heightPx: number; hasDimensions: boolean; isEA: boolean } {
+  // EA items use fixed pixel sizes based on sub-type
+  if (EA_MATERIAL_IDS.has(zone.material_type)) {
+    const sizeMap = EA_ITEM_PIXEL_SIZES[zone.material_type] ?? {};
+    const sizeKey = zone.sub_type || '';
+    const size = sizeMap[sizeKey] ?? sizeMap[''] ?? { w: 36, h: 36 };
+    return {
+      widthPx: size.w,
+      heightPx: size.h,
+      hasDimensions: true,
+      isEA: true,
+    };
+  }
+
   const hasDimensions = zone.dimension1_ft > 0 && zone.dimension2_ft > 0;
 
   if (hasDimensions) {
@@ -66,6 +87,7 @@ function resolveRenderSize(
       widthPx: zone.dimension1_ft * scalePixelsPerFoot,
       heightPx: zone.dimension2_ft * scalePixelsPerFoot,
       hasDimensions: true,
+      isEA: false,
     };
   }
 
@@ -75,11 +97,12 @@ function resolveRenderSize(
       widthPx: zone.pixel_width,
       heightPx: zone.pixel_height,
       hasDimensions: false,
+      isEA: false,
     };
   }
 
   // Last-resort placeholder
-  return { widthPx: 60, heightPx: 40, hasDimensions: false };
+  return { widthPx: 60, heightPx: 40, hasDimensions: false, isEA: false };
 }
 
 const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
@@ -94,7 +117,7 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
   const rectRef = useRef<Konva.Rect>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
 
-  const { widthPx, heightPx, hasDimensions } = resolveRenderSize(zone, scalePixelsPerFoot);
+  const { widthPx, heightPx, hasDimensions, isEA } = resolveRenderSize(zone, scalePixelsPerFoot);
 
   // When dimensions change externally (sidebar input), reset any lingering
   // Konva transform state so the Rect matches the new React-driven size.
@@ -112,16 +135,17 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
   }, [widthPx, heightPx]);
 
   // Attach / detach the transformer when selection changes
+  // EA items don't get resize handles — they use fixed sizes based on sub-type
   useEffect(() => {
     if (!transformerRef.current || !rectRef.current) return;
-    if (isSelected) {
+    if (isSelected && !isEA) {
       transformerRef.current.nodes([rectRef.current]);
       transformerRef.current.getLayer()?.batchDraw();
     } else {
       transformerRef.current.nodes([]);
       transformerRef.current.getLayer()?.batchDraw();
     }
-  }, [isSelected]);
+  }, [isSelected, isEA]);
 
   const handleClick = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     onSelect(zone.id, e.evt.ctrlKey || e.evt.metaKey);
@@ -200,6 +224,21 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
   // Stroke color: orange when dimensions are missing, otherwise use zone color
   const strokeColor = hasDimensions ? zone.color : NEEDS_DIMS_COLOR;
 
+  // Custom visual properties from zone (inherited from material type)
+  const customFillOpacity = zone.fill_opacity;
+  const effectiveFillOpacity = isEA ? 0.85 : customFillOpacity != null ? customFillOpacity : (hasDimensions ? 0.35 : 0.2);
+
+  const strokeStyleToDash = (style?: DemoStrokeStyle): number[] | undefined => {
+    if (!hasDimensions) return [6, 4]; // always dashed when no dimensions
+    if (isEA) return undefined;
+    switch (style) {
+      case 'dashed': return [8, 4];
+      case 'dotted': return [3, 3];
+      default: return undefined;
+    }
+  };
+  const strokeDash = strokeStyleToDash(zone.stroke_style);
+
   return (
     <>
       <Group
@@ -218,12 +257,12 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
           width={widthPx}
           height={heightPx}
           fill={zone.color}
-          opacity={hasDimensions ? 0.35 : 0.2}
+          opacity={effectiveFillOpacity}
           stroke={strokeColor}
-          strokeWidth={hasDimensions ? 2 : 2}
+          strokeWidth={isEA ? 2 : 2}
           strokeScaleEnabled={false}
-          dash={hasDimensions ? undefined : [6, 4]}
-          cornerRadius={2}
+          dash={strokeDash}
+          cornerRadius={isEA ? widthPx / 6 : 2}
         />
 
         {/* Selection stroke overlay */}
@@ -240,8 +279,59 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
           />
         )}
 
-        {/* Dimension label — only when real dimensions have been entered */}
-        {hasDimensions && widthPx > 40 && heightPx > 20 && (
+        {/* EA item: abbreviation label + size badge */}
+        {isEA && (() => {
+          const abbr = EA_ABBREVIATIONS[zone.material_type] ?? '?';
+          const sizeCfg = zone.sub_type ? TRIM_SIZE_SUB_TYPES.find((s) => s.id === zone.sub_type) : null;
+          const sizeLabel = sizeCfg?.name;
+          return (
+            <>
+              <Text
+                x={0}
+                y={sizeLabel ? heightPx / 2 - 12 : heightPx / 2 - 7}
+                width={widthPx}
+                text={abbr}
+                fontSize={13}
+                fontFamily="'Inter', 'Segoe UI', sans-serif"
+                fill="#ffffff"
+                fontStyle="bold"
+                align="center"
+                listening={false}
+              />
+              {sizeLabel && (
+                <Text
+                  x={0}
+                  y={heightPx / 2 + 2}
+                  width={widthPx}
+                  text={sizeLabel}
+                  fontSize={8}
+                  fontFamily="'Inter', 'Segoe UI', sans-serif"
+                  fill="rgba(255,255,255,0.9)"
+                  align="center"
+                  listening={false}
+                />
+              )}
+              {/* Stair tread count display */}
+              {zone.material_type === 'stair_demo' && zone.dimension1_ft > 0 && (
+                <Text
+                  x={0}
+                  y={heightPx / 2 + 2}
+                  width={widthPx}
+                  text={`×${Math.round(zone.dimension1_ft)}`}
+                  fontSize={9}
+                  fontFamily="'Inter', 'Segoe UI', sans-serif"
+                  fill="rgba(255,255,255,0.9)"
+                  fontStyle="bold"
+                  align="center"
+                  listening={false}
+                />
+              )}
+            </>
+          );
+        })()}
+
+        {/* Dimension label — only when real dimensions have been entered (non-EA) */}
+        {!isEA && hasDimensions && widthPx > 40 && heightPx > 20 && (
           <>
             <Rect
               x={textPadX}
@@ -268,8 +358,8 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
           </>
         )}
 
-        {/* "Enter dimensions" prompt — shown when dimensions are missing */}
-        {!hasDimensions && widthPx > 30 && heightPx > 16 && (
+        {/* "Enter dimensions" prompt — shown when dimensions are missing (non-EA) */}
+        {!isEA && !hasDimensions && widthPx > 30 && heightPx > 16 && (
           <>
             <Rect
               x={textPadX}

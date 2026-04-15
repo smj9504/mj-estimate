@@ -17,11 +17,16 @@ import { Group, Rect, Text, Line } from 'react-konva';
 import {
   WMOverlayData,
   DemoMaterialType,
+  DemoRenderMode,
+  DemoStrokeStyle,
   EQUIPMENT_CONFIG,
   EquipmentType,
   WOOD_FLOOR_SUB_TYPES,
   WALL_MATERIAL_SUB_TYPES,
   WALL_MATERIAL_IDS,
+  TRIM_SIZE_SUB_TYPES,
+  TRIM_SIZE_MATERIAL_IDS,
+  getEffectiveRenderMode,
 } from '../../../../types/wmSketch';
 
 export interface WMLegendRendererProps {
@@ -55,6 +60,8 @@ interface LegendRow {
   kind: 'material' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection';
   color: string;
   label: string;
+  renderMode?: DemoRenderMode;
+  strokeStyle?: DemoStrokeStyle;
 }
 
 function buildRows(
@@ -87,10 +94,20 @@ function buildRows(
       if (usedPairs.has(`${mt.id}|`)) {
         rows.push({ kind: 'material', color: mt.color, label: mt.name });
       }
+    } else if (TRIM_SIZE_MATERIAL_IDS.has(mt.id)) {
+      // Trim / door / door demo: split legend by size sub-type
+      for (const st of TRIM_SIZE_SUB_TYPES) {
+        if (usedPairs.has(`${mt.id}|${st.id}`)) {
+          rows.push({ kind: 'material', color: mt.color, label: `${mt.name} (${st.name})` });
+        }
+      }
+      if (usedPairs.has(`${mt.id}|`)) {
+        rows.push({ kind: 'material', color: mt.color, label: mt.name });
+      }
     } else {
       const hasAny = overlayData.demolition_zones.some((z) => z.material_type === mt.id);
       if (hasAny) {
-        rows.push({ kind: 'material', color: mt.color, label: mt.name });
+        rows.push({ kind: 'material', color: mt.color, label: mt.name, renderMode: getEffectiveRenderMode(mt), strokeStyle: mt.stroke_style });
       }
     }
   }
@@ -232,8 +249,28 @@ const WMLegendRenderer: React.FC<WMLegendRendererProps> = ({
                 strokeWidth={1}
                 cornerRadius={1}
               />
+            ) : row.kind === 'material' && row.renderMode === 'line' ? (
+              // Line render mode: horizontal line swatch
+              <Line
+                points={[PADDING, swatchY + SWATCH_SIZE / 2, PADDING + SWATCH_SIZE, swatchY + SWATCH_SIZE / 2]}
+                stroke={row.color}
+                strokeWidth={3}
+                dash={row.strokeStyle === 'dashed' ? [4, 2] : row.strokeStyle === 'dotted' ? [2, 2] : undefined}
+                lineCap="round"
+              />
+            ) : row.kind === 'material' && row.renderMode === 'text' ? (
+              // Text render mode: "A" label swatch
+              <Text
+                x={PADDING}
+                y={swatchY - 1}
+                text="A"
+                fontSize={SWATCH_SIZE}
+                fontStyle="bold"
+                fontFamily="Arial"
+                fill={row.color}
+              />
             ) : (
-              // Material or equipment: solid colored square
+              // Material (area/shape) or equipment: solid colored square
               <Rect
                 x={PADDING}
                 y={swatchY}
@@ -241,7 +278,10 @@ const WMLegendRenderer: React.FC<WMLegendRendererProps> = ({
                 height={SWATCH_SIZE}
                 fill={row.color}
                 opacity={row.kind === 'material' ? 0.7 : 1}
-                cornerRadius={row.kind === 'equipment' ? 6 : 1}
+                cornerRadius={row.kind === 'equipment' ? 6 : row.renderMode === 'shape' ? 3 : 1}
+                dash={row.kind === 'material' && row.strokeStyle === 'dashed' ? [3, 2] : row.strokeStyle === 'dotted' ? [2, 1] : undefined}
+                stroke={row.kind === 'material' && row.strokeStyle ? row.color : undefined}
+                strokeWidth={row.kind === 'material' && row.strokeStyle ? 1 : 0}
               />
             )}
 

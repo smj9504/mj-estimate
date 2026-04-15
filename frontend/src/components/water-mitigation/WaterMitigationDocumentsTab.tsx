@@ -22,6 +22,7 @@ interface WaterMitigationDocumentsTabProps {
   jobAddress: string;
   dateOfLoss?: string;  // Date of loss from job data
   mitigationStartDate?: string;  // Mitigation start date (required for EWA)
+  isActive?: boolean;
 }
 
 interface DocumentType {
@@ -54,7 +55,8 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   jobId,
   jobAddress,
   dateOfLoss,
-  mitigationStartDate
+  mitigationStartDate,
+  isActive,
 }) => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
@@ -72,6 +74,16 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [editingSourceUrl, setEditingSourceUrl] = useState<string | undefined>(undefined);
   const documentListRef = useRef<any>(null);
   const invoiceListRef = useRef<any>(null);
+
+  // Background refresh when tab becomes active
+  const prevActiveRef = useRef(isActive);
+  React.useEffect(() => {
+    if (isActive && !prevActiveRef.current) {
+      documentListRef.current?.refresh();
+      invoiceListRef.current?.refresh();
+    }
+    prevActiveRef.current = isActive;
+  }, [isActive]);
 
   // Load photos for displaying selected photos with rotation controls
   const { data: allPhotos = [] } = useWaterMitigationPhotos(jobId, {

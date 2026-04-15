@@ -109,8 +109,90 @@ export const WALL_MATERIAL_IDS = new Set([
 ]);
 
 // ============================================================================
+// Trim / Door / Stair Size Sub-type Configuration
+// ============================================================================
+
+/** Size sub-type for trim demo, door demo items */
+export type TrimSizeSubType =
+  | 'small'
+  | 'medium'
+  | 'large'
+  | 'x_large';
+
+/** Configuration for a trim/door size sub-type */
+export interface TrimSizeSubTypeConfig {
+  id: TrimSizeSubType;
+  name: string;
+  /** Description hint shown in the selector */
+  description: string;
+}
+
+/**
+ * Available size sub-types for window trim, door trim, and door demo.
+ * Used in sketch UI, scope generation, and PDF reporting.
+ */
+export const TRIM_SIZE_SUB_TYPES: TrimSizeSubTypeConfig[] = [
+  { id: 'small',   name: 'Small',   description: '24-30"' },
+  { id: 'medium',  name: 'Medium',  description: '36-48"' },
+  { id: 'large',   name: 'Large',   description: '60-72"' },
+  { id: 'x_large', name: 'X-Large', description: '96"+' },
+];
+
+/** Material IDs that support trim size sub-types */
+export const TRIM_SIZE_MATERIAL_IDS = new Set([
+  'window_trim_demo',
+  'door_trim_demo',
+  'door_demo',
+]);
+
+/** All EA-unit demolition material IDs (click-to-place, not drag-to-draw) */
+export const EA_MATERIAL_IDS = new Set([
+  'window_trim_demo',
+  'door_trim_demo',
+  'door_demo',
+  'stair_demo',
+]);
+
+/**
+ * Canvas pixel dimensions for EA demolition items by size sub-type.
+ * Used for click-to-place rendering — size changes with sub-type selection.
+ */
+export const EA_ITEM_PIXEL_SIZES: Record<string, Record<string, { w: number; h: number }>> = {
+  window_trim_demo: {
+    '':       { w: 30, h: 30 },
+    small:    { w: 28, h: 28 },
+    medium:   { w: 36, h: 36 },
+    large:    { w: 44, h: 44 },
+    x_large:  { w: 54, h: 54 },
+  },
+  door_trim_demo: {
+    '':       { w: 30, h: 30 },
+    small:    { w: 28, h: 28 },
+    medium:   { w: 36, h: 36 },
+    large:    { w: 44, h: 44 },
+    x_large:  { w: 54, h: 54 },
+  },
+  door_demo: {
+    '':       { w: 36, h: 36 },
+    small:    { w: 32, h: 32 },
+    medium:   { w: 40, h: 40 },
+    large:    { w: 48, h: 48 },
+    x_large:  { w: 58, h: 58 },
+  },
+  stair_demo: {
+    '':       { w: 40, h: 40 },
+  },
+};
+
+// ============================================================================
 // Material Type Configuration
 // ============================================================================
+
+/** How a demolition element is visually rendered on the canvas */
+export type DemoRenderMode = 'area' | 'line' | 'shape' | 'text';
+
+/** Border / stroke style for demolition zone rendering */
+export type DemoStrokeStyle = 'solid' | 'dashed' | 'dotted';
 
 /**
  * Defines a demolition material type that can be drawn on the sketch canvas.
@@ -124,8 +206,30 @@ export interface DemoMaterialType {
   surface: DemoSurface;
   /** Hex color string used when rendering zones of this type */
   color: string;
-  /** Unit of measure: SF for area-based, LF for linear (e.g. baseboard) */
-  unit: 'SF' | 'LF';
+  /** Unit of measure: SF for area-based, LF for linear (e.g. baseboard), EA for each (e.g. door, trim) */
+  unit: 'SF' | 'LF' | 'EA';
+  /** How this material is rendered on the canvas (area=rectangle, line=stroke, shape=icon, text=label) */
+  render_mode?: DemoRenderMode;
+  /** Stroke / border style when rendering on canvas and PDF */
+  stroke_style?: DemoStrokeStyle;
+  /** Fill opacity 0–1 for area rendering (default 0.22) */
+  fill_opacity?: number;
+  /** Default line item ID to auto-link when generating scope from sketch */
+  default_line_item_id?: string;
+  /** Human-readable description of the linked line item (cached for display) */
+  default_line_item_description?: string;
+}
+
+/**
+ * Derive the effective render mode for a material type.
+ * If render_mode is explicitly set, use it; otherwise infer from unit/surface.
+ */
+export function getEffectiveRenderMode(mat: DemoMaterialType): DemoRenderMode {
+  if (mat.render_mode) return mat.render_mode;
+  if (mat.unit === 'EA') return 'shape';
+  if (mat.unit === 'LF') return 'line';
+  if (mat.surface === 'wall' && mat.unit === 'SF') return 'line';
+  return 'area';
 }
 
 /**
@@ -144,6 +248,10 @@ export const DEFAULT_DEMO_MATERIAL_TYPES: DemoMaterialType[] = [
   { id: 'baseboard',              name: 'Baseboard',                 surface: 'wall',    color: '#DEB887', unit: 'LF' },
   { id: 'baseboard_quarter_round',name: 'Baseboard+Quarter Round',   surface: 'wall',    color: '#D2B48C', unit: 'LF' },
   { id: 'toe_kick',               name: 'Toe Kick',                  surface: 'wall',    color: '#A0522D', unit: 'LF' },
+  { id: 'window_trim_demo',       name: 'Window Trim Demo',          surface: 'wall',    color: '#5B9BD5', unit: 'EA' },
+  { id: 'door_trim_demo',         name: 'Door Trim Demo',            surface: 'wall',    color: '#E07C4F', unit: 'EA' },
+  { id: 'door_demo',              name: 'Door Demo',                 surface: 'wall',    color: '#8B4513', unit: 'EA' },
+  { id: 'stair_demo',             name: 'Stair Tread Demo',          surface: 'floor',   color: '#9B7653', unit: 'EA' },
 ];
 
 // ============================================================================
@@ -221,6 +329,12 @@ export interface WMDemolitionZone {
   display_order: number;
   /** Optional link to an existing scope item for quantity sync */
   scope_item_id?: string;
+  /** How this zone is rendered — copied from material type at creation, can be overridden */
+  render_mode?: DemoRenderMode;
+  /** Stroke / border style — copied from material type at creation */
+  stroke_style?: DemoStrokeStyle;
+  /** Fill opacity 0–1 — copied from material type at creation */
+  fill_opacity?: number;
   /**
    * Raw canvas pixel width from initial drag — used for visual rendering
    * when dimension1_ft is still 0. Not persisted to the database.
@@ -579,9 +693,9 @@ export interface MaterialTypeSummary {
   color: string;
   /** Count of demolition zones of this material type */
   count: number;
-  /** Total computed area/length across all zones of this type */
+  /** Total computed area/length/count across all zones of this type */
   total_sqft: number;
-  unit: 'SF' | 'LF';
+  unit: 'SF' | 'LF' | 'EA';
 }
 
 /** Complete per-floor summary consumed by reporting and scope-sync features */

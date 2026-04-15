@@ -462,7 +462,7 @@
               </td>
               <td>{{ mat.surface | capitalize }}</td>
               <td class="text-right">{{ mat.count }}</td>
-              <td class="text-right">{{ "%.1f"|format(mat.total_sqft) }} {{ mat.unit|default('SF') }}</td>
+              <td class="text-right">{% if mat.unit == 'EA' %}{{ "%.0f"|format(mat.total_sqft) }}{% else %}{{ "%.1f"|format(mat.total_sqft) }}{% endif %} {{ mat.unit|default('SF') }}</td>
             </tr>
             {% endfor %}
           {% if item.summary.carpet_pad_sqft > 0 %}
@@ -489,6 +489,12 @@
             <tr class="total-row">
               <td colspan="3">Total (linear)</td>
               <td class="text-right">{{ "%.1f"|format(item.summary.total_demo_lf) }} LF</td>
+            </tr>
+            {% endif %}
+            {% if item.summary.total_demo_ea|default(0) > 0 %}
+            <tr class="total-row">
+              <td colspan="3">Total (units)</td>
+              <td class="text-right">{{ "%.0f"|format(item.summary.total_demo_ea) }} EA</td>
             </tr>
             {% endif %}
           </tfoot>

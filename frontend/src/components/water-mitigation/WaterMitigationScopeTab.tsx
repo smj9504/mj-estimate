@@ -215,6 +215,22 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
     loadMaterialWeights();
   }, [loadLocations, loadDebrisCalculation, loadStandardScopeItems, loadMaterialWeights]);
 
+  // Background refresh when tab becomes active (stale-while-revalidate)
+  const prevActiveRef = React.useRef(isActive);
+  useEffect(() => {
+    if (isActive && !prevActiveRef.current) {
+      // Tab just became active — refresh without showing loading spinner
+      Promise.all([
+        waterMitigationService.scope.locations.listByJob(jobId, true),
+        waterMitigationService.scope.debris.get(jobId).catch(() => null),
+      ]).then(([locResponse, debrisResult]) => {
+        setLocations(locResponse.items);
+        setDebrisCalculation(debrisResult);
+      }).catch(() => { /* silent */ });
+    }
+    prevActiveRef.current = isActive;
+  }, [isActive, jobId]);
+
   // Location handlers
   const handleAddLocation = () => {
     setEditingLocation(null);

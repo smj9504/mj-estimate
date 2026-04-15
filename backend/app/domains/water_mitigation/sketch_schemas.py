@@ -41,6 +41,9 @@ class WMDemolitionZoneBase(PydanticBaseModel):
     scope_item_id: Optional[UUID] = None
     pixel_width: Optional[float] = None
     pixel_height: Optional[float] = None
+    render_mode: Optional[str] = Field(None, max_length=20, description="Visual render mode: area, line, shape, text")
+    stroke_style: Optional[str] = Field(None, max_length=20, description="Stroke style: solid, dashed, dotted")
+    fill_opacity: Optional[float] = Field(None, ge=0, le=1, description="Fill opacity 0-1")
 
 
 class WMDemolitionZoneCreate(WMDemolitionZoneBase):

@@ -191,6 +191,7 @@ interface WaterMitigationPhotosTabProps {
   clientId?: string;  // Client ID for category management
   companycamProjectId?: string;
   onProjectIdUpdated?: (projectId: string) => void;
+  isActive?: boolean;
 }
 
 const { useBreakpoint } = Grid;
@@ -199,7 +200,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   jobId,
   clientId,
   companycamProjectId,
-  onProjectIdUpdated
+  onProjectIdUpdated,
+  isActive,
 }) => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
@@ -211,6 +213,15 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({ status: 'idle' });
   const [isSyncing, setIsSyncing] = useState(false);
   const pollingRef = useRef<boolean>(false);
+
+  // Background refresh when tab becomes active
+  const prevActiveRef = useRef(isActive);
+  useEffect(() => {
+    if (isActive && !prevActiveRef.current) {
+      queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
+    }
+    prevActiveRef.current = isActive;
+  }, [isActive, jobId, queryClient]);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Project search state

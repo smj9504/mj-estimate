@@ -53,6 +53,11 @@ _LF_DEMOLITION_MATERIALS = frozenset(
     {"baseboard", "baseboard_quarter_round", "toe_kick"}
 )
 
+# EA (each) demolition types — trim, door, stair
+_EA_DEMOLITION_MATERIALS = frozenset(
+    {"window_trim_demo", "door_trim_demo", "door_demo", "stair_demo"}
+)
+
 # Wall SF types drawn as lines when height is implicit (dimension2_ft == 0)
 _WALL_LINE_SF_MATERIALS = frozenset(
     {"wall_drywall", "wall_drywall_2ft", "wall_drywall_4ft", "insulation"}
@@ -71,6 +76,10 @@ _DEMO_MATERIAL_LABELS: Dict[str, str] = {
     "baseboard": "Baseboard",
     "baseboard_quarter_round": "Baseboard+Quarter Round",
     "toe_kick": "Toe Kick",
+    "window_trim_demo": "Window Trim Demo",
+    "door_trim_demo": "Door Trim Demo",
+    "door_demo": "Door Demo",
+    "stair_demo": "Stair Tread Demo",
 }
 
 # Wood floor sub-type display names for PDF
@@ -96,10 +105,29 @@ _WALL_MATERIAL_IDS = frozenset({
     "wall_drywall_4ft",
 })
 
+# Trim / door size sub-type display names for PDF
+_TRIM_SIZE_SUB_TYPE_LABELS: Dict[str, str] = {
+    "small": "Small",
+    "medium": "Medium",
+    "large": "Large",
+    "x_large": "X-Large",
+}
+
+# Material IDs that support trim size sub-types
+_TRIM_SIZE_MATERIAL_IDS = frozenset({
+    "window_trim_demo",
+    "door_trim_demo",
+    "door_demo",
+})
+
 _DEMO_MATERIAL_UNITS: Dict[str, str] = {
     "baseboard": "LF",
     "baseboard_quarter_round": "LF",
     "toe_kick": "LF",
+    "window_trim_demo": "EA",
+    "door_trim_demo": "EA",
+    "door_demo": "EA",
+    "stair_demo": "EA",
 }
 
 
@@ -675,6 +703,18 @@ class SketchPdfService:
     # Dict-based renderers (read from overlay_data JSONB snapshot)
     # ──────────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _stroke_style_to_dasharray(stroke_style: str, is_lf: bool = False) -> str:
+        """Convert a stroke_style value to SVG stroke-dasharray attribute."""
+        if stroke_style == "dashed":
+            return ' stroke-dasharray="8 4"'
+        if stroke_style == "dotted":
+            return ' stroke-dasharray="3 3"'
+        # Default for LF is dashed
+        if is_lf and stroke_style != "solid":
+            return ' stroke-dasharray="8 4"'
+        return ""
+
     def _render_demo_zone_from_dict(self, z: Dict[str, Any], scale: float) -> List[str]:
         """SVG for a demolition zone read from the JSONB overlay_data dict."""
         import math
@@ -686,11 +726,39 @@ class SketchPdfService:
         y = float(z.get("y", 0))
         color = z.get("color", "#FF5722")
         rotation = float(z.get("rotation", 0))
+        render_mode = z.get("render_mode", "")
+        stroke_style = z.get("stroke_style", "solid") or "solid"
+        custom_fill_opacity = z.get("fill_opacity")
 
-        # Check if this is a line-type (LF or wall-SF with no d2)
+        # Text render mode: display a styled text label
+        if render_mode == "text":
+            base_lbl = _DEMO_MATERIAL_LABELS.get(mt, mt.replace("_", " ").title())
+            zone_label = z.get("label") or base_lbl
+            sqft = float(z.get("calculated_sqft", 0))
+            unit = _DEMO_MATERIAL_UNITS.get(mt, "SF")
+            qty_text = ""
+            if sqft > 0:
+                qty_text = f" ({sqft:.1f} {unit})" if unit != "EA" else f" ({int(sqft)} {unit})"
+            opacity = custom_fill_opacity if custom_fill_opacity is not None else 0.18
+            escaped = html_lib.escape(f"{zone_label}{qty_text}")
+            text_w = max(80, len(escaped) * 7 + 16)
+            parts = [
+                f'<g transform="translate({x:.1f},{y:.1f})">',
+                f'<rect x="-4" y="-2" width="{text_w}" height="22" rx="4" '
+                f'fill="{color}" fill-opacity="{opacity:.2f}" '
+                f'stroke="{color}" stroke-width="1"/>',
+                f'<text x="0" y="14" font-size="13" font-weight="bold" '
+                f'font-family="Arial" fill="{color}">{escaped}</text>',
+                '</g>',
+            ]
+            return parts
+
+        # Determine render mode from zone data or material type
         is_lf = mt in _LF_DEMOLITION_MATERIALS
         is_wall_line = mt in _WALL_LINE_SF_MATERIALS and d2 <= 0.0001
-        if is_lf or is_wall_line:
+        is_line = render_mode == "line" or is_lf or is_wall_line
+
+        if is_line:
             if d1 <= 0:
                 return []
             length_px = d1 * scale
@@ -699,7 +767,7 @@ class SketchPdfService:
             x2 = x1 + length_px * math.cos(rad)
             y2 = y1 + length_px * math.sin(rad)
             stroke_w = 3.5 if is_lf else 4.5
-            dash_part = ' stroke-dasharray="8 4"' if is_lf else ""
+            dash_part = self._stroke_style_to_dasharray(stroke_style, is_lf=is_lf)
             parts = [
                 f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
                 f'stroke="{color}" stroke-width="{stroke_w}" stroke-linecap="round"'
@@ -735,8 +803,17 @@ class SketchPdfService:
             if abs(rotation) > 0.0001 else ""
         )
         has_dims = d1 > 0 and d2 > 0
-        stroke_dash = "" if has_dims else ' stroke-dasharray="6 4"'
-        fill_opacity = "0.22" if has_dims else "0.15"
+
+        # Apply custom stroke style or default behavior
+        if has_dims:
+            stroke_dash = self._stroke_style_to_dasharray(stroke_style)
+        else:
+            stroke_dash = ' stroke-dasharray="6 4"'
+
+        if custom_fill_opacity is not None:
+            fill_opacity = f"{custom_fill_opacity:.2f}"
+        else:
+            fill_opacity = "0.22" if has_dims else "0.15"
 
         parts = [
             f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">'
@@ -1066,6 +1143,7 @@ class SketchPdfService:
         insulation_sqft: float = 0.0
         total_demo_sf: float = 0.0
         total_demo_lf: float = 0.0
+        total_demo_ea: float = 0.0
 
         for zone in (floor.demolition_zones or []):
             mt = zone.material_type or "Unknown"
@@ -1087,6 +1165,11 @@ class SketchPdfService:
                         st, st.replace("_", " ").title()
                     )
                     display_name = f"{base_name} ({st_label})"
+                elif mt in _TRIM_SIZE_MATERIAL_IDS and st:
+                    st_label = _TRIM_SIZE_SUB_TYPE_LABELS.get(
+                        st, st.replace("_", " ").title()
+                    )
+                    display_name = f"{base_name} ({st_label})"
                 else:
                     display_name = base_name
                 demo_by_material[key] = {
@@ -1102,7 +1185,9 @@ class SketchPdfService:
             demo_by_material[key]["count"] += 1
             qty = float(zone.calculated_sqft or 0)
             demo_by_material[key]["total_sqft"] += qty
-            if unit == "LF":
+            if unit == "EA":
+                total_demo_ea += qty
+            elif unit == "LF":
                 total_demo_lf += qty
             else:
                 total_demo_sf += qty
@@ -1139,6 +1224,7 @@ class SketchPdfService:
             "total_demo_sqft": total_demo_sf,
             "total_demo_sf": total_demo_sf,
             "total_demo_lf": total_demo_lf,
+            "total_demo_ea": total_demo_ea,
             "carpet_pad_sqft": carpet_pad_sqft,
             "insulation_sqft": insulation_sqft,
         }

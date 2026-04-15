@@ -59,6 +59,17 @@ const WaterMitigationDetail: React.FC = () => {
   const isMobile = !screens.md;
   const [activeTab, setActiveTab] = useState('details');
 
+  // Background refresh job data when switching back to details tab
+  const handleTabChange = useCallback((key: string) => {
+    setActiveTab(key);
+    if (key === 'details' && id) {
+      // Silent refresh — update data without showing loading spinner
+      waterMitigationService.getJob(id).then((jobData) => {
+        setJob(jobData);
+      }).catch(() => { /* silent */ });
+    }
+  }, [id]);
+
   // Prefetch photos data on tab hover for instant tab switch
   const prefetchPhotos = useCallback(() => {
     if (!id) return;
@@ -440,7 +451,7 @@ const WaterMitigationDetail: React.FC = () => {
         <Tabs
           defaultActiveKey="details"
           activeKey={activeTab}
-          onChange={setActiveTab}
+          onChange={handleTabChange}
           size={isMobile ? 'small' : 'middle'}
           tabBarStyle={isMobile ? { marginBottom: 8 } : undefined}
           items={[
@@ -815,6 +826,7 @@ const WaterMitigationDetail: React.FC = () => {
                   jobId={id}
                   clientId={job.client_id}
                   companycamProjectId={job.companycam_project_id}
+                  isActive={activeTab === 'photos'}
                 />
               ) : null
             },
@@ -827,6 +839,7 @@ const WaterMitigationDetail: React.FC = () => {
                   jobAddress={job.property_address || 'Unknown Address'}
                   dateOfLoss={job.date_of_loss}
                   mitigationStartDate={job.mitigation_start_date}
+                  isActive={activeTab === 'documents'}
                 />
               ) : null
             },
@@ -842,6 +855,7 @@ const WaterMitigationDetail: React.FC = () => {
                 <WMSketchTab
                   jobId={id}
                   jobAddress={job.property_address || 'Unknown Address'}
+                  isActive={activeTab === 'sketch'}
                 />
               ) : null
             },
@@ -855,13 +869,14 @@ const WaterMitigationDetail: React.FC = () => {
                   dateOfLoss={job.date_of_loss}
                   mitigationStartDate={job.mitigation_start_date}
                   mitigationEndDate={job.mitigation_end_date}
+                  isActive={activeTab === 'report'}
                 />
               ) : null
             },
             {
               key: 'trash',
               label: 'Trash',
-              children: id ? <WaterMitigationTrashTab jobId={id} /> : null
+              children: id ? <WaterMitigationTrashTab jobId={id} isActive={activeTab === 'trash'} /> : null
             }
           ]}
         />

@@ -66,6 +66,7 @@ interface WaterMitigationReportTabProps {
   dateOfLoss?: string | null;
   mitigationStartDate?: string | null;
   mitigationEndDate?: string | null;
+  isActive?: boolean;
 }
 
 interface Photo {
@@ -95,7 +96,8 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   jobAddress,
   dateOfLoss,
   mitigationStartDate,
-  mitigationEndDate
+  mitigationEndDate,
+  isActive,
 }) => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
@@ -111,6 +113,15 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     retry: false,
     enabled: !!jobId
   });
+
+  // Background refresh when tab becomes active
+  const prevActiveRef = React.useRef(isActive);
+  React.useEffect(() => {
+    if (isActive && !prevActiveRef.current) {
+      refetchConfig();
+    }
+    prevActiveRef.current = isActive;
+  }, [isActive, refetchConfig]);
 
   // Use React Query for photos (shared cache with other components)
   const { data: availablePhotos = [], isLoading: loadingPhotos } = useWaterMitigationPhotos(jobId);

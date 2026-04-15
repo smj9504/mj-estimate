@@ -62,7 +62,7 @@ import type {
   EquipmentType,
   ShapePreset,
 } from '../../../types/wmSketch';
-import { EQUIPMENT_CONFIG, SHAPE_PRESETS } from '../../../types/wmSketch';
+import { EQUIPMENT_CONFIG, SHAPE_PRESETS, getEffectiveRenderMode } from '../../../types/wmSketch';
 
 // Space.Compact is available in antd v5+; aliased for readability
 const { Compact: SpaceCompact } = Space;
@@ -178,48 +178,62 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   const activeShapePreset = SHAPE_PRESETS.find((p) => p.id === activeShapePresetId);
 
   // ------------------------------------------------------------------
-  // Demolition dropdown menu
+  // Demolition dropdown menu (grouped by render mode)
   // ------------------------------------------------------------------
-  // Separate floor/ceiling materials from wall/baseboard materials
-  const rectMaterials = materialTypes.filter((m) => m.surface !== 'wall' && m.unit !== 'LF');
-  const lineMaterials = materialTypes.filter((m) => m.surface === 'wall' || m.unit === 'LF');
+  const areaMaterials = materialTypes.filter((m) => getEffectiveRenderMode(m) === 'area');
+  const lineMaterials = materialTypes.filter((m) => getEffectiveRenderMode(m) === 'line');
+  const shapeMaterials = materialTypes.filter((m) => getEffectiveRenderMode(m) === 'shape');
+  const textMaterials = materialTypes.filter((m) => getEffectiveRenderMode(m) === 'text');
 
-  const demoMenuItems: MenuProps['items'] = [
-    ...rectMaterials.map((mt) => ({
+  /** Map render mode to the appropriate sketch tool */
+  const renderModeToTool = (mode: string): WMSketchTool => {
+    switch (mode) {
+      case 'line': return 'demolition_line';
+      case 'shape': return 'demolition';  // click-to-place handled in editor
+      case 'text': return 'demolition';   // click-to-place text label
+      default: return 'demolition';       // area = rectangle drag
+    }
+  };
+
+  const makeDemoMenuItem = (mt: DemoMaterialType) => {
+    const mode = getEffectiveRenderMode(mt);
+    return {
       key: mt.id,
       label: (
         <Space size={6}>
           <ColorSwatch color={mt.color} />
           <span>{mt.name}</span>
+          <span style={{ fontSize: 10, color: '#8c8c8c' }}>{mt.unit}</span>
         </Space>
       ),
       onClick: () => {
         onMaterialTypeChange(mt.id);
-        onToolChange('demolition');
+        onToolChange(renderModeToTool(mode));
       },
-    })),
+    };
+  };
+
+  const demoMenuItems: MenuProps['items'] = [
+    ...areaMaterials.map(makeDemoMenuItem),
     ...(lineMaterials.length > 0
       ? [
-          { type: 'divider' as const, key: 'wall-divider' },
-          {
-            key: 'wall-header',
-            label: <span style={{ fontSize: 11, color: '#8c8c8c' }}>Wall / Baseboard (line)</span>,
-            disabled: true,
-          },
-          ...lineMaterials.map((mt) => ({
-            key: mt.id,
-            label: (
-              <Space size={6}>
-                <ColorSwatch color={mt.color} />
-                <span>{mt.name}</span>
-                <span style={{ fontSize: 10, color: '#8c8c8c' }}>{mt.unit}</span>
-              </Space>
-            ),
-            onClick: () => {
-              onMaterialTypeChange(mt.id);
-              onToolChange('demolition_line');
-            },
-          })),
+          { type: 'divider' as const, key: 'line-divider' },
+          { key: 'line-header', label: <span style={{ fontSize: 11, color: '#8c8c8c' }}>Line / Wall</span>, disabled: true },
+          ...lineMaterials.map(makeDemoMenuItem),
+        ]
+      : []),
+    ...(shapeMaterials.length > 0
+      ? [
+          { type: 'divider' as const, key: 'shape-divider' },
+          { key: 'shape-header', label: <span style={{ fontSize: 11, color: '#8c8c8c' }}>Shape (click-to-place)</span>, disabled: true },
+          ...shapeMaterials.map(makeDemoMenuItem),
+        ]
+      : []),
+    ...(textMaterials.length > 0
+      ? [
+          { type: 'divider' as const, key: 'text-divider' },
+          { key: 'text-header', label: <span style={{ fontSize: 11, color: '#8c8c8c' }}>Text Label</span>, disabled: true },
+          ...textMaterials.map(makeDemoMenuItem),
         ]
       : []),
   ];
