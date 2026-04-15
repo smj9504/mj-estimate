@@ -396,9 +396,106 @@ class ScopeService:
                 data=calculation_data,
                 user_id=user_id
             )
+
+            # Auto-update invoice config items that depend on debris calculation
+            updated = self._sync_invoice_configs_after_debris(
+                job_id, bag_count, total_weight_ton
+            )
+            if updated:
+                logger.info(
+                    f"[DEBRIS] Auto-updated {updated} invoice config item(s) "
+                    f"for job {job_id}"
+                )
+
             self.db.commit()
 
         return calculation_data, warnings
+
+    def _sync_invoice_configs_after_debris(
+        self,
+        job_id: UUID,
+        bag_count: int,
+        total_weight_ton: Decimal,
+    ) -> int:
+        """
+        Update invoice config items that depend on debris calculation results.
+
+        Finds General Conditions items like "disposal fee" and "hand loading disposal"
+        and recalculates their quantity/note based on the latest debris data.
+        """
+        from sqlalchemy.orm import joinedload as jl
+        from app.domains.water_mitigation.models import WMInvoiceItemConfig
+        from app.domains.water_mitigation.invoice_calculation_config import (
+            get_calculation_function,
+            calculate_debris_disposal_fee,
+            calculate_debris_disposal_hours,
+        )
+
+        # Get all GC invoice configs for this job (no scope_item = General Conditions)
+        configs = (
+            self.db.query(WMInvoiceItemConfig)
+            .options(jl(WMInvoiceItemConfig.line_item))
+            .filter(
+                WMInvoiceItemConfig.job_id == job_id,
+                WMInvoiceItemConfig.scope_item_id.is_(None),
+            )
+            .all()
+        )
+
+        # Gather scope data for disposal hours calculation
+        scope_data = None
+        updated_count = 0
+
+        for config in configs:
+            # Determine description from line_item or custom_name
+            description = None
+            if config.line_item:
+                description = config.line_item.description
+            elif config.custom_name:
+                description = config.custom_name
+
+            if not description:
+                continue
+
+            func_name = get_calculation_function(description)
+            if not func_name:
+                continue
+
+            new_qty = None
+            new_note = None
+
+            if func_name == "calculate_debris_disposal_fee":
+                new_qty, new_note = calculate_debris_disposal_fee(
+                    bag_count, total_weight_ton
+                )
+
+            elif func_name == "calculate_debris_disposal_hours":
+                # Need full scope data for hours calculation
+                if scope_data is None:
+                    from app.domains.water_mitigation.invoice_config_service import (
+                        InvoiceConfigService,
+                    )
+                    svc = InvoiceConfigService(self.db)
+                    scope_data = svc._gather_scope_data_for_calculations(job_id)
+
+                new_qty, new_note = calculate_debris_disposal_hours(
+                    total_weight_ton,
+                    scope_data.get("has_stairs", False),
+                    scope_data.get("primary_location", "the property"),
+                    scope_data.get("debris_floors", set()),
+                    bag_count,
+                )
+
+            if new_qty is not None:
+                config.calculated_quantity = new_qty
+                if new_note:
+                    config.default_note = new_note
+                updated_count += 1
+                logger.info(
+                    f"[DEBRIS] Updated '{description}': qty={new_qty}"
+                )
+
+        return updated_count
 
     def _recommend_dumpster(self, total_weight_tons: float) -> Optional[dict]:
         """Recommend dumpster size based on total weight"""

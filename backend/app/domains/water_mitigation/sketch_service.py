@@ -228,6 +228,49 @@ class SketchService:
     # Generate Scope of Work from Sketch
     # =========================================================================
 
+    @staticmethod
+    def _resolve_material_weight_id(
+        material_weight_map: dict,
+        item_name: str,
+        sketch_material_type: str,
+        sub_type: str,
+    ) -> "UUID | None":
+        """
+        Resolve material_weight_id for a demolition scope item.
+
+        Tries multiple matching strategies against the material_weights table:
+        1. Exact match by generated item name (e.g. "Carpet", "Wall/Drywall (Drywall)")
+        2. Exact match by sketch material_type key (e.g. "carpet", "wall_drywall")
+        3. Case-insensitive match by item name
+        """
+        if not material_weight_map:
+            return None
+
+        # Strategy 1: Exact match by item name
+        if item_name in material_weight_map:
+            return material_weight_map[item_name]
+
+        # Strategy 2: Exact match by sketch material_type key
+        if sketch_material_type in material_weight_map:
+            return material_weight_map[sketch_material_type]
+
+        # Strategy 3: Case-insensitive match
+        name_lower = item_name.lower()
+        for mt, mw_id in material_weight_map.items():
+            if mt.lower() == name_lower:
+                return mw_id
+
+        # Strategy 4: Partial match - check if item name starts with material_type name
+        for mt, mw_id in material_weight_map.items():
+            if name_lower.startswith(mt.lower()) or mt.lower().startswith(name_lower):
+                return mw_id
+
+        logger.warning(
+            f"[SCOPE GEN] No material weight match for '{item_name}' "
+            f"(sketch_type='{sketch_material_type}', sub_type='{sub_type}')"
+        )
+        return None
+
     # Material type → human-readable name mapping (matches frontend wmSketch.ts)
     _MATERIAL_TYPE_NAMES = {
         "wood_floor": "Wood Floor",
@@ -319,6 +362,8 @@ class SketchService:
         """
         from decimal import Decimal
 
+        from sqlalchemy import select
+        from app.domains.reconstruction_estimate.models import MaterialWeight
         from app.domains.water_mitigation.models import (
             WMScopeItem,
             WMScopeLocation,
@@ -335,6 +380,21 @@ class SketchService:
         scope_repo = ScopeRepository(self.db)
         warnings: list[str] = []
         all_items: list[GeneratedScopeItemSummary] = []
+
+        # Build material_type → material_weight_id lookup from DB
+        material_weight_map: dict[str, UUID] = {}
+        try:
+            rows = self.db.execute(
+                select(MaterialWeight.material_type, MaterialWeight.id)
+                .where(MaterialWeight.active.is_(True))
+            ).all()
+            material_weight_map = {row.material_type: row.id for row in rows}
+            logger.info(
+                f"[SCOPE GEN] Loaded {len(material_weight_map)} material weights: "
+                f"{list(material_weight_map.keys())}"
+            )
+        except Exception as e:
+            logger.warning(f"[SCOPE GEN] Failed to load material weights: {e}")
 
         # Optionally clear existing scope data
         if options.clear_existing:
@@ -414,6 +474,10 @@ class SketchService:
                 unit = self._DEMOLITION_MATERIAL_UNITS.get(
                     material_type, "SF",
                 )
+                # Auto-map material_weight_id from DB
+                mw_id = self._resolve_material_weight_id(
+                    material_weight_map, name, material_type, sub_type,
+                )
                 item = WMScopeItem(
                     location_id=location.id,
                     item_type="demolition",
@@ -421,8 +485,13 @@ class SketchService:
                     quantity=Decimal(str(round(total_qty, 2))),
                     unit=unit,
                     include_in_debris=True,
+                    material_weight_id=mw_id,
                     display_order=item_order,
                 )
+                if not mw_id:
+                    warnings.append(
+                        f"No material weight mapping found for '{name}'"
+                    )
                 self.db.add(item)
                 items_created += 1
                 item_order += 1
@@ -434,6 +503,9 @@ class SketchService:
 
             # Carpet Pad — separate line item
             if carpet_pad_sqft > 0:
+                pad_mw_id = self._resolve_material_weight_id(
+                    material_weight_map, "Carpet Pad", "carpet_pad", "",
+                )
                 pad_item = WMScopeItem(
                     location_id=location.id,
                     item_type="demolition",
@@ -441,6 +513,7 @@ class SketchService:
                     quantity=Decimal(str(round(carpet_pad_sqft, 2))),
                     unit="SF",
                     include_in_debris=True,
+                    material_weight_id=pad_mw_id,
                     display_order=item_order,
                 )
                 self.db.add(pad_item)
@@ -454,6 +527,9 @@ class SketchService:
 
             # Insulation — separate line item from checkbox
             if insulation_sqft > 0:
+                ins_mw_id = self._resolve_material_weight_id(
+                    material_weight_map, "Insulation", "insulation", "",
+                )
                 ins_item = WMScopeItem(
                     location_id=location.id,
                     item_type="demolition",
@@ -461,6 +537,7 @@ class SketchService:
                     quantity=Decimal(str(round(insulation_sqft, 2))),
                     unit="SF",
                     include_in_debris=True,
+                    material_weight_id=ins_mw_id,
                     display_order=item_order,
                 )
                 self.db.add(ins_item)

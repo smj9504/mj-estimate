@@ -156,8 +156,9 @@ temp/
 # Docker
 .dockerignore
 
-# Reference files
-reference/
+# Reference files (ignore all except EWA templates needed for deployment)
+reference/*
+!reference/ewa_templates/
 backend/tests
 backend/stroage/water-mitigation/documents
 
