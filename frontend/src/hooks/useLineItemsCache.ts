@@ -54,13 +54,25 @@ export function useLineItemsCache(): UseLineItemsCacheResult {
     setIsLoading(true);
     setError(null);
 
-    // Create new loading promise
+    // Create new loading promise - fetch all pages
     cachePromise = (async () => {
-      const response = await lineItemService.getLineItems({
-        is_active: true,
-        page_size: 500  // Load all items (currently ~122)
-      });
-      return response.items || [];
+      const allItems: LineItem[] = [];
+      let page = 1;
+      const pageSize = 100;
+      let totalPages = 1;
+
+      do {
+        const response = await lineItemService.getLineItems({
+          is_active: true,
+          page,
+          page_size: pageSize
+        });
+        allItems.push(...(response.items || []));
+        totalPages = response.total_pages || 1;
+        page++;
+      } while (page <= totalPages);
+
+      return allItems;
     })();
 
     try {

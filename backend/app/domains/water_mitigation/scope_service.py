@@ -5,11 +5,14 @@ Business logic layer for scope locations, scope items,
 and debris calculation.
 """
 
+import logging
 import re
 from decimal import Decimal
 from typing import List, Optional, Tuple
 from uuid import UUID
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
 
@@ -273,10 +276,18 @@ class ScopeService:
         # Get all demolition items for the job
         items = self.repository.get_demolition_items_for_job(job_id)
 
+        logger.info(f"[DEBRIS DEBUG] Job {job_id}: found {len(items)} demolition items with include_in_debris=True")
+
         if not items:
             warnings.append("No demolition items found for debris calculation")
 
         for item in items:
+            logger.info(
+                f"[DEBRIS DEBUG] Item '{item.name}': "
+                f"quantity={item.quantity}, unit={item.unit}, "
+                f"material_weight_id={item.material_weight_id}, "
+                f"include_in_debris={item.include_in_debris}"
+            )
             if not item.quantity or item.quantity <= 0:
                 warnings.append(
                     f"Item '{item.name}' has no quantity, skipped"
@@ -291,10 +302,20 @@ class ScopeService:
 
             if material:
                 dry_weight = Decimal(str(material.dry_weight_per_unit))
+                logger.info(
+                    f"[DEBRIS DEBUG] Item '{item.name}': "
+                    f"material='{material.material_type}', "
+                    f"dry_weight_per_unit={material.dry_weight_per_unit}, "
+                    f"calculated dry_weight={dry_weight}"
+                )
                 if material.category:
                     category_name = material.category.category_name
             else:
                 # No material mapping - warn but continue with 0 weight
+                logger.warning(
+                    f"[DEBRIS DEBUG] Item '{item.name}': NO material_weight loaded "
+                    f"(material_weight_id={item.material_weight_id})"
+                )
                 warnings.append(
                     f"Item '{item.name}' has no material weight mapping, "
                     "weight set to 0"
@@ -304,6 +325,11 @@ class ScopeService:
             quantity = Decimal(str(item.quantity))
             weight_lb = quantity * dry_weight
             weight_ton = weight_lb / Decimal("2000")
+
+            logger.info(
+                f"[DEBRIS DEBUG] Item '{item.name}': "
+                f"qty={quantity} * dry_wt={dry_weight} = {weight_lb} lb ({weight_ton} ton)"
+            )
 
             total_weight_lb += weight_lb
 

@@ -541,10 +541,19 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     }
 
     try {
-      // Fetch all photos for this job to get IDs
-      const params = new URLSearchParams({ page_size: '500', page: '1' });
-      const response = await api.get(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
-      const items = response.data.items || response.data.photos || [];
+      // Fetch all photos for this job to get IDs (paginated)
+      let allItems: any[] = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const params = new URLSearchParams({ page_size: '100', page: String(page) });
+        const response = await api.get(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
+        const pageItems = response.data.items || response.data.photos || [];
+        allItems.push(...pageItems);
+        totalPages = response.data.total_pages || 1;
+        page++;
+      } while (page <= totalPages);
+      const items = allItems;
 
       // Filter to uncategorized or photos without a category
       const uncategorized = items.filter(
@@ -631,11 +640,20 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       setAiPage(1);
       setAiFilter('all');
 
-      // Fetch photo data for thumbnails
+      // Fetch photo data for thumbnails (paginated)
       const baseURL = api.defaults.baseURL || '';
-      const params = new URLSearchParams({ page_size: '500', page: '1' });
-      const photoResp = await api.get(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
-      const photos = photoResp.data.items || photoResp.data.photos || [];
+      let allPhotos: any[] = [];
+      let pgNum = 1;
+      let pgTotal = 1;
+      do {
+        const params = new URLSearchParams({ page_size: '100', page: String(pgNum) });
+        const photoResp = await api.get(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
+        const pgItems = photoResp.data.items || photoResp.data.photos || [];
+        allPhotos.push(...pgItems);
+        pgTotal = photoResp.data.total_pages || 1;
+        pgNum++;
+      } while (pgNum <= pgTotal);
+      const photos = allPhotos;
       aiPhotoMapRef.current = {};
       for (const p of photos) {
         const thumbUrl = p.thumbnail_url
