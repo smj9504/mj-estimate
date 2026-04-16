@@ -228,6 +228,64 @@ class SketchService:
     # Generate Scope of Work from Sketch
     # =========================================================================
 
+    # ── Sketch material type → default DB material_type mapping ──
+    # The sketch uses simplified types (e.g. "carpet", "wall_drywall")
+    # while the material_weights DB uses specific types (e.g. "carpet_residential", "drywall_1_2").
+    # (sketch_material_type, sub_type) → db material_type
+    _SKETCH_TO_DB_MATERIAL: dict[tuple[str, str], str] = {
+        # Flooring
+        ("carpet", ""):                "carpet_residential",
+        ("carpet_pad", ""):            "carpet_pad_8lb",
+        ("wood_floor", ""):            "hardwood_floor_3_4",
+        ("wood_floor", "hardwood"):    "hardwood_floor_3_4",
+        ("wood_floor", "engineered"):  "engineered_hardwood",
+        ("wood_floor", "laminate"):    "laminate_flooring",
+        ("wood_floor", "lvp"):         "lvp_standard",
+        ("tile", ""):                  "ceramic_tile",
+        # Drywall / Wall
+        ("wall_drywall", ""):          "drywall_1_2",
+        ("wall_drywall", "drywall"):   "drywall_1_2",
+        ("wall_drywall", "wall_panel"): "wainscoting_panel",
+        ("wall_drywall", "plaster"):   "drywall_1_2",
+        ("wall_drywall", "wood_panel"): "wainscoting_panel",
+        ("wall_drywall_2ft", ""):      "drywall_1_2",
+        ("wall_drywall_2ft", "drywall"): "drywall_1_2",
+        ("wall_drywall_2ft", "wall_panel"): "wainscoting_panel",
+        ("wall_drywall_2ft", "plaster"): "drywall_1_2",
+        ("wall_drywall_2ft", "wood_panel"): "wainscoting_panel",
+        ("wall_drywall_4ft", ""):      "drywall_1_2",
+        ("wall_drywall_4ft", "drywall"): "drywall_1_2",
+        ("wall_drywall_4ft", "wall_panel"): "wainscoting_panel",
+        ("wall_drywall_4ft", "plaster"): "drywall_1_2",
+        ("wall_drywall_4ft", "wood_panel"): "wainscoting_panel",
+        ("ceiling", ""):               "drywall_1_2",
+        # Trim / Baseboard
+        ("baseboard", ""):             "baseboard_3",
+        ("baseboard_quarter_round", ""): "baseboard_3",
+        ("toe_kick", ""):              "baseboard_3",
+        # Insulation
+        ("insulation", ""):            "fiberglass_r13",
+        # Trim demos
+        ("window_trim_demo", ""):      "window_casing",
+        ("window_trim_demo", "small"): "window_casing",
+        ("window_trim_demo", "medium"): "window_casing",
+        ("window_trim_demo", "large"): "window_casing",
+        ("window_trim_demo", "x_large"): "window_casing",
+        ("door_trim_demo", ""):        "door_casing",
+        ("door_trim_demo", "small"):   "door_casing",
+        ("door_trim_demo", "medium"):  "door_casing",
+        ("door_trim_demo", "large"):   "door_casing",
+        ("door_trim_demo", "x_large"): "door_casing",
+        # Door demos
+        ("door_demo", ""):             "door_interior_hollow",
+        ("door_demo", "small"):        "door_interior_hollow",
+        ("door_demo", "medium"):       "door_interior_solid",
+        ("door_demo", "large"):        "door_exterior_wood",
+        ("door_demo", "x_large"):      "door_exterior_wood",
+        # Stair
+        ("stair_demo", ""):            "hardwood_floor_3_4",
+    }
+
     @staticmethod
     def _resolve_material_weight_id(
         material_weight_map: dict,
@@ -239,12 +297,23 @@ class SketchService:
         Resolve material_weight_id for a demolition scope item.
 
         Tries multiple matching strategies against the material_weights table:
-        1. Exact match by generated item name (e.g. "Carpet", "Wall/Drywall (Drywall)")
-        2. Exact match by sketch material_type key (e.g. "carpet", "wall_drywall")
+        0. Explicit sketch→DB mapping (handles simplified sketch types → specific DB types)
+        1. Exact match by generated item name
+        2. Exact match by sketch material_type key
         3. Case-insensitive match by item name
+        4. Partial/prefix match
         """
         if not material_weight_map:
             return None
+
+        # Strategy 0: Explicit sketch→DB mapping (most reliable)
+        _MAP = SketchService._SKETCH_TO_DB_MATERIAL
+        db_type = _MAP.get((sketch_material_type, sub_type))
+        if db_type is None:
+            # Try without sub_type as fallback
+            db_type = _MAP.get((sketch_material_type, ""))
+        if db_type and db_type in material_weight_map:
+            return material_weight_map[db_type]
 
         # Strategy 1: Exact match by item name
         if item_name in material_weight_map:

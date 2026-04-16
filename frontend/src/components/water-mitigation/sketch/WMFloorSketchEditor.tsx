@@ -900,7 +900,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
               fill_opacity: matDef?.fill_opacity,
             };
             addDemolitionZone(zone);
-            selectElement({ element_id: newId, element_type: 'demolition' });
+            // Don't auto-select — allow consecutive placement
             return;
           }
 
@@ -930,7 +930,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
               fill_opacity: matDef?.fill_opacity,
             };
             addDemolitionZone(zone);
-            selectElement({ element_id: newId, element_type: 'demolition' });
+            // Don't auto-select — allow consecutive placement
             return;
           }
           // Line render mode: handled by demolition_line tool activation in toolbar
@@ -1265,8 +1265,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           fill_opacity: matDef?.fill_opacity,
         };
         addDemolitionZone(zone);
-        // Auto-select the new zone so the sidebar opens for dimension input
-        selectElement({ element_id: newId, element_type: 'demolition' });
+        // Don't auto-select — allow consecutive drawing of multiple zones
       } else if (activeTool === 'demolition_line') {
         // Wall / baseboard line — drag determines length and angle
         const dx = currentX - startX;
@@ -1302,7 +1301,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           fill_opacity: matDef?.fill_opacity,
         };
         addDemolitionZone(zone);
-        selectElement({ element_id: newId, element_type: 'demolition' });
+        // Don't auto-select — allow consecutive drawing of multiple lines
       } else if (activeTool === 'containment') {
         // Containment is a line — drag determines length and angle
         const dx = currentX - startX;
@@ -1363,7 +1362,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       setDrawStateSync(INITIAL_DRAW_STATE);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addDemolitionZone, selectElement, addContainment, addFloorProtection, addContentProtection, setDrawStateSync]
+    [addDemolitionZone, addContainment, addFloorProtection, addContentProtection, setDrawStateSync]
   );
 
   // ------------------------------------------------------------------
