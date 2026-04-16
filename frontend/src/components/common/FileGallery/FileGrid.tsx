@@ -1,6 +1,5 @@
 import React, { useState, memo, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Card, Image, Typography, Modal, Checkbox, Tag, message } from 'antd';
-import { Grid } from 'react-window';
 import {
   EyeOutlined,
   DownloadOutlined,
@@ -342,7 +341,6 @@ interface FileGridProps {
   showImageInfo?: boolean;
   gridColumns?: Record<string, number>;
   enableLazyLoading?: boolean;
-  containerHeight?: number; // Height for virtual scrolling
   imageQuality?: ImageQuality; // Image quality: 'original' (full res), 'web' (400px), 'thumbnail' (250px)
   context?: string; // Context for download URL routing
 }
@@ -361,7 +359,6 @@ const FileGrid: React.FC<FileGridProps> = ({
   showImageInfo = true,
   gridColumns = { xs: 3, sm: 4, md: 5, lg: 6, xl: 8 },
   enableLazyLoading = true,
-  containerHeight = 600,
   imageQuality = 'thumbnail',
   context
 }) => {
@@ -586,143 +583,33 @@ const FileGrid: React.FC<FileGridProps> = ({
     handleFileSelect(fileId, selected);
   }, [handleFileSelect]);
 
-  // Use virtual scrolling for large lists (50+ items) to improve performance
-  const useVirtualScrolling = files.length > 50;
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
-  const scrollPositionRef = useRef<{ scrollTop: number; scrollLeft: number } | null>(null);
-
-  // Calculate container width for virtual scrolling
-  useEffect(() => {
-    if (!useVirtualScrolling || !containerRef.current) return;
-
-    const updateWidth = () => {
-      if (containerRef.current) {
-        setContainerWidth(containerRef.current.offsetWidth);
-      }
-    };
-
-    updateWidth();
-    window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
-  }, [useVirtualScrolling]);
-
-  // Save scroll position when scrolling
-  useEffect(() => {
-    if (!useVirtualScrolling || !containerRef.current) return;
-
-    const container = containerRef.current;
-    const handleScroll = () => {
-      scrollPositionRef.current = {
-        scrollTop: container.scrollTop,
-        scrollLeft: container.scrollLeft
-      };
-    };
-
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [useVirtualScrolling]);
-
-  // Restore scroll position when files change (but preserve if user is scrolling)
-  useEffect(() => {
-    if (!useVirtualScrolling || !containerRef.current || !scrollPositionRef.current) return;
-
-    // Only restore if we have a saved position and container is at top
-    const container = containerRef.current;
-    if (container.scrollTop === 0 && scrollPositionRef.current.scrollTop > 0) {
-      // User scrolled up, restore position
-      requestAnimationFrame(() => {
-        if (container && scrollPositionRef.current) {
-          container.scrollTop = scrollPositionRef.current.scrollTop;
-          container.scrollLeft = scrollPositionRef.current.scrollLeft;
-        }
-      });
-    }
-  }, [files.length, useVirtualScrolling]);
-
-  // Calculate columns based on gridColumns prop (use responsive value)
-  const columnCount = useMemo(() => {
-    if (!useVirtualScrolling || containerWidth === 0) return responsiveColumns;
-    // Use the responsive column count from gridColumns prop
-    return responsiveColumns;
-  }, [useVirtualScrolling, containerWidth, responsiveColumns]);
-
-  const itemSize = 150; // Fixed item size for virtual scrolling
-  const rowCount = Math.ceil(files.length / columnCount);
-
-  // Virtual grid cell renderer
-  const Cell = useCallback(({ columnIndex, rowIndex, style }: { columnIndex: number; rowIndex: number; style: React.CSSProperties }) => {
-    const index = rowIndex * columnCount + columnIndex;
-    if (index >= files.length) return null;
-
-    const file = files[index];
-
-    // Critical: Validate file exists before rendering (prevents undefined during scroll remount)
-    if (!file || !file.id) {
-      return null;
-    }
-
-    return (
-      <div style={style}>
-        <FileCardItem
-          key={file.id}
-          file={file}
-          isSelected={currentSelectedSet.has(file.id)}
-          allowMultiSelect={allowMultiSelect}
-          fileCategory={fileCategory}
-          showImagePreview={showImagePreview}
-          showImageInfo={showImageInfo}
-          enableLazyLoading={enableLazyLoading}
-          imageQuality={imageQuality}
-          onSelect={handleFileSelectMemo}
-          onPreview={handlePreview}
-          onDownload={handleDownload}
-          onDelete={onDelete ? handleDelete : undefined}
-          onCardClick={handleCardClick}
-        />
-      </div>
-    );
-  }, [files, currentSelectedSet, allowMultiSelect, fileCategory, showImagePreview, showImageInfo, enableLazyLoading, imageQuality, handleFileSelectMemo, handlePreview, handleDownload, handleDelete, handleCardClick, columnCount, onDelete]);
 
   return (
     <>
       <style>{getGridStyle()}</style>
-      <div 
+      <div
         ref={containerRef}
         className="file-grid"
-        style={useVirtualScrolling ? { height: '100%', width: '100%' } : {}}
       >
-        {useVirtualScrolling && containerWidth > 0 ? (
-          React.createElement(Grid as any, {
-            columnCount,
-            columnWidth: containerWidth / columnCount,
-            height: containerHeight,
-            rowCount,
-            rowHeight: itemSize + 12,
-            width: containerWidth,
-            style: { overflowX: 'hidden' },
-            children: Cell
-          })
-        ) : (
-          files.map((file, index) => (
-            <FileCardItem
-              key={file.id}
-              file={file}
-              isSelected={currentSelectedSet.has(file.id)}
-              allowMultiSelect={allowMultiSelect}
-              fileCategory={fileCategory}
-              showImagePreview={showImagePreview}
-              showImageInfo={showImageInfo}
-              enableLazyLoading={index >= responsiveColumns * 3 ? enableLazyLoading : false}
-              imageQuality={imageQuality}
-              onSelect={handleFileSelectMemo}
-              onPreview={handlePreview}
-              onDownload={handleDownload}
-              onDelete={onDelete ? handleDelete : undefined}
-              onCardClick={handleCardClick}
-            />
-          ))
-        )}
+        {files.map((file, index) => (
+          <FileCardItem
+            key={file.id}
+            file={file}
+            isSelected={currentSelectedSet.has(file.id)}
+            allowMultiSelect={allowMultiSelect}
+            fileCategory={fileCategory}
+            showImagePreview={showImagePreview}
+            showImageInfo={showImageInfo}
+            enableLazyLoading={index >= responsiveColumns * 3 ? enableLazyLoading : false}
+            imageQuality={imageQuality}
+            onSelect={handleFileSelectMemo}
+            onPreview={handlePreview}
+            onDownload={handleDownload}
+            onDelete={onDelete ? handleDelete : undefined}
+            onCardClick={handleCardClick}
+          />
+        ))}
       </div>
 
       {/* Image Preview Modal */}
