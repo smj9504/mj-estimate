@@ -977,14 +977,14 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
           >
             Calculate Debris
           </Button>
-          <Tooltip title="You have demolition items marked for debris calculation. Click to calculate total debris weight.">
+          <Tooltip title="Debris 계산을 먼저 실행해야 Invoice Configuration을 진행할 수 있습니다.">
             <QuestionCircleOutlined style={{ color: '#1890ff', cursor: 'help' }} />
           </Tooltip>
         </div>
       )}
 
-      {/* Invoice Configuration Panel */}
-      {locations.length > 0 && (
+      {/* Invoice Configuration Panel — only after debris calculation is done */}
+      {locations.length > 0 && (debrisCalculation || !locations.some(l => l.scope_items?.some(i => i.include_in_debris))) && (
         <div style={{ marginBottom: 16 }}>
           <InvoiceConfigurationPanel
             jobId={jobId}

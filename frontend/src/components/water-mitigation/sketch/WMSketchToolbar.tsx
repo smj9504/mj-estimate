@@ -394,8 +394,14 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
               // If no material selected yet, auto-select first one
               if (!activeMaterialTypeId && materialTypes.length > 0) {
                 onMaterialTypeChange(materialTypes[0].id);
+                onToolChange('demolition');
+              } else if (activeMaterial) {
+                // Activate the correct tool based on selected material's render mode
+                const mode = getEffectiveRenderMode(activeMaterial);
+                onToolChange(renderModeToTool(mode));
+              } else {
+                onToolChange('demolition');
               }
-              onToolChange('demolition');
             }}
           >
             {activeMaterial ? (

@@ -352,6 +352,8 @@ async def upload_photo(
         # Commit the transaction
         db.commit()
 
+        _invalidate_photo_list_cache()
+
         return service.photo_repo._convert_to_dict(photo)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1204,6 +1206,7 @@ def update_photo_category(
         )
 
         db.commit()
+        _invalidate_photo_list_cache()
 
         return service.photo_repo._convert_to_dict(updated)
     except Exception as e:
@@ -1242,6 +1245,7 @@ def bulk_update_category(
         )
 
         db.commit()
+        _invalidate_photo_list_cache()
 
         return {
             "updated_count": updated_count,
@@ -1289,6 +1293,7 @@ def bulk_set_categories(
                 failed += 1
 
         db.commit()
+        _invalidate_photo_list_cache()
 
         return {
             "applied": applied,
@@ -1470,7 +1475,16 @@ def delete_photo(
     # Commit the transaction
     db.commit()
 
+    _invalidate_photo_list_cache()
+
     return {"message": "Photo deleted successfully"}
+
+
+def _invalidate_photo_list_cache():
+    """Clear the in-memory photo list cache"""
+    if hasattr(list_photos, '_cache'):
+        list_photos._cache.clear()
+        list_photos._cache_ts.clear()
 
 
 @router.post("/photos/{photo_id}/trash")
@@ -1486,6 +1500,10 @@ def trash_photo(
         raise HTTPException(status_code=404, detail="Photo not found")
 
     db.commit()
+
+    # Invalidate photo list cache so trashed photo disappears immediately
+    _invalidate_photo_list_cache()
+
     return {"message": "Photo moved to trash"}
 
 
@@ -1501,6 +1519,10 @@ def restore_photo(
         raise HTTPException(status_code=404, detail="Photo not found")
 
     db.commit()
+
+    # Invalidate photo list cache so restored photo appears immediately
+    _invalidate_photo_list_cache()
+
     return {"message": "Photo restored from trash"}
 
 
@@ -3179,7 +3201,7 @@ async def ai_classify_photos(
                 continue
 
             # Classify photo
-            result = await ai_classification_service.classify_photo(
+            result = await ai_classification_service.classify_photo_two_phase(
                 image_data,
                 mime_type
             )

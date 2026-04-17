@@ -39,12 +39,11 @@ import {
   DeleteOutlined,
   DownOutlined,
   RightOutlined,
-  PlusOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import type { WMDemolitionZone, DemoMaterialType } from '../../../../types/wmSketch';
-import { DEFAULT_DEMO_MATERIAL_TYPES, WOOD_FLOOR_SUB_TYPES, WALL_MATERIAL_SUB_TYPES, WALL_MATERIAL_IDS, TRIM_SIZE_SUB_TYPES, TRIM_SIZE_MATERIAL_IDS, EA_ITEM_PIXEL_SIZES } from '../../../../types/wmSketch';
-import { calcDemoZoneSqft, generateOverlayId } from '../utils/wmCalculations';
+import { WOOD_FLOOR_SUB_TYPES, WALL_MATERIAL_SUB_TYPES, WALL_MATERIAL_IDS, TRIM_SIZE_SUB_TYPES, TRIM_SIZE_MATERIAL_IDS, EA_ITEM_PIXEL_SIZES } from '../../../../types/wmSketch';
+import { calcDemoZoneSqft } from '../utils/wmCalculations';
 import DimensionInput from './DimensionInput';
 
 const { Text } = Typography;
@@ -81,9 +80,10 @@ const ColorSwatch: React.FC<{ color: string; size?: number }> = ({ color, size =
 const ZoneEditForm: React.FC<{
   zone: WMDemolitionZone;
   materialTypes: DemoMaterialType[];
+  allZones: WMDemolitionZone[];
   onUpdate: (updates: Partial<WMDemolitionZone>) => void;
   onDelete: () => void;
-}> = ({ zone, materialTypes, onUpdate, onDelete }) => {
+}> = ({ zone, materialTypes, allZones, onUpdate, onDelete }) => {
   const selectedMaterial = materialTypes.find((m) => m.id === zone.material_type);
   const unit = selectedMaterial?.unit ?? 'SF';
   const isWallSF = selectedMaterial?.surface === 'wall' && unit === 'SF';
@@ -109,11 +109,22 @@ const ZoneEditForm: React.FC<{
   const handleMaterialChange = (value: string) => {
     const mat = materialTypes.find((m) => m.id === value);
     if (mat) {
-      onUpdate({
+      const updates: Partial<WMDemolitionZone> = {
         material_type: mat.id,
         surface: mat.surface,
         color: mat.color,
-      });
+      };
+      // Set default height_ft for specific drywall types
+      if (mat.surface === 'wall' && mat.unit === 'SF') {
+        if (mat.id === 'wall_drywall_2ft') {
+          updates.height_ft = 2;
+          updates.calculated_sqft = zone.dimension1_ft * 2;
+        } else if (mat.id === 'wall_drywall_4ft') {
+          updates.height_ft = 4;
+          updates.calculated_sqft = zone.dimension1_ft * 4;
+        }
+      }
+      onUpdate(updates);
     }
   };
 
@@ -283,14 +294,65 @@ const ZoneEditForm: React.FC<{
           </div>
         ) : null
       ) : isLF ? (
-        /* Baseboard / Quarter Round: length only */
-        <DimensionInput
-          label="Length"
-          value={zone.dimension1_ft}
-          onChange={(ft) =>
-            onUpdate({ dimension1_ft: ft, calculated_sqft: ft })
-          }
-        />
+        /* Baseboard / Quarter Round: length + match from wall */
+        <>
+          <DimensionInput
+            label="Length"
+            value={zone.dimension1_ft}
+            onChange={(ft) =>
+              onUpdate({ dimension1_ft: ft, calculated_sqft: ft })
+            }
+          />
+          {/* Match length from wall drywall zones */}
+          {(() => {
+            const wallZones = allZones.filter((z) => {
+              const m = materialTypes.find((mt) => mt.id === z.material_type);
+              return m?.surface === 'wall' && m?.unit === 'SF' && z.dimension1_ft > 0;
+            });
+            if (wallZones.length === 0) return null;
+            return (
+              <div>
+                <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block', marginBottom: 4 }}>
+                  Match length from wall zone
+                </Text>
+                <Select
+                  size="small"
+                  placeholder="Select wall zone..."
+                  style={{ width: '100%' }}
+                  value={undefined}
+                  onChange={(zoneId: string) => {
+                    const src = wallZones.find((z) => z.id === zoneId);
+                    if (src) {
+                      onUpdate({
+                        dimension1_ft: src.dimension1_ft,
+                        calculated_sqft: src.dimension1_ft,
+                      });
+                    }
+                  }}
+                >
+                  {wallZones.map((wz, i) => {
+                    const wMat = materialTypes.find((m) => m.id === wz.material_type);
+                    const idx = allZones.filter((z) => z.material_type === wz.material_type)
+                      .indexOf(wz) + 1;
+                    return (
+                      <Select.Option key={wz.id} value={wz.id}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <ColorSwatch color={wz.color} size={10} />
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {wz.label || `${wMat?.name ?? wz.material_type} #${idx}`}
+                          </span>
+                          <Text strong style={{ fontSize: 11, flexShrink: 0 }}>
+                            {wz.dimension1_ft.toFixed(2)} ft
+                          </Text>
+                        </div>
+                      </Select.Option>
+                    );
+                  })}
+                </Select>
+              </div>
+            );
+          })()}
+        </>
       ) : isWallSF ? (
         /* Wall (SF): length + height → area */
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -430,10 +492,8 @@ interface GroupState {
 const SummaryView: React.FC<{
   zones: WMDemolitionZone[];
   materialTypes: DemoMaterialType[];
-  floorSketchId: string;
   onSelectZone: (id: string) => void;
-  onAddZone: (zone: WMDemolitionZone) => void;
-}> = ({ zones, materialTypes, floorSketchId, onSelectZone, onAddZone }) => {
+}> = ({ zones, materialTypes, onSelectZone }) => {
   const [expandedGroups, setExpandedGroups] = useState<GroupState>({});
 
   // Group zones by materialType
@@ -462,131 +522,9 @@ const SummaryView: React.FC<{
     setExpandedGroups((prev) => ({ ...prev, [materialType]: !prev[materialType] }));
   };
 
-  /** Add a list-only zone (wall / baseboard) without canvas drawing */
-  const handleAddListOnly = (materialId: string) => {
-    const mat =
-      materialTypes.find((m) => m.id === materialId) ??
-      DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === materialId);
-    if (!mat) return;
-    // Stagger canvas position so multiple list-only lines (same material) are
-    // visible and editable instead of stacking at (0,0).
-    const idx = zones.length;
-    const col = idx % 12;
-    const row = Math.floor(idx / 12);
-    const x = 28 + col * 34;
-    const y = 28 + row * 34;
-    // EA items (except stair) default to qty=1; stair needs tread count entry
-    const isEAType = mat.unit === 'EA';
-    const isStairType = mat.id === 'stair_demo';
-    const zone: WMDemolitionZone = {
-      id: generateOverlayId(),
-      floor_sketch_id: floorSketchId,
-      material_type: mat.id,
-      surface: mat.surface,
-      color: mat.color,
-      x,
-      y,
-      dimension1_ft: (isEAType && !isStairType) ? 1 : 0,
-      dimension2_ft: 0,
-      rotation: 0,
-      calculated_sqft: (isEAType && !isStairType) ? 1 : 0,
-      display_order: zones.length,
-    };
-    onAddZone(zone);
-  };
-
-  // Wall / baseboard / EA material types available for quick-add
-  const wallTypes = materialTypes.filter((m) => m.surface === 'wall' && m.unit === 'SF');
-  const baseboardTypes = materialTypes.filter((m) => m.unit === 'LF');
-  const eaTypes = materialTypes.filter((m) => m.unit === 'EA');
 
   return (
     <Space direction="vertical" size={4} style={{ width: '100%' }}>
-      {/* Quick-add buttons for wall / baseboard (not drawable on canvas) */}
-      {(wallTypes.length > 0 || baseboardTypes.length > 0) && (
-        <div
-          style={{
-            padding: '8px',
-            background: '#fafafa',
-            borderRadius: 4,
-            border: '1px solid #f0f0f0',
-            marginBottom: 4,
-          }}
-        >
-          <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block', marginBottom: 6 }}>
-            Wall / Baseboard (list only — no canvas drawing)
-          </Text>
-          <Space wrap size={4}>
-            {wallTypes.map((m) => (
-              <Tooltip key={m.id} title={`Add ${m.name} entry`}>
-                <Button
-                  size="small"
-                  icon={<PlusOutlined />}
-                  onClick={() => handleAddListOnly(m.id)}
-                  style={{
-                    borderColor: m.color,
-                    color: m.color,
-                    fontSize: 11,
-                  }}
-                >
-                  {m.name}
-                </Button>
-              </Tooltip>
-            ))}
-            {baseboardTypes.map((m) => (
-              <Tooltip key={m.id} title={`Add ${m.name} entry`}>
-                <Button
-                  size="small"
-                  icon={<PlusOutlined />}
-                  onClick={() => handleAddListOnly(m.id)}
-                  style={{
-                    borderColor: m.color,
-                    color: m.color,
-                    fontSize: 11,
-                  }}
-                >
-                  {m.name}
-                </Button>
-              </Tooltip>
-            ))}
-          </Space>
-        </div>
-      )}
-
-      {eaTypes.length > 0 && (
-        <div
-          style={{
-            padding: '8px',
-            background: '#fafafa',
-            borderRadius: 4,
-            border: '1px solid #f0f0f0',
-            marginBottom: 4,
-          }}
-        >
-          <Text style={{ fontSize: 11, color: '#8c8c8c', display: 'block', marginBottom: 6 }}>
-            Trim / Door / Stair Demo (list only — per unit)
-          </Text>
-          <Space wrap size={4}>
-            {eaTypes.map((m) => (
-              <Tooltip key={m.id} title={`Add ${m.name} entry`}>
-                <Button
-                  size="small"
-                  icon={<PlusOutlined />}
-                  onClick={() => handleAddListOnly(m.id)}
-                  style={{
-                    borderColor: m.color,
-                    color: m.color,
-                    fontSize: 11,
-                  }}
-                >
-                  {m.name}
-                </Button>
-              </Tooltip>
-            ))}
-          </Space>
-        </div>
-      )}
-
       {zones.length === 0 && (
         <Text type="secondary" style={{ fontSize: 12 }}>
           No demolition zones added. Select the Demolition tool and draw on the canvas, or use the
@@ -799,8 +737,10 @@ const WMDemolitionPanel: React.FC<WMDemolitionPanelProps> = ({
             </Tooltip>
           </div>
           <ZoneEditForm
+            key={selectedZone.id}
             zone={selectedZone}
             materialTypes={materialTypes}
+            allZones={zones}
             onUpdate={(updates) => onUpdateZone(selectedZone.id, updates)}
             onDelete={() => onDeleteZone(selectedZone.id)}
           />
@@ -809,9 +749,7 @@ const WMDemolitionPanel: React.FC<WMDemolitionPanelProps> = ({
         <SummaryView
           zones={zones}
           materialTypes={materialTypes}
-          floorSketchId={floorSketchId}
           onSelectZone={onSelectZone}
-          onAddZone={onAddZone}
         />
       )}
     </div>

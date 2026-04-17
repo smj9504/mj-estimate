@@ -47,8 +47,16 @@ logger = logging.getLogger(__name__)
 # =====================================================
 _SCOPE_STANDARD_ALIASES: Dict[str, str] = {
     "wall/drywall": "drywall - wall",
+    "wall/drywall (drywall)": "drywall - wall",
     "wall - drywall 2ft": "drywall - 2ft",
+    "wall - drywall 2ft (drywall)": "drywall - 2ft",
+    "wall - drywall 2ft (plaster)": "drywall - 2ft",
+    "wall - drywall 2ft (wall panel)": "drywall - 2ft",
     "wall - drywall 4ft": "drywall - 4ft",
+    "wall - drywall 4ft (drywall)": "drywall - 4ft",
+    "wall - drywall 4ft (plaster)": "drywall - 4ft",
+    "wall - drywall 4ft (wall panel)": "drywall - 4ft",
+    "wall - drywall 4ft (wood panel)": "drywall - 4ft",
     "containment": "containment barrier",
     "containment zipper": "containment zipper",
 }
@@ -67,13 +75,54 @@ _SCOPE_LINE_ITEM_ALIASES: Dict[str, Tuple[List[str], List[str]]] = {
         ["tear out", "drywall"],
         ["2'", "4'", "per lf"],
     ),
+    "wall/drywall (drywall)": (
+        ["tear out", "drywall"],
+        ["2'", "4'", "per lf"],
+    ),
     "wall - drywall 2ft": (
+        ["tear out", "drywall", "2"],
+        [],
+    ),
+    "wall - drywall 2ft (drywall)": (
         ["tear out", "drywall", "2"],
         [],
     ),
     "wall - drywall 4ft": (
         ["tear out", "drywall", "4"],
         [],
+    ),
+    "wall - drywall 4ft (drywall)": (
+        ["tear out", "drywall", "4"],
+        [],
+    ),
+    "wall - drywall 4ft (plaster)": (
+        ["tear out", "drywall", "4"],
+        [],
+    ),
+    "wall - drywall 4ft (wall panel)": (
+        ["tear out", "drywall", "4"],
+        [],
+    ),
+    "wall - drywall 4ft (wood panel)": (
+        ["tear out", "drywall", "4"],
+        [],
+    ),
+    # --- Demolition: Wood Floor sub-types ---
+    "wood floor (lvp)": (
+        ["tear out", "lvp"],
+        [],
+    ),
+    "wood floor (laminate)": (
+        ["tear out", "floating floor"],
+        [],
+    ),
+    "wood floor (hardwood)": (
+        ["tear out", "hardwood"],
+        [],
+    ),
+    "wood floor (engineered wood)": (
+        ["tear out", "wood floor"],
+        ["floating", "lvp"],
     ),
     # --- Containment ---
     "containment": (

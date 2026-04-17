@@ -1532,7 +1532,7 @@ class WaterMitigationService:
                             if settings.ENABLE_AI_PHOTO_CLASSIFICATION and settings.GEMINI_API_KEY:
                                 try:
                                     from .ai_classification_service import ai_classification_service
-                                    ai_result = await ai_classification_service.classify_photo(
+                                    ai_result = await ai_classification_service.classify_photo_two_phase(
                                         photo_bytes, 'image/jpeg'
                                     )
                                     if "error" not in ai_result:

@@ -1279,7 +1279,11 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           mats.find((m) => m.id === matId) ??
           DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === matId);
         const isLF = matDef?.unit === 'LF';
-        const defaultHeight = 8; // default wall height in feet
+        // Default height: 2ft/4ft for specific drywall types, 8ft otherwise
+        const defaultHeight =
+          matId === 'wall_drywall_2ft' ? 2 :
+          matId === 'wall_drywall_4ft' ? 4 :
+          8;
         const newId = generateOverlayId();
 
         const zone: WMDemolitionZone = {

@@ -2165,11 +2165,15 @@ def generate_water_mitigation_report_pdf(
             photo = photo_dict[photo_id]
             file_path_str = photo.get('file_path', '')
 
+            # Use per-photo storage_provider if available, fallback to global setting
+            photo_storage = photo.get('storage_provider', '') or storage_provider
+            photo_storage = (photo_storage or 'local').lower()
+
             # Get photo file (local or cloud storage)
             photo_file_path = None
             temp_files = []  # Track temp files for cleanup
 
-            if storage_provider and storage_provider.lower() == 'local':
+            if photo_storage == 'local':
                 local_path = Path(file_path_str)
                 if local_path.exists():
                     photo_file_path = str(local_path)
@@ -2180,7 +2184,7 @@ def generate_water_mitigation_report_pdf(
                 # Cloud storage: download to temp file
                 try:
                     from app.domains.storage.factory import StorageFactory
-                    storage = StorageFactory.get_instance(storage_provider)
+                    storage = StorageFactory.get_instance(photo_storage)
                     photo_data = storage.download(file_path_str)
                     if photo_data:
                         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')

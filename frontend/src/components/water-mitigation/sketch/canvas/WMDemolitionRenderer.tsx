@@ -33,6 +33,8 @@ export interface WMDemolitionRendererProps {
   zone: WMDemolitionZone;
   isSelected: boolean;
   scalePixelsPerFoot: number;
+  /** 1-based zone number shown on the canvas label */
+  zoneNumber?: number;
   onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onTransformEnd?: (id: string, width: number, height: number, rotation?: number) => void;
@@ -109,6 +111,7 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
   zone,
   isSelected,
   scalePixelsPerFoot,
+  zoneNumber,
   onSelect,
   onDragEnd,
   onTransformEnd,
@@ -330,62 +333,74 @@ const WMDemolitionRenderer: React.FC<WMDemolitionRendererProps> = ({
           );
         })()}
 
-        {/* Dimension label — only when real dimensions have been entered (non-EA) */}
-        {!isEA && hasDimensions && widthPx > 40 && heightPx > 20 && (
-          <>
-            <Rect
-              x={textPadX}
-              y={heightPx / 2 - 9}
-              width={widthPx - textPadX * 2}
-              height={18}
-              fill="rgba(255,255,255,0.75)"
-              cornerRadius={2}
-              listening={false}
-            />
-            <Text
-              x={textPadX}
-              y={heightPx / 2 - 8}
-              width={widthPx - textPadX * 2}
-              text={buildDimensionLabel(zone.dimension1_ft, zone.dimension2_ft, zone.calculated_sqft)}
-              fontSize={11}
-              fontFamily="'Inter', 'Segoe UI', sans-serif"
-              fill="#1a1a1a"
-              align="center"
-              listening={false}
-              wrap="none"
-              ellipsis
-            />
-          </>
-        )}
+        {/* Zone number + measurement label — only when real dimensions have been entered (non-EA) */}
+        {!isEA && hasDimensions && widthPx > 20 && heightPx > 16 && (() => {
+          const sqftText = `${zone.calculated_sqft.toFixed(2)} SF`;
+          const labelText = zoneNumber != null ? `#${zoneNumber}  (${sqftText})` : sqftText;
+          const charW = 7;
+          const labelW = labelText.length * charW + 8;
+          const labelX = (widthPx - labelW) / 2;
+          return (
+            <>
+              <Rect
+                x={labelX}
+                y={heightPx / 2 - 9}
+                width={labelW}
+                height={18}
+                fill="rgba(255,255,255,0.75)"
+                cornerRadius={2}
+                listening={false}
+              />
+              <Text
+                x={labelX}
+                y={heightPx / 2 - 8}
+                width={labelW}
+                text={labelText}
+                fontSize={11}
+                fontFamily="'Inter', 'Segoe UI', sans-serif"
+                fill="#1a1a1a"
+                fontStyle="bold"
+                align="center"
+                listening={false}
+                wrap="none"
+              />
+            </>
+          );
+        })()}
 
-        {/* "Enter dimensions" prompt — shown when dimensions are missing (non-EA) */}
-        {!isEA && !hasDimensions && widthPx > 30 && heightPx > 16 && (
-          <>
-            <Rect
-              x={textPadX}
-              y={heightPx / 2 - 9}
-              width={widthPx - textPadX * 2}
-              height={18}
-              fill="rgba(255,255,255,0.80)"
-              cornerRadius={2}
-              listening={false}
-            />
-            <Text
-              x={textPadX}
-              y={heightPx / 2 - 8}
-              width={widthPx - textPadX * 2}
-              text="Enter dimensions"
-              fontSize={10}
-              fontFamily="'Inter', 'Segoe UI', sans-serif"
-              fill={NEEDS_DIMS_COLOR}
-              fontStyle="bold"
-              align="center"
-              listening={false}
-              wrap="none"
-              ellipsis
-            />
-          </>
-        )}
+        {/* Zone number or "?" prompt — shown when dimensions are missing (non-EA) */}
+        {!isEA && !hasDimensions && widthPx > 20 && heightPx > 16 && (() => {
+          const promptText = zoneNumber != null ? `#${zoneNumber} ?` : '?';
+          const charW = 7;
+          const promptW = promptText.length * charW + 8;
+          const promptX = (widthPx - promptW) / 2;
+          return (
+            <>
+              <Rect
+                x={promptX}
+                y={heightPx / 2 - 9}
+                width={promptW}
+                height={18}
+                fill="rgba(255,255,255,0.80)"
+                cornerRadius={2}
+                listening={false}
+              />
+              <Text
+                x={promptX}
+                y={heightPx / 2 - 8}
+                width={promptW}
+                text={promptText}
+                fontSize={10}
+                fontFamily="'Inter', 'Segoe UI', sans-serif"
+                fill={NEEDS_DIMS_COLOR}
+                fontStyle="bold"
+                align="center"
+                listening={false}
+                wrap="none"
+              />
+            </>
+          );
+        })()}
 
         {/* Carpet pad indicator badge */}
         {zone.include_pad && widthPx > 30 && heightPx > 14 && (

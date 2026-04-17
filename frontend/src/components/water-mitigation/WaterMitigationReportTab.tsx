@@ -975,6 +975,39 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                   />
                 </Form.Item>
               </Form>
+
+              {/* Global Layout Setting */}
+              {sections.length > 0 && (
+                <div style={{ marginTop: 24, padding: 16, background: '#f6f8fa', borderRadius: 8, border: '1px solid #e8e8e8' }}>
+                  <Title level={5} style={{ margin: 0, marginBottom: 12 }}>
+                    <LayoutOutlined /> Photos per Page (All Sections)
+                  </Title>
+                  <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+                    Change layout for all {sections.length} sections at once
+                  </Text>
+                  <Space wrap>
+                    {([
+                      { value: 'single', label: '1 Photo' },
+                      { value: 'two', label: '2 Photos' },
+                      { value: 'three', label: '3 Photos' },
+                      { value: 'four', label: '4 Photos' },
+                      { value: 'six', label: '6 Photos' },
+                    ] as const).map(opt => {
+                      const allSame = sections.every(s => s.layout === opt.value);
+                      return (
+                        <Button
+                          key={opt.value}
+                          type={allSame ? 'primary' : 'default'}
+                          onClick={() => handleApplyLayoutToAll(opt.value)}
+                          size={isMobile ? 'small' : 'middle'}
+                        >
+                          {opt.label}
+                        </Button>
+                      );
+                    })}
+                  </Space>
+                </div>
+              )}
             </div>
           ) : currentSection ? (
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

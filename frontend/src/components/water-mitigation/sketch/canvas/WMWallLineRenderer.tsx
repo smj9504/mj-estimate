@@ -18,6 +18,8 @@ export interface WMWallLineRendererProps {
   isSelected: boolean;
   scalePixelsPerFoot: number;
   materialTypes: DemoMaterialType[];
+  /** 1-based zone number shown on the canvas label */
+  zoneNumber?: number;
   onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onTransformEnd?: (id: string, lengthFt: number, rotationDeg: number) => void;
@@ -35,6 +37,7 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
   isSelected,
   scalePixelsPerFoot,
   materialTypes,
+  zoneNumber,
   onSelect,
   onDragEnd,
   onTransformEnd,
@@ -50,14 +53,15 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
   const lineWidth = isLF ? 3 : 5;
   const dash = isLF ? [8, 4] : undefined;
 
-  // Label
-  let labelText = '';
+  // Label — zone number + measurement
+  let measureText = '';
   if (isLF) {
-    labelText = `${zone.dimension1_ft.toFixed(2)} LF`;
+    measureText = `${zone.dimension1_ft.toFixed(2)} LF`;
   } else {
     const sqft = zone.calculated_sqft || 0;
-    labelText = sqft > 0 ? `${sqft.toFixed(2)} SF` : `${zone.dimension1_ft.toFixed(2)}'`;
+    measureText = sqft > 0 ? `${sqft.toFixed(2)} SF` : `${zone.dimension1_ft.toFixed(2)}'`;
   }
+  let labelText = zoneNumber != null ? `#${zoneNumber}  (${measureText})` : measureText;
   if (zone.label) labelText = zone.label;
 
   const pendingLabel = isLF ? 'Baseboard (set length)' : 'Wall (set length)';
@@ -196,21 +200,24 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
       )}
 
       {/* Label */}
-      {lengthPx > 40 && (
+      {lengthPx > 40 && (() => {
+        const charW = 7;
+        const labelW = labelText.length * charW + 8;
+        return (
         <>
           <Rect
-            x={lengthPx / 2 - 50}
+            x={lengthPx / 2 - labelW / 2}
             y={-22}
-            width={100}
+            width={labelW}
             height={16}
             fill="rgba(255,255,255,0.9)"
             cornerRadius={2}
             listening={false}
           />
           <Text
-            x={lengthPx / 2 - 50}
+            x={lengthPx / 2 - labelW / 2}
             y={-21}
-            width={100}
+            width={labelW}
             text={labelText}
             fontSize={10}
             fontFamily="'Inter', 'Segoe UI', sans-serif"
@@ -222,7 +229,8 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
             ellipsis
           />
         </>
-      )}
+        );
+      })()}
 
       {/* Insulation indicator badge */}
       {zone.include_insulation && lengthPx > 50 && (

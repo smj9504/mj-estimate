@@ -22,12 +22,11 @@ Cost optimization:
 - Cache layer avoids duplicate API calls
 """
 
-import base64
 import io
 import json
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -57,47 +56,66 @@ CLASSIFICATION_PROMPT = """Analyze this water mitigation (flood/water damage res
 
 CATEGORIES (pick exactly one):
 1. property-overview — Exterior/interior overview of the property (front of house, street view, wide-angle room shots showing overall condition)
-2. wet-area — Moisture meter showing HIGH reading, area NOT yet demolished (original walls/floors intact)
+2. wet-area — Moisture meter on INTACT (not demolished) surface — original walls/floors/baseboards still in place
 3. personal-properties — Homeowner belongings, furniture, personal items (before moving)
 4. pre-mitigation-moving — Furniture/belongings being moved out, packing process
 5. demolition — Active tear-out of drywall/flooring/baseboards (exposed studs, debris piles)
 6. containment — Plastic sheeting barriers, poly walls, zipper doors
 7. protection — Floor protection (ram board, paper, tape), content protection (plastic wrap on furniture/items)
 8. drying-process — Air movers/dehumidifiers/fans on floor running, OR 3+ units stacked together
-9. day-1 — Moisture meter 0-13% or "LO" + demolition already completed (dry)
-10. day-2 — Moisture meter 14-23% + demolition completed (drying)
-11. day-3 — Moisture meter 24%+ or "HI" + demolition completed (still wet)
+9. day-1 — Moisture meter 0-13% or "LO" on DEMOLISHED surface (dry reading after demolition)
+10. day-2 — Moisture meter 14-23% on DEMOLISHED surface (drying after demolition)
+11. day-3 — Moisture meter 24%+ or "HI" on DEMOLISHED surface (still wet after demolition)
 12. documentation — Paperwork, signatures, certificates, authorization forms
 13. uncategorized — None of the above, unclear, or mold visible
 
 MOISTURE METER READING GUIDE:
-- Meters show NUMERIC values (e.g., 22%, 67%, 8.5%) or text ("LO", "HI") on a blue/backlit LCD
-- Do NOT judge moisture level by display color — READ THE NUMBER or text on screen
+- Meters show NUMERIC values (e.g., 22%, 67%, 8.5%) or text ("LO", "HI") on LCD
+- Also look for color indicators on the meter body or display (green/yellow/red LEDs or zones)
 - Reading interpretation:
-  * "LO" or 0-13% → DRY → meter_color="green" → day-1
-  * 14-23% → DRYING → meter_color="yellow" → day-2
-  * 24%+ or "HI" → WET → meter_color="red" → day-3
+  * "LO" or 0-13% → DRY → meter_color="green"
+  * 14-23% → DRYING → meter_color="yellow"
+  * 24%+ or "HI" → WET → meter_color="red"
 - CRITICAL: Read the actual number on the meter display carefully. Report it in meter_reading.
 
-DEMOLITION DETECTION:
-- Demolished = exposed wall studs, removed baseboards, cut drywall lines, bare subfloor/plywood visible
-- If meter is placed against bare wood subfloor, exposed plywood, or surface where baseboards/drywall have been removed → is_demolished=true
-- If meter is on intact finished wall/floor with baseboards/trim still in place → is_demolished=false
-- Air movers/dehumidifiers visible in background = strong indicator that demolition is complete
+★★★ CRITICAL: METER SURFACE ANALYSIS (wet-area vs day-1/2/3) ★★★
+When a moisture meter is visible, you MUST examine THE EXACT SURFACE the meter is touching/placed against.
+IGNORE the background — only the surface directly under the meter pins matters.
+
+INTACT surface (→ wet-area, regardless of meter reading):
+- Painted drywall (smooth, painted finish)
+- Wallpapered wall
+- Tile, vinyl, laminate flooring
+- Baseboards/trim still attached at wall-floor junction
+- Finished cabinet surfaces
+- Any original building material with its finish intact
+
+DEMOLISHED surface (→ day-1/2/3 based on meter reading):
+- Exposed wood studs/framing (bare 2x4s visible)
+- Cut drywall edge with paper/gypsum layers visible
+- Bare plywood or OSB subfloor (no flooring on top)
+- Concrete slab where flooring has been removed
+- Exposed insulation (fiberglass/foam)
+- Areas where baseboards have been ripped off (nail holes, adhesive residue, gap at wall bottom)
+
+⚠️ COMMON MISTAKE: Air movers or dehumidifiers in the background do NOT mean the meter surface is demolished.
+The same room can have both demolished and intact areas. Focus ONLY on where the meter touches.
 
 OTHER VISUAL CUES:
 - Air movers: small blue/red fan units on floor; dehumidifiers: larger boxy units
 - Containment: translucent plastic sheets hung from ceiling to floor
-- Floor protection: brown/white paper (ram board, kraft paper, rosin paper) laid on floor, painter's tape on edges/seams, plastic sheeting on floor surfaces
+- Floor protection: brown/white paper (ram board, kraft paper, rosin paper) laid on floor
 
 Respond ONLY with valid JSON:
-{"category":"<name>","confidence":0.85,"metadata":{"meter_visible":false,"meter_reading":null,"meter_color":null,"is_demolished":false,"equipment_count":0,"equipment_status":null,"mold_visible":false}}
+{"category":"<name>","confidence":0.85,"metadata":{"meter_visible":false,"meter_reading":null,"meter_color":null,"is_demolished":false,"demolition_confidence":0.0,"surface_description":null,"equipment_count":0,"equipment_status":null,"mold_visible":false}}
 
 metadata fields:
 - meter_visible: boolean — is a moisture meter in the photo?
-- meter_reading: string|null — exact value shown on meter display (e.g., "22", "67.5", "LO", "HI")
-- meter_color: "red"|"yellow"|"green"|null — derived from reading (green=dry, yellow=drying, red=wet)
-- is_demolished: boolean — evidence of completed demolition?
+- meter_reading: string|null — exact value on meter display (e.g., "22", "67.5", "LO", "HI")
+- meter_color: "red"|"yellow"|"green"|null — from reading or meter color indicator
+- is_demolished: boolean — is the surface THE METER TOUCHES demolished?
+- demolition_confidence: float 0.0-1.0 — how confident about the is_demolished judgment? (0.9+ = clearly visible studs/bare subfloor, 0.5 = ambiguous/hard to tell)
+- surface_description: string|null — brief description of the surface the meter is touching (e.g., "painted drywall", "bare plywood subfloor", "exposed stud")
 - equipment_count: int — number of drying machines visible
 - equipment_status: "operating"|"stacked"|null — operating=on floor running, stacked=stored/piled
 - mold_visible: boolean — visible mold or mold-like growth?"""
@@ -128,6 +146,50 @@ def _resize_image(image_data: bytes, max_size: int = 1024) -> tuple[bytes, str]:
     except Exception as e:
         logger.warning(f"Image resize failed, using original: {e}")
         return image_data, "image/jpeg"
+
+
+# Phase 2: Meter-focused verification prompt (higher accuracy)
+# Used only when Phase 1 demolition judgment is uncertain
+METER_VERIFICATION_PROMPT = """This photo contains a moisture meter.
+Focus ONLY on these 3 things:
+
+## 1. METER READING
+Read the exact number or text on the LCD display.
+Examples: "22", "67.5", "8", "LO", "HI"
+Also note any color indicator (green/yellow/red LED or zone).
+
+## 2. SURFACE THE METER IS TOUCHING
+Describe the exact surface the meter pins/pad are pressed against.
+
+INTACT (original finish, NOT demolished):
+- Painted/finished drywall
+- Wallpaper
+- Tile, vinyl, laminate flooring
+- Baseboards/trim still attached
+- Cabinet surface
+
+DEMOLISHED (material removed):
+- Bare wood studs or framing
+- Cut drywall edge (gypsum layers visible)
+- Bare plywood/OSB subfloor
+- Concrete slab (flooring removed)
+- Exposed insulation
+- Wall bottom with no baseboard (nail holes, gap)
+
+## 3. KEY QUESTION
+Is the surface the meter touches INTACT or DEMOLISHED?
+Ignore equipment/fans in background — only the contact surface matters.
+
+Respond ONLY with valid JSON:
+{"meter_reading":null,"meter_color":null,"surface_type":"intact","surface_description":"painted drywall","confidence":0.85}
+
+Fields:
+- meter_reading: string|null — exact display value
+- meter_color: "green"|"yellow"|"red"|null — from reading or LED
+- surface_type: "intact"|"demolished" — the contact surface
+- surface_description: string — what the meter is touching
+- confidence: float 0.0-1.0 — confidence in surface_type
+"""
 
 
 def _derive_color_from_reading(reading: str) -> str | None:
@@ -168,6 +230,7 @@ def validate_and_correct(ai_result: dict) -> dict:
     - Rule 0: Mold detected → uncategorized
     - Rule 0.5: Derive/correct meter_color from meter_reading (numeric)
     - Rule 1: Meter color + demolition state → correct category
+      - Rule 1.1: Low demolition_confidence → default to wet-area
     - Rule 2: Equipment status validation for drying-process
     """
     category = ai_result.get("category", "uncategorized")
@@ -207,7 +270,11 @@ def validate_and_correct(ai_result: dict) -> dict:
             if ai_color and ai_color != derived_color:
                 corrections.append({
                     "rule": "meter_reading_override",
-                    "reason": f"미터기 수치 {meter_reading} → {derived_color} (AI 판단 {ai_color} 보정)",
+                    "reason": (
+                        f"미터기 수치 {meter_reading}"
+                        f" → {derived_color}"
+                        f" (AI 판단 {ai_color} 보정)"
+                    ),
                     "from": ai_color,
                     "to": derived_color
                 })
@@ -222,24 +289,61 @@ def validate_and_correct(ai_result: dict) -> dict:
         # Rule 1: Meter color + demolition state → correct category
         if color:
             demolished = metadata.get("is_demolished", False)
+            demo_conf = metadata.get(
+                "demolition_confidence", 0.5
+            )
+
+            # Rule 1.1: Low demolition_confidence → wet-area
+            # demolished=true이더라도 confidence가 낮으면
+            # wet-area로 분류 (안전한 기본값)
+            if demolished and demo_conf < 0.7:
+                corrections.append({
+                    "rule": "low_demolition_confidence",
+                    "reason": (
+                        f"철거 판단 confidence {demo_conf}"
+                        f" < 0.7 → wet-area로 기본 분류"
+                        f" (surface: {metadata.get('surface_description', 'N/A')})"
+                    ),
+                    "from": "demolished",
+                    "to": "not_demolished"
+                })
+                demolished = False
+                metadata["is_demolished"] = False
 
             expected_category = None
 
             if color == "green":  # 0-13% / LO = dry
-                expected_category = "day-1" if demolished else "wet-area"
+                expected_category = (
+                    "day-1" if demolished else "wet-area"
+                )
             elif color == "yellow":  # 14-23% = drying
-                expected_category = "day-2" if demolished else "wet-area"
+                expected_category = (
+                    "day-2" if demolished else "wet-area"
+                )
             elif color == "red":  # 24%+ / HI = wet
-                expected_category = "day-3" if demolished else "wet-area"
+                expected_category = (
+                    "day-3" if demolished else "wet-area"
+                )
 
             if expected_category and category != expected_category:
+                demo_label = (
+                    "철거완료" if demolished else "철거전"
+                )
                 corrections.append({
-                    "rule": f"meter_{color}_{'demolished' if demolished else 'no_demo'}",
-                    "reason": f"미터기 {color} ({meter_reading or 'N/A'}) + {'철거완료' if demolished else '철거전'} → {expected_category}",
-                "from": category,
-                "to": expected_category
-            })
-            category = expected_category
+                    "rule": (
+                        f"meter_{color}"
+                        f"_{'demolished' if demolished else 'no_demo'}"
+                    ),
+                    "reason": (
+                        f"미터기 {color}"
+                        f" ({meter_reading or 'N/A'})"
+                        f" + {demo_label}"
+                        f" → {expected_category}"
+                    ),
+                    "from": category,
+                    "to": expected_category
+                })
+                category = expected_category
 
     # Rule 2: Drying process equipment validation
     if category == "drying-process":
@@ -259,7 +363,10 @@ def validate_and_correct(ai_result: dict) -> dict:
             if equipment_count < 3:
                 corrections.append({
                     "rule": "drying_stacked_insufficient",
-                    "reason": f"적재된 장비 {equipment_count}대 (3대 미만) → uncategorized",
+                    "reason": (
+                        f"적재된 장비 {equipment_count}대"
+                        f" (3대 미만) → uncategorized"
+                    ),
                     "from": category,
                     "to": "uncategorized"
                 })
@@ -285,6 +392,20 @@ def validate_and_correct(ai_result: dict) -> dict:
         result["original_category"] = original_category
         result["rule_applied"] = corrections[-1]["rule"]
         result["corrections"] = corrections
+
+    # Flag for Phase 2 verification if needed
+    # meter 사진인데 demolition 판단이 애매한 경우
+    if (
+        metadata.get("meter_visible")
+        and category in (
+            "day-1", "day-2", "day-3", "wet-area"
+        )
+    ):
+        demo_conf = metadata.get(
+            "demolition_confidence", 0.5
+        )
+        if 0.5 <= demo_conf < 0.8:
+            result["needs_verification"] = True
 
     return result
 
@@ -401,21 +522,228 @@ class AIClassificationService:
             }
 
     async def classify_photo_from_url(self, photo_url: str) -> dict:
-        """Classify a photo from URL."""
+        """Classify a photo from URL (Phase 1 only)."""
         import httpx
 
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(photo_url, timeout=30.0)
+                response = await client.get(
+                    photo_url, timeout=30.0
+                )
                 response.raise_for_status()
 
-                content_type = response.headers.get("content-type", "image/jpeg")
+                content_type = response.headers.get(
+                    "content-type", "image/jpeg"
+                )
                 mime_type = content_type.split(";")[0].strip()
 
-                return await self.classify_photo(response.content, mime_type)
+                return await self.classify_photo(
+                    response.content, mime_type
+                )
 
         except httpx.HTTPError as e:
-            logger.error(f"Failed to fetch image from URL: {e}")
+            logger.error(
+                f"Failed to fetch image from URL: {e}"
+            )
+            return {
+                "category": "uncategorized",
+                "confidence": 0.0,
+                "metadata": {},
+                "error": f"Failed to fetch image: {str(e)}"
+            }
+
+    async def _verify_meter_surface(
+        self,
+        image_data: bytes,
+    ) -> dict | None:
+        """
+        Phase 2: Meter surface verification.
+
+        Uses higher resolution (1536px) and a focused prompt
+        to accurately determine if the meter is on an intact
+        or demolished surface.
+
+        Returns verification result or None on failure.
+        """
+        try:
+            client = self._get_client()
+
+            # Higher resolution for better surface detail
+            resized_data, resized_mime = _resize_image(
+                image_data, max_size=1536
+            )
+
+            from google.genai import types
+
+            image_part = types.Part.from_bytes(
+                data=resized_data,
+                mime_type=resized_mime,
+            )
+
+            response = client.models.generate_content(
+                model=self.model_name,
+                contents=[
+                    METER_VERIFICATION_PROMPT, image_part
+                ],
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    max_output_tokens=512,
+                    thinking_config=types.ThinkingConfig(
+                        thinking_budget=0
+                    ),
+                ),
+            )
+
+            response_text = response.text.strip()
+
+            # Clean markdown code blocks
+            if response_text.startswith("```"):
+                lines = response_text.split("\n")
+                json_lines = [
+                    line for line in lines
+                    if not line.strip().startswith("```")
+                ]
+                response_text = "\n".join(json_lines)
+
+            return json.loads(response_text)
+
+        except Exception as e:
+            logger.warning(
+                f"Phase 2 meter verification failed: {e}"
+            )
+            return None
+
+    async def classify_photo_two_phase(
+        self,
+        image_data: bytes,
+        mime_type: str = "image/jpeg"
+    ) -> dict:
+        """
+        Two-phase classification:
+        Phase 1: Standard classification (1024px)
+        Phase 2: Meter surface verification (1536px)
+                 - only when demolition judgment is uncertain
+
+        Cost: Phase 2 adds ~1 extra API call for ~20-30%
+        of meter photos where demolition_confidence is ambiguous.
+        """
+        # Phase 1: Standard classification
+        result = await self.classify_photo(
+            image_data, mime_type
+        )
+
+        # Phase 2: Only if needs_verification flag is set
+        if not result.get("needs_verification"):
+            return result
+
+        metadata = result.get("metadata", {})
+        logger.info(
+            "Phase 2: Verifying meter surface"
+            f" (demo_conf={metadata.get('demolition_confidence')},"
+            f" category={result['category']})"
+        )
+
+        verification = await self._verify_meter_surface(
+            image_data
+        )
+
+        if not verification:
+            # Phase 2 failed → keep Phase 1 result
+            result["phase2_status"] = "failed"
+            return result
+
+        # Apply Phase 2 results
+        phase1_category = result["category"]
+
+        # Update meter reading if Phase 2 got a better one
+        if verification.get("meter_reading"):
+            metadata["meter_reading"] = (
+                verification["meter_reading"]
+            )
+            derived = _derive_color_from_reading(
+                verification["meter_reading"]
+            )
+            if derived:
+                metadata["meter_color"] = derived
+        elif verification.get("meter_color"):
+            metadata["meter_color"] = (
+                verification["meter_color"]
+            )
+
+        # Update demolition state from Phase 2
+        surface_type = verification.get("surface_type")
+        v_confidence = verification.get("confidence", 0.5)
+
+        if surface_type == "intact" and v_confidence >= 0.6:
+            metadata["is_demolished"] = False
+            metadata["demolition_confidence"] = v_confidence
+        elif (
+            surface_type == "demolished"
+            and v_confidence >= 0.7
+        ):
+            metadata["is_demolished"] = True
+            metadata["demolition_confidence"] = v_confidence
+
+        # Update surface description
+        if verification.get("surface_description"):
+            metadata["surface_description"] = (
+                verification["surface_description"]
+            )
+
+        # Re-apply rules with updated metadata
+        result["metadata"] = metadata
+        corrected = validate_and_correct({
+            "category": result.get(
+                "original_category", phase1_category
+            ),
+            "confidence": result["confidence"],
+            "metadata": metadata
+        })
+
+        # Record Phase 2 trace
+        corrected["phase2_applied"] = True
+        corrected["phase2_verification"] = verification
+        if phase1_category != corrected["category"]:
+            corrected["phase1_category"] = phase1_category
+            logger.info(
+                f"Phase 2 correction:"
+                f" {phase1_category}"
+                f" → {corrected['category']}"
+                f" (surface: {surface_type},"
+                f" conf: {v_confidence})"
+            )
+
+        # Remove the flag
+        corrected.pop("needs_verification", None)
+
+        return corrected
+
+    async def classify_photo_from_url_two_phase(
+        self, photo_url: str
+    ) -> dict:
+        """Classify a photo from URL with 2-phase logic."""
+        import httpx
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    photo_url, timeout=30.0
+                )
+                response.raise_for_status()
+
+                content_type = response.headers.get(
+                    "content-type", "image/jpeg"
+                )
+                mime_type = content_type.split(";")[0].strip()
+
+                return await self.classify_photo_two_phase(
+                    response.content, mime_type
+                )
+
+        except httpx.HTTPError as e:
+            logger.error(
+                f"Failed to fetch image from URL: {e}"
+            )
             return {
                 "category": "uncategorized",
                 "confidence": 0.0,

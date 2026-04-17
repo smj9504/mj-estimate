@@ -264,6 +264,8 @@ class GCSProvider(StorageProvider):
         try:
             # Strip gs:// prefix if present
             blob_path = self._strip_gs_prefix(file_id)
+            # Normalize Windows backslashes to forward slashes
+            blob_path = blob_path.replace('\\', '/')
             blob = self.bucket.blob(blob_path)
 
             if not blob.exists():

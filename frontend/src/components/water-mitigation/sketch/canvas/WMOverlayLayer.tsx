@@ -28,7 +28,7 @@
  *   </Stage>
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Layer, Line, Rect, Group, Text as TextNode } from 'react-konva';
 import {
   WMOverlayData,
@@ -190,6 +190,20 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   const transformShapeHandler = useCallback((id: string, w: number, h: number, rotation?: number) => onTransformEnd?.(id, 'shape', w, h, rotation), [onTransformEnd]);
 
   // ---------------------------------------------------------------------------
+  // Compute zone numbers: 1-based index within each material_type group
+  // ---------------------------------------------------------------------------
+  const zoneNumberMap = useMemo(() => {
+    const map = new Map<string, number>();
+    const groupCounters = new Map<string, number>();
+    for (const zone of overlayData.demolition_zones) {
+      const counter = (groupCounters.get(zone.material_type) ?? 0) + 1;
+      groupCounters.set(zone.material_type, counter);
+      map.set(zone.id, counter);
+    }
+    return map;
+  }, [overlayData.demolition_zones]);
+
+  // ---------------------------------------------------------------------------
   // Rubber-band preview rect dimensions
   // ---------------------------------------------------------------------------
   let rubberX = 0;
@@ -304,6 +318,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
             zone={zone}
             isSelected={isSelected(zone.id)}
             scalePixelsPerFoot={scalePixelsPerFoot}
+            zoneNumber={zoneNumberMap.get(zone.id)}
             onSelect={selectDemoHandler}
             onDragEnd={dragDemoHandler}
             onTransformEnd={transformDemoHandler}
@@ -320,6 +335,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
             isSelected={isSelected(zone.id)}
             scalePixelsPerFoot={scalePixelsPerFoot}
             materialTypes={materialTypes}
+            zoneNumber={zoneNumberMap.get(zone.id)}
             onSelect={selectDemoHandler}
             onDragEnd={dragDemoHandler}
             onTransformEnd={transformDemoHandler}
