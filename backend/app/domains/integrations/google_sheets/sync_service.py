@@ -634,6 +634,13 @@ class GoogleSheetsSyncService:
         self.db.commit()
         self.db.refresh(job)
 
+        # Auto-sync Client/Claim from updated WM Job
+        try:
+            from app.domains.client.client_sync_service import sync_client_from_wm_job
+            sync_client_from_wm_job(self.db, job)
+        except Exception as e:
+            logger.warning(f"Client sync after job update failed (non-fatal): {e}")
+
         return job
 
     def _create_job(
@@ -686,6 +693,13 @@ class GoogleSheetsSyncService:
                 return self._update_job(existing, job_data, row_number, sheet_name)
             raise
         self.db.refresh(job)
+
+        # Auto-sync Client/Claim from newly created WM Job
+        try:
+            from app.domains.client.client_sync_service import sync_client_from_wm_job
+            sync_client_from_wm_job(self.db, job)
+        except Exception as e:
+            logger.warning(f"Client sync after job create failed (non-fatal): {e}")
 
         return job
 

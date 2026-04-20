@@ -35,6 +35,10 @@ const CompanyManagement = lazy(() => import('./pages/CompanyManagement'));
 const ClientList = lazy(() => import('./pages/ClientList'));
 const ClientDetail = lazy(() => import('./pages/ClientDetail'));
 
+// Contract Pages
+const ContractTemplateManagement = lazy(() => import('./pages/ContractTemplateManagement'));
+const ContractSigning = lazy(() => import('./pages/ContractSigning'));
+
 // Dashboard Pages
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const RoleBasedDashboard = lazy(() => import('./pages/RoleBasedDashboard'));
@@ -309,6 +313,28 @@ const router = createBrowserRouter([
           </Suspense>
         </Layout>
       </ProtectedRoute>
+    )
+  },
+  // Contract template management (admin)
+  {
+    path: "/contract-templates",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <ContractTemplateManagement />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Public contract signing page (NO auth required)
+  {
+    path: "/sign/:token",
+    element: (
+      <Suspense fallback={<PageLoader />}>
+        <ContractSigning />
+      </Suspense>
     )
   },
   // Regular user routes

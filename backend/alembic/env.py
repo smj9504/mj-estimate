@@ -53,6 +53,9 @@ import app.domains.water_mitigation.models
 # Client management
 import app.domains.client.models
 
+# Contract system
+import app.domains.contract.models
+
 # Reports
 import app.domains.plumber_report.models
 import app.domains.plumber_report.templates.models

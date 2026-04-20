@@ -95,6 +95,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         label: 'Clients',
       },
       {
+        key: '/contract-templates',
+        icon: <FilePdfOutlined />,
+        label: 'Contract Templates',
+      },
+      {
         key: '/documents',
         icon: <FileTextOutlined />,
         label: 'Documents',

@@ -28,6 +28,8 @@ class Client(Base, BaseModel):
     __table_args__ = (
         Index('ix_clients_display_name', 'display_name'),
         Index('ix_clients_company_id', 'company_id'),
+        Index('ix_clients_phone', 'phone'),
+        Index('ix_clients_email', 'email'),
         {'extend_existing': True}
     )
 
@@ -79,6 +81,11 @@ class Claim(Base, BaseModel):
     client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=True)  # 담당 회사 (claim마다 다를 수 있음)
 
+    # Optional plumber report link
+    plumber_report_id = Column(
+        UUIDType(), ForeignKey("plumber_reports.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Claim identification
     claim_number = Column(String(100), nullable=False, index=True)
 
@@ -119,6 +126,17 @@ class Claim(Base, BaseModel):
     water_mitigation_jobs = relationship(
         "WaterMitigationJob", back_populates="claim_ref",
         foreign_keys="WaterMitigationJob.claim_id", lazy='select'
+    )
+    plumber_report = relationship(
+        "PlumberReport", foreign_keys=[plumber_report_id], lazy='select'
+    )
+    contracts = relationship(
+        "ContractInstance", back_populates="claim",
+        foreign_keys="ContractInstance.claim_id", lazy='select'
+    )
+    assigned_companies = relationship(
+        "ClaimCompany", back_populates="claim",
+        foreign_keys="ClaimCompany.claim_id", cascade="all, delete-orphan", lazy='select'
     )
 
 

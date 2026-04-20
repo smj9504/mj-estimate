@@ -79,6 +79,16 @@ def create_job(
         # Commit the transaction
         db.commit()
 
+        # Auto-sync Client/Claim from WM Job
+        try:
+            from app.domains.client.client_sync_service import sync_client_from_wm_job
+            wm_job = service.get_job(created_job['id'])
+            if wm_job:
+                sync_result = sync_client_from_wm_job(db, wm_job)
+                created_job['client_sync'] = sync_result
+        except Exception as sync_err:
+            logger.warning(f"Client sync after WM job create failed (non-fatal): {sync_err}")
+
         # Already a dict from service
         created_job['photo_count'] = 0
 
@@ -164,6 +174,13 @@ def update_job(
 
     # Commit the transaction
     db.commit()
+
+    # Auto-sync Client/Claim from updated WM Job
+    try:
+        from app.domains.client.client_sync_service import sync_client_from_wm_job
+        sync_client_from_wm_job(db, updated_job)
+    except Exception as sync_err:
+        logger.warning(f"Client sync after WM job update failed (non-fatal): {sync_err}")
 
     job_dict = service.job_repo._convert_to_dict(updated_job)
     photo_count = service.photo_repo.count_by_job(job_id)
