@@ -10,9 +10,9 @@ Categories:
 - containment: Plastic barriers, containment setup
 - protection: Floor/content protection (paper, tape, plastic wrap)
 - drying-process: Drying equipment operating or stacked (3+)
-- day-1: Low/dry meter (0-13%/LO) + demolition complete
-- day-2: Medium meter (14-23%) + demolition complete
-- day-3: High/wet meter (24%+/HI) + demolition complete
+- day-1: High/wet meter (24%+/HI) + demolition complete (first reading, still wet)
+- day-2: Medium meter (14-23%) + demolition complete (drying in progress)
+- day-3: Low/dry meter (0-13%/LO) + demolition complete (final reading, dry)
 - documentation: Paperwork, signatures
 - uncategorized: Anything else, mold detected, needs manual review
 
@@ -63,9 +63,9 @@ CATEGORIES (pick exactly one):
 6. containment — Plastic sheeting barriers, poly walls, zipper doors
 7. protection — Floor protection (ram board, paper, tape), content protection (plastic wrap on furniture/items)
 8. drying-process — Air movers/dehumidifiers/fans on floor running, OR 3+ units stacked together
-9. day-1 — Moisture meter 0-13% or "LO" on DEMOLISHED surface (dry reading after demolition)
-10. day-2 — Moisture meter 14-23% on DEMOLISHED surface (drying after demolition)
-11. day-3 — Moisture meter 24%+ or "HI" on DEMOLISHED surface (still wet after demolition)
+9. day-1 — Moisture meter 24%+ or "HI" on DEMOLISHED surface (first reading after demolition, still wet)
+10. day-2 — Moisture meter 14-23% on DEMOLISHED surface (drying in progress after demolition)
+11. day-3 — Moisture meter 0-13% or "LO" on DEMOLISHED surface (final reading, drying complete)
 12. documentation — Paperwork, signatures, certificates, authorization forms
 13. uncategorized — None of the above, unclear, or mold visible
 
@@ -73,9 +73,9 @@ MOISTURE METER READING GUIDE:
 - Meters show NUMERIC values (e.g., 22%, 67%, 8.5%) or text ("LO", "HI") on LCD
 - Also look for color indicators on the meter body or display (green/yellow/red LEDs or zones)
 - Reading interpretation:
-  * "LO" or 0-13% → DRY → meter_color="green"
-  * 14-23% → DRYING → meter_color="yellow"
-  * 24%+ or "HI" → WET → meter_color="red"
+  * 24%+ or "HI" → WET → meter_color="red" → day-1 (first reading, still wet)
+  * 14-23% → DRYING → meter_color="yellow" → day-2 (drying in progress)
+  * "LO" or 0-13% → DRY → meter_color="green" → day-3 (final reading, dry)
 - CRITICAL: Read the actual number on the meter display carefully. Report it in meter_reading.
 
 ★★★ CRITICAL: METER SURFACE ANALYSIS (wet-area vs day-1/2/3) ★★★
@@ -312,7 +312,7 @@ def validate_and_correct(ai_result: dict) -> dict:
 
             expected_category = None
 
-            if color == "green":  # 0-13% / LO = dry
+            if color == "red":  # 24%+ / HI = wet (first reading)
                 expected_category = (
                     "day-1" if demolished else "wet-area"
                 )
@@ -320,7 +320,7 @@ def validate_and_correct(ai_result: dict) -> dict:
                 expected_category = (
                     "day-2" if demolished else "wet-area"
                 )
-            elif color == "red":  # 24%+ / HI = wet
+            elif color == "green":  # 0-13% / LO = dry (final reading)
                 expected_category = (
                     "day-3" if demolished else "wet-area"
                 )
