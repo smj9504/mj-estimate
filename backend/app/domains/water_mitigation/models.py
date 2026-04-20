@@ -33,8 +33,15 @@ class WaterMitigationJob(Base, BaseModel):
         {'extend_existing': True}
     )
 
-    # Client relationship (the customer/homeowner if they have a company)
+    # Client relationship (legacy: points to companies table)
     client_id = Column(UUIDType(), ForeignKey("companies.id"))
+
+    # Claim linkage (links to Client management system via Claim → Client)
+    claim_id = Column(
+        UUIDType(),
+        ForeignKey("claims.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # Company assignment (the service provider company responsible for this job)
     company_id = Column(
@@ -102,6 +109,9 @@ class WaterMitigationJob(Base, BaseModel):
     updated_by_id = Column(UUIDType(), ForeignKey("staff.id"))
 
     # Relationships
+    claim_ref = relationship(
+        "Claim", foreign_keys=[claim_id], lazy='select'
+    )
     company = relationship(
         "Company",
         foreign_keys=[company_id],

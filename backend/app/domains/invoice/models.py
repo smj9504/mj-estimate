@@ -33,6 +33,11 @@ class Invoice(Base, BaseModel):
     version = Column(Integer, default=1, nullable=False)
     is_latest = Column(Boolean, default=True, nullable=False)
     company_id = Column(UUIDType(), ForeignKey("companies.id"))  # String → UUIDType으로 수정
+
+    # Client/Claim linkage (new: links to Client management system)
+    client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
+    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="SET NULL"), nullable=True)
+
     client_name = Column(String(255), nullable=True)  # Optional when client_company_id is provided
     client_company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=True)  # Optional reference to registered company
     client_address = Column(Text)
@@ -81,6 +86,8 @@ class Invoice(Base, BaseModel):
 
     # Relationships
     company = relationship("Company", foreign_keys=[company_id], back_populates="invoices")
+    client_ref = relationship("Client", foreign_keys=[client_id], lazy='select')
+    claim_ref = relationship("Claim", foreign_keys=[claim_id], lazy='select')
     items = relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
     receipts = relationship("Receipt", back_populates="invoice", cascade="all, delete-orphan")
 

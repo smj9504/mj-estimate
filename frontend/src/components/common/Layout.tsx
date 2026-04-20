@@ -27,6 +27,7 @@ import {
   SafetyCertificateOutlined,
   BookOutlined,
   FileImageOutlined,
+  ContactsOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -87,6 +88,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         key: '/dashboard',
         icon: <DashboardOutlined />,
         label: 'Dashboard',
+      },
+      {
+        key: '/clients',
+        icon: <ContactsOutlined />,
+        label: 'Clients',
       },
       {
         key: '/documents',

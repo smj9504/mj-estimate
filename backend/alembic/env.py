@@ -50,6 +50,9 @@ import app.domains.receipt.models
 import app.domains.work_order.models
 import app.domains.water_mitigation.models
 
+# Client management
+import app.domains.client.models
+
 # Reports
 import app.domains.plumber_report.models
 import app.domains.plumber_report.templates.models

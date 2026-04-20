@@ -31,6 +31,10 @@ const MaterialManagement = lazy(() => import('./pages/MaterialManagement'));
 // Manager Pages
 const CompanyManagement = lazy(() => import('./pages/CompanyManagement'));
 
+// Client Pages
+const ClientList = lazy(() => import('./pages/ClientList'));
+const ClientDetail = lazy(() => import('./pages/ClientDetail'));
+
 // Dashboard Pages
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const RoleBasedDashboard = lazy(() => import('./pages/RoleBasedDashboard'));
@@ -277,6 +281,31 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <CompanyManagement />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Client management routes
+  {
+    path: "/clients",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <ClientList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/clients/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <ClientDetail />
           </Suspense>
         </Layout>
       </ProtectedRoute>

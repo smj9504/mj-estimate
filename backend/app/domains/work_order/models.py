@@ -41,8 +41,11 @@ class WorkOrder(Base):
     
     # Company relationship
     company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=False)
-    # company = relationship("Company", back_populates="work_orders")
-    
+
+    # Client/Claim linkage
+    client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
+    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="SET NULL"), nullable=True)
+
     # Client Information
     client_name = Column(String(200), nullable=False)
     client_address = Column(String(500))
@@ -136,6 +139,10 @@ class WorkOrder(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # Client/Claim relationships
+    client_ref = relationship("Client", foreign_keys=[client_id], lazy='select')
+    claim_ref = relationship("Claim", foreign_keys=[claim_id], lazy='select')
+
     def __str__(self):
         return f"Work Order #{self.work_order_number} - {self.client_name}"
     

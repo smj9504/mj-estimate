@@ -61,6 +61,9 @@ from app.domains.water_mitigation.models import (
 # Company model (imported after its dependencies)
 from app.domains.company.models import Company
 
+# Client management system models
+from app.domains.client.models import Client, Claim, ClaimNegotiation
+
 # Packout system models
 from app.domains.packout.models import (
     XactimateCategory, ItemSize, FragilityLevel, XactimateCode, PackingRule,
@@ -139,6 +142,7 @@ from app.domains.water_mitigation.sketch_models import (
     WMContainmentZone,
     WMFloorProtection,
 )
+from app.domains.client.api import router as client_router
 from app.domains.work_order.api import router as work_order_router
 from app.domains.xactimate.api import router as xactimate_router
 from app.domains.xactimate_helper.api import router as xactimate_helper_router
@@ -231,6 +235,14 @@ def _auto_add_columns():
             "storage_provider",
             "VARCHAR(50)",
         ),
+        # Client/Claim linkage columns
+        ("invoices", "client_id", "UUID"),
+        ("invoices", "claim_id", "UUID"),
+        ("estimates", "client_id", "UUID"),
+        ("estimates", "claim_id", "UUID"),
+        ("work_orders", "client_id", "UUID"),
+        ("work_orders", "claim_id", "UUID"),
+        ("water_mitigation_jobs", "claim_id", "UUID"),
     ]
 
     existing = {}
@@ -286,6 +298,19 @@ async def lifespan(app: FastAPI):
             print("[STARTUP] Trash cleanup scheduler started (daily at 3AM ET)")
         except Exception as e:
             print(f"[STARTUP] Trash scheduler skipped: {e}")
+
+        # Create new tables if they don't exist
+        try:
+            from app.core.database_factory import get_database
+            _db = get_database()
+            if hasattr(_db, 'engine'):
+                from app.domains.client.models import Client, Claim, ClaimNegotiation
+                Client.__table__.create(_db.engine, checkfirst=True)
+                Claim.__table__.create(_db.engine, checkfirst=True)
+                ClaimNegotiation.__table__.create(_db.engine, checkfirst=True)
+                print("[STARTUP] Client/Claim tables ensured")
+        except Exception as e:
+            print(f"[STARTUP] Client table creation skipped: {e}")
 
         # Lightweight auto-migration for new nullable columns
         try:
@@ -527,6 +552,7 @@ app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 
 # New domain-driven endpoints
 app.include_router(company_router, prefix="/api/companies", tags=["Companies"])
+app.include_router(client_router, prefix="/api/clients", tags=["Clients"])
 app.include_router(invoice_router, prefix="/api/invoices", tags=["Invoices"])
 app.include_router(estimate_router, prefix="/api/estimates", tags=["Estimates"])
 app.include_router(plumber_report_router, prefix="/api/plumber-reports", tags=["Plumber Reports"])

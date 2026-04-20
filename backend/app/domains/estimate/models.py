@@ -34,6 +34,11 @@ class Estimate(Base, BaseModel):
     version = Column(Integer, default=1, nullable=False)
     is_latest = Column(Boolean, default=True, nullable=False)
     company_id = Column(UUIDType(), ForeignKey("companies.id"))  # String → UUIDType으로 수정
+
+    # Client/Claim linkage
+    client_id = Column(UUIDType(), ForeignKey("clients.id", ondelete="SET NULL"), nullable=True)
+    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="SET NULL"), nullable=True)
+
     client_name = Column(String(255), nullable=False)
     client_address = Column(Text)
     client_city = Column(String(100))
@@ -83,6 +88,8 @@ class Estimate(Base, BaseModel):
 
     # Relationships
     company = relationship("Company", back_populates="estimates")
+    client_ref = relationship("Client", foreign_keys=[client_id], lazy='select')
+    claim_ref = relationship("Claim", foreign_keys=[claim_id], lazy='select')
     items = relationship("EstimateItem", back_populates="estimate", cascade="all, delete-orphan")
 
 
