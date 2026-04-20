@@ -285,6 +285,14 @@ async def lifespan(app: FastAPI):
     # Log immediately to show startup progress
     print(f"[STARTUP] Starting MJ Estimate API in {settings.ENVIRONMENT} environment")
     logger.info(f"Starting MJ Estimate API in {settings.ENVIRONMENT} environment")
+
+    # Diagnostic: Log AI classification config status
+    _gemini_set = bool(settings.GEMINI_API_KEY)
+    _gemini_len = len(settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else 0
+    _gemini_raw = bool(os.environ.get("GEMINI_API_KEY"))
+    print(f"[STARTUP] AI Config: ENABLE_AI={settings.ENABLE_AI_PHOTO_CLASSIFICATION}, "
+          f"GEMINI_KEY_in_settings={_gemini_set} (len={_gemini_len}), "
+          f"GEMINI_KEY_in_os_env={_gemini_raw}")
     
     try:
         # ULTRA-FAST STARTUP: Skip all heavy initialization
@@ -803,6 +811,13 @@ async def detailed_health_check(request: Request):
                 "info": db_factory.get_database_info()
             },
             "external_services": external_services,
+            "ai_classification": {
+                "enabled": settings.ENABLE_AI_PHOTO_CLASSIFICATION,
+                "gemini_key_configured": bool(settings.GEMINI_API_KEY),
+                "gemini_key_length": len(settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else 0,
+                "gemini_key_in_os_env": bool(os.environ.get("GEMINI_API_KEY")),
+                "gemini_model": settings.GEMINI_MODEL,
+            },
             "components": {
                 "api": "healthy",
                 "database": "healthy" if db_healthy else "unhealthy",

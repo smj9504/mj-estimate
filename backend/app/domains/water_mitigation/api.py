@@ -4,6 +4,7 @@ Water Mitigation API endpoints
 
 import logging
 import math
+import os
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -3082,9 +3083,17 @@ async def ai_classify_photos(
         )
 
     if not settings.GEMINI_API_KEY:
+        import logging
+        _logger = logging.getLogger(__name__)
+        _logger.error(
+            f"GEMINI_API_KEY not configured. "
+            f"settings value empty={not settings.GEMINI_API_KEY}, "
+            f"os.environ has key={bool(os.environ.get('GEMINI_API_KEY'))}, "
+            f"env={settings.ENVIRONMENT}"
+        )
         raise HTTPException(
             status_code=500,
-            detail="GEMINI_API_KEY is not configured"
+            detail="GEMINI_API_KEY is not configured. Check Render environment variables."
         )
 
     results = []
