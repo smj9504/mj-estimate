@@ -70,13 +70,30 @@ CATEGORIES (pick exactly one):
 13. uncategorized — None of the above, unclear, or mold visible
 
 MOISTURE METER READING GUIDE:
-- Meters show NUMERIC values (e.g., 22%, 67%, 8.5%) or text ("LO", "HI") on LCD
-- Also look for color indicators on the meter body or display (green/yellow/red LEDs or zones)
-- Reading interpretation:
+
+★★★ MULTI-DISPLAY METERS (READ CAREFULLY) ★★★
+Many meters (General, Protimeter, Delmhorst, etc.) show MULTIPLE values on LCD simultaneously:
+- PIN / WOOD moisture % ← THIS IS THE ONLY VALUE YOU MUST READ
+- RH% (relative humidity) ← IGNORE THIS completely
+- °F / °C (temperature) ← IGNORE THIS completely
+
+Look for labels like "PIN", "WOOD", "%WME" on the display to find the correct reading.
+If the display shows "LO" text next to the PIN/WOOD section, that means moisture is below measurable range = VERY DRY.
+If the display shows "HI" text next to the PIN/WOOD section, that means moisture is above measurable range = VERY WET.
+
+★★★ BAR INDICATOR ★★★
+Many meters have a bar/scale at the bottom with "WET" on one end and "DRY" on the other:
+- Bar on DRY side = green (dry)
+- Bar in middle = yellow (drying)
+- Bar on WET side = red (wet)
+Use this bar as CONFIRMATION of the reading.
+
+READING INTERPRETATION (based on PIN/WOOD value only):
   * 24%+ or "HI" → WET → meter_color="red" → day-1 (first reading, still wet)
   * 14-23% → DRYING → meter_color="yellow" → day-2 (drying in progress)
   * "LO" or 0-13% → DRY → meter_color="green" → day-3 (final reading, dry)
-- CRITICAL: Read the actual number on the meter display carefully. Report it in meter_reading.
+
+- CRITICAL: Report the PIN/WOOD moisture reading in meter_reading field. NOT the RH% or temperature.
 
 ★★★ CRITICAL: METER SURFACE ANALYSIS (wet-area vs day-1/2/3) ★★★
 When a moisture meter is visible, you MUST examine THE EXACT SURFACE the meter is touching/placed against.
@@ -153,10 +170,13 @@ def _resize_image(image_data: bytes, max_size: int = 1024) -> tuple[bytes, str]:
 METER_VERIFICATION_PROMPT = """This photo contains a moisture meter.
 Focus ONLY on these 3 things:
 
-## 1. METER READING
-Read the exact number or text on the LCD display.
+## 1. METER READING (PIN/WOOD moisture ONLY)
+Read the PIN or WOOD moisture value on the LCD display. IGNORE RH% and temperature.
+Look for labels "PIN", "WOOD", "%WME" to identify the correct reading.
 Examples: "22", "67.5", "8", "LO", "HI"
-Also note any color indicator (green/yellow/red LED or zone).
+If the display shows "LO" for PIN/WOOD → report meter_reading="LO", meter_color="green"
+If the display shows "HI" for PIN/WOOD → report meter_reading="HI", meter_color="red"
+Also check the WET/DRY bar indicator at the bottom of the meter.
 
 ## 2. SURFACE THE METER IS TOUCHING
 Describe the exact surface the meter pins/pad are pressed against.
@@ -201,17 +221,23 @@ def _derive_color_from_reading(reading: str) -> str | None:
     if not reading:
         return None
 
-    reading = str(reading).strip().upper()
+    reading_upper = str(reading).strip().upper()
 
-    # Text readings
-    if reading in ("LO", "LOW"):
+    # Text readings - broad matching for "LO" variants
+    # AI may return: "LO", "LOW", "Lo", "L0", "LO PIN", "PIN LO", etc.
+    if any(lo in reading_upper for lo in ("LO", "LOW", "L0")):
         return "green"
-    if reading in ("HI", "HIGH"):
+    if any(hi in reading_upper for hi in ("HI", "HIGH", "H1")):
         return "red"
 
     # Numeric readings — strip % sign and parse
     try:
-        value = float(reading.replace("%", "").strip())
+        # Extract first numeric value from reading
+        import re
+        numeric_match = re.search(r'[\d.]+', reading_upper)
+        if not numeric_match:
+            return None
+        value = float(numeric_match.group())
         if value <= 13:
             return "green"
         elif value <= 23:
@@ -257,13 +283,30 @@ def validate_and_correct(ai_result: dict) -> dict:
         ai_color = (metadata.get("meter_color") or "").lower()
 
         # Normalize text-based meter_color values
-        if ai_color in ("lo", "low"):
+        if ai_color in ("lo", "low", "l0"):
             ai_color = "green"
-        elif ai_color in ("hi", "high"):
+        elif ai_color in ("hi", "high", "h1"):
             ai_color = "red"
 
         # If we have a numeric/text reading, derive color from it
         derived_color = _derive_color_from_reading(meter_reading)
+
+        # Fallback: check if surface_description mentions LO/HI/DRY
+        # (AI sometimes puts reading info in surface_description instead)
+        if not derived_color and not meter_reading:
+            surface_desc = (metadata.get("surface_description") or "").upper()
+            if any(lo in surface_desc for lo in ("LO ", " LO", "\"LO\"", "READS LO", "SHOWING LO", "DISPLAY LO", "DRY READING")):
+                derived_color = "green"
+                metadata["meter_reading"] = "LO"
+                corrections.append({
+                    "rule": "lo_from_surface_desc",
+                    "reason": f"surface_description에서 LO 감지 → green으로 보정",
+                    "from": ai_color or "unknown",
+                    "to": "green"
+                })
+            elif any(hi in surface_desc for hi in ("HI ", " HI", "\"HI\"", "READS HI", "SHOWING HI", "DISPLAY HI")):
+                derived_color = "red"
+                metadata["meter_reading"] = "HI"
 
         if derived_color:
             # Reading-based color overrides AI's meter_color
@@ -451,8 +494,8 @@ class AIClassificationService:
         try:
             client = self._get_client()
 
-            # Resize image for cost savings
-            resized_data, resized_mime = _resize_image(image_data)
+            # Resize image (1280px for better meter LCD reading accuracy)
+            resized_data, resized_mime = _resize_image(image_data, max_size=1280)
 
             from google.genai import types
 
@@ -490,6 +533,17 @@ class AIClassificationService:
                 response_text = "\n".join(json_lines)
 
             ai_result = json.loads(response_text)
+
+            # Log raw AI response for debugging meter reading issues
+            meta = ai_result.get("metadata", {})
+            if meta.get("meter_visible"):
+                logger.info(
+                    f"AI raw response: category={ai_result.get('category')}, "
+                    f"meter_reading={meta.get('meter_reading')}, "
+                    f"meter_color={meta.get('meter_color')}, "
+                    f"is_demolished={meta.get('is_demolished')}, "
+                    f"surface_desc={meta.get('surface_description')}"
+                )
 
             # Validate category
             if ai_result.get("category") not in VALID_CATEGORIES:
