@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress, Grid, Table, Select, Row, Col } from 'antd';
-import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined, CloseOutlined, StarFilled } from '@ant-design/icons';
+import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress, Grid, Table, Select, Row, Col, Dropdown } from 'antd';
+import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined, CloseOutlined, StarFilled, DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import api from '../../services/api';
@@ -686,7 +686,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   };
 
   // ─── AI Classification handlers ───
-  const handleAiClassify = useCallback(async (resume = false) => {
+  const handleAiClassify = useCallback(async (resume = false, reclassifyAll = false) => {
     aiAbortRef.current = false;
     setAiClassifying(true);
     setAiModalVisible(true);
@@ -716,27 +716,29 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
       } while (page <= totalPages);
       const items = allItems;
 
-      // Filter to uncategorized or photos without a category
-      const uncategorized = items.filter(
-        (p: any) => !p.category || p.category === '' || p.category === 'uncategorized'
-      );
+      // Filter: uncategorized only (default) or all photos (reclassify)
+      const targetPhotos = reclassifyAll
+        ? items
+        : items.filter(
+            (p: any) => !p.category || p.category === '' || p.category === 'uncategorized'
+          );
 
-      if (uncategorized.length === 0) {
-        message.info('All photos already have categories assigned.');
+      if (targetPhotos.length === 0) {
+        message.info(reclassifyAll ? 'No photos found.' : 'All photos already have categories assigned.');
         setAiClassifying(false);
         return;
       }
 
       // Build photo map for thumbnail display in AI modal
       const baseURL = api.defaults.baseURL || '';
-      for (const p of uncategorized) {
+      for (const p of targetPhotos) {
         const thumbUrl = p.thumbnail_url
           ? (p.thumbnail_url.startsWith('http') ? p.thumbnail_url : `${baseURL}${p.thumbnail_url}`)
           : `${baseURL}/api/water-mitigation/photos/${p.id}/preview?size=web`;
         aiPhotoMapRef.current[p.id] = { ...p, _thumbUrl: thumbUrl };
       }
 
-      let photoIds = uncategorized.map((p: any) => p.id);
+      let photoIds = targetPhotos.map((p: any) => p.id);
 
       // Resume: skip already-classified photo IDs
       if (resume && aiResults.length > 0) {
@@ -767,7 +769,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         aiAbortControllerRef.current = controller;
 
         try {
-          const result = await waterMitigationService.photos.aiClassify(batch, false, controller.signal);
+          const result = await waterMitigationService.photos.aiClassify(batch, reclassifyAll, controller.signal);
           allResults.push(...result.results);
           setAiResults([...allResults]);
           setAiProgress({ current: allResults.length, total: totalPhotos });
@@ -1343,12 +1345,30 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             </Tooltip>
           )}
 
-          {/* AI Photo Classification Button */}
-          <Tooltip title="Auto-classify uncategorized photos using AI">
+          {/* AI Photo Classification Button with Re-classify option */}
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'uncategorized',
+                  icon: <RobotOutlined />,
+                  label: 'Uncategorized only',
+                  onClick: () => handleAiClassify(false, false),
+                },
+                {
+                  key: 'all',
+                  icon: <ReloadOutlined />,
+                  label: 'All photos (re-classify)',
+                  onClick: () => handleAiClassify(false, true),
+                },
+              ],
+            }}
+            trigger={['click']}
+            disabled={aiClassifying}
+          >
             <Button
               type="default"
               icon={<RobotOutlined />}
-              onClick={() => { handleAiClassify(false); }}
               loading={aiClassifying}
               size={isMobile ? 'small' : 'middle'}
               style={{
@@ -1359,9 +1379,9 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                 color: 'white'
               }}
             >
-              {isMobile ? 'AI' : 'AI Classify'}
+              {isMobile ? 'AI' : 'AI Classify'} <DownOutlined style={{ fontSize: 10 }} />
             </Button>
-          </Tooltip>
+          </Dropdown>
           <Tooltip title="View & edit previous AI classification results">
             <Button
               type="default"
