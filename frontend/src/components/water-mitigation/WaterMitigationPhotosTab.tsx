@@ -381,8 +381,17 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   // Custom upload handler for Water Mitigation photos
   const handleUpload = useCallback(async (files: File[], category?: string): Promise<void> => {
     try {
-      await waterMitigationService.photos.uploadMultiple(jobId, files, category);
-      message.success(`Successfully uploaded ${files.length} photo(s)`);
+      const { results, failed } = await waterMitigationService.photos.uploadMultiple(jobId, files, category);
+      if (failed.length === 0) {
+        message.success(`Successfully uploaded ${results.length} photo(s)`);
+      } else if (results.length > 0) {
+        message.warning(
+          `Uploaded ${results.length} of ${files.length} photos. ` +
+          `${failed.length} failed: ${failed.map(f => f.name).join(', ')}`
+        );
+      } else {
+        message.error(`All ${files.length} uploads failed. ${failed[0]?.error || 'Unknown error'}`);
+      }
       // Refresh photos after upload
       queryClient.invalidateQueries({ queryKey: ['files', 'water-mitigation', jobId] });
       queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });

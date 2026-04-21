@@ -232,8 +232,12 @@ export const waterMitigationService = {
     },
 
     // Upload multiple photos to job
-    uploadMultiple: async (jobId: string, files: File[], category?: string): Promise<any[]> => {
+    uploadMultiple: async (jobId: string, files: File[], category?: string): Promise<{
+      results: any[];
+      failed: { name: string; error: string }[];
+    }> => {
       const results: any[] = [];
+      const failed: { name: string; error: string }[] = [];
 
       // Upload files one by one to use the existing backend endpoint
       for (const file of files) {
@@ -248,13 +252,14 @@ export const waterMitigationService = {
             },
           });
           results.push(response.data);
-        } catch (error) {
-          console.error(`Failed to upload ${file.name}:`, error);
-          // Continue with other files even if one fails
+        } catch (error: any) {
+          const errMsg = error?.response?.data?.detail || error.message || 'Unknown error';
+          console.error(`Failed to upload ${file.name}:`, errMsg);
+          failed.push({ name: file.name, error: errMsg });
         }
       }
 
-      return results;
+      return { results, failed };
     },
 
     // Get all photos for a job with optional filtering
