@@ -1288,23 +1288,56 @@ class SketchPdfService:
         )
 
     def _html_to_pdf(self, html_content: str) -> bytes:
+        """Convert HTML to PDF.
+
+        Strategy:
+        1. Try Playwright (headless Chromium) — best quality
+        2. Fallback to WeasyPrint — works without browser binary
+        """
+        # Try Playwright first (best rendering quality)
+        try:
+            return self._html_to_pdf_playwright(html_content)
+        except Exception as exc:
+            logger.warning(
+                "Playwright PDF failed (%s), falling back to WeasyPrint",
+                exc,
+            )
+
+        # Fallback: WeasyPrint (no browser binary needed)
+        return self._html_to_pdf_weasyprint(html_content)
+
+    def _html_to_pdf_weasyprint(self, html_content: str) -> bytes:
+        """Convert HTML to PDF using WeasyPrint."""
+        try:
+            from weasyprint import HTML
+            pdf_bytes = HTML(string=html_content).write_pdf()
+            logger.info(
+                "PDF generated via WeasyPrint (%d bytes)", len(pdf_bytes)
+            )
+            return pdf_bytes
+        except ImportError:
+            raise RuntimeError(
+                "Neither Playwright nor WeasyPrint available for PDF"
+            )
+        except Exception as exc:
+            logger.exception("WeasyPrint PDF generation failed: %r", exc)
+            raise RuntimeError(f"PDF generation failed: {exc}") from exc
+
+    def _html_to_pdf_playwright(self, html_content: str) -> bytes:
         """Convert HTML to PDF using Playwright (headless Chromium).
 
-        Runs in a dedicated thread to avoid event loop conflicts with FastAPI/AnyIO.
+        Runs in a dedicated thread to avoid event loop conflicts.
         """
         import asyncio
         import concurrent.futures
 
-        # Define everything inside run_in_thread so the coroutine is created
-        # fresh within the worker thread (avoids cross-thread coroutine issues).
         def run_in_thread() -> bytes:
             import sys
 
-            # On Windows, asyncio.run() creates a SelectorEventLoop by default,
-            # which does NOT support subprocesses. Playwright needs subprocess
-            # support, so we must switch to ProactorEventLoop.
             if sys.platform == "win32":
-                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+                asyncio.set_event_loop_policy(
+                    asyncio.WindowsProactorEventLoopPolicy()
+                )
 
             async def _generate() -> bytes:
                 from playwright.async_api import async_playwright
@@ -1313,7 +1346,9 @@ class SketchPdfService:
                     browser = await p.chromium.launch(headless=True)
                     try:
                         page = await browser.new_page()
-                        await page.set_content(html_content, wait_until="networkidle")
+                        await page.set_content(
+                            html_content, wait_until="networkidle"
+                        )
                         pdf_bytes = await page.pdf(
                             format="Letter",
                             margin={
@@ -1326,10 +1361,13 @@ class SketchPdfService:
                             display_header_footer=True,
                             header_template="<span></span>",
                             footer_template=(
-                                '<div style="font-size:8px;color:#999;width:100%;'
-                                'text-align:center;padding-right:2cm;">'
-                                "Page <span class='pageNumber'></span> of "
-                                "<span class='totalPages'></span></div>"
+                                '<div style="font-size:8px;color:#999;'
+                                'width:100%;text-align:center;'
+                                'padding-right:2cm;">'
+                                "Page <span class='pageNumber'></span>"
+                                " of "
+                                "<span class='totalPages'></span>"
+                                "</div>"
                             ),
                         )
                     finally:
@@ -1338,12 +1376,6 @@ class SketchPdfService:
 
             return asyncio.run(_generate())
 
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(run_in_thread)
-                return future.result(timeout=90)
-        except concurrent.futures.TimeoutError:
-            raise RuntimeError("PDF generation timed out (90s)")
-        except Exception as exc:
-            logger.exception("Playwright PDF generation failed: %r", exc)
-            raise RuntimeError(f"PDF generation failed: {exc}") from exc
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(run_in_thread)
+            return future.result(timeout=90)
