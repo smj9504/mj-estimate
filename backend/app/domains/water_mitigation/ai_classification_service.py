@@ -12,7 +12,7 @@ Categories:
 - drying-process: Drying equipment operating or stacked (3+)
 - day-1: High/wet meter (24%+/HI) + demolition complete (first reading, still wet)
 - day-2: Medium meter (14-23%) + demolition complete (drying in progress)
-- day-3: Low/dry meter (0-13%/LO) + demolition complete (final reading, dry)
+- day-3: Low/dry meter (0-13%/LO) on any surface (final reading, dry)
 - documentation: Paperwork, signatures
 - uncategorized: Anything else, mold detected, needs manual review
 
@@ -56,7 +56,7 @@ CLASSIFICATION_PROMPT = """Analyze this water mitigation (flood/water damage res
 
 CATEGORIES (pick exactly one):
 1. property-overview — Exterior/interior overview of the property (front of house, street view, wide-angle room shots showing overall condition)
-2. wet-area — Moisture meter on INTACT (not demolished) surface — original walls/floors/baseboards still in place
+2. wet-area — Moisture meter showing HIGH reading (24%+/HI/red) on INTACT (not demolished) surface
 3. personal-properties — Homeowner belongings, furniture, personal items (before moving)
 4. pre-mitigation-moving — Furniture/belongings being moved out, packing process
 5. demolition — Active tear-out of drywall/flooring/baseboards (exposed studs, debris piles)
@@ -65,7 +65,7 @@ CATEGORIES (pick exactly one):
 8. drying-process — Air movers/dehumidifiers/fans on floor running, OR 3+ units stacked together
 9. day-1 — Moisture meter 24%+ or "HI" on DEMOLISHED surface (first reading after demolition, still wet)
 10. day-2 — Moisture meter 14-23% on DEMOLISHED surface (drying in progress after demolition)
-11. day-3 — Moisture meter 0-13% or "LO" on DEMOLISHED surface (final reading, drying complete)
+11. day-3 — Moisture meter 0-13% or "LO" on ANY surface (final reading, drying complete — demolished or intact)
 12. documentation — Paperwork, signatures, certificates, authorization forms
 13. uncategorized — None of the above, unclear, or mold visible
 
@@ -355,7 +355,7 @@ def validate_and_correct(ai_result: dict) -> dict:
 
             expected_category = None
 
-            if color == "red":  # 24%+ / HI = wet (first reading)
+            if color == "red":  # 24%+ / HI = wet
                 expected_category = (
                     "day-1" if demolished else "wet-area"
                 )
@@ -363,10 +363,8 @@ def validate_and_correct(ai_result: dict) -> dict:
                 expected_category = (
                     "day-2" if demolished else "wet-area"
                 )
-            elif color == "green":  # 0-13% / LO = dry (final reading)
-                expected_category = (
-                    "day-3" if demolished else "wet-area"
-                )
+            elif color == "green":  # 0-13% / LO = dry → always day-3
+                expected_category = "day-3"
 
             if expected_category and category != expected_category:
                 demo_label = (
