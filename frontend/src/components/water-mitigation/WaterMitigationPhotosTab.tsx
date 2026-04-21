@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Button, Space, message, Modal, Typography, Alert, Input, List, Tag, Spin, Tooltip, Progress, Grid, Table, Select, Row, Col } from 'antd';
-import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { SyncOutlined, CloudDownloadOutlined, LinkOutlined, SearchOutlined, CheckCircleOutlined, CloseCircleOutlined, CameraOutlined, GoogleOutlined, CloudUploadOutlined, ShareAltOutlined, CopyOutlined, RobotOutlined, ThunderboltOutlined, CloseOutlined, StarFilled } from '@ant-design/icons';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import FileGallery from '../common/FileGallery/FileGallery';
 import api from '../../services/api';
@@ -18,6 +18,84 @@ import type { CompanyCamSyncResult } from '../../types/waterMitigation';
 
 const { Text, Title } = Typography;
 
+// ─── Duplicate Detection Utility ───
+interface DuplicateGroup {
+  category: string;
+  bestPhotoId: string;  // highest confidence
+  photoIds: string[];   // all photos in group
+}
+
+/**
+ * Detect duplicate photos: same category + captured within 60 seconds.
+ * Returns groups of 2+ similar photos.
+ */
+function detectDuplicates(
+  results: AIClassifyResult[],
+  photoMap: Record<string, any>,
+  overrides: Record<string, string>,
+): DuplicateGroup[] {
+  // Group results by effective category
+  const byCategory: Record<string, AIClassifyResult[]> = {};
+  for (const r of results) {
+    if (r.error) continue;
+    const cat = overrides[r.photo_id] || r.category || 'uncategorized';
+    if (cat === 'uncategorized') continue;
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(r);
+  }
+
+  const groups: DuplicateGroup[] = [];
+
+  for (const [cat, items] of Object.entries(byCategory)) {
+    if (items.length < 2) continue;
+
+    // Get timestamps for each photo
+    const withTime = items.map(r => {
+      const photo = photoMap[r.photo_id];
+      const ts = photo?.captured_date || photo?.created_at || photo?.uploadDate || photo?.createdAt;
+      return { result: r, timestamp: ts ? new Date(ts).getTime() : 0 };
+    }).filter(x => x.timestamp > 0)
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (withTime.length < 2) continue;
+
+    // Cluster by 60-second proximity
+    let cluster = [withTime[0]];
+    for (let i = 1; i < withTime.length; i++) {
+      const gap = Math.abs(withTime[i].timestamp - cluster[cluster.length - 1].timestamp);
+      if (gap <= 60000) {  // 60 seconds
+        cluster.push(withTime[i]);
+      } else {
+        if (cluster.length >= 2) {
+          // Find the one with highest confidence
+          const best = cluster.reduce((a, b) =>
+            (b.result.confidence || 0) > (a.result.confidence || 0) ? b : a
+          );
+          groups.push({
+            category: cat,
+            bestPhotoId: best.result.photo_id,
+            photoIds: cluster.map(c => c.result.photo_id),
+          });
+        }
+        cluster = [withTime[i]];
+      }
+    }
+    // Don't forget the last cluster
+    if (cluster.length >= 2) {
+      const best = cluster.reduce((a, b) =>
+        (b.result.confidence || 0) > (a.result.confidence || 0) ? b : a
+      );
+      groups.push({
+        category: cat,
+        bestPhotoId: best.result.photo_id,
+        photoIds: cluster.map(c => c.result.photo_id),
+      });
+    }
+  }
+
+  return groups;
+}
+
 // ─── AI Results Grid (extracted to avoid IIFE in JSX) ───
 const AI_PAGE_SIZE = 12;
 
@@ -29,11 +107,29 @@ const AiResultsGrid: React.FC<{
   photoMap: Record<string, any>;
   overrides: Record<string, string>;
   onOverride: (photoId: string, val: string) => void;
-}> = ({ results, filter, page, onPageChange, photoMap, overrides, onOverride }) => {
+  duplicateGroups?: DuplicateGroup[];
+}> = ({ results, filter, page, onPageChange, photoMap, overrides, onOverride, duplicateGroups = [] }) => {
+  // Build set of duplicate photo IDs and best photo IDs for quick lookup
+  const dupPhotoIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (const g of duplicateGroups) {
+      for (const id of g.photoIds) ids.add(id);
+    }
+    return ids;
+  }, [duplicateGroups]);
+
+  const bestPhotoIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (const g of duplicateGroups) ids.add(g.bestPhotoId);
+    return ids;
+  }, [duplicateGroups]);
+
   const filtered = filter === 'all' ? results
     : filter === 'classified' ? results.filter(r => !r.error && r.category !== 'uncategorized')
     : filter === 'uncategorized' ? results.filter(r => r.category === 'uncategorized' && !r.error)
-    : results.filter(r => !!r.error);
+    : filter === 'error' ? results.filter(r => !!r.error)
+    : filter === 'duplicates' ? results.filter(r => dupPhotoIds.has(r.photo_id))
+    : results;
 
   const paged = filtered.slice((page - 1) * AI_PAGE_SIZE, page * AI_PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / AI_PAGE_SIZE);
@@ -60,10 +156,75 @@ const AiResultsGrid: React.FC<{
           const displayCat = overrides[record.photo_id] || record.category || 'uncategorized';
           const pct = Math.round((record.confidence || 0) * 100);
           const meta = record.metadata || null;
+          const isRemoved = displayCat === 'uncategorized' && (overrides[record.photo_id] === 'uncategorized');
+          const isDup = dupPhotoIds.has(record.photo_id);
+          const isBest = bestPhotoIds.has(record.photo_id);
 
           return (
             <Col key={record.photo_id} xs={12} sm={8} md={6}>
-              <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+              <div style={{
+                border: isRemoved ? '2px solid #ff4d4f' : isDup ? (isBest ? '2px solid #52c41a' : '2px solid #faad14') : '1px solid #f0f0f0',
+                borderRadius: 8, overflow: 'hidden', background: isRemoved ? '#fff1f0' : '#fff',
+                opacity: isRemoved ? 0.6 : 1,
+                position: 'relative',
+              }}>
+                {/* Quick remove (X) button */}
+                {!record.error && !isRemoved && (
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<CloseOutlined />}
+                    onClick={() => onOverride(record.photo_id, 'uncategorized')}
+                    style={{
+                      position: 'absolute', top: 4, right: 4, zIndex: 10,
+                      background: 'rgba(0,0,0,0.5)', color: '#fff',
+                      width: 24, height: 24, minWidth: 24,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      borderRadius: '50%', border: 'none', padding: 0,
+                    }}
+                    title="Remove (set uncategorized)"
+                  />
+                )}
+                {/* Undo button for removed photos */}
+                {isRemoved && (
+                  <Button
+                    type="text"
+                    size="small"
+                    onClick={() => {
+                      // Restore to original AI category
+                      onOverride(record.photo_id, record.category || 'uncategorized');
+                    }}
+                    style={{
+                      position: 'absolute', top: 4, right: 4, zIndex: 10,
+                      background: 'rgba(0,0,0,0.5)', color: '#fff',
+                      fontSize: 10, height: 24, minWidth: 24,
+                      borderRadius: 12, border: 'none', padding: '0 8px',
+                    }}
+                  >
+                    Undo
+                  </Button>
+                )}
+                {/* Best duplicate badge */}
+                {isDup && isBest && !isRemoved && (
+                  <div style={{
+                    position: 'absolute', top: 4, left: 4, zIndex: 10,
+                    background: '#52c41a', color: '#fff', borderRadius: 4,
+                    fontSize: 10, padding: '1px 6px', fontWeight: 600,
+                    display: 'flex', alignItems: 'center', gap: 3,
+                  }}>
+                    <StarFilled style={{ fontSize: 10 }} /> Keep
+                  </div>
+                )}
+                {/* Duplicate indicator */}
+                {isDup && !isBest && !isRemoved && (
+                  <div style={{
+                    position: 'absolute', top: 4, left: 4, zIndex: 10,
+                    background: '#faad14', color: '#fff', borderRadius: 4,
+                    fontSize: 10, padding: '1px 6px', fontWeight: 600,
+                  }}>
+                    Dup
+                  </div>
+                )}
                 <div style={{ height: 130, background: '#fafafa', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                   {thumbUrl ? (
                     <img src={thumbUrl} alt="" loading="lazy" style={{ width: '100%', height: 130, objectFit: 'cover', display: 'block' }}
@@ -252,7 +413,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const [aiApplying, setAiApplying] = useState(false);
   const [aiProgress, setAiProgress] = useState({ current: 0, total: 0 });
   const [aiPage, setAiPage] = useState(1);
-  const [aiFilter, setAiFilter] = useState<'all' | 'classified' | 'uncategorized' | 'error'>('all');
+  const [aiFilter, setAiFilter] = useState<'all' | 'classified' | 'uncategorized' | 'error' | 'duplicates'>('all');
   // Track per-result overrides: photo_id -> user-selected category
   const [aiOverrides, setAiOverrides] = useState<Record<string, string>>({});
   const aiAbortRef = useRef(false);
@@ -1730,13 +1891,19 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
           </div>
         )}
 
-        {aiResults.length > 0 && (
+        {aiResults.length > 0 && (() => {
+          const dupGroups = detectDuplicates(aiResults, aiPhotoMapRef.current, aiOverrides);
+          const dupCount = dupGroups.reduce((sum, g) => sum + g.photoIds.length, 0);
+          const dupExtraCount = dupGroups.reduce((sum, g) => sum + g.photoIds.length - 1, 0);
+
+          return (
           <>
-            <div style={{ marginBottom: 12, display: 'flex', gap: 6 }}>
+            <div style={{ marginBottom: 12, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               {[
                 { key: 'all' as const, label: `All (${aiResults.length})`, color: 'default' },
                 { key: 'classified' as const, label: `Classified (${aiResults.filter(r => !r.error && r.category !== 'uncategorized').length})`, color: 'green' },
                 { key: 'uncategorized' as const, label: `Uncategorized (${aiResults.filter(r => r.category === 'uncategorized' && !r.error).length})`, color: 'orange' },
+                ...(dupCount > 0 ? [{ key: 'duplicates' as const, label: `Duplicates (${dupCount})`, color: 'gold' }] : []),
                 ...(aiResults.some(r => r.error) ? [{ key: 'error' as const, label: `Failed (${aiResults.filter(r => r.error).length})`, color: 'red' }] : []),
               ].map(f => (
                 <Tag
@@ -1752,6 +1919,28 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                   {f.label}
                 </Tag>
               ))}
+              {dupExtraCount > 0 && aiFilter === 'duplicates' && (
+                <Button
+                  size="small"
+                  type="primary"
+                  style={{ background: '#faad14', borderColor: '#faad14', marginLeft: 'auto' }}
+                  onClick={() => {
+                    // Auto-override: set all non-best duplicates to uncategorized
+                    const newOverrides = { ...aiOverrides };
+                    for (const g of dupGroups) {
+                      for (const id of g.photoIds) {
+                        if (id !== g.bestPhotoId) {
+                          newOverrides[id] = 'uncategorized';
+                        }
+                      }
+                    }
+                    setAiOverrides(newOverrides);
+                    message.success(`Marked ${dupExtraCount} duplicate photos as uncategorized. Review and click "Apply All" to confirm.`);
+                  }}
+                >
+                  Auto-remove {dupExtraCount} duplicates (keep best)
+                </Button>
+              )}
             </div>
 
             <AiResultsGrid
@@ -1762,9 +1951,11 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
               photoMap={aiPhotoMapRef.current}
               overrides={aiOverrides}
               onOverride={(photoId, val) => setAiOverrides(prev => ({ ...prev, [photoId]: val }))}
+              duplicateGroups={dupGroups}
             />
           </>
-        )}
+          );
+        })()}
 
         {!aiClassifying && aiResults.length === 0 && (
           <Alert
