@@ -50,27 +50,38 @@ export const useWaterMitigationPhotos = (
   return useQuery<WMPhoto[]>({
     queryKey: ['water-mitigation-photos', jobId, pageSize, categoryFilter],
     queryFn: async () => {
-      // Build query params
-      const params = new URLSearchParams({
-        page_size: pageSize.toString(),
-        page: '1',
-      });
-      
-      if (categoryFilter && categoryFilter !== 'all') {
-        params.append('category_filter', categoryFilter);
-      }
+      // Fetch ALL pages to ensure no photos are missing
+      let allItems: any[] = [];
+      let page = 1;
+      let totalPages = 1;
 
-      const response = await fetch(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
-      if (!response.ok) {
-        throw new Error(`Failed to load photos: ${response.status}`);
-      }
-      const data = await response.json();
-      
-      // API returns { items: [...], total, page, ... } format
-      const items = data.items || data.photos || (Array.isArray(data) ? data : []);
-      
-      // Map response to include proper thumbnail URLs
-      return items.map(mapPhotoResponse);
+      do {
+        const params = new URLSearchParams({
+          page_size: pageSize.toString(),
+          page: String(page),
+        });
+
+        if (categoryFilter && categoryFilter !== 'all') {
+          params.append('category_filter', categoryFilter);
+        }
+
+        const response = await fetch(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
+        if (!response.ok) {
+          throw new Error(`Failed to load photos: ${response.status}`);
+        }
+        const data = await response.json();
+
+        const items = data.items || data.photos || (Array.isArray(data) ? data : []);
+        allItems.push(...items);
+
+        // total_pages is only returned on page 1
+        if (page === 1 && data.total_pages) {
+          totalPages = data.total_pages;
+        }
+        page++;
+      } while (page <= totalPages);
+
+      return allItems.map(mapPhotoResponse);
     },
     staleTime: 5 * 60 * 1000,        // 5분간 신선한 데이터로 간주
     gcTime: 10 * 60 * 1000,          // 10분간 캐시 보관
