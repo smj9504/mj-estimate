@@ -3861,13 +3861,7 @@ async def detect_duplicate_photos(
     - 15: Loosely similar
     """
     # Get all photos for this job
-    all_photos = service.photo_repo.get_photos_by_job(
-        db if hasattr(db, 'query') else db,
-        str(job_id),
-        page=1,
-        page_size=9999,
-    )
-    items = all_photos.get('items', [])
+    items = service.photo_repo.find_by_job(job_id)
 
     if len(items) < 2:
         return {"groups": [], "total_duplicates": 0}
@@ -3876,8 +3870,20 @@ async def detect_duplicate_photos(
     photo_hashes: list[tuple[str, str, dict]] = []  # (photo_id, hash, photo_dict)
 
     for photo in items:
-        photo_dict = service.photo_repo._convert_to_dict(photo) if not isinstance(photo, dict) else photo
-        photo_id = str(photo_dict.get('id', ''))
+        photo_dict = {
+            'id': str(photo.id),
+            'file_path': photo.file_path,
+            'file_name': photo.file_name,
+            'file_size': photo.file_size,
+            'mime_type': photo.mime_type,
+            'category': photo.category,
+            'captured_date': photo.captured_date,
+            'storage_file_id': getattr(photo, 'storage_file_id', None),
+            'storage_provider': getattr(photo, 'storage_provider', ''),
+            'storage_thumbnail_url': getattr(photo, 'storage_thumbnail_url', ''),
+            'source': getattr(photo, 'source', ''),
+        }
+        photo_id = photo_dict['id']
 
         image_data = await _load_photo_image_data(photo_dict)
         if image_data is None:
