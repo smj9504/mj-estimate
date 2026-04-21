@@ -3733,3 +3733,222 @@ async def cancel_gdrive_export(job_id: UUID):
             'success': False,
             'message': 'No export in progress to cancel or already completed'
         }
+
+
+# =============================================================================
+# Photo Duplicate Detection
+# =============================================================================
+
+def _compute_image_hash(image_data: bytes, hash_size: int = 8) -> str | None:
+    """
+    Compute average perceptual hash (aHash) for an image.
+    Returns hex string or None on failure.
+
+    Algorithm:
+    1. Resize to hash_size x hash_size
+    2. Convert to grayscale
+    3. Compute mean pixel value
+    4. Each pixel above mean = 1, below = 0
+    5. Pack bits into hex string
+    """
+    try:
+        from PIL import Image
+        import io
+
+        img = Image.open(io.BytesIO(image_data))
+        img = img.convert('L').resize((hash_size, hash_size), Image.LANCZOS)
+
+        pixels = list(img.getdata())
+        avg = sum(pixels) / len(pixels)
+
+        bits = ''.join('1' if p > avg else '0' for p in pixels)
+        # Pack into hex
+        hash_int = int(bits, 2)
+        return format(hash_int, f'0{hash_size * hash_size // 4}x')
+    except Exception as e:
+        logger.warning(f"Failed to compute image hash: {e}")
+        return None
+
+
+def _hamming_distance(hash1: str, hash2: str) -> int:
+    """Compute hamming distance between two hex hash strings."""
+    if len(hash1) != len(hash2):
+        return 999
+    val1 = int(hash1, 16)
+    val2 = int(hash2, 16)
+    xor = val1 ^ val2
+    return bin(xor).count('1')
+
+
+async def _load_photo_image_data(photo_dict: dict) -> bytes | None:
+    """Load image data from various storage backends."""
+    from app.core.config import settings as app_settings
+
+    file_path = photo_dict.get('file_path')
+    storage_file_id = photo_dict.get('storage_file_id')
+    photo_storage_provider = photo_dict.get('storage_provider', '')
+    image_data = None
+
+    try:
+        # 1) Try local file
+        if file_path:
+            base_dir = Path(app_settings.STORAGE_BASE_DIR)
+            direct_path = Path(file_path)
+            if direct_path.is_absolute() and direct_path.exists():
+                with open(direct_path, 'rb') as f:
+                    image_data = f.read()
+            else:
+                local_path = base_dir / file_path
+                if local_path.exists():
+                    with open(local_path, 'rb') as f:
+                        image_data = f.read()
+
+        # 2) Try cloud storage
+        if image_data is None and storage_file_id:
+            from ..storage.factory import StorageFactory
+            providers_to_try = []
+            if photo_storage_provider and photo_storage_provider != 'local':
+                providers_to_try.append(photo_storage_provider)
+            configured = app_settings.STORAGE_PROVIDER.lower()
+            if configured != 'local' and configured not in providers_to_try:
+                providers_to_try.append(configured)
+
+            for provider in providers_to_try:
+                try:
+                    storage = StorageFactory.create(provider)
+                    if hasattr(storage, 'download'):
+                        image_data = storage.download(storage_file_id)
+                        break
+                except Exception:
+                    continue
+
+        # 3) CompanyCam CDN fallback
+        if image_data is None and photo_dict.get('source') == 'companycam':
+            thumbnail_url = photo_dict.get('storage_thumbnail_url', '')
+            if thumbnail_url and thumbnail_url.startswith('http'):
+                try:
+                    import httpx
+                    async with httpx.AsyncClient(timeout=15) as client:
+                        resp = await client.get(thumbnail_url)
+                        if resp.status_code == 200:
+                            image_data = resp.content
+                except Exception:
+                    pass
+
+    except Exception as e:
+        logger.warning(f"Failed to load image: {e}")
+
+    return image_data
+
+
+@router.post("/jobs/{job_id}/photos/detect-duplicates")
+async def detect_duplicate_photos(
+    job_id: UUID,
+    threshold: int = Query(10, description="Hamming distance threshold (0=exact, 10=similar, max 64)"),
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """
+    Detect visually duplicate/similar photos using perceptual hashing.
+
+    Returns groups of similar photos. Each group has a 'best' photo (highest resolution)
+    and one or more duplicates.
+
+    Threshold guide:
+    - 0: Exact identical images
+    - 5: Very similar (minor crop/resize differences)
+    - 10: Similar (default, catches most duplicates)
+    - 15: Loosely similar
+    """
+    # Get all photos for this job
+    all_photos = service.photo_repo.get_photos_by_job(
+        db if hasattr(db, 'query') else db,
+        str(job_id),
+        page=1,
+        page_size=9999,
+    )
+    items = all_photos.get('items', [])
+
+    if len(items) < 2:
+        return {"groups": [], "total_duplicates": 0}
+
+    # Compute hash for each photo
+    photo_hashes: list[tuple[str, str, dict]] = []  # (photo_id, hash, photo_dict)
+
+    for photo in items:
+        photo_dict = service.photo_repo._convert_to_dict(photo) if not isinstance(photo, dict) else photo
+        photo_id = str(photo_dict.get('id', ''))
+
+        image_data = await _load_photo_image_data(photo_dict)
+        if image_data is None:
+            continue
+
+        img_hash = _compute_image_hash(image_data)
+        if img_hash:
+            photo_hashes.append((photo_id, img_hash, photo_dict))
+
+    if len(photo_hashes) < 2:
+        return {"groups": [], "total_duplicates": 0}
+
+    # Group by similarity using union-find
+    n = len(photo_hashes)
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        px, py = find(x), find(y)
+        if px != py:
+            parent[px] = py
+
+    # Compare all pairs
+    for i in range(n):
+        for j in range(i + 1, n):
+            dist = _hamming_distance(photo_hashes[i][1], photo_hashes[j][1])
+            if dist <= threshold:
+                union(i, j)
+
+    # Build groups
+    from collections import defaultdict
+    clusters: dict[int, list[int]] = defaultdict(list)
+    for i in range(n):
+        clusters[find(i)].append(i)
+
+    # Filter to groups with 2+ members
+    groups = []
+    total_duplicates = 0
+    for indices in clusters.values():
+        if len(indices) < 2:
+            continue
+
+        group_photos = []
+        for idx in indices:
+            pid, phash, pdict = photo_hashes[idx]
+            group_photos.append({
+                "photo_id": pid,
+                "hash": phash,
+                "file_name": pdict.get('file_name', ''),
+                "file_size": pdict.get('file_size', 0),
+                "category": pdict.get('category', ''),
+                "captured_date": str(pdict.get('captured_date', '')) if pdict.get('captured_date') else None,
+            })
+
+        # Best = largest file (likely highest quality)
+        best = max(group_photos, key=lambda p: p.get('file_size', 0) or 0)
+
+        groups.append({
+            "best_photo_id": best["photo_id"],
+            "photos": group_photos,
+            "count": len(group_photos),
+        })
+        total_duplicates += len(group_photos) - 1  # exclude the best one
+
+    return {
+        "groups": groups,
+        "total_duplicates": total_duplicates,
+        "total_photos_analyzed": len(photo_hashes),
+    }

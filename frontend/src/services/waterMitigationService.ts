@@ -435,6 +435,27 @@ export const waterMitigationService = {
       return response.data;
     },
 
+    // Detect visually duplicate photos using perceptual hashing
+    detectDuplicates: async (jobId: string, threshold: number = 10): Promise<{
+      groups: Array<{
+        best_photo_id: string;
+        photos: Array<{
+          photo_id: string;
+          hash: string;
+          file_name: string;
+          file_size: number;
+          category: string;
+          captured_date: string | null;
+        }>;
+        count: number;
+      }>;
+      total_duplicates: number;
+      total_photos_analyzed: number;
+    }> => {
+      const response = await api.post(`${BASE_URL}/jobs/${jobId}/photos/detect-duplicates?threshold=${threshold}`);
+      return response.data;
+    },
+
     // Apply AI classification to photo (updates the photo's category)
     aiApply: async (photoId: string): Promise<any> => {
       const response = await api.post(`${BASE_URL}/photos/${photoId}/ai-apply`);

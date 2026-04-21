@@ -18,82 +18,10 @@ import type { CompanyCamSyncResult } from '../../types/waterMitigation';
 
 const { Text, Title } = Typography;
 
-// ─── Duplicate Detection Utility ───
+// ─── Duplicate Detection Types ───
 interface DuplicateGroup {
-  category: string;
-  bestPhotoId: string;  // highest confidence
+  bestPhotoId: string;  // highest quality (largest file)
   photoIds: string[];   // all photos in group
-}
-
-/**
- * Detect duplicate photos: same category + captured within 60 seconds.
- * Returns groups of 2+ similar photos.
- */
-function detectDuplicates(
-  results: AIClassifyResult[],
-  photoMap: Record<string, any>,
-  overrides: Record<string, string>,
-): DuplicateGroup[] {
-  // Group results by effective category
-  const byCategory: Record<string, AIClassifyResult[]> = {};
-  for (const r of results) {
-    if (r.error) continue;
-    const cat = overrides[r.photo_id] || r.category || 'uncategorized';
-    if (cat === 'uncategorized') continue;
-    if (!byCategory[cat]) byCategory[cat] = [];
-    byCategory[cat].push(r);
-  }
-
-  const groups: DuplicateGroup[] = [];
-
-  for (const [cat, items] of Object.entries(byCategory)) {
-    if (items.length < 2) continue;
-
-    // Get timestamps for each photo
-    const withTime = items.map(r => {
-      const photo = photoMap[r.photo_id];
-      const ts = photo?.captured_date || photo?.created_at || photo?.uploadDate || photo?.createdAt;
-      return { result: r, timestamp: ts ? new Date(ts).getTime() : 0 };
-    }).filter(x => x.timestamp > 0)
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    if (withTime.length < 2) continue;
-
-    // Cluster by 60-second proximity
-    let cluster = [withTime[0]];
-    for (let i = 1; i < withTime.length; i++) {
-      const gap = Math.abs(withTime[i].timestamp - cluster[cluster.length - 1].timestamp);
-      if (gap <= 60000) {  // 60 seconds
-        cluster.push(withTime[i]);
-      } else {
-        if (cluster.length >= 2) {
-          // Find the one with highest confidence
-          const best = cluster.reduce((a, b) =>
-            (b.result.confidence || 0) > (a.result.confidence || 0) ? b : a
-          );
-          groups.push({
-            category: cat,
-            bestPhotoId: best.result.photo_id,
-            photoIds: cluster.map(c => c.result.photo_id),
-          });
-        }
-        cluster = [withTime[i]];
-      }
-    }
-    // Don't forget the last cluster
-    if (cluster.length >= 2) {
-      const best = cluster.reduce((a, b) =>
-        (b.result.confidence || 0) > (a.result.confidence || 0) ? b : a
-      );
-      groups.push({
-        category: cat,
-        bestPhotoId: best.result.photo_id,
-        photoIds: cluster.map(c => c.result.photo_id),
-      });
-    }
-  }
-
-  return groups;
 }
 
 // ─── AI Results Grid (extracted to avoid IIFE in JSX) ───
@@ -124,11 +52,32 @@ const AiResultsGrid: React.FC<{
     return ids;
   }, [duplicateGroups]);
 
+  // For duplicates filter, include photos not in AI results (already-classified photos)
+  const allDupResults = React.useMemo(() => {
+    if (filter !== 'duplicates') return [];
+    const resultIds = new Set(results.map(r => r.photo_id));
+    const extraResults: AIClassifyResult[] = [];
+    for (const g of duplicateGroups) {
+      for (const id of g.photoIds) {
+        if (!resultIds.has(id)) {
+          const photo = photoMap[id];
+          extraResults.push({
+            photo_id: id,
+            category: photo?.category || 'uncategorized',
+            confidence: 1.0,
+            metadata: { meter_visible: false, meter_color: null, is_demolished: false, equipment_count: 0, equipment_status: null, mold_visible: false },
+          });
+        }
+      }
+    }
+    return [...results, ...extraResults].filter(r => dupPhotoIds.has(r.photo_id));
+  }, [filter, results, duplicateGroups, dupPhotoIds, photoMap]);
+
   const filtered = filter === 'all' ? results
     : filter === 'classified' ? results.filter(r => !r.error && r.category !== 'uncategorized')
     : filter === 'uncategorized' ? results.filter(r => r.category === 'uncategorized' && !r.error)
     : filter === 'error' ? results.filter(r => !!r.error)
-    : filter === 'duplicates' ? results.filter(r => dupPhotoIds.has(r.photo_id))
+    : filter === 'duplicates' ? allDupResults
     : results;
 
   const paged = filtered.slice((page - 1) * AI_PAGE_SIZE, page * AI_PAGE_SIZE);
@@ -420,6 +369,9 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const aiAbortControllerRef = useRef<AbortController | null>(null);
   // Map photo_id -> photo data for thumbnail display in AI modal
   const aiPhotoMapRef = useRef<Record<string, any>>({});
+  // Duplicate detection state (from backend perceptual hash API)
+  const [aiDuplicateGroups, setAiDuplicateGroups] = useState<DuplicateGroup[]>([]);
+  const [aiDetectingDuplicates, setAiDetectingDuplicates] = useState(false);
 
   // Update current project ID when prop changes
   useEffect(() => {
@@ -695,6 +647,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     if (!resume) {
       setAiResults([]);
       setAiOverrides({});
+      setAiDuplicateGroups([]);
       setAiProgress({ current: 0, total: 0 });
       setAiPage(1);
       setAiFilter('all');
@@ -849,6 +802,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     aiAbortControllerRef.current?.abort();
     setAiResults([]);
     setAiOverrides({});
+    setAiDuplicateGroups([]);
     setAiModalVisible(false);
   }, []);
 
@@ -1912,9 +1866,8 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         )}
 
         {aiResults.length > 0 && (() => {
-          const dupGroups = detectDuplicates(aiResults, aiPhotoMapRef.current, aiOverrides);
-          const dupCount = dupGroups.reduce((sum, g) => sum + g.photoIds.length, 0);
-          const dupExtraCount = dupGroups.reduce((sum, g) => sum + g.photoIds.length - 1, 0);
+          const dupCount = aiDuplicateGroups.reduce((sum, g) => sum + g.photoIds.length, 0);
+          const dupExtraCount = aiDuplicateGroups.reduce((sum, g) => sum + g.photoIds.length - 1, 0);
 
           return (
           <>
@@ -1939,15 +1892,65 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
                   {f.label}
                 </Tag>
               ))}
+              {/* Detect Duplicates button */}
+              {aiDuplicateGroups.length === 0 && !aiDetectingDuplicates && (
+                <Button
+                  size="small"
+                  icon={<SearchOutlined />}
+                  style={{ marginLeft: 'auto' }}
+                  onClick={async () => {
+                    setAiDetectingDuplicates(true);
+                    try {
+                      const result = await waterMitigationService.photos.detectDuplicates(jobId);
+                      if (result.groups.length === 0) {
+                        message.info('No duplicate photos detected.');
+                      } else {
+                        const groups: DuplicateGroup[] = result.groups.map(g => ({
+                          bestPhotoId: g.best_photo_id,
+                          photoIds: g.photos.map(p => p.photo_id),
+                        }));
+                        setAiDuplicateGroups(groups);
+                        // Also build photoMap entries for duplicates not already in results
+                        const baseURL = api.defaults.baseURL || '';
+                        for (const g of result.groups) {
+                          for (const p of g.photos) {
+                            if (!aiPhotoMapRef.current[p.photo_id]) {
+                              aiPhotoMapRef.current[p.photo_id] = {
+                                id: p.photo_id,
+                                file_name: p.file_name,
+                                category: p.category,
+                                _thumbUrl: `${baseURL}/api/water-mitigation/photos/${p.photo_id}/preview?size=web`,
+                              };
+                            }
+                          }
+                        }
+                        message.success(`Found ${result.total_duplicates} duplicate photos in ${result.groups.length} groups.`);
+                        setAiFilter('duplicates');
+                        setAiPage(1);
+                      }
+                    } catch (err: any) {
+                      message.error(`Duplicate detection failed: ${err?.response?.data?.detail || err.message}`);
+                    } finally {
+                      setAiDetectingDuplicates(false);
+                    }
+                  }}
+                >
+                  Detect Duplicates
+                </Button>
+              )}
+              {aiDetectingDuplicates && (
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#8c8c8c' }}>
+                  <Spin size="small" /> Analyzing images...
+                </span>
+              )}
               {dupExtraCount > 0 && aiFilter === 'duplicates' && (
                 <Button
                   size="small"
                   type="primary"
-                  style={{ background: '#faad14', borderColor: '#faad14', marginLeft: 'auto' }}
+                  style={{ background: '#faad14', borderColor: '#faad14', marginLeft: aiDuplicateGroups.length > 0 ? 'auto' : undefined }}
                   onClick={() => {
-                    // Auto-override: set all non-best duplicates to uncategorized
                     const newOverrides = { ...aiOverrides };
-                    for (const g of dupGroups) {
+                    for (const g of aiDuplicateGroups) {
                       for (const id of g.photoIds) {
                         if (id !== g.bestPhotoId) {
                           newOverrides[id] = 'uncategorized';
@@ -1971,7 +1974,7 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
               photoMap={aiPhotoMapRef.current}
               overrides={aiOverrides}
               onOverride={(photoId, val) => setAiOverrides(prev => ({ ...prev, [photoId]: val }))}
-              duplicateGroups={dupGroups}
+              duplicateGroups={aiDuplicateGroups}
             />
           </>
           );
