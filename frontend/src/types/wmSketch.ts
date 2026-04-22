@@ -146,7 +146,7 @@ export type TrimRemovalExtent = 'full' | 'half' | 'quarter' | 'custom';
  * Window trim: 4 sides (2*W + 2*H). Door trim: 3 sides (2*H + W), no bottom.
  * Based on standard US residential sizes.
  */
-export const TRIM_LF_BY_SIZE: Record<string, Record<TrimSizeSubType | '', number>> = {
+export const TRIM_LF_BY_SIZE: Record<string, Record<string, number>> = {
   window_trim_demo: {
     '':       9,    // default ~24"x30" window
     small:    9,    // 24"x30" → 2*(24+30)/12 = 9 LF
@@ -166,8 +166,8 @@ export const TRIM_LF_BY_SIZE: Record<string, Record<TrimSizeSubType | '', number
 /** Calculate trim LF based on size, removal extent, and optional custom value */
 export function calcTrimLF(
   materialType: string,
-  subType: TrimSizeSubType | '' | undefined,
-  removalExtent: TrimRemovalExtent = 'full',
+  subType: string | undefined,
+  removalExtent: TrimRemovalExtent | string = 'full',
   customLF?: number,
 ): number {
   if (removalExtent === 'custom' && customLF != null && customLF > 0) {

@@ -288,7 +288,7 @@ const ZoneEditForm: React.FC<{
             size="small"
             value={zone.trim_removal || 'full'}
             onChange={(value: TrimRemovalExtent) => {
-              const lf = calcTrimLF(zone.material_type, (zone.sub_type as any) || '', value, zone.trim_lf);
+              const lf = calcTrimLF(zone.material_type, zone.sub_type || '', value, zone.trim_lf);
               onUpdate({ trim_removal: value, trim_lf: value === 'custom' ? zone.trim_lf : undefined, calculated_sqft: lf });
             }}
             style={{ width: '100%' }}
@@ -297,7 +297,7 @@ const ZoneEditForm: React.FC<{
               <Space size={6}>
                 <span>Full</span>
                 <Text type="secondary" style={{ fontSize: 10 }}>
-                  ({calcTrimLF(zone.material_type, (zone.sub_type as any) || '', 'full')} LF)
+                  ({calcTrimLF(zone.material_type, zone.sub_type || '', 'full')} LF)
                 </Text>
               </Space>
             </Select.Option>
@@ -305,7 +305,7 @@ const ZoneEditForm: React.FC<{
               <Space size={6}>
                 <span>Half</span>
                 <Text type="secondary" style={{ fontSize: 10 }}>
-                  ({calcTrimLF(zone.material_type, (zone.sub_type as any) || '', 'half')} LF)
+                  ({calcTrimLF(zone.material_type, zone.sub_type || '', 'half')} LF)
                 </Text>
               </Space>
             </Select.Option>
@@ -313,7 +313,7 @@ const ZoneEditForm: React.FC<{
               <Space size={6}>
                 <span>Quarter</span>
                 <Text type="secondary" style={{ fontSize: 10 }}>
-                  ({calcTrimLF(zone.material_type, (zone.sub_type as any) || '', 'quarter')} LF)
+                  ({calcTrimLF(zone.material_type, zone.sub_type || '', 'quarter')} LF)
                 </Text>
               </Space>
             </Select.Option>
@@ -337,7 +337,7 @@ const ZoneEditForm: React.FC<{
           )}
           {zone.trim_removal !== 'custom' && (
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-              {calcTrimLF(zone.material_type, (zone.sub_type as any) || '', zone.trim_removal || 'full')} LF
+              {calcTrimLF(zone.material_type, zone.sub_type || '', zone.trim_removal || 'full')} LF
             </Text>
           )}
         </div>
@@ -488,10 +488,10 @@ const ZoneEditForm: React.FC<{
         }}
       >
         <Text style={{ fontSize: 12, color: '#666' }}>
-          {isEA ? (isStair ? 'Tread Count' : 'Quantity') : 'Calculated Area'}
+          {TRIM_REMOVAL_MATERIAL_IDS.has(zone.material_type) ? 'Trim Length' : isEA ? (isStair ? 'Tread Count' : 'Quantity') : 'Calculated Area'}
         </Text>
         <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {needsDimensions ? '—' : isEA ? `${Math.round(calculatedArea)} EA` : `${calculatedArea.toFixed(2)} ${areaLabel}`}
+          {needsDimensions ? '—' : TRIM_REMOVAL_MATERIAL_IDS.has(zone.material_type) ? `${calculatedArea} LF` : isEA ? `${Math.round(calculatedArea)} EA` : `${calculatedArea.toFixed(2)} ${areaLabel}`}
         </Text>
       </div>
 
