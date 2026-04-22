@@ -695,6 +695,12 @@ export const waterMitigationService = {
         await api.delete(`${BASE_URL}/scope/locations/${locationId}`);
       },
 
+      // Delete all scope locations and items for a job
+      deleteAll: async (jobId: string): Promise<{ deleted_locations: number }> => {
+        const response = await api.delete(`${BASE_URL}/scope/jobs/${jobId}/all`);
+        return response.data;
+      },
+
       // Add standard items to location
       addStandardItems: async (locationId: string): Promise<ScopeItem[]> => {
         const response = await api.post(`${BASE_URL}/scope/locations/${locationId}/add-standard-items`);

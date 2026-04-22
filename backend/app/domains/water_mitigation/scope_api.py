@@ -150,6 +150,26 @@ def update_location(
 
 
 @router.delete(
+    "/jobs/{job_id}/all",
+    status_code=status.HTTP_200_OK,
+    summary="Delete all scope locations and items for a job"
+)
+def delete_all_scope(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user)
+):
+    """Delete all scope locations (and cascade-delete all items) for a job."""
+    service = ScopeService(db)
+    locations = service.get_locations_for_job(job_id, include_items=False)
+    count = len(locations)
+    for loc in locations:
+        service.delete_location(loc.id)
+    db.commit()
+    return {"deleted_locations": count, "job_id": str(job_id)}
+
+
+@router.delete(
     "/locations/{location_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a scope location"

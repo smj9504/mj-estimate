@@ -756,14 +756,41 @@ const WaterMitigationScopeTab: React.FC<WaterMitigationScopeTabProps> = ({ jobId
           </Space>
         }
         extra={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={handleAddLocation}
-            size={isMobile ? 'small' : 'middle'}
-          >
-            {isMobile ? 'Add' : 'Add Location'}
-          </Button>
+          <Space size={8}>
+            {locations.length > 0 && (
+              <Popconfirm
+                title="Delete all scope?"
+                description={`This will delete ${locations.length} location(s) and all items.`}
+                onConfirm={async () => {
+                  try {
+                    const result = await waterMitigationService.scope.locations.deleteAll(jobId);
+                    message.success(`Deleted ${result.deleted_locations} location(s)`);
+                    loadLocations();
+                  } catch (err: any) {
+                    message.error(`Failed to delete: ${err.message}`);
+                  }
+                }}
+                okText="Delete All"
+                okButtonProps={{ danger: true }}
+              >
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  size={isMobile ? 'small' : 'middle'}
+                >
+                  {isMobile ? '' : 'Delete All'}
+                </Button>
+              </Popconfirm>
+            )}
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleAddLocation}
+              size={isMobile ? 'small' : 'middle'}
+            >
+              {isMobile ? 'Add' : 'Add Location'}
+            </Button>
+          </Space>
         }
       >
         {/* Locations */}
