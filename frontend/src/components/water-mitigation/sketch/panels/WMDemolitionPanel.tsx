@@ -42,7 +42,8 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import type { WMDemolitionZone, DemoMaterialType } from '../../../../types/wmSketch';
-import { WOOD_FLOOR_SUB_TYPES, WALL_MATERIAL_SUB_TYPES, WALL_MATERIAL_IDS, TRIM_SIZE_SUB_TYPES, TRIM_SIZE_MATERIAL_IDS, EA_ITEM_PIXEL_SIZES } from '../../../../types/wmSketch';
+import { WOOD_FLOOR_SUB_TYPES, WALL_MATERIAL_SUB_TYPES, WALL_MATERIAL_IDS, TRIM_SIZE_SUB_TYPES, TRIM_SIZE_MATERIAL_IDS, EA_ITEM_PIXEL_SIZES, TRIM_REMOVAL_MATERIAL_IDS, calcTrimLF } from '../../../../types/wmSketch';
+import type { TrimRemovalExtent } from '../../../../types/wmSketch';
 import { calcDemoZoneSqft } from '../utils/wmCalculations';
 import DimensionInput from './DimensionInput';
 
@@ -248,7 +249,13 @@ const ZoneEditForm: React.FC<{
             onChange={(value) => {
               const sizeMap = EA_ITEM_PIXEL_SIZES[zone.material_type] ?? {};
               const sz = sizeMap[value] ?? sizeMap[''] ?? { w: 36, h: 36 };
-              onUpdate({ sub_type: value, pixel_width: sz.w, pixel_height: sz.h });
+              const updates: Partial<WMDemolitionZone> = { sub_type: value, pixel_width: sz.w, pixel_height: sz.h };
+              // Recalculate LF when size changes (for trim items)
+              if (TRIM_REMOVAL_MATERIAL_IDS.has(zone.material_type)) {
+                const lf = calcTrimLF(zone.material_type, value || '', zone.trim_removal || 'full', zone.trim_lf);
+                updates.calculated_sqft = lf;
+              }
+              onUpdate(updates);
             }}
             placeholder="Select size"
             style={{ width: '100%' }}
@@ -268,6 +275,71 @@ const ZoneEditForm: React.FC<{
               </Select.Option>
             ))}
           </Select>
+        </div>
+      )}
+
+      {/* Trim removal extent selector (window_trim_demo, door_trim_demo only) */}
+      {TRIM_REMOVAL_MATERIAL_IDS.has(zone.material_type) && (
+        <div>
+          <Text style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>
+            Removal
+          </Text>
+          <Select
+            size="small"
+            value={zone.trim_removal || 'full'}
+            onChange={(value: TrimRemovalExtent) => {
+              const lf = calcTrimLF(zone.material_type, (zone.sub_type as any) || '', value, zone.trim_lf);
+              onUpdate({ trim_removal: value, trim_lf: value === 'custom' ? zone.trim_lf : undefined, calculated_sqft: lf });
+            }}
+            style={{ width: '100%' }}
+          >
+            <Select.Option value="full">
+              <Space size={6}>
+                <span>Full</span>
+                <Text type="secondary" style={{ fontSize: 10 }}>
+                  ({calcTrimLF(zone.material_type, (zone.sub_type as any) || '', 'full')} LF)
+                </Text>
+              </Space>
+            </Select.Option>
+            <Select.Option value="half">
+              <Space size={6}>
+                <span>Half</span>
+                <Text type="secondary" style={{ fontSize: 10 }}>
+                  ({calcTrimLF(zone.material_type, (zone.sub_type as any) || '', 'half')} LF)
+                </Text>
+              </Space>
+            </Select.Option>
+            <Select.Option value="quarter">
+              <Space size={6}>
+                <span>Quarter</span>
+                <Text type="secondary" style={{ fontSize: 10 }}>
+                  ({calcTrimLF(zone.material_type, (zone.sub_type as any) || '', 'quarter')} LF)
+                </Text>
+              </Space>
+            </Select.Option>
+            <Select.Option value="custom">Custom LF</Select.Option>
+          </Select>
+          {zone.trim_removal === 'custom' && (
+            <Input
+              size="small"
+              type="number"
+              min={0}
+              step={0.5}
+              value={zone.trim_lf ?? ''}
+              placeholder="Enter LF"
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 0;
+                onUpdate({ trim_lf: val, calculated_sqft: val });
+              }}
+              style={{ marginTop: 6, fontVariantNumeric: 'tabular-nums' }}
+              suffix="LF"
+            />
+          )}
+          {zone.trim_removal !== 'custom' && (
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+              {calcTrimLF(zone.material_type, (zone.sub_type as any) || '', zone.trim_removal || 'full')} LF
+            </Text>
+          )}
         </div>
       )}
 

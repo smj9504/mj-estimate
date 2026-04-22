@@ -394,6 +394,44 @@ class SketchService:
     })
 
     # Material type → unit classification
+    # Material IDs that support partial trim removal
+    _TRIM_REMOVAL_MATERIAL_IDS = {"window_trim_demo", "door_trim_demo"}
+
+    # Standard trim perimeter in LF by (material_type, sub_type)
+    # Window: 4 sides (2*W + 2*H), Door: 3 sides (2*H + W)
+    _TRIM_LF_TABLE: dict[tuple[str, str], float] = {
+        ("window_trim_demo", ""):        9.0,
+        ("window_trim_demo", "small"):   9.0,
+        ("window_trim_demo", "medium"):  14.0,
+        ("window_trim_demo", "large"):   20.0,
+        ("window_trim_demo", "x_large"): 26.0,
+        ("door_trim_demo", ""):          16.0,
+        ("door_trim_demo", "small"):     16.0,
+        ("door_trim_demo", "medium"):    16.0,
+        ("door_trim_demo", "large"):     18.0,
+        ("door_trim_demo", "x_large"):   22.0,
+    }
+
+    @staticmethod
+    def _calc_trim_lf(
+        material_type: str,
+        sub_type: str,
+        removal: str = "full",
+        custom_lf: float | None = None,
+    ) -> float:
+        """Calculate trim LF based on size, removal extent, and optional custom value."""
+        if removal == "custom" and custom_lf and custom_lf > 0:
+            return custom_lf
+        full_lf = SketchService._TRIM_LF_TABLE.get(
+            (material_type, sub_type),
+            SketchService._TRIM_LF_TABLE.get((material_type, ""), 0.0),
+        )
+        if removal == "half":
+            return round(full_lf / 2, 1)
+        if removal == "quarter":
+            return round(full_lf / 4, 1)
+        return full_lf
+
     _DEMOLITION_MATERIAL_UNITS = {
         "wood_floor": "SF",
         "carpet": "SF",
@@ -406,8 +444,8 @@ class SketchService:
         "baseboard_quarter_round": "LF",
         "toe_kick": "LF",
         "insulation": "SF",
-        "window_trim_demo": "EA",
-        "door_trim_demo": "EA",
+        "window_trim_demo": "LF",
+        "door_trim_demo": "LF",
         "door_demo": "EA",
         "stair_demo": "EA",
     }
@@ -500,6 +538,13 @@ class SketchService:
                 mt = zone.material_type or "unknown"
                 st = getattr(zone, "sub_type", None) or ""
                 sqft = float(zone.calculated_sqft or 0)
+
+                # Trim items: ensure value is in LF, not EA count
+                if mt in self._TRIM_REMOVAL_MATERIAL_IDS:
+                    trim_removal = getattr(zone, "trim_removal", None) or "full"
+                    trim_lf_custom = getattr(zone, "trim_lf", None)
+                    sqft = self._calc_trim_lf(mt, st, trim_removal, float(trim_lf_custom) if trim_lf_custom else None)
+
                 key = (mt, st)
                 if sqft > 0:
                     demo_groups[key] = demo_groups.get(key, 0) + sqft

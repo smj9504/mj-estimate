@@ -36,6 +36,8 @@ class WMDemolitionZoneBase(PydanticBaseModel):
     height_ft: Optional[Decimal] = Field(None, ge=0, description="Wall height in feet for SF calculation")
     include_pad: bool = Field(False, description="Include carpet pad with this carpet zone")
     include_insulation: bool = Field(False, description="Include insulation demo with wall/ceiling zone")
+    trim_removal: Optional[str] = Field(None, max_length=20, description="Trim removal extent: full, half, quarter, custom")
+    trim_lf: Optional[Decimal] = Field(None, ge=0, description="Custom trim length in LF")
     label: Optional[str] = Field(None, max_length=255)
     display_order: int = 0
     scope_item_id: Optional[UUID] = None

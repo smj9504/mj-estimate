@@ -164,6 +164,11 @@ class WMDemolitionZone(Base, BaseModel):
     # Insulation — when True, scope generation creates an "Insulation" line item
     include_insulation = Column(Boolean, default=False, nullable=False, server_default="false")
 
+    # Trim partial removal: full/half/quarter/custom
+    trim_removal = Column(String(20), nullable=True)
+    # Custom trim length in LF (used when trim_removal='custom')
+    trim_lf = Column(DECIMAL(10, 2), nullable=True)
+
     # Optional link to scope item for invoice tracking
     scope_item_id = Column(
         UUIDType(),

@@ -138,11 +138,60 @@ export const TRIM_SIZE_SUB_TYPES: TrimSizeSubTypeConfig[] = [
   { id: 'x_large', name: 'X-Large', description: '96"+' },
 ];
 
+/** Trim removal extent */
+export type TrimRemovalExtent = 'full' | 'half' | 'quarter' | 'custom';
+
+/**
+ * Standard trim perimeter in LF by size sub-type.
+ * Window trim: 4 sides (2*W + 2*H). Door trim: 3 sides (2*H + W), no bottom.
+ * Based on standard US residential sizes.
+ */
+export const TRIM_LF_BY_SIZE: Record<string, Record<TrimSizeSubType | '', number>> = {
+  window_trim_demo: {
+    '':       9,    // default ~24"x30" window
+    small:    9,    // 24"x30" → 2*(24+30)/12 = 9 LF
+    medium:   14,   // 36"x48" → 2*(36+48)/12 = 14 LF
+    large:    20,   // 60"x60" → 2*(60+60)/12 = 20 LF
+    x_large:  26,   // 96"x60" → 2*(96+60)/12 = 26 LF
+  },
+  door_trim_demo: {
+    '':       16,   // default ~32"x80" door
+    small:    16,   // 28"x80" → (2*80+28)/12 ≈ 16 LF
+    medium:   16,   // 36"x80" → (2*80+36)/12 ≈ 16 LF
+    large:    18,   // 60"x80" → (2*80+60)/12 ≈ 18 LF
+    x_large:  22,   // 96"x84" → (2*84+96)/12 ≈ 22 LF
+  },
+};
+
+/** Calculate trim LF based on size, removal extent, and optional custom value */
+export function calcTrimLF(
+  materialType: string,
+  subType: TrimSizeSubType | '' | undefined,
+  removalExtent: TrimRemovalExtent = 'full',
+  customLF?: number,
+): number {
+  if (removalExtent === 'custom' && customLF != null && customLF > 0) {
+    return customLF;
+  }
+  const sizeLookup = TRIM_LF_BY_SIZE[materialType];
+  if (!sizeLookup) return 0;
+  const fullLF = sizeLookup[subType || ''] ?? sizeLookup[''] ?? 0;
+  if (removalExtent === 'half') return Math.round(fullLF / 2 * 10) / 10;
+  if (removalExtent === 'quarter') return Math.round(fullLF / 4 * 10) / 10;
+  return fullLF;
+}
+
 /** Material IDs that support trim size sub-types */
 export const TRIM_SIZE_MATERIAL_IDS = new Set([
   'window_trim_demo',
   'door_trim_demo',
   'door_demo',
+]);
+
+/** Material IDs that support trim removal extent (partial removal) */
+export const TRIM_REMOVAL_MATERIAL_IDS = new Set([
+  'window_trim_demo',
+  'door_trim_demo',
 ]);
 
 /** All EA-unit demolition material IDs (click-to-place, not drag-to-draw) */
@@ -324,6 +373,10 @@ export interface WMDemolitionZone {
   include_pad?: boolean;
   /** When true, insulation demo is included with this wall/ceiling zone */
   include_insulation?: boolean;
+  /** Trim removal extent: full (all sides), half, quarter, or custom LF */
+  trim_removal?: TrimRemovalExtent;
+  /** Custom trim length in LF (used when trim_removal === 'custom') */
+  trim_lf?: number;
   label?: string;
   /** Controls stacking / display order in the summary list */
   display_order: number;
