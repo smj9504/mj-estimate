@@ -245,9 +245,12 @@ export const useFileGallery = ({
       return result;
     },
     onSuccess: async () => {
-      // Invalidate and refetch files immediately
+      // Invalidate all file queries (both regular and infinite scroll)
       await queryClient.invalidateQueries({
         queryKey: ['files', context, contextId, fileCategory]
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['files-infinite', context, contextId, fileCategory]
       });
 
       // Also invalidate file count queries

@@ -65,11 +65,13 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
     const validFiles = fileList.filter(validateFile);
 
     if (validFiles.length === 0) {
+      processingBatchRef.current = false;
       return;
     }
 
     if (validFiles.length > maxFiles) {
       message.error(`Maximum ${maxFiles} files allowed`);
+      processingBatchRef.current = false;
       return;
     }
 
@@ -206,25 +208,40 @@ const FileUploadZone: React.FC<FileUploadZoneProps> = ({
         </>
       )}
 
-      <Dragger
-        name="files"
-        multiple={allowBulkUpload}
-        beforeUpload={beforeUpload}
-        showUploadList={false}
-        disabled={uploading}
-        accept={getAcceptTypes()}
-        style={{ marginBottom: 16 }}
+      <div
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (uploading || processingBatchRef.current) return;
+          const files = Array.from(e.dataTransfer.files);
+          if (files.length > 0) {
+            processingBatchRef.current = true;
+            handleUpload(files);
+          }
+        }}
       >
-        <p className="ant-upload-drag-icon">
-          <InboxOutlined />
-        </p>
-        <p className="ant-upload-text">
-          {getDragText()}
-        </p>
-        <p className="ant-upload-hint">
-          {getUploadHint()}
-        </p>
-      </Dragger>
+        <Dragger
+          name="files"
+          multiple={allowBulkUpload}
+          beforeUpload={beforeUpload}
+          showUploadList={false}
+          disabled={uploading}
+          accept={getAcceptTypes()}
+          style={{ marginBottom: 16 }}
+          openFileDialogOnClick={true}
+        >
+          <p className="ant-upload-drag-icon">
+            <InboxOutlined />
+          </p>
+          <p className="ant-upload-text">
+            {getDragText()}
+          </p>
+          <p className="ant-upload-hint">
+            {getUploadHint()}
+          </p>
+        </Dragger>
+      </div>
 
       {/* Upload Progress */}
       {(uploading || uploadProgress > 0) && (
