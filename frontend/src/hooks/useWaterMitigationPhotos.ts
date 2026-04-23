@@ -4,6 +4,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
+import api from '../services/api';
 
 export interface WMPhoto {
   id: string;
@@ -65,11 +66,8 @@ export const useWaterMitigationPhotos = (
           params.append('category_filter', categoryFilter);
         }
 
-        const response = await fetch(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
-        if (!response.ok) {
-          throw new Error(`Failed to load photos: ${response.status}`);
-        }
-        const data = await response.json();
+        const response = await api.get(`/api/water-mitigation/jobs/${jobId}/photos?${params}`);
+        const data = response.data;
 
         const items = data.items || data.photos || (Array.isArray(data) ? data : []);
         allItems.push(...items);
