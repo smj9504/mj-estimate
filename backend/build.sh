@@ -5,6 +5,12 @@ set -e  # Exit on error
 
 echo "Starting optimized build process..."
 
+# Install system dependencies for WeasyPrint (PDF generation)
+if command -v apt-get &> /dev/null; then
+    echo "Installing system dependencies for WeasyPrint..."
+    apt-get update -qq && apt-get install -y -qq fontconfig libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libffi-dev libcairo2 > /dev/null 2>&1 || echo "Some system deps may already be installed"
+fi
+
 # Check if requirements.txt has changed
 if [ -f ".requirements_checksum" ]; then
     OLD_CHECKSUM=$(cat .requirements_checksum)
