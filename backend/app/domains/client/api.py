@@ -3,9 +3,11 @@ Client, Claim, and ClaimNegotiation API endpoints
 """
 
 import logging
+import os
+import tempfile
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.core.database_factory import get_db_session as get_db
 from app.domains.client.schemas import (
@@ -281,6 +283,84 @@ async def get_claim_documents(
 # ============================================================
 # Negotiation endpoints (nested under claim)
 # ============================================================
+
+@router.post("/{client_id}/claims/{claim_id}/negotiations/extract-pdf", response_model=None)
+async def extract_pdf_summary(
+    client_id: str,
+    claim_id: str,
+    file: UploadFile = File(...),
+):
+    """Upload insurance estimate PDF and extract summary sections via AI.
+    Returns extracted sections for user review before saving.
+    """
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    tmp_path = None
+    try:
+        # Read file content
+        file_content = await file.read()
+        file_name = file.filename
+
+        # Save uploaded file to storage via FileService
+        import io
+        from app.core.database_factory import get_database
+        from app.domains.file.service import FileService
+
+        db = get_database()
+        session = db.get_session()
+        try:
+            file_service = FileService(db)
+            file_data = io.BytesIO(file_content)
+
+            file_record = await file_service.upload_file(
+                file_data=file_data,
+                original_filename=file_name,
+                content_type=file.content_type or "application/pdf",
+                context="negotiation",
+                context_id=claim_id,
+            )
+            session.commit()
+            file_id = str(file_record.get("id", ""))
+        finally:
+            session.close()
+
+        # Write to temp file for PDF parsing
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        try:
+            with os.fdopen(tmp_fd, "wb") as tmp_f:
+                tmp_f.write(file_content)
+        except Exception:
+            try:
+                os.close(tmp_fd)
+            except OSError:
+                pass
+            raise
+
+        # Extract summary sections
+        from app.domains.client.negotiation_pdf_service import extract_summary_from_pdf
+        result = extract_summary_from_pdf(tmp_path)
+
+        return {
+            "sections": result["sections"],
+            "totals": result["totals"],
+            "validation": result["validation"],
+            "file_id": file_id,
+            "file_name": file_name,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error extracting PDF summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if tmp_path and os.path.isfile(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
 
 @router.get("/{client_id}/claims/{claim_id}/negotiations", response_model=None)
 async def list_negotiations(

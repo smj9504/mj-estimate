@@ -59,6 +59,7 @@ _SCOPE_STANDARD_ALIASES: Dict[str, str] = {
     "wall - drywall 4ft (wood panel)": "drywall - 4ft",
     "containment": "containment barrier",
     "containment zipper": "containment zipper",
+    "stair tread demo": "stair tread removal",
 }
 
 # =====================================================
@@ -123,6 +124,11 @@ _SCOPE_LINE_ITEM_ALIASES: Dict[str, Tuple[List[str], List[str]]] = {
     "wood floor (engineered wood)": (
         ["tear out", "wood floor"],
         ["floating", "lvp"],
+    ),
+    # --- Stair ---
+    "stair tread demo": (
+        ["stair", "tread", "remov"],
+        [],
     ),
     # --- Containment ---
     "containment": (
@@ -587,6 +593,8 @@ class InvoiceConfigService:
                         )
                     else:
                         config_kwargs["default_note"] = "baseboard"
+                elif "quarter round" in item_name_lower:
+                    config_kwargs["default_note"] = "quarter round"
                 # Auto-generate equipment note if not already set
                 elif is_equipment and not config_kwargs.get("default_note"):
                     # Use placeholder format: {qty} Unit(s) @ {days} days

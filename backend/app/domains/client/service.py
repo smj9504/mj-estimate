@@ -192,8 +192,42 @@ class ClaimNegotiationService(BaseService[Dict[str, Any], str]):
         return get_claim_negotiation_repository(session)
 
     def add_negotiation(self, negotiation_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Add a new negotiation revision and update claim amounts"""
+        """Add a new negotiation revision and update claim amounts.
+        If sections_data is provided, auto-compute flat amounts from sections.
+        If file_id is provided, look up file record for document_url/document_name.
+        """
         try:
+            # Handle sections_data: auto-compute flat amounts
+            sections_data = negotiation_data.get('sections_data')
+            if sections_data:
+                # Convert Pydantic models to dicts if needed
+                if sections_data and hasattr(sections_data[0], 'dict'):
+                    sections_data = [s.dict() for s in sections_data]
+                    negotiation_data['sections_data'] = sections_data
+
+                from app.domains.client.negotiation_pdf_service import compute_totals
+                totals = compute_totals(sections_data)
+                negotiation_data['acv_amount'] = totals['acv_amount']
+                negotiation_data['rcv_amount'] = totals['rcv_amount']
+                negotiation_data['depreciation_amount'] = totals['depreciation_amount']
+                negotiation_data['deductible'] = totals['deductible']
+                negotiation_data['extraction_status'] = 'completed'
+
+            # Handle file_id: resolve document_url and document_name
+            file_id = negotiation_data.pop('file_id', None)
+            if file_id:
+                session_for_file = self.database.get_readonly_session()
+                try:
+                    from app.domains.file.models import File
+                    file_record = session_for_file.query(File).filter(
+                        File.id == file_id, File.is_active == True
+                    ).first()
+                    if file_record:
+                        negotiation_data['document_url'] = file_record.url
+                        negotiation_data['document_name'] = file_record.original_name
+                finally:
+                    session_for_file.close()
+
             session = self.database.get_session()
             try:
                 repo = self._get_repository_instance(session)

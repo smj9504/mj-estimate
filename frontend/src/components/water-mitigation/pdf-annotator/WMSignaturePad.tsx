@@ -1,29 +1,75 @@
 /**
- * WMSignaturePad - Freehand signature drawing modal
- * Uses HTML Canvas 2D for smooth drawing, exports as PNG base64
+ * WMSignaturePad - Signature capture modal with Draw and Type modes
+ * Draw: Freehand canvas drawing (HTML Canvas 2D)
+ * Type: Typed name rendered in handwriting font, exported as PNG base64
+ * Both modes output the same format: base64 PNG via onSave callback
  */
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { Modal, Button, Space, Slider, Typography } from 'antd';
-import { ClearOutlined, CheckOutlined, UndoOutlined } from '@ant-design/icons';
+import { Modal, Button, Slider, Typography, Tabs, Input } from 'antd';
+import {
+  ClearOutlined, CheckOutlined, UndoOutlined,
+  EditOutlined, FontSizeOutlined,
+} from '@ant-design/icons';
 
 const { Text } = Typography;
 
 interface WMSignaturePadProps {
   open: boolean;
   onClose: () => void;
-  onSave: (imageData: string) => void;
+  onSave: (imageData: string, signatureType?: 'drawn' | 'typed', typedName?: string) => void;
+  /** Pre-fill typed name (e.g., from signer name input) */
+  defaultName?: string;
 }
 
 const CANVAS_WIDTH = 500;
 const CANVAS_HEIGHT = 200;
 
-const WMSignaturePad: React.FC<WMSignaturePadProps> = ({ open, onClose, onSave }) => {
+// Google Fonts handwriting fonts
+const SIGNATURE_FONTS = [
+  { label: 'Caveat', value: "'Caveat', cursive" },
+  { label: 'Dancing Script', value: "'Dancing Script', cursive" },
+  { label: 'Great Vibes', value: "'Great Vibes', cursive" },
+  { label: 'Sacramento', value: "'Sacramento', cursive" },
+];
+
+// Load Google Fonts for typed signatures
+const loadSignatureFonts = () => {
+  if (document.getElementById('signature-fonts-link')) return;
+  const link = document.createElement('link');
+  link.id = 'signature-fonts-link';
+  link.rel = 'stylesheet';
+  link.href = 'https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Dancing+Script:wght@400;700&family=Great+Vibes&family=Sacramento&display=swap';
+  document.head.appendChild(link);
+};
+
+const WMSignaturePad: React.FC<WMSignaturePadProps> = ({
+  open, onClose, onSave, defaultName,
+}) => {
+  // Draw mode state
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [penWidth, setPenWidth] = useState(2);
   const [hasDrawn, setHasDrawn] = useState(false);
   const [history, setHistory] = useState<ImageData[]>([]);
+
+  // Type mode state
+  const [typedName, setTypedName] = useState('');
+  const [selectedFont, setSelectedFont] = useState(SIGNATURE_FONTS[0].value);
+  const [activeTab, setActiveTab] = useState<'draw' | 'type'>('draw');
+
+  // Load fonts on mount
+  useEffect(() => {
+    loadSignatureFonts();
+  }, []);
+
+  // Reset state when opened
+  useEffect(() => {
+    if (open) {
+      setTypedName(defaultName || '');
+      setTimeout(() => clearCanvas(), 50);
+    }
+  }, [open, defaultName]);
 
   const getCtx = useCallback(() => {
     const canvas = canvasRef.current;
@@ -39,13 +85,6 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({ open, onClose, onSave }
     setHasDrawn(false);
     setHistory([]);
   }, [getCtx]);
-
-  useEffect(() => {
-    if (open) {
-      // Small delay so canvas is rendered
-      setTimeout(() => clearCanvas(), 50);
-    }
-  }, [open, clearCanvas]);
 
   const saveSnapshot = useCallback(() => {
     const ctx = getCtx();
@@ -123,13 +162,9 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({ open, onClose, onSave }
     setIsDrawing(false);
   };
 
-  const handleSave = () => {
-    const canvas = canvasRef.current;
-    if (!canvas || !hasDrawn) return;
-
-    // Crop to content bounds for a tight signature image
+  const cropAndExport = (canvas: HTMLCanvasElement): string | null => {
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) return null;
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const { data, width, height } = imageData;
 
@@ -146,7 +181,7 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({ open, onClose, onSave }
       }
     }
 
-    if (maxX <= minX || maxY <= minY) return;
+    if (maxX <= minX || maxY <= minY) return null;
 
     const pad = 4;
     minX = Math.max(0, minX - pad);
@@ -160,68 +195,199 @@ const WMSignaturePad: React.FC<WMSignaturePadProps> = ({ open, onClose, onSave }
     croppedCanvas.width = cropWidth;
     croppedCanvas.height = cropHeight;
     const croppedCtx = croppedCanvas.getContext('2d');
-    if (!croppedCtx) return;
+    if (!croppedCtx) return null;
     croppedCtx.drawImage(canvas, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
 
-    const dataUrl = croppedCanvas.toDataURL('image/png');
-    onSave(dataUrl);
+    return croppedCanvas.toDataURL('image/png');
   };
+
+  const handleSaveDrawn = () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !hasDrawn) return;
+    const dataUrl = cropAndExport(canvas);
+    if (dataUrl) {
+      onSave(dataUrl, 'drawn');
+    }
+  };
+
+  const handleSaveTyped = () => {
+    if (!typedName.trim()) return;
+
+    // Render typed name to a hidden canvas
+    const canvas = document.createElement('canvas');
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set font and render
+    const fontSize = 48;
+    ctx.font = `${fontSize}px ${selectedFont}`;
+    ctx.fillStyle = '#000000';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(typedName.trim(), 20, CANVAS_HEIGHT / 2);
+
+    const dataUrl = cropAndExport(canvas);
+    if (dataUrl) {
+      onSave(dataUrl, 'typed', typedName.trim());
+    }
+  };
+
+  const handleSave = () => {
+    if (activeTab === 'draw') {
+      handleSaveDrawn();
+    } else {
+      handleSaveTyped();
+    }
+  };
+
+  const canSave = activeTab === 'draw' ? hasDrawn : typedName.trim().length > 0;
 
   return (
     <Modal
-      title="Draw Signature"
+      title="Signature"
       open={open}
       onCancel={onClose}
       width={580}
       footer={[
-        <Button key="clear" icon={<ClearOutlined />} onClick={clearCanvas}>
-          Clear
-        </Button>,
-        <Button key="undo" icon={<UndoOutlined />} onClick={undo} disabled={history.length === 0}>
-          Undo
-        </Button>,
+        ...(activeTab === 'draw' ? [
+          <Button key="clear" icon={<ClearOutlined />} onClick={clearCanvas}>
+            Clear
+          </Button>,
+          <Button key="undo" icon={<UndoOutlined />} onClick={undo} disabled={history.length === 0}>
+            Undo
+          </Button>,
+        ] : []),
         <Button key="cancel" onClick={onClose}>
           Cancel
         </Button>,
-        <Button key="save" type="primary" icon={<CheckOutlined />} onClick={handleSave} disabled={!hasDrawn}>
+        <Button key="save" type="primary" icon={<CheckOutlined />} onClick={handleSave} disabled={!canSave}>
           Apply Signature
         </Button>,
       ]}
     >
-      <div style={{ textAlign: 'center' }}>
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          style={{
-            border: '1px solid #d9d9d9',
-            borderRadius: 8,
-            cursor: 'crosshair',
-            touchAction: 'none',
-            width: '100%',
-            maxWidth: CANVAS_WIDTH,
-            background: '#fff',
-          }}
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
-          onTouchStart={startDrawing}
-          onTouchMove={draw}
-          onTouchEnd={stopDrawing}
-        />
-        <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'center' }}>
-          <Text style={{ whiteSpace: 'nowrap' }}>Pen Width:</Text>
-          <Slider
-            min={1}
-            max={6}
-            value={penWidth}
-            onChange={setPenWidth}
-            style={{ width: 150 }}
-          />
-          <Text type="secondary">{penWidth}px</Text>
-        </div>
-      </div>
+      <Tabs
+        activeKey={activeTab}
+        onChange={(key) => setActiveTab(key as 'draw' | 'type')}
+        items={[
+          {
+            key: 'draw',
+            label: (
+              <span><EditOutlined /> Draw</span>
+            ),
+            children: (
+              <div style={{ textAlign: 'center' }}>
+                <canvas
+                  ref={canvasRef}
+                  width={CANVAS_WIDTH}
+                  height={CANVAS_HEIGHT}
+                  style={{
+                    border: '1px solid #d9d9d9',
+                    borderRadius: 8,
+                    cursor: 'crosshair',
+                    touchAction: 'none',
+                    width: '100%',
+                    maxWidth: CANVAS_WIDTH,
+                    background: '#fff',
+                  }}
+                  onMouseDown={startDrawing}
+                  onMouseMove={draw}
+                  onMouseUp={stopDrawing}
+                  onMouseLeave={stopDrawing}
+                  onTouchStart={startDrawing}
+                  onTouchMove={draw}
+                  onTouchEnd={stopDrawing}
+                />
+                <div style={{
+                  marginTop: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  justifyContent: 'center',
+                }}>
+                  <Text style={{ whiteSpace: 'nowrap' }}>Pen Width:</Text>
+                  <Slider
+                    min={1}
+                    max={6}
+                    value={penWidth}
+                    onChange={setPenWidth}
+                    style={{ width: 150 }}
+                  />
+                  <Text type="secondary">{penWidth}px</Text>
+                </div>
+              </div>
+            ),
+          },
+          {
+            key: 'type',
+            label: (
+              <span><FontSizeOutlined /> Type</span>
+            ),
+            children: (
+              <div>
+                <Input
+                  placeholder="Type your name..."
+                  value={typedName}
+                  onChange={(e) => setTypedName(e.target.value)}
+                  style={{ marginBottom: 16 }}
+                  size="large"
+                  autoFocus={activeTab === 'type'}
+                />
+
+                {/* Font Selection */}
+                <div style={{
+                  display: 'flex',
+                  gap: 8,
+                  marginBottom: 16,
+                  flexWrap: 'wrap',
+                }}>
+                  {SIGNATURE_FONTS.map((font) => (
+                    <Button
+                      key={font.label}
+                      type={selectedFont === font.value ? 'primary' : 'default'}
+                      onClick={() => setSelectedFont(font.value)}
+                      style={{
+                        fontFamily: font.value,
+                        fontSize: 16,
+                        height: 'auto',
+                        padding: '4px 12px',
+                      }}
+                    >
+                      {font.label}
+                    </Button>
+                  ))}
+                </div>
+
+                {/* Preview */}
+                <div style={{
+                  border: '1px solid #d9d9d9',
+                  borderRadius: 8,
+                  padding: '24px 20px',
+                  minHeight: 80,
+                  display: 'flex',
+                  alignItems: 'center',
+                  background: '#fff',
+                }}>
+                  {typedName.trim() ? (
+                    <span style={{
+                      fontFamily: selectedFont,
+                      fontSize: 48,
+                      color: '#000',
+                      lineHeight: 1,
+                    }}>
+                      {typedName}
+                    </span>
+                  ) : (
+                    <Text type="secondary">
+                      Your signature will appear here
+                    </Text>
+                  )}
+                </div>
+              </div>
+            ),
+          },
+        ]}
+      />
     </Modal>
   );
 };

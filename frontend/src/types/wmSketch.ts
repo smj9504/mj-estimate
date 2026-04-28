@@ -662,6 +662,12 @@ export interface WMOverlayData {
   walls?: WMWall[];
   /** Floor plan rooms detected from walls (optional — absent in legacy data) */
   rooms?: WMRoom[];
+  /**
+   * Z-order of overlay elements (element IDs, bottom → top).
+   * Elements not listed here are rendered in default type-based order.
+   * Absent in legacy data — built lazily on first z-order change.
+   */
+  element_order?: string[];
 }
 
 /** Convenience constant for initialising a new, empty overlay */

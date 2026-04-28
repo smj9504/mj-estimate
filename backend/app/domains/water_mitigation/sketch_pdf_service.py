@@ -50,7 +50,7 @@ def _containment_type_display(containment_type: Optional[str]) -> str:
 
 # Linear LF demolition types (matches DEFAULT_DEMO_MATERIAL_TYPES in wmSketch.ts)
 _LF_DEMOLITION_MATERIALS = frozenset(
-    {"baseboard", "baseboard_quarter_round", "toe_kick"}
+    {"baseboard", "baseboard_quarter_round", "quarter_round", "toe_kick"}
 )
 
 # EA (each) demolition types — trim, door, stair
@@ -75,6 +75,7 @@ _DEMO_MATERIAL_LABELS: Dict[str, str] = {
     "insulation": "Insulation",
     "baseboard": "Baseboard",
     "baseboard_quarter_round": "Baseboard+Quarter Round",
+    "quarter_round": "Quarter Round",
     "toe_kick": "Toe Kick",
     "window_trim_demo": "Window Trim Demo",
     "door_trim_demo": "Door Trim Demo",
@@ -123,6 +124,7 @@ _TRIM_SIZE_MATERIAL_IDS = frozenset({
 _DEMO_MATERIAL_UNITS: Dict[str, str] = {
     "baseboard": "LF",
     "baseboard_quarter_round": "LF",
+    "quarter_round": "LF",
     "toe_kick": "LF",
     "window_trim_demo": "EA",
     "door_trim_demo": "EA",
@@ -1076,6 +1078,27 @@ class SketchPdfService:
                 f'fill="{fill}" fill-opacity="{opacity:.2f}" '
                 f'stroke="{stroke}" stroke-width="{stroke_w:.1f}" '
                 f'rx="2"/>'
+            )
+
+        # Stairs tread lines and direction arrow (matches frontend WMShapeRenderer)
+        preset_id = shape.get("preset_id", "")
+        if preset_id == "stairs" and shape_type == "rectangle" and h > 10:
+            tread_count = max(2, round(h / max(w * 0.28, 8)))
+            step = h / tread_count
+            for i in range(1, tread_count):
+                ty = i * step
+                parts.append(
+                    f'<line x1="0" y1="{ty:.1f}" x2="{w:.1f}" y2="{ty:.1f}" '
+                    f'stroke="{stroke}" stroke-width="1" opacity="0.6"/>'
+                )
+            # Direction arrow (chevron pointing up)
+            arrow_y = h * 0.5
+            arrow_size = min(w * 0.2, 8)
+            parts.append(
+                f'<polyline points="{w/2 - arrow_size:.1f},{arrow_y + arrow_size:.1f} '
+                f'{w/2:.1f},{arrow_y - arrow_size:.1f} '
+                f'{w/2 + arrow_size:.1f},{arrow_y + arrow_size:.1f}" '
+                f'stroke="{stroke}" stroke-width="1.5" fill="none" opacity="0.5"/>'
             )
 
         # Label centered inside the shape (local coords)

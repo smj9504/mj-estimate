@@ -22,6 +22,36 @@ class OwnerInfo(BaseModel):
 
 
 # ============================================================
+# Negotiation Section (PDF extraction result)
+# ============================================================
+
+class NegotiationSectionData(BaseModel):
+    """Single summary section from insurance estimate PDF"""
+    section_name: str
+    line_item_total: Optional[float] = 0
+    material_sales_tax: Optional[float] = 0
+    subtotal: Optional[float] = 0
+    overhead_amount: Optional[float] = 0
+    profit_amount: Optional[float] = 0
+    rcv: Optional[float] = 0
+    depreciation: Optional[float] = 0
+    deductible: Optional[float] = 0
+    net_acv: Optional[float] = 0
+    recoverable_depreciation: Optional[float] = 0
+    non_recoverable_depreciation: Optional[float] = 0
+    total_if_incurred: Optional[float] = 0
+
+
+class PdfExtractionResponse(BaseModel):
+    """Response from PDF extraction endpoint"""
+    sections: List[NegotiationSectionData]
+    totals: Dict[str, Any]  # { acv_amount, rcv_amount, depreciation_amount, deductible }
+    validation: Dict[str, Any]  # { is_valid, warnings: [...] }
+    file_id: str
+    file_name: str
+
+
+# ============================================================
 # ClaimNegotiation schemas
 # ============================================================
 
@@ -48,6 +78,8 @@ class ClaimNegotiationBase(BaseModel):
 
 class ClaimNegotiationCreate(ClaimNegotiationBase):
     claim_id: UUID
+    sections_data: Optional[List[NegotiationSectionData]] = None
+    file_id: Optional[str] = None
 
 
 class ClaimNegotiationUpdate(BaseModel):
@@ -61,11 +93,14 @@ class ClaimNegotiationUpdate(BaseModel):
     notes: Optional[str] = None
     document_url: Optional[str] = None
     document_name: Optional[str] = None
+    sections_data: Optional[List[NegotiationSectionData]] = None
 
 
 class ClaimNegotiationResponse(ClaimNegotiationBase):
     id: UUID
     claim_id: UUID
+    sections_data: Optional[List[Dict[str, Any]]] = None
+    extraction_status: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

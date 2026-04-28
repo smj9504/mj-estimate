@@ -112,6 +112,12 @@ type WMSketchAction =
   // Batch operations
   | { type: 'BATCH_MOVE_SELECTED'; payload: { draggedId: string; newX: number; newY: number } }
 
+  // Z-order
+  | { type: 'BRING_TO_FRONT'; payload: string }
+  | { type: 'SEND_TO_BACK'; payload: string }
+  | { type: 'BRING_FORWARD'; payload: string }
+  | { type: 'SEND_BACKWARD'; payload: string }
+
   // Persistence
   | { type: 'LOAD_OVERLAY_DATA'; payload: WMOverlayData }
   | { type: 'MARK_SAVED' }
@@ -133,6 +139,27 @@ function pushUndo(
 ): Pick<WMSketchLocalState, 'undoStack' | 'redoStack'> {
   const next = [state.overlayData, ...state.undoStack].slice(0, MAX_UNDO_STACK);
   return { undoStack: next, redoStack: [] };
+}
+
+/**
+ * Build the default element_order array from overlay data (type-based z-order).
+ * Used when element_order is absent (legacy data).
+ */
+function buildDefaultOrder(data: WMOverlayData): string[] {
+  return [
+    ...data.floor_protections.map((e) => e.id),
+    ...(data.content_protections ?? []).map((e) => e.id),
+    ...data.containment_zones.map((e) => e.id),
+    ...data.demolition_zones.map((e) => e.id),
+    ...data.equipment_placements.map((e) => e.id),
+    ...(data.shapes ?? []).map((e) => e.id),
+    ...(data.text_annotations ?? []).map((e) => e.id),
+  ];
+}
+
+/** Ensure element_order exists and contains the given id */
+function ensureOrder(data: WMOverlayData): string[] {
+  return data.element_order ?? buildDefaultOrder(data);
 }
 
 /** Generic in-place update for an array of overlay elements by id */
@@ -711,6 +738,52 @@ function wmSketchReducer(
     }
 
     // ------------------------------------------------------------------
+    // Z-order
+    // ------------------------------------------------------------------
+    case 'BRING_TO_FRONT': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const order = ensureOrder(state.overlayData).filter((id) => id !== action.payload);
+      order.push(action.payload);
+      return {
+        ...state, undoStack, redoStack, isDirty: true,
+        overlayData: { ...state.overlayData, element_order: order },
+      };
+    }
+    case 'SEND_TO_BACK': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const order = ensureOrder(state.overlayData).filter((id) => id !== action.payload);
+      order.unshift(action.payload);
+      return {
+        ...state, undoStack, redoStack, isDirty: true,
+        overlayData: { ...state.overlayData, element_order: order },
+      };
+    }
+    case 'BRING_FORWARD': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const order = [...ensureOrder(state.overlayData)];
+      const idx = order.indexOf(action.payload);
+      if (idx >= 0 && idx < order.length - 1) {
+        [order[idx], order[idx + 1]] = [order[idx + 1], order[idx]];
+      }
+      return {
+        ...state, undoStack, redoStack, isDirty: true,
+        overlayData: { ...state.overlayData, element_order: order },
+      };
+    }
+    case 'SEND_BACKWARD': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const order = [...ensureOrder(state.overlayData)];
+      const idx = order.indexOf(action.payload);
+      if (idx > 0) {
+        [order[idx], order[idx - 1]] = [order[idx - 1], order[idx]];
+      }
+      return {
+        ...state, undoStack, redoStack, isDirty: true,
+        overlayData: { ...state.overlayData, element_order: order },
+      };
+    }
+
+    // ------------------------------------------------------------------
     // Persistence
     // ------------------------------------------------------------------
     case 'LOAD_OVERLAY_DATA':
@@ -849,6 +922,12 @@ export interface WMSketchStateReturn {
   addRoom: (room: WMRoom) => void;
   updateRoom: (patch: Partial<WMRoom> & { id: string }) => void;
   removeRoom: (id: string) => void;
+
+  // Z-order
+  bringToFront: (id: string) => void;
+  sendToBack: (id: string) => void;
+  bringForward: (id: string) => void;
+  sendBackward: (id: string) => void;
 
   // Persistence
   loadOverlayData: (data: WMOverlayData) => void;
@@ -1084,6 +1163,24 @@ export function useWMSketchState(
     []
   );
 
+  // Z-order
+  const bringToFront = useCallback(
+    (id: string) => dispatch({ type: 'BRING_TO_FRONT', payload: id }),
+    []
+  );
+  const sendToBack = useCallback(
+    (id: string) => dispatch({ type: 'SEND_TO_BACK', payload: id }),
+    []
+  );
+  const bringForward = useCallback(
+    (id: string) => dispatch({ type: 'BRING_FORWARD', payload: id }),
+    []
+  );
+  const sendBackward = useCallback(
+    (id: string) => dispatch({ type: 'SEND_BACKWARD', payload: id }),
+    []
+  );
+
   // Persistence
   const loadOverlayData = useCallback(
     (data: WMOverlayData) =>
@@ -1140,6 +1237,10 @@ export function useWMSketchState(
     addRoom,
     updateRoom,
     removeRoom,
+    bringToFront,
+    sendToBack,
+    bringForward,
+    sendBackward,
     loadOverlayData,
     markSaved,
     undo,

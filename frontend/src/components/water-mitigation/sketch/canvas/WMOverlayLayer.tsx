@@ -245,6 +245,57 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   const selectRoomHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'room', ctrlKey), [onSelectElement]);
 
   // ---------------------------------------------------------------------------
+  // Build unified element list sorted by element_order (z-order)
+  // ---------------------------------------------------------------------------
+  type OverlayItem =
+    | { kind: 'floor_protection'; id: string }
+    | { kind: 'content_protection'; id: string }
+    | { kind: 'containment'; id: string }
+    | { kind: 'demo_rect'; id: string }
+    | { kind: 'demo_line'; id: string }
+    | { kind: 'demo_text'; id: string }
+    | { kind: 'equipment'; id: string }
+    | { kind: 'shape'; id: string }
+    | { kind: 'text'; id: string };
+
+  const sortedItems = useMemo<OverlayItem[]>(() => {
+    // Build flat list of all overlay items with their kind
+    const items: OverlayItem[] = [];
+    for (const fp of overlayData.floor_protections) items.push({ kind: 'floor_protection', id: fp.id });
+    for (const cp of overlayData.content_protections ?? []) items.push({ kind: 'content_protection', id: cp.id });
+    for (const c of overlayData.containment_zones) items.push({ kind: 'containment', id: c.id });
+    for (const z of overlayData.demolition_zones) {
+      if (isRectZone(z, materialTypes)) items.push({ kind: 'demo_rect', id: z.id });
+      else if (isLineZone(z, materialTypes)) items.push({ kind: 'demo_line', id: z.id });
+      else if (isTextZone(z, materialTypes)) items.push({ kind: 'demo_text', id: z.id });
+    }
+    for (const eq of overlayData.equipment_placements) items.push({ kind: 'equipment', id: eq.id });
+    for (const s of overlayData.shapes ?? []) items.push({ kind: 'shape', id: s.id });
+    for (const t of overlayData.text_annotations ?? []) items.push({ kind: 'text', id: t.id });
+
+    const order = overlayData.element_order;
+    if (!order || order.length === 0) return items; // default type-based order
+
+    // Sort by position in element_order; items not in order go to end
+    const orderMap = new Map(order.map((id, idx) => [id, idx]));
+    items.sort((a, b) => {
+      const ai = orderMap.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const bi = orderMap.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+      return ai - bi;
+    });
+    return items;
+  }, [overlayData, materialTypes]);
+
+  // Lookup maps for fast element access
+  const demoMap = useMemo(() => new Map(overlayData.demolition_zones.map((z) => [z.id, z])), [overlayData.demolition_zones]);
+  const equipMap = useMemo(() => new Map(overlayData.equipment_placements.map((e) => [e.id, e])), [overlayData.equipment_placements]);
+  const containMap = useMemo(() => new Map(overlayData.containment_zones.map((c) => [c.id, c])), [overlayData.containment_zones]);
+  const fpMap = useMemo(() => new Map(overlayData.floor_protections.map((f) => [f.id, f])), [overlayData.floor_protections]);
+  const cpMap = useMemo(() => new Map((overlayData.content_protections ?? []).map((c) => [c.id, c])), [overlayData.content_protections]);
+  const shapeMap = useMemo(() => new Map((overlayData.shapes ?? []).map((s) => [s.id, s])), [overlayData.shapes]);
+  const textMap = useMemo(() => new Map((overlayData.text_annotations ?? []).map((t) => [t.id, t])), [overlayData.text_annotations]);
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
   return (
@@ -270,162 +321,76 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         />
       ))}
 
-      {/* 1. Floor protections (bottom-most overlay) */}
-      {overlayData.floor_protections.map((fp) => (
-        <WMFloorProtectionRenderer
-          key={fp.id}
-          protection={fp}
-          isSelected={isSelected(fp.id)}
-          scalePixelsPerFoot={scalePixelsPerFoot}
-          onSelect={selectProtectHandler}
-          onDragEnd={dragProtectHandler}
-          onTransformEnd={transformProtectHandler}
-        />
-      ))}
-
-      {/* 2. Content protection areas */}
-      {(overlayData.content_protections ?? []).map((cp) => (
-        <WMContentProtectionRenderer
-          key={cp.id}
-          protection={cp}
-          isSelected={isSelected(cp.id)}
-          scalePixelsPerFoot={scalePixelsPerFoot}
-          onSelect={selectContentProtHandler}
-          onDragEnd={dragContentProtHandler}
-          onTransformEnd={transformContentProtHandler}
-        />
-      ))}
-
-      {/* 3. Containment barriers (lines) */}
-      {overlayData.containment_zones.map((zone) => (
-        <WMContainmentRenderer
-          key={zone.id}
-          zone={zone}
-          isSelected={isSelected(zone.id)}
-          scalePixelsPerFoot={scalePixelsPerFoot}
-          onSelect={selectContainHandler}
-          onDragEnd={dragContainHandler}
-          onTransformEnd={transformContainHandler}
-        />
-      ))}
-
-      {/* 4a. Demolition zones — rectangle types (floor/ceiling) */}
-      {overlayData.demolition_zones
-        .filter((zone) => isRectZone(zone, materialTypes))
-        .map((zone) => (
-          <WMDemolitionRenderer
-            key={zone.id}
-            zone={zone}
-            isSelected={isSelected(zone.id)}
-            scalePixelsPerFoot={scalePixelsPerFoot}
-            zoneNumber={zoneNumberMap.get(zone.id)}
-            onSelect={selectDemoHandler}
-            onDragEnd={dragDemoHandler}
-            onTransformEnd={transformDemoHandler}
-          />
-        ))}
-
-      {/* 4b. Demolition zones — wall / baseboard line types */}
-      {overlayData.demolition_zones
-        .filter((zone) => isLineZone(zone, materialTypes))
-        .map((zone) => (
-          <WMWallLineRenderer
-            key={zone.id}
-            zone={zone}
-            isSelected={isSelected(zone.id)}
-            scalePixelsPerFoot={scalePixelsPerFoot}
-            materialTypes={materialTypes}
-            zoneNumber={zoneNumberMap.get(zone.id)}
-            onSelect={selectDemoHandler}
-            onDragEnd={dragDemoHandler}
-            onTransformEnd={transformDemoHandler}
-          />
-        ))}
-
-      {/* 4c. Demolition zones — text label mode */}
-      {overlayData.demolition_zones
-        .filter((zone) => isTextZone(zone, materialTypes))
-        .map((zone) => {
-          const mat =
-            materialTypes.find((m) => m.id === zone.material_type) ??
-            DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === zone.material_type);
-          const label = zone.label || mat?.name || zone.material_type;
-          const qty = zone.calculated_sqft > 0
-            ? ` (${mat?.unit === 'EA' ? Math.round(zone.calculated_sqft) : zone.calculated_sqft.toFixed(1)} ${mat?.unit || 'SF'})`
-            : '';
-          return (
-            <React.Fragment key={zone.id}>
-              <Group
-                x={zone.x}
-                y={zone.y}
-                draggable
-                onClick={(e) => selectDemoHandler(zone.id, e.evt.ctrlKey || e.evt.metaKey)}
-                onTap={() => selectDemoHandler(zone.id)}
-                onDragEnd={(e) => dragDemoHandler(zone.id, e.target.x(), e.target.y())}
-              >
-                {/* Background pill */}
-                <Rect
-                  x={-4}
-                  y={-2}
-                  width={Math.max(80, (label.length + qty.length) * 7 + 16)}
-                  height={22}
-                  fill={zone.color}
-                  fillEnabled
-                  opacity={zone.fill_opacity ?? 0.18}
-                  cornerRadius={4}
-                  stroke={isSelected(zone.id) ? '#1890ff' : zone.color}
-                  strokeWidth={isSelected(zone.id) ? 2 : 1}
-                  dash={isSelected(zone.id) ? [4, 2] : undefined}
-                />
-                {/* Label text */}
-                <TextNode
-                  x={0}
-                  y={2}
-                  text={`${label}${qty}`}
-                  fontSize={13}
-                  fontFamily="'Inter', 'Segoe UI', sans-serif"
-                  fontStyle="bold"
-                  fill={zone.color}
-                />
-              </Group>
-            </React.Fragment>
-          );
-        })}
-
-      {/* 5. Equipment placements (on top of zone fills) */}
-      {overlayData.equipment_placements.map((placement) => (
-        <WMEquipmentRenderer
-          key={placement.id}
-          placement={placement}
-          isSelected={isSelected(placement.id)}
-          onSelect={selectEquipHandler}
-          onDragEnd={dragEquipHandler}
-        />
-      ))}
-
-      {/* 6. Shape annotations (doors, cabinets, fixtures) */}
-      {(overlayData.shapes ?? []).map((shape) => (
-        <WMShapeRenderer
-          key={shape.id}
-          shape={shape}
-          isSelected={isSelected(shape.id)}
-          onSelect={selectShapeHandler}
-          onDragEnd={dragShapeHandler}
-          onTransformEnd={transformShapeHandler}
-        />
-      ))}
-
-      {/* 7. Text annotations (on top of everything else) */}
-      {(overlayData.text_annotations ?? []).map((annotation) => (
-        <WMTextRenderer
-          key={annotation.id}
-          annotation={annotation}
-          isSelected={isSelected(annotation.id)}
-          onSelect={selectTextHandler}
-          onDragEnd={dragTextHandler}
-          onUpdate={updateTextHandler}
-        />
-      ))}
+      {/* Overlay elements — rendered in element_order (z-order) */}
+      {sortedItems.map((item) => {
+        switch (item.kind) {
+          case 'floor_protection': {
+            const fp = fpMap.get(item.id);
+            return fp ? (
+              <WMFloorProtectionRenderer key={fp.id} protection={fp} isSelected={isSelected(fp.id)} scalePixelsPerFoot={scalePixelsPerFoot} onSelect={selectProtectHandler} onDragEnd={dragProtectHandler} onTransformEnd={transformProtectHandler} />
+            ) : null;
+          }
+          case 'content_protection': {
+            const cp = cpMap.get(item.id);
+            return cp ? (
+              <WMContentProtectionRenderer key={cp.id} protection={cp} isSelected={isSelected(cp.id)} scalePixelsPerFoot={scalePixelsPerFoot} onSelect={selectContentProtHandler} onDragEnd={dragContentProtHandler} onTransformEnd={transformContentProtHandler} />
+            ) : null;
+          }
+          case 'containment': {
+            const zone = containMap.get(item.id);
+            return zone ? (
+              <WMContainmentRenderer key={zone.id} zone={zone} isSelected={isSelected(zone.id)} scalePixelsPerFoot={scalePixelsPerFoot} onSelect={selectContainHandler} onDragEnd={dragContainHandler} onTransformEnd={transformContainHandler} />
+            ) : null;
+          }
+          case 'demo_rect': {
+            const zone = demoMap.get(item.id);
+            return zone ? (
+              <WMDemolitionRenderer key={zone.id} zone={zone} isSelected={isSelected(zone.id)} scalePixelsPerFoot={scalePixelsPerFoot} zoneNumber={zoneNumberMap.get(zone.id)} onSelect={selectDemoHandler} onDragEnd={dragDemoHandler} onTransformEnd={transformDemoHandler} />
+            ) : null;
+          }
+          case 'demo_line': {
+            const zone = demoMap.get(item.id);
+            return zone ? (
+              <WMWallLineRenderer key={zone.id} zone={zone} isSelected={isSelected(zone.id)} scalePixelsPerFoot={scalePixelsPerFoot} materialTypes={materialTypes} zoneNumber={zoneNumberMap.get(zone.id)} onSelect={selectDemoHandler} onDragEnd={dragDemoHandler} onTransformEnd={transformDemoHandler} />
+            ) : null;
+          }
+          case 'demo_text': {
+            const zone = demoMap.get(item.id);
+            if (!zone) return null;
+            const mat = materialTypes.find((m) => m.id === zone.material_type) ?? DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === zone.material_type);
+            const label = zone.label || mat?.name || zone.material_type;
+            const qty = zone.calculated_sqft > 0 ? ` (${mat?.unit === 'EA' ? Math.round(zone.calculated_sqft) : zone.calculated_sqft.toFixed(1)} ${mat?.unit || 'SF'})` : '';
+            return (
+              <React.Fragment key={zone.id}>
+                <Group x={zone.x} y={zone.y} draggable onClick={(e) => selectDemoHandler(zone.id, e.evt.ctrlKey || e.evt.metaKey)} onTap={() => selectDemoHandler(zone.id)} onDragEnd={(e) => dragDemoHandler(zone.id, e.target.x(), e.target.y())}>
+                  <Rect x={-4} y={-2} width={Math.max(80, (label.length + qty.length) * 7 + 16)} height={22} fill={zone.color} fillEnabled opacity={zone.fill_opacity ?? 0.18} cornerRadius={4} stroke={isSelected(zone.id) ? '#1890ff' : zone.color} strokeWidth={isSelected(zone.id) ? 2 : 1} dash={isSelected(zone.id) ? [4, 2] : undefined} />
+                  <TextNode x={0} y={2} text={`${label}${qty}`} fontSize={13} fontFamily="'Inter', 'Segoe UI', sans-serif" fontStyle="bold" fill={zone.color} />
+                </Group>
+              </React.Fragment>
+            );
+          }
+          case 'equipment': {
+            const p = equipMap.get(item.id);
+            return p ? (
+              <WMEquipmentRenderer key={p.id} placement={p} isSelected={isSelected(p.id)} onSelect={selectEquipHandler} onDragEnd={dragEquipHandler} />
+            ) : null;
+          }
+          case 'shape': {
+            const s = shapeMap.get(item.id);
+            return s ? (
+              <WMShapeRenderer key={s.id} shape={s} isSelected={isSelected(s.id)} onSelect={selectShapeHandler} onDragEnd={dragShapeHandler} onTransformEnd={transformShapeHandler} />
+            ) : null;
+          }
+          case 'text': {
+            const a = textMap.get(item.id);
+            return a ? (
+              <WMTextRenderer key={a.id} annotation={a} isSelected={isSelected(a.id)} onSelect={selectTextHandler} onDragEnd={dragTextHandler} onUpdate={updateTextHandler} />
+            ) : null;
+          }
+          default:
+            return null;
+        }
+      })}
 
       {/* 8. Rubber-band drawing preview */}
       {isDrawing && drawStart && drawCurrent && activeTool === 'containment' && (

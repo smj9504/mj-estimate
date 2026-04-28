@@ -38,9 +38,18 @@ import {
   Typography,
   Tag,
   Space,
+  Menu,
   theme,
   message,
 } from 'antd';
+import type { MenuProps } from 'antd';
+import {
+  VerticalAlignTopOutlined,
+  VerticalAlignBottomOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
+  DeleteOutlined,
+} from '@ant-design/icons';
 import { Stage, Layer } from 'react-konva';
 import type Konva from 'konva';
 import type {
@@ -393,6 +402,10 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     addRoom,
     updateRoom,
     removeRoom,
+    bringToFront,
+    sendToBack,
+    bringForward,
+    sendBackward,
     loadOverlayData,
     markSaved,
     undo,
@@ -836,11 +849,104 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     []
   );
 
+  /** Select a newly placed element, bring it to front, and switch to select tool */
+  const selectNewElement = useCallback(
+    (id: string, type: string) => {
+      selectElement({ element_id: id, element_type: type as import('../../../types/wmSketch').WMSketchSelection['element_type'] });
+      bringToFront(id);
+      setTool('select');
+    },
+    [selectElement, bringToFront, setTool]
+  );
+
+  // ------------------------------------------------------------------
+  // Right-click context menu
+  // ------------------------------------------------------------------
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
+  // Attach native contextmenu listener on the canvas container div
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e: MouseEvent) => {
+      const sel = stateRef.current.selections;
+      if (sel.length === 0) return; // no element selected → use browser default
+      e.preventDefault();
+      setContextMenu({ x: e.clientX, y: e.clientY });
+    };
+    el.addEventListener('contextmenu', handler);
+    return () => el.removeEventListener('contextmenu', handler);
+  }, []);
+
+  // Close context menu on any click or scroll
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener('mousedown', close);
+    window.addEventListener('wheel', close);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('wheel', close);
+    };
+  }, [contextMenu]);
+
+  const contextMenuItems: MenuProps['items'] = React.useMemo(() => {
+    const sel = state.selections;
+    if (sel.length === 0) return [];
+    const id = sel[0].element_id;
+    const type = sel[0].element_type;
+    return [
+      {
+        key: 'bring-front',
+        icon: <VerticalAlignTopOutlined />,
+        label: 'Bring to Front',
+        onClick: () => bringToFront(id),
+      },
+      {
+        key: 'bring-forward',
+        icon: <ArrowUpOutlined />,
+        label: 'Bring Forward',
+        onClick: () => bringForward(id),
+      },
+      {
+        key: 'send-backward',
+        icon: <ArrowDownOutlined />,
+        label: 'Send Backward',
+        onClick: () => sendBackward(id),
+      },
+      {
+        key: 'send-back',
+        icon: <VerticalAlignBottomOutlined />,
+        label: 'Send to Back',
+        onClick: () => sendToBack(id),
+      },
+      { type: 'divider' as const, key: 'div-1' },
+      {
+        key: 'delete',
+        icon: <DeleteOutlined />,
+        label: 'Delete',
+        danger: true,
+        onClick: () => {
+          if (type === 'demolition') removeDemolitionZone(id);
+          else if (type === 'equipment') removeEquipment(id);
+          else if (type === 'containment') removeContainment(id);
+          else if (type === 'floor_protection') removeFloorProtection(id);
+          else if (type === 'content_protection') removeContentProtection(id);
+          else if (type === 'text') removeTextAnnotation(id);
+          else if (type === 'shape') removeShape(id);
+          else if (type === 'wall') removeWall(id);
+          else if (type === 'room') removeRoom(id);
+        },
+      },
+    ];
+  }, [state.selections, bringToFront, bringForward, sendBackward, sendToBack, removeDemolitionZone, removeEquipment, removeContainment, removeFloorProtection, removeContentProtection, removeTextAnnotation, removeShape, removeWall, removeRoom]);
+
   // ------------------------------------------------------------------
   // Mouse event handlers on Stage
   // ------------------------------------------------------------------
   const handleMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
+      setContextMenu(null);
       const st = stateRef.current;
       const mats = materialTypesRef.current;
       const fs = floorSketchRef.current;
@@ -900,8 +1006,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
               fill_opacity: matDef?.fill_opacity,
             };
             addDemolitionZone(zone);
-            selectElement({ element_id: newId, element_type: 'demolition' });
-            setTool('select');
+            selectNewElement(newId, 'demolition');
             return;
           }
 
@@ -931,8 +1036,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
               fill_opacity: matDef?.fill_opacity,
             };
             addDemolitionZone(zone);
-            selectElement({ element_id: newId, element_type: 'demolition' });
-            setTool('select');
+            selectNewElement(newId, 'demolition');
             return;
           }
           // Line render mode: handled by demolition_line tool activation in toolbar
@@ -969,8 +1073,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           color: cfg.color,
         };
         addEquipment(placement);
-        selectElement({ element_id: newId, element_type: 'equipment' });
-        setTool('select');
+        selectNewElement(newId, 'equipment');
       }
 
       if (activeTool === 'shape') {
@@ -1001,8 +1104,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           label: preset.abbreviation,
         };
         addShape(shape);
-        selectElement({ element_id: newId, element_type: 'shape' });
-        setTool('select');
+        selectNewElement(newId, 'shape');
       }
 
       if (activeTool === 'text') {
@@ -1018,8 +1120,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           bold: false,
         };
         addTextAnnotation(annotation);
-        selectElement({ element_id: newId, element_type: 'text' });
-        setTool('select');
+        selectNewElement(newId, 'text');
       }
 
       // ---- Wall tool: click-click paradigm ----
@@ -1156,7 +1257,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [getCanvasPos, deselect, addEquipment, addDemolitionZone, addShape, addTextAnnotation, selectElement, setTool, snapToWallEndpoint, constrainToAxis, addWall, detectRoomAtPoint, addRoom, removeWall, autoDetectRooms, setDrawStateSync]
+    [getCanvasPos, deselect, addEquipment, addDemolitionZone, addShape, addTextAnnotation, selectNewElement, selectElement, snapToWallEndpoint, constrainToAxis, addWall, detectRoomAtPoint, addRoom, removeWall, autoDetectRooms, setDrawStateSync]
   );
 
   const handleMouseMove = useCallback(
@@ -1279,8 +1380,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           fill_opacity: matDef?.fill_opacity,
         };
         addDemolitionZone(zone);
-        selectElement({ element_id: newId, element_type: 'demolition' });
-        setTool('select');
+        selectNewElement(newId, 'demolition');
       } else if (activeTool === 'demolition_line') {
         // Wall / baseboard line — drag determines length and angle
         const dx = currentX - startX;
@@ -1320,8 +1420,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           fill_opacity: matDef?.fill_opacity,
         };
         addDemolitionZone(zone);
-        selectElement({ element_id: newId, element_type: 'demolition' });
-        setTool('select');
+        selectNewElement(newId, 'demolition');
       } else if (activeTool === 'containment') {
         // Containment is a line — drag determines length and angle
         const dx = currentX - startX;
@@ -1345,8 +1444,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           zipper_count: 0,
         };
         addContainment(zone);
-        selectElement({ element_id: containId, element_type: 'containment' });
-        setTool('select');
+        selectNewElement(containId, 'containment');
       } else if (activeTool === 'floor_protection') {
         const paperWidth = DEFAULT_PAPER_WIDTH_FT;
         const lengthFt = pixelsToFeet(Math.max(wPx, hPx), scale);
@@ -1367,8 +1465,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           color: DEFAULT_FLOOR_PROTECTION_COLOR,
         };
         addFloorProtection(prot);
-        selectElement({ element_id: protId, element_type: 'floor_protection' });
-        setTool('select');
+        selectNewElement(protId, 'floor_protection');
       } else if (activeTool === 'content_protection') {
         const cpId = generateOverlayId();
         const contentProt: WMContentProtection = {
@@ -1384,14 +1481,13 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           color: DEFAULT_CONTENT_PROTECTION_COLOR,
         };
         addContentProtection(contentProt);
-        selectElement({ element_id: cpId, element_type: 'content_protection' });
-        setTool('select');
+        selectNewElement(cpId, 'content_protection');
       }
 
       setDrawStateSync(INITIAL_DRAW_STATE);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addDemolitionZone, addContainment, addFloorProtection, addContentProtection, selectElement, setTool, setDrawStateSync]
+    [addDemolitionZone, addContainment, addFloorProtection, addContentProtection, selectNewElement, setDrawStateSync]
   );
 
   // ------------------------------------------------------------------
@@ -2010,6 +2106,29 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
             overlayData={state.overlayData}
             materialTypes={materialTypes}
           />
+
+          {/* Right-click context menu */}
+          {contextMenu && (
+            <div
+              style={{
+                position: 'fixed',
+                left: contextMenu.x,
+                top: contextMenu.y,
+                zIndex: 1050,
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <Menu
+                items={contextMenuItems}
+                style={{
+                  borderRadius: 8,
+                  boxShadow: '0 6px 16px rgba(0,0,0,0.12)',
+                  minWidth: 180,
+                }}
+                onClick={() => setContextMenu(null)}
+              />
+            </div>
+          )}
 
           {/* Loading overlay while background image is loading */}
           {imageSourceType === 'image' && bgImageStatus === 'loading' && (

@@ -8,7 +8,7 @@
  */
 
 import React, { useCallback, useRef, useEffect } from 'react';
-import { Group, Rect, Ellipse, Text, Transformer } from 'react-konva';
+import { Group, Rect, Ellipse, Text, Line, Transformer } from 'react-konva';
 import Konva from 'konva';
 import type { WMShapeAnnotation } from '../../../../types/wmSketch';
 
@@ -182,6 +182,50 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
     onTransformEnd?.(shape.id, newWidth, newHeight, newRotation);
   }, [shape.id, shape.shape_type, onDragEnd, onTransformEnd]);
 
+  const isStairs = shape.preset_id === 'stairs';
+
+  // Generate stair tread lines: evenly spaced horizontal lines inside the rectangle
+  const stairTreadLines = React.useMemo(() => {
+    if (!isStairs) return null;
+    // Standard tread depth ≈ 10 inches. Use height to calculate tread count.
+    // Minimum 2 treads, use roughly 1/14th of height per tread (visually ~10" at 20px/ft scale).
+    const treadCount = Math.max(2, Math.round(height / Math.max(width * 0.28, 8)));
+    const step = height / treadCount;
+    const lines: React.ReactNode[] = [];
+    for (let i = 1; i < treadCount; i++) {
+      const y = i * step;
+      lines.push(
+        <Line
+          key={`tread-${i}`}
+          points={[0, y, width, y]}
+          stroke={shape.stroke_color}
+          strokeWidth={1}
+          opacity={0.6}
+          listening={false}
+        />,
+      );
+    }
+    // Direction arrow: small triangle pointing "up" (toward the first tread)
+    const arrowY = height * 0.5;
+    const arrowSize = Math.min(width * 0.2, 8);
+    lines.push(
+      <Line
+        key="arrow"
+        points={[
+          width / 2 - arrowSize, arrowY + arrowSize,
+          width / 2,             arrowY - arrowSize,
+          width / 2 + arrowSize, arrowY + arrowSize,
+        ]}
+        stroke={shape.stroke_color}
+        strokeWidth={1.5}
+        opacity={0.5}
+        closed={false}
+        listening={false}
+      />,
+    );
+    return lines;
+  }, [isStairs, width, height, shape.stroke_color]);
+
   const labelText = shape.label || '';
   const showLabel = labelText.length > 0 && width > 20 && height > 16;
 
@@ -254,6 +298,8 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
               strokeWidth={shape.stroke_width}
               cornerRadius={2}
             />
+            {/* Stair tread lines */}
+            {stairTreadLines}
             {/* Selection highlight */}
             {isSelected && (
               <Rect

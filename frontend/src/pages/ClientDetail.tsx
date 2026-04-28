@@ -28,6 +28,7 @@ import {
   Collapse,
   Badge,
   Checkbox,
+  Upload,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -41,9 +42,15 @@ import {
   SafetyOutlined,
   HomeOutlined,
   PhoneOutlined,
+  UploadOutlined,
+  FilePdfOutlined,
+  CheckCircleOutlined,
+  WarningOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { clientService, claimService, negotiationService } from '../services/clientService';
+import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
 import type {
   Client,
   ClientCreate,
@@ -53,6 +60,8 @@ import type {
   ClaimStatus,
   ClaimNegotiation,
   ClaimNegotiationCreate,
+  NegotiationSection,
+  PdfExtractionResult,
 } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -458,6 +467,8 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
 
 interface NegotiationModalProps {
   open: boolean;
+  clientId: string;
+  claimId: string;
   onCancel: () => void;
   onSubmit: (values: Omit<ClaimNegotiationCreate, 'claim_id'>) => Promise<void>;
   loading: boolean;
@@ -465,25 +476,160 @@ interface NegotiationModalProps {
 
 const NegotiationModal: React.FC<NegotiationModalProps> = ({
   open,
+  clientId,
+  claimId,
   onCancel,
   onSubmit,
   loading,
 }) => {
-  const [form] = Form.useForm<Omit<ClaimNegotiationCreate, 'claim_id'>>();
+  const [form] = Form.useForm();
+  const [activeTab, setActiveTab] = useState<'pdf' | 'manual'>('pdf');
+  const [extracting, setExtracting] = useState(false);
+  const [extraction, setExtraction] = useState<PdfExtractionResult | null>(null);
+  const [editedSections, setEditedSections] = useState<NegotiationSection[]>([]);
 
   React.useEffect(() => {
-    if (open) form.resetFields();
+    if (open) {
+      form.resetFields();
+      setActiveTab('pdf');
+      setExtraction(null);
+      setEditedSections([]);
+      setExtracting(false);
+    }
   }, [open, form]);
 
+  const handlePdfUpload = async (file: File) => {
+    setExtracting(true);
+    try {
+      const result = await negotiationService.extractPdf(clientId, claimId, file);
+      setExtraction(result);
+      setEditedSections(result.sections || []);
+      message.success(`Extracted ${result.sections.length} section(s) from PDF`);
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to extract PDF');
+    } finally {
+      setExtracting(false);
+    }
+    return false; // prevent antd auto upload
+  };
+
+  const handleSectionEdit = (idx: number, field: keyof NegotiationSection, value: number | null) => {
+    setEditedSections((prev) => {
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], [field]: value ?? 0 };
+      return updated;
+    });
+  };
+
+  const computedTotals = React.useMemo(() => {
+    if (!editedSections.length) return null;
+    return {
+      rcv_amount: editedSections.reduce((s, sec) => s + (sec.rcv || 0), 0),
+      acv_amount: editedSections.reduce((s, sec) => s + (sec.net_acv || 0), 0),
+      depreciation_amount: editedSections.reduce((s, sec) => s + (sec.depreciation || 0), 0),
+      deductible: editedSections.reduce((s, sec) => s + (sec.deductible || 0), 0),
+    };
+  }, [editedSections]);
+
   const handleFinish = async (values: any) => {
-    const payload = {
+    const payload: any = {
       ...values,
       date_received: values.date_received
         ? dayjs(values.date_received).format('YYYY-MM-DD')
         : undefined,
     };
+
+    if (activeTab === 'pdf' && extraction && editedSections.length > 0) {
+      payload.sections_data = editedSections;
+      payload.file_id = extraction.file_id;
+      if (computedTotals) {
+        payload.acv_amount = computedTotals.acv_amount;
+        payload.rcv_amount = computedTotals.rcv_amount;
+        payload.depreciation_amount = computedTotals.depreciation_amount;
+        payload.deductible = computedTotals.deductible;
+      }
+    }
+
     await onSubmit(payload);
   };
+
+  const sectionColumns: ColumnsType<NegotiationSection & { _idx: number }> = [
+    {
+      title: 'Section',
+      dataIndex: 'section_name',
+      key: 'section_name',
+      width: 200,
+      ellipsis: true,
+    },
+    {
+      title: 'RCV',
+      dataIndex: 'rcv',
+      key: 'rcv',
+      width: 130,
+      render: (val: number, record) => (
+        <InputNumber
+          size="small"
+          prefix="$"
+          value={val}
+          onChange={(v) => handleSectionEdit(record._idx, 'rcv', v)}
+          style={{ width: '100%' }}
+          min={0}
+          step={100}
+        />
+      ),
+    },
+    {
+      title: 'Depreciation',
+      dataIndex: 'depreciation',
+      key: 'depreciation',
+      width: 130,
+      render: (val: number, record) => (
+        <InputNumber
+          size="small"
+          prefix="$"
+          value={val}
+          onChange={(v) => handleSectionEdit(record._idx, 'depreciation', v)}
+          style={{ width: '100%' }}
+          min={0}
+          step={100}
+        />
+      ),
+    },
+    {
+      title: 'Deductible',
+      dataIndex: 'deductible',
+      key: 'deductible',
+      width: 120,
+      render: (val: number, record) => (
+        <InputNumber
+          size="small"
+          prefix="$"
+          value={val}
+          onChange={(v) => handleSectionEdit(record._idx, 'deductible', v)}
+          style={{ width: '100%' }}
+          min={0}
+          step={100}
+        />
+      ),
+    },
+    {
+      title: 'Net ACV',
+      dataIndex: 'net_acv',
+      key: 'net_acv',
+      width: 130,
+      render: (val: number, record) => (
+        <InputNumber
+          size="small"
+          prefix="$"
+          value={val}
+          onChange={(v) => handleSectionEdit(record._idx, 'net_acv', v)}
+          style={{ width: '100%' }}
+          min={0}
+          step={100}
+        />
+      ),
+    },
+  ];
 
   return (
     <Modal
@@ -496,11 +642,142 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
       open={open}
       onCancel={onCancel}
       footer={null}
-      width={600}
+      width={800}
       destroyOnHidden
       maskClosable={false}
     >
-      <Divider style={{ margin: '16px 0 24px' }} />
+      <Divider style={{ margin: '16px 0 16px' }} />
+
+      <Tabs
+        activeKey={activeTab}
+        onChange={(k) => setActiveTab(k as 'pdf' | 'manual')}
+        items={[
+          {
+            key: 'pdf',
+            label: (
+              <span><FilePdfOutlined /> Upload Insurance Estimate</span>
+            ),
+            children: (
+              <div>
+                {!extraction && (
+                  <Upload.Dragger
+                    accept=".pdf"
+                    showUploadList={false}
+                    beforeUpload={handlePdfUpload}
+                    disabled={extracting}
+                    style={{ marginBottom: 16 }}
+                  >
+                    {extracting ? (
+                      <div style={{ padding: '20px 0' }}>
+                        <Spin size="large" />
+                        <p style={{ marginTop: 12, color: '#666' }}>
+                          Analyzing insurance estimate PDF...
+                        </p>
+                      </div>
+                    ) : (
+                      <div style={{ padding: '20px 0' }}>
+                        <p className="ant-upload-drag-icon">
+                          <UploadOutlined style={{ fontSize: 32, color: '#1890ff' }} />
+                        </p>
+                        <p className="ant-upload-text">
+                          Drag & drop insurance estimate PDF here
+                        </p>
+                        <p className="ant-upload-hint">
+                          AI will extract summary sections and amounts automatically
+                        </p>
+                      </div>
+                    )}
+                  </Upload.Dragger>
+                )}
+
+                {extraction && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <Space>
+                        <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                        <Text strong>{extraction.file_name}</Text>
+                        <Tag color="blue">{editedSections.length} section(s)</Tag>
+                      </Space>
+                      <Button
+                        size="small"
+                        onClick={() => { setExtraction(null); setEditedSections([]); }}
+                      >
+                        Re-upload
+                      </Button>
+                    </div>
+
+                    {extraction.validation.is_valid ? (
+                      <Alert
+                        type="success"
+                        message="All amounts verified"
+                        icon={<CheckCircleOutlined />}
+                        showIcon
+                        style={{ marginBottom: 12 }}
+                      />
+                    ) : (
+                      <Alert
+                        type="warning"
+                        message="Verification warnings"
+                        description={
+                          <ul style={{ margin: 0, paddingLeft: 20 }}>
+                            {extraction.validation.warnings.map((w, i) => (
+                              <li key={i} style={{ fontSize: 12 }}>{w}</li>
+                            ))}
+                          </ul>
+                        }
+                        icon={<WarningOutlined />}
+                        showIcon
+                        style={{ marginBottom: 12 }}
+                      />
+                    )}
+
+                    <Table
+                      size="small"
+                      rowKey="section_name"
+                      columns={sectionColumns}
+                      dataSource={editedSections.map((s, i) => ({ ...s, _idx: i }))}
+                      pagination={false}
+                      scroll={{ x: 600 }}
+                      style={{ marginBottom: 12 }}
+                      summary={() =>
+                        computedTotals ? (
+                          <Table.Summary fixed>
+                            <Table.Summary.Row>
+                              <Table.Summary.Cell index={0}>
+                                <Text strong>Total</Text>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={1}>
+                                <Text strong>{formatCurrency(computedTotals.rcv_amount)}</Text>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={2}>
+                                <Text strong>{formatCurrency(computedTotals.depreciation_amount)}</Text>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={3}>
+                                <Text strong>{formatCurrency(computedTotals.deductible)}</Text>
+                              </Table.Summary.Cell>
+                              <Table.Summary.Cell index={4}>
+                                <Text strong>{formatCurrency(computedTotals.acv_amount)}</Text>
+                              </Table.Summary.Cell>
+                            </Table.Summary.Row>
+                          </Table.Summary>
+                        ) : null
+                      }
+                    />
+                  </div>
+                )}
+              </div>
+            ),
+          },
+          {
+            key: 'manual',
+            label: (
+              <span><EditOutlined /> Manual Entry</span>
+            ),
+            children: null, // Manual fields are shared below
+          },
+        ]}
+      />
+
       <Form form={form} layout="vertical" onFinish={handleFinish} scrollToFirstError>
         <Row gutter={12}>
           <Col xs={24} sm={12}>
@@ -519,35 +796,51 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
             </Form.Item>
           </Col>
         </Row>
-        <Row gutter={12}>
-          <Col xs={24} sm={8}>
-            <Form.Item name="acv_amount" label="ACV Amount">
-              <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} />
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Form.Item name="rcv_amount" label="RCV Amount">
-              <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} />
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Form.Item name="depreciation_amount" label="Depreciation">
-              <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} />
-            </Form.Item>
-          </Col>
-        </Row>
-        <Row gutter={12}>
-          <Col xs={24} sm={12}>
-            <Form.Item name="deductible" label="Deductible">
-              <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} />
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={12}>
-            <Form.Item name="received_from" label="Received From">
-              <Input placeholder="e.g. Adjuster name" />
-            </Form.Item>
-          </Col>
-        </Row>
+
+        {activeTab === 'manual' && (
+          <>
+            <Row gutter={12}>
+              <Col xs={24} sm={8}>
+                <Form.Item name="acv_amount" label="ACV Amount">
+                  <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={8}>
+                <Form.Item name="rcv_amount" label="RCV Amount">
+                  <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={8}>
+                <Form.Item name="depreciation_amount" label="Depreciation">
+                  <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={12}>
+              <Col xs={24} sm={12}>
+                <Form.Item name="deductible" label="Deductible">
+                  <InputNumber prefix="$" style={{ width: '100%' }} min={0} step={100} />
+                </Form.Item>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Form.Item name="received_from" label="Received From">
+                  <Input placeholder="e.g. Adjuster name" />
+                </Form.Item>
+              </Col>
+            </Row>
+          </>
+        )}
+
+        {activeTab === 'pdf' && (
+          <Row gutter={12}>
+            <Col xs={24} sm={12}>
+              <Form.Item name="received_from" label="Received From">
+                <Input placeholder="e.g. Adjuster name" />
+              </Form.Item>
+            </Col>
+          </Row>
+        )}
+
         <Form.Item name="notes" label="Notes">
           <Input.TextArea rows={2} />
         </Form.Item>
@@ -555,7 +848,14 @@ const NegotiationModal: React.FC<NegotiationModalProps> = ({
         <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
           <Space>
             <Button onClick={onCancel}>Cancel</Button>
-            <Button type="primary" htmlType="submit" loading={loading}>Add Revision</Button>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
+              disabled={activeTab === 'pdf' && !extraction}
+            >
+              Add Revision
+            </Button>
           </Space>
         </Form.Item>
       </Form>
@@ -589,7 +889,7 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
     onSuccess: () => {
       message.success('Negotiation revision added.');
       queryClient.invalidateQueries({ queryKey: ['negotiations', clientId, claim.id] });
-      queryClient.invalidateQueries({ queryKey: ['claims', clientId] });
+      queryClient.invalidateQueries({ queryKey: ['client', clientId] });
       setNegModalOpen(false);
     },
     onError: (err: any) => {
@@ -658,13 +958,51 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       },
     },
     {
-      title: 'Date Received',
+      title: 'Date',
       dataIndex: 'date_received',
       key: 'date_received',
       render: formatDate,
       responsive: ['md'],
     },
+    {
+      title: '',
+      key: 'pdf',
+      width: 40,
+      render: (_: any, record) =>
+        record.document_url ? (
+          <Tooltip title={record.document_name || 'Download PDF'}>
+            <a href={`/api/files/download/${record.document_url}`} target="_blank" rel="noopener noreferrer">
+              <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+            </a>
+          </Tooltip>
+        ) : null,
+    },
   ];
+
+  // Expandable row renderer for sections
+  const expandedRowRender = (record: ClaimNegotiation) => {
+    if (!record.sections_data || record.sections_data.length === 0) return null;
+    const secCols: ColumnsType<NegotiationSection> = [
+      { title: 'Section', dataIndex: 'section_name', key: 'section_name', ellipsis: true },
+      { title: 'Line Items', dataIndex: 'line_item_total', key: 'line_item_total', align: 'right', render: formatCurrency },
+      { title: 'Tax', dataIndex: 'material_sales_tax', key: 'material_sales_tax', align: 'right', render: formatCurrency },
+      { title: 'O&P', key: 'op', align: 'right', render: (_: any, sec) => formatCurrency((sec.overhead_amount || 0) + (sec.profit_amount || 0)) },
+      { title: 'RCV', dataIndex: 'rcv', key: 'rcv', align: 'right', render: formatCurrency },
+      { title: 'Depreciation', dataIndex: 'depreciation', key: 'depreciation', align: 'right', render: formatCurrency },
+      { title: 'Deductible', dataIndex: 'deductible', key: 'deductible', align: 'right', render: formatCurrency },
+      { title: 'Net ACV', dataIndex: 'net_acv', key: 'net_acv', align: 'right', render: (v: number) => <Text strong>{formatCurrency(v)}</Text> },
+    ];
+    return (
+      <Table<NegotiationSection>
+        rowKey="section_name"
+        columns={secCols}
+        dataSource={record.sections_data}
+        pagination={false}
+        size="small"
+        style={{ margin: '0 0 0 20px' }}
+      />
+    );
+  };
 
   return (
     <div>
@@ -683,6 +1021,10 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
         size="small"
         pagination={false}
         scroll={{ x: 600 }}
+        expandable={{
+          expandedRowRender,
+          rowExpandable: (record) => !!record.sections_data && record.sections_data.length > 0,
+        }}
       />
 
       {/* Linked Documents */}
@@ -716,6 +1058,8 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
 
       <NegotiationModal
         open={negModalOpen}
+        clientId={clientId}
+        claimId={claim.id}
         onCancel={() => setNegModalOpen(false)}
         onSubmit={async (vals) => { await createNegMutation.mutateAsync(vals); }}
         loading={createNegMutation.isPending}
@@ -960,6 +1304,13 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
 
                 {/* Negotiation table */}
                 <NegotiationHistory clientId={client.id} claim={claim} />
+
+                {/* Contract Dashboard */}
+                <Divider style={{ margin: '16px 0 12px' }} />
+                <ClaimContractDashboard
+                  claimId={claim.id}
+                  clientId={client.id}
+                />
               </Panel>
             );
           })}

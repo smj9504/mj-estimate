@@ -740,7 +740,10 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             message.info(`Stopped. ${allResults.length} photos classified.`);
             break;
           }
-          console.error('AI batch classification failed:', err);
+          const detail = err?.response?.data?.detail || err.message || 'Unknown error';
+          console.error('AI batch classification failed:', detail, err);
+          message.error(`AI classification error: ${detail}`);
+          break;
         }
       }
 

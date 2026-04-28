@@ -11,6 +11,7 @@ import type {
   ClaimCreate,
   ClaimNegotiation,
   ClaimNegotiationCreate,
+  PdfExtractionResult,
 } from '../types/client';
 
 // ============================================================
@@ -123,5 +124,16 @@ export const negotiationService = {
       `/api/clients/${clientId}/claims/${claimId}/negotiations/${negotiationId}`
     );
     return data;
+  },
+
+  async extractPdf(clientId: string, claimId: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post(
+      `/api/clients/${clientId}/claims/${claimId}/negotiations/extract-pdf`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
+    );
+    return data as PdfExtractionResult;
   },
 };

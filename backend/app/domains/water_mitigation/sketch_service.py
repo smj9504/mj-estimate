@@ -262,6 +262,7 @@ class SketchService:
         # Trim / Baseboard
         ("baseboard", ""):             "baseboard_3",
         ("baseboard_quarter_round", ""): "baseboard_3",
+        ("quarter_round", ""):         "quarter_round",
         ("toe_kick", ""):              "baseboard_3",
         # Insulation
         ("insulation", ""):            "fiberglass_r13",
@@ -351,6 +352,7 @@ class SketchService:
         "wall_drywall_4ft": "Wall - Drywall 4ft",
         "baseboard": "Baseboard",
         "baseboard_quarter_round": "Baseboard+Quarter Round",
+        "quarter_round": "Quarter Round",
         "toe_kick": "Toe Kick",
         "insulation": "Insulation",
         "window_trim_demo": "Window Trim Demo",
@@ -442,6 +444,7 @@ class SketchService:
         "wall_drywall_4ft": "SF",
         "baseboard": "LF",
         "baseboard_quarter_round": "LF",
+        "quarter_round": "LF",
         "toe_kick": "LF",
         "insulation": "SF",
         "window_trim_demo": "LF",

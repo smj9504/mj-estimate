@@ -10,6 +10,42 @@ export interface OwnerInfo {
 }
 
 // ============================================================
+// Negotiation Section (from PDF extraction)
+// ============================================================
+
+export interface NegotiationSection {
+  section_name: string;
+  line_item_total?: number;
+  material_sales_tax?: number;
+  subtotal?: number;
+  overhead_amount?: number;
+  profit_amount?: number;
+  rcv?: number;
+  depreciation?: number;
+  deductible?: number;
+  net_acv?: number;
+  recoverable_depreciation?: number;
+  non_recoverable_depreciation?: number;
+  total_if_incurred?: number;
+}
+
+export interface PdfExtractionResult {
+  sections: NegotiationSection[];
+  totals: {
+    acv_amount: number;
+    rcv_amount: number;
+    depreciation_amount: number;
+    deductible: number;
+  };
+  validation: {
+    is_valid: boolean;
+    warnings: string[];
+  };
+  file_id: string;
+  file_name: string;
+}
+
+// ============================================================
 // ClaimNegotiation
 // ============================================================
 
@@ -27,6 +63,8 @@ export interface ClaimNegotiation {
   notes?: string;
   document_url?: string;
   document_name?: string;
+  sections_data?: NegotiationSection[];
+  extraction_status?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -43,6 +81,8 @@ export interface ClaimNegotiationCreate {
   notes?: string;
   document_url?: string;
   document_name?: string;
+  sections_data?: NegotiationSection[];
+  file_id?: string;
 }
 
 // ============================================================
