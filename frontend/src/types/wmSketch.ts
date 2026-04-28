@@ -296,6 +296,7 @@ export const DEFAULT_DEMO_MATERIAL_TYPES: DemoMaterialType[] = [
   { id: 'insulation',             name: 'Insulation',                surface: 'wall',    color: '#E91E63', unit: 'SF' },
   { id: 'baseboard',              name: 'Baseboard',                 surface: 'wall',    color: '#DEB887', unit: 'LF' },
   { id: 'baseboard_quarter_round',name: 'Baseboard+Quarter Round',   surface: 'wall',    color: '#D2B48C', unit: 'LF' },
+  { id: 'quarter_round',          name: 'Quarter Round',             surface: 'wall',    color: '#C4A882', unit: 'LF' },
   { id: 'toe_kick',               name: 'Toe Kick',                  surface: 'wall',    color: '#A0522D', unit: 'LF' },
   { id: 'window_trim_demo',       name: 'Window Trim Demo',          surface: 'wall',    color: '#5B9BD5', unit: 'EA' },
   { id: 'door_trim_demo',         name: 'Door Trim Demo',            surface: 'wall',    color: '#E07C4F', unit: 'EA' },
@@ -523,10 +524,14 @@ export interface ShapePreset {
   /** Display name, e.g. "Door", "Cabinet" */
   name: string;
   shape_type: SketchShapeType;
-  /** Default width in canvas pixels */
+  /** Default width in canvas pixels (fallback when no scale calibration) */
   default_width: number;
-  /** Default height in canvas pixels */
+  /** Default height in canvas pixels (fallback when no scale calibration) */
   default_height: number;
+  /** Real-world width in feet (used with scale_pixels_per_foot for accurate sizing) */
+  real_width_ft: number;
+  /** Real-world height/depth in feet */
+  real_height_ft: number;
   /** Default fill color */
   fill_color: string;
   /** Default stroke color */
@@ -535,19 +540,23 @@ export interface ShapePreset {
   abbreviation: string;
 }
 
-/** Built-in shape presets for common floor plan elements */
+/** Built-in shape presets for common floor plan elements.
+ *  real_width_ft / real_height_ft are standard fixture dimensions in feet.
+ *  On placement, pixel size = real_ft × scale_pixels_per_foot.
+ *  default_width / default_height are fallbacks when scale is not calibrated (20 px/ft default).
+ */
 export const SHAPE_PRESETS: ShapePreset[] = [
-  { id: 'door',       name: 'Door',       shape_type: 'rectangle', default_width: 36, default_height: 8,  fill_color: '#A0522D', stroke_color: '#6B3410', abbreviation: 'DR' },
-  { id: 'cabinet',    name: 'Cabinet',    shape_type: 'rectangle', default_width: 60, default_height: 30, fill_color: '#D2B48C', stroke_color: '#8B7355', abbreviation: 'CAB' },
-  { id: 'vanity',     name: 'Vanity',     shape_type: 'rectangle', default_width: 48, default_height: 24, fill_color: '#C4A882', stroke_color: '#8B7355', abbreviation: 'VAN' },
-  { id: 'tub',        name: 'Tub/Shower', shape_type: 'rectangle', default_width: 60, default_height: 36, fill_color: '#87CEEB', stroke_color: '#4682B4', abbreviation: 'TUB' },
-  { id: 'toilet',     name: 'Toilet',     shape_type: 'circle',    default_width: 24, default_height: 24, fill_color: '#F0F0F0', stroke_color: '#999999', abbreviation: 'WC' },
-  { id: 'sink',       name: 'Sink',       shape_type: 'circle',    default_width: 20, default_height: 20, fill_color: '#E0E8F0', stroke_color: '#7799BB', abbreviation: 'SK' },
-  { id: 'appliance',  name: 'Appliance',  shape_type: 'rectangle', default_width: 36, default_height: 30, fill_color: '#C0C0C0', stroke_color: '#808080', abbreviation: 'APL' },
-  { id: 'stairs',     name: 'Stairs',     shape_type: 'rectangle', default_width: 40, default_height: 80, fill_color: '#DDD5C0', stroke_color: '#A09070', abbreviation: 'STR' },
-  { id: 'window',     name: 'Window',     shape_type: 'rectangle', default_width: 36, default_height: 6,  fill_color: '#B0D4F1', stroke_color: '#4A90D9', abbreviation: 'WIN' },
-  { id: 'custom_rect',name: 'Rectangle',  shape_type: 'rectangle', default_width: 50, default_height: 50, fill_color: '#E8E8E8', stroke_color: '#666666', abbreviation: '' },
-  { id: 'custom_circle',name: 'Circle',   shape_type: 'circle',    default_width: 40, default_height: 40, fill_color: '#E8E8E8', stroke_color: '#666666', abbreviation: '' },
+  { id: 'door',       name: 'Door',       shape_type: 'rectangle', default_width: 36, default_height: 8,  real_width_ft: 3,    real_height_ft: 0.4,  fill_color: '#A0522D', stroke_color: '#6B3410', abbreviation: 'DR' },
+  { id: 'cabinet',    name: 'Cabinet',    shape_type: 'rectangle', default_width: 60, default_height: 30, real_width_ft: 5,    real_height_ft: 2,    fill_color: '#D2B48C', stroke_color: '#8B7355', abbreviation: 'CAB' },
+  { id: 'vanity',     name: 'Vanity',     shape_type: 'rectangle', default_width: 48, default_height: 24, real_width_ft: 4,    real_height_ft: 1.75, fill_color: '#C4A882', stroke_color: '#8B7355', abbreviation: 'VAN' },
+  { id: 'tub',        name: 'Tub/Shower', shape_type: 'rectangle', default_width: 60, default_height: 36, real_width_ft: 5,    real_height_ft: 2.5,  fill_color: '#87CEEB', stroke_color: '#4682B4', abbreviation: 'TUB' },
+  { id: 'toilet',     name: 'Toilet',     shape_type: 'circle',    default_width: 24, default_height: 24, real_width_ft: 1.5,  real_height_ft: 2.25, fill_color: '#F0F0F0', stroke_color: '#999999', abbreviation: 'WC' },
+  { id: 'sink',       name: 'Sink',       shape_type: 'circle',    default_width: 20, default_height: 20, real_width_ft: 1.33, real_height_ft: 1.33, fill_color: '#E0E8F0', stroke_color: '#7799BB', abbreviation: 'SK' },
+  { id: 'appliance',  name: 'Appliance',  shape_type: 'rectangle', default_width: 36, default_height: 30, real_width_ft: 2.5,  real_height_ft: 2.5,  fill_color: '#C0C0C0', stroke_color: '#808080', abbreviation: 'APL' },
+  { id: 'stairs',     name: 'Stairs',     shape_type: 'rectangle', default_width: 40, default_height: 80, real_width_ft: 3,    real_height_ft: 7,    fill_color: '#DDD5C0', stroke_color: '#A09070', abbreviation: 'STR' },
+  { id: 'window',     name: 'Window',     shape_type: 'rectangle', default_width: 36, default_height: 6,  real_width_ft: 3,    real_height_ft: 0.4,  fill_color: '#B0D4F1', stroke_color: '#4A90D9', abbreviation: 'WIN' },
+  { id: 'custom_rect',name: 'Rectangle',  shape_type: 'rectangle', default_width: 50, default_height: 50, real_width_ft: 3,    real_height_ft: 3,    fill_color: '#E8E8E8', stroke_color: '#666666', abbreviation: '' },
+  { id: 'custom_circle',name: 'Circle',   shape_type: 'circle',    default_width: 40, default_height: 40, real_width_ft: 2,    real_height_ft: 2,    fill_color: '#E8E8E8', stroke_color: '#666666', abbreviation: '' },
 ];
 
 /**

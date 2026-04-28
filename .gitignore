@@ -144,6 +144,7 @@ temp/
 /test-results/
 /playwright-report/
 /playwright/.cache/
+.playwright-mcp/
 /tests/
 /frontend/test-results/
 /frontend/playwright-report/

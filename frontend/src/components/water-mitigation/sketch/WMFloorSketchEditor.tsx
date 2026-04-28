@@ -900,7 +900,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
               fill_opacity: matDef?.fill_opacity,
             };
             addDemolitionZone(zone);
-            // Don't auto-select — allow consecutive placement
+            selectElement({ element_id: newId, element_type: 'demolition' });
+            setTool('select');
             return;
           }
 
@@ -930,7 +931,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
               fill_opacity: matDef?.fill_opacity,
             };
             addDemolitionZone(zone);
-            // Don't auto-select — allow consecutive placement
+            selectElement({ element_id: newId, element_type: 'demolition' });
+            setTool('select');
             return;
           }
           // Line render mode: handled by demolition_line tool activation in toolbar
@@ -956,8 +958,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       if (activeTool === 'equipment') {
         const equipType = st.activeEquipmentType ?? 'air_mover';
         const cfg = EQUIPMENT_CONFIG[equipType];
+        const newId = generateOverlayId();
         const placement: WMEquipmentPlacement = {
-          id: generateOverlayId(),
+          id: newId,
           floor_sketch_id: fs.id,
           equipment_type: equipType,
           x: pos.x,
@@ -966,21 +969,30 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           color: cfg.color,
         };
         addEquipment(placement);
+        selectElement({ element_id: newId, element_type: 'equipment' });
+        setTool('select');
       }
 
       if (activeTool === 'shape') {
         const presetId = activeShapePresetIdRef.current ?? SHAPE_PRESETS[0].id;
         const preset = SHAPE_PRESETS.find((p) => p.id === presetId) ?? SHAPE_PRESETS[0];
         const newId = generateOverlayId();
+        // Compute pixel size from real-world feet × scale_pixels_per_foot
+        const scale = fs.scale_pixels_per_foot;
+        const pixelW = Math.round(preset.real_width_ft * scale);
+        const pixelH = Math.round(preset.real_height_ft * scale);
+        // Use scale-calibrated size, fallback to default if scale is unset (default 20 px/ft)
+        const shapeW = pixelW > 0 ? pixelW : preset.default_width;
+        const shapeH = pixelH > 0 ? pixelH : preset.default_height;
         const shape: WMShapeAnnotation = {
           id: newId,
           floor_sketch_id: fs.id,
           preset_id: preset.id,
           shape_type: preset.shape_type,
-          x: pos.x - preset.default_width / 2,
-          y: pos.y - preset.default_height / 2,
-          width: preset.default_width,
-          height: preset.default_height,
+          x: pos.x - shapeW / 2,
+          y: pos.y - shapeH / 2,
+          width: shapeW,
+          height: shapeH,
           rotation: 0,
           fill_color: preset.fill_color,
           stroke_color: preset.stroke_color,
@@ -990,6 +1002,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         };
         addShape(shape);
         selectElement({ element_id: newId, element_type: 'shape' });
+        setTool('select');
       }
 
       if (activeTool === 'text') {
@@ -1006,6 +1019,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         };
         addTextAnnotation(annotation);
         selectElement({ element_id: newId, element_type: 'text' });
+        setTool('select');
       }
 
       // ---- Wall tool: click-click paradigm ----
@@ -1142,7 +1156,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [getCanvasPos, deselect, addEquipment, addDemolitionZone, addShape, addTextAnnotation, selectElement, snapToWallEndpoint, constrainToAxis, addWall, detectRoomAtPoint, addRoom, removeWall, autoDetectRooms, setDrawStateSync]
+    [getCanvasPos, deselect, addEquipment, addDemolitionZone, addShape, addTextAnnotation, selectElement, setTool, snapToWallEndpoint, constrainToAxis, addWall, detectRoomAtPoint, addRoom, removeWall, autoDetectRooms, setDrawStateSync]
   );
 
   const handleMouseMove = useCallback(
@@ -1265,7 +1279,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           fill_opacity: matDef?.fill_opacity,
         };
         addDemolitionZone(zone);
-        // Don't auto-select — allow consecutive drawing of multiple zones
+        selectElement({ element_id: newId, element_type: 'demolition' });
+        setTool('select');
       } else if (activeTool === 'demolition_line') {
         // Wall / baseboard line — drag determines length and angle
         const dx = currentX - startX;
@@ -1305,7 +1320,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           fill_opacity: matDef?.fill_opacity,
         };
         addDemolitionZone(zone);
-        // Don't auto-select — allow consecutive drawing of multiple lines
+        selectElement({ element_id: newId, element_type: 'demolition' });
+        setTool('select');
       } else if (activeTool === 'containment') {
         // Containment is a line — drag determines length and angle
         const dx = currentX - startX;
@@ -1314,8 +1330,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         const lengthFt = pixelsToFeet(lengthPx, scale);
         const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
         const heightFt = DEFAULT_CONTAINMENT_HEIGHT_FT;
+        const containId = generateOverlayId();
         const zone: WMContainmentZone = {
-          id: generateOverlayId(),
+          id: containId,
           floor_sketch_id: fs.id,
           containment_type: 'Containment',
           x: startX,
@@ -1328,14 +1345,17 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           zipper_count: 0,
         };
         addContainment(zone);
+        selectElement({ element_id: containId, element_type: 'containment' });
+        setTool('select');
       } else if (activeTool === 'floor_protection') {
         const paperWidth = DEFAULT_PAPER_WIDTH_FT;
         const lengthFt = pixelsToFeet(Math.max(wPx, hPx), scale);
         // Renderer draws width=paperWidth (narrow), height=length (long),
         // so rotation=0 is vertical. For horizontal drag, rotate -90.
         const rotation = wPx >= hPx ? -90 : 0;
+        const protId = generateOverlayId();
         const prot: WMFloorProtection = {
-          id: generateOverlayId(),
+          id: protId,
           floor_sketch_id: fs.id,
           protection_type: 'Heavy duty paper & tape',
           paper_width_ft: paperWidth,
@@ -1347,9 +1367,12 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           color: DEFAULT_FLOOR_PROTECTION_COLOR,
         };
         addFloorProtection(prot);
+        selectElement({ element_id: protId, element_type: 'floor_protection' });
+        setTool('select');
       } else if (activeTool === 'content_protection') {
+        const cpId = generateOverlayId();
         const contentProt: WMContentProtection = {
-          id: generateOverlayId(),
+          id: cpId,
           floor_sketch_id: fs.id,
           protection_type: 'Plastic sheeting',
           width_ft: dim1Ft,
@@ -1361,12 +1384,14 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           color: DEFAULT_CONTENT_PROTECTION_COLOR,
         };
         addContentProtection(contentProt);
+        selectElement({ element_id: cpId, element_type: 'content_protection' });
+        setTool('select');
       }
 
       setDrawStateSync(INITIAL_DRAW_STATE);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addDemolitionZone, addContainment, addFloorProtection, addContentProtection, setDrawStateSync]
+    [addDemolitionZone, addContainment, addFloorProtection, addContentProtection, selectElement, setTool, setDrawStateSync]
   );
 
   // ------------------------------------------------------------------

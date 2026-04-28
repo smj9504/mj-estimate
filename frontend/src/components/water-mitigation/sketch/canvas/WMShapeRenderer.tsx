@@ -12,6 +12,9 @@ import { Group, Rect, Ellipse, Text, Transformer } from 'react-konva';
 import Konva from 'konva';
 import type { WMShapeAnnotation } from '../../../../types/wmSketch';
 
+/** 15° snap angles for Shift+Rotate (0, 15, 30, …, 345) */
+const ROTATION_SNAP_ANGLES = Array.from({ length: 24 }, (_, i) => i * 15);
+
 export interface WMShapeRendererProps {
   shape: WMShapeAnnotation;
   isSelected: boolean;
@@ -79,21 +82,27 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
     [shape.id, onDragEnd],
   );
 
-  // Shift-key snap: snap rotation to 15° increments during transform
+  // Shift-key snap: use Konva's native rotationSnaps for smooth 15° snapping.
+  // We imperatively toggle rotationSnaps on the Transformer during transform
+  // so that Konva handles the snap math internally (avoids handle/element desync).
   const handleTransform = useCallback((e: Konva.KonvaEventObject<Event>) => {
-    if (!shapeNodeRef.current || !groupRef.current) return;
-    if (!(e.evt as MouseEvent)?.shiftKey) return;
-
-    const node = shapeNodeRef.current;
-    const group = groupRef.current;
-    const SNAP_ANGLE = 15;
-    const totalRotation = group.rotation() + node.rotation();
-    const snapped = Math.round(totalRotation / SNAP_ANGLE) * SNAP_ANGLE;
-    node.rotation(snapped - group.rotation());
+    const tr = transformerRef.current;
+    if (!tr) return;
+    const shiftHeld = !!(e.evt as MouseEvent)?.shiftKey;
+    const currentSnaps = tr.rotationSnaps();
+    if (shiftHeld && (!currentSnaps || currentSnaps.length === 0)) {
+      tr.rotationSnaps(ROTATION_SNAP_ANGLES);
+    } else if (!shiftHeld && currentSnaps && currentSnaps.length > 0) {
+      tr.rotationSnaps([]);
+    }
   }, []);
 
   const handleTransformEnd = useCallback(() => {
     if (!shapeNodeRef.current || !groupRef.current) return;
+    // Clear rotation snaps so they don't persist into the next transform
+    if (transformerRef.current) {
+      transformerRef.current.rotationSnaps([]);
+    }
     const node = shapeNodeRef.current;
     const group = groupRef.current;
     const scaleX = node.scaleX();
@@ -103,7 +112,6 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
     let newHeight: number;
 
     if (shape.shape_type === 'circle') {
-      // Ellipse: compute new radii from scale
       const rx = (node as unknown as { radiusX(): number }).radiusX() * scaleX;
       const ry = (node as unknown as { radiusY(): number }).radiusY() * scaleY;
       newWidth = Math.max(10, rx * 2);
@@ -113,39 +121,63 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
       newHeight = Math.max(10, node.height() * scaleY);
     }
 
-    // Transfer node rotation to group
-    const nodeRotation = node.rotation();
-    if (nodeRotation !== 0) {
-      group.rotation(group.rotation() + nodeRotation);
-      node.rotation(0);
-    }
-
-    // Transfer node position offset to group
+    // === Center-stable transform transfer ===
+    // Compute the visual center of the shape in parent coordinates BEFORE reset,
+    // then reposition the group so the center stays at the same spot.
+    const groupRot = group.rotation();
+    const nodeRot = node.rotation();
     const nodeX = node.x();
     const nodeY = node.y();
-    if (nodeX !== 0 || nodeY !== 0) {
-      const rad = ((group.rotation() || 0) * Math.PI) / 180;
-      const cos = Math.cos(rad);
-      const sin = Math.sin(rad);
-      group.x(group.x() + nodeX * cos - nodeY * sin);
-      group.y(group.y() + nodeX * sin + nodeY * cos);
-      node.x(0);
-      node.y(0);
+
+    // Local center of the (scaled) shape within node-local coordinates
+    let localCX: number, localCY: number;
+    if (shape.shape_type === 'circle') {
+      localCX = 0; // ellipse position IS the center
+      localCY = 0;
+    } else {
+      localCX = (node.width() * scaleX) / 2;
+      localCY = (node.height() * scaleY) / 2;
     }
 
+    // Center in group-local coordinates (rotate local center by node rotation, add node offset)
+    const nRad = (nodeRot * Math.PI) / 180;
+    const centerInGroupX = nodeX + localCX * Math.cos(nRad) - localCY * Math.sin(nRad);
+    const centerInGroupY = nodeY + localCX * Math.sin(nRad) + localCY * Math.cos(nRad);
+
+    // Center in parent coordinates (rotate group-local center by group rotation, add group offset)
+    const gRad = (groupRot * Math.PI) / 180;
+    const centerParentX = group.x() + centerInGroupX * Math.cos(gRad) - centerInGroupY * Math.sin(gRad);
+    const centerParentY = group.y() + centerInGroupX * Math.sin(gRad) + centerInGroupY * Math.cos(gRad);
+
+    // Combined rotation
+    const newRotation = groupRot + nodeRot;
+
+    // Reset node transform to clean state
+    node.rotation(0);
     node.scaleX(1);
     node.scaleY(1);
-
     if (shape.shape_type === 'circle') {
       const n = node as unknown as { radiusX(v: number): void; radiusY(v: number): void };
       n.radiusX(newWidth / 2);
       n.radiusY(newHeight / 2);
+      node.x(newWidth / 2);
+      node.y(newHeight / 2);
     } else {
       node.width(newWidth);
       node.height(newHeight);
+      node.x(0);
+      node.y(0);
     }
 
-    const newRotation = group.rotation();
+    // After reset, center in group-local is (newWidth/2, newHeight/2) for both types.
+    // Position group so the center stays at the same parent-coordinate position.
+    const newCX = newWidth / 2;
+    const newCY = newHeight / 2;
+    const newRad = (newRotation * Math.PI) / 180;
+    group.x(centerParentX - (newCX * Math.cos(newRad) - newCY * Math.sin(newRad)));
+    group.y(centerParentY - (newCX * Math.sin(newRad) + newCY * Math.cos(newRad)));
+    group.rotation(newRotation);
+
     onDragEnd(shape.id, group.x(), group.y());
     onTransformEnd?.(shape.id, newWidth, newHeight, newRotation);
   }, [shape.id, shape.shape_type, onDragEnd, onTransformEnd]);
