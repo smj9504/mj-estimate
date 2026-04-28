@@ -138,6 +138,10 @@ class Claim(Base, BaseModel):
         "ClaimCompany", back_populates="claim",
         foreign_keys="ClaimCompany.claim_id", cascade="all, delete-orphan", lazy='select'
     )
+    cabinet_estimates = relationship(
+        "CabinetEstimate", back_populates="claim_ref",
+        foreign_keys="CabinetEstimate.claim_id", lazy='select'
+    )
 
 
 class ClaimNegotiation(Base, BaseModel):
@@ -170,6 +174,11 @@ class ClaimNegotiation(Base, BaseModel):
     # Attached document (insurance company estimate PDF, etc.)
     document_url = Column(Text)
     document_name = Column(String(500))
+
+    # PDF extraction: section-level financial breakdown
+    sections_data = Column(JSON, nullable=True)  # List of summary section dicts
+    extraction_status = Column(String(50), nullable=True)  # extracting | completed | failed
+    extraction_metadata = Column(JSON, nullable=True)  # AI model, pages, confidence
 
     # Relationship
     claim = relationship("Claim", back_populates="negotiations")

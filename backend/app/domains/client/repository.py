@@ -5,6 +5,8 @@ Client, Claim, and ClaimNegotiation repository implementations.
 import logging
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import or_
+
 from app.common.base_repository import SQLAlchemyRepository, SupabaseRepository
 from app.core.interfaces import DatabaseSession
 from app.domains.client.models import Client, Claim, ClaimNegotiation
@@ -118,10 +120,17 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             raise
 
     def search_by_name(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """Search clients by display_name or owner name"""
+        """Search clients by display_name, address, phone, or email"""
         try:
+            search_term = f"%{query}%"
             clients = self.db_session.query(Client).filter(
-                Client.display_name.ilike(f"%{query}%")
+                or_(
+                    Client.display_name.ilike(search_term),
+                    Client.address.ilike(search_term),
+                    Client.phone.ilike(search_term),
+                    Client.email.ilike(search_term),
+                    Client.city.ilike(search_term),
+                )
             ).order_by(Client.display_name).limit(limit).all()
             return [self._convert_to_dict(c) for c in clients]
         except Exception as e:

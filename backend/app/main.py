@@ -131,6 +131,10 @@ from app.domains.reconstruction_estimate.api import (
 )
 from app.domains.sketch.api import router as sketch_router
 from app.domains.staff.api import router as staff_router
+from app.domains.cabinet_estimate.api import router as cabinet_estimate_router
+from app.domains.cabinet_estimate.models import (
+    CabinetEstimate, CabinetBox, CabinetEstimateLineItem, CabinetEstimateHistory
+)
 from app.domains.water_mitigation.api import router as water_mitigation_router
 from app.domains.water_mitigation.scope_api import router as wm_scope_router
 from app.domains.water_mitigation.standard_scope_api import (
@@ -628,6 +632,9 @@ app.include_router(wm_scope_category_router, prefix="/api/water-mitigation")
 app.include_router(
     wm_sketch_router, prefix="/api/water-mitigation/sketch"
 )
+
+# Cabinet Estimate System endpoints
+app.include_router(cabinet_estimate_router, prefix="/api", tags=["Cabinet Estimates"])
 
 # Reconstruction Estimate System endpoints
 app.include_router(reconstruction_estimate_router)

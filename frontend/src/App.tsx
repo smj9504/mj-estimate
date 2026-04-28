@@ -74,6 +74,10 @@ const WaterMitigationTemplateList = lazy(() => import('./pages/WaterMitigationTe
 const StandardScopeItemsManagement = lazy(() => import('./pages/StandardScopeItemsManagement'));
 const ScopeItemCategoriesManagement = lazy(() => import('./pages/ScopeItemCategoriesManagement'));
 
+// Cabinet Estimate Pages
+const CabinetEstimateList = lazy(() => import('./pages/CabinetEstimateList'));
+const CabinetEstimateDetail = lazy(() => import('./pages/CabinetEstimateDetail'));
+
 // Reconstruction Estimate Pages
 const DebrisCalculator = lazy(() => import('./pages/DebrisCalculator'));
 const MaterialDetectionPage = lazy(() => import('./pages/MaterialDetectionPage'));
@@ -611,6 +615,31 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <ScopeItemCategoriesManagement />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Cabinet Estimate routes
+  {
+    path: "/cabinet-estimates",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <CabinetEstimateList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/cabinet-estimates/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <CabinetEstimateDetail />
           </Suspense>
         </Layout>
       </ProtectedRoute>

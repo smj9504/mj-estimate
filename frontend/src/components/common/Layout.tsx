@@ -28,6 +28,7 @@ import {
   BookOutlined,
   FileImageOutlined,
   ContactsOutlined,
+  BuildOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -154,6 +155,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             label: 'Standard Scope Items',
           },
         ],
+      },
+      {
+        key: '/cabinet-estimates',
+        icon: <BuildOutlined />,
+        label: 'Cabinet Estimate',
       },
       {
         key: '/reconstruction-estimate',
