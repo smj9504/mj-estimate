@@ -1,16 +1,6 @@
 /**
  * ContractGenerateModal - Generate a contract instance from a template for a claim.
- *
- * Usage:
- *   import ContractGenerateModal from '../components/contract/ContractGenerateModal';
- *
- *   <ContractGenerateModal
- *     open={modalOpen}
- *     onClose={() => setModalOpen(false)}
- *     claimId={claim.id}
- *     clientId={claim.client_id}
- *     onSuccess={() => refetch()}
- *   />
+ * 4-step wizard: Select Company → Choose Template → Preview Data → Finalize
  */
 
 import React, { useEffect, useState } from 'react';
@@ -19,6 +9,7 @@ import {
   Alert,
   Button,
   Card,
+  Descriptions,
   Divider,
   Form,
   Input,
@@ -26,6 +17,7 @@ import {
   Modal,
   Select,
   Space,
+  Spin,
   Steps,
   Tag,
   Typography,
@@ -35,12 +27,14 @@ import {
   CheckCircleOutlined,
   CopyOutlined,
   FileTextOutlined,
-  LinkOutlined,
   SendOutlined,
 } from '@ant-design/icons';
-import { contractTemplateService, contractInstanceService } from '../../services/contractService';
+import {
+  contractTemplateService,
+  contractInstanceService,
+} from '../../services/contractService';
 import { companyService } from '../../services/companyService';
-import type { ContractTemplate } from '../../types/contract';
+import type { ContractTemplate, PrefillPreviewData } from '../../types/contract';
 
 const { Text, Paragraph, Title } = Typography;
 const { Option } = Select;
@@ -70,12 +64,8 @@ interface CreatedResult {
   signingToken: string;
 }
 
-// ── QR Code (canvas-based, no external dependency) ────────────────────────────
+// ── Signing Link Display ──────────────────────────────────────────────────────
 
-/**
- * Minimal URL display with a copy button — QR generation requires a library;
- * this placeholder shows the link clearly and can be upgraded to qrcode.react.
- */
 const SigningLinkDisplay: React.FC<{ url: string }> = ({ url }) => {
   const handleCopy = async () => {
     try {
@@ -102,38 +92,25 @@ const SigningLinkDisplay: React.FC<{ url: string }> = ({ url }) => {
       >
         {url}
       </div>
-      <Button
-        icon={<CopyOutlined />}
-        onClick={handleCopy}
-        block
-        style={{ marginBottom: 16 }}
-      >
+      <Button icon={<CopyOutlined />} onClick={handleCopy} block>
         Copy Signing Link
       </Button>
-      {/* QR placeholder — replace with <QRCode value={url} /> from qrcode.react if available */}
-      <div
-        style={{
-          border: '1px dashed #d9d9d9',
-          borderRadius: 8,
-          padding: 24,
-          textAlign: 'center',
-          color: '#8c8c8c',
-          background: '#fafafa',
-        }}
-      >
-        <div style={{ fontSize: 13, marginBottom: 4 }}>QR Code</div>
-        <div style={{ fontSize: 12 }}>
-          To enable QR code display, install{' '}
-          <code>qrcode.react</code> and replace this placeholder.
-        </div>
-      </div>
     </div>
   );
 };
 
+// ── Category labels ───────────────────────────────────────────────────────────
+
+const CATEGORY_LABELS: Record<string, string> = {
+  client: 'Client Information',
+  claim: 'Claim Information',
+  company: 'Company Information',
+  meta: 'Contract Details',
+};
+
 // ── Step labels ───────────────────────────────────────────────────────────────
 
-const STEPS = ['Select Company', 'Choose Template', 'Finalize'];
+const STEPS = ['Select Company', 'Choose Template', 'Preview Data', 'Finalize'];
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -149,6 +126,9 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | undefined>(undefined);
   const [selectedTemplate, setSelectedTemplate] = useState<ContractTemplate | null>(null);
   const [created, setCreated] = useState<CreatedResult | null>(null);
+  const [prefillData, setPrefillData] = useState<PrefillPreviewData | null>(null);
+  const [prefillOverrides, setPrefillOverrides] = useState<Record<string, Record<string, string | null>>>({});
+  const [prefillLoading, setPrefillLoading] = useState(false);
 
   // ── Queries ──────────────────────────────────────────────────────────────────
 
@@ -178,9 +158,9 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         title: values.title || undefined,
         notes: values.notes || undefined,
         token_expires_days: values.token_expires_days,
+        prefill_overrides: Object.keys(prefillOverrides).length > 0 ? prefillOverrides : undefined,
       }),
     onSuccess: (data) => {
-      // Backend may return the signing URL directly or we construct it
       const token = data?.signing_token ?? data?.contract?.signing_token;
       const backendUrl = data?.signing_url;
       const signingUrl =
@@ -188,7 +168,7 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
       const contractId = data?.contract?.id ?? data?.id ?? '';
 
       setCreated({ contractId, signingUrl, signingToken: token ?? '' });
-      setCurrentStep(3); // success step
+      setCurrentStep(4); // success step
       onSuccess();
     },
     onError: (err: any) => {
@@ -205,10 +185,32 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         setSelectedCompanyId(undefined);
         setSelectedTemplate(null);
         setCreated(null);
+        setPrefillData(null);
+        setPrefillOverrides({});
         form.resetFields();
       }, 300);
     }
   }, [open, form]);
+
+  // ── Load prefill preview ──────────────────────────────────────────────────────
+
+  const loadPrefillPreview = async () => {
+    if (!selectedCompanyId || !selectedTemplate) return;
+    setPrefillLoading(true);
+    try {
+      const data = await contractInstanceService.getPrefillPreview(
+        claimId,
+        selectedTemplate.id,
+        clientId,
+        selectedCompanyId,
+      );
+      setPrefillData(data);
+    } catch (err: any) {
+      message.error('Failed to load prefill data.');
+    } finally {
+      setPrefillLoading(false);
+    }
+  };
 
   // ── Navigation ────────────────────────────────────────────────────────────────
 
@@ -219,8 +221,12 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         setCurrentStep(1);
       } else if (currentStep === 1) {
         await form.validateFields(['template_id']);
+        // Load prefill preview when moving to step 2
+        await loadPrefillPreview();
         setCurrentStep(2);
       } else if (currentStep === 2) {
+        setCurrentStep(3);
+      } else if (currentStep === 3) {
         const values = await form.validateFields();
         createMutation.mutate(values);
       }
@@ -230,7 +236,19 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
   };
 
   const handleBack = () => {
-    if (currentStep > 0 && currentStep < 3) setCurrentStep((s) => s - 1);
+    if (currentStep > 0 && currentStep < 4) setCurrentStep((s) => s - 1);
+  };
+
+  // ── Prefill value edit handler ────────────────────────────────────────────────
+
+  const handlePrefillEdit = (category: string, key: string, value: string) => {
+    setPrefillOverrides(prev => ({
+      ...prev,
+      [category]: {
+        ...(prev[category] || {}),
+        [key]: value || null,
+      },
+    }));
   };
 
   // ── Step content ──────────────────────────────────────────────────────────────
@@ -270,9 +288,7 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         rules={[{ required: true, message: 'Please select a template.' }]}
       >
         <Select
-          placeholder={
-            !selectedCompanyId ? 'Select a company first' : 'Select template'
-          }
+          placeholder={!selectedCompanyId ? 'Select a company first' : 'Select template'}
           disabled={!selectedCompanyId}
           loading={templatesLoading}
           size="large"
@@ -306,10 +322,70 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
               <Text type="secondary">Signature Required: </Text>
               <Text>{selectedTemplate.requires_signature ? 'Yes' : 'No'}</Text>
             </div>
+            {selectedTemplate.field_mappings && (
+              <div>
+                <Text type="secondary">Field Mappings: </Text>
+                <Tag color="green">Configured</Tag>
+              </div>
+            )}
           </Space>
         </Card>
       )}
     </>
+  );
+
+  const StepPrefillPreview = prefillLoading ? (
+    <div style={{ textAlign: 'center', padding: 40 }}>
+      <Spin />
+      <div style={{ marginTop: 8, color: '#8c8c8c' }}>Loading data...</div>
+    </div>
+  ) : prefillData ? (
+    <div style={{ maxHeight: 400, overflow: 'auto' }}>
+      {['client', 'claim', 'company', 'meta'].map((category) => {
+        const catData = (prefillData as any)[category] as Record<string, string | null> | undefined;
+        if (!catData || Object.keys(catData).length === 0) return null;
+
+        return (
+          <div key={category} style={{ marginBottom: 16 }}>
+            <Text strong style={{ fontSize: 13, color: '#1677ff' }}>
+              {CATEGORY_LABELS[category] || category}
+            </Text>
+            <Divider style={{ margin: '4px 0 8px' }} />
+            <Descriptions column={1} size="small" bordered>
+              {Object.entries(catData).map(([key, value]) => {
+                const overrideValue = prefillOverrides[category]?.[key];
+                const displayValue = overrideValue !== undefined ? overrideValue : value;
+
+                return (
+                  <Descriptions.Item
+                    key={key}
+                    label={<Text style={{ fontSize: 12 }}>{key.replace(/_/g, ' ')}</Text>}
+                  >
+                    <Input
+                      size="small"
+                      value={displayValue || ''}
+                      onChange={(e) => handlePrefillEdit(category, key, e.target.value)}
+                      style={{ fontSize: 12 }}
+                      variant="borderless"
+                      placeholder="(empty)"
+                    />
+                  </Descriptions.Item>
+                );
+              })}
+            </Descriptions>
+          </div>
+        );
+      })}
+      {prefillData.field_mappings.length > 0 && (
+        <Alert
+          type="info"
+          message={`This template has ${prefillData.field_mappings.length} mapped field(s) that will be auto-filled in the PDF.`}
+          style={{ marginTop: 8 }}
+        />
+      )}
+    </div>
+  ) : (
+    <Alert type="warning" message="No prefill data available." />
   );
 
   const StepFinalize = (
@@ -370,7 +446,7 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
   // ── Footer buttons ────────────────────────────────────────────────────────────
 
   const footer =
-    currentStep === 3 ? (
+    currentStep === 4 ? (
       <Button type="primary" onClick={onClose} block>
         Done
       </Button>
@@ -382,10 +458,10 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         <Button
           type="primary"
           onClick={handleNext}
-          loading={createMutation.isPending}
-          icon={currentStep === 2 ? <SendOutlined /> : undefined}
+          loading={createMutation.isPending || prefillLoading}
+          icon={currentStep === 3 ? <SendOutlined /> : undefined}
         >
-          {currentStep === 2 ? 'Generate Contract' : 'Next'}
+          {currentStep === 3 ? 'Generate Contract' : 'Next'}
         </Button>
       </div>
     );
@@ -401,11 +477,11 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
         </Space>
       }
       open={open}
-      onCancel={currentStep === 3 ? onClose : undefined}
-      closable={currentStep === 3 || !createMutation.isPending}
+      onCancel={currentStep === 4 ? onClose : undefined}
+      closable={currentStep === 4 || !createMutation.isPending}
       footer={footer}
       destroyOnClose
-      width={540}
+      width={600}
     >
       {/* Steps indicator */}
       <Steps
@@ -422,10 +498,11 @@ const ContractGenerateModal: React.FC<ContractGenerateModalProps> = ({
       >
         {currentStep === 0 && StepCompany}
         {currentStep === 1 && StepTemplate}
-        {currentStep === 2 && StepFinalize}
+        {currentStep === 3 && StepFinalize}
       </Form>
 
-      {currentStep === 3 && StepSuccess}
+      {currentStep === 2 && StepPrefillPreview}
+      {currentStep === 4 && StepSuccess}
     </Modal>
   );
 };

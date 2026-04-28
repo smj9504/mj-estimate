@@ -60,6 +60,7 @@ async def get_contract_for_signing(token: str):
             template_name=contract.get('template_name'),
             document_type=contract.get('document_type'),
             file_url=contract.get('file_url'),
+            filled_pdf_url=contract.get('filled_pdf_url'),
             status=contract.get('status', 'draft'),
             requires_signature=contract.get('requires_signature', True),
             signature_roles=contract.get('signature_roles'),
@@ -93,9 +94,15 @@ async def sign_contract(token: str, data: SigningRequest, request: Request):
             'signer_name': data.signer_name,
             'signer_role': data.signer_role,
             'signature_image': data.signature_image,
+            'signature_type': data.signature_type,
+            'typed_name': data.typed_name,
             'signed_at': datetime.utcnow(),
-            'ip_address': request.client.host if request.client else None,
-            'user_agent': request.headers.get('user-agent', ''),
+            'ip_address': (
+                request.client.host if request.client else None
+            ),
+            'user_agent': request.headers.get(
+                'user-agent', ''
+            ),
         }
 
         result = service.sign_contract(token, sig_data)

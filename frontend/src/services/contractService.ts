@@ -8,6 +8,10 @@ import type {
   ContractInstance,
   ClaimCompany,
   ContractViewData,
+  FieldMappingItem,
+  FieldMappingResponse,
+  PrefillPreviewData,
+  ClaimContractDashboardData,
 } from '../types/contract';
 
 // ============================================================
@@ -51,6 +55,18 @@ export const contractTemplateService = {
     const { data } = await api.delete(`/api/contracts/templates/${id}`);
     return data;
   },
+
+  async getFieldMappings(id: string) {
+    const { data } = await api.get(`/api/contracts/templates/${id}/field-mappings`);
+    return data as FieldMappingResponse;
+  },
+
+  async updateFieldMappings(id: string, fieldMappings: FieldMappingItem[]) {
+    const { data } = await api.put(`/api/contracts/templates/${id}/field-mappings`, {
+      field_mappings: fieldMappings,
+    });
+    return data;
+  },
 };
 
 // ============================================================
@@ -71,6 +87,7 @@ export const contractInstanceService = {
     title?: string;
     notes?: string;
     token_expires_days?: number;
+    prefill_overrides?: Record<string, Record<string, string | null>>;
   }) {
     const { data } = await api.post(`/api/contracts/claims/${claimId}/contracts`, payload);
     return data;
@@ -88,6 +105,23 @@ export const contractInstanceService = {
       `/api/contracts/claims/${claimId}/contracts/${contractId}/void`
     );
     return data;
+  },
+
+  async getPrefillPreview(
+    claimId: string,
+    templateId: string,
+    clientId: string,
+    companyId: string,
+  ) {
+    const { data } = await api.get(`/api/contracts/claims/${claimId}/prefill-preview`, {
+      params: { template_id: templateId, client_id: clientId, company_id: companyId },
+    });
+    return data as PrefillPreviewData;
+  },
+
+  async getDashboard(claimId: string) {
+    const { data } = await api.get(`/api/contracts/claims/${claimId}/dashboard`);
+    return data as ClaimContractDashboardData;
   },
 };
 
@@ -131,6 +165,8 @@ export const signingService = {
     signer_name: string;
     signer_role: string;
     signature_image: string;
+    signature_type?: 'drawn' | 'typed';
+    typed_name?: string;
   }) {
     const { data } = await api.post(`/api/sign/${token}`, payload);
     return data;

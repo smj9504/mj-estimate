@@ -131,13 +131,19 @@ const ContractSigning: React.FC = () => {
   const signMutation = useMutation({
     mutationFn: ({
       signatureImage,
+      signatureType,
+      typedName,
     }: {
       signatureImage: string;
+      signatureType?: 'drawn' | 'typed';
+      typedName?: string;
     }) =>
       signingService.sign(token!, {
         signer_name: signerName.trim(),
         signer_role: 'client',
         signature_image: signatureImage,
+        signature_type: signatureType || 'drawn',
+        typed_name: typedName,
       }),
     onSuccess: () => {
       setSigSuccess(true);
@@ -155,9 +161,13 @@ const ContractSigning: React.FC = () => {
     setSigPadOpen(true);
   };
 
-  const handleSignatureSave = (imageData: string) => {
+  const handleSignatureSave = (
+    imageData: string,
+    signatureType?: 'drawn' | 'typed',
+    typedName?: string,
+  ) => {
     setSigPadOpen(false);
-    signMutation.mutate({ signatureImage: imageData });
+    signMutation.mutate({ signatureImage: imageData, signatureType, typedName });
   };
 
   // ── Render states ─────────────────────────────────────────────────────────────
@@ -306,7 +316,7 @@ const ContractSigning: React.FC = () => {
       )}
 
       {/* ── PDF Viewer ── */}
-      {contract.file_url && (
+      {(contract.filled_pdf_url || contract.file_url) && (
         <Card
           style={{
             marginBottom: 24,
@@ -317,7 +327,7 @@ const ContractSigning: React.FC = () => {
           bodyStyle={{ padding: 0 }}
         >
           <iframe
-            src={contract.file_url}
+            src={contract.filled_pdf_url || contract.file_url}
             title="Contract Document"
             style={{
               width: '100%',
@@ -410,6 +420,7 @@ const ContractSigning: React.FC = () => {
         open={sigPadOpen}
         onClose={() => setSigPadOpen(false)}
         onSave={handleSignatureSave}
+        defaultName={signerName}
       />
     </PageShell>
   );

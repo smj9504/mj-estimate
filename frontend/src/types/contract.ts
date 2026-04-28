@@ -26,10 +26,39 @@ export interface ContractTemplate {
   file_size?: number;
   requires_signature: boolean;
   signature_roles?: string; // JSON string
+  field_mappings?: string; // JSON string
   is_active: boolean;
   version: number;
   created_at?: string;
   updated_at?: string;
+}
+
+// ============================================================
+// Field Mapping
+// ============================================================
+
+export interface FieldMappingItem {
+  id: string;
+  pageIndex: number;
+  x: number;      // ratio 0-1
+  y: number;      // ratio 0-1
+  width: number;  // ratio 0-1
+  height: number; // ratio 0-1
+  fieldKey: string;
+  label: string;
+  fontSize: number;
+  fontColor: string;
+}
+
+export interface AvailableField {
+  key: string;
+  label: string;
+  category: string;
+}
+
+export interface FieldMappingResponse {
+  field_mappings: FieldMappingItem[];
+  available_fields: AvailableField[];
 }
 
 // ============================================================
@@ -44,6 +73,8 @@ export interface ContractSignature {
   signer_role: string;
   signed_at: string;
   signature_image?: string;
+  signature_type?: 'drawn' | 'typed';
+  typed_name?: string;
 }
 
 export interface ContractInstance {
@@ -62,6 +93,7 @@ export interface ContractInstance {
   viewed_at?: string;
   signed_at?: string;
   voided_at?: string;
+  filled_pdf_url?: string;
   signed_pdf_url?: string;
   template_name?: string;
   company_name?: string;
@@ -105,8 +137,47 @@ export interface ContractViewData {
   template_name?: string;
   document_type?: string;
   file_url?: string;
+  filled_pdf_url?: string;
   status: string;
   requires_signature: boolean;
   signature_roles?: string;
   existing_signatures: { signer_name: string; signer_role: string; signed_at: string }[];
+}
+
+// ============================================================
+// Prefill Preview
+// ============================================================
+
+export interface PrefillPreviewData {
+  client: Record<string, string | null>;
+  claim: Record<string, string | null>;
+  company: Record<string, string | null>;
+  meta: Record<string, string | null>;
+  field_mappings: FieldMappingItem[];
+}
+
+// ============================================================
+// Dashboard
+// ============================================================
+
+export interface CompanyContractSummary {
+  company_id: string;
+  company_name: string;
+  role?: string;
+  is_primary: boolean;
+  contracts: ContractInstance[];
+  summary: {
+    total: number;
+    draft: number;
+    sent: number;
+    viewed: number;
+    signed: number;
+    voided: number;
+  };
+}
+
+export interface ClaimContractDashboardData {
+  claim_id: string;
+  companies: CompanyContractSummary[];
+  total_contracts: number;
 }

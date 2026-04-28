@@ -32,9 +32,11 @@ import {
   EditOutlined,
   FileAddOutlined,
   FilePdfOutlined,
+  FormOutlined,
   PlusOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
+import FieldMappingEditor from '../components/contract/FieldMappingEditor';
 import { contractTemplateService } from '../services/contractService';
 import { companyService } from '../services/companyService';
 import type { ContractTemplate, DocumentType } from '../types/contract';
@@ -84,6 +86,7 @@ const ContractTemplateManagement: React.FC = () => {
   const [editing, setEditing] = useState<ContractTemplate | null>(null);
   const [filterCompanyId, setFilterCompanyId] = useState<string | undefined>(undefined);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [fieldMappingTemplate, setFieldMappingTemplate] = useState<ContractTemplate | null>(null);
 
   // ── Queries ─────────────────────────────────────────────────────────────────
 
@@ -308,6 +311,14 @@ const ContractTemplateManagement: React.FC = () => {
       align: 'right',
       render: (_: unknown, record) => (
         <Space>
+          <Tooltip title="Field Mapping">
+            <Button
+              icon={<FormOutlined />}
+              size="small"
+              onClick={() => setFieldMappingTemplate(record)}
+              disabled={!record.file_url}
+            />
+          </Tooltip>
           <Tooltip title="Edit">
             <Button
               icon={<EditOutlined />}
@@ -489,6 +500,18 @@ const ContractTemplateManagement: React.FC = () => {
           </Space>
         </Form>
       </Modal>
+
+      {/* Field Mapping Editor */}
+      {fieldMappingTemplate && (
+        <FieldMappingEditor
+          open={!!fieldMappingTemplate}
+          templateId={fieldMappingTemplate.id}
+          templateName={fieldMappingTemplate.name}
+          fileUrl={fieldMappingTemplate.file_url || ''}
+          onClose={() => setFieldMappingTemplate(null)}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ['contract-templates'] })}
+        />
+      )}
     </div>
   );
 };

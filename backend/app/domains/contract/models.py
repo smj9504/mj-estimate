@@ -53,6 +53,9 @@ class ContractTemplate(Base, BaseModel):
     requires_signature = Column(Boolean, default=True)
     signature_roles = Column(Text)  # JSON string: ["homeowner","company_rep"]
 
+    # Field mapping config (JSON: array of field placement objects)
+    field_mappings = Column(Text)
+
     is_active = Column(Boolean, default=True)
     version = Column(Integer, default=1)
 
@@ -97,6 +100,9 @@ class ContractInstance(Base, BaseModel):
     viewed_at = Column(DateTime(timezone=True))
     signed_at = Column(DateTime(timezone=True))
     voided_at = Column(DateTime(timezone=True))
+
+    # Filled PDF (generated with prefilled data from template field mappings)
+    filled_pdf_url = Column(Text)
 
     # Signed PDF (generated after all signatures collected)
     signed_pdf_url = Column(Text)
@@ -144,6 +150,8 @@ class ContractSignature(Base, BaseModel):
 
     # Signature data
     signature_image = Column(Text, nullable=False)  # base64 PNG
+    signature_type = Column(String(20), default='drawn')  # drawn | typed
+    typed_name = Column(String(255))  # for typed signatures
 
     # Audit / legal
     signed_at = Column(DateTime(timezone=True), default=func.now())

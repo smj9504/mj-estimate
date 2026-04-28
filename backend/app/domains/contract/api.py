@@ -20,6 +20,7 @@ from app.domains.contract.schemas import (
     ContractInstanceResponse,
     ClaimCompanyCreate,
     ClaimCompanyResponse,
+    FieldMappingUpdate,
 )
 from app.domains.contract.service import (
     ContractTemplateService,
@@ -341,6 +342,88 @@ async def remove_company(
         return {"message": "Company removed from claim"}
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Claim - Plumber Report link
+# ============================================================
+
+# ============================================================
+# Field Mappings
+# ============================================================
+
+@router.get("/templates/{template_id}/field-mappings")
+async def get_field_mappings(
+    template_id: str,
+    service: ContractTemplateService = Depends(_get_template_service),
+):
+    """Get field mappings and available fields for a template"""
+    try:
+        return service.get_field_mappings(template_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/templates/{template_id}/field-mappings")
+async def update_field_mappings(
+    template_id: str,
+    data: FieldMappingUpdate,
+    service: ContractTemplateService = Depends(_get_template_service),
+):
+    """Save field mappings for a template"""
+    try:
+        mappings = [m.dict() for m in data.field_mappings]
+        result = service.update_field_mappings(
+            template_id, mappings
+        )
+        if not result:
+            raise HTTPException(
+                status_code=404, detail="Template not found"
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Prefill Preview & Dashboard
+# ============================================================
+
+@router.get("/claims/{claim_id}/prefill-preview")
+async def get_prefill_preview(
+    claim_id: str,
+    template_id: str,
+    client_id: str,
+    company_id: str,
+    service: ContractInstanceService = Depends(
+        _get_instance_service
+    ),
+):
+    """Preview prefill data before generating a contract"""
+    try:
+        return service.get_prefill_preview(
+            claim_id, template_id, client_id, company_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/claims/{claim_id}/dashboard")
+async def get_claim_dashboard(
+    claim_id: str,
+    service: ContractInstanceService = Depends(
+        _get_instance_service
+    ),
+):
+    """Get contracts grouped by company for a claim"""
+    try:
+        return service.get_dashboard(claim_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

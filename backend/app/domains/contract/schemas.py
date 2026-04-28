@@ -53,6 +53,7 @@ class ContractTemplateResponse(BaseModel):
     file_size: Optional[int] = None
     requires_signature: bool = True
     signature_roles: Optional[str] = None
+    field_mappings: Optional[str] = None  # JSON string
     is_active: bool = True
     version: int = 1
     created_at: Optional[datetime] = None
@@ -60,6 +61,35 @@ class ContractTemplateResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================
+# Field Mapping schemas
+# ============================================================
+
+class FieldMappingItem(BaseModel):
+    """Single field placement on a PDF template"""
+    id: str
+    pageIndex: int
+    x: float = Field(..., ge=0, le=1, description="X position as ratio (0-1)")
+    y: float = Field(..., ge=0, le=1, description="Y position as ratio (0-1)")
+    width: float = Field(..., gt=0, le=1, description="Width as ratio (0-1)")
+    height: float = Field(..., gt=0, le=1, description="Height as ratio (0-1)")
+    fieldKey: str = Field(..., description="Data source key, e.g. client.owners[0].name")
+    label: str = Field(..., description="Display label for the field")
+    fontSize: int = Field(12, ge=6, le=72)
+    fontColor: str = Field("#000000")
+
+
+class FieldMappingUpdate(BaseModel):
+    """Update field mappings on a template"""
+    field_mappings: List[FieldMappingItem]
+
+
+class FieldMappingResponse(BaseModel):
+    """Field mappings with available fields list"""
+    field_mappings: List[FieldMappingItem] = []
+    available_fields: List[Dict[str, Any]] = []
 
 
 # ============================================================
@@ -74,6 +104,7 @@ class ContractInstanceCreate(BaseModel):
     title: Optional[str] = None
     notes: Optional[str] = None
     token_expires_days: int = Field(30, ge=1, le=365)
+    prefill_overrides: Optional[Dict[str, Any]] = None  # user-edited prefill values
 
 
 class ContractInstanceUpdate(BaseModel):
@@ -98,6 +129,7 @@ class ContractInstanceResponse(BaseModel):
     viewed_at: Optional[datetime] = None
     signed_at: Optional[datetime] = None
     voided_at: Optional[datetime] = None
+    filled_pdf_url: Optional[str] = None
     signed_pdf_url: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -122,12 +154,21 @@ class SigningRequest(BaseModel):
     signer_name: str = Field(..., min_length=1, max_length=255)
     signer_role: str = Field("homeowner")
     signature_image: str = Field(..., description="Base64 PNG signature image")
+    signature_type: str = Field("drawn", description="drawn | typed")
+    typed_name: Optional[str] = Field(None, description="Name text for typed signatures")
 
     @validator('signer_role')
     def validate_role(cls, v):
         allowed = ['homeowner', 'company_rep', 'witness']
         if v not in allowed:
             raise ValueError(f"signer_role must be one of {allowed}")
+        return v
+
+    @validator('signature_type')
+    def validate_signature_type(cls, v):
+        allowed = ['drawn', 'typed']
+        if v not in allowed:
+            raise ValueError(f"signature_type must be one of {allowed}")
         return v
 
 
@@ -148,10 +189,45 @@ class ContractViewResponse(BaseModel):
     template_name: Optional[str] = None
     document_type: Optional[str] = None
     file_url: Optional[str] = None
+    filled_pdf_url: Optional[str] = None
     status: str
     requires_signature: bool = True
     signature_roles: Optional[str] = None
     existing_signatures: List[dict] = []
+
+
+# ============================================================
+# Prefill Preview schemas
+# ============================================================
+
+class PrefillPreviewResponse(BaseModel):
+    """Prefill data preview for contract generation"""
+    client: Dict[str, Any] = {}
+    claim: Dict[str, Any] = {}
+    company: Dict[str, Any] = {}
+    meta: Dict[str, Any] = {}
+    field_mappings: List[Dict[str, Any]] = []
+
+
+# ============================================================
+# Dashboard schemas
+# ============================================================
+
+class CompanyContractSummary(BaseModel):
+    """Contract summary per company in a claim"""
+    company_id: UUID
+    company_name: str
+    role: Optional[str] = None
+    is_primary: bool = False
+    contracts: List[Dict[str, Any]] = []
+    summary: Dict[str, int] = {}
+
+
+class ClaimContractDashboard(BaseModel):
+    """All contracts for a claim grouped by company"""
+    claim_id: UUID
+    companies: List[CompanyContractSummary] = []
+    total_contracts: int = 0
 
 
 # ============================================================
