@@ -12,6 +12,7 @@ import {
   CheckCircleOutlined, CameraOutlined, AppstoreOutlined,
 } from '@ant-design/icons';
 import DetailsStep from '../components/packing-estimate/DetailsStep';
+import PhotoAIRooms from '../components/packing-estimate/PhotoAIRooms';
 import { DEFAULT_SETTINGS } from '../components/packing-estimate/constants';
 import * as packingService from '../services/packingEstimateService';
 import type {
@@ -380,18 +381,7 @@ const QuickEstimateRooms: React.FC<{
   );
 };
 
-const PhotoAIRooms: React.FC<{
-  rooms: PhotoRoom[];
-  setRooms: (rooms: PhotoRoom[]) => void;
-}> = ({ rooms, setRooms }) => {
-  return (
-    <Result
-      status="info"
-      title="Photo AI Mode"
-      subTitle="Upload room photos for AI-powered content analysis. Coming in the next update."
-    />
-  );
-};
+// PhotoAIRooms is imported from components/packing-estimate/PhotoAIRooms
 
 const EstimateReview: React.FC<{
   result: EstimateResponse;
