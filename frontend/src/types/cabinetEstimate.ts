@@ -9,7 +9,8 @@ export type BoxMaterial = 'Plywood' | 'MDF' | 'Particle';
 export type FinishType = 'Stained' | 'Painted' | 'Glazed' | 'Laminate';
 export type CabType = 'base' | 'wall' | 'tall' | 'specialty';
 export type EstimateStatus = 'draft' | 'calculated' | 'approved' | 'exported';
-export type SpecialtyType = 'sink_base' | 'lazy_susan' | 'blind_corner' | 'drawer_base' | 'diagonal_corner_wall';
+export type SpecialtyType = 'sink_base' | 'lazy_susan' | 'blind_corner' | 'drawer_base' | 'diagonal_corner_wall' | 'oven_cabinet' | 'refrigerator_cabinet';
+export type BacksplashType = 'ceramic_tile' | 'subway_tile' | 'glass_tile' | 'stone_marble';
 
 // ── Box ──
 
@@ -22,6 +23,7 @@ export interface CabinetBox {
   height_inches: number;
   is_specialty: boolean;
   specialty_type?: SpecialtyType | null;
+  has_glass_door: boolean;
   qty: number;
   display_order: number;
   created_at?: string;
@@ -34,6 +36,7 @@ export interface CabinetBoxCreate {
   height_inches: number;
   is_specialty: boolean;
   specialty_type?: SpecialtyType | null;
+  has_glass_door: boolean;
   qty: number;
   display_order?: number;
 }
@@ -78,8 +81,23 @@ export interface CabinetEstimate {
   include_plumbing: boolean;
   include_countertop_reset: boolean;
   include_hardware: boolean;
+  include_crown_molding: boolean;
+  include_backsplash: boolean;
+  backsplash_type?: BacksplashType | null;
+  backsplash_sqft?: number;
+  include_toe_kick: boolean;
+  include_countertop: boolean;
+  include_drywall_repair: boolean;
+  drywall_repair_sqft?: number;
+  include_painting: boolean;
+  painting_sqft?: number;
+  include_appliance_rr: boolean;
+  include_dumpster: boolean;
+  island_end_panel_sqft: number;
+  island_back_panel_sqft: number;
   countertop_material?: string;
   countertop_sqft?: number;
+  overview_text?: string;
   subtotal: number;
   overhead_pct: number;
   overhead_amount: number;
@@ -117,8 +135,23 @@ export interface CabinetEstimateCreate {
   include_plumbing?: boolean;
   include_countertop_reset?: boolean;
   include_hardware?: boolean;
+  include_crown_molding?: boolean;
+  include_backsplash?: boolean;
+  backsplash_type?: BacksplashType | null;
+  backsplash_sqft?: number;
+  include_toe_kick?: boolean;
+  include_countertop?: boolean;
+  include_drywall_repair?: boolean;
+  drywall_repair_sqft?: number;
+  include_painting?: boolean;
+  painting_sqft?: number;
+  include_appliance_rr?: boolean;
+  include_dumpster?: boolean;
+  island_end_panel_sqft?: number;
+  island_back_panel_sqft?: number;
   countertop_material?: string;
   countertop_sqft?: number;
+  overview_text?: string;
   overhead_pct?: number;
   profit_pct?: number;
   notes?: string;
@@ -144,8 +177,23 @@ export interface CabinetEstimateUpdate {
   include_plumbing?: boolean;
   include_countertop_reset?: boolean;
   include_hardware?: boolean;
+  include_crown_molding?: boolean;
+  include_backsplash?: boolean;
+  backsplash_type?: BacksplashType | null;
+  backsplash_sqft?: number;
+  include_toe_kick?: boolean;
+  include_countertop?: boolean;
+  include_drywall_repair?: boolean;
+  drywall_repair_sqft?: number;
+  include_painting?: boolean;
+  painting_sqft?: number;
+  include_appliance_rr?: boolean;
+  include_dumpster?: boolean;
+  island_end_panel_sqft?: number;
+  island_back_panel_sqft?: number;
   countertop_material?: string;
   countertop_sqft?: number;
+  overview_text?: string;
   overhead_pct?: number;
   profit_pct?: number;
   notes?: string;
@@ -193,6 +241,13 @@ export interface PurchaseOrderResponse {
 
 // ── Pricing Info ──
 
+export interface BacksplashTypeInfo {
+  key: string;
+  label: string;
+  material_per_sf: number;
+  install_per_sf: number;
+}
+
 export interface PricingInfo {
   tiers: string[];
   materials: string[];
@@ -202,4 +257,9 @@ export interface PricingInfo {
   cab_types: string[];
   specialty_types: string[];
   scope_items: Record<string, number>;
+  backsplash_types: BacksplashTypeInfo[];
+  glass_door_premiums: Record<string, number>;
+  crown_molding_pricing: Record<string, number>;
+  island_panel_pricing: Record<string, any>;
+  tall_cabinet_types: Record<string, Record<string, number>>;
 }

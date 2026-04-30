@@ -29,6 +29,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { clientService, claimService } from '../services/clientService';
+import { companyService } from '../services/companyService';
 import CabinetBoxEditor from '../components/cabinet-estimate/CabinetBoxEditor';
 import CabinetEstimateResult from '../components/cabinet-estimate/CabinetEstimateResult';
 import CabinetPurchaseOrder from '../components/cabinet-estimate/CabinetPurchaseOrder';
@@ -61,6 +62,13 @@ const CabinetEstimateDetail: React.FC = () => {
     queryKey: ['cabinet-pricing-info'],
     queryFn: () => cabinetEstimateService.getPricingInfo(),
     staleTime: 1000 * 60 * 30,
+  });
+
+  // ── Fetch companies ──
+  const { data: companies } = useQuery({
+    queryKey: ['companies-list'],
+    queryFn: () => companyService.getCompanies(),
+    staleTime: 1000 * 60 * 10,
   });
 
   // ── Fetch estimate ──
@@ -120,6 +128,7 @@ const CabinetEstimateDetail: React.FC = () => {
         setClientSearch(estimate.client_name);
       }
       form.setFieldsValue({
+        company_id: estimate.company_id,
         claim_id: estimate.claim_id,
         property_address: estimate.property_address,
         zip_code: estimate.zip_code,
@@ -137,10 +146,25 @@ const CabinetEstimateDetail: React.FC = () => {
         include_plumbing: estimate.include_plumbing,
         include_countertop_reset: estimate.include_countertop_reset,
         include_hardware: estimate.include_hardware,
+        include_crown_molding: estimate.include_crown_molding,
+        include_backsplash: estimate.include_backsplash,
+        backsplash_type: estimate.backsplash_type,
+        backsplash_sqft: estimate.backsplash_sqft,
+        include_toe_kick: estimate.include_toe_kick ?? true,
+        include_countertop: estimate.include_countertop,
+        include_drywall_repair: estimate.include_drywall_repair,
+        drywall_repair_sqft: estimate.drywall_repair_sqft,
+        include_painting: estimate.include_painting,
+        painting_sqft: estimate.painting_sqft,
+        include_appliance_rr: estimate.include_appliance_rr,
+        include_dumpster: estimate.include_dumpster ?? true,
+        island_end_panel_sqft: estimate.island_end_panel_sqft || 0,
+        island_back_panel_sqft: estimate.island_back_panel_sqft || 0,
         countertop_material: estimate.countertop_material,
         countertop_sqft: estimate.countertop_sqft,
-        overhead_pct: (estimate.overhead_pct || 0.10) * 100,
-        profit_pct: (estimate.profit_pct || 0.10) * 100,
+        overview_text: estimate.overview_text,
+        overhead_pct: (estimate.overhead_pct ?? 0.10) * 100,
+        profit_pct: (estimate.profit_pct ?? 0.10) * 100,
         notes: estimate.notes,
       });
       setBoxes(
@@ -151,6 +175,7 @@ const CabinetEstimateDetail: React.FC = () => {
           height_inches: b.height_inches,
           is_specialty: b.is_specialty,
           specialty_type: b.specialty_type || null,
+          has_glass_door: b.has_glass_door || false,
           qty: b.qty,
           display_order: b.display_order,
         }))
@@ -196,8 +221,8 @@ const CabinetEstimateDetail: React.FC = () => {
       const values = await form.validateFields();
       const payload: CabinetEstimateUpdate = {
         ...values,
-        overhead_pct: (values.overhead_pct || 10) / 100,
-        profit_pct: (values.profit_pct || 10) / 100,
+        overhead_pct: (values.overhead_pct ?? 0) / 100,
+        profit_pct: (values.profit_pct ?? 0) / 100,
         boxes,
       };
       saveMutation.mutate(payload);
@@ -212,8 +237,8 @@ const CabinetEstimateDetail: React.FC = () => {
       const values = await form.validateFields();
       const payload: CabinetEstimateUpdate = {
         ...values,
-        overhead_pct: (values.overhead_pct || 10) / 100,
-        profit_pct: (values.profit_pct || 10) / 100,
+        overhead_pct: (values.overhead_pct ?? 0) / 100,
+        profit_pct: (values.profit_pct ?? 0) / 100,
         boxes,
       };
       await cabinetEstimateService.update(id!, payload);
@@ -293,10 +318,26 @@ const CabinetEstimateDetail: React.FC = () => {
             <Row gutter={24}>
               {/* Left column: Project Info + Kitchen + Scope */}
               <Col xs={24} lg={16}>
-                {/* Client & Claim */}
-                <Card size="small" title="Client & Claim (Optional)" style={{ marginBottom: 16 }}>
+                {/* Company & Client */}
+                <Card size="small" title="Company & Client" style={{ marginBottom: 16 }}>
                   <Row gutter={16}>
-                    <Col xs={24} md={12}>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="company_id" label="Company (for PDF)">
+                        <Select
+                          showSearch
+                          allowClear
+                          placeholder="Select company..."
+                          filterOption={(input, option) =>
+                            (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+                          }
+                          options={companies?.map((c) => ({
+                            label: c.name,
+                            value: c.id,
+                          })) || []}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
                       <Form.Item label="Search Client">
                         <Select
                           showSearch
@@ -326,7 +367,7 @@ const CabinetEstimateDetail: React.FC = () => {
                         />
                       </Form.Item>
                     </Col>
-                    <Col xs={24} md={12}>
+                    <Col xs={24} md={8}>
                       <Form.Item name="claim_id" label="Claim (Optional)">
                         <Select
                           allowClear
@@ -388,49 +429,17 @@ const CabinetEstimateDetail: React.FC = () => {
                 </Card>
 
                 {/* Specifications */}
-                <Card size="small" title="Specifications" style={{ marginBottom: 16 }}>
+                <Card size="small" title="Cabinet Tier" style={{ marginBottom: 16 }}>
                   <Row gutter={16}>
-                    <Col xs={12} md={6}>
+                    <Col xs={24} md={8}>
                       <Form.Item
                         name="tier"
                         label="Tier"
                         rules={[{ required: true, message: 'Required' }]}
                       >
                         <Select
-                          placeholder="Select"
+                          placeholder="Select tier"
                           options={pricingInfo?.tiers?.map((t) => ({ label: t, value: t })) || []}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={12} md={6}>
-                      <Form.Item
-                        name="box_material"
-                        label="Box Material"
-                        rules={[{ required: true, message: 'Required' }]}
-                      >
-                        <Select
-                          placeholder="Select"
-                          options={pricingInfo?.materials?.map((m) => ({ label: m, value: m })) || []}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={12} md={6}>
-                      <Form.Item
-                        name="finish"
-                        label="Finish"
-                        rules={[{ required: true, message: 'Required' }]}
-                      >
-                        <Select
-                          placeholder="Select"
-                          options={pricingInfo?.finishes?.map((f) => ({ label: f, value: f })) || []}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={12} md={6}>
-                      <Form.Item name="door_style" label="Door Style">
-                        <Select
-                          placeholder="Select"
-                          options={pricingInfo?.door_styles?.map((d) => ({ label: d, value: d })) || []}
                         />
                       </Form.Item>
                     </Col>
@@ -475,7 +484,339 @@ const CabinetEstimateDetail: React.FC = () => {
                         <Checkbox>Cabinet Hardware (Knobs/Pulls)</Checkbox>
                       </Form.Item>
                     </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item name="include_crown_molding" valuePropName="checked">
+                        <Checkbox>Crown Molding (Wall Cabinets)</Checkbox>
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item name="include_toe_kick" valuePropName="checked">
+                        <Checkbox>Toe Kick</Checkbox>
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item name="include_appliance_rr" valuePropName="checked">
+                        <Checkbox>Appliance R&R (Cooktop, DW, Oven, Fridge)</Checkbox>
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item name="include_dumpster" valuePropName="checked">
+                        <Checkbox>Dumpster / Trash Disposal</Checkbox>
+                      </Form.Item>
+                    </Col>
                   </Row>
+                </Card>
+
+                {/* Countertop */}
+                <Card size="small" title="Countertop" style={{ marginBottom: 16 }}>
+                  <Form.Item name="include_countertop" valuePropName="checked">
+                    <Checkbox>Include Countertop</Checkbox>
+                  </Form.Item>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_countertop !== cur.include_countertop}>
+                    {({ getFieldValue }) => {
+                      if (!getFieldValue('include_countertop')) return null;
+                      const baseLf = boxes
+                        .filter((b) => b.cab_type === 'base')
+                        .reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
+                      const suggestedSf = Math.round(baseLf * 2.125 * 10) / 10; // 25.5" depth
+                      return (
+                        <Row gutter={16}>
+                          <Col xs={12}>
+                            <Form.Item name="countertop_material" label="Material">
+                              <Select
+                                placeholder="Select material"
+                                options={[
+                                  { label: 'Laminate ($35/SF)', value: 'Laminate' },
+                                  { label: 'Butcher Block ($70/SF)', value: 'Butcher Block' },
+                                  { label: 'Solid Surface ($75/SF)', value: 'Solid Surface' },
+                                  { label: 'Granite ($95/SF)', value: 'Granite' },
+                                  { label: 'Quartz ($110/SF)', value: 'Quartz' },
+                                  { label: 'Quartzite ($130/SF)', value: 'Quartzite' },
+                                  { label: 'Marble ($160/SF)', value: 'Marble' },
+                                ]}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col xs={12}>
+                            <Form.Item name="countertop_sqft" label="Area (SF)">
+                              <InputNumber min={0} max={500} step={0.5} style={{ width: '100%' }} addonAfter="SF" />
+                            </Form.Item>
+                            {suggestedSf > 0 && (
+                              <Space size={4}>
+                                <Text type="secondary" style={{ fontSize: 11 }}>
+                                  Base LF({baseLf.toFixed(1)}) x 2.125ft =
+                                </Text>
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                  onClick={() => form.setFieldsValue({ countertop_sqft: suggestedSf })}
+                                >
+                                  {suggestedSf} SF 적용
+                                </Button>
+                              </Space>
+                            )}
+                          </Col>
+                        </Row>
+                      );
+                    }}
+                  </Form.Item>
+                </Card>
+
+                {/* Drywall & Painting */}
+                <Card size="small" title="Drywall & Painting" style={{ marginBottom: 16 }}>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
+                    Cabinet 제거 후 벽면 수리 및 도장. 면적은 wall cabinet 뒤쪽 벽 기준.
+                  </Text>
+                  <Row gutter={16}>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="include_drywall_repair" valuePropName="checked">
+                        <Checkbox>R&R Sheetrock (behind cabinets)</Checkbox>
+                      </Form.Item>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_drywall_repair !== cur.include_drywall_repair}>
+                        {({ getFieldValue }) => {
+                          if (!getFieldValue('include_drywall_repair')) return null;
+                          // Wall area behind cabinets: (base LF + wall LF) * avg height ~4ft
+                          const totalLf = boxes.reduce((sum, b) => {
+                            if (b.cab_type === 'base' || b.cab_type === 'wall')
+                              return sum + (b.width_inches * b.qty) / 12;
+                            return sum;
+                          }, 0);
+                          const suggestedDwSf = Math.round(totalLf * 4 * 10) / 10;
+                          return (
+                            <div>
+                              <Form.Item name="drywall_repair_sqft" label="Drywall Area (SF)">
+                                <InputNumber min={0} max={1000} step={0.5} style={{ width: '100%' }} addonAfter="SF" />
+                              </Form.Item>
+                              {suggestedDwSf > 0 && (
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                  onClick={() => form.setFieldsValue({ drywall_repair_sqft: suggestedDwSf })}
+                                >
+                                  추천: {suggestedDwSf} SF 적용 (LF x 4ft)
+                                </Button>
+                              )}
+                            </div>
+                          );
+                        }}
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item name="include_painting" valuePropName="checked">
+                        <Checkbox>Prep, Prime & Paint</Checkbox>
+                      </Form.Item>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                        prev.include_painting !== cur.include_painting ||
+                        prev.drywall_repair_sqft !== cur.drywall_repair_sqft
+                      }>
+                        {({ getFieldValue }) => {
+                          if (!getFieldValue('include_painting')) return null;
+                          const dwSf = getFieldValue('drywall_repair_sqft');
+                          return (
+                            <div>
+                              <Form.Item name="painting_sqft" label="Paint Area (SF)">
+                                <InputNumber min={0} max={1000} step={0.5} style={{ width: '100%' }} addonAfter="SF" />
+                              </Form.Item>
+                              {dwSf > 0 && (
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                  onClick={() => form.setFieldsValue({ painting_sqft: dwSf })}
+                                >
+                                  Drywall과 동일: {dwSf} SF 적용
+                                </Button>
+                              )}
+                            </div>
+                          );
+                        }}
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </Card>
+
+                {/* Island Panels */}
+                <Card size="small" title="Island Panels" style={{ marginBottom: 16 }}>
+                  <Row gutter={16}>
+                    {/* End Panel */}
+                    <Col xs={24} md={12}>
+                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>End Panel (Side)</Text>
+                      <Row gutter={8}>
+                        <Col span={10}>
+                          <Form.Item label="LF" style={{ marginBottom: 4 }}>
+                            <InputNumber
+                              min={0} max={30} step={0.5}
+                              style={{ width: '100%' }}
+                              placeholder="0"
+                              value={(() => {
+                                const sf = form.getFieldValue('island_end_panel_sqft') || 0;
+                                return sf > 0 ? Math.round(sf / 2.875 * 10) / 10 : undefined;
+                              })()}
+                              onChange={(lf) => {
+                                // Base height: 34.5" = 2.875 ft
+                                form.setFieldsValue({
+                                  island_end_panel_sqft: lf ? Math.round(lf * 2.875 * 10) / 10 : 0,
+                                });
+                              }}
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col span={7}>
+                          <Form.Item label="Height" style={{ marginBottom: 4 }}>
+                            <Select
+                              defaultValue="base"
+                              size="middle"
+                              onChange={(h) => {
+                                const sf = form.getFieldValue('island_end_panel_sqft') || 0;
+                                if (sf <= 0) return;
+                                const oldH = h === 'base' ? 7 : 2.875;
+                                const newH = h === 'base' ? 2.875 : 7;
+                                const lf = sf / oldH;
+                                form.setFieldsValue({
+                                  island_end_panel_sqft: Math.round(lf * newH * 10) / 10,
+                                });
+                              }}
+                              options={[
+                                { label: 'Base (34.5")', value: 'base' },
+                                { label: 'Tall (84")', value: 'tall' },
+                              ]}
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col span={7}>
+                          <Form.Item name="island_end_panel_sqft" label="SF" style={{ marginBottom: 4 }}>
+                            <InputNumber min={0} max={200} step={0.5} style={{ width: '100%' }} />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    </Col>
+                    {/* Back Panel */}
+                    <Col xs={24} md={12}>
+                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Back Panel</Text>
+                      <Row gutter={8}>
+                        <Col span={10}>
+                          <Form.Item label="LF" style={{ marginBottom: 4 }}>
+                            <InputNumber
+                              min={0} max={30} step={0.5}
+                              style={{ width: '100%' }}
+                              placeholder="0"
+                              value={(() => {
+                                const sf = form.getFieldValue('island_back_panel_sqft') || 0;
+                                return sf > 0 ? Math.round(sf / 2.875 * 10) / 10 : undefined;
+                              })()}
+                              onChange={(lf) => {
+                                form.setFieldsValue({
+                                  island_back_panel_sqft: lf ? Math.round(lf * 2.875 * 10) / 10 : 0,
+                                });
+                              }}
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col span={7}>
+                          <Form.Item label="Height" style={{ marginBottom: 4 }}>
+                            <Select
+                              defaultValue="base"
+                              size="middle"
+                              onChange={(h) => {
+                                const sf = form.getFieldValue('island_back_panel_sqft') || 0;
+                                if (sf <= 0) return;
+                                const oldH = h === 'base' ? 7 : 2.875;
+                                const newH = h === 'base' ? 2.875 : 7;
+                                const lf = sf / oldH;
+                                form.setFieldsValue({
+                                  island_back_panel_sqft: Math.round(lf * newH * 10) / 10,
+                                });
+                              }}
+                              options={[
+                                { label: 'Base (34.5")', value: 'base' },
+                                { label: 'Tall (84")', value: 'tall' },
+                              ]}
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col span={7}>
+                          <Form.Item name="island_back_panel_sqft" label="SF" style={{ marginBottom: 4 }}>
+                            <InputNumber min={0} max={200} step={0.5} style={{ width: '100%' }} />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    </Col>
+                  </Row>
+                  {pricingInfo && form.getFieldValue('tier') && (
+                    <div style={{ marginTop: 4 }}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        End: ${pricingInfo.island_panel_pricing?.end_panel_per_sf?.[form.getFieldValue('tier') as string] || '—'}/SF
+                        {' | '}
+                        Back: ${pricingInfo.island_panel_pricing?.back_panel_per_sf?.[form.getFieldValue('tier') as string] || '—'}/SF
+                        {' + $'}
+                        {pricingInfo.island_panel_pricing?.install_per_sf || '—'}/SF install
+                      </Text>
+                    </div>
+                  )}
+                </Card>
+
+                {/* Backsplash */}
+                <Card size="small" title="Backsplash" style={{ marginBottom: 16 }}>
+                  <Form.Item name="include_backsplash" valuePropName="checked">
+                    <Checkbox>Include Backsplash</Checkbox>
+                  </Form.Item>
+                  <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                    prev.include_backsplash !== cur.include_backsplash
+                  }>
+                    {({ getFieldValue }) => {
+                      if (!getFieldValue('include_backsplash')) return null;
+                      const baseLf = boxes
+                        .filter((b) => b.cab_type === 'base')
+                        .reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
+                      const suggestedSf = Math.round(baseLf * 1.5 * 10) / 10; // 18" height
+                      return (
+                        <div>
+                          <Row gutter={16}>
+                            <Col xs={12}>
+                              <Form.Item name="backsplash_type" label="Backsplash Type">
+                                <Select
+                                  placeholder="Select type"
+                                  options={pricingInfo?.backsplash_types?.map((bt) => ({
+                                    label: `${bt.label} ($${bt.material_per_sf + bt.install_per_sf}/SF)`,
+                                    value: bt.key,
+                                  }))}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col xs={12}>
+                              <Form.Item name="backsplash_sqft" label="Area (sqft)">
+                                <InputNumber
+                                  min={0}
+                                  max={500}
+                                  step={0.5}
+                                  style={{ width: '100%' }}
+                                  placeholder="e.g. 30"
+                                  addonAfter="SF"
+                                />
+                              </Form.Item>
+                              {suggestedSf > 0 && (
+                                <Space size={4}>
+                                  <Text type="secondary" style={{ fontSize: 11 }}>
+                                    Base LF({baseLf.toFixed(1)}) x 1.5ft =
+                                  </Text>
+                                  <Button
+                                    type="link"
+                                    size="small"
+                                    style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                    onClick={() => form.setFieldsValue({ backsplash_sqft: suggestedSf })}
+                                  >
+                                    {suggestedSf} SF 적용
+                                  </Button>
+                                </Space>
+                              )}
+                            </Col>
+                          </Row>
+                        </div>
+                      );
+                    }}
+                  </Form.Item>
                 </Card>
               </Col>
 
@@ -490,9 +831,21 @@ const CabinetEstimateDetail: React.FC = () => {
                   </Form.Item>
                 </Card>
 
+                <Card size="small" title="PDF Overview" style={{ marginBottom: 16 }}>
+                  <Form.Item name="overview_text">
+                    <Input.TextArea
+                      rows={4}
+                      placeholder="All cabinets will feature matching industrial-grade cabinet board surfaces..."
+                    />
+                  </Form.Item>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    Leave blank to use default text. Shown at top of PDF.
+                  </Text>
+                </Card>
+
                 <Card size="small" title="Notes" style={{ marginBottom: 16 }}>
                   <Form.Item name="notes">
-                    <Input.TextArea rows={4} placeholder="Additional notes..." />
+                    <Input.TextArea rows={3} placeholder="Internal notes (not shown on PDF)..." />
                   </Form.Item>
                 </Card>
 

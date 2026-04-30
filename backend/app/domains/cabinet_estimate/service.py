@@ -136,8 +136,8 @@ class CabinetEstimateService:
         if not estimate:
             return None
 
-        if not estimate.tier or not estimate.box_material or not estimate.finish:
-            raise ValueError("Tier, box_material, and finish are required to calculate")
+        if not estimate.tier:
+            raise ValueError("Tier is required to calculate")
 
         if not estimate.boxes:
             raise ValueError("At least one cabinet box is required")
@@ -151,6 +151,7 @@ class CabinetEstimateService:
                 height_inches=b.height_inches,
                 is_specialty=b.is_specialty,
                 specialty_type=b.specialty_type,
+                has_glass_door=getattr(b, 'has_glass_door', False) or False,
                 qty=b.qty,
             )
             for b in estimate.boxes
@@ -159,17 +160,85 @@ class CabinetEstimateService:
         result = calculate_estimate(
             boxes=box_inputs,
             tier=estimate.tier,
-            box_material=estimate.box_material,
-            finish=estimate.finish,
             zip_code=estimate.zip_code or "",
             include_demo=estimate.include_demo,
             include_install=estimate.include_install,
             include_delivery=estimate.include_delivery,
             include_plumbing=estimate.include_plumbing,
             include_countertop_reset=estimate.include_countertop_reset,
-            include_hardware=estimate.include_hardware if estimate.include_hardware is not None else True,
-            overhead_pct=estimate.overhead_pct or 0.10,
-            profit_pct=estimate.profit_pct or 0.10,
+            include_hardware=(
+                estimate.include_hardware
+                if estimate.include_hardware is not None
+                else True
+            ),
+            include_crown_molding=(
+                getattr(estimate, 'include_crown_molding', False)
+                or False
+            ),
+            include_backsplash=(
+                getattr(estimate, 'include_backsplash', False)
+                or False
+            ),
+            backsplash_type=getattr(
+                estimate, 'backsplash_type', None
+            ),
+            backsplash_sqft=getattr(
+                estimate, 'backsplash_sqft', None
+            ),
+            include_toe_kick=(
+                getattr(estimate, 'include_toe_kick', True)
+                if getattr(estimate, 'include_toe_kick', None)
+                is not None else True
+            ),
+            include_countertop=(
+                getattr(estimate, 'include_countertop', False)
+                or False
+            ),
+            countertop_material=getattr(
+                estimate, 'countertop_material', None
+            ),
+            countertop_sqft=getattr(
+                estimate, 'countertop_sqft', None
+            ),
+            include_drywall_repair=(
+                getattr(estimate, 'include_drywall_repair', False)
+                or False
+            ),
+            drywall_repair_sqft=getattr(
+                estimate, 'drywall_repair_sqft', None
+            ),
+            include_painting=(
+                getattr(estimate, 'include_painting', False)
+                or False
+            ),
+            painting_sqft=getattr(
+                estimate, 'painting_sqft', None
+            ),
+            include_appliance_rr=(
+                getattr(estimate, 'include_appliance_rr', False)
+                or False
+            ),
+            include_dumpster=(
+                getattr(estimate, 'include_dumpster', True)
+                if getattr(estimate, 'include_dumpster', None)
+                is not None else True
+            ),
+            island_end_panel_sqft=getattr(
+                estimate, 'island_end_panel_sqft', 0
+            ) or 0,
+            island_back_panel_sqft=getattr(
+                estimate, 'island_back_panel_sqft', 0
+            ) or 0,
+            overhead_pct=(
+                estimate.overhead_pct
+                if estimate.overhead_pct is not None
+                else 0.10
+            ),
+            profit_pct=(
+                estimate.profit_pct
+                if estimate.profit_pct is not None
+                else 0.10
+            ),
         )
 
         # Save history before updating
@@ -238,6 +307,25 @@ class CabinetEstimateService:
             "include_delivery": source.include_delivery,
             "include_plumbing": source.include_plumbing,
             "include_countertop_reset": source.include_countertop_reset,
+            "include_hardware": source.include_hardware,
+            "include_crown_molding": getattr(
+                source, 'include_crown_molding', False
+            ),
+            "include_backsplash": getattr(
+                source, 'include_backsplash', False
+            ),
+            "backsplash_type": getattr(
+                source, 'backsplash_type', None
+            ),
+            "backsplash_sqft": getattr(
+                source, 'backsplash_sqft', None
+            ),
+            "island_end_panel_sqft": getattr(
+                source, 'island_end_panel_sqft', 0
+            ),
+            "island_back_panel_sqft": getattr(
+                source, 'island_back_panel_sqft', 0
+            ),
             "countertop_material": source.countertop_material,
             "countertop_sqft": source.countertop_sqft,
             "overhead_pct": source.overhead_pct,
@@ -257,6 +345,9 @@ class CabinetEstimateService:
                 "height_inches": box.height_inches,
                 "is_specialty": box.is_specialty,
                 "specialty_type": box.specialty_type,
+                "has_glass_door": getattr(
+                    box, 'has_glass_door', False
+                ) or False,
                 "qty": box.qty,
                 "display_order": i,
             })
@@ -341,16 +432,56 @@ class CabinetEstimateService:
             self.line_item_repo._convert_to_dict(li) for li in estimate.line_items
         ]
         self._enrich_claim_info(estimate, result)
+        self._enrich_company_info(estimate, result)
         return result
 
-    def _enrich_claim_info(self, estimate: CabinetEstimate, result: Dict[str, Any]):
-        """Add claim_number and client_name to result dict."""
+    def _enrich_claim_info(
+        self,
+        estimate: CabinetEstimate,
+        result: Dict[str, Any],
+    ):
+        """Add claim_number and client_name."""
         if estimate.claim_ref:
-            result["claim_number"] = estimate.claim_ref.claim_number
+            result["claim_number"] = (
+                estimate.claim_ref.claim_number
+            )
             if estimate.claim_ref.client:
-                result["client_name"] = estimate.claim_ref.client.display_name
+                result["client_name"] = (
+                    estimate.claim_ref.client.display_name
+                )
             else:
                 result["client_name"] = None
         else:
             result["claim_number"] = None
             result["client_name"] = None
+
+    def _enrich_company_info(
+        self,
+        estimate: CabinetEstimate,
+        result: Dict[str, Any],
+    ):
+        """Add company details for PDF header."""
+        if not estimate.company_id:
+            result["company_info"] = None
+            return
+        from app.domains.company.models import Company
+        company = (
+            self.session.query(Company)
+            .filter(Company.id == estimate.company_id)
+            .first()
+        )
+        if company:
+            result["company_info"] = {
+                "name": company.name,
+                "address": company.address,
+                "city": company.city,
+                "state": company.state,
+                "zipcode": company.zipcode,
+                "phone": company.phone,
+                "email": company.email,
+                "website": company.website,
+                "license_number": company.license_number,
+                "logo": company.logo,
+            }
+        else:
+            result["company_info"] = None

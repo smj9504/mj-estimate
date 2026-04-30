@@ -1,11 +1,13 @@
 import React from 'react';
 import {
   Button,
+  Checkbox,
   InputNumber,
   Select,
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
@@ -32,23 +34,31 @@ const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height
   'DB30': { cab_type: 'base', width: 30, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 30"' },
   'LS36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 36"' },
   // Wall
-  'W1230': { cab_type: 'wall', width: 12, height: 30, label: 'Wall 12"×30"' },
-  'W1530': { cab_type: 'wall', width: 15, height: 30, label: 'Wall 15"×30"' },
-  'W1830': { cab_type: 'wall', width: 18, height: 30, label: 'Wall 18"×30"' },
-  'W2130': { cab_type: 'wall', width: 21, height: 30, label: 'Wall 21"×30"' },
-  'W2430': { cab_type: 'wall', width: 24, height: 30, label: 'Wall 24"×30"' },
-  'W3030': { cab_type: 'wall', width: 30, height: 30, label: 'Wall 30"×30"' },
-  'W3630': { cab_type: 'wall', width: 36, height: 30, label: 'Wall 36"×30"' },
-  'W3036': { cab_type: 'wall', width: 30, height: 36, label: 'Wall 30"×36"' },
-  'W3636': { cab_type: 'wall', width: 36, height: 36, label: 'Wall 36"×36"' },
-  'W3042': { cab_type: 'wall', width: 30, height: 42, label: 'Wall 30"×42"' },
+  'W1230': { cab_type: 'wall', width: 12, height: 30, label: 'Wall 12"x30"' },
+  'W1530': { cab_type: 'wall', width: 15, height: 30, label: 'Wall 15"x30"' },
+  'W1830': { cab_type: 'wall', width: 18, height: 30, label: 'Wall 18"x30"' },
+  'W2130': { cab_type: 'wall', width: 21, height: 30, label: 'Wall 21"x30"' },
+  'W2430': { cab_type: 'wall', width: 24, height: 30, label: 'Wall 24"x30"' },
+  'W3030': { cab_type: 'wall', width: 30, height: 30, label: 'Wall 30"x30"' },
+  'W3630': { cab_type: 'wall', width: 36, height: 30, label: 'Wall 36"x30"' },
+  'W3036': { cab_type: 'wall', width: 30, height: 36, label: 'Wall 30"x36"' },
+  'W3636': { cab_type: 'wall', width: 36, height: 36, label: 'Wall 36"x36"' },
+  'W3042': { cab_type: 'wall', width: 30, height: 42, label: 'Wall 30"x42"' },
   'WDC': { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Wall Diag Corner' },
-  // Tall
-  'T1884': { cab_type: 'tall', width: 18, height: 84, label: 'Tall 18"×84"' },
-  'T2484': { cab_type: 'tall', width: 24, height: 84, label: 'Tall 24"×84"' },
-  'T3084': { cab_type: 'tall', width: 30, height: 84, label: 'Tall 30"×84"' },
-  'T1890': { cab_type: 'tall', width: 18, height: 90, label: 'Tall 18"×90"' },
-  'T2490': { cab_type: 'tall', width: 24, height: 90, label: 'Tall 24"×90"' },
+  // Tall - Pantry
+  'T1884': { cab_type: 'tall', width: 18, height: 84, label: 'Tall 18"x84"' },
+  'T2484': { cab_type: 'tall', width: 24, height: 84, label: 'Tall 24"x84"' },
+  'T3084': { cab_type: 'tall', width: 30, height: 84, label: 'Tall 30"x84"' },
+  'T1890': { cab_type: 'tall', width: 18, height: 90, label: 'Tall 18"x90"' },
+  'T2490': { cab_type: 'tall', width: 24, height: 90, label: 'Tall 24"x90"' },
+  // Tall - Oven
+  'OC3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x84"' },
+  'OC3396': { cab_type: 'tall', width: 33, height: 96, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x96"' },
+  'OC3084': { cab_type: 'tall', width: 30, height: 84, specialty: 'oven_cabinet', label: 'Oven Cabinet 30"x84"' },
+  // Tall - Refrigerator
+  'RC3684': { cab_type: 'tall', width: 36, height: 84, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x84"' },
+  'RC3696': { cab_type: 'tall', width: 36, height: 96, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 36"x96"' },
+  'RC3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'refrigerator_cabinet', label: 'Fridge Cabinet 33"x84"' },
 };
 
 const CUSTOM_VALUE = '__custom__';
@@ -76,7 +86,19 @@ const groupedOptions = [
   {
     label: 'Tall Cabinets',
     options: Object.entries(CABINET_PRESETS)
-      .filter(([, v]) => v.cab_type === 'tall')
+      .filter(([, v]) => v.cab_type === 'tall' && !v.specialty)
+      .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+  },
+  {
+    label: 'Tall - Oven',
+    options: Object.entries(CABINET_PRESETS)
+      .filter(([, v]) => v.cab_type === 'tall' && v.specialty === 'oven_cabinet')
+      .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+  },
+  {
+    label: 'Tall - Refrigerator',
+    options: Object.entries(CABINET_PRESETS)
+      .filter(([, v]) => v.cab_type === 'tall' && v.specialty === 'refrigerator_cabinet')
       .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
   },
   {
@@ -107,6 +129,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange }) 
         height_inches: 34.5,
         is_specialty: false,
         specialty_type: null,
+        has_glass_door: false,
         qty: 1,
         display_order: boxes.length,
       };
@@ -122,6 +145,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange }) 
       height_inches: preset.height,
       is_specialty: !!preset.specialty,
       specialty_type: preset.specialty || null,
+      has_glass_door: false,
       qty: 1,
       display_order: boxes.length,
     };
@@ -143,6 +167,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange }) 
         height_inches: 34.5,
         is_specialty: false,
         specialty_type: null,
+        has_glass_door: false,
       });
       return;
     }
@@ -257,6 +282,21 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange }) 
       render: (_: string, record: CabinetBoxCreate) => (
         record.is_specialty && record.specialty_type ? (
           <Tag color="orange">{record.specialty_type.replace(/_/g, ' ')}</Tag>
+        ) : <Text type="secondary">—</Text>
+      ),
+    },
+    {
+      title: 'Glass',
+      dataIndex: 'has_glass_door',
+      width: 60,
+      render: (_: boolean, record: CabinetBoxCreate, index: number) => (
+        record.cab_type === 'wall' || record.cab_type === 'base' ? (
+          <Tooltip title="Glass door insert">
+            <Checkbox
+              checked={record.has_glass_door}
+              onChange={(e) => updateBox(index, { has_glass_door: e.target.checked })}
+            />
+          </Tooltip>
         ) : <Text type="secondary">—</Text>
       ),
     },

@@ -474,6 +474,8 @@ export const SCOPE_CATEGORIES: ScopeCategory[] = [
           { value: 'trim_reset', label: 'Trim Board — Detach & Reset', itemCodes: ['FNC1XRS'], unit: 'LF', qtyField: 'LF' },
           { value: 'lvp_trim_reset', label: 'LVP Flooring Trim — Detach & Reset', itemCodes: ['FCVTRIMRS'], unit: 'LF', qtyField: 'LF' },
           { value: 'wood_trim_reset', label: 'Wood Flooring Trim — Detach & Reset', itemCodes: ['FCWTRIMRS'], unit: 'LF', qtyField: 'LF' },
+          // ⚠️ CUSTOM: Door Casing D&R — wood floor 교체 시 필수 (바닥 두께 변경)
+          { value: 'door_casing_reset', label: 'Door Casing — Detach & Reset (per side)', itemCodes: ['FNCDORCRS_CUSTOM'], unit: 'EA', isCustom: true },
         ],
       },
       {

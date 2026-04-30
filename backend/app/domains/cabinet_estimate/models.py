@@ -75,9 +75,30 @@ class CabinetEstimate(Base, BaseModel):
     include_countertop_reset = Column(Boolean, default=False)
     include_hardware = Column(Boolean, default=True)
 
-    # Countertop (optional scope)
+    # Additional scope flags
+    include_crown_molding = Column(Boolean, default=False)
+    include_backsplash = Column(Boolean, default=False)
+    backsplash_type = Column(String(50), nullable=True)
+    backsplash_sqft = Column(Float, nullable=True)
+    include_toe_kick = Column(Boolean, default=True)
+    include_countertop = Column(Boolean, default=False)
+    include_drywall_repair = Column(Boolean, default=False)
+    drywall_repair_sqft = Column(Float, nullable=True)
+    include_painting = Column(Boolean, default=False)
+    painting_sqft = Column(Float, nullable=True)
+    include_appliance_rr = Column(Boolean, default=False)
+    include_dumpster = Column(Boolean, default=True)
+
+    # Island panels (SF = square feet)
+    island_end_panel_sqft = Column(Float, default=0)
+    island_back_panel_sqft = Column(Float, default=0)
+
+    # Countertop
     countertop_material = Column(String(100), nullable=True)
     countertop_sqft = Column(Float, nullable=True)
+
+    # Overview text for PDF
+    overview_text = Column(Text, nullable=True)
 
     # Calculated totals
     subtotal = Column(Float, default=0)
@@ -138,6 +159,8 @@ class CabinetBox(Base, BaseModel):
     is_specialty = Column(Boolean, default=False)
     specialty_type = Column(String(50), nullable=True)
     # sink_base / lazy_susan / blind_corner / drawer_base / diagonal_corner_wall
+    # / oven_cabinet / refrigerator_cabinet
+    has_glass_door = Column(Boolean, default=False)
     qty = Column(Integer, default=1, nullable=False)
     display_order = Column(Integer, default=0)
 

@@ -13,13 +13,18 @@ from app.core.interfaces import DatabaseSession
 from app.domains.auth.dependencies import get_current_user
 
 from .pricing import (
+    BACKSPLASH_TYPES,
     BASE_RATES,
+    CROWN_MOLDING_PRICING,
     DOOR_STYLES,
     FINISH_MULTIPLIER,
+    GLASS_DOOR_PREMIUM,
+    ISLAND_PANEL_PRICING,
     LAYOUT_TYPES,
     MATERIAL_MULTIPLIER,
     SCOPE_ITEMS,
     SPECIALTY_PREMIUM,
+    TALL_CABINET_TYPES,
 )
 from .schemas import (
     CabinetEstimateCreate,
@@ -56,6 +61,14 @@ def get_pricing_info():
         "cab_types": CabType.choices(),
         "specialty_types": list(SPECIALTY_PREMIUM.keys()),
         "scope_items": SCOPE_ITEMS,
+        "backsplash_types": [
+            {"key": k, "label": v["label"], "material_per_sf": v["material_per_sf"], "install_per_sf": v["install_per_sf"]}
+            for k, v in BACKSPLASH_TYPES.items()
+        ],
+        "glass_door_premiums": GLASS_DOOR_PREMIUM,
+        "crown_molding_pricing": CROWN_MOLDING_PRICING,
+        "island_panel_pricing": ISLAND_PANEL_PRICING,
+        "tall_cabinet_types": TALL_CABINET_TYPES,
     }
 
 
