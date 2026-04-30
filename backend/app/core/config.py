@@ -261,6 +261,10 @@ class Settings(BaseSettings):
     XACT_CORRECTION_AUTO_APPLY_THRESHOLD: int = int(os.getenv("XACT_CORRECTION_AUTO_APPLY_THRESHOLD", "3"))
     XACT_CANDIDATE_ITEM_LIMIT: int = int(os.getenv("XACT_CANDIDATE_ITEM_LIMIT", "8"))
 
+    # Email Ingestion Settings
+    ENABLE_EMAIL_INGESTION: bool = os.getenv("ENABLE_EMAIL_INGESTION", "true").lower() == "true"
+    EMAIL_ENCRYPTION_KEY: Optional[str] = os.getenv("EMAIL_ENCRYPTION_KEY")
+
     # Redis Cache Settings
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
     REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))

@@ -55,6 +55,9 @@ class Client(Base, BaseModel):
     # Which company manages this client
     company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=True)
 
+    # Normalized address for fast matching (auto-generated from address fields)
+    normalized_address = Column(String(500), nullable=True, index=True)
+
     # Notes
     notes = Column(Text)
     is_active = Column(Boolean, default=True)

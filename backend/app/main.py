@@ -177,6 +177,10 @@ from app.domains.insurance_extraction.models import (
     InsurancePdfExtractionItem,
 )
 
+# Email Ingestion system models
+from app.domains.email_ingestion.models import EmailAccount, EmailIngestionLog
+from app.domains.email_ingestion.api import router as email_ingestion_router
+
 # Conditional Material Detection imports (only if enabled)
 material_detection_available = False
 training_api_available = False
@@ -258,6 +262,8 @@ def _auto_add_columns():
         ("work_orders", "client_id", "UUID"),
         ("work_orders", "claim_id", "UUID"),
         ("water_mitigation_jobs", "claim_id", "UUID"),
+        # Normalized address for email ingestion matching
+        ("clients", "normalized_address", "VARCHAR(500)"),
     ]
 
     existing = {}
@@ -339,7 +345,10 @@ async def lifespan(app: FastAPI):
                 CI.__table__.create(_db.engine, checkfirst=True)
                 CS.__table__.create(_db.engine, checkfirst=True)
                 CC.__table__.create(_db.engine, checkfirst=True)
-                print("[STARTUP] Client/Claim/Contract tables ensured")
+                # Email Ingestion tables
+                EmailAccount.__table__.create(_db.engine, checkfirst=True)
+                EmailIngestionLog.__table__.create(_db.engine, checkfirst=True)
+                print("[STARTUP] Client/Claim/Contract/EmailIngestion tables ensured")
         except Exception as e:
             print(f"[STARTUP] Client table creation skipped: {e}")
 
@@ -671,6 +680,9 @@ if material_detection_available:
     if training_api_available:
         app.include_router(training_router, prefix="/api/material-detection", tags=["ML Training"])
         logger.info("Training API routes registered")
+
+# Email Ingestion endpoints
+app.include_router(email_ingestion_router, prefix="/api/email-ingestion", tags=["Email Ingestion"])
 
 # Crew Upload endpoints (public + admin)
 app.include_router(

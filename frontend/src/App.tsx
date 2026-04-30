@@ -103,6 +103,10 @@ const XactimateHelper = lazy(() => import('./pages/XactimateHelper'));
 // Tools Pages
 const PhotoMetadataEditor = lazy(() => import('./pages/PhotoMetadataEditor'));
 
+// Email Ingestion
+const EmailIngestionDashboard = lazy(() => import('./pages/EmailIngestionDashboard'));
+const EmailAccountSettings = lazy(() => import('./pages/EmailAccountSettings'));
+
 // Crew Upload (Public)
 const CrewUploadPage = lazy(() => import('./pages/CrewUploadPage'));
 
@@ -640,6 +644,31 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <CabinetEstimateDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Email Ingestion routes
+  {
+    path: "/email-ingestion",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <EmailIngestionDashboard />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/email-ingestion/accounts",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <EmailAccountSettings />
           </Suspense>
         </Layout>
       </ProtectedRoute>

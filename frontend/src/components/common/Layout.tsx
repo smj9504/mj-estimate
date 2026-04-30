@@ -29,6 +29,7 @@ import {
   FileImageOutlined,
   ContactsOutlined,
   BuildOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../../store/useStore';
 import { useAuth } from '../../contexts/AuthContext';
@@ -160,6 +161,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         key: '/cabinet-estimates',
         icon: <BuildOutlined />,
         label: 'Cabinet Estimate',
+      },
+      {
+        key: '/email-ingestion',
+        icon: <MailOutlined />,
+        label: 'Email Ingestion',
       },
       {
         key: '/reconstruction-estimate',
