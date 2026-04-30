@@ -71,7 +71,7 @@ const DetailsStep: React.FC<DetailsStepProps> = ({
     if (value.length >= 2) {
       try {
         const result = await clientService.search(value, 20);
-        setClients(result.items || result || []);
+        setClients(result.clients || []);
       } catch { setClients([]); }
     }
   }, []);
