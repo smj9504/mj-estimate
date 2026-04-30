@@ -116,6 +116,8 @@ export interface Claim {
   estimate_count: number;
   wm_job_count: number;
   work_order_count: number;
+  cabinet_estimate_count: number;
+  plumber_report_id?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -142,6 +144,26 @@ export interface ClaimCreate {
 // Client
 // ============================================================
 
+export interface CabinetEstimateSummary {
+  id: string;
+  claim_id?: string | null;
+  status: string;
+  property_address?: string;
+  tier?: string;
+  total?: number;
+  created_at?: string;
+}
+
+export interface PlumberReportSummary {
+  id: string;
+  report_number?: string;
+  status?: string;
+  service_date?: string;
+  technician_name?: string;
+  total_amount?: number;
+  created_at?: string;
+}
+
 export interface Client {
   id: string;
   display_name: string;
@@ -163,6 +185,8 @@ export interface Client {
   standalone_estimate_count: number;
   standalone_wm_job_count: number;
   standalone_work_order_count: number;
+  cabinet_estimates: CabinetEstimateSummary[];
+  plumber_reports: PlumberReportSummary[];
   created_at?: string;
   updated_at?: string;
 }

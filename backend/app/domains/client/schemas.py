@@ -194,6 +194,8 @@ class ClaimDetailResponse(ClaimBase):
     estimate_count: int = 0
     wm_job_count: int = 0
     work_order_count: int = 0
+    cabinet_estimate_count: int = 0
+    plumber_report_id: Optional[str] = None
 
     class Config:
         from_attributes = True

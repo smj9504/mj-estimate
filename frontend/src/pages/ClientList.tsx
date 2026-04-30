@@ -440,22 +440,13 @@ const ClientList: React.FC = () => {
       },
     },
     {
-      title: 'Phone',
-      key: 'phone',
+      title: 'Address',
+      key: 'address',
       render: (_: any, record) => {
-        const owner = primaryOwner(record.owners);
-        return record.phone || owner?.phone || '—';
+        const parts = [record.address, record.city, record.state, record.zipcode].filter(Boolean);
+        return parts.length > 0 ? parts.join(', ') : '—';
       },
       responsive: ['md'],
-    },
-    {
-      title: 'Email',
-      key: 'email',
-      render: (_: any, record) => {
-        const owner = primaryOwner(record.owners);
-        return record.email || owner?.email || '—';
-      },
-      responsive: ['lg'],
     },
     {
       title: 'Insurance Company',

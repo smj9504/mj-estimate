@@ -62,6 +62,8 @@ import type {
   ClaimNegotiationCreate,
   NegotiationSection,
   PdfExtractionResult,
+  CabinetEstimateSummary,
+  PlumberReportSummary,
 } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -1054,6 +1056,28 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
             <Text type="secondary">Work Orders: <strong>{claim.work_order_count}</strong></Text>
           </Space>
         </Col>
+        <Col>
+          <Space>
+            <FileTextOutlined style={{ color: '#eb2f96' }} />
+            <Text type="secondary">Cabinet Estimates: <strong>{claim.cabinet_estimate_count}</strong></Text>
+          </Space>
+        </Col>
+        {claim.plumber_report_id && (
+          <Col>
+            <Space>
+              <FileTextOutlined style={{ color: '#13c2c2' }} />
+              <Text type="secondary">
+                <a
+                  href={`/plumber-reports/${claim.plumber_report_id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ color: 'inherit' }}
+                >
+                  Plumber Report
+                </a>
+              </Text>
+            </Space>
+          </Col>
+        )}
       </Row>
 
       <NegotiationModal
@@ -1189,7 +1213,9 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
           record.invoice_count +
           record.estimate_count +
           record.wm_job_count +
-          record.work_order_count;
+          record.work_order_count +
+          record.cabinet_estimate_count +
+          (record.plumber_report_id ? 1 : 0);
         return <Badge count={total} style={{ backgroundColor: total > 0 ? '#1890ff' : '#d9d9d9' }} />;
       },
       responsive: ['sm'],
@@ -1339,49 +1365,180 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
 };
 
 // ─────────────────────────────────────────────
-// All Documents Tab (placeholder)
+// All Documents Tab
 // ─────────────────────────────────────────────
 
 interface AllDocumentsTabProps {
   client: Client;
 }
 
+const STATUS_COLOR: Record<string, string> = {
+  draft: 'default',
+  calculated: 'processing',
+  approved: 'success',
+  exported: 'cyan',
+  final: 'green',
+  sent: 'blue',
+};
+
 const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
-  const totalInvoices =
-    client.standalone_invoice_count +
-    client.claims.reduce((sum, c) => sum + c.invoice_count, 0);
-  const totalEstimates =
-    client.standalone_estimate_count +
-    client.claims.reduce((sum, c) => sum + c.estimate_count, 0);
-  const totalWmJobs =
-    client.standalone_wm_job_count +
-    client.claims.reduce((sum, c) => sum + c.wm_job_count, 0);
-  const totalWorkOrders =
-    client.standalone_work_order_count +
-    client.claims.reduce((sum, c) => sum + c.work_order_count, 0);
+  const navigate = useNavigate();
+
+  const cabinetEstimates = client.cabinet_estimates ?? [];
+  const plumberReports = client.plumber_reports ?? [];
+
+  // Helper: find claim_number by claim_id
+  const claimNumberMap = new Map(client.claims.map((c) => [c.id, c.claim_number]));
+
+  const cabColumns: ColumnsType<CabinetEstimateSummary> = [
+    {
+      title: 'Address',
+      dataIndex: 'property_address',
+      key: 'property_address',
+      render: (val?: string) => val || '—',
+    },
+    {
+      title: 'Tier',
+      dataIndex: 'tier',
+      key: 'tier',
+      width: 120,
+      render: (val?: string) => val ? <Tag>{val}</Tag> : '—',
+    },
+    {
+      title: 'Total',
+      dataIndex: 'total',
+      key: 'total',
+      width: 120,
+      align: 'right',
+      render: formatCurrency,
+    },
+    {
+      title: 'Claim',
+      dataIndex: 'claim_id',
+      key: 'claim_id',
+      width: 140,
+      render: (claimId?: string) =>
+        claimId ? (
+          <Text type="secondary">{claimNumberMap.get(claimId) || '—'}</Text>
+        ) : '—',
+      responsive: ['md'] as any,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 110,
+      render: (status: string) => (
+        <Tag color={STATUS_COLOR[status] || 'default'}>{status}</Tag>
+      ),
+    },
+    {
+      title: 'Created',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 110,
+      render: formatDate,
+      responsive: ['lg'] as any,
+    },
+  ];
+
+  const plumberColumns: ColumnsType<PlumberReportSummary> = [
+    {
+      title: 'Report #',
+      dataIndex: 'report_number',
+      key: 'report_number',
+      render: (val?: string) => <Text strong>{val || '—'}</Text>,
+    },
+    {
+      title: 'Technician',
+      dataIndex: 'technician_name',
+      key: 'technician_name',
+      render: (val?: string) => val || '—',
+      responsive: ['md'] as any,
+    },
+    {
+      title: 'Total',
+      dataIndex: 'total_amount',
+      key: 'total_amount',
+      width: 120,
+      align: 'right',
+      render: formatCurrency,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
+      render: (status?: string) => (
+        <Tag color={STATUS_COLOR[status || ''] || 'default'}>{status || 'draft'}</Tag>
+      ),
+    },
+    {
+      title: 'Service Date',
+      dataIndex: 'service_date',
+      key: 'service_date',
+      width: 120,
+      render: formatDate,
+    },
+  ];
 
   return (
-    <Card>
-      <Row gutter={[24, 24]}>
-        <Col xs={12} sm={6}>
-          <Statistic title="Invoices" value={totalInvoices} prefix={<FileTextOutlined />} />
-        </Col>
-        <Col xs={12} sm={6}>
-          <Statistic title="Estimates" value={totalEstimates} prefix={<FileTextOutlined />} />
-        </Col>
-        <Col xs={12} sm={6}>
-          <Statistic title="WM Jobs" value={totalWmJobs} prefix={<FileTextOutlined />} />
-        </Col>
-        <Col xs={12} sm={6}>
-          <Statistic title="Work Orders" value={totalWorkOrders} prefix={<FileTextOutlined />} />
-        </Col>
-      </Row>
-      <Divider />
-      <div style={{ textAlign: 'center', padding: '32px 0', color: '#8c8c8c' }}>
-        <FileTextOutlined style={{ fontSize: 40, marginBottom: 12, display: 'block' }} />
-        Document listing coming soon.
-      </div>
-    </Card>
+    <div>
+      {/* Cabinet Estimates */}
+      <Card
+        title={
+          <Space>
+            <FileTextOutlined style={{ color: '#eb2f96' }} />
+            <span>Cabinet Estimates ({cabinetEstimates.length})</span>
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+        size="small"
+      >
+        {cabinetEstimates.length === 0 ? (
+          <Text type="secondary">No cabinet estimates linked to this client.</Text>
+        ) : (
+          <Table<CabinetEstimateSummary>
+            rowKey="id"
+            columns={cabColumns}
+            dataSource={cabinetEstimates}
+            pagination={false}
+            size="small"
+            onRow={(record) => ({
+              onClick: () => navigate(`/cabinet-estimates/${record.id}`),
+              style: { cursor: 'pointer' },
+            })}
+          />
+        )}
+      </Card>
+
+      {/* Plumber Reports */}
+      <Card
+        title={
+          <Space>
+            <FileTextOutlined style={{ color: '#13c2c2' }} />
+            <span>Plumber Reports ({plumberReports.length})</span>
+          </Space>
+        }
+        size="small"
+      >
+        {plumberReports.length === 0 ? (
+          <Text type="secondary">No plumber reports linked to this client.</Text>
+        ) : (
+          <Table<PlumberReportSummary>
+            rowKey="id"
+            columns={plumberColumns}
+            dataSource={plumberReports}
+            pagination={false}
+            size="small"
+            onRow={(record) => ({
+              onClick: () => navigate(`/plumber-reports/${record.id}`),
+              style: { cursor: 'pointer' },
+            })}
+          />
+        )}
+      </Card>
+    </div>
   );
 };
 

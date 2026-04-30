@@ -69,6 +69,14 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                     WorkOrder.claim_id == claim.id
                 ).count()
 
+                from app.domains.cabinet_estimate.models import CabinetEstimate
+                claim_dict['cabinet_estimate_count'] = self.db_session.query(CabinetEstimate).filter(
+                    CabinetEstimate.claim_id == claim.id
+                ).count()
+
+                # Include plumber_report_id if linked
+                claim_dict['plumber_report_id'] = str(claim.plumber_report_id) if claim.plumber_report_id else None
+
                 claims_list.append(claim_dict)
 
             client_dict['claims'] = claims_list
@@ -95,6 +103,76 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                 WorkOrder.client_id == client_id,
                 WorkOrder.claim_id.is_(None)
             ).count()
+
+            # Collect cabinet estimates: via claim OR matching property_address
+            from app.domains.cabinet_estimate.models import CabinetEstimate
+            claim_ids = [c['id'] for c in claims_list]
+
+            cab_filters = []
+            if claim_ids:
+                cab_filters.append(CabinetEstimate.claim_id.in_(claim_ids))
+            # Also match by property_address containing client address
+            client_address = client_dict.get('address')
+            if client_address and client_address.strip():
+                cab_filters.append(CabinetEstimate.property_address.ilike(f"%{client_address.strip()}%"))
+
+            if cab_filters:
+                cab_estimates = self.db_session.query(CabinetEstimate).filter(
+                    or_(*cab_filters)
+                ).order_by(CabinetEstimate.created_at.desc()).all()
+            else:
+                cab_estimates = []
+
+            client_dict['cabinet_estimates'] = [
+                {
+                    'id': str(ce.id),
+                    'claim_id': str(ce.claim_id) if ce.claim_id else None,
+                    'status': ce.status,
+                    'property_address': ce.property_address,
+                    'tier': ce.tier,
+                    'total': ce.total,
+                    'created_at': ce.created_at.isoformat() if ce.created_at else None,
+                }
+                for ce in cab_estimates
+            ]
+
+            # Collect plumber reports: via claim OR matching client_name/client_address
+            from app.domains.plumber_report.models import PlumberReport
+            plumber_report_ids = [
+                c['plumber_report_id'] for c in claims_list
+                if c.get('plumber_report_id')
+            ]
+
+            pr_filters = []
+            if plumber_report_ids:
+                pr_filters.append(PlumberReport.id.in_(plumber_report_ids))
+            # Match by client_name = display_name
+            display_name = client_dict.get('display_name')
+            if display_name and display_name.strip():
+                pr_filters.append(PlumberReport.client_name == display_name.strip())
+            # Also match by client_address
+            if client_address and client_address.strip():
+                pr_filters.append(PlumberReport.client_address.ilike(f"%{client_address.strip()}%"))
+
+            if pr_filters:
+                plumber_reports = self.db_session.query(PlumberReport).filter(
+                    or_(*pr_filters)
+                ).order_by(PlumberReport.created_at.desc()).all()
+            else:
+                plumber_reports = []
+
+            client_dict['plumber_reports'] = [
+                {
+                    'id': str(pr.id),
+                    'report_number': pr.report_number,
+                    'status': pr.status,
+                    'service_date': pr.service_date.isoformat() if pr.service_date else None,
+                    'technician_name': pr.technician_name,
+                    'total_amount': pr.total_amount,
+                    'created_at': pr.created_at.isoformat() if pr.created_at else None,
+                }
+                for pr in plumber_reports
+            ]
 
             return client_dict
 
@@ -183,6 +261,13 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
             claim_dict['work_order_count'] = self.db_session.query(WorkOrder).filter(
                 WorkOrder.claim_id == claim_id
             ).count()
+
+            from app.domains.cabinet_estimate.models import CabinetEstimate
+            claim_dict['cabinet_estimate_count'] = self.db_session.query(CabinetEstimate).filter(
+                CabinetEstimate.claim_id == claim_id
+            ).count()
+
+            claim_dict['plumber_report_id'] = str(claim.plumber_report_id) if claim.plumber_report_id else None
 
             return claim_dict
         except Exception as e:
