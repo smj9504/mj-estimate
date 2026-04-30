@@ -1,59 +1,40 @@
 /**
- * Pack Calculator New - Calculation List Page
- * Shows all pack-out/pack-in estimates created with the new multi-mode calculator
+ * Packing Estimate List Page
+ * Shows all packing estimates with client/company info
  */
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Table,
-  Button,
-  Space,
-  Card,
-  message,
-  Popconfirm,
-  Tag,
-  Typography,
-  Row,
-  Col,
-  Statistic,
-  Badge,
-  Tooltip,
-  Empty,
+  Table, Button, Space, Card, message, Popconfirm, Tag,
+  Typography, Row, Col, Statistic, Tooltip, Empty,
 } from 'antd';
 import {
-  PlusOutlined,
-  EyeOutlined,
-  DeleteOutlined,
-  ReloadOutlined,
-  ThunderboltOutlined,
-  BoxPlotOutlined,
-  TeamOutlined,
-  WarningOutlined,
-  FileTextOutlined,
+  PlusOutlined, EyeOutlined, DeleteOutlined,
+  ReloadOutlined, ThunderboltOutlined, TeamOutlined,
+  FileTextOutlined, DollarOutlined, UserOutlined,
 } from '@ant-design/icons';
-import { packCalculationAPI, PackCalculationResult } from '../services/packCalculationService';
+import * as packingService from '../services/packingEstimateService';
+import type { PackEstimateSummary } from '../types/packing-estimate';
 import { formatDate } from '../utils/formatters';
 
 const { Title, Text } = Typography;
 
 const PackCalculatorNewList: React.FC = () => {
   const navigate = useNavigate();
-  const [calculations, setCalculations] = useState<PackCalculationResult[]>([]);
+  const [estimates, setEstimates] = useState<PackEstimateSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const [total, setTotal] = useState(0);
 
-  useEffect(() => {
-    fetchCalculations();
-  }, []);
+  useEffect(() => { fetchEstimates(); }, []);
 
-  const fetchCalculations = async () => {
+  const fetchEstimates = async () => {
     setLoading(true);
     try {
-      const data = await packCalculationAPI.getAll();
-      setCalculations(data);
-    } catch (error) {
-      message.error('Failed to load calculations');
-      console.error('Error fetching calculations:', error);
+      const data = await packingService.listEstimates({ limit: 100 });
+      setEstimates(data.items);
+      setTotal(data.total);
+    } catch {
+      message.error('Failed to load estimates');
     } finally {
       setLoading(false);
     }
@@ -61,305 +42,214 @@ const PackCalculatorNewList: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      await packCalculationAPI.delete(id);
-      message.success('Calculation deleted successfully');
-      fetchCalculations();
-    } catch (error) {
-      message.error('Failed to delete calculation');
-      console.error('Error deleting calculation:', error);
+      await packingService.deleteEstimate(id);
+      message.success('Estimate deleted');
+      fetchEstimates();
+    } catch {
+      message.error('Failed to delete');
     }
   };
 
-  const handleView = (record: PackCalculationResult) => {
-    navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`);
-  };
-
-  const handleCreateNew = () => {
-    navigate('/reconstruction-estimate/pack-calculator-new');
-  };
-
-  // Calculate summary statistics
-  const totalBoxes = calculations.reduce((sum, calc) => {
-    const packOutBoxes = calc.pack_out_materials?.reduce((boxSum: number, mat: any) => {
-      return boxSum + (mat.quantity || 0);
-    }, 0) || 0;
-    return sum + packOutBoxes;
-  }, 0);
-
-  const totalRooms = calculations.reduce((sum, calc) => sum + (calc.rooms?.length || 0), 0);
-
-  const totalLaborHours = calculations.reduce((sum, calc) => {
-    const packOutHours = calc.total_pack_out_hours || 0;
-    const packInHours = calc.total_pack_in_hours || 0;
-    return sum + packOutHours + packInHours;
-  }, 0);
-
   const columns = [
     {
-      title: 'Calculation Name',
+      title: 'Estimate',
       dataIndex: 'calculation_name',
-      key: 'calculation_name',
-      render: (text: string, record: PackCalculationResult) => (
+      key: 'name',
+      render: (text: string, record: PackEstimateSummary) => (
         <Space direction="vertical" size={0}>
-          <Text strong style={{ fontSize: '16px' }}>
-            <FileTextOutlined /> {text || 'Untitled Calculation'}
+          <Text strong>
+            <FileTextOutlined /> {text || 'Untitled'}
           </Text>
-          {record.needs_review && (
-            <Tag icon={<WarningOutlined />} color="warning" style={{ marginTop: 4 }}>
-              Needs Review
-            </Tag>
+          {record.project_address && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {record.project_address}
+            </Text>
           )}
-          <Text type="secondary" style={{ fontSize: '12px' }}>
-            Created: {formatDate(record.created_at)}
-          </Text>
         </Space>
       ),
       width: '25%',
     },
     {
-      title: 'Rooms',
-      key: 'rooms',
-      align: 'center' as const,
-      render: (_: any, record: PackCalculationResult) => (
-        <Space direction="vertical" size={0} style={{ textAlign: 'center', width: '100%' }}>
-          <Text strong style={{ fontSize: '20px', color: '#1890ff' }}>
-            {record.rooms?.length || 0}
-          </Text>
-          <Text type="secondary" style={{ fontSize: '12px' }}>rooms</Text>
-        </Space>
+      title: 'Client',
+      key: 'client',
+      render: (_: any, record: PackEstimateSummary) => (
+        record.client_name ? (
+          <Space size={4}>
+            <UserOutlined />
+            <Text>{record.client_name}</Text>
+          </Space>
+        ) : <Text type="secondary">-</Text>
       ),
-      width: '10%',
+      width: '15%',
     },
     {
-      title: 'Materials',
-      key: 'materials',
+      title: 'Rooms',
+      dataIndex: 'total_rooms',
+      key: 'rooms',
       align: 'center' as const,
-      render: (_: any, record: PackCalculationResult) => {
-        const boxCount = record.pack_out_materials?.reduce((sum: number, mat: any) => {
-          return sum + (mat.quantity || 0);
-        }, 0) || 0;
-
-        return (
-          <Space direction="vertical" size={0} style={{ textAlign: 'center', width: '100%' }}>
-            <Text strong style={{ fontSize: '20px', color: '#52c41a' }}>
-              <BoxPlotOutlined /> {boxCount}
-            </Text>
-            <Text type="secondary" style={{ fontSize: '12px' }}>boxes</Text>
-          </Space>
-        );
-      },
+      width: '8%',
+    },
+    {
+      title: 'Hours',
+      dataIndex: 'total_hours',
+      key: 'hours',
+      align: 'center' as const,
+      render: (v: number | null) => v?.toFixed(1) || '-',
+      width: '8%',
+    },
+    {
+      title: 'Total',
+      dataIndex: 'grand_total',
+      key: 'total',
+      align: 'right' as const,
+      render: (v: number | null) => v
+        ? <Text strong style={{ color: '#1890ff' }}>
+            ${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+          </Text>
+        : '-',
       width: '12%',
     },
     {
-      title: 'Labor Hours',
-      key: 'labor',
+      title: 'Mode',
+      dataIndex: 'mode',
+      key: 'mode',
       align: 'center' as const,
-      render: (_: any, record: PackCalculationResult) => {
-        const packOutHours = record.total_pack_out_hours || 0;
-        const packInHours = record.total_pack_in_hours || 0;
-        const totalHours = packOutHours + packInHours;
-
-        return (
-          <Space direction="vertical" size={0} style={{ textAlign: 'center', width: '100%' }}>
-            <Text strong style={{ fontSize: '20px', color: '#faad14' }}>
-              <TeamOutlined /> {totalHours.toFixed(1)}
-            </Text>
-            <Text type="secondary" style={{ fontSize: '12px' }}>
-              {packOutHours.toFixed(1)} out / {packInHours.toFixed(1)} in
-            </Text>
-          </Space>
-        );
-      },
-      width: '15%',
+      render: (mode: string | null) => (
+        <Tag color={mode === 'photo_ai' ? 'purple' : 'blue'}>
+          {mode === 'photo_ai' ? 'Photo AI' : 'Quick'}
+        </Tag>
+      ),
+      width: '8%',
     },
     {
       title: 'Status',
+      dataIndex: 'status',
       key: 'status',
       align: 'center' as const,
-      render: (_: any, record: PackCalculationResult) => {
-        const hasReview = record.needs_review;
-        const mlConfidence = record.ml_confidence || 0;
-
-        return (
-          <Space direction="vertical" size={0} style={{ textAlign: 'center', width: '100%' }}>
-            {hasReview ? (
-              <Tag color="warning" icon={<WarningOutlined />}>
-                Needs Review
-              </Tag>
-            ) : (
-              <Tag color="success">
-                Ready
-              </Tag>
-            )}
-            <Text type="secondary" style={{ fontSize: '12px' }}>
-              AI: {(mlConfidence * 100).toFixed(0)}%
-            </Text>
-          </Space>
-        );
+      render: (status: string | null) => {
+        const colorMap: Record<string, string> = {
+          draft: 'default', completed: 'success', approved: 'blue',
+        };
+        return <Tag color={colorMap[status || 'draft'] || 'default'}>
+          {status || 'draft'}
+        </Tag>;
       },
-      width: '15%',
+      width: '8%',
+    },
+    {
+      title: 'Created',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (v: string | null) => v ? formatDate(v) : '-',
+      width: '10%',
     },
     {
       title: 'Actions',
       key: 'actions',
       align: 'center' as const,
-      render: (_: any, record: PackCalculationResult) => (
+      render: (_: any, record: PackEstimateSummary) => (
         <Space size="small">
-          <Tooltip title="View Details">
+          <Tooltip title="View">
             <Button
-              type="primary"
+              type="primary" size="small"
               icon={<EyeOutlined />}
-              onClick={() => handleView(record)}
-              size="small"
-            >
-              View
-            </Button>
+              onClick={() => navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`)}
+            />
           </Tooltip>
           <Popconfirm
-            title="Delete this calculation?"
-            description="This action cannot be undone."
-            onConfirm={() => handleDelete(record.id!)}
-            okText="Delete"
-            cancelText="Cancel"
+            title="Delete this estimate?"
+            onConfirm={() => handleDelete(record.id)}
             okButtonProps={{ danger: true }}
           >
-            <Tooltip title="Delete">
-              <Button
-                danger
-                icon={<DeleteOutlined />}
-                size="small"
-              />
-            </Tooltip>
+            <Button danger size="small" icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
       ),
-      width: '15%',
+      width: '10%',
     },
   ];
+
+  const totalGrand = estimates.reduce((s, e) => s + (e.grand_total || 0), 0);
 
   return (
     <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        {/* Page Header */}
         <Card>
           <Row justify="space-between" align="middle">
             <Col>
-              <Space direction="vertical" size="small">
-                <Title level={2} style={{ margin: 0 }}>
-                  <ThunderboltOutlined /> Pack-Out/Pack-In Estimates
-                </Title>
-                <Text type="secondary">
-                  Manage all your packing estimates in one place
-                </Text>
-              </Space>
+              <Title level={3} style={{ margin: 0 }}>
+                <ThunderboltOutlined /> Packing Estimates
+              </Title>
             </Col>
             <Col>
               <Space>
-                <Button
-                  icon={<ReloadOutlined />}
-                  onClick={fetchCalculations}
-                  loading={loading}
-                >
+                <Button icon={<ReloadOutlined />} onClick={fetchEstimates} loading={loading}>
                   Refresh
                 </Button>
                 <Button
-                  type="primary"
+                  type="primary" size="large"
                   icon={<PlusOutlined />}
-                  onClick={handleCreateNew}
-                  size="large"
+                  onClick={() => navigate('/reconstruction-estimate/pack-calculator-new')}
                 >
-                  New Calculation
+                  New Estimate
                 </Button>
               </Space>
             </Col>
           </Row>
         </Card>
 
-        {/* Summary Statistics */}
-        {calculations.length > 0 && (
+        {estimates.length > 0 && (
           <Card>
             <Row gutter={16}>
               <Col span={6}>
-                <Statistic
-                  title="Total Calculations"
-                  value={calculations.length}
-                  prefix={<FileTextOutlined />}
-                  valueStyle={{ color: '#1890ff' }}
-                />
+                <Statistic title="Total Estimates" value={total} prefix={<FileTextOutlined />} />
+              </Col>
+              <Col span={6}>
+                <Statistic title="Total Rooms" value={estimates.reduce((s, e) => s + e.total_rooms, 0)} />
               </Col>
               <Col span={6}>
                 <Statistic
-                  title="Total Rooms"
-                  value={totalRooms}
-                  prefix={<BoxPlotOutlined />}
-                  valueStyle={{ color: '#52c41a' }}
-                />
-              </Col>
-              <Col span={6}>
-                <Statistic
-                  title="Total Boxes"
-                  value={totalBoxes}
-                  prefix={<BoxPlotOutlined />}
-                  valueStyle={{ color: '#faad14' }}
-                />
-              </Col>
-              <Col span={6}>
-                <Statistic
-                  title="Total Labor Hours"
-                  value={totalLaborHours.toFixed(1)}
+                  title="Total Hours"
+                  value={estimates.reduce((s, e) => s + (e.total_hours || 0), 0).toFixed(1)}
                   prefix={<TeamOutlined />}
-                  valueStyle={{ color: '#f5222d' }}
+                />
+              </Col>
+              <Col span={6}>
+                <Statistic
+                  title="Total Value"
+                  value={totalGrand}
+                  prefix={<DollarOutlined />}
+                  precision={2}
+                  valueStyle={{ color: '#1890ff' }}
                 />
               </Col>
             </Row>
           </Card>
         )}
 
-        {/* Calculations Table */}
         <Card>
           <Table
             columns={columns}
-            dataSource={calculations}
+            dataSource={estimates}
             rowKey="id"
             loading={loading}
-            pagination={{
-              pageSize: 10,
-              showSizeChanger: true,
-              showTotal: (total) => `Total ${total} calculations`,
-            }}
+            pagination={{ pageSize: 10, showTotal: t => `${t} estimates` }}
             locale={{
               emptyText: (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={
-                    <Space direction="vertical" size="small">
-                      <Text>No pack calculations yet</Text>
-                      <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={handleCreateNew}
-                      >
-                        Create Your First Calculation
-                      </Button>
-                    </Space>
-                  }
-                />
+                <Empty description={
+                  <Space direction="vertical">
+                    <Text>No packing estimates yet</Text>
+                    <Button
+                      type="primary" icon={<PlusOutlined />}
+                      onClick={() => navigate('/reconstruction-estimate/pack-calculator-new')}
+                    >
+                      Create First Estimate
+                    </Button>
+                  </Space>
+                } />
               ),
             }}
           />
-        </Card>
-
-        {/* Help Card */}
-        <Card size="small" style={{ background: '#f0f2f5' }}>
-          <Space direction="vertical" size="small" style={{ width: '100%' }}>
-            <Text strong>💡 Quick Tips:</Text>
-            <ul style={{ margin: 0, paddingLeft: 20, color: '#666' }}>
-              <li>Click <strong>View</strong> to see detailed calculation breakdown</li>
-              <li>Use <strong>New Calculation</strong> to create estimates using 5 different input modes</li>
-              <li>Calculations automatically account for hidden contents (cabinets, closets, drawers)</li>
-              <li>All cost estimates are based on Xactimate industry standards</li>
-            </ul>
-          </Space>
         </Card>
       </Space>
     </div>

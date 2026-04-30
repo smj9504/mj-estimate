@@ -182,14 +182,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             label: 'AI Material Detection',
           },
           {
-            key: '/reconstruction-estimate/pack-calculations',
-            icon: <DropboxOutlined />,
-            label: 'Pack Calculations (Old)',
-          },
-          {
             key: '/reconstruction-estimate/pack-calculator-new/list',
             icon: <RocketOutlined />,
-            label: 'Pack Calculator (New)',
+            label: 'Pack Calculator',
           },
         ],
       },

@@ -67,6 +67,7 @@ class Client(Base, BaseModel):
     invoices = relationship("Invoice", back_populates="client_ref", foreign_keys="Invoice.client_id", lazy='select')
     estimates = relationship("Estimate", back_populates="client_ref", foreign_keys="Estimate.client_id", lazy='select')
     work_orders = relationship("WorkOrder", back_populates="client_ref", foreign_keys="WorkOrder.client_id", lazy='select')
+    pack_estimates = relationship("PackCalculation", foreign_keys="PackCalculation.client_id", lazy='select')
     # Note: WM Jobs link to Client through Claim (WM Job → Claim → Client)
     # WM Job's existing client_id FK points to companies.id (legacy), not clients.id
 

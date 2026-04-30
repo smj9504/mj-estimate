@@ -115,6 +115,7 @@ from app.domains.insurance_extraction.api import router as insurance_extraction_
 from app.domains.invoice.api import router as invoice_router
 from app.domains.line_items.api import router as line_items_router
 from app.domains.pack_calculation.api import router as pack_calculation_router
+from app.domains.pack_calculation.packing_api import router as packing_estimate_router
 from app.domains.packout.api import router as packout_router
 from app.domains.payment.api import router as payment_router
 from app.domains.payment_config.api import router as payment_config_router
@@ -655,6 +656,7 @@ app.include_router(reconstruction_estimate_router)
 
 # Pack-In/Out Calculation System endpoints
 app.include_router(pack_calculation_router, prefix="/api")
+app.include_router(packing_estimate_router, prefix="/api")
 
 # Analytics endpoints
 app.include_router(analytics_router, prefix="/api", tags=["Analytics"])

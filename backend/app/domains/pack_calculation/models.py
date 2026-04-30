@@ -47,12 +47,44 @@ class DetectedBy(enum.Enum):
     AI_INFERRED = "AI_INFERRED"
 
 
+class PackEstimateMode(enum.Enum):
+    """Estimation mode"""
+    QUICK = "quick"
+    PHOTO_AI = "photo_ai"
+
+
+class PackEstimateStatus(enum.Enum):
+    """Estimate status"""
+    DRAFT = "draft"
+    COMPLETED = "completed"
+    APPROVED = "approved"
+
+
+class Density(enum.Enum):
+    """Room content density"""
+    LIGHT = "light"
+    NORMAL = "normal"
+    DENSE = "dense"
+    HEAVY = "heavy"
+    EXTREME = "extreme"
+
+
+class ContaminationLevel(enum.Enum):
+    """Contamination level per IICRC S500"""
+    CLEAN = "clean"
+    GRAY_WATER = "gray_water"
+    BLACK_WATER = "black_water"
+
+
 class PackCalculation(Base, BaseModel):
-    """Pack calculation record"""
+    """Pack calculation / packing estimate record"""
     __tablename__ = "pack_calculations"
     __table_args__ = (
         Index('ix_pack_calculations_user', 'created_by_id'),
         Index('ix_pack_calculations_date', 'created_at'),
+        Index('ix_pack_calculations_client', 'client_id'),
+        Index('ix_pack_calculations_company', 'company_id'),
+        Index('ix_pack_calculations_status', 'status'),
         {'extend_existing': True}
     )
 
@@ -61,41 +93,87 @@ class PackCalculation(Base, BaseModel):
     project_address = Column(String(500))
     notes = Column(Text)
 
+    # Client & Company linkage
+    client_id = Column(UUIDType(), ForeignKey("clients.id"), nullable=True)
+    company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=True)
+    claim_id = Column(UUIDType(), ForeignKey("claims.id"), nullable=True)
+
+    # Estimate mode & status
+    mode = Column(SQLEnum(PackEstimateMode), default=PackEstimateMode.QUICK)
+    status = Column(SQLEnum(PackEstimateStatus), default=PackEstimateStatus.DRAFT)
+
     # Building information
     building_type = Column(SQLEnum(BuildingType))
     total_floors = Column(Integer)
     has_elevator = Column(Boolean, default=False)
 
-    # Xactimate integration
-    xactimate_pack_out_materials = Column(JSONB)  # {line_item_code: quantity}
+    # Estimation settings (from packing_tool_export)
+    crew_size = Column(Integer, default=4)
+    region = Column(String(50), default="mid_atlantic")
+    staging_type = Column(String(20), default="off_site")
+    include_packback = Column(Boolean, default=True)
+    storage_months = Column(Integer, default=1)
+
+    # O&P and Contingency
+    include_op = Column(Boolean, default=True)
+    op_rate = Column(Integer, default=20)
+    include_contingency = Column(Boolean, default=False)
+    contingency_rate = Column(Integer, default=0)
+
+    # Xactimate integration (legacy, kept for backward compat)
+    xactimate_pack_out_materials = Column(JSONB)
     xactimate_pack_out_labor = Column(JSONB)
     xactimate_protection = Column(JSONB)
     xactimate_debris = Column(JSONB)
     xactimate_pack_in_labor = Column(JSONB)
 
+    # Section-level results (from packing_tool_export)
+    sections = Column(JSONB)  # {"Pack-Out Labor": 1200, "Materials": 800, ...}
+    section_details = Column(JSONB)  # {"Pack-Out Labor": {"lines": [...]}, ...}
+    materials_summary = Column(JSONB)  # {"box_small": 10, "blanket": 5, ...}
+    material_details = Column(JSONB)  # [{code, name, qty, unit, unit_price, total}]
+    supplements = Column(JSONB)  # [{key, name, amount, triggered, enabled}]
+
+    # Financial totals
+    subtotal = Column(Float)
+    op_amount = Column(Float)
+    contingency_amount = Column(Float)
+    supplements_total = Column(Float, default=0)
+    grand_total = Column(Float)
+    storage_sf = Column(Integer, default=0)
+
     # ML metadata
     ml_confidence = Column(Float)
     ml_used = Column(Boolean, default=False)
     needs_review = Column(Boolean, default=False)
-    strategies_used = Column(JSONB)  # {material: "rule_based", labor: "item_based", ...}
+    strategies_used = Column(JSONB)
 
     # Correction tracking
     was_corrected = Column(Boolean, default=False)
     corrected_at = Column(DateTime)
     corrected_by_user_id = Column(UUIDType(), ForeignKey("staff.id"))
     correction_notes = Column(Text)
-    correction_magnitude = Column(Float)  # % difference
+    correction_magnitude = Column(Float)
     approved_for_training = Column(Boolean, default=True)
 
     # Store both original and corrected
-    original_calculation = Column(JSONB)  # AI/rule prediction
-    corrected_calculation = Column(JSONB)  # Human-corrected values
+    original_calculation = Column(JSONB)
+    corrected_calculation = Column(JSONB)
 
-    # Summary results
+    # Summary results (legacy)
     total_pack_out_hours = Column(Float)
     total_pack_in_hours = Column(Float)
     total_protection_sf = Column(Float)
     total_debris_lb = Column(Float)
+    total_hours = Column(Float)
+    total_items = Column(Integer)
+
+    # Special items (global level)
+    special_items = Column(JSONB)  # ["piano", "pool_table"]
+    custom_special_items = Column(JSONB)  # [{"name": "...", "price": 100}]
+
+    # Room summaries for display
+    room_summaries = Column(JSONB)  # [{room_name, notable_items, categories_present, ...}]
 
     # Audit
     created_by_id = Column(UUIDType(), ForeignKey("staff.id"), nullable=False)
@@ -103,6 +181,9 @@ class PackCalculation(Base, BaseModel):
 
     # Relationships
     rooms = relationship("PackRoom", back_populates="calculation", cascade="all, delete-orphan")
+    client = relationship("Client", foreign_keys=[client_id], lazy="select")
+    company = relationship("Company", foreign_keys=[company_id], lazy="select")
+    claim = relationship("Claim", foreign_keys=[claim_id], lazy="select")
 
 
 class PackRoom(Base, BaseModel):
@@ -121,10 +202,27 @@ class PackRoom(Base, BaseModel):
     room_name = Column(String(255), nullable=False)
     floor_level = Column(SQLEnum(FloorLevel), nullable=False)
 
+    # Preset & density (from packing_tool_export)
+    preset_key = Column(String(100))  # e.g., "bedroom_standard"
+    density = Column(SQLEnum(Density), default=Density.NORMAL)
+    contamination = Column(SQLEnum(ContaminationLevel), default=ContaminationLevel.CLEAN)
+
+    # Content hints for quick estimate mode
+    hints = Column(JSONB)  # ["clothing_hanging", "furniture", ...]
+    hint_volume = Column(JSONB)  # {"books": 2, "electronics": 1}
+    hint_qty = Column(JSONB)  # {"sofa": 1, "bed_large": 1}
+
+    # Special items per room
+    room_special_items = Column(JSONB)  # ["piano", "pool_table"]
+    custom_special_items = Column(JSONB)  # [{"name": "...", "price": 100}]
+
+    # Photos (for Photo AI mode)
+    photos = Column(JSONB)  # ["url1", "url2", ...]
+
     # Input method tracking
     input_method = Column(SQLEnum(InputMethod), default=InputMethod.STRUCTURED)
-    raw_input = Column(Text)  # Original text or image reference
-    image_url = Column(String)  # For image inputs
+    raw_input = Column(Text)
+    image_url = Column(String)
     ai_confidence = Column(Float)
 
     # Calculated results for this room
@@ -153,9 +251,9 @@ class PackItem(Base, BaseModel):
 
     # Item details
     item_name = Column(String(255), nullable=False)
-    item_category = Column(String(100))  # furniture, appliance, boxes, etc.
+    item_category = Column(String(100))
     quantity = Column(Integer, default=1, nullable=False)
-    size_category = Column(String(50))  # small, medium, large, xl
+    size_category = Column(String(50))
 
     # AI metadata
     detected_by = Column(SQLEnum(DetectedBy), default=DetectedBy.MANUAL)
@@ -166,12 +264,21 @@ class PackItem(Base, BaseModel):
     estimated_weight_lb = Column(Float)
     fragile = Column(Boolean, default=False)
     requires_disassembly = Column(Boolean, default=False)
+    is_high_value = Column(Boolean, default=False)
     special_notes = Column(Text)
 
-    # Calculated materials for this item
-    xactimate_materials = Column(JSONB)  # {line_item_code: quantity}
+    # Packing method details (from AI analysis)
+    packing_method = Column(String(100))
+    required_materials = Column(JSONB)  # ["wardrobe_box", "bubble_wrap_12"]
+    base_labor_hours = Column(Float)
+    per_unit_labor_hours = Column(Float)
+    estimated_labor_hours = Column(Float)
+    estimator_flags = Column(JSONB)  # ["HEAVY", "FRAGILE", "DISASSEMBLY"]
 
-    # Cached labor hours (calculated once, stored for future views)
+    # Calculated materials for this item
+    xactimate_materials = Column(JSONB)
+
+    # Cached labor hours
     cached_packing_hours = Column(Float)
     cached_moving_hours = Column(Float)
 
@@ -198,7 +305,7 @@ class ItemMaterialMapping(Base, BaseModel):
     size_category = Column(String(50))
 
     # Material mapping (Xactimate line items)
-    xactimate_materials = Column(JSONB, nullable=False)  # {code: quantity_per_item}
+    xactimate_materials = Column(JSONB, nullable=False)
 
     # Item properties
     estimated_weight_lb = Column(Float)
@@ -237,7 +344,7 @@ class MLTrainingMetadata(Base, BaseModel):
     training_samples_count = Column(Integer, nullable=False)
 
     # Model performance metrics
-    boxes_mae = Column(Float)  # Mean Absolute Error for boxes
+    boxes_mae = Column(Float)
     bubble_wrap_mae = Column(Float)
     pads_mae = Column(Float)
     labor_mae = Column(Float)
@@ -251,5 +358,31 @@ class MLTrainingMetadata(Base, BaseModel):
     model_path = Column(String(500))
     feature_importances = Column(JSONB)
 
-    # Notes
+    # Notes (MLTrainingMetadata)
     notes = Column(Text)
+
+
+class PackingPrice(Base, BaseModel):
+    """
+    Packing/moving line item prices.
+    Tool-specific price table separate from general LineItems.
+    """
+    __tablename__ = "packing_prices"
+    __table_args__ = (
+        Index('ix_packing_prices_company', 'company_id'),
+        Index('ix_packing_prices_code', 'code'),
+        Index('ix_packing_prices_category', 'category'),
+        {'extend_existing': True}
+    )
+
+    code = Column(String(50), nullable=False)  # e.g., "2825", "3026"
+    name = Column(String(255), nullable=False)
+    unit = Column(String(50))  # EA, HR, SF, RL, BN, BX, MO
+    unit_price = Column(Float, nullable=False, default=0)
+    category = Column(String(100))  # "Moving - Labor", "Moving - Boxes", etc.
+    is_taxable = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True)
+
+    # Company ownership
+    company_id = Column(UUIDType(), ForeignKey("companies.id"), nullable=True)
+    created_by_id = Column(UUIDType(), ForeignKey("staff.id"), nullable=True)

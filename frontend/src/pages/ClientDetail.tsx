@@ -1521,6 +1521,7 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
           </Space>
         }
         size="small"
+        style={{ marginBottom: 16 }}
       >
         {plumberReports.length === 0 ? (
           <Text type="secondary">No plumber reports linked to this client.</Text>
@@ -1538,7 +1539,112 @@ const AllDocumentsTab: React.FC<AllDocumentsTabProps> = ({ client }) => {
           />
         )}
       </Card>
+
+      {/* Packing Estimates */}
+      <PackingEstimatesCard clientId={client.id} />
     </div>
+  );
+};
+
+// ─────────────────────────────────────────────
+// Packing Estimates Card (inside AllDocumentsTab)
+// ─────────────────────────────────────────────
+
+const PackingEstimatesCard: React.FC<{ clientId: string }> = ({ clientId }) => {
+  const navigate = useNavigate();
+  const { data: packData } = useQuery({
+    queryKey: ['packing-estimates', clientId],
+    queryFn: async () => {
+      const { listEstimates } = await import('../services/packingEstimateService');
+      return listEstimates({ client_id: clientId });
+    },
+    enabled: !!clientId,
+  });
+
+  const estimates = packData?.items ?? [];
+
+  const packColumns = [
+    {
+      title: 'Estimate Name',
+      dataIndex: 'calculation_name',
+      key: 'calculation_name',
+      render: (val?: string) => <Text strong>{val || 'Untitled'}</Text>,
+    },
+    {
+      title: 'Address',
+      dataIndex: 'project_address',
+      key: 'project_address',
+      render: (val?: string) => val || '—',
+      responsive: ['md'] as any,
+    },
+    {
+      title: 'Rooms',
+      dataIndex: 'total_rooms',
+      key: 'total_rooms',
+      width: 80,
+      align: 'center' as const,
+    },
+    {
+      title: 'Total',
+      dataIndex: 'grand_total',
+      key: 'grand_total',
+      width: 120,
+      align: 'right' as const,
+      render: (val?: number) => val
+        ? `$${val.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+        : '—',
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
+      render: (status?: string) => (
+        <Tag color={
+          status === 'approved' ? 'success'
+          : status === 'completed' ? 'processing'
+          : 'default'
+        }>
+          {status || 'draft'}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Created',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 110,
+      render: formatDate,
+      responsive: ['lg'] as any,
+    },
+  ];
+
+  return (
+    <Card
+      title={
+        <Space>
+          <FileTextOutlined style={{ color: '#722ed1' }} />
+          <span>Packing Estimates ({estimates.length})</span>
+        </Space>
+      }
+      size="small"
+    >
+      {estimates.length === 0 ? (
+        <Text type="secondary">No packing estimates linked to this client.</Text>
+      ) : (
+        <Table
+          rowKey="id"
+          columns={packColumns}
+          dataSource={estimates}
+          pagination={false}
+          size="small"
+          onRow={(record: any) => ({
+            onClick: () => navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`),
+            style: { cursor: 'pointer' },
+          })}
+        />
+      )}
+    </Card>
   );
 };
 
