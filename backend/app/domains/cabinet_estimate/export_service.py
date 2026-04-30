@@ -13,29 +13,93 @@ logger = logging.getLogger(__name__)
 # ── Line item category → section mapping ──
 SECTION_ORDER = [
     ("Cabinet Supply", ["supply", "premium"]),
-    ("Labor & Installation", ["scope"]),
+    ("Demolition & Removal", ["demo"]),
+    ("Installation", ["install"]),
+    ("Plumbing & Fixtures", ["plumbing"]),
+    ("Countertop", ["countertop"]),
+    ("Finishing", ["finishing"]),
+    ("General Conditions", ["misc"]),
 ]
 
 
 def _group_line_items(
     line_items: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Group line items into sections by category."""
+    """Group line items by location then category."""
     sections = []
-    for section_title, categories in SECTION_ORDER:
-        items = [
+
+    has_island = any(
+        li.get("location") == "island"
+        for li in line_items
+    )
+
+    if has_island:
+        # Perimeter → Island → Shared
+        for loc, loc_label in [
+            ("perimeter", "Perimeter"),
+            ("island", "Island"),
+        ]:
+            loc_items = [
+                li for li in line_items
+                if li.get("location", "perimeter")
+                == loc
+            ]
+            if not loc_items:
+                continue
+            for title, cats in SECTION_ORDER:
+                items = [
+                    li for li in loc_items
+                    if li.get("category") in cats
+                ]
+                if items:
+                    total = sum(
+                        li.get("total", 0)
+                        for li in items
+                    )
+                    sections.append({
+                        "title": (
+                            f"{loc_label} — {title}"
+                        ),
+                        "items": items,
+                        "total": total,
+                    })
+
+        shared = [
             li for li in line_items
-            if li.get("category") in categories
+            if li.get("location") == "shared"
         ]
-        if items:
-            section_total = sum(
-                li.get("total", 0) for li in items
-            )
-            sections.append({
-                "title": section_title,
-                "items": items,
-                "total": section_total,
-            })
+        if shared:
+            for title, cats in SECTION_ORDER:
+                items = [
+                    li for li in shared
+                    if li.get("category") in cats
+                ]
+                if items:
+                    total = sum(
+                        li.get("total", 0)
+                        for li in items
+                    )
+                    sections.append({
+                        "title": title,
+                        "items": items,
+                        "total": total,
+                    })
+    else:
+        for title, cats in SECTION_ORDER:
+            items = [
+                li for li in line_items
+                if li.get("category") in cats
+            ]
+            if items:
+                total = sum(
+                    li.get("total", 0)
+                    for li in items
+                )
+                sections.append({
+                    "title": title,
+                    "items": items,
+                    "total": total,
+                })
     return sections
 
 
@@ -45,7 +109,9 @@ class CabinetExportService:
     # ── PDF Export ──
 
     def generate_pdf(
-        self, estimate: Dict[str, Any]
+        self,
+        estimate: Dict[str, Any],
+        show_signature: bool = True,
     ) -> io.BytesIO:
         """Generate a professional PDF estimate."""
         from reportlab.lib import colors
@@ -167,10 +233,10 @@ class CabinetExportService:
         )
         terms_style = ParagraphStyle(
             "Terms",
-            fontSize=7,
+            fontSize=8.5,
             fontName="Helvetica",
             textColor=text_grey,
-            leading=9,
+            leading=12,
             spaceBefore=2,
         )
 
@@ -182,7 +248,10 @@ class CabinetExportService:
 
         company = estimate.get("company_info") or {}
 
-        # Left: company info (single paragraph)
+        # Left: logo + company info
+        left_elements = []
+
+        # Company text (single Paragraph for table cell)
         company_parts = []
         if company.get("name"):
             company_parts.append(
@@ -206,10 +275,13 @@ class CabinetExportService:
         if company.get("email"):
             contact.append(company["email"])
         if contact:
-            company_parts.append(" | ".join(contact))
+            company_parts.append(
+                " | ".join(contact),
+            )
         if company.get("license_number"):
             company_parts.append(
-                f"License #: {company['license_number']}"
+                f"License #: "
+                f"{company['license_number']}"
             )
 
         if company_parts:
@@ -259,15 +331,7 @@ class CabinetExportService:
         ]))
         elements.append(header_table)
 
-        # Divider
-        elements.append(Spacer(1, 6))
-        elements.append(
-            HRFlowable(
-                width="100%", thickness=2,
-                color=brand_accent,
-            )
-        )
-        elements.append(Spacer(1, 10))
+        elements.append(Spacer(1, 14))
 
         # ══════════════════════════════════════
         # PROJECT INFO: Bill To + Project
@@ -301,13 +365,20 @@ class CabinetExportService:
         if tier:
             project_parts.append(f"Tier: {tier}")
 
+        info_style = ParagraphStyle(
+            "InfoBox",
+            fontSize=8,
+            fontName="Helvetica",
+            textColor=text_grey,
+            leading=11,
+        )
         left_cell = Paragraph(
             "<b>BILL TO</b><br/>"
             + "<br/>".join(
                 bill_to_parts
                 or ["(Customer information)"]
             ),
-            small_grey,
+            info_style,
         )
         right_cell = Paragraph(
             "<b>PROJECT</b><br/>"
@@ -315,7 +386,7 @@ class CabinetExportService:
                 project_parts
                 or ["(Project details)"]
             ),
-            small_grey,
+            info_style,
         )
 
         info_table = Table(
@@ -420,7 +491,7 @@ class CabinetExportService:
                 if notes:
                     desc_p = Paragraph(
                         f"{desc}<br/>"
-                        f"<font size=6.5 color='#718096'>"
+                        f"<font size=7.5 color='#718096'>"
                         f"{notes}</font>",
                         normal,
                     )
@@ -483,10 +554,6 @@ class CabinetExportService:
                 (
                     "LINEABOVE", (0, -1), (-1, -1),
                     1, brand_accent,
-                ),
-                (
-                    "BACKGROUND", (0, -1), (-1, -1),
-                    section_bg,
                 ),
                 (
                     "TOPPADDING", (0, -1), (-1, -1),
@@ -625,73 +692,74 @@ class CabinetExportService:
         # ACCEPTANCE / SIGNATURE
         # ══════════════════════════════════════
 
-        elements.append(Spacer(1, 24))
+        if show_signature:
+            elements.append(Spacer(1, 24))
 
-        sig_line = "_" * 45
-        sig_data = [
-            [
-                Paragraph(
-                    "<b>ACCEPTED BY:</b>",
-                    small_grey,
-                ),
-                "",
-                Paragraph(
-                    "<b>AUTHORIZED BY:</b>",
-                    small_grey,
-                ),
-                "",
-            ],
-            [
-                Paragraph(
-                    f"Signature: {sig_line}",
-                    small_grey,
-                ),
-                "",
-                Paragraph(
-                    f"Signature: {sig_line}",
-                    small_grey,
-                ),
-                "",
-            ],
-            [
-                Paragraph(
-                    f"Name: {sig_line}",
-                    small_grey,
-                ),
-                "",
-                Paragraph(
-                    f"Name: {sig_line}",
-                    small_grey,
-                ),
-                "",
-            ],
-            [
-                Paragraph(
-                    f"Date: {sig_line}",
-                    small_grey,
-                ),
-                "",
-                Paragraph(
-                    f"Date: {sig_line}",
-                    small_grey,
-                ),
-                "",
-            ],
-        ]
-        sig_table = Table(
-            sig_data,
-            colWidths=[
-                usable_w * 0.45,
-                usable_w * 0.05,
-                usable_w * 0.45,
-                usable_w * 0.05,
-            ],
-        )
-        sig_table.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        elements.append(sig_table)
+            sig_line = "_" * 45
+            sig_data = [
+                [
+                    Paragraph(
+                        "<b>ACCEPTED BY:</b>",
+                        small_grey,
+                    ),
+                    "",
+                    Paragraph(
+                        "<b>AUTHORIZED BY:</b>",
+                        small_grey,
+                    ),
+                    "",
+                ],
+                [
+                    Paragraph(
+                        f"Signature: {sig_line}",
+                        small_grey,
+                    ),
+                    "",
+                    Paragraph(
+                        f"Signature: {sig_line}",
+                        small_grey,
+                    ),
+                    "",
+                ],
+                [
+                    Paragraph(
+                        f"Name: {sig_line}",
+                        small_grey,
+                    ),
+                    "",
+                    Paragraph(
+                        f"Name: {sig_line}",
+                        small_grey,
+                    ),
+                    "",
+                ],
+                [
+                    Paragraph(
+                        f"Date: {sig_line}",
+                        small_grey,
+                    ),
+                    "",
+                    Paragraph(
+                        f"Date: {sig_line}",
+                        small_grey,
+                    ),
+                    "",
+                ],
+            ]
+            sig_table = Table(
+                sig_data,
+                colWidths=[
+                    usable_w * 0.45,
+                    usable_w * 0.05,
+                    usable_w * 0.45,
+                    usable_w * 0.05,
+                ],
+            )
+            sig_table.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            elements.append(sig_table)
 
         # ══════════════════════════════════════
         # FOOTER: Thank you note

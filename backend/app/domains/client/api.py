@@ -189,6 +189,48 @@ async def list_claims(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{client_id}/latest-date-of-loss", response_model=None)
+async def get_latest_date_of_loss(
+    client_id: str,
+    db=Depends(get_db),
+):
+    """Get the latest date_of_loss from WM jobs linked to this client's claims"""
+    try:
+        from app.domains.water_mitigation.models import WaterMitigationJob
+        from app.domains.client.models import Claim
+        from sqlalchemy import desc
+
+        # Find WM jobs linked via claims belonging to this client
+        latest_wm = (
+            db.query(WaterMitigationJob.date_of_loss)
+            .join(Claim, WaterMitigationJob.claim_id == Claim.id)
+            .filter(Claim.client_id == client_id)
+            .filter(WaterMitigationJob.date_of_loss.isnot(None))
+            .order_by(desc(WaterMitigationJob.date_of_loss))
+            .first()
+        )
+
+        if latest_wm and latest_wm.date_of_loss:
+            return {"date_of_loss": latest_wm.date_of_loss.isoformat()}
+
+        # Fallback: check claim's own date_of_loss
+        latest_claim = (
+            db.query(Claim.date_of_loss)
+            .filter(Claim.client_id == client_id)
+            .filter(Claim.date_of_loss.isnot(None))
+            .order_by(desc(Claim.date_of_loss))
+            .first()
+        )
+
+        if latest_claim and latest_claim.date_of_loss:
+            return {"date_of_loss": latest_claim.date_of_loss.isoformat()}
+
+        return {"date_of_loss": None}
+    except Exception as e:
+        logger.error(f"Error getting latest date_of_loss: {e}")
+        return {"date_of_loss": None}
+
+
 @router.post("/{client_id}/claims", response_model=None)
 async def create_claim(
     client_id: str,

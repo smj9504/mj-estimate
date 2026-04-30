@@ -49,6 +49,8 @@ async def get_templates_by_type(
     service: PlumberReportTemplateService = Depends(get_template_service)
 ):
     """Get plumber report templates by type, ordered by usage count"""
+    if not company_id or not company_id.strip():
+        return []
     return service.get_templates_by_type(company_id, template_type.value)
 
 
@@ -59,6 +61,8 @@ async def get_quick_templates(
     service: PlumberReportTemplateService = Depends(get_template_service)
 ):
     """Get top 3 most used templates for quick selection in plumber reports"""
+    if not company_id or not company_id.strip():
+        return []
     return service.get_quick_templates(company_id, template_type.value)
 
 

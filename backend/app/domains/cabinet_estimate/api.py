@@ -159,11 +159,18 @@ def delete_estimate(
 @router.post("/{estimate_id}/calculate", response_model=CabinetEstimateResponse)
 def calculate_estimate(
     estimate_id: str,
+    data: Optional[CabinetEstimateUpdate] = None,
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
-    """Run the calculation engine on an estimate."""
+    """Save (if body provided) then calculate in one round-trip."""
     service = CabinetEstimateService(session)
+    if data is not None:
+        service.update_estimate(
+            estimate_id, data,
+            updated_by_id=current_user.id,
+            skip_full_read=True,
+        )
     try:
         result = service.calculate(
             estimate_id, changed_by_id=current_user.id
@@ -225,6 +232,7 @@ def get_purchase_order(
 @router.get("/{estimate_id}/export/pdf")
 def export_pdf(
     estimate_id: str,
+    show_signature: bool = Query(True),
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
@@ -237,7 +245,9 @@ def export_pdf(
         raise HTTPException(status_code=404, detail="Estimate not found")
 
     export_svc = CabinetExportService()
-    pdf_bytes = export_svc.generate_pdf(estimate)
+    pdf_bytes = export_svc.generate_pdf(
+        estimate, show_signature=show_signature,
+    )
 
     return StreamingResponse(
         pdf_bytes,

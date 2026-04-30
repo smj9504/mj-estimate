@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Descriptions, Divider, Space, Table, Tag, Typography } from 'antd';
+import { Card, Divider, Space, Table, Tag, Typography } from 'antd';
 import type { CabinetEstimate, EstimateLineItem } from '../../types/cabinetEstimate';
 
 const { Title, Text } = Typography;
@@ -13,11 +13,25 @@ const CATEGORY_COLORS: Record<string, string> = {
   scope: 'green',
   premium: 'orange',
   labor: 'cyan',
+  demo: 'red',
+  install: 'geekblue',
+  plumbing: 'purple',
+  countertop: 'gold',
+  finishing: 'lime',
+  misc: 'default',
+};
+
+const LOCATION_COLORS: Record<string, string> = {
+  perimeter: '',
+  island: 'volcano',
+  shared: '',
 };
 
 const CabinetEstimateResult: React.FC<CabinetEstimateResultProps> = ({ estimate }) => {
   const fmtMoney = (val: number) =>
     `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const hasIsland = estimate.line_items.some((li) => li.location === 'island');
 
   const columns = [
     {
@@ -34,6 +48,17 @@ const CabinetEstimateResult: React.FC<CabinetEstimateResultProps> = ({ estimate 
         <Tag color={CATEGORY_COLORS[cat] || 'default'}>{cat}</Tag>
       ) : '-',
     },
+    ...(hasIsland ? [{
+      title: 'Location',
+      dataIndex: 'location',
+      key: 'location',
+      width: 100,
+      render: (loc: string) => {
+        if (loc === 'island') return <Tag color="volcano">Island</Tag>;
+        if (loc === 'shared') return <Tag>Shared</Tag>;
+        return <Tag color="blue">Perimeter</Tag>;
+      },
+    }] : []),
     {
       title: 'Qty',
       dataIndex: 'quantity',
@@ -66,53 +91,133 @@ const CabinetEstimateResult: React.FC<CabinetEstimateResultProps> = ({ estimate 
     },
   ];
 
+  // If island exists, group and show subtotals per location
+  const renderGroupedTable = () => {
+    const perimeterItems = estimate.line_items.filter((li) => li.location === 'perimeter');
+    const islandItems = estimate.line_items.filter((li) => li.location === 'island');
+    const sharedItems = estimate.line_items.filter((li) => li.location === 'shared');
+
+    const perimeterTotal = perimeterItems.reduce((s, li) => s + li.total, 0);
+    const islandTotal = islandItems.reduce((s, li) => s + li.total, 0);
+    const sharedTotal = sharedItems.reduce((s, li) => s + li.total, 0);
+
+    const colSpan = columns.length - 1;
+
+    const renderSection = (title: string, items: EstimateLineItem[], sectionTotal: number, color: string) => {
+      if (!items.length) return null;
+      return (
+        <>
+          <Divider orientation="left" style={{ margin: '8px 0', fontSize: 13 }}>
+            <Tag color={color} style={{ fontSize: 12 }}>{title}</Tag>
+            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+              {items.length} items — {fmtMoney(sectionTotal)}
+            </Text>
+          </Divider>
+          <Table
+            dataSource={items}
+            columns={columns.filter((c) => c.key !== 'location')}
+            rowKey="id"
+            pagination={false}
+            size="small"
+            summary={() => (
+              <Table.Summary.Row style={{ background: '#fafafa' }}>
+                <Table.Summary.Cell index={0} colSpan={colSpan - 1} align="right">
+                  <Text strong>{title} Subtotal</Text>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={1} align="right">
+                  <Text strong>{fmtMoney(sectionTotal)}</Text>
+                </Table.Summary.Cell>
+              </Table.Summary.Row>
+            )}
+          />
+        </>
+      );
+    };
+
+    return (
+      <Card size="small" style={{ marginBottom: 16 }}>
+        {renderSection('Perimeter', perimeterItems, perimeterTotal, 'blue')}
+        {renderSection('Island', islandItems, islandTotal, 'volcano')}
+        {renderSection('General', sharedItems, sharedTotal, 'default')}
+
+        <Divider style={{ margin: '12px 0' }} />
+
+        <div style={{ textAlign: 'right', padding: '4px 16px' }}>
+          <Space direction="vertical" size={2} style={{ width: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 32 }}>
+              <Text>Subtotal</Text>
+              <Text strong>{fmtMoney(estimate.subtotal)}</Text>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 32 }}>
+              <Text type="secondary">Overhead ({(estimate.overhead_pct * 100).toFixed(0)}%)</Text>
+              <Text>{fmtMoney(estimate.overhead_amount)}</Text>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 32 }}>
+              <Text type="secondary">Profit ({(estimate.profit_pct * 100).toFixed(0)}%)</Text>
+              <Text>{fmtMoney(estimate.profit_amount)}</Text>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 32, background: '#f0f5ff', padding: '8px 0', borderRadius: 4 }}>
+              <Title level={5} style={{ margin: 0 }}>TOTAL</Title>
+              <Title level={5} style={{ margin: 0 }}>{fmtMoney(estimate.total)}</Title>
+            </div>
+          </Space>
+        </div>
+      </Card>
+    );
+  };
+
+  // Flat table (no island)
+  const renderFlatTable = () => (
+    <Card size="small" style={{ marginBottom: 16 }}>
+      <Table
+        dataSource={estimate.line_items}
+        columns={columns}
+        rowKey="id"
+        pagination={false}
+        size="small"
+        summary={() => (
+          <>
+            <Table.Summary.Row>
+              <Table.Summary.Cell index={0} colSpan={columns.length - 1} align="right">
+                <Text strong>Subtotal</Text>
+              </Table.Summary.Cell>
+              <Table.Summary.Cell index={1} align="right">
+                <Text strong>{fmtMoney(estimate.subtotal)}</Text>
+              </Table.Summary.Cell>
+            </Table.Summary.Row>
+            <Table.Summary.Row>
+              <Table.Summary.Cell index={0} colSpan={columns.length - 1} align="right">
+                Overhead ({(estimate.overhead_pct * 100).toFixed(0)}%)
+              </Table.Summary.Cell>
+              <Table.Summary.Cell index={1} align="right">
+                {fmtMoney(estimate.overhead_amount)}
+              </Table.Summary.Cell>
+            </Table.Summary.Row>
+            <Table.Summary.Row>
+              <Table.Summary.Cell index={0} colSpan={columns.length - 1} align="right">
+                Profit ({(estimate.profit_pct * 100).toFixed(0)}%)
+              </Table.Summary.Cell>
+              <Table.Summary.Cell index={1} align="right">
+                {fmtMoney(estimate.profit_amount)}
+              </Table.Summary.Cell>
+            </Table.Summary.Row>
+            <Table.Summary.Row style={{ background: '#f0f5ff' }}>
+              <Table.Summary.Cell index={0} colSpan={columns.length - 1} align="right">
+                <Title level={5} style={{ margin: 0 }}>TOTAL</Title>
+              </Table.Summary.Cell>
+              <Table.Summary.Cell index={1} align="right">
+                <Title level={5} style={{ margin: 0 }}>{fmtMoney(estimate.total)}</Title>
+              </Table.Summary.Cell>
+            </Table.Summary.Row>
+          </>
+        )}
+      />
+    </Card>
+  );
+
   return (
     <div>
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Table
-          dataSource={estimate.line_items}
-          columns={columns}
-          rowKey="id"
-          pagination={false}
-          size="small"
-          summary={() => (
-            <>
-              <Table.Summary.Row>
-                <Table.Summary.Cell index={0} colSpan={5} align="right">
-                  <Text strong>Subtotal</Text>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={1} align="right">
-                  <Text strong>{fmtMoney(estimate.subtotal)}</Text>
-                </Table.Summary.Cell>
-              </Table.Summary.Row>
-              <Table.Summary.Row>
-                <Table.Summary.Cell index={0} colSpan={5} align="right">
-                  Overhead ({(estimate.overhead_pct * 100).toFixed(0)}%)
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={1} align="right">
-                  {fmtMoney(estimate.overhead_amount)}
-                </Table.Summary.Cell>
-              </Table.Summary.Row>
-              <Table.Summary.Row>
-                <Table.Summary.Cell index={0} colSpan={5} align="right">
-                  Profit ({(estimate.profit_pct * 100).toFixed(0)}%)
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={1} align="right">
-                  {fmtMoney(estimate.profit_amount)}
-                </Table.Summary.Cell>
-              </Table.Summary.Row>
-              <Table.Summary.Row style={{ background: '#f0f5ff' }}>
-                <Table.Summary.Cell index={0} colSpan={5} align="right">
-                  <Title level={5} style={{ margin: 0 }}>TOTAL</Title>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={1} align="right">
-                  <Title level={5} style={{ margin: 0 }}>{fmtMoney(estimate.total)}</Title>
-                </Table.Summary.Cell>
-              </Table.Summary.Row>
-            </>
-          )}
-        />
-      </Card>
+      {hasIsland ? renderGroupedTable() : renderFlatTable()}
 
       {estimate.warning_flags && estimate.warning_flags.length > 0 && (
         <Card size="small" title="Notes" style={{ marginBottom: 16 }}>

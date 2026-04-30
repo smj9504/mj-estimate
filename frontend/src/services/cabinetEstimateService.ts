@@ -59,8 +59,8 @@ export const cabinetEstimateService = {
 
   // ── Calculation ──
 
-  async calculate(id: string) {
-    const { data } = await api.post(`${BASE_URL}/${id}/calculate`);
+  async calculate(id: string, payload?: CabinetEstimateUpdate) {
+    const { data } = await api.post(`${BASE_URL}/${id}/calculate`, payload || {});
     return data as CabinetEstimate;
   },
 
@@ -87,9 +87,14 @@ export const cabinetEstimateService = {
 
   // ── Export ──
 
-  async exportPdf(id: string) {
+  async exportPdf(id: string, options?: { show_signature?: boolean }) {
+    const params: Record<string, any> = {};
+    if (options?.show_signature === false) {
+      params.show_signature = false;
+    }
     const response = await api.get(`${BASE_URL}/${id}/export/pdf`, {
       responseType: 'blob',
+      params,
     });
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');

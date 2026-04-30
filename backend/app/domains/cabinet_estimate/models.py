@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
 )
@@ -72,6 +73,7 @@ class CabinetEstimate(Base, BaseModel):
     include_install = Column(Boolean, default=True)
     include_delivery = Column(Boolean, default=True)
     include_plumbing = Column(Boolean, default=False)
+    sink_type = Column(String(20), default="single")  # single / double
     include_countertop_reset = Column(Boolean, default=False)
     include_hardware = Column(Boolean, default=True)
 
@@ -87,15 +89,27 @@ class CabinetEstimate(Base, BaseModel):
     include_painting = Column(Boolean, default=False)
     painting_sqft = Column(Float, nullable=True)
     include_appliance_rr = Column(Boolean, default=False)
+    appliance_list = Column(JSON, nullable=True)  # [{type, qty}]
     include_dumpster = Column(Boolean, default=True)
+    delivery_floor = Column(
+        Integer, default=1,
+    )  # 1, 2, 3+
 
     # Island panels (SF = square feet)
     island_end_panel_sqft = Column(Float, default=0)
     island_back_panel_sqft = Column(Float, default=0)
 
-    # Countertop
+    # Countertop (perimeter)
     countertop_material = Column(String(100), nullable=True)
     countertop_sqft = Column(Float, nullable=True)
+
+    # Island countertop
+    island_countertop_material = Column(
+        String(100), nullable=True,
+    )
+    island_countertop_sqft = Column(
+        Float, nullable=True,
+    )
 
     # Overview text for PDF
     overview_text = Column(Text, nullable=True)
@@ -120,14 +134,14 @@ class CabinetEstimate(Base, BaseModel):
         back_populates="estimate",
         cascade="all, delete-orphan",
         order_by="CabinetBox.display_order",
-        lazy="joined",
+        lazy="selectin",
     )
     line_items = relationship(
         "CabinetEstimateLineItem",
         back_populates="estimate",
         cascade="all, delete-orphan",
         order_by="CabinetEstimateLineItem.display_order",
-        lazy="joined",
+        lazy="selectin",
     )
     history = relationship(
         "CabinetEstimateHistory",
@@ -154,6 +168,9 @@ class CabinetBox(Base, BaseModel):
 
     code = Column(String(20), nullable=False)        # "B30", "SB36", "BBC36"
     cab_type = Column(String(20), nullable=False)     # base / wall / tall / specialty
+    location = Column(
+        String(20), default="perimeter", nullable=False,
+    )  # perimeter / island
     width_inches = Column(Integer, nullable=False)
     height_inches = Column(Float, nullable=False)
     is_specialty = Column(Boolean, default=False)
@@ -187,12 +204,19 @@ class CabinetEstimateLineItem(Base, BaseModel):
     unit = Column(String(10), nullable=False)  # LF, EA, SF, HR
     unit_price = Column(Float, nullable=False)
     total = Column(Float, nullable=False)
-    category = Column(String(50), nullable=True)  # supply / labor / scope / premium
+    category = Column(
+        String(50), nullable=True,
+    )  # supply / labor / scope / premium
+    location = Column(
+        String(20), default="perimeter", nullable=False,
+    )  # perimeter / island / shared
     notes = Column(String(500), nullable=True)
     display_order = Column(Integer, default=0)
 
     # Relationship
-    estimate = relationship("CabinetEstimate", back_populates="line_items")
+    estimate = relationship(
+        "CabinetEstimate", back_populates="line_items",
+    )
 
 
 class CabinetEstimateHistory(Base, BaseModel):

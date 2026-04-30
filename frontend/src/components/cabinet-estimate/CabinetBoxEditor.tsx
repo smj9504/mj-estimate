@@ -10,8 +10,8 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
-import type { CabinetBoxCreate, CabType, SpecialtyType } from '../../types/cabinetEstimate';
+import { DeleteOutlined } from '@ant-design/icons';
+import type { CabinetBoxCreate, CabinetLocation, CabType, SpecialtyType } from '../../types/cabinetEstimate';
 
 const { Text } = Typography;
 
@@ -116,15 +116,16 @@ const TYPE_COLORS: Record<string, string> = {
 interface CabinetBoxEditorProps {
   boxes: CabinetBoxCreate[];
   onChange: (boxes: CabinetBoxCreate[]) => void;
+  location: CabinetLocation;
 }
 
-const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange }) => {
+const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, location }) => {
   const addBox = (codeOrCustom: string) => {
     if (codeOrCustom === CUSTOM_VALUE) {
-      // Custom box — user fills in dimensions manually
       const newBox: CabinetBoxCreate = {
         code: 'CUSTOM',
         cab_type: 'base',
+        location,
         width_inches: 24,
         height_inches: 34.5,
         is_specialty: false,
@@ -141,6 +142,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange }) 
     const newBox: CabinetBoxCreate = {
       code: codeOrCustom,
       cab_type: preset.cab_type,
+      location,
       width_inches: preset.width,
       height_inches: preset.height,
       is_specialty: !!preset.specialty,

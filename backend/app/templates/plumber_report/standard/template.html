@@ -50,9 +50,9 @@
   </div>
   {% endif %}
 
-  <!-- ── Cause of Damage ── -->
+  <!-- ── Site Findings & Assessment ── -->
   {% if cause_of_damage %}
-  <div class="section-title">Cause of Damage</div>
+  <div class="section-title">Site Findings &amp; Assessment</div>
   <div class="content-box">{{ cause_of_damage | safe }}</div>
   {% endif %}
 
@@ -60,12 +60,6 @@
   {% if work_performed %}
   <div class="section-title">Work Performed</div>
   <div class="content-box">{{ work_performed | safe }}</div>
-  {% endif %}
-
-  <!-- ── Materials & Equipment ── -->
-  {% if materials_equipment_text %}
-  <div class="section-title">Materials &amp; Equipment</div>
-  <div class="content-box">{{ materials_equipment_text | safe }}</div>
   {% endif %}
 
   <!-- ── Invoice Items + Totals ── -->
@@ -153,12 +147,6 @@
     </div>
   </div>
   {% endif %}
-  {% endif %}
-
-  <!-- ── Recommendations ── -->
-  {% if recommendations %}
-  <div class="section-title">Recommendations</div>
-  <div class="content-box">{{ recommendations | safe }}</div>
   {% endif %}
 
   <!-- ── Photos ── -->

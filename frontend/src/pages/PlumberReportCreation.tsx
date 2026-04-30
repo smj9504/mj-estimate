@@ -19,6 +19,7 @@ import {
   Typography,
   Tooltip,
   Popconfirm,
+  Spin,
 } from 'antd';
 import {
   PlusOutlined,
@@ -31,6 +32,7 @@ import {
   ClearOutlined,
   CopyOutlined,
   RobotOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -42,7 +44,9 @@ import {
   PhotoRecord
 } from '../services/plumberReportService';
 import { companyService } from '../services/companyService';
+import { clientService } from '../services/clientService';
 import { Company } from '../types';
+import type { ClientListItem } from '../types/client';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import UnitSelect from '../components/common/UnitSelect';
 import DraggableTable from '../components/common/DraggableTable';
@@ -90,6 +94,8 @@ const PlumberReportCreation: React.FC = () => {
   
   // Prompt modal state
   const [promptModalVisible, setPromptModalVisible] = useState(false);
+  const [jsonPasteModalVisible, setJsonPasteModalVisible] = useState(false);
+  const [jsonPasteValue, setJsonPasteValue] = useState('');
 
   // Modal states
   const [itemModalVisible, setItemModalVisible] = useState(false);
@@ -101,13 +107,16 @@ const PlumberReportCreation: React.FC = () => {
   const [itemDescription, setItemDescription] = useState('');
 
   // Text input values
-  const [causeOfDamage, setCauseOfDamage] = useState('');
+  const [siteFindings, setSiteFindings] = useState('');
   const [workPerformed, setWorkPerformed] = useState('');
-  const [recommendations, setRecommendations] = useState('');
-  const [materialsEquipment, setMaterialsEquipment] = useState('');
   const [warrantyInfo, setWarrantyInfo] = useState('');
   const [termsConditions, setTermsConditions] = useState('');
   const [notes, setNotes] = useState('');
+
+  // Client search
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientSearchResults, setClientSearchResults] = useState<ClientListItem[]>([]);
+  const [isClientSearching, setIsClientSearching] = useState(false);
 
   // Property same as client toggle
   const [propertyDifferent, setPropertyDifferent] = useState(false);
@@ -155,6 +164,111 @@ const PlumberReportCreation: React.FC = () => {
     loadCompanies();
   }, []); // Empty dependency array - runs only once on mount
 
+  // Client search with debounce
+  useEffect(() => {
+    if (clientSearch.length < 2) {
+      setClientSearchResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        setIsClientSearching(true);
+        const result = await clientService.search(clientSearch, 20);
+        setClientSearchResults(result.clients || []);
+      } catch {
+        setClientSearchResults([]);
+      } finally {
+        setIsClientSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [clientSearch]);
+
+  const handleClientSelect = useCallback(async (clientId: string) => {
+    const client = clientSearchResults.find((c) => c.id === clientId);
+    if (client) {
+      let street = client.address || '';
+      let city = client.city || '';
+      let state = client.state || '';
+      let zipcode = client.zipcode || '';
+
+      // Parse address string if city/state/zipcode are empty
+      // e.g. "5213 Ashcroft Ct, Fairfax, VA 22032"
+      if (street && !city && !state && !zipcode) {
+        const parts = street.split(',').map((p) => p.trim());
+        if (parts.length >= 3) {
+          street = parts[0];
+          city = parts[1];
+          const lastPart = parts[parts.length - 1];
+          const stateZipMatch = lastPart.match(/^([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+          if (stateZipMatch) {
+            state = stateZipMatch[1];
+            zipcode = stateZipMatch[2];
+          } else {
+            state = lastPart;
+          }
+        } else if (parts.length === 2) {
+          street = parts[0];
+          const lastPart = parts[1];
+          const stateZipMatch = lastPart.match(/^([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+          if (stateZipMatch) {
+            state = stateZipMatch[1];
+            zipcode = stateZipMatch[2];
+          } else {
+            city = lastPart;
+          }
+        }
+      }
+
+      form.setFieldsValue({
+        name: client.display_name,
+        address: street,
+        city,
+        state,
+        zipcode,
+        phone: client.phone || '',
+        email: client.email || '',
+      });
+
+    }
+  }, [clientSearchResults, form]);
+
+  const [isDolLoading, setIsDolLoading] = useState(false);
+  const handleFetchDateOfLoss = useCallback(async () => {
+    const addr = form.getFieldValue('address') || '';
+    const name = form.getFieldValue('name') || '';
+    if (!addr && !name) {
+      message.warning('Please enter client info first');
+      return;
+    }
+    setIsDolLoading(true);
+    try {
+      // Search WM jobs by address or homeowner name
+      const searchTerm = addr || name;
+      const { data } = await (await import('../services/api')).default.get('/api/water-mitigation/jobs', {
+        params: { search: searchTerm, page_size: 10 },
+      });
+      const jobs = data?.items || [];
+      const jobsWithDol = jobs.filter((j: any) => j.date_of_loss);
+      if (jobsWithDol.length > 0) {
+        // Sort desc and pick latest
+        jobsWithDol.sort((a: any, b: any) => new Date(b.date_of_loss).getTime() - new Date(a.date_of_loss).getTime());
+        const parsed = dayjs(jobsWithDol[0].date_of_loss);
+        if (parsed.isValid()) {
+          form.setFieldsValue({ service_date: parsed });
+          message.success(`Service Date set to ${parsed.format('MM/DD/YYYY')} (Date of Loss)`);
+        }
+      } else {
+        message.info('No Water Mitigation date of loss found for this client');
+      }
+    } catch (err) {
+      console.error('Failed to fetch date of loss:', err);
+      message.error('Failed to fetch date of loss');
+    } finally {
+      setIsDolLoading(false);
+    }
+  }, [form]);
+
   // Load report when ID is available and companies are loaded
   useEffect(() => {
     if (!id || companies.length === 0) return;
@@ -192,10 +306,8 @@ const PlumberReportCreation: React.FC = () => {
         });
 
         // Set text content
-        setCauseOfDamage(report.cause_of_damage || '');
+        setSiteFindings(report.cause_of_damage || '');
         setWorkPerformed(report.work_performed || '');
-        setRecommendations(report.recommendations || '');
-        setMaterialsEquipment(report.materials_equipment_text || '');
         setWarrantyInfo(report.warranty_info || '');
         setTermsConditions(report.terms_conditions || '');
         setNotes(report.notes || '');
@@ -409,10 +521,8 @@ const PlumberReportCreation: React.FC = () => {
         service_date: values.service_date ? values.service_date.format('YYYY-MM-DDTHH:mm:ss') : dayjs().format('YYYY-MM-DDTHH:mm:ss'),
         technician_name: values.technician_name,
         license_number: values.license_number,
-        cause_of_damage: cleanHtml(causeOfDamage),
+        cause_of_damage: cleanHtml(siteFindings),
         work_performed: cleanHtml(workPerformed),
-        materials_equipment_text: cleanHtml(materialsEquipment),
-        recommendations: cleanHtml(recommendations),
         invoice_items: invoiceItems,
         financial: totals,
         payments,
@@ -468,10 +578,8 @@ const PlumberReportCreation: React.FC = () => {
         service_date: values.service_date ? values.service_date.format('YYYY-MM-DDTHH:mm:ss') : dayjs().format('YYYY-MM-DDTHH:mm:ss'),
         technician_name: values.technician_name,
         license_number: values.license_number,
-        cause_of_damage: cleanHtml(causeOfDamage),
+        cause_of_damage: cleanHtml(siteFindings),
         work_performed: cleanHtml(workPerformed),
-        materials_equipment_text: cleanHtml(materialsEquipment),
-        recommendations: cleanHtml(recommendations),
         invoice_items: invoiceItems,
         financial: totals,
         payments,
@@ -498,20 +606,76 @@ const PlumberReportCreation: React.FC = () => {
     }
   };
 
+  const handleJsonImport = useCallback(() => {
+    try {
+      const data = JSON.parse(jsonPasteValue);
+
+      // Site Findings & Assessment
+      if (data.site_findings) setSiteFindings(data.site_findings);
+
+      // Work Performed
+      if (data.work_performed) setWorkPerformed(data.work_performed);
+
+      // Technician
+      if (data.technician_name) form.setFieldsValue({ technician_name: data.technician_name });
+      if (data.license_number) form.setFieldsValue({ license_number: data.license_number });
+
+      // Invoice items
+      if (data.invoice_items && Array.isArray(data.invoice_items)) {
+        const items: InvoiceItem[] = data.invoice_items.map((item: any) => ({
+          id: crypto.randomUUID(),
+          name: item.name || '',
+          description: item.description || '',
+          quantity: item.quantity || 1,
+          unit: item.unit || 'EA',
+          unit_cost: item.unit_cost || 0,
+          total_cost: (item.quantity || 1) * (item.unit_cost || 0),
+        }));
+        setInvoiceItems(items);
+      }
+
+      // Financial
+      if (data.tax_amount !== undefined) form.setFieldsValue({ tax_amount: data.tax_amount });
+      if (data.discount !== undefined) form.setFieldsValue({ discount: data.discount });
+
+      // Warranty / Terms / Notes
+      if (data.warranty_info) setWarrantyInfo(data.warranty_info);
+      if (data.terms_conditions) setTermsConditions(data.terms_conditions);
+      if (data.notes) setNotes(data.notes);
+
+      setJsonPasteModalVisible(false);
+      setJsonPasteValue('');
+      message.success('JSON data imported successfully');
+    } catch {
+      message.error('Invalid JSON format. Please check and try again.');
+    }
+  }, [jsonPasteValue, form]);
+
   const totals = calculateTotals();
 
   return (
     <div style={{ padding: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={2} style={{ margin: 0 }}>{id ? 'Edit' : 'Create'} Plumber's Report</Title>
-        <Tooltip title="AI Prompt Template">
-          <Button
-            icon={<RobotOutlined />}
-            onClick={() => setPromptModalVisible(true)}
-            size="small"
-            type="text"
-          />
-        </Tooltip>
+        <Space>
+          <Tooltip title="Import AI JSON Result">
+            <Button
+              icon={<FileTextOutlined />}
+              onClick={() => setJsonPasteModalVisible(true)}
+              size="small"
+            >
+              Import JSON
+            </Button>
+          </Tooltip>
+          <Tooltip title="AI Prompt Template">
+            <Button
+              icon={<RobotOutlined />}
+              onClick={() => setPromptModalVisible(true)}
+              size="small"
+              type="text"
+            />
+          </Tooltip>
+        </Space>
       </div>
       
       <Form
@@ -557,7 +721,23 @@ const PlumberReportCreation: React.FC = () => {
                 <Col xs={24} md={8}>
                   <Form.Item
                     name="service_date"
-                    label="Service Date"
+                    label={
+                      <Space size={4}>
+                        <span>Service Date</span>
+                        <Tooltip title="Fill from WM Date of Loss">
+                          <Button
+                            type="link"
+                            size="small"
+                            icon={<CalendarOutlined />}
+                            loading={isDolLoading}
+                            onClick={handleFetchDateOfLoss}
+                            style={{ padding: 0, height: 'auto', fontSize: 12 }}
+                          >
+                            DOL
+                          </Button>
+                        </Tooltip>
+                      </Space>
+                    }
                     rules={[{ required: true }]}
                   >
                     <DatePicker style={{ width: '100%' }} />
@@ -586,6 +766,33 @@ const PlumberReportCreation: React.FC = () => {
           {/* Client Information */}
           <Col xs={24}>
             <Card title="Client Information" style={{ marginBottom: 24 }}>
+              <Row gutter={16} style={{ marginBottom: 16 }}>
+                <Col xs={24} md={12}>
+                  <Form.Item label="Search Client (DB)" style={{ marginBottom: 0 }}>
+                    <Select
+                      showSearch
+                      allowClear
+                      placeholder="Type client name or address to search..."
+                      filterOption={false}
+                      loading={isClientSearching}
+                      onSearch={(val) => setClientSearch(val)}
+                      onSelect={(val: string) => handleClientSelect(val)}
+                      onClear={() => setClientSearch('')}
+                      notFoundContent={
+                        clientSearch.length < 2
+                          ? <Text type="secondary">Type 2+ characters to search</Text>
+                          : isClientSearching
+                            ? <Spin size="small" />
+                            : <Text type="secondary">No clients found</Text>
+                      }
+                      options={clientSearchResults.map((c) => ({
+                        label: `${c.display_name}${c.address ? ` — ${c.address}` : ''}`,
+                        value: c.id,
+                      }))}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
               <Row gutter={16}>
                 {/* Client Name, Email, Phone in one row */}
                 <Col xs={24} md={8}>
@@ -634,120 +841,60 @@ const PlumberReportCreation: React.FC = () => {
 
           {/* Property Information */}
           <Col xs={24}>
-            {propertyDifferent ? (
-              <Card
-                title="Property Information"
-                style={{ marginBottom: 24 }}
-                extra={
-                  <Checkbox
-                    checked={propertyDifferent}
-                    onChange={(e) => {
-                      setPropertyDifferent(e.target.checked);
-                      if (!e.target.checked) {
-                        // Clear property fields when same as client
-                        form.setFieldsValue({
-                          property_address: undefined,
-                          property_city: undefined,
-                          property_state: undefined,
-                          property_zipcode: undefined,
-                        });
-                      }
-                    }}
-                  >
-                    Different from Client Address
-                  </Checkbox>
-                }
+            <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Checkbox
+                checked={propertyDifferent}
+                onChange={(e) => {
+                  setPropertyDifferent(e.target.checked);
+                  if (!e.target.checked) {
+                    form.setFieldsValue({
+                      property_address: undefined,
+                      property_city: undefined,
+                      property_state: undefined,
+                      property_zipcode: undefined,
+                    });
+                  }
+                }}
               >
+                Property address different from client
+              </Checkbox>
+            </div>
+            {propertyDifferent && (
+              <Card size="small" style={{ marginBottom: 24 }}>
                 <Row gutter={16}>
                   <Col xs={24} md={12}>
-                    <Form.Item name="property_address" label="Property Address">
+                    <Form.Item name="property_address" label="Property Address" style={{ marginBottom: 8 }}>
                       <Input placeholder="Enter property address" />
                     </Form.Item>
                   </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="property_city" label="City">
-                      <Input placeholder="Enter city" />
+                  <Col xs={24} md={5}>
+                    <Form.Item name="property_city" label="City" style={{ marginBottom: 8 }}>
+                      <Input placeholder="City" />
                     </Form.Item>
                   </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="property_state" label="State">
-                      <Input placeholder="Enter state" />
+                  <Col xs={24} md={4}>
+                    <Form.Item name="property_state" label="State" style={{ marginBottom: 8 }}>
+                      <Input placeholder="State" />
                     </Form.Item>
                   </Col>
-                  <Col xs={24} md={8}>
-                    <Form.Item name="property_zipcode" label="ZIP Code">
-                      <Input placeholder="Enter ZIP code" />
+                  <Col xs={24} md={3}>
+                    <Form.Item name="property_zipcode" label="ZIP" style={{ marginBottom: 8 }}>
+                      <Input placeholder="ZIP" />
                     </Form.Item>
                   </Col>
                 </Row>
               </Card>
-            ) : (
-              <div
-                style={{
-                  border: '1px solid #d9d9d9',
-                  borderRadius: '6px',
-                  marginBottom: 24,
-                  backgroundColor: '#fafafa',
-                }}
-              >
-                <div
-                  style={{
-                    padding: '16px 24px',
-                    borderBottom: 'none',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    fontWeight: 500,
-                    fontSize: '16px',
-                  }}
-                >
-                  <span>Property Information</span>
-                  <Checkbox
-                    checked={propertyDifferent}
-                    onChange={(e) => {
-                      setPropertyDifferent(e.target.checked);
-                      if (!e.target.checked) {
-                        // Clear property fields when same as client
-                        form.setFieldsValue({
-                          property_address: undefined,
-                          property_city: undefined,
-                          property_state: undefined,
-                          property_zipcode: undefined,
-                        });
-                      }
-                    }}
-                  >
-                    Different from Client Address
-                  </Checkbox>
-                </div>
-                <div style={{
-                  padding: '20px 24px',
-                  textAlign: 'center',
-                  color: '#999',
-                  backgroundColor: '#f9f9f9',
-                  borderBottomLeftRadius: '6px',
-                  borderBottomRightRadius: '6px'
-                }}>
-                  <Text type="secondary">
-                    Property address is same as client address
-                  </Text>
-                  <br />
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
-                    Check "Different from Client Address" above to enter a different property address
-                  </Text>
-                </div>
-              </div>
             )}
           </Col>
 
           {/* Report Content */}
           <Col xs={24}>
             <Card title="Report Content" style={{ marginBottom: 24 }}>
-              <Form.Item label="Cause of Damage">
+              <Form.Item label="Site Findings & Assessment">
                 <RichTextEditor
-                  value={causeOfDamage}
-                  onChange={setCauseOfDamage}
-                  placeholder="Describe the cause of damage (supports rich text formatting)..."
+                  value={siteFindings}
+                  onChange={setSiteFindings}
+                  placeholder="Describe site findings and assessment (supports rich text formatting)..."
                   minHeight={150}
                 />
               </Form.Item>
@@ -758,24 +905,6 @@ const PlumberReportCreation: React.FC = () => {
                   onChange={setWorkPerformed}
                   placeholder="Describe the work performed (supports rich text formatting)..."
                   minHeight={150}
-                />
-              </Form.Item>
-
-              <Form.Item label="Materials & Equipment Utilized">
-                <RichTextEditor
-                  value={materialsEquipment}
-                  onChange={setMaterialsEquipment}
-                  placeholder="List all materials and equipment used (supports rich text formatting)..."
-                  minHeight={150}
-                />
-              </Form.Item>
-
-              <Form.Item label="Recommendations">
-                <RichTextEditor
-                  value={recommendations}
-                  onChange={setRecommendations}
-                  placeholder="Enter recommendations (supports rich text formatting)..."
-                  minHeight={100}
                 />
               </Form.Item>
             </Card>
@@ -1395,38 +1524,117 @@ JOB DETAILS (fill in before sending):
 
 REPORT REQUIREMENTS:
 
-1. SITE FINDINGS & ASSESSMENT
+1. SITE FINDINGS & ASSESSMENT (→ site_findings)
    - Describe the failure as sudden and unexpected
    - State that no prior signs of leakage were reported by the homeowner
    - Use factual, field technician language — not legal or overly formal
    - Do NOT mention age of components, wear and tear, or maintenance history
    - Use "sudden burst" or "sudden failure" once naturally — do not repeat excessively
 
-2. WORK PERFORMED
-   - 5 line items maximum
+2. WORK PERFORMED (→ work_performed)
+   - Written as a narrative paragraph describing the full scope of work
    - Group related tasks together
-   - Keep each item to 2 lines — concise but clear
+   - Keep it concise but clear
    - Written as a field technician would describe it
 
-3. INVOICE
+3. INVOICE (→ invoice_items)
    - 5 line items maximum
    - Include: Emergency Dispatch Fee, Labor (broken into 2-3 phases), Materials (grouped)
-   - Show Subtotal, Tax, and Total Due separately
-   - Total must match the specified invoice amount
+   - tax_amount and total must match the specified invoice amount
 
-4. TECHNICIAN NOTES
-   - Keep it brief and factual — 2 to 3 sentences max
-   - Include any relevant follow-up advisory (e.g. drying time, tile restoration)
-   - Include 30-day labor warranty statement
-   - Do NOT include any defensive or legal-sounding language
+4. WARRANTY & NOTES (→ warranty_info, notes)
+   - warranty_info: 30-day labor warranty statement (1 sentence)
+   - notes: Brief technician notes — 2-3 sentences max with follow-up advisory
 
 TONE: Professional field report. Written as a licensed technician, not a lawyer.
 Avoid: wear and tear, deterioration, age-related, neglect, deferred maintenance,
        excessive repetition of "sudden", overly legal or defensive phrasing.
 
-FORMATTING: Output each paragraph as a single continuous line. Do not wrap or
-break text manually at any column width. Let the receiving application handle
-word wrap. Do not wrap output in code blocks or markdown formatting.`}</div>
+---
+
+OUTPUT FORMAT: Return ONLY a valid JSON object (no markdown, no code fences).
+Use the exact structure below:
+
+{
+  "site_findings": "Upon arrival at the property, technician observed...",
+  "work_performed": "Emergency shut-off of main water supply was performed...",
+  "invoice_items": [
+    {
+      "name": "Emergency Dispatch Fee",
+      "description": "After-hours emergency response and site assessment",
+      "quantity": 1,
+      "unit": "EA",
+      "unit_cost": 250.00
+    },
+    {
+      "name": "Labor — Demolition & Access",
+      "description": "Removed damaged drywall section to expose failed supply line",
+      "quantity": 3,
+      "unit": "HR",
+      "unit_cost": 185.00
+    },
+    {
+      "name": "Labor — Repair & Reassembly",
+      "description": "Replaced burst section with new copper pipe, soldered joints",
+      "quantity": 4,
+      "unit": "HR",
+      "unit_cost": 185.00
+    },
+    {
+      "name": "Materials",
+      "description": "3/4in Type L copper pipe, couplings, flux, solder, pipe hangers",
+      "quantity": 1,
+      "unit": "LOT",
+      "unit_cost": 385.00
+    }
+  ],
+  "tax_amount": 0,
+  "warranty_info": "All labor performed is covered under a 30-day workmanship warranty.",
+  "notes": "Recommend allowing 48-72 hours drying time before any wall restoration. Tile and drywall restoration to be handled by separate trades."
+}`}</div>
+      </Modal>
+
+      {/* JSON Import Modal */}
+      <Modal
+        title={
+          <Space>
+            <FileTextOutlined />
+            <span>Import JSON from AI</span>
+          </Space>
+        }
+        open={jsonPasteModalVisible}
+        onCancel={() => {
+          setJsonPasteModalVisible(false);
+          setJsonPasteValue('');
+        }}
+        width={600}
+        footer={[
+          <Button key="close" onClick={() => {
+            setJsonPasteModalVisible(false);
+            setJsonPasteValue('');
+          }}>
+            Cancel
+          </Button>,
+          <Button
+            key="import"
+            type="primary"
+            disabled={!jsonPasteValue.trim()}
+            onClick={handleJsonImport}
+          >
+            Import
+          </Button>,
+        ]}
+      >
+        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          Paste the JSON output from AI below. It will auto-fill Site Findings, Work Performed, Invoice Items, and other fields.
+        </Text>
+        <TextArea
+          rows={14}
+          value={jsonPasteValue}
+          onChange={(e) => setJsonPasteValue(e.target.value)}
+          placeholder='Paste JSON here... e.g. { "site_findings": "...", "work_performed": "...", ... }'
+          style={{ fontFamily: 'monospace', fontSize: 12 }}
+        />
       </Modal>
     </div>
   );

@@ -66,8 +66,18 @@ class EstimateStatus:
 # ── Box schemas ──
 
 class CabinetBoxBase(BaseModel):
-    code: str = Field(..., max_length=20, description="Cabinet code e.g. B30, SB36")
-    cab_type: str = Field(..., max_length=20, description="base/wall/tall/specialty")
+    code: str = Field(
+        ..., max_length=20,
+        description="Cabinet code e.g. B30, SB36",
+    )
+    cab_type: str = Field(
+        ..., max_length=20,
+        description="base/wall/tall/specialty",
+    )
+    location: str = Field(
+        "perimeter", max_length=20,
+        description="perimeter or island",
+    )
     width_inches: int = Field(..., ge=6, le=60)
     height_inches: float = Field(..., ge=6, le=120)
     is_specialty: bool = False
@@ -84,6 +94,7 @@ class CabinetBoxCreate(CabinetBoxBase):
 class CabinetBoxUpdate(BaseModel):
     code: Optional[str] = Field(None, max_length=20)
     cab_type: Optional[str] = Field(None, max_length=20)
+    location: Optional[str] = Field(None, max_length=20)
     width_inches: Optional[int] = Field(None, ge=6, le=60)
     height_inches: Optional[float] = Field(None, ge=6, le=120)
     is_specialty: Optional[bool] = None
@@ -96,6 +107,7 @@ class CabinetBoxUpdate(BaseModel):
 class CabinetBoxResponse(CabinetBoxBase):
     id: str
     estimate_id: str
+    location: str = "perimeter"
     created_at: Optional[datetime] = None
 
     class Config:
@@ -113,6 +125,7 @@ class LineItemResponse(BaseModel):
     unit_price: float
     total: float
     category: Optional[str] = None
+    location: str = "perimeter"
     notes: Optional[str] = None
     display_order: int = 0
     created_at: Optional[datetime] = None
@@ -140,6 +153,7 @@ class CabinetEstimateBase(BaseModel):
     include_install: bool = True
     include_delivery: bool = True
     include_plumbing: bool = False
+    sink_type: Optional[str] = "single"
     include_countertop_reset: bool = False
     include_hardware: bool = True
     include_crown_molding: bool = False
@@ -153,11 +167,15 @@ class CabinetEstimateBase(BaseModel):
     include_painting: bool = False
     painting_sqft: Optional[float] = None
     include_appliance_rr: bool = False
+    appliance_list: Optional[List[dict]] = None
     include_dumpster: bool = True
+    delivery_floor: int = 1
     island_end_panel_sqft: float = 0
     island_back_panel_sqft: float = 0
     countertop_material: Optional[str] = None
     countertop_sqft: Optional[float] = None
+    island_countertop_material: Optional[str] = None
+    island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
     overhead_pct: float = 0.10
     profit_pct: float = 0.10
@@ -198,11 +216,15 @@ class CabinetEstimateUpdate(BaseModel):
     include_painting: Optional[bool] = None
     painting_sqft: Optional[float] = None
     include_appliance_rr: Optional[bool] = None
+    appliance_list: Optional[List[dict]] = None
     include_dumpster: Optional[bool] = None
+    delivery_floor: Optional[int] = None
     island_end_panel_sqft: Optional[float] = None
     island_back_panel_sqft: Optional[float] = None
     countertop_material: Optional[str] = None
     countertop_sqft: Optional[float] = None
+    island_countertop_material: Optional[str] = None
+    island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
     overhead_pct: Optional[float] = None
     profit_pct: Optional[float] = None
@@ -230,6 +252,7 @@ class CabinetEstimateResponse(BaseModel):
     include_install: bool = True
     include_delivery: bool = True
     include_plumbing: bool = False
+    sink_type: Optional[str] = "single"
     include_countertop_reset: bool = False
     include_hardware: bool = True
     include_crown_molding: bool = False
@@ -243,11 +266,15 @@ class CabinetEstimateResponse(BaseModel):
     include_painting: bool = False
     painting_sqft: Optional[float] = None
     include_appliance_rr: bool = False
+    appliance_list: Optional[List[dict]] = None
     include_dumpster: bool = True
+    delivery_floor: int = 1
     island_end_panel_sqft: float = 0
     island_back_panel_sqft: float = 0
     countertop_material: Optional[str] = None
     countertop_sqft: Optional[float] = None
+    island_countertop_material: Optional[str] = None
+    island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
     subtotal: float = 0
     overhead_pct: float = 0.10

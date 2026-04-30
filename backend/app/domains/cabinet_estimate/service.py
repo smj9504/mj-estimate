@@ -95,6 +95,7 @@ class CabinetEstimateService:
         estimate_id: str,
         data: CabinetEstimateUpdate,
         updated_by_id: Optional[str] = None,
+        skip_full_read: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Update estimate fields and optionally replace boxes."""
         estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
@@ -115,6 +116,8 @@ class CabinetEstimateService:
                 self.box_repo.create(box_dict)
 
         self.session.flush()
+        if skip_full_read:
+            return {"id": estimate_id}
         return self._get_full_estimate(estimate_id)
 
     def delete_estimate(self, estimate_id: str) -> bool:
@@ -147,11 +150,16 @@ class CabinetEstimateService:
             BoxInput(
                 code=b.code,
                 cab_type=b.cab_type,
+                location=getattr(
+                    b, 'location', 'perimeter',
+                ) or 'perimeter',
                 width_inches=b.width_inches,
                 height_inches=b.height_inches,
                 is_specialty=b.is_specialty,
                 specialty_type=b.specialty_type,
-                has_glass_door=getattr(b, 'has_glass_door', False) or False,
+                has_glass_door=getattr(
+                    b, 'has_glass_door', False,
+                ) or False,
                 qty=b.qty,
             )
             for b in estimate.boxes
@@ -165,6 +173,7 @@ class CabinetEstimateService:
             include_install=estimate.include_install,
             include_delivery=estimate.include_delivery,
             include_plumbing=estimate.include_plumbing,
+            sink_type=getattr(estimate, 'sink_type', 'single') or 'single',
             include_countertop_reset=estimate.include_countertop_reset,
             include_hardware=(
                 estimate.include_hardware
@@ -200,6 +209,14 @@ class CabinetEstimateService:
             countertop_sqft=getattr(
                 estimate, 'countertop_sqft', None
             ),
+            island_countertop_material=getattr(
+                estimate, 'island_countertop_material',
+                None,
+            ),
+            island_countertop_sqft=getattr(
+                estimate, 'island_countertop_sqft',
+                None,
+            ),
             include_drywall_repair=(
                 getattr(estimate, 'include_drywall_repair', False)
                 or False
@@ -218,11 +235,17 @@ class CabinetEstimateService:
                 getattr(estimate, 'include_appliance_rr', False)
                 or False
             ),
+            appliance_list=(
+                getattr(estimate, 'appliance_list', None)
+            ),
             include_dumpster=(
                 getattr(estimate, 'include_dumpster', True)
                 if getattr(estimate, 'include_dumpster', None)
                 is not None else True
             ),
+            delivery_floor=getattr(
+                estimate, 'delivery_floor', 1,
+            ) or 1,
             island_end_panel_sqft=getattr(
                 estimate, 'island_end_panel_sqft', 0
             ) or 0,
@@ -246,7 +269,9 @@ class CabinetEstimateService:
             self._save_history(estimate_id, changed_by_id, "Calculation executed")
 
         # Clear existing line items and create new ones
-        self.line_item_repo.delete_by_estimate_id(estimate_id)
+        self.line_item_repo.delete_by_estimate_id(
+            estimate_id,
+        )
         for i, li in enumerate(result.line_items):
             self.line_item_repo.create({
                 "estimate_id": estimate_id,
@@ -256,6 +281,7 @@ class CabinetEstimateService:
                 "unit_price": li.unit_price,
                 "total": li.total,
                 "category": li.category,
+                "location": li.location,
                 "notes": li.notes,
                 "display_order": i,
             })
@@ -328,6 +354,13 @@ class CabinetEstimateService:
             ),
             "countertop_material": source.countertop_material,
             "countertop_sqft": source.countertop_sqft,
+            "island_countertop_material": getattr(
+                source, 'island_countertop_material',
+                None,
+            ),
+            "island_countertop_sqft": getattr(
+                source, 'island_countertop_sqft', None,
+            ),
             "overhead_pct": source.overhead_pct,
             "profit_pct": source.profit_pct,
             "notes": f"Cloned from estimate",
@@ -341,12 +374,15 @@ class CabinetEstimateService:
                 "estimate_id": new_id,
                 "code": box.code,
                 "cab_type": box.cab_type,
+                "location": getattr(
+                    box, 'location', 'perimeter',
+                ) or 'perimeter',
                 "width_inches": box.width_inches,
                 "height_inches": box.height_inches,
                 "is_specialty": box.is_specialty,
                 "specialty_type": box.specialty_type,
                 "has_glass_door": getattr(
-                    box, 'has_glass_door', False
+                    box, 'has_glass_door', False,
                 ) or False,
                 "qty": box.qty,
                 "display_order": i,
@@ -392,16 +428,29 @@ class CabinetEstimateService:
         if not estimate:
             return None
 
-        # Group boxes by code
+        # Group boxes by code + location
         box_groups: Dict[str, Dict] = {}
         for box in estimate.boxes:
-            key = box.code
+            loc = getattr(
+                box, 'location', 'perimeter',
+            ) or 'perimeter'
+            key = f"{box.code}_{loc}"
             if key in box_groups:
                 box_groups[key]["qty"] += box.qty
             else:
+                loc_label = (
+                    " (Island)"
+                    if loc == "island" else ""
+                )
                 box_groups[key] = {
                     "code": box.code,
-                    "description": f"{box.cab_type.title()} Cabinet {box.code} ({box.width_inches}\"W x {box.height_inches}\"H)",
+                    "description": (
+                        f"{box.cab_type.title()} "
+                        f"Cabinet {box.code} "
+                        f"({box.width_inches}\"W x "
+                        f"{box.height_inches}\"H)"
+                        f"{loc_label}"
+                    ),
                     "cab_type": box.cab_type,
                     "width_inches": box.width_inches,
                     "height_inches": box.height_inches,

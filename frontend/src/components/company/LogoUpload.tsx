@@ -45,6 +45,15 @@ const LogoUpload: React.FC<LogoUploadProps> = ({
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [croppedImage, setCroppedImage] = useState<string | null>(value || null);
   const [cropModalVisible, setCropModalVisible] = useState(false);
+
+  // Sync with form value (set asynchronously by Form)
+  React.useEffect(() => {
+    if (value && value !== croppedImage) {
+      setCroppedImage(value);
+    } else if (!value && croppedImage) {
+      setCroppedImage(null);
+    }
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
   const [cropSettings, setCropSettings] = useState<CropSettings>({
     mode: 'auto',
     type: 'square',
@@ -182,7 +191,7 @@ const LogoUpload: React.FC<LogoUploadProps> = ({
 
   const handleRemoveLogo = () => {
     setCroppedImage(null);
-    onChange?.(undefined);
+    onChange?.('');
     setFileList([]);
     message.success('Logo has been removed.');
   };

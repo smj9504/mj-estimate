@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Set
 from uuid import UUID
 
 from sqlalchemy import and_, desc, func, or_
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import selectinload
 
 from app.common.base_repository import SQLAlchemyRepository
 from app.core.interfaces import DatabaseSession
@@ -31,8 +31,8 @@ class CabinetEstimateRepository(SQLAlchemyRepository[CabinetEstimate, UUID]):
         return (
             self.db_session.query(CabinetEstimate)
             .options(
-                joinedload(CabinetEstimate.boxes),
-                joinedload(CabinetEstimate.line_items),
+                selectinload(CabinetEstimate.boxes),
+                selectinload(CabinetEstimate.line_items),
             )
             .filter(CabinetEstimate.id == estimate_id)
             .first()
@@ -69,29 +69,22 @@ class CabinetEstimateRepository(SQLAlchemyRepository[CabinetEstimate, UUID]):
         total = query.count()
         items = (
             query.options(
-                joinedload(CabinetEstimate.boxes),
-                joinedload(CabinetEstimate.line_items),
+                selectinload(CabinetEstimate.boxes),
+                selectinload(CabinetEstimate.line_items),
             )
             .order_by(desc(CabinetEstimate.created_at))
             .offset((page - 1) * page_size)
             .limit(page_size)
             .all()
         )
-        # Deduplicate (joinedload can cause duplicates with pagination)
-        seen = set()
-        unique_items = []
-        for item in items:
-            if item.id not in seen:
-                seen.add(item.id)
-                unique_items.append(item)
-        return unique_items, total
+        return items, total
 
     def find_by_claim_id(self, claim_id: str) -> List[CabinetEstimate]:
         return (
             self.db_session.query(CabinetEstimate)
             .options(
-                joinedload(CabinetEstimate.boxes),
-                joinedload(CabinetEstimate.line_items),
+                selectinload(CabinetEstimate.boxes),
+                selectinload(CabinetEstimate.line_items),
             )
             .filter(CabinetEstimate.claim_id == claim_id)
             .order_by(desc(CabinetEstimate.created_at))

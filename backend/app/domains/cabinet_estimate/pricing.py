@@ -93,7 +93,7 @@ CROWN_MOLDING_PRICING = {
     "Stock": 12,         # basic MDF crown, per LF material
     "Semi-Custom": 22,   # solid wood crown, per LF material
     "Custom": 38,        # decorative multi-piece crown, per LF material
-    "install_per_lf": 15,  # installation labor per LF
+    "install_per_lf": 10,  # labor per LF (market $6-$12)
 }
 
 # Backsplash pricing (per SF, material + install)
@@ -159,13 +159,24 @@ SCOPE_ITEMS = {
     "delivery_base": 150,
     "delivery_per_lf": 3,           # additional per total LF
     "delivery_min": 150,
+    # Floor surcharge: $75/floor above ground level
+    "delivery_floor_surcharge": 75,
     # Plumbing
     "plumbing_disconnect": 225,
     "plumbing_reconnect": 450,      # reconnect (sink, DW, disposal)
-    # Countertop
-    "countertop_reset": 775,
-    # Toe kick (runs along base cabinets)
-    "toe_kick_per_lf": 21,
+    # Sink (supply + install, mid-range undermount SS)
+    # Single 30": Kraus KHU100-30 ($280) + install ($165)
+    "sink_single_supply_install": 445,
+    # Double 33": Kraus KHU102-33 ($420) + install ($165)
+    "sink_double_supply_install": 585,
+    # Faucet: Moen/Delta pull-down ($210) + install ($75)
+    "faucet_supply_install": 285,
+    # Garbage Disposal: InSinkErator 3/4HP ($165) + install ($110)
+    "disposal_supply_install": 275,
+    # Countertop reset (market $400-$600)
+    "countertop_reset": 550,
+    # Toe kick (runs along base cabinets, market $3-$10/LF)
+    "toe_kick_per_lf": 12,
     # Countertop supply+install (per SF, by material)
     "countertop_laminate_per_sf": 45,
     "countertop_granite_per_sf": 85,
@@ -177,11 +188,11 @@ SCOPE_ITEMS = {
     # Painting (prep + prime + paint)
     "paint_prep_per_sf": 2.50,
     "paint_primer_paint_per_sf": 3.95,
-    # Backsplash misc materials (grout, tape, etc.)
-    "backsplash_misc_materials": 155,
-    # Appliance R&R (disconnect + reconnect cooktop, DW,
-    # disposal, oven, fridge)
-    "appliance_rr": 725,
+    # Backsplash misc materials (grout, thinset, tape)
+    # Per SF instead of flat fee
+    "backsplash_misc_per_sf": 4.50,
+    # Appliance R&R — per-unit detach & reset costs
+    # (disconnect, move out, move back, reconnect)
     # Dumpster / trash disposal (by size)
     "dumpster_10yard": 350,
     "dumpster_15yard": 425,
@@ -190,11 +201,24 @@ SCOPE_ITEMS = {
     # Site protection & cleanup: scale with kitchen size (total LF)
     "site_protection_base": 75,
     "site_protection_per_lf": 3,
-    "cleanup_base": 100,
-    "cleanup_per_lf": 4,
+    "cleanup_base": 75,
+    "cleanup_per_lf": 3,
     # Cabinet hardware (knobs/pulls) — supply + install per opening
     "hardware_per_opening": 15,     # mid-grade knob/pull supply
     "hardware_install_per_opening": 8,
+}
+
+# Appliance detach & reset pricing (per unit)
+APPLIANCE_RR_PRICING = {
+    "refrigerator": {"label": "Refrigerator", "cost": 150},
+    "range_gas": {"label": "Range (Gas)", "cost": 175},
+    "range_electric": {"label": "Range (Electric)", "cost": 125},
+    "cooktop_gas": {"label": "Cooktop (Gas)", "cost": 150},
+    "cooktop_electric": {"label": "Cooktop (Electric)", "cost": 125},
+    "wall_oven": {"label": "Wall Oven", "cost": 150},
+    "dishwasher": {"label": "Dishwasher", "cost": 100},
+    "microwave_otr": {"label": "Microwave (Over-the-Range)", "cost": 85},
+    "hood_vent": {"label": "Hood / Vent", "cost": 75},
 }
 
 # Default O&P percentages

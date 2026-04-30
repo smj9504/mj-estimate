@@ -8,6 +8,7 @@ export type CabinetTier = 'Stock' | 'Semi-Custom' | 'Custom';
 export type BoxMaterial = 'Plywood' | 'MDF' | 'Particle';
 export type FinishType = 'Stained' | 'Painted' | 'Glazed' | 'Laminate';
 export type CabType = 'base' | 'wall' | 'tall' | 'specialty';
+export type CabinetLocation = 'perimeter' | 'island';
 export type EstimateStatus = 'draft' | 'calculated' | 'approved' | 'exported';
 export type SpecialtyType = 'sink_base' | 'lazy_susan' | 'blind_corner' | 'drawer_base' | 'diagonal_corner_wall' | 'oven_cabinet' | 'refrigerator_cabinet';
 export type BacksplashType = 'ceramic_tile' | 'subway_tile' | 'glass_tile' | 'stone_marble';
@@ -19,6 +20,7 @@ export interface CabinetBox {
   estimate_id: string;
   code: string;
   cab_type: CabType;
+  location: CabinetLocation;
   width_inches: number;
   height_inches: number;
   is_specialty: boolean;
@@ -32,6 +34,7 @@ export interface CabinetBox {
 export interface CabinetBoxCreate {
   code: string;
   cab_type: CabType;
+  location: CabinetLocation;
   width_inches: number;
   height_inches: number;
   is_specialty: boolean;
@@ -52,6 +55,7 @@ export interface EstimateLineItem {
   unit_price: number;
   total: number;
   category?: string;
+  location?: string;
   notes?: string;
   display_order: number;
   created_at?: string;
@@ -79,6 +83,7 @@ export interface CabinetEstimate {
   include_install: boolean;
   include_delivery: boolean;
   include_plumbing: boolean;
+  sink_type?: 'single' | 'double';
   include_countertop_reset: boolean;
   include_hardware: boolean;
   include_crown_molding: boolean;
@@ -92,11 +97,15 @@ export interface CabinetEstimate {
   include_painting: boolean;
   painting_sqft?: number;
   include_appliance_rr: boolean;
+  appliance_list?: { type: string; qty: number }[];
   include_dumpster: boolean;
+  delivery_floor?: number;
   island_end_panel_sqft: number;
   island_back_panel_sqft: number;
   countertop_material?: string;
   countertop_sqft?: number;
+  island_countertop_material?: string;
+  island_countertop_sqft?: number;
   overview_text?: string;
   subtotal: number;
   overhead_pct: number;
@@ -133,6 +142,7 @@ export interface CabinetEstimateCreate {
   include_install?: boolean;
   include_delivery?: boolean;
   include_plumbing?: boolean;
+  sink_type?: 'single' | 'double';
   include_countertop_reset?: boolean;
   include_hardware?: boolean;
   include_crown_molding?: boolean;
@@ -146,11 +156,15 @@ export interface CabinetEstimateCreate {
   include_painting?: boolean;
   painting_sqft?: number;
   include_appliance_rr?: boolean;
+  appliance_list?: { type: string; qty: number }[];
   include_dumpster?: boolean;
+  delivery_floor?: number;
   island_end_panel_sqft?: number;
   island_back_panel_sqft?: number;
   countertop_material?: string;
   countertop_sqft?: number;
+  island_countertop_material?: string;
+  island_countertop_sqft?: number;
   overview_text?: string;
   overhead_pct?: number;
   profit_pct?: number;
@@ -175,6 +189,7 @@ export interface CabinetEstimateUpdate {
   include_install?: boolean;
   include_delivery?: boolean;
   include_plumbing?: boolean;
+  sink_type?: 'single' | 'double';
   include_countertop_reset?: boolean;
   include_hardware?: boolean;
   include_crown_molding?: boolean;
@@ -188,11 +203,15 @@ export interface CabinetEstimateUpdate {
   include_painting?: boolean;
   painting_sqft?: number;
   include_appliance_rr?: boolean;
+  appliance_list?: { type: string; qty: number }[];
   include_dumpster?: boolean;
+  delivery_floor?: number;
   island_end_panel_sqft?: number;
   island_back_panel_sqft?: number;
   countertop_material?: string;
   countertop_sqft?: number;
+  island_countertop_material?: string;
+  island_countertop_sqft?: number;
   overview_text?: string;
   overhead_pct?: number;
   profit_pct?: number;

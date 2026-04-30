@@ -5,6 +5,7 @@ import {
   Card,
   Checkbox,
   Col,
+  Dropdown,
   Form,
   Input,
   InputNumber,
@@ -46,12 +47,58 @@ const STATUS_COLORS: Record<string, string> = {
   exported: 'purple',
 };
 
+// ── Appliance Selector (inline component) ──
+interface ApplianceOption { type: string; label: string; cost: number }
+interface ApplianceSelectorProps {
+  value?: { type: string; qty: number }[];
+  onChange?: (val: { type: string; qty: number }[]) => void;
+  options: ApplianceOption[];
+}
+const ApplianceSelector: React.FC<ApplianceSelectorProps> = ({ value = [], onChange, options }) => {
+  const toggle = (type: string, checked: boolean) => {
+    if (checked) {
+      onChange?.([...value, { type, qty: 1 }]);
+    } else {
+      onChange?.(value.filter((v) => v.type !== type));
+    }
+  };
+  const setQty = (type: string, qty: number) => {
+    onChange?.(value.map((v) => (v.type === type ? { ...v, qty } : v)));
+  };
+  return (
+    <Row gutter={[8, 4]}>
+      {options.map((opt) => {
+        const item = value.find((v) => v.type === opt.type);
+        const checked = !!item;
+        return (
+          <Col xs={12} md={8} key={opt.type}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Checkbox checked={checked} onChange={(e) => toggle(opt.type, e.target.checked)}>
+                <span style={{ fontSize: 12 }}>{opt.label}</span>
+              </Checkbox>
+              {checked && (
+                <InputNumber
+                  size="small" min={1} max={5} value={item?.qty || 1}
+                  onChange={(v) => setQty(opt.type, v || 1)}
+                  style={{ width: 50, fontSize: 11 }}
+                />
+              )}
+              <Text type="secondary" style={{ fontSize: 10 }}>${opt.cost}</Text>
+            </div>
+          </Col>
+        );
+      })}
+    </Row>
+  );
+};
+
 const CabinetEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
-  const [boxes, setBoxes] = useState<CabinetBoxCreate[]>([]);
+  const [perimeterBoxes, setPerimeterBoxes] = useState<CabinetBoxCreate[]>([]);
+  const [islandBoxes, setIslandBoxes] = useState<CabinetBoxCreate[]>([]);
   const [activeTab, setActiveTab] = useState('edit');
   const [clientSearch, setClientSearch] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
@@ -144,6 +191,7 @@ const CabinetEstimateDetail: React.FC = () => {
         include_install: estimate.include_install,
         include_delivery: estimate.include_delivery,
         include_plumbing: estimate.include_plumbing,
+        sink_type: estimate.sink_type || 'single',
         include_countertop_reset: estimate.include_countertop_reset,
         include_hardware: estimate.include_hardware,
         include_crown_molding: estimate.include_crown_molding,
@@ -157,29 +205,34 @@ const CabinetEstimateDetail: React.FC = () => {
         include_painting: estimate.include_painting,
         painting_sqft: estimate.painting_sqft,
         include_appliance_rr: estimate.include_appliance_rr,
+        appliance_list: estimate.appliance_list || [],
         include_dumpster: estimate.include_dumpster ?? true,
+        delivery_floor: estimate.delivery_floor || 1,
         island_end_panel_sqft: estimate.island_end_panel_sqft || 0,
         island_back_panel_sqft: estimate.island_back_panel_sqft || 0,
         countertop_material: estimate.countertop_material,
         countertop_sqft: estimate.countertop_sqft,
+        island_countertop_material: estimate.island_countertop_material,
+        island_countertop_sqft: estimate.island_countertop_sqft,
         overview_text: estimate.overview_text,
         overhead_pct: (estimate.overhead_pct ?? 0.10) * 100,
         profit_pct: (estimate.profit_pct ?? 0.10) * 100,
         notes: estimate.notes,
       });
-      setBoxes(
-        estimate.boxes.map((b) => ({
-          code: b.code,
-          cab_type: b.cab_type,
-          width_inches: b.width_inches,
-          height_inches: b.height_inches,
-          is_specialty: b.is_specialty,
-          specialty_type: b.specialty_type || null,
-          has_glass_door: b.has_glass_door || false,
-          qty: b.qty,
-          display_order: b.display_order,
-        }))
-      );
+      const allBoxes = estimate.boxes.map((b) => ({
+        code: b.code,
+        cab_type: b.cab_type,
+        location: (b.location || 'perimeter') as 'perimeter' | 'island',
+        width_inches: b.width_inches,
+        height_inches: b.height_inches,
+        is_specialty: b.is_specialty,
+        specialty_type: b.specialty_type || null,
+        has_glass_door: b.has_glass_door || false,
+        qty: b.qty,
+        display_order: b.display_order,
+      }));
+      setPerimeterBoxes(allBoxes.filter((b) => b.location !== 'island'));
+      setIslandBoxes(allBoxes.filter((b) => b.location === 'island'));
     }
   }, [estimate, form]);
 
@@ -195,7 +248,8 @@ const CabinetEstimateDetail: React.FC = () => {
   });
 
   const calculateMutation = useMutation({
-    mutationFn: () => cabinetEstimateService.calculate(id!),
+    mutationFn: (payload?: CabinetEstimateUpdate) =>
+      cabinetEstimateService.calculate(id!, payload),
     onSuccess: () => {
       message.success('Calculation complete');
       queryClient.invalidateQueries({ queryKey: ['cabinet-estimate', id] });
@@ -215,6 +269,12 @@ const CabinetEstimateDetail: React.FC = () => {
     },
   });
 
+  // Merge perimeter + island boxes for API
+  const allBoxes = [...perimeterBoxes, ...islandBoxes].map((b, i) => ({
+    ...b,
+    display_order: i,
+  }));
+
   // ── Save handler ──
   const handleSave = useCallback(async () => {
     try {
@@ -223,15 +283,15 @@ const CabinetEstimateDetail: React.FC = () => {
         ...values,
         overhead_pct: (values.overhead_pct ?? 0) / 100,
         profit_pct: (values.profit_pct ?? 0) / 100,
-        boxes,
+        boxes: allBoxes,
       };
       saveMutation.mutate(payload);
     } catch {
       message.warning('Please fill required fields');
     }
-  }, [form, boxes, saveMutation]);
+  }, [form, allBoxes, saveMutation]);
 
-  // ── Save & Calculate ──
+  // ── Save & Calculate (single API call) ──
   const handleCalculate = useCallback(async () => {
     try {
       const values = await form.validateFields();
@@ -239,14 +299,13 @@ const CabinetEstimateDetail: React.FC = () => {
         ...values,
         overhead_pct: (values.overhead_pct ?? 0) / 100,
         profit_pct: (values.profit_pct ?? 0) / 100,
-        boxes,
+        boxes: allBoxes,
       };
-      await cabinetEstimateService.update(id!, payload);
-      calculateMutation.mutate();
+      calculateMutation.mutate(payload);
     } catch {
       message.warning('Please fill required fields before calculating');
     }
-  }, [form, boxes, id, calculateMutation]);
+  }, [form, allBoxes, calculateMutation]);
 
   if (isLoading) {
     return (
@@ -293,13 +352,24 @@ const CabinetEstimateDetail: React.FC = () => {
             <Button icon={<CopyOutlined />} onClick={() => cloneMutation.mutate()}>
               Clone
             </Button>
-            <Button
-              icon={<FilePdfOutlined />}
-              onClick={() => cabinetEstimateService.exportPdf(id!)}
+            <Dropdown
               disabled={estimate.status === 'draft'}
+              menu={{
+                items: [
+                  { key: 'with-sig', label: 'PDF (with signature)' },
+                  { key: 'no-sig', label: 'PDF (without signature)' },
+                ],
+                onClick: ({ key }) => {
+                  cabinetEstimateService.exportPdf(id!, {
+                    show_signature: key === 'with-sig',
+                  });
+                },
+              }}
             >
-              PDF
-            </Button>
+              <Button icon={<FilePdfOutlined />} disabled={estimate.status === 'draft'}>
+                PDF
+              </Button>
+            </Dropdown>
             <Button
               icon={<FileExcelOutlined />}
               onClick={() => cabinetEstimateService.exportExcel(id!)}
@@ -446,9 +516,189 @@ const CabinetEstimateDetail: React.FC = () => {
                   </Row>
                 </Card>
 
-                {/* Cabinet Boxes */}
-                <Card size="small" title="Cabinet Boxes" style={{ marginBottom: 16 }}>
-                  <CabinetBoxEditor boxes={boxes} onChange={setBoxes} />
+                {/* Perimeter Cabinets */}
+                <Card size="small" title="Perimeter Cabinets" style={{ marginBottom: 16 }}>
+                  <CabinetBoxEditor boxes={perimeterBoxes} onChange={setPerimeterBoxes} location="perimeter" />
+                </Card>
+
+                {/* Island Cabinets + Panels + Countertop */}
+                <Card size="small" title="Island" style={{ marginBottom: 16 }}>
+                  <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Cabinets</Text>
+                  <CabinetBoxEditor boxes={islandBoxes} onChange={setIslandBoxes} location="island" />
+
+                  <div style={{ borderTop: '1px solid #f0f0f0', margin: '16px 0', paddingTop: 12 }}>
+                    <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Panels</Text>
+                    <Row gutter={16}>
+                      {/* End Panel */}
+                      <Col xs={24} md={12}>
+                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>End Panel (Side)</Text>
+                        <Row gutter={8}>
+                          <Col span={10}>
+                            <Form.Item label="LF" style={{ marginBottom: 4 }}>
+                              <InputNumber
+                                min={0} max={30} step={0.5}
+                                style={{ width: '100%' }}
+                                placeholder="0"
+                                value={(() => {
+                                  const sf = form.getFieldValue('island_end_panel_sqft') || 0;
+                                  return sf > 0 ? Math.round(sf / 2.875 * 10) / 10 : undefined;
+                                })()}
+                                onChange={(lf) => {
+                                  form.setFieldsValue({
+                                    island_end_panel_sqft: lf ? Math.round(lf * 2.875 * 10) / 10 : 0,
+                                  });
+                                }}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col span={7}>
+                            <Form.Item label="Height" style={{ marginBottom: 4 }}>
+                              <Select
+                                defaultValue="base"
+                                size="middle"
+                                onChange={(h) => {
+                                  const sf = form.getFieldValue('island_end_panel_sqft') || 0;
+                                  if (sf <= 0) return;
+                                  const oldH = h === 'base' ? 7 : 2.875;
+                                  const newH = h === 'base' ? 2.875 : 7;
+                                  const lf = sf / oldH;
+                                  form.setFieldsValue({
+                                    island_end_panel_sqft: Math.round(lf * newH * 10) / 10,
+                                  });
+                                }}
+                                options={[
+                                  { label: 'Base (34.5")', value: 'base' },
+                                  { label: 'Tall (84")', value: 'tall' },
+                                ]}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col span={7}>
+                            <Form.Item name="island_end_panel_sqft" label="SF" style={{ marginBottom: 4 }}>
+                              <InputNumber min={0} max={200} step={0.5} style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      </Col>
+                      {/* Back Panel */}
+                      <Col xs={24} md={12}>
+                        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>Back Panel</Text>
+                        <Row gutter={8}>
+                          <Col span={10}>
+                            <Form.Item label="LF" style={{ marginBottom: 4 }}>
+                              <InputNumber
+                                min={0} max={30} step={0.5}
+                                style={{ width: '100%' }}
+                                placeholder="0"
+                                value={(() => {
+                                  const sf = form.getFieldValue('island_back_panel_sqft') || 0;
+                                  return sf > 0 ? Math.round(sf / 2.875 * 10) / 10 : undefined;
+                                })()}
+                                onChange={(lf) => {
+                                  form.setFieldsValue({
+                                    island_back_panel_sqft: lf ? Math.round(lf * 2.875 * 10) / 10 : 0,
+                                  });
+                                }}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col span={7}>
+                            <Form.Item label="Height" style={{ marginBottom: 4 }}>
+                              <Select
+                                defaultValue="base"
+                                size="middle"
+                                onChange={(h) => {
+                                  const sf = form.getFieldValue('island_back_panel_sqft') || 0;
+                                  if (sf <= 0) return;
+                                  const oldH = h === 'base' ? 7 : 2.875;
+                                  const newH = h === 'base' ? 2.875 : 7;
+                                  const lf = sf / oldH;
+                                  form.setFieldsValue({
+                                    island_back_panel_sqft: Math.round(lf * newH * 10) / 10,
+                                  });
+                                }}
+                                options={[
+                                  { label: 'Base (34.5")', value: 'base' },
+                                  { label: 'Tall (84")', value: 'tall' },
+                                ]}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col span={7}>
+                            <Form.Item name="island_back_panel_sqft" label="SF" style={{ marginBottom: 4 }}>
+                              <InputNumber min={0} max={200} step={0.5} style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      </Col>
+                    </Row>
+                    {pricingInfo && form.getFieldValue('tier') && (
+                      <div style={{ marginTop: 4 }}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          End: ${pricingInfo.island_panel_pricing?.end_panel_per_sf?.[form.getFieldValue('tier') as string] || '—'}/SF
+                          {' | '}
+                          Back: ${pricingInfo.island_panel_pricing?.back_panel_per_sf?.[form.getFieldValue('tier') as string] || '—'}/SF
+                          {' + $'}
+                          {pricingInfo.island_panel_pricing?.install_per_sf || '—'}/SF install
+                        </Text>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Island Countertop */}
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_countertop !== cur.include_countertop}>
+                    {({ getFieldValue }) => {
+                      if (!getFieldValue('include_countertop')) return null;
+                      const islandBaseLf = islandBoxes
+                        .filter((b) => b.cab_type === 'base')
+                        .reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
+                      const suggestedSf = Math.round(islandBaseLf * 2.125 * 10) / 10;
+                      return (
+                        <div style={{ borderTop: '1px solid #f0f0f0', margin: '16px 0', paddingTop: 12 }}>
+                          <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Countertop</Text>
+                          <Row gutter={16}>
+                            <Col xs={12}>
+                              <Form.Item name="island_countertop_material" label="Material">
+                                <Select
+                                  placeholder="Same as perimeter"
+                                  allowClear
+                                  options={[
+                                    { label: 'Laminate ($35/SF)', value: 'Laminate' },
+                                    { label: 'Butcher Block ($70/SF)', value: 'Butcher Block' },
+                                    { label: 'Solid Surface ($75/SF)', value: 'Solid Surface' },
+                                    { label: 'Granite ($95/SF)', value: 'Granite' },
+                                    { label: 'Quartz ($110/SF)', value: 'Quartz' },
+                                    { label: 'Quartzite ($130/SF)', value: 'Quartzite' },
+                                    { label: 'Marble ($160/SF)', value: 'Marble' },
+                                  ]}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col xs={12}>
+                              <Form.Item name="island_countertop_sqft" label="Area (SF)">
+                                <InputNumber min={0} max={500} step={0.5} style={{ width: '100%' }} addonAfter="SF" />
+                              </Form.Item>
+                              {suggestedSf > 0 && (
+                                <Space size={4}>
+                                  <Text type="secondary" style={{ fontSize: 11 }}>
+                                    Island Base LF({islandBaseLf.toFixed(1)}) x 2.125ft =
+                                  </Text>
+                                  <Button
+                                    type="link"
+                                    size="small"
+                                    style={{ padding: 0, fontSize: 11, height: 'auto' }}
+                                    onClick={() => form.setFieldsValue({ island_countertop_sqft: suggestedSf })}
+                                  >
+                                    {suggestedSf} SF 적용
+                                  </Button>
+                                </Space>
+                              )}
+                            </Col>
+                          </Row>
+                        </div>
+                      );
+                    }}
+                  </Form.Item>
                 </Card>
 
                 {/* Scope of Work */}
@@ -465,18 +715,64 @@ const CabinetEstimateDetail: React.FC = () => {
                       </Form.Item>
                     </Col>
                     <Col xs={12} md={8}>
-                      <Form.Item name="include_delivery" valuePropName="checked">
+                      <Form.Item name="include_delivery" valuePropName="checked" style={{ marginBottom: 4 }}>
                         <Checkbox>Delivery</Checkbox>
                       </Form.Item>
-                    </Col>
-                    <Col xs={12} md={8}>
-                      <Form.Item name="include_plumbing" valuePropName="checked">
-                        <Checkbox>Plumbing (Disconnect + Reconnect)</Checkbox>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_delivery !== cur.include_delivery}>
+                        {({ getFieldValue }) =>
+                          getFieldValue('include_delivery') ? (
+                            <Form.Item name="delivery_floor" label="Floor" style={{ marginBottom: 0, marginLeft: 24 }}>
+                              <Select
+                                size="small"
+                                style={{ width: 120 }}
+                                options={[
+                                  { label: '1st Floor', value: 1 },
+                                  { label: '2nd Floor', value: 2 },
+                                  { label: '3rd Floor+', value: 3 },
+                                ]}
+                              />
+                            </Form.Item>
+                          ) : null
+                        }
                       </Form.Item>
                     </Col>
                     <Col xs={12} md={8}>
-                      <Form.Item name="include_countertop_reset" valuePropName="checked">
-                        <Checkbox>Countertop Reset</Checkbox>
+                      <Form.Item name="include_plumbing" valuePropName="checked" style={{ marginBottom: 4 }}>
+                        <Checkbox>Plumbing + Sink/Faucet/Disposal</Checkbox>
+                      </Form.Item>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_plumbing !== cur.include_plumbing}>
+                        {({ getFieldValue }) =>
+                          getFieldValue('include_plumbing') ? (
+                            <Form.Item name="sink_type" label="Sink Type" style={{ marginBottom: 0, marginLeft: 24 }}>
+                              <Select size="small" style={{ width: 180 }} options={[
+                                { label: 'Single Bowl ($445)', value: 'single' },
+                                { label: 'Double Bowl ($585)', value: 'double' },
+                              ]} />
+                            </Form.Item>
+                          ) : null
+                        }
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_countertop !== cur.include_countertop}>
+                        {({ getFieldValue }) => {
+                          const hasNewCountertop = getFieldValue('include_countertop');
+                          if (hasNewCountertop) {
+                            form.setFieldsValue({ include_countertop_reset: false });
+                          }
+                          return (
+                            <Form.Item name="include_countertop_reset" valuePropName="checked">
+                              <Checkbox disabled={hasNewCountertop}>
+                                Countertop Reset
+                                {hasNewCountertop && (
+                                  <Text type="secondary" style={{ fontSize: 10, marginLeft: 4 }}>
+                                    (N/A — new countertop selected)
+                                  </Text>
+                                )}
+                              </Checkbox>
+                            </Form.Item>
+                          );
+                        }}
                       </Form.Item>
                     </Col>
                     <Col xs={12} md={8}>
@@ -496,7 +792,7 @@ const CabinetEstimateDetail: React.FC = () => {
                     </Col>
                     <Col xs={12} md={8}>
                       <Form.Item name="include_appliance_rr" valuePropName="checked">
-                        <Checkbox>Appliance R&R (Cooktop, DW, Oven, Fridge)</Checkbox>
+                        <Checkbox>Appliance Detach & Reset</Checkbox>
                       </Form.Item>
                     </Col>
                     <Col xs={12} md={8}>
@@ -505,9 +801,37 @@ const CabinetEstimateDetail: React.FC = () => {
                       </Form.Item>
                     </Col>
                   </Row>
+
+                  {/* Appliance list (shown when Appliance R&R checked) */}
+                  <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_appliance_rr !== cur.include_appliance_rr}>
+                    {({ getFieldValue }) => {
+                      if (!getFieldValue('include_appliance_rr')) return null;
+                      const APPLIANCE_OPTIONS = [
+                        { type: 'refrigerator', label: 'Refrigerator', cost: 150 },
+                        { type: 'range_gas', label: 'Range (Gas)', cost: 175 },
+                        { type: 'range_electric', label: 'Range (Electric)', cost: 125 },
+                        { type: 'cooktop_gas', label: 'Cooktop (Gas)', cost: 150 },
+                        { type: 'cooktop_electric', label: 'Cooktop (Electric)', cost: 125 },
+                        { type: 'wall_oven', label: 'Wall Oven', cost: 150 },
+                        { type: 'dishwasher', label: 'Dishwasher', cost: 100 },
+                        { type: 'microwave_otr', label: 'Microwave (OTR)', cost: 85 },
+                        { type: 'hood_vent', label: 'Hood / Vent', cost: 75 },
+                      ];
+                      return (
+                        <div style={{ borderTop: '1px solid #f0f0f0', margin: '8px 0 12px', paddingTop: 8 }}>
+                          <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
+                            Select appliances to detach & reset:
+                          </Text>
+                          <Form.Item name="appliance_list" noStyle>
+                            <ApplianceSelector options={APPLIANCE_OPTIONS} />
+                          </Form.Item>
+                        </div>
+                      );
+                    }}
+                  </Form.Item>
                 </Card>
 
-                {/* Countertop */}
+                {/* Countertop (Perimeter) */}
                 <Card size="small" title="Countertop" style={{ marginBottom: 16 }}>
                   <Form.Item name="include_countertop" valuePropName="checked">
                     <Checkbox>Include Countertop</Checkbox>
@@ -515,12 +839,17 @@ const CabinetEstimateDetail: React.FC = () => {
                   <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_countertop !== cur.include_countertop}>
                     {({ getFieldValue }) => {
                       if (!getFieldValue('include_countertop')) return null;
-                      const baseLf = boxes
+                      const perimBaseLf = perimeterBoxes
                         .filter((b) => b.cab_type === 'base')
                         .reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
-                      const suggestedSf = Math.round(baseLf * 2.125 * 10) / 10; // 25.5" depth
+                      const suggestedSf = Math.round(perimBaseLf * 2.125 * 10) / 10;
                       return (
                         <Row gutter={16}>
+                          <Col xs={24}>
+                            <Text type="secondary" style={{ fontSize: 11, marginBottom: 4, display: 'block' }}>
+                              Perimeter countertop (Island countertop은 Island 카드에서 입력)
+                            </Text>
+                          </Col>
                           <Col xs={12}>
                             <Form.Item name="countertop_material" label="Material">
                               <Select
@@ -544,7 +873,7 @@ const CabinetEstimateDetail: React.FC = () => {
                             {suggestedSf > 0 && (
                               <Space size={4}>
                                 <Text type="secondary" style={{ fontSize: 11 }}>
-                                  Base LF({baseLf.toFixed(1)}) x 2.125ft =
+                                  Perimeter Base LF({perimBaseLf.toFixed(1)}) x 2.125ft =
                                 </Text>
                                 <Button
                                   type="link"
@@ -577,7 +906,7 @@ const CabinetEstimateDetail: React.FC = () => {
                         {({ getFieldValue }) => {
                           if (!getFieldValue('include_drywall_repair')) return null;
                           // Wall area behind cabinets: (base LF + wall LF) * avg height ~4ft
-                          const totalLf = boxes.reduce((sum, b) => {
+                          const totalLf = allBoxes.reduce((sum, b) => {
                             if (b.cab_type === 'base' || b.cab_type === 'wall')
                               return sum + (b.width_inches * b.qty) / 12;
                             return sum;
@@ -637,126 +966,6 @@ const CabinetEstimateDetail: React.FC = () => {
                   </Row>
                 </Card>
 
-                {/* Island Panels */}
-                <Card size="small" title="Island Panels" style={{ marginBottom: 16 }}>
-                  <Row gutter={16}>
-                    {/* End Panel */}
-                    <Col xs={24} md={12}>
-                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>End Panel (Side)</Text>
-                      <Row gutter={8}>
-                        <Col span={10}>
-                          <Form.Item label="LF" style={{ marginBottom: 4 }}>
-                            <InputNumber
-                              min={0} max={30} step={0.5}
-                              style={{ width: '100%' }}
-                              placeholder="0"
-                              value={(() => {
-                                const sf = form.getFieldValue('island_end_panel_sqft') || 0;
-                                return sf > 0 ? Math.round(sf / 2.875 * 10) / 10 : undefined;
-                              })()}
-                              onChange={(lf) => {
-                                // Base height: 34.5" = 2.875 ft
-                                form.setFieldsValue({
-                                  island_end_panel_sqft: lf ? Math.round(lf * 2.875 * 10) / 10 : 0,
-                                });
-                              }}
-                            />
-                          </Form.Item>
-                        </Col>
-                        <Col span={7}>
-                          <Form.Item label="Height" style={{ marginBottom: 4 }}>
-                            <Select
-                              defaultValue="base"
-                              size="middle"
-                              onChange={(h) => {
-                                const sf = form.getFieldValue('island_end_panel_sqft') || 0;
-                                if (sf <= 0) return;
-                                const oldH = h === 'base' ? 7 : 2.875;
-                                const newH = h === 'base' ? 2.875 : 7;
-                                const lf = sf / oldH;
-                                form.setFieldsValue({
-                                  island_end_panel_sqft: Math.round(lf * newH * 10) / 10,
-                                });
-                              }}
-                              options={[
-                                { label: 'Base (34.5")', value: 'base' },
-                                { label: 'Tall (84")', value: 'tall' },
-                              ]}
-                            />
-                          </Form.Item>
-                        </Col>
-                        <Col span={7}>
-                          <Form.Item name="island_end_panel_sqft" label="SF" style={{ marginBottom: 4 }}>
-                            <InputNumber min={0} max={200} step={0.5} style={{ width: '100%' }} />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                    </Col>
-                    {/* Back Panel */}
-                    <Col xs={24} md={12}>
-                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Back Panel</Text>
-                      <Row gutter={8}>
-                        <Col span={10}>
-                          <Form.Item label="LF" style={{ marginBottom: 4 }}>
-                            <InputNumber
-                              min={0} max={30} step={0.5}
-                              style={{ width: '100%' }}
-                              placeholder="0"
-                              value={(() => {
-                                const sf = form.getFieldValue('island_back_panel_sqft') || 0;
-                                return sf > 0 ? Math.round(sf / 2.875 * 10) / 10 : undefined;
-                              })()}
-                              onChange={(lf) => {
-                                form.setFieldsValue({
-                                  island_back_panel_sqft: lf ? Math.round(lf * 2.875 * 10) / 10 : 0,
-                                });
-                              }}
-                            />
-                          </Form.Item>
-                        </Col>
-                        <Col span={7}>
-                          <Form.Item label="Height" style={{ marginBottom: 4 }}>
-                            <Select
-                              defaultValue="base"
-                              size="middle"
-                              onChange={(h) => {
-                                const sf = form.getFieldValue('island_back_panel_sqft') || 0;
-                                if (sf <= 0) return;
-                                const oldH = h === 'base' ? 7 : 2.875;
-                                const newH = h === 'base' ? 2.875 : 7;
-                                const lf = sf / oldH;
-                                form.setFieldsValue({
-                                  island_back_panel_sqft: Math.round(lf * newH * 10) / 10,
-                                });
-                              }}
-                              options={[
-                                { label: 'Base (34.5")', value: 'base' },
-                                { label: 'Tall (84")', value: 'tall' },
-                              ]}
-                            />
-                          </Form.Item>
-                        </Col>
-                        <Col span={7}>
-                          <Form.Item name="island_back_panel_sqft" label="SF" style={{ marginBottom: 4 }}>
-                            <InputNumber min={0} max={200} step={0.5} style={{ width: '100%' }} />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                    </Col>
-                  </Row>
-                  {pricingInfo && form.getFieldValue('tier') && (
-                    <div style={{ marginTop: 4 }}>
-                      <Text type="secondary" style={{ fontSize: 11 }}>
-                        End: ${pricingInfo.island_panel_pricing?.end_panel_per_sf?.[form.getFieldValue('tier') as string] || '—'}/SF
-                        {' | '}
-                        Back: ${pricingInfo.island_panel_pricing?.back_panel_per_sf?.[form.getFieldValue('tier') as string] || '—'}/SF
-                        {' + $'}
-                        {pricingInfo.island_panel_pricing?.install_per_sf || '—'}/SF install
-                      </Text>
-                    </div>
-                  )}
-                </Card>
-
                 {/* Backsplash */}
                 <Card size="small" title="Backsplash" style={{ marginBottom: 16 }}>
                   <Form.Item name="include_backsplash" valuePropName="checked">
@@ -767,7 +976,7 @@ const CabinetEstimateDetail: React.FC = () => {
                   }>
                     {({ getFieldValue }) => {
                       if (!getFieldValue('include_backsplash')) return null;
-                      const baseLf = boxes
+                      const baseLf = allBoxes
                         .filter((b) => b.cab_type === 'base')
                         .reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
                       const suggestedSf = Math.round(baseLf * 1.5 * 10) / 10; // 18" height

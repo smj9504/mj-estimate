@@ -48,6 +48,11 @@ export const clientService = {
     const { data } = await api.delete(`/api/clients/${id}`);
     return data;
   },
+
+  async getLatestDateOfLoss(clientId: string) {
+    const { data } = await api.get(`/api/clients/${clientId}/latest-date-of-loss`);
+    return data as { date_of_loss: string | null };
+  },
 };
 
 // ============================================================
