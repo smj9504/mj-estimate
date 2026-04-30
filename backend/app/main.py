@@ -161,6 +161,10 @@ from app.domains.xactimate_helper.models import (  # noqa: F401
     XactLineItem, XactAssembly, XactAssemblyItem,
     XactRoom, XactCorrectionFeedback, XactItemDescription,
 )
+from app.domains.cheatsheet.api import router as cheatsheet_router
+from app.domains.cheatsheet.models import (  # noqa: F401
+    CheatsheetSection, CheatsheetRule, CheatsheetTable, CheatsheetRow,
+)
 from app.domains.crew_upload.api import public_router as crew_upload_public_router
 from app.domains.crew_upload.api import admin_router as crew_upload_admin_router
 from app.domains.water_mitigation.trash_scheduler import (
@@ -598,6 +602,7 @@ app.include_router(staff_router, prefix="/api/staff", tags=["Staff Management"])
 app.include_router(line_items_router, prefix="/api/line-items", tags=["Line Items"])
 app.include_router(xactimate_router, prefix="/api/xactimate", tags=["Xactimate"])
 app.include_router(xactimate_helper_router, prefix="/api/xactimate", tags=["Xactimate Helper"])
+app.include_router(cheatsheet_router, prefix="/api/cheatsheet", tags=["Cheat Sheet"])
 
 # Dashboard and Analytics endpoints
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard & Analytics"])
