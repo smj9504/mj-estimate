@@ -327,6 +327,36 @@ class ClaimFollowUpService:
         finally:
             session.close()
 
+    def mark_reply(self, email_id: str, reply_summary: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Mark a sent email as having received a reply"""
+        session = self._get_session()
+        try:
+            from app.domains.claim_followup.models import SentEmail
+            email = session.query(SentEmail).filter(SentEmail.id == email_id).first()
+            if not email:
+                return None
+
+            email.reply_received = True
+            email.reply_received_at = datetime.now(timezone.utc)
+            if reply_summary:
+                email.reply_summary = reply_summary
+
+            session.flush()
+
+            # Convert to dict
+            from app.domains.claim_followup.repository import get_sent_email_repository
+            repo = get_sent_email_repository(session)
+            result = repo.get_by_id(email_id)
+
+            session.commit()
+            return result
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error marking reply: {e}")
+            raise
+        finally:
+            session.close()
+
     # ============================================================
     # Email Sending (delegates to smtp_service)
     # ============================================================

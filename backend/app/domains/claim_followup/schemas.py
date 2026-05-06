@@ -238,10 +238,15 @@ class GenerateAIEmailResponse(BaseModel):
     variables_used: Dict[str, str] = Field(default_factory=dict)
 
 
+class MarkReplyRequest(BaseModel):
+    reply_summary: Optional[str] = None
+
+
 class SentEmailResponse(BaseModel):
     id: UUID
     claim_id: UUID
     followup_task_id: Optional[UUID] = None
+    email_account_id: Optional[UUID] = None
     from_address: str
     to_addresses: List[str]
     cc_addresses: List[str] = []
@@ -254,6 +259,9 @@ class SentEmailResponse(BaseModel):
     sent_at: Optional[datetime] = None
     error_message: Optional[str] = None
     scheduled_at: Optional[datetime] = None
+    reply_received: bool = False
+    reply_received_at: Optional[datetime] = None
+    reply_summary: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:

@@ -166,6 +166,13 @@ export const claimFollowUpService = {
     return data;
   },
 
+  async markReply(emailId: string, replySummary?: string): Promise<SentEmail> {
+    const { data } = await api.post(`${BASE_URL}/emails/${emailId}/mark-reply`, {
+      reply_summary: replySummary,
+    });
+    return data;
+  },
+
   async testSmtpConnection(accountId?: string): Promise<{ success: boolean; message: string }> {
     const { data } = await api.post(`${BASE_URL}/emails/test-smtp`, null, {
       params: { account_id: accountId },

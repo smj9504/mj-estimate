@@ -310,6 +310,10 @@ def _auto_add_columns():
         ("claims", "pa_company", "VARCHAR(255)"),
         ("claims", "pa_email", "VARCHAR(255)"),
         ("claims", "pa_phone", "VARCHAR(50)"),
+        # SentEmail reply tracking
+        ("sent_emails", "reply_received", "BOOLEAN"),
+        ("sent_emails", "reply_received_at", "TIMESTAMPTZ"),
+        ("sent_emails", "reply_summary", "TEXT"),
     ]
 
     existing = {}

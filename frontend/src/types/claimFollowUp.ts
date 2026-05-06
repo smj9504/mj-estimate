@@ -196,6 +196,9 @@ export interface SentEmail {
   sent_at?: string;
   error_message?: string;
   scheduled_at?: string;
+  reply_received: boolean;
+  reply_received_at?: string;
+  reply_summary?: string;
   created_at?: string;
 }
 

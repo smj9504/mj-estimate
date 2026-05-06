@@ -54,7 +54,7 @@ import {
 import dayjs from 'dayjs';
 import { clientService, claimService, negotiationService } from '../services/clientService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
-import { PaymentTracker, ProfitabilityTracker, EmailComposer } from '../components/claim-followup';
+import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory } from '../components/claim-followup';
 import type {
   Client,
   ClientCreate,
@@ -1435,6 +1435,14 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                   claimId={claim.id}
                   clientId={client.id}
                 />
+
+                {/* Email History */}
+                <Divider style={{ margin: '16px 0 12px' }} />
+                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+                  <MailOutlined style={{ marginRight: 6 }} />
+                  Email History
+                </Text>
+                <EmailHistory claimId={claim.id} />
               </Panel>
             );
           })}

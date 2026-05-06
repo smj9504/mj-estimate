@@ -23,6 +23,7 @@ from app.domains.claim_followup.schemas import (
     SendEmailRequest,
     SendFromTemplateRequest,
     SentEmailResponse,
+    MarkReplyRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -294,6 +295,16 @@ async def generate_ai_email(data: GenerateAIEmailRequest):
     except Exception as e:
         logger.error(f"Error generating AI email: {e}")
         raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
+
+
+@router.post("/emails/{email_id}/mark-reply", response_model=SentEmailResponse)
+async def mark_reply_received(email_id: str, data: MarkReplyRequest):
+    """Mark a sent email as having received a reply"""
+    service = _get_service()
+    result = service.mark_reply(email_id, data.reply_summary)
+    if not result:
+        raise HTTPException(status_code=404, detail="Email not found")
+    return result
 
 
 @router.post("/emails/test-smtp")

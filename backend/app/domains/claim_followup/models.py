@@ -319,6 +319,11 @@ class SentEmail(Base, BaseModel):
     # Scheduling
     scheduled_at = Column(DateTime(timezone=True), comment="When to send (for scheduled emails)")
 
+    # Reply tracking
+    reply_received = Column(Boolean, default=False)
+    reply_received_at = Column(DateTime(timezone=True))
+    reply_summary = Column(Text, comment="Summary of the reply content")
+
     # Audit
     sent_by_id = Column(UUIDType(), ForeignKey("staff.id"))
 
