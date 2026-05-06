@@ -51,6 +51,7 @@ import {
 import dayjs from 'dayjs';
 import { clientService, claimService, negotiationService } from '../services/clientService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
+import { PaymentTracker } from '../components/claim-followup';
 import type {
   Client,
   ClientCreate,
@@ -1330,6 +1331,22 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
 
                 {/* Negotiation table */}
                 <NegotiationHistory clientId={client.id} claim={claim} />
+
+                {/* Payment Tracking */}
+                <Divider style={{ margin: '16px 0 12px' }} />
+                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+                  <DollarOutlined style={{ marginRight: 6 }} />
+                  Payment Tracking
+                </Text>
+                <PaymentTracker
+                  clientId={client.id}
+                  claimId={claim.id}
+                  claimNumber={claim.claim_number}
+                  insuranceCompany={claim.insurance_company}
+                  onClaimUpdate={() => {
+                    queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
+                  }}
+                />
 
                 {/* Contract Dashboard */}
                 <Divider style={{ margin: '16px 0 12px' }} />

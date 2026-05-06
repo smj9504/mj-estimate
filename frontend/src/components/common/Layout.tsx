@@ -160,24 +160,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         ],
       },
       {
-        key: '/cabinet-estimates',
-        icon: <BuildOutlined />,
-        label: 'Cabinet Estimate',
+        key: '/claim-followup',
+        icon: <ContactsOutlined />,
+        label: 'Claim Follow-up',
       },
       {
-        key: '/bathroom-estimates',
-        icon: <ExperimentOutlined />,
-        label: 'Bathroom Estimate',
-      },
-      {
-        key: '/roofing-estimates',
-        icon: <HomeOutlined />,
-        label: 'Roofing Estimate',
-      },
-      {
-        key: '/material-order',
-        icon: <ShoppingCartOutlined />,
-        label: 'Material Order',
+        key: '/supplements',
+        icon: <FileTextOutlined />,
+        label: 'Supplements',
       },
       {
         key: '/email-ingestion',
@@ -203,34 +193,27 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             icon: <RocketOutlined />,
             label: 'Pack Calculator',
           },
-        ],
-      },
-      {
-        key: '/training',
-        icon: <ExperimentOutlined />,
-        label: 'Training',
-        children: [
           {
-            key: '/ml-training',
-            icon: <RocketOutlined />,
-            label: 'ML Model Training',
+            key: '/cabinet-estimates',
+            icon: <BuildOutlined />,
+            label: 'Cabinet Estimate',
+          },
+          {
+            key: '/bathroom-estimates',
+            icon: <ExperimentOutlined />,
+            label: 'Bathroom Estimate',
+          },
+          {
+            key: '/roofing-estimates',
+            icon: <HomeOutlined />,
+            label: 'Roofing Estimate',
+          },
+          {
+            key: '/material-order',
+            icon: <ShoppingCartOutlined />,
+            label: 'Material Order',
           },
         ],
-      },
-      {
-        key: '/sketch-test',
-        icon: <SketchOutlined />,
-        label: 'Sketch Test',
-      },
-      {
-        key: '/pdf-editor',
-        icon: <FilePdfOutlined />,
-        label: 'PDF Editor',
-      },
-      {
-        key: '/cheat-sheet',
-        icon: <BookOutlined />,
-        label: 'Cheat Sheet',
       },
       {
         key: 'tools-menu',
@@ -241,6 +224,26 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             key: '/tools/photo-metadata',
             icon: <FileImageOutlined />,
             label: 'Photo Metadata',
+          },
+          {
+            key: '/ml-training',
+            icon: <RocketOutlined />,
+            label: 'ML Model Training',
+          },
+          {
+            key: '/sketch-test',
+            icon: <SketchOutlined />,
+            label: 'Sketch Test',
+          },
+          {
+            key: '/pdf-editor',
+            icon: <FilePdfOutlined />,
+            label: 'PDF Editor',
+          },
+          {
+            key: '/cheat-sheet',
+            icon: <BookOutlined />,
+            label: 'Cheat Sheet',
           },
         ],
       },

@@ -250,3 +250,170 @@ class ClaimNegotiationService(BaseService[Dict[str, Any], str]):
         except Exception as e:
             logger.error(f"Error getting negotiations by claim: {e}")
             raise
+
+
+class ClaimPaymentService:
+    """Service for claim payment tracking"""
+
+    def __init__(self, database=None):
+        from app.core.database_factory import get_database
+        self.database = database or get_database()
+
+    def _get_session(self):
+        return self.database.get_session()
+
+    def _get_readonly_session(self):
+        return self.database.get_readonly_session()
+
+    def create_payment(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a payment record and update claim totals"""
+        session = self._get_session()
+        try:
+            from app.domains.client.models import ClaimPayment, Claim
+            from decimal import Decimal
+
+            payment = ClaimPayment(**data)
+            session.add(payment)
+            session.flush()
+
+            # Update claim total_insurance_paid
+            self._recalculate_claim_totals(session, str(data['claim_id']))
+
+            session.commit()
+            return self._to_dict(payment)
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error creating payment: {e}")
+            raise
+        finally:
+            session.close()
+
+    def update_payment(self, payment_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update a payment record"""
+        session = self._get_session()
+        try:
+            from app.domains.client.models import ClaimPayment
+            payment = session.query(ClaimPayment).filter(ClaimPayment.id == payment_id).first()
+            if not payment:
+                return None
+
+            for key, value in data.items():
+                if hasattr(payment, key) and value is not None:
+                    setattr(payment, key, value)
+
+            session.flush()
+
+            # Recalculate claim totals
+            self._recalculate_claim_totals(session, str(payment.claim_id))
+
+            session.commit()
+            return self._to_dict(payment)
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def delete_payment(self, payment_id: str) -> bool:
+        """Delete a payment record"""
+        session = self._get_session()
+        try:
+            from app.domains.client.models import ClaimPayment
+            payment = session.query(ClaimPayment).filter(ClaimPayment.id == payment_id).first()
+            if not payment:
+                return False
+
+            claim_id = str(payment.claim_id)
+            session.delete(payment)
+            session.flush()
+
+            self._recalculate_claim_totals(session, claim_id)
+
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_payments_by_claim(self, claim_id: str) -> List[Dict[str, Any]]:
+        """Get all payments for a claim"""
+        session = self._get_readonly_session()
+        try:
+            from app.domains.client.models import ClaimPayment
+            payments = session.query(ClaimPayment).filter(
+                ClaimPayment.claim_id == claim_id
+            ).order_by(ClaimPayment.received_date.desc()).all()
+            return [self._to_dict(p) for p in payments]
+        finally:
+            session.close()
+
+    def get_payment_summary(self, claim_id: str) -> Dict[str, Any]:
+        """Get payment summary for a claim"""
+        session = self._get_readonly_session()
+        try:
+            from app.domains.client.models import Claim, ClaimPayment
+            from decimal import Decimal
+
+            claim = session.query(Claim).filter(Claim.id == claim_id).first()
+            if not claim:
+                raise ValueError(f"Claim {claim_id} not found")
+
+            payments = session.query(ClaimPayment).filter(
+                ClaimPayment.claim_id == claim_id
+            ).order_by(ClaimPayment.received_date.desc()).all()
+
+            total_paid = sum(float(p.amount or 0) for p in payments)
+            invoice_amount = float(claim.final_invoice_amount or claim.our_estimate_amount or 0)
+            deductible = float(claim.insurance_deductible or 0)
+            net_expected = invoice_amount - deductible
+            difference = invoice_amount - total_paid
+
+            return {
+                "total_invoice_amount": invoice_amount,
+                "total_insurance_paid": total_paid,
+                "payment_difference": difference,
+                "deductible": deductible,
+                "net_expected": net_expected,
+                "payment_status": claim.payment_status or "unpaid",
+                "insurance_estimate_received": claim.insurance_estimate_received or False,
+                "needs_supplement": claim.needs_supplement or False,
+                "payments": [self._to_dict(p) for p in payments],
+            }
+        finally:
+            session.close()
+
+    def _recalculate_claim_totals(self, session, claim_id: str):
+        """Recalculate and update claim payment totals"""
+        from app.domains.client.models import Claim, ClaimPayment
+        from sqlalchemy import func as sqlfunc
+        from decimal import Decimal
+
+        total = session.query(sqlfunc.sum(ClaimPayment.amount)).filter(
+            ClaimPayment.claim_id == claim_id
+        ).scalar() or Decimal(0)
+
+        claim = session.query(Claim).filter(Claim.id == claim_id).first()
+        if claim:
+            claim.total_insurance_paid = total
+            invoice = float(claim.final_invoice_amount or claim.our_estimate_amount or 0)
+            paid = float(total)
+            if paid == 0:
+                claim.payment_status = "unpaid"
+            elif paid < invoice:
+                claim.payment_status = "partial"
+            elif paid >= invoice:
+                claim.payment_status = "paid"
+
+    def _to_dict(self, obj) -> Dict[str, Any]:
+        """Convert SQLAlchemy model to dict"""
+        result = {}
+        for column in obj.__table__.columns:
+            value = getattr(obj, column.name, None)
+            if hasattr(value, 'isoformat'):
+                value = value.isoformat()
+            elif hasattr(value, '__str__') and not isinstance(value, (str, int, float, bool, type(None))):
+                value = str(value)
+            result[column.name] = value
+        return result

@@ -22,8 +22,12 @@ from app.domains.client.schemas import (
     ClaimNegotiationCreate,
     ClaimNegotiationUpdate,
     ClaimNegotiationResponse,
+    ClaimPaymentCreate,
+    ClaimPaymentUpdate,
+    ClaimPaymentResponse,
+    PaymentSummary,
 )
-from app.domains.client.service import ClientService, ClaimService, ClaimNegotiationService
+from app.domains.client.service import ClientService, ClaimService, ClaimNegotiationService, ClaimPaymentService
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +47,11 @@ def _get_claim_service():
 def _get_negotiation_service():
     from app.core.database_factory import get_database
     return ClaimNegotiationService(get_database())
+
+
+def _get_payment_service():
+    from app.core.database_factory import get_database
+    return ClaimPaymentService(get_database())
 
 
 # ============================================================
@@ -476,4 +485,97 @@ async def delete_negotiation(
         raise
     except Exception as e:
         logger.error(f"Error deleting negotiation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Claim Payment endpoints
+# ============================================================
+
+@router.get("/{client_id}/claims/{claim_id}/payments", response_model=None)
+async def get_payments(
+    client_id: str,
+    claim_id: str,
+    service: ClaimPaymentService = Depends(_get_payment_service),
+):
+    """Get all payments for a claim"""
+    try:
+        return service.get_payments_by_claim(claim_id)
+    except Exception as e:
+        logger.error(f"Error getting payments: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{client_id}/claims/{claim_id}/payment-summary", response_model=None)
+async def get_payment_summary(
+    client_id: str,
+    claim_id: str,
+    service: ClaimPaymentService = Depends(_get_payment_service),
+):
+    """Get payment summary with invoice vs insurance comparison"""
+    try:
+        return service.get_payment_summary(claim_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting payment summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{client_id}/claims/{claim_id}/payments", response_model=None)
+async def create_payment(
+    client_id: str,
+    claim_id: str,
+    data: ClaimPaymentCreate,
+    service: ClaimPaymentService = Depends(_get_payment_service),
+):
+    """Record a new payment"""
+    try:
+        payment_data = data.dict()
+        payment_data['claim_id'] = claim_id
+        return service.create_payment(payment_data)
+    except Exception as e:
+        logger.error(f"Error creating payment: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/{client_id}/claims/{claim_id}/payments/{payment_id}", response_model=None)
+async def update_payment(
+    client_id: str,
+    claim_id: str,
+    payment_id: str,
+    data: ClaimPaymentUpdate,
+    service: ClaimPaymentService = Depends(_get_payment_service),
+):
+    """Update a payment record"""
+    try:
+        update_data = data.dict(exclude_unset=True)
+        result = service.update_payment(payment_id, update_data)
+        if not result:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating payment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{client_id}/claims/{claim_id}/payments/{payment_id}")
+async def delete_payment(
+    client_id: str,
+    claim_id: str,
+    payment_id: str,
+    service: ClaimPaymentService = Depends(_get_payment_service),
+):
+    """Delete a payment record"""
+    try:
+        success = service.delete_payment(payment_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        return {"message": "Payment deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting payment: {e}")
         raise HTTPException(status_code=500, detail=str(e))

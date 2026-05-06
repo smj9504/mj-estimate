@@ -154,6 +154,15 @@ class ClaimUpdate(BaseModel):
     loss_description: Optional[str] = None
     our_estimate_amount: Optional[float] = None
     final_invoice_amount: Optional[float] = None
+    total_insurance_paid: Optional[float] = None
+    payment_status: Optional[str] = None
+    insurance_estimate_received: Optional[bool] = None
+    insurance_estimate_received_date: Optional[datetime] = None
+    insurance_estimate_file_id: Optional[str] = None
+    insurance_estimate_file_name: Optional[str] = None
+    needs_supplement: Optional[bool] = None
+    supplement_status: Optional[str] = None
+    supplement_notes: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
 
@@ -174,6 +183,56 @@ class ClaimSummaryResponse(BaseModel):
         from_attributes = True
 
 
+class ClaimPaymentBase(BaseModel):
+    payment_type: str = Field("insurance", description="insurance | depreciation_recovery | supplement | deductible | other")
+    amount: float
+    check_number: Optional[str] = None
+    check_date: Optional[datetime] = None
+    received_date: Optional[datetime] = None
+    paid_by: Optional[str] = None
+    description: Optional[str] = None
+    status: str = "received"
+    notes: Optional[str] = None
+
+
+class ClaimPaymentCreate(ClaimPaymentBase):
+    claim_id: UUID
+
+
+class ClaimPaymentUpdate(BaseModel):
+    payment_type: Optional[str] = None
+    amount: Optional[float] = None
+    check_number: Optional[str] = None
+    check_date: Optional[datetime] = None
+    received_date: Optional[datetime] = None
+    paid_by: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ClaimPaymentResponse(ClaimPaymentBase):
+    id: UUID
+    claim_id: UUID
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PaymentSummary(BaseModel):
+    """Payment summary for a claim"""
+    total_invoice_amount: float = 0
+    total_insurance_paid: float = 0
+    payment_difference: float = 0
+    deductible: float = 0
+    net_expected: float = 0
+    payment_status: str = "unpaid"
+    insurance_estimate_received: bool = False
+    needs_supplement: bool = False
+    payments: List[ClaimPaymentResponse] = []
+
+
 class ClaimDetailResponse(ClaimBase):
     """Full claim detail with negotiations and linked documents"""
     id: UUID
@@ -183,11 +242,21 @@ class ClaimDetailResponse(ClaimBase):
     current_depreciation: Optional[float] = 0
     our_estimate_amount: Optional[float] = 0
     final_invoice_amount: Optional[float] = 0
+    total_insurance_paid: Optional[float] = 0
+    payment_status: Optional[str] = "unpaid"
+    insurance_estimate_received: bool = False
+    insurance_estimate_received_date: Optional[datetime] = None
+    insurance_estimate_file_id: Optional[str] = None
+    insurance_estimate_file_name: Optional[str] = None
+    needs_supplement: bool = False
+    supplement_status: Optional[str] = None
+    supplement_notes: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     # Nested
     negotiations: List[ClaimNegotiationResponse] = []
+    payments: List[ClaimPaymentResponse] = []
 
     # Linked document counts (populated by service)
     invoice_count: int = 0

@@ -116,6 +116,27 @@ class Claim(Base, BaseModel):
     our_estimate_amount = Column(DECIMAL(15, 2), default=0)
     final_invoice_amount = Column(DECIMAL(15, 2), default=0)
 
+    # Payment tracking
+    total_insurance_paid = Column(DECIMAL(15, 2), default=0, comment="Total amount paid by insurance")
+    payment_status = Column(
+        String(50), default="unpaid",
+        comment="unpaid | partial | paid | overpaid | disputed"
+    )
+
+    # Insurance rebuild estimate tracking
+    insurance_estimate_received = Column(Boolean, default=False)
+    insurance_estimate_received_date = Column(DateTime(timezone=True))
+    insurance_estimate_file_id = Column(String(255), comment="Stored PDF file ID")
+    insurance_estimate_file_name = Column(String(500))
+
+    # Supplement tracking
+    needs_supplement = Column(Boolean, default=False)
+    supplement_status = Column(
+        String(50),
+        comment="identified | in_progress | submitted | approved | denied"
+    )
+    supplement_notes = Column(Text)
+
     # Status
     status = Column(String(50), default="open")  # open, negotiating, settled, closed, denied
 
@@ -153,6 +174,11 @@ class Claim(Base, BaseModel):
     roofing_estimates = relationship(
         "RoofingEstimate", back_populates="claim_ref",
         foreign_keys="RoofingEstimate.claim_id", lazy='select'
+    )
+    payments = relationship(
+        "ClaimPayment", back_populates="claim",
+        cascade="all, delete-orphan", lazy='select',
+        order_by="ClaimPayment.received_date.desc()"
     )
 
 
@@ -194,3 +220,43 @@ class ClaimNegotiation(Base, BaseModel):
 
     # Relationship
     claim = relationship("Claim", back_populates="negotiations")
+
+
+class ClaimPayment(Base, BaseModel):
+    """Individual payment received from insurance company for a claim"""
+    __tablename__ = "claim_payments"
+    __table_args__ = (
+        Index('ix_claim_payments_claim_id', 'claim_id'),
+        Index('ix_claim_payments_status', 'payment_type'),
+        {'extend_existing': True}
+    )
+
+    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=False)
+
+    # Payment details
+    payment_type = Column(
+        String(50), nullable=False, default="insurance",
+        comment="insurance | depreciation_recovery | supplement | deductible | other"
+    )
+    amount = Column(DECIMAL(15, 2), nullable=False)
+    check_number = Column(String(100))
+    check_date = Column(DateTime(timezone=True))
+    received_date = Column(DateTime(timezone=True))
+
+    # Source
+    paid_by = Column(String(255), comment="Insurance company name or source")
+    description = Column(Text)
+
+    # Status
+    status = Column(
+        String(50), default="received",
+        comment="received | deposited | cleared | returned"
+    )
+
+    notes = Column(Text)
+
+    # Audit
+    created_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+
+    # Relationship
+    claim = relationship("Claim", back_populates="payments")

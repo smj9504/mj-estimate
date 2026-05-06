@@ -118,6 +118,13 @@ const PhotoMetadataEditor = lazy(() => import('./pages/PhotoMetadataEditor'));
 const EmailIngestionDashboard = lazy(() => import('./pages/EmailIngestionDashboard'));
 const EmailAccountSettings = lazy(() => import('./pages/EmailAccountSettings'));
 
+// Claim Follow-up
+const ClaimFollowUpDashboard = lazy(() => import('./pages/ClaimFollowUpDashboard'));
+const ClaimFollowUpEmail = lazy(() => import('./pages/ClaimFollowUpEmail'));
+
+// Supplement Management
+const SupplementManagement = lazy(() => import('./pages/SupplementManagement'));
+
 // Crew Upload (Public)
 const CrewUploadPage = lazy(() => import('./pages/CrewUploadPage'));
 
@@ -743,6 +750,44 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <EmailAccountSettings />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Claim Follow-up routes
+  {
+    path: "/claim-followup",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <ClaimFollowUpDashboard />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/claim-followup/:taskId/email",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <ClaimFollowUpEmail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Supplement Management route
+  {
+    path: "/supplements",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <SupplementManagement />
           </Suspense>
         </Layout>
       </ProtectedRoute>

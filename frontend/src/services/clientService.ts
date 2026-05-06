@@ -11,6 +11,9 @@ import type {
   ClaimCreate,
   ClaimNegotiation,
   ClaimNegotiationCreate,
+  ClaimPayment,
+  ClaimPaymentCreate,
+  PaymentSummary,
   PdfExtractionResult,
 } from '../types/client';
 
@@ -140,5 +143,43 @@ export const negotiationService = {
       { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
     );
     return data as PdfExtractionResult;
+  },
+};
+
+export const paymentService = {
+  async list(clientId: string, claimId: string) {
+    const { data } = await api.get(
+      `/api/clients/${clientId}/claims/${claimId}/payments`
+    );
+    return data as ClaimPayment[];
+  },
+
+  async getSummary(clientId: string, claimId: string) {
+    const { data } = await api.get(
+      `/api/clients/${clientId}/claims/${claimId}/payment-summary`
+    );
+    return data as PaymentSummary;
+  },
+
+  async create(clientId: string, claimId: string, payload: ClaimPaymentCreate) {
+    const { data } = await api.post(
+      `/api/clients/${clientId}/claims/${claimId}/payments`,
+      payload
+    );
+    return data as ClaimPayment;
+  },
+
+  async update(clientId: string, claimId: string, paymentId: string, payload: Partial<ClaimPaymentCreate>) {
+    const { data } = await api.put(
+      `/api/clients/${clientId}/claims/${claimId}/payments/${paymentId}`,
+      payload
+    );
+    return data as ClaimPayment;
+  },
+
+  async delete(clientId: string, claimId: string, paymentId: string) {
+    await api.delete(
+      `/api/clients/${clientId}/claims/${claimId}/payments/${paymentId}`
+    );
   },
 };

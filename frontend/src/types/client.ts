@@ -109,9 +109,19 @@ export interface Claim {
   current_depreciation: number;
   our_estimate_amount: number;
   final_invoice_amount: number;
+  total_insurance_paid: number;
+  payment_status: string;
+  insurance_estimate_received: boolean;
+  insurance_estimate_received_date?: string;
+  insurance_estimate_file_id?: string;
+  insurance_estimate_file_name?: string;
+  needs_supplement: boolean;
+  supplement_status?: string;
+  supplement_notes?: string;
   status: ClaimStatus;
   notes?: string;
   negotiations: ClaimNegotiation[];
+  payments: ClaimPayment[];
   invoice_count: number;
   estimate_count: number;
   wm_job_count: number;
@@ -120,6 +130,45 @@ export interface Claim {
   plumber_report_id?: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface ClaimPayment {
+  id: string;
+  claim_id: string;
+  payment_type: string;
+  amount: number;
+  check_number?: string;
+  check_date?: string;
+  received_date?: string;
+  paid_by?: string;
+  description?: string;
+  status: string;
+  notes?: string;
+  created_at?: string;
+}
+
+export interface ClaimPaymentCreate {
+  claim_id: string;
+  payment_type: string;
+  amount: number;
+  check_number?: string;
+  check_date?: string;
+  received_date?: string;
+  paid_by?: string;
+  description?: string;
+  notes?: string;
+}
+
+export interface PaymentSummary {
+  total_invoice_amount: number;
+  total_insurance_paid: number;
+  payment_difference: number;
+  deductible: number;
+  net_expected: number;
+  payment_status: string;
+  insurance_estimate_received: boolean;
+  needs_supplement: boolean;
+  payments: ClaimPayment[];
 }
 
 export interface ClaimCreate {

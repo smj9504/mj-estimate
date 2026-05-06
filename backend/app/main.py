@@ -62,7 +62,7 @@ from app.domains.water_mitigation.models import (
 from app.domains.company.models import Company
 
 # Client management system models
-from app.domains.client.models import Client, Claim, ClaimNegotiation
+from app.domains.client.models import Client, Claim, ClaimNegotiation, ClaimPayment
 
 # Contract system models
 from app.domains.contract.models import (
@@ -191,6 +191,18 @@ from app.domains.insurance_extraction.models import (
 from app.domains.email_ingestion.models import EmailAccount, EmailIngestionLog
 from app.domains.email_ingestion.api import router as email_ingestion_router
 
+# Claim Follow-up system models
+from app.domains.claim_followup.models import (
+    FollowUpTask, EmailTemplate, CommunicationLog, SentEmail
+)
+from app.domains.claim_followup.api import router as claim_followup_router
+
+# Supplement system models
+from app.domains.supplement.models import (
+    SupplementRequest, BidItemEstimate, SupplementFollowUp
+)
+from app.domains.supplement.api import router as supplement_router
+
 # Conditional Material Detection imports (only if enabled)
 material_detection_available = False
 training_api_available = False
@@ -274,6 +286,16 @@ def _auto_add_columns():
         ("water_mitigation_jobs", "claim_id", "UUID"),
         # Normalized address for email ingestion matching
         ("clients", "normalized_address", "VARCHAR(500)"),
+        # Claim payment tracking fields
+        ("claims", "total_insurance_paid", "DECIMAL(15,2)"),
+        ("claims", "payment_status", "VARCHAR(50)"),
+        ("claims", "insurance_estimate_received", "BOOLEAN"),
+        ("claims", "insurance_estimate_received_date", "TIMESTAMPTZ"),
+        ("claims", "insurance_estimate_file_id", "VARCHAR(255)"),
+        ("claims", "insurance_estimate_file_name", "VARCHAR(500)"),
+        ("claims", "needs_supplement", "BOOLEAN"),
+        ("claims", "supplement_status", "VARCHAR(50)"),
+        ("claims", "supplement_notes", "TEXT"),
     ]
 
     existing = {}
@@ -358,7 +380,18 @@ async def lifespan(app: FastAPI):
                 # Email Ingestion tables
                 EmailAccount.__table__.create(_db.engine, checkfirst=True)
                 EmailIngestionLog.__table__.create(_db.engine, checkfirst=True)
-                print("[STARTUP] Client/Claim/Contract/EmailIngestion tables ensured")
+                # Claim Payment table
+                ClaimPayment.__table__.create(_db.engine, checkfirst=True)
+                # Supplement tables
+                SupplementRequest.__table__.create(_db.engine, checkfirst=True)
+                BidItemEstimate.__table__.create(_db.engine, checkfirst=True)
+                SupplementFollowUp.__table__.create(_db.engine, checkfirst=True)
+                # Claim Follow-up tables
+                FollowUpTask.__table__.create(_db.engine, checkfirst=True)
+                EmailTemplate.__table__.create(_db.engine, checkfirst=True)
+                CommunicationLog.__table__.create(_db.engine, checkfirst=True)
+                SentEmail.__table__.create(_db.engine, checkfirst=True)
+                print("[STARTUP] Client/Claim/Contract/EmailIngestion/ClaimFollowup tables ensured")
         except Exception as e:
             print(f"[STARTUP] Client table creation skipped: {e}")
 
@@ -699,6 +732,12 @@ if material_detection_available:
 
 # Email Ingestion endpoints
 app.include_router(email_ingestion_router, prefix="/api/email-ingestion", tags=["Email Ingestion"])
+
+# Claim Follow-up endpoints
+app.include_router(claim_followup_router, prefix="/api/claim-followup", tags=["Claim Follow-up"])
+
+# Supplement endpoints
+app.include_router(supplement_router, prefix="/api", tags=["Supplements"])
 
 # Crew Upload endpoints (public + admin)
 app.include_router(
