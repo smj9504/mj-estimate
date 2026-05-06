@@ -125,6 +125,9 @@ const ClaimFollowUpEmail = lazy(() => import('./pages/ClaimFollowUpEmail'));
 // Supplement Management
 const SupplementManagement = lazy(() => import('./pages/SupplementManagement'));
 
+// Rebuild Projects
+const RebuildProjectList = lazy(() => import('./pages/RebuildProjectList'));
+
 // Crew Upload (Public)
 const CrewUploadPage = lazy(() => import('./pages/CrewUploadPage'));
 
@@ -788,6 +791,19 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <SupplementManagement />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Rebuild Projects route
+  {
+    path: "/rebuild-projects",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RebuildProjectList />
           </Suspense>
         </Layout>
       </ProtectedRoute>

@@ -203,6 +203,12 @@ from app.domains.supplement.models import (
 )
 from app.domains.supplement.api import router as supplement_router
 
+# Rebuild system models
+from app.domains.rebuild.models import (
+    RebuildContractor, RebuildProject, RebuildCompletionDoc
+)
+from app.domains.rebuild.api import router as rebuild_router
+
 # Conditional Material Detection imports (only if enabled)
 material_detection_available = False
 training_api_available = False
@@ -386,6 +392,10 @@ async def lifespan(app: FastAPI):
                 SupplementRequest.__table__.create(_db.engine, checkfirst=True)
                 BidItemEstimate.__table__.create(_db.engine, checkfirst=True)
                 SupplementFollowUp.__table__.create(_db.engine, checkfirst=True)
+                # Rebuild tables
+                RebuildContractor.__table__.create(_db.engine, checkfirst=True)
+                RebuildProject.__table__.create(_db.engine, checkfirst=True)
+                RebuildCompletionDoc.__table__.create(_db.engine, checkfirst=True)
                 # Claim Follow-up tables
                 FollowUpTask.__table__.create(_db.engine, checkfirst=True)
                 EmailTemplate.__table__.create(_db.engine, checkfirst=True)
@@ -738,6 +748,9 @@ app.include_router(claim_followup_router, prefix="/api/claim-followup", tags=["C
 
 # Supplement endpoints
 app.include_router(supplement_router, prefix="/api", tags=["Supplements"])
+
+# Rebuild endpoints
+app.include_router(rebuild_router, prefix="/api", tags=["Rebuild Projects"])
 
 # Crew Upload endpoints (public + admin)
 app.include_router(

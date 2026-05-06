@@ -5,7 +5,6 @@ import {
   DashboardOutlined,
   FileTextOutlined,
   TeamOutlined,
-  PlusOutlined,
   UserOutlined,
   LogoutOutlined,
   SettingOutlined,
@@ -170,6 +169,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         label: 'Supplements',
       },
       {
+        key: '/rebuild-projects',
+        icon: <BuildOutlined />,
+        label: 'Rebuild Projects',
+      },
+      {
         key: '/email-ingestion',
         icon: <MailOutlined />,
         label: 'Email Ingestion',
@@ -244,33 +248,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             key: '/cheat-sheet',
             icon: <BookOutlined />,
             label: 'Cheat Sheet',
-          },
-        ],
-      },
-      {
-        key: '/create',
-        icon: <PlusOutlined />,
-        label: 'Create Documents',
-        children: [
-          {
-            key: '/create/estimate',
-            label: 'Create Estimate',
-          },
-          {
-            key: '/create/invoice',
-            label: 'Create Invoice',
-          },
-          {
-            key: '/create/insurance-estimate',
-            label: 'Create Insurance Estimate',
-          },
-          {
-            key: '/create/plumber-report',
-            label: 'Create Plumber Report',
-          },
-          {
-            key: '/create/work-order',
-            label: 'Create Work Order',
           },
         ],
       },
