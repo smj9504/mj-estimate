@@ -13,25 +13,24 @@ import {
   Row,
   Col,
   Divider,
-  Spin,
-  Tooltip,
   Alert,
 } from 'antd';
 import {
   SendOutlined,
   RobotOutlined,
   FileTextOutlined,
-  PaperClipOutlined,
   EyeOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
+import { emailIngestionService } from '../../services/emailIngestionService';
 import type {
   EmailTemplate,
   SendEmailRequest,
   GenerateAIEmailRequest,
 } from '../../types/claimFollowUp';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { TextArea } = Input;
 
 interface EmailComposerProps {
@@ -53,8 +52,14 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
 }) => {
   const [form] = Form.useForm();
   const [selectedTemplate, setSelectedTemplate] = useState<string | undefined>();
+  const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>();
   const [previewMode, setPreviewMode] = useState(false);
-  const [aiGenerating, setAiGenerating] = useState(false);
+
+  // Load email accounts (from addresses)
+  const { data: accounts = [] } = useQuery({
+    queryKey: ['email-accounts'],
+    queryFn: () => emailIngestionService.listAccounts(),
+  });
 
   // Load templates
   const { data: templates = [] } = useQuery({
@@ -67,6 +72,13 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
     if (defaultTo) form.setFieldValue('to_addresses', defaultTo);
     if (defaultSubject) form.setFieldValue('subject', defaultSubject);
   }, [defaultTo, defaultSubject, form]);
+
+  // Auto-select first account
+  useEffect(() => {
+    if (accounts.length > 0 && !selectedAccountId) {
+      setSelectedAccountId(accounts[0].id);
+    }
+  }, [accounts, selectedAccountId]);
 
   // Send mutation
   const sendMutation = useMutation({
@@ -133,6 +145,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
       const payload: SendEmailRequest = {
         claim_id: claimId,
         followup_task_id: followupTaskId,
+        email_account_id: selectedAccountId,
         to_addresses: toList,
         cc_addresses: ccList,
         subject: values.subject,
@@ -143,6 +156,8 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
       sendMutation.mutate(payload);
     });
   };
+
+  const selectedAccount = accounts.find(a => a.id === selectedAccountId);
 
   return (
     <Card
@@ -167,56 +182,55 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
         </Space>
       }
     >
+      {/* From Account Selection */}
+      <div style={{ marginBottom: 12 }}>
+        <Text type="secondary" style={{ marginRight: 8 }}>From:</Text>
+        {accounts.length > 0 ? (
+          <Select
+            value={selectedAccountId}
+            onChange={setSelectedAccountId}
+            style={{ width: 350 }}
+            placeholder="Select sending account"
+            options={accounts.filter(a => a.is_active).map(a => ({
+              value: a.id,
+              label: (
+                <Space>
+                  <UserOutlined />
+                  <span>{a.display_name}</span>
+                  <Text type="secondary">({a.email_address})</Text>
+                </Space>
+              ),
+            }))}
+          />
+        ) : (
+          <Text type="warning">
+            No email accounts configured.{' '}
+            <a href="/email-ingestion/accounts">Add one here</a>
+          </Text>
+        )}
+      </div>
+
       {/* AI Quick Actions */}
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 12 }}>
         <Text type="secondary" style={{ marginRight: 8 }}>AI Generate:</Text>
         <Space wrap size={4}>
-          <Button
-            size="small"
-            icon={<RobotOutlined />}
-            onClick={() => handleAIGenerate('initial_send')}
-            loading={aiMutation.isPending && aiMutation.variables?.context_type === 'initial_send'}
-          >
-            Initial Send
-          </Button>
-          <Button
-            size="small"
-            icon={<RobotOutlined />}
-            onClick={() => handleAIGenerate('followup')}
-            loading={aiMutation.isPending && aiMutation.variables?.context_type === 'followup'}
-          >
-            Follow-up
-          </Button>
-          <Button
-            size="small"
-            icon={<RobotOutlined />}
-            onClick={() => handleAIGenerate('payment_inquiry')}
-            loading={aiMutation.isPending && aiMutation.variables?.context_type === 'payment_inquiry'}
-          >
-            Payment Inquiry
-          </Button>
-          <Button
-            size="small"
-            icon={<RobotOutlined />}
-            onClick={() => handleAIGenerate('estimate_request')}
-            loading={aiMutation.isPending && aiMutation.variables?.context_type === 'estimate_request'}
-          >
-            Estimate Request
-          </Button>
-          <Button
-            size="small"
-            icon={<RobotOutlined />}
-            onClick={() => handleAIGenerate('supplement')}
-            loading={aiMutation.isPending && aiMutation.variables?.context_type === 'supplement'}
-          >
-            Supplement
-          </Button>
+          {['initial_send', 'followup', 'payment_inquiry', 'estimate_request', 'supplement'].map(type => (
+            <Button
+              key={type}
+              size="small"
+              icon={<RobotOutlined />}
+              onClick={() => handleAIGenerate(type)}
+              loading={aiMutation.isPending && aiMutation.variables?.context_type === type}
+            >
+              {type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+            </Button>
+          ))}
         </Space>
       </div>
 
       {/* Template Selection */}
-      <div style={{ marginBottom: 16 }}>
-        <Text type="secondary" style={{ marginRight: 8 }}>Or use template:</Text>
+      <div style={{ marginBottom: 12 }}>
+        <Text type="secondary" style={{ marginRight: 8 }}>Template:</Text>
         <Select
           placeholder="Select a template"
           allowClear
@@ -236,7 +250,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
         />
       </div>
 
-      <Divider style={{ margin: '12px 0' }} />
+      <Divider style={{ margin: '8px 0' }} />
 
       {/* Email Form */}
       <Form form={form} layout="vertical" size="small">

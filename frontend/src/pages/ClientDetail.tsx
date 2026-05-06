@@ -29,6 +29,7 @@ import {
   Badge,
   Checkbox,
   Upload,
+  Drawer,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -47,11 +48,13 @@ import {
   CheckCircleOutlined,
   WarningOutlined,
   DownloadOutlined,
+  MailOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { clientService, claimService, negotiationService } from '../services/clientService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
-import { PaymentTracker, ProfitabilityTracker } from '../components/claim-followup';
+import { PaymentTracker, ProfitabilityTracker, EmailComposer } from '../components/claim-followup';
 import type {
   Client,
   ClientCreate,
@@ -1105,6 +1108,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
   const navigate = useNavigate();
   const [claimModalOpen, setClaimModalOpen] = useState(false);
   const [editingClaim, setEditingClaim] = useState<Claim | null>(null);
+  const [emailDrawerClaim, setEmailDrawerClaim] = useState<Claim | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -1305,6 +1309,19 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                           <Text type="secondary" style={{ fontSize: 12 }}>RCV </Text>
                           <Text strong>{formatCurrency(claim.current_rcv)}</Text>
                         </span>
+                        {claim.adjuster_email && (
+                          <Tooltip title={`Email ${claim.adjuster_name || 'Adjuster'}`}>
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<MailOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEmailDrawerClaim(claim);
+                              }}
+                            />
+                          </Tooltip>
+                        )}
                       </Space>
                     </Col>
                   </Row>
@@ -1318,10 +1335,26 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                     {formatCurrency(claim.insurance_deductible)}
                   </Descriptions.Item>
                   {claim.adjuster_name && (
-                    <Descriptions.Item label="Adjuster">{claim.adjuster_name}</Descriptions.Item>
+                    <Descriptions.Item label="Adjuster">
+                      {claim.adjuster_name}
+                      {claim.adjuster_email && (
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<MailOutlined />}
+                          onClick={() => setEmailDrawerClaim(claim)}
+                          style={{ marginLeft: 4, padding: 0 }}
+                        >
+                          Email
+                        </Button>
+                      )}
+                    </Descriptions.Item>
                   )}
                   {claim.adjuster_phone && (
                     <Descriptions.Item label="Adjuster Phone">{claim.adjuster_phone}</Descriptions.Item>
+                  )}
+                  {claim.adjuster_email && (
+                    <Descriptions.Item label="Adjuster Email">{claim.adjuster_email}</Descriptions.Item>
                   )}
                   {claim.loss_description && (
                     <Descriptions.Item label="Loss Description" span={3}>
@@ -1425,6 +1458,41 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
         onSubmit={handleClaimSubmit}
         loading={createClaimMutation.isPending || updateClaimMutation.isPending}
       />
+
+      {/* Email Composer Drawer */}
+      <Drawer
+        title={
+          <Space>
+            <SendOutlined />
+            <span>
+              Send Email - Claim #{emailDrawerClaim?.claim_number}
+              {emailDrawerClaim?.adjuster_name && (
+                <Text type="secondary" style={{ marginLeft: 8, fontWeight: 'normal' }}>
+                  to {emailDrawerClaim.adjuster_name}
+                </Text>
+              )}
+            </span>
+          </Space>
+        }
+        placement="right"
+        width={680}
+        open={!!emailDrawerClaim}
+        onClose={() => setEmailDrawerClaim(null)}
+        destroyOnClose
+      >
+        {emailDrawerClaim && (
+          <EmailComposer
+            claimId={emailDrawerClaim.id}
+            defaultTo={emailDrawerClaim.adjuster_email || ''}
+            defaultSubject={`Claim #${emailDrawerClaim.claim_number} - ${emailDrawerClaim.insurance_company || ''}`}
+            onSent={() => {
+              setEmailDrawerClaim(null);
+              message.success('Email sent successfully');
+            }}
+            onCancel={() => setEmailDrawerClaim(null)}
+          />
+        )}
+      </Drawer>
     </div>
   );
 };
