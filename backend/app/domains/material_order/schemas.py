@@ -100,6 +100,32 @@ class MaterialOrderResponse(BaseModel):
     notes: List[str] = []
 
 
+class MaterialOrderSaveItem(BaseModel):
+    category: str = "misc"
+    item: str = ""
+    qty: float = 0
+    unit: str = "EA"
+    formula: Optional[str] = None
+    note: Optional[str] = None
+    unit_price: Optional[float] = None
+    ai_qty: Optional[float] = None
+
+
+class MaterialOrderSave(BaseModel):
+    scope_type: ScopeType
+    property_address: str = ""
+    report_number: str = ""
+    delivery_date: Optional[str] = None
+    brand: str = "CertainTeed"
+    product: Optional[str] = None
+    color: Optional[str] = None
+    waste_pct: float = 12.0
+    status: str = "draft"
+    measurements: Optional[Dict[str, Any]] = None
+    notes: Optional[List[str]] = None
+    items: List[MaterialOrderSaveItem] = []
+
+
 class MaterialOrderExportRequest(BaseModel):
     scope_type: ScopeType
     output_type: OutputType

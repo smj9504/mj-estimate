@@ -410,7 +410,11 @@ async def lifespan(app: FastAPI):
                 EmailTemplate.__table__.create(_db.engine, checkfirst=True)
                 CommunicationLog.__table__.create(_db.engine, checkfirst=True)
                 SentEmail.__table__.create(_db.engine, checkfirst=True)
-                print("[STARTUP] Client/Claim/Contract/EmailIngestion/ClaimFollowup tables ensured")
+                # Material Order tables
+                from app.domains.material_order.models import MaterialOrder, MaterialOrderItem
+                MaterialOrder.__table__.create(_db.engine, checkfirst=True)
+                MaterialOrderItem.__table__.create(_db.engine, checkfirst=True)
+                print("[STARTUP] Client/Claim/Contract/EmailIngestion/ClaimFollowup/MaterialOrder tables ensured")
         except Exception as e:
             print(f"[STARTUP] Client table creation skipped: {e}")
 

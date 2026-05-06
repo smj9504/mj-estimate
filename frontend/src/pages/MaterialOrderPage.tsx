@@ -4,7 +4,8 @@
  * Flow: Input measurements → Calculate → Review/Edit → Export PDF
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card,
   Form,
@@ -36,6 +37,7 @@ import {
   CheckCircleOutlined,
   PlusOutlined,
   DeleteOutlined,
+  SaveOutlined,
 } from '@ant-design/icons';
 import { materialOrderService } from '../services/materialOrderService';
 import type {
@@ -59,15 +61,62 @@ const COMPLEXITY_OPTIONS = [
 ];
 
 const MaterialOrderPage: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [form] = Form.useForm();
   const [scopeType, setScopeType] = useState<ScopeType>('roofing');
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [result, setResult] = useState<MaterialOrderResponse | null>(null);
   const [editedMaterials, setEditedMaterials] = useState<MaterialItem[]>([]);
   const [viewMode, setViewMode] = useState<'supply_order' | 'full_estimate'>('full_estimate');
   const [eagleViewParsed, setEagleViewParsed] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [savedOrderId, setSavedOrderId] = useState<string | null>(id && id !== 'new' ? id : null);
+
+  // ── Load existing order ──
+  useEffect(() => {
+    if (id && id !== 'new') {
+      materialOrderService.getById(id).then((order) => {
+        setSavedOrderId(order.id);
+        setScopeType(order.scope_type);
+        form.setFieldsValue({
+          property_address: order.property_address,
+          report_number: order.report_number,
+          brand: order.brand,
+          product: order.product,
+          color: order.color,
+          waste_pct: order.waste_pct,
+          delivery_date: undefined, // DatePicker needs moment/dayjs
+        });
+
+        // Populate measurement fields
+        if (order.measurements) {
+          form.setFieldsValue(order.measurements);
+        }
+
+        // Set result for rendering table
+        if (order.items && order.items.length > 0) {
+          setResult({
+            scope_type: order.scope_type,
+            property_address: order.property_address || '',
+            report_number: order.report_number || '',
+            delivery_date: order.delivery_date,
+            brand: order.brand || '',
+            product: order.product,
+            color: order.color,
+            measurements: order.measurements || {},
+            materials: order.items,
+            notes: order.notes || [],
+          });
+          setEditedMaterials(order.items);
+        }
+      }).catch(() => {
+        message.error('Failed to load material order');
+      });
+    }
+  }, [id, form]);
 
   // ── EagleView Upload ──
   const handleEagleViewUpload = useCallback(async (file: File) => {
@@ -217,6 +266,51 @@ const MaterialOrderPage: React.FC = () => {
   const removeItem = useCallback((index: number) => {
     setEditedMaterials((prev) => prev.filter((_, i) => i !== index));
   }, []);
+
+  // ── Save to DB ──
+  const handleSave = useCallback(async () => {
+    try {
+      setSaving(true);
+      const values = form.getFieldsValue();
+      const payload = {
+        scope_type: scopeType,
+        property_address: values.property_address || '',
+        report_number: values.report_number || '',
+        delivery_date: values.delivery_date?.format?.('MM/DD/YYYY') || values.delivery_date || undefined,
+        brand: values.brand || 'CertainTeed',
+        product: values.product || undefined,
+        color: values.color || undefined,
+        waste_pct: values.waste_pct || 12,
+        status: 'draft',
+        measurements: result?.measurements || {},
+        notes: result?.notes || [],
+        items: editedMaterials.map((m) => ({
+          category: m.category,
+          item: m.item,
+          qty: m.qty,
+          unit: m.unit,
+          formula: m.formula || undefined,
+          note: m.note || undefined,
+          unit_price: m.unit_price || undefined,
+          ai_qty: m.ai_qty ?? undefined,
+        })),
+      };
+
+      if (savedOrderId) {
+        await materialOrderService.update(savedOrderId, payload);
+        message.success('Material order updated');
+      } else {
+        const saved = await materialOrderService.save(payload);
+        setSavedOrderId(saved.id);
+        navigate(`/material-order/${saved.id}`, { replace: true });
+        message.success('Material order saved');
+      }
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }, [form, scopeType, result, editedMaterials, savedOrderId, navigate]);
 
   // ── Export PDF ──
   const handleExport = useCallback(async (outputType: OutputType) => {
@@ -634,6 +728,14 @@ const MaterialOrderPage: React.FC = () => {
                 loading={exporting}
               >
                 Internal Estimate PDF
+              </Button>
+              <Divider type="vertical" />
+              <Button
+                icon={<SaveOutlined />}
+                onClick={handleSave}
+                loading={saving}
+              >
+                {savedOrderId ? 'Update' : 'Save'}
               </Button>
             </Space>
           }

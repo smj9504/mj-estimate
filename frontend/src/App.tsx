@@ -88,6 +88,7 @@ const RoofingEstimateDetail = lazy(() => import('./pages/RoofingEstimateDetail')
 
 // Material Order Pages
 const MaterialOrderPage = lazy(() => import('./pages/MaterialOrderPage'));
+const MaterialOrderList = lazy(() => import('./pages/MaterialOrderList'));
 
 // Reconstruction Estimate Pages
 const DebrisCalculator = lazy(() => import('./pages/DebrisCalculator'));
@@ -723,9 +724,33 @@ const router = createBrowserRouter([
       </ProtectedRoute>
     )
   },
-  // Material Order route
+  // Material Order routes
   {
-    path: "/material-order",
+    path: "/material-orders",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <MaterialOrderList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/material-order/new",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <MaterialOrderPage />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/material-order/:id",
     element: (
       <ProtectedRoute>
         <Layout>

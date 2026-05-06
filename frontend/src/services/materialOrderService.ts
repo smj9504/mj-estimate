@@ -7,6 +7,9 @@ import type {
   MaterialOrderRequest,
   MaterialOrderResponse,
   MaterialOrderExportRequest,
+  MaterialOrderSave,
+  MaterialOrderListResponse,
+  MaterialOrderRecord,
   BrandInfo,
   EagleViewRoofingResult,
 } from '../types/materialOrder';
@@ -32,6 +35,41 @@ export const materialOrderService = {
     });
     return data as EagleViewRoofingResult;
   },
+
+  // ── CRUD ──
+
+  async save(payload: MaterialOrderSave) {
+    const { data } = await api.post(`${BASE_URL}/save`, payload);
+    return data as MaterialOrderRecord;
+  },
+
+  async list(params?: {
+    scope_type?: string;
+    status?: string;
+    search?: string;
+    page?: number;
+    page_size?: number;
+  }) {
+    const { data } = await api.get(`${BASE_URL}/list`, { params });
+    return data as MaterialOrderListResponse;
+  },
+
+  async getById(id: string) {
+    const { data } = await api.get(`${BASE_URL}/${id}`);
+    return data as MaterialOrderRecord;
+  },
+
+  async update(id: string, payload: MaterialOrderSave) {
+    const { data } = await api.put(`${BASE_URL}/${id}`, payload);
+    return data as MaterialOrderRecord;
+  },
+
+  async delete(id: string) {
+    const { data } = await api.delete(`${BASE_URL}/${id}`);
+    return data;
+  },
+
+  // ── Export ──
 
   async exportPdf(payload: MaterialOrderExportRequest) {
     const response = await api.post(`${BASE_URL}/export/pdf`, payload, {

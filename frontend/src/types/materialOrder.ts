@@ -89,6 +89,59 @@ export interface MaterialOrderExportRequest {
   notes: string[];
 }
 
+export interface MaterialOrderSaveItem {
+  category: string;
+  item: string;
+  qty: number;
+  unit: string;
+  formula?: string;
+  note?: string;
+  unit_price?: number | null;
+  ai_qty?: number | null;
+}
+
+export interface MaterialOrderSave {
+  scope_type: ScopeType;
+  property_address?: string;
+  report_number?: string;
+  delivery_date?: string;
+  brand?: string;
+  product?: string;
+  color?: string;
+  waste_pct?: number;
+  status?: string;
+  measurements?: Record<string, any>;
+  notes?: string[];
+  items: MaterialOrderSaveItem[];
+}
+
+export interface MaterialOrderRecord {
+  id: string;
+  scope_type: ScopeType;
+  property_address?: string;
+  report_number?: string;
+  delivery_date?: string;
+  brand?: string;
+  product?: string;
+  color?: string;
+  waste_pct?: number;
+  status: string;
+  measurements?: Record<string, any>;
+  notes?: string[];
+  total_material_cost: number;
+  item_count: number;
+  items: MaterialItem[];
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface MaterialOrderListResponse {
+  items: MaterialOrderRecord[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export interface BrandInfo {
   [brandName: string]: {
     roofing: boolean;

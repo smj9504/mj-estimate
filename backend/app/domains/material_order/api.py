@@ -4,18 +4,24 @@ Material Order API endpoints.
 
 import json
 import logging
+from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
+
+from app.core.database_factory import get_db_session
+from app.core.interfaces import DatabaseSession
+from app.domains.auth.dependencies import get_current_user
 
 from .export_service import generate_pdf
 from .schemas import (
     MaterialOrderExportRequest,
     MaterialOrderRequest,
     MaterialOrderResponse,
+    MaterialOrderSave,
     OutputType,
 )
-from .service import generate_material_order
+from .service import MaterialOrderService, generate_material_order
 from .calculator import BRAND_SPECS
 
 logger = logging.getLogger(__name__)
@@ -77,6 +83,85 @@ def export_material_order_pdf(req: MaterialOrderExportRequest):
     except Exception as e:
         logger.exception("PDF export failed")
         raise HTTPException(status_code=500, detail=f"PDF generation error: {str(e)}")
+
+
+# ── CRUD (DB-backed) ──
+
+@router.post("/material-orders/save")
+def save_material_order(
+    data: MaterialOrderSave,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a new material order in DB."""
+    service = MaterialOrderService(session)
+    payload = data.model_dump()
+    user_id = current_user.get("id") if isinstance(current_user, dict) else getattr(current_user, "id", None)
+    return service.create(payload, created_by_id=str(user_id) if user_id else None)
+
+
+@router.get("/material-orders/list")
+def list_material_orders(
+    scope_type: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """List material orders with filters."""
+    service = MaterialOrderService(session)
+    items, total = service.list(
+        scope_type=scope_type,
+        status=status,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/material-orders/{order_id}")
+def get_material_order(
+    order_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Get a single material order by ID."""
+    service = MaterialOrderService(session)
+    result = service.get(order_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Material order not found")
+    return result
+
+
+@router.put("/material-orders/{order_id}")
+def update_material_order(
+    order_id: str,
+    data: MaterialOrderSave,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Update an existing material order."""
+    service = MaterialOrderService(session)
+    result = service.update(order_id, data.model_dump())
+    if not result:
+        raise HTTPException(status_code=404, detail="Material order not found")
+    return result
+
+
+@router.delete("/material-orders/{order_id}")
+def delete_material_order(
+    order_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete a material order."""
+    service = MaterialOrderService(session)
+    if not service.delete(order_id):
+        raise HTTPException(status_code=404, detail="Material order not found")
+    return {"message": "Material order deleted"}
 
 
 @router.post("/material-orders/parse-eagleview")

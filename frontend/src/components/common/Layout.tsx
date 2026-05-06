@@ -225,7 +225,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             label: 'Roofing Estimate',
           },
           {
-            key: '/material-order',
+            key: '/material-orders',
             icon: <ShoppingCartOutlined />,
             label: 'Material Order',
           },
