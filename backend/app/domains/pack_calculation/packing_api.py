@@ -410,6 +410,83 @@ def delete_estimate(
     return {"deleted": True}
 
 
+@router.get("/{calc_id}/export/pdf")
+def export_estimate_pdf(
+    calc_id: str,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """Export a packing estimate as PDF."""
+    import io
+    from .export import generate_estimate_pdf, build_company_info
+
+    calc = db.query(PackCalculation).filter(
+        PackCalculation.id == calc_id
+    ).first()
+    if not calc:
+        raise HTTPException(404, "Estimate not found")
+
+    # Build estimate data dict from stored calculation
+    estimate_data = {
+        "sections": calc.sections or {},
+        "section_details": calc.section_details or {},
+        "materials_summary": calc.materials_summary or {},
+        "material_details": calc.material_details or [],
+        "supplements": calc.supplements or [],
+        "subtotal": calc.subtotal or 0,
+        "op_amount": calc.op_amount or 0,
+        "contingency_amount": calc.contingency_amount or 0,
+        "supplements_total": calc.supplements_total or 0,
+        "grand_total": calc.grand_total or 0,
+        "include_op": calc.include_op,
+        "op_rate": calc.op_rate,
+        "include_contingency": calc.include_contingency,
+        "contingency_rate": calc.contingency_rate,
+        "crew_size": calc.crew_size,
+        "storage_months": calc.storage_months,
+        "staging_type": calc.staging_type,
+        "include_packback": calc.include_packback,
+        "storage_sf": calc.storage_sf or 0,
+        "total_hours": calc.total_hours or 0,
+        "room_summaries": calc.room_summaries or [],
+        "special_items": calc.special_items or [],
+        "custom_special_items": calc.custom_special_items or [],
+    }
+
+    # Client info
+    client_name = None
+    client_phone = None
+    client_email = None
+    if calc.client:
+        client_name = calc.client.display_name
+        client_phone = calc.client.phone
+        client_email = calc.client.email
+
+    # Company info
+    company_info = None
+    if calc.company:
+        company_info = build_company_info(calc.company)
+
+    pdf_bytes = generate_estimate_pdf(
+        estimate_data=estimate_data,
+        client_name=client_name,
+        client_phone=client_phone,
+        client_email=client_email,
+        property_address=calc.project_address,
+        notes=calc.notes,
+        company_info=company_info,
+    )
+
+    filename = f"packing_estimate_{str(calc.id)[:8]}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
+
+
 # ── Helpers ───────────────────────────────────
 
 def _save_calculation(

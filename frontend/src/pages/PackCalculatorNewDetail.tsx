@@ -1,39 +1,21 @@
 /**
- * Pack Calculator New - Detail View Page (Read-Only)
+ * Pack Calculator New - Detail View Page
  * Shows detailed breakdown of pack-out/pack-in estimates
+ * Supports inline editing of name, status, and notes
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Card,
-  Row,
-  Col,
-  Typography,
-  Space,
-  Button,
-  Descriptions,
-  Table,
-  Tag,
-  Collapse,
-  Statistic,
-  message,
-  Spin,
-  Divider,
-  Tabs,
-  Alert,
-  Empty,
+  Card, Row, Col, Typography, Space, Button, Descriptions, Table,
+  Tag, Statistic, message, Spin, Divider, Tabs, Alert, Empty,
+  Input, Select,
 } from 'antd';
 import {
-  ArrowLeftOutlined,
-  EditOutlined,
-  DownloadOutlined,
-  ThunderboltOutlined,
-  BoxPlotOutlined,
-  TeamOutlined,
-  WarningOutlined,
-  CheckCircleOutlined,
-  RobotOutlined,
+  ArrowLeftOutlined, EditOutlined, DownloadOutlined,
+  ThunderboltOutlined, BoxPlotOutlined, TeamOutlined,
+  WarningOutlined, CheckCircleOutlined, RobotOutlined,
+  SaveOutlined, CloseOutlined, LoadingOutlined,
 } from '@ant-design/icons';
 import {
   packCalculationAPI,
@@ -41,10 +23,11 @@ import {
   RoomBreakdown,
   XactimateLineItem,
 } from '../services/packCalculationService';
+import * as packingService from '../services/packingEstimateService';
 import { formatDate } from '../utils/formatters';
 
 const { Title, Text } = Typography;
-const { Panel } = Collapse;
+const { Option } = Select;
 
 const PackCalculatorNewDetail: React.FC = () => {
   const navigate = useNavigate();
@@ -52,10 +35,18 @@ const PackCalculatorNewDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [calculation, setCalculation] = useState<PackCalculationDetail | null>(null);
 
+  // Edit mode state
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editStatus, setEditStatus] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+
+  // PDF export state
+  const [exporting, setExporting] = useState(false);
+
   useEffect(() => {
-    if (id) {
-      loadCalculation(id);
-    }
+    if (id) loadCalculation(id);
   }, [id]);
 
   const loadCalculation = async (calculationId: string) => {
@@ -63,9 +54,8 @@ const PackCalculatorNewDetail: React.FC = () => {
     try {
       const data = await packCalculationAPI.getById(calculationId);
       setCalculation(data);
-    } catch (error) {
+    } catch {
       message.error('Failed to load calculation details');
-      console.error('Error loading calculation:', error);
     } finally {
       setLoading(false);
     }
@@ -75,19 +65,59 @@ const PackCalculatorNewDetail: React.FC = () => {
     navigate('/reconstruction-estimate/pack-calculator-new/list');
   };
 
-  const handleEdit = () => {
-    message.info('Edit functionality coming soon!');
-    // TODO: Navigate to edit page when implemented
-  };
+  // ── Edit ────────────────────────────────────
 
-  const handleDownload = () => {
-    message.info('PDF export coming soon!');
-    // TODO: Implement PDF export
-  };
+  const startEdit = useCallback(() => {
+    if (!calculation) return;
+    setEditName(calculation.calculation_name || '');
+    setEditStatus((calculation as any).status || 'draft');
+    setEditNotes(calculation.notes || '');
+    setEditing(true);
+  }, [calculation]);
+
+  const cancelEdit = useCallback(() => {
+    setEditing(false);
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!id) return;
+    setSaving(true);
+    try {
+      await packingService.updateEstimate(id, {
+        calculation_name: editName,
+        status: editStatus,
+        notes: editNotes,
+      });
+      message.success('Saved successfully');
+      setEditing(false);
+      await loadCalculation(id);
+    } catch {
+      message.error('Failed to save changes');
+    } finally {
+      setSaving(false);
+    }
+  }, [id, editName, editStatus, editNotes]);
+
+  // ── PDF Export ──────────────────────────────
+
+  const handleDownload = useCallback(async () => {
+    if (!id) return;
+    setExporting(true);
+    try {
+      await packingService.exportPdf(id);
+      message.success('PDF downloaded');
+    } catch {
+      message.error('Failed to export PDF');
+    } finally {
+      setExporting(false);
+    }
+  }, [id]);
+
+  // ── Loading / Empty ─────────────────────────
 
   if (loading) {
     return (
-      <div style={{ padding: '24px', textAlign: 'center' }}>
+      <div style={{ textAlign: 'center', padding: 48 }}>
         <Spin size="large" tip="Loading calculation details..." />
       </div>
     );
@@ -95,161 +125,100 @@ const PackCalculatorNewDetail: React.FC = () => {
 
   if (!calculation) {
     return (
-      <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-        <Empty
-          description="Calculation not found"
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-        >
-          <Button type="primary" onClick={handleBack}>
-            Back to List
-          </Button>
-        </Empty>
-      </div>
+      <Empty description="Calculation not found" image={Empty.PRESENTED_IMAGE_SIMPLE}>
+        <Button type="primary" onClick={handleBack}>Back to List</Button>
+      </Empty>
     );
   }
 
-  // Material columns
+  // ── Table Columns ───────────────────────────
+
   const materialColumns = [
-    {
-      title: 'Xactimate Code',
-      dataIndex: 'code',
-      key: 'code',
-      width: '20%',
-      render: (text: string) => <Tag color="blue">{text}</Tag>,
-    },
-    {
-      title: 'Description',
-      dataIndex: 'description',
-      key: 'description',
-      width: '50%',
-    },
-    {
-      title: 'Quantity',
-      dataIndex: 'quantity',
-      key: 'quantity',
-      width: '15%',
-      align: 'right' as const,
-      render: (value: number) => value.toFixed(2),
-    },
-    {
-      title: 'Unit',
-      dataIndex: 'unit',
-      key: 'unit',
-      width: '15%',
-      align: 'center' as const,
-    },
+    { title: 'Xactimate Code', dataIndex: 'code', key: 'code', width: '20%',
+      render: (text: string) => <Tag color="blue">{text}</Tag> },
+    { title: 'Description', dataIndex: 'description', key: 'description', width: '50%' },
+    { title: 'Quantity', dataIndex: 'quantity', key: 'quantity', width: '15%',
+      align: 'right' as const, render: (v: number) => v.toFixed(2) },
+    { title: 'Unit', dataIndex: 'unit', key: 'unit', width: '15%', align: 'center' as const },
   ];
 
-  // Labor columns
   const laborColumns = [
-    {
-      title: 'Xactimate Code',
-      dataIndex: 'code',
-      key: 'code',
-      width: '20%',
-      render: (text: string) => <Tag color="orange">{text}</Tag>,
-    },
-    {
-      title: 'Description',
-      dataIndex: 'description',
-      key: 'description',
-      width: '50%',
-    },
-    {
-      title: 'Hours',
-      dataIndex: 'quantity',
-      key: 'quantity',
-      width: '15%',
-      align: 'right' as const,
-      render: (value: number) => value.toFixed(2),
-    },
-    {
-      title: 'Unit',
-      dataIndex: 'unit',
-      key: 'unit',
-      width: '15%',
-      align: 'center' as const,
-    },
+    { title: 'Xactimate Code', dataIndex: 'code', key: 'code', width: '20%',
+      render: (text: string) => <Tag color="orange">{text}</Tag> },
+    { title: 'Description', dataIndex: 'description', key: 'description', width: '50%' },
+    { title: 'Hours', dataIndex: 'quantity', key: 'quantity', width: '15%',
+      align: 'right' as const, render: (v: number) => v.toFixed(2) },
+    { title: 'Unit', dataIndex: 'unit', key: 'unit', width: '15%', align: 'center' as const },
   ];
 
-  // Room breakdown columns
   const roomColumns = [
-    {
-      title: 'Room Name',
-      dataIndex: 'room_name',
-      key: 'room_name',
-      width: '25%',
-    },
-    {
-      title: 'Floor',
-      dataIndex: 'floor_level',
-      key: 'floor_level',
-      width: '15%',
-      align: 'center' as const,
-    },
-    {
-      title: 'Items',
-      dataIndex: 'item_count',
-      key: 'item_count',
-      width: '15%',
-      align: 'center' as const,
-    },
-    {
-      title: 'Pack-Out Hours',
-      dataIndex: 'pack_out_labor_hours',
-      key: 'pack_out_labor_hours',
-      width: '15%',
-      align: 'right' as const,
-      render: (value: number) => value?.toFixed(2) || '0.00',
-    },
-    {
-      title: 'Pack-In Hours',
-      dataIndex: 'pack_in_labor_hours',
-      key: 'pack_in_labor_hours',
-      width: '15%',
-      align: 'right' as const,
-      render: (value: number) => value?.toFixed(2) || '0.00',
-    },
-    {
-      title: 'Materials',
-      dataIndex: 'materials',
-      key: 'materials',
-      width: '15%',
-      align: 'center' as const,
-      render: (materials: XactimateLineItem[]) => (
-        <Tag>{materials?.length || 0} items</Tag>
-      ),
-    },
+    { title: 'Room Name', dataIndex: 'room_name', key: 'room_name', width: '25%' },
+    { title: 'Floor', dataIndex: 'floor_level', key: 'floor_level', width: '15%', align: 'center' as const },
+    { title: 'Items', dataIndex: 'item_count', key: 'item_count', width: '15%', align: 'center' as const },
+    { title: 'Pack-Out Hours', dataIndex: 'pack_out_labor_hours', key: 'pack_out_labor_hours',
+      width: '15%', align: 'right' as const, render: (v: number) => v?.toFixed(2) || '0.00' },
+    { title: 'Pack-In Hours', dataIndex: 'pack_in_labor_hours', key: 'pack_in_labor_hours',
+      width: '15%', align: 'right' as const, render: (v: number) => v?.toFixed(2) || '0.00' },
+    { title: 'Materials', dataIndex: 'materials', key: 'materials', width: '15%',
+      align: 'center' as const, render: (m: XactimateLineItem[]) => <Tag>{m?.length || 0} items</Tag> },
   ];
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+    <div>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {/* Header */}
         <Card>
           <Row justify="space-between" align="middle">
             <Col>
               <Space>
-                <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>
-                  Back
-                </Button>
-                <Title level={2} style={{ margin: 0 }}>
-                  <ThunderboltOutlined /> {calculation.calculation_name}
-                </Title>
+                <Button icon={<ArrowLeftOutlined />} onClick={handleBack}>Back</Button>
+                {editing ? (
+                  <Input
+                    value={editName}
+                    onChange={e => setEditName(e.target.value)}
+                    style={{ fontSize: 20, fontWeight: 600, width: 400 }}
+                    placeholder="Estimate Name"
+                  />
+                ) : (
+                  <Title level={2} style={{ margin: 0 }}>
+                    <ThunderboltOutlined /> {calculation.calculation_name || 'Untitled'}
+                  </Title>
+                )}
               </Space>
             </Col>
             <Col>
               <Space>
-                <Button icon={<EditOutlined />} onClick={handleEdit}>
-                  Edit
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<DownloadOutlined />}
-                  onClick={handleDownload}
-                >
-                  Export PDF
-                </Button>
+                {editing ? (
+                  <>
+                    <Button
+                      icon={<CloseOutlined />}
+                      onClick={cancelEdit}
+                      disabled={saving}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="primary"
+                      icon={saving ? <LoadingOutlined /> : <SaveOutlined />}
+                      onClick={handleSave}
+                      loading={saving}
+                    >
+                      Save
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button icon={<EditOutlined />} onClick={startEdit}>Edit</Button>
+                    <Button
+                      type="primary"
+                      icon={exporting ? <LoadingOutlined /> : <DownloadOutlined />}
+                      onClick={handleDownload}
+                      loading={exporting}
+                    >
+                      Export PDF
+                    </Button>
+                  </>
+                )}
               </Space>
             </Col>
           </Row>
@@ -259,42 +228,71 @@ const PackCalculatorNewDetail: React.FC = () => {
           {/* Status and Info */}
           <Row gutter={16}>
             <Col span={12}>
-              <Descriptions column={1} size="small">
-                <Descriptions.Item label="Created">
-                  {formatDate(calculation.created_at)}
-                </Descriptions.Item>
-                {calculation.project_address && (
-                  <Descriptions.Item label="Project Address">
-                    {calculation.project_address}
+              {editing ? (
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Status</Text>
+                    <Select
+                      value={editStatus}
+                      onChange={setEditStatus}
+                      style={{ width: 200 }}
+                    >
+                      <Option value="draft">Draft</Option>
+                      <Option value="completed">Completed</Option>
+                      <Option value="approved">Approved</Option>
+                    </Select>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Notes</Text>
+                    <Input.TextArea
+                      value={editNotes}
+                      onChange={e => setEditNotes(e.target.value)}
+                      rows={3}
+                      placeholder="Add notes..."
+                    />
+                  </div>
+                </Space>
+              ) : (
+                <Descriptions column={1} size="small">
+                  <Descriptions.Item label="Created">
+                    {formatDate(calculation.created_at)}
                   </Descriptions.Item>
-                )}
-                {calculation.notes && (
-                  <Descriptions.Item label="Notes">
-                    {calculation.notes}
-                  </Descriptions.Item>
-                )}
-              </Descriptions>
+                  {calculation.project_address && (
+                    <Descriptions.Item label="Project Address">
+                      {calculation.project_address}
+                    </Descriptions.Item>
+                  )}
+                  {calculation.notes && (
+                    <Descriptions.Item label="Notes">
+                      {calculation.notes}
+                    </Descriptions.Item>
+                  )}
+                </Descriptions>
+              )}
             </Col>
             <Col span={12}>
               <Space direction="vertical" style={{ width: '100%' }}>
                 <Space>
                   <Text strong>Status:</Text>
                   {calculation.needs_review ? (
-                    <Tag color="warning" icon={<WarningOutlined />}>
-                      Needs Review
-                    </Tag>
+                    <Tag color="warning" icon={<WarningOutlined />}>Needs Review</Tag>
                   ) : (
-                    <Tag color="success" icon={<CheckCircleOutlined />}>
-                      Ready
+                    <Tag color="success" icon={<CheckCircleOutlined />}>Ready</Tag>
+                  )}
+                  {(calculation as any).status && (
+                    <Tag color={({ draft: 'default', completed: 'success', approved: 'blue' } as Record<string, string>)[(calculation as any).status] || 'default'}>
+                      {(calculation as any).status}
                     </Tag>
                   )}
                 </Space>
-                <Space>
-                  <Text strong>AI Confidence:</Text>
-                  <Tag color="purple" icon={<RobotOutlined />}>
-                    {(calculation.ml_confidence * 100).toFixed(0)}%
-                  </Tag>
-                </Space>
+                {calculation.ml_confidence != null && (
+                  <Space>
+                    <Text strong>AI Confidence:</Text>
+                    <Tag color="purple" icon={<RobotOutlined />}>
+                      {(calculation.ml_confidence * 100).toFixed(0)}%
+                    </Tag>
+                  </Space>
+                )}
                 {calculation.auto_selected && (
                   <Tag color="blue">Auto-Selected Strategies</Tag>
                 )}
@@ -319,7 +317,6 @@ const PackCalculatorNewDetail: React.FC = () => {
                 title="Total Boxes"
                 value={calculation.pack_out_materials?.reduce(
                   (sum, mat) => {
-                    // Only count box materials (CPS BX*, TMC BXDISH, CPS BXWDR, etc.)
                     const isBox = mat.code?.startsWith('CPS BX') ||
                                   mat.code?.startsWith('TMC BX') ||
                                   mat.code?.startsWith('CPS BXWDR');
@@ -358,15 +355,13 @@ const PackCalculatorNewDetail: React.FC = () => {
                 <Alert
                   message="Pack-Out Materials"
                   description={`Total of ${calculation.pack_out_materials?.length || 0} material items required for packing`}
-                  type="info"
-                  showIcon
+                  type="info" showIcon
                 />
                 <Table
                   columns={materialColumns}
                   dataSource={calculation.pack_out_materials || []}
                   rowKey={(record, index) => `${record.code}-${index}`}
-                  pagination={false}
-                  size="small"
+                  pagination={false} size="small"
                 />
               </Space>
             </Tabs.TabPane>
@@ -378,15 +373,13 @@ const PackCalculatorNewDetail: React.FC = () => {
                     <Alert
                       message="Pack-Out Labor"
                       description={`Total: ${calculation.total_pack_out_hours?.toFixed(2)} hours`}
-                      type="warning"
-                      showIcon
+                      type="warning" showIcon
                     />
                     <Table
                       columns={laborColumns}
                       dataSource={calculation.pack_out_labor || []}
                       rowKey={(record, index) => `packout-${record.code}-${index}`}
-                      pagination={false}
-                      size="small"
+                      pagination={false} size="small"
                     />
                   </Space>
                 </Col>
@@ -395,15 +388,13 @@ const PackCalculatorNewDetail: React.FC = () => {
                     <Alert
                       message="Pack-In Labor"
                       description={`Total: ${calculation.total_pack_in_hours?.toFixed(2)} hours`}
-                      type="success"
-                      showIcon
+                      type="success" showIcon
                     />
                     <Table
                       columns={laborColumns}
                       dataSource={calculation.pack_in_labor || []}
                       rowKey={(record, index) => `packin-${record.code}-${index}`}
-                      pagination={false}
-                      size="small"
+                      pagination={false} size="small"
                     />
                   </Space>
                 </Col>
@@ -415,22 +406,16 @@ const PackCalculatorNewDetail: React.FC = () => {
                 <Alert
                   message="Floor Protection"
                   description={`Total: ${calculation.total_protection_sf?.toFixed(2) || 0} sq ft`}
-                  type="info"
-                  showIcon
+                  type="info" showIcon
                 />
                 {calculation.explanation_protection && (
-                  <Alert
-                    message="Protection Strategy"
-                    description={calculation.explanation_protection}
-                    type="info"
-                  />
+                  <Alert message="Protection Strategy" description={calculation.explanation_protection} type="info" />
                 )}
                 <Table
                   columns={materialColumns}
                   dataSource={calculation.protection || []}
                   rowKey={(record, index) => `protection-${record.code}-${index}`}
-                  pagination={false}
-                  size="small"
+                  pagination={false} size="small"
                 />
               </Space>
             </Tabs.TabPane>
@@ -440,8 +425,7 @@ const PackCalculatorNewDetail: React.FC = () => {
                 <Alert
                   message={`${calculation.rooms?.length || 0} Rooms`}
                   description="Detailed breakdown by room"
-                  type="info"
-                  showIcon
+                  type="info" showIcon
                 />
                 <Table
                   columns={roomColumns}
@@ -452,12 +436,7 @@ const PackCalculatorNewDetail: React.FC = () => {
                     expandedRowRender: (record: RoomBreakdown) => (
                       <Space direction="vertical" style={{ width: '100%' }} size="middle">
                         {record.explanation_pack_out && (
-                          <Alert
-                            message="Pack-Out Explanation"
-                            description={record.explanation_pack_out}
-                            type="info"
-                            showIcon
-                          />
+                          <Alert message="Pack-Out Explanation" description={record.explanation_pack_out} type="info" showIcon />
                         )}
                         {record.materials && record.materials.length > 0 && (
                           <div>
@@ -466,9 +445,7 @@ const PackCalculatorNewDetail: React.FC = () => {
                               columns={materialColumns}
                               dataSource={record.materials}
                               rowKey={(mat, idx) => `${record.room_id}-${mat.code}-${idx}`}
-                              pagination={false}
-                              size="small"
-                              style={{ marginTop: 8 }}
+                              pagination={false} size="small" style={{ marginTop: 8 }}
                             />
                           </div>
                         )}
@@ -481,61 +458,32 @@ const PackCalculatorNewDetail: React.FC = () => {
 
             <Tabs.TabPane tab="Debris" key="debris">
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Alert
-                  message="Debris Calculation"
-                  description="Estimated debris from packing materials"
-                  type="warning"
-                  showIcon
-                />
+                <Alert message="Debris Calculation" description="Estimated debris from packing materials" type="warning" showIcon />
                 <Row gutter={16}>
                   <Col span={8}>
                     <Card>
-                      <Statistic
-                        title="Cardboard (Recyclable)"
-                        value={calculation.debris?.cardboard_recyclable_lb?.toFixed(2) || '0.00'}
-                        suffix="lb"
-                      />
-                      <Text type="secondary">
-                        {calculation.debris?.cardboard_recyclable_ton?.toFixed(3) || '0.000'} tons
-                      </Text>
+                      <Statistic title="Cardboard (Recyclable)" value={calculation.debris?.cardboard_recyclable_lb?.toFixed(2) || '0.00'} suffix="lb" />
+                      <Text type="secondary">{calculation.debris?.cardboard_recyclable_ton?.toFixed(3) || '0.000'} tons</Text>
                     </Card>
                   </Col>
                   <Col span={8}>
                     <Card>
-                      <Statistic
-                        title="Plastic Waste"
-                        value={calculation.debris?.plastic_waste_lb?.toFixed(2) || '0.00'}
-                        suffix="lb"
-                      />
+                      <Statistic title="Plastic Waste" value={calculation.debris?.plastic_waste_lb?.toFixed(2) || '0.00'} suffix="lb" />
                     </Card>
                   </Col>
                   <Col span={8}>
                     <Card>
-                      <Statistic
-                        title="Paper Waste"
-                        value={calculation.debris?.paper_waste_lb?.toFixed(2) || '0.00'}
-                        suffix="lb"
-                      />
+                      <Statistic title="Paper Waste" value={calculation.debris?.paper_waste_lb?.toFixed(2) || '0.00'} suffix="lb" />
                     </Card>
                   </Col>
                 </Row>
                 <Card>
                   <Row gutter={16}>
                     <Col span={12}>
-                      <Statistic
-                        title="Total Debris"
-                        value={calculation.debris?.total_debris_lb?.toFixed(2) || '0.00'}
-                        suffix="lb"
-                        valueStyle={{ color: '#f5222d' }}
-                      />
+                      <Statistic title="Total Debris" value={calculation.debris?.total_debris_lb?.toFixed(2) || '0.00'} suffix="lb" valueStyle={{ color: '#f5222d' }} />
                     </Col>
                     <Col span={12}>
-                      <Statistic
-                        title="Total Debris"
-                        value={calculation.debris?.total_debris_ton?.toFixed(3) || '0.000'}
-                        suffix="tons"
-                        valueStyle={{ color: '#f5222d' }}
-                      />
+                      <Statistic title="Total Debris" value={calculation.debris?.total_debris_ton?.toFixed(3) || '0.000'} suffix="tons" valueStyle={{ color: '#f5222d' }} />
                     </Col>
                   </Row>
                 </Card>
@@ -546,32 +494,22 @@ const PackCalculatorNewDetail: React.FC = () => {
               <Tabs.TabPane tab="Strategies Used" key="strategies">
                 <Descriptions bordered column={1}>
                   {calculation.strategies_used.material_estimation && (
-                    <Descriptions.Item label="Material Estimation">
-                      {calculation.strategies_used.material_estimation}
-                    </Descriptions.Item>
+                    <Descriptions.Item label="Material Estimation">{calculation.strategies_used.material_estimation}</Descriptions.Item>
                   )}
                   {calculation.strategies_used.labor_calculation && (
-                    <Descriptions.Item label="Labor Calculation">
-                      {calculation.strategies_used.labor_calculation}
-                    </Descriptions.Item>
+                    <Descriptions.Item label="Labor Calculation">{calculation.strategies_used.labor_calculation}</Descriptions.Item>
                   )}
                   {calculation.strategies_used.protection_estimate && (
-                    <Descriptions.Item label="Protection Estimate">
-                      {calculation.strategies_used.protection_estimate}
-                    </Descriptions.Item>
+                    <Descriptions.Item label="Protection Estimate">{calculation.strategies_used.protection_estimate}</Descriptions.Item>
                   )}
                   {calculation.strategies_used.debris_calculation && (
-                    <Descriptions.Item label="Debris Calculation">
-                      {calculation.strategies_used.debris_calculation}
-                    </Descriptions.Item>
+                    <Descriptions.Item label="Debris Calculation">{calculation.strategies_used.debris_calculation}</Descriptions.Item>
                   )}
                   {calculation.strategies_used.fuzzy_matching_used && (
                     <Descriptions.Item label="Fuzzy Matching">
                       <Tag color="blue">Used</Tag>
                       {calculation.strategies_used.fuzzy_matches && (
-                        <Text type="secondary">
-                          {` (${calculation.strategies_used.fuzzy_matches.length} matches)`}
-                        </Text>
+                        <Text type="secondary">{` (${calculation.strategies_used.fuzzy_matches.length} matches)`}</Text>
                       )}
                     </Descriptions.Item>
                   )}

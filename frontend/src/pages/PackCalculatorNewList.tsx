@@ -172,7 +172,7 @@ const PackCalculatorNewList: React.FC = () => {
   const totalGrand = estimates.reduce((s, e) => s + (e.grand_total || 0), 0);
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+    <div>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Card>
           <Row justify="space-between" align="middle">

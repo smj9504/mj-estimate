@@ -12,7 +12,7 @@ import {
   PlusOutlined, DeleteOutlined, CameraOutlined, ScanOutlined,
   StarOutlined, WarningOutlined, LoadingOutlined, EditOutlined,
   CheckOutlined, CloseOutlined, ThunderboltOutlined, InboxOutlined,
-  EyeOutlined,
+  EyeOutlined, FolderOpenOutlined,
 } from '@ant-design/icons';
 import * as packingService from '../../services/packingEstimateService';
 import type {
@@ -22,6 +22,7 @@ import { ITEM_CATEGORIES } from '../../types/packing-estimate';
 import {
   DENSITY_OPTIONS, FLOOR_OPTIONS, CONTAMINATION_OPTIONS,
 } from './constants';
+import FolderImportModal from './FolderImportModal';
 
 const { Text, Title } = Typography;
 const { Option } = Select;
@@ -61,9 +62,11 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
   const [useCustomName, setUseCustomName] = useState(false);
   const [pendingPhotos, setPendingPhotos] = useState<string[]>([]);
   const [batchAnalyzing, setBatchAnalyzing] = useState(false);
-  const [editingItem, setEditingItem] = useState<{
-    roomId: string; idx: number; field: string;
-  } | null>(null);
+  const [folderModalOpen, setFolderModalOpen] = useState(false);
+
+  // Keep a ref to latest rooms for batch analysis callbacks
+  const roomsRef = useRef(rooms);
+  roomsRef.current = rooms;
 
   React.useEffect(() => {
     packingService.getPresets().then(setPresets).catch(() => {});
@@ -178,7 +181,8 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
           room.room_name,
           room.photos,
         );
-        setRooms(prev => prev.map(r => r.id === room.id ? {
+        const current = roomsRef.current;
+        setRooms(current.map(r => r.id === room.id ? {
           ...r,
           items: result.items,
           density: (result.density as PhotoRoom['density']) ?? r.density,
@@ -189,7 +193,8 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
           analyzing: false,
         } : r));
       } catch {
-        setRooms(prev => prev.map(r => r.id === room.id ? {
+        const current = roomsRef.current;
+        setRooms(current.map(r => r.id === room.id ? {
           ...r, analyzing: false,
         } : r));
       }
@@ -230,6 +235,12 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
     updateRoom(roomId, { items: newItems });
   }, [rooms, updateRoom]);
 
+  // ── Bulk Room Import (from folder) ─────────
+
+  const handleBulkAddRooms = useCallback((newRooms: PhotoRoom[]) => {
+    setRooms([...rooms, ...newRooms]);
+  }, [rooms, setRooms]);
+
   // ── Render ─────────────────────────────────
 
   return (
@@ -243,6 +254,14 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
         </Col>
         <Col>
           <Space>
+            <Tooltip title="Import rooms from folder (each subfolder = 1 room)">
+              <Button
+                icon={<FolderOpenOutlined />}
+                onClick={() => setFolderModalOpen(true)}
+              >
+                Import Folder
+              </Button>
+            </Tooltip>
             {unanalyzedRooms.length > 0 && (
               <Button
                 icon={<ThunderboltOutlined />}
@@ -385,6 +404,14 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
           onRemoveItem={(idx) => removeItem(room.id, idx)}
         />
       ))}
+
+      {/* Folder Import Modal */}
+      <FolderImportModal
+        open={folderModalOpen}
+        onClose={() => setFolderModalOpen(false)}
+        onRoomsCreated={handleBulkAddRooms}
+        existingRoomNames={rooms.map(r => r.room_name)}
+      />
     </Space>
   );
 };
