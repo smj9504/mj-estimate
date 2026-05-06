@@ -320,11 +320,11 @@ const CabinetEstimateDetail: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '24px' }}>
+    <div style={{ padding: '12px 8px' }}>
       {/* Header */}
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
-        <Col>
-          <Space>
+      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }} gutter={[8, 8]}>
+        <Col xs={24} md="auto">
+          <Space wrap size="small">
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/cabinet-estimates')}>
               Back
             </Button>
@@ -336,8 +336,8 @@ const CabinetEstimateDetail: React.FC = () => {
             {estimate.client_name && <Text type="secondary">{estimate.client_name}</Text>}
           </Space>
         </Col>
-        <Col>
-          <Space>
+        <Col xs={24} md="auto">
+          <Space wrap size="small">
             <Button icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>
               Save
             </Button>
@@ -533,7 +533,7 @@ const CabinetEstimateDetail: React.FC = () => {
                       <Col xs={24} md={12}>
                         <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>End Panel (Side)</Text>
                         <Row gutter={8}>
-                          <Col span={10}>
+                          <Col xs={10} sm={10}>
                             <Form.Item label="LF" style={{ marginBottom: 4 }}>
                               <InputNumber
                                 min={0} max={30} step={0.5}
@@ -551,7 +551,7 @@ const CabinetEstimateDetail: React.FC = () => {
                               />
                             </Form.Item>
                           </Col>
-                          <Col span={7}>
+                          <Col xs={7} sm={7}>
                             <Form.Item label="Height" style={{ marginBottom: 4 }}>
                               <Select
                                 defaultValue="base"
@@ -573,7 +573,7 @@ const CabinetEstimateDetail: React.FC = () => {
                               />
                             </Form.Item>
                           </Col>
-                          <Col span={7}>
+                          <Col xs={7} sm={7}>
                             <Form.Item name="island_end_panel_sqft" label="SF" style={{ marginBottom: 4 }}>
                               <InputNumber min={0} max={200} step={0.5} style={{ width: '100%' }} />
                             </Form.Item>
@@ -584,7 +584,7 @@ const CabinetEstimateDetail: React.FC = () => {
                       <Col xs={24} md={12}>
                         <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>Back Panel</Text>
                         <Row gutter={8}>
-                          <Col span={10}>
+                          <Col xs={10} sm={10}>
                             <Form.Item label="LF" style={{ marginBottom: 4 }}>
                               <InputNumber
                                 min={0} max={30} step={0.5}
@@ -602,7 +602,7 @@ const CabinetEstimateDetail: React.FC = () => {
                               />
                             </Form.Item>
                           </Col>
-                          <Col span={7}>
+                          <Col xs={7} sm={7}>
                             <Form.Item label="Height" style={{ marginBottom: 4 }}>
                               <Select
                                 defaultValue="base"
@@ -624,7 +624,7 @@ const CabinetEstimateDetail: React.FC = () => {
                               />
                             </Form.Item>
                           </Col>
-                          <Col span={7}>
+                          <Col xs={7} sm={7}>
                             <Form.Item name="island_back_panel_sqft" label="SF" style={{ marginBottom: 4 }}>
                               <InputNumber min={0} max={200} step={0.5} style={{ width: '100%' }} />
                             </Form.Item>

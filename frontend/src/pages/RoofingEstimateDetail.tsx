@@ -493,11 +493,11 @@ const RoofingEstimateDetail: React.FC = () => {
   if (!estimate) return <div style={{ padding: 24 }}>Estimate not found</div>;
 
   return (
-    <div style={{ padding: '24px', maxWidth: 1200, margin: '0 auto' }}>
+    <div style={{ padding: '12px 8px', maxWidth: 1200, margin: '0 auto' }}>
       {/* Header */}
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
-        <Col>
-          <Space>
+      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }} gutter={[8, 8]}>
+        <Col xs={24} md="auto">
+          <Space wrap>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/roofing-estimates')} />
             <Title level={3} style={{ margin: 0 }}>
               Roofing Estimate
@@ -507,8 +507,8 @@ const RoofingEstimateDetail: React.FC = () => {
             </Tag>
           </Space>
         </Col>
-        <Col>
-          <Space>
+        <Col xs={24} md="auto">
+          <Space wrap>
             <Button icon={<SaveOutlined />} onClick={handleSave} loading={saving}>
               Save
             </Button>
@@ -555,11 +555,11 @@ const RoofingEstimateDetail: React.FC = () => {
       {estimate.status !== 'draft' && (
         <Card style={{ marginBottom: 16 }}>
           <Row gutter={16}>
-            <Col span={3}><Statistic title="Subtotal" value={estimate.subtotal} prefix="$" precision={2} /></Col>
-            <Col span={3}><Statistic title="Markup" value={estimate.markup_amount} prefix="$" precision={2} /></Col>
-            <Col span={3}><Statistic title="Tax" value={estimate.tax_amount} prefix="$" precision={2} /></Col>
-            <Col span={3}><Statistic title="Permit" value={estimate.permit_fee} prefix="$" precision={2} /></Col>
-            <Col span={4}>
+            <Col xs={12} sm={8} md={3}><Statistic title="Subtotal" value={estimate.subtotal} prefix="$" precision={2} /></Col>
+            <Col xs={12} sm={8} md={3}><Statistic title="Markup" value={estimate.markup_amount} prefix="$" precision={2} /></Col>
+            <Col xs={12} sm={8} md={3}><Statistic title="Tax" value={estimate.tax_amount} prefix="$" precision={2} /></Col>
+            <Col xs={12} sm={8} md={3}><Statistic title="Permit" value={estimate.permit_fee} prefix="$" precision={2} /></Col>
+            <Col xs={12} sm={8} md={4}>
               <Statistic
                 title="TOTAL"
                 value={estimate.total}
@@ -568,10 +568,10 @@ const RoofingEstimateDetail: React.FC = () => {
                 valueStyle={{ color: '#1677ff', fontWeight: 'bold' }}
               />
             </Col>
-            <Col span={3}>
+            <Col xs={12} sm={8} md={3}>
               <Statistic title="Area" value={estimate.squares} suffix="SQ" precision={1} />
             </Col>
-            <Col span={5}>
+            <Col xs={24} sm={12} md={5}>
               {(() => {
                 const structures = estimate.eagleview_data?.structures || [];
                 const pitch = estimate.predominant_pitch || 'N/A';
@@ -622,7 +622,7 @@ const RoofingEstimateDetail: React.FC = () => {
               <Card>
                 <Divider orientation="left">Company (for PDF)</Divider>
                 <Row gutter={16}>
-                  <Col span={12}>
+                  <Col xs={24} md={12}>
                     <Form.Item label="Company" name="company_id">
                       <Select
                         placeholder="Select a company..."
@@ -650,16 +650,16 @@ const RoofingEstimateDetail: React.FC = () => {
                         borderRadius: 6, padding: '10px 16px', marginBottom: 16,
                       }}>
                         <Row gutter={16}>
-                          <Col span={8}>
+                          <Col xs={24} sm={8}>
                             <Text type="secondary" style={{ fontSize: 11 }}>Company</Text><br />
                             <Text strong><BankOutlined style={{ marginRight: 4 }} />{comp.name}</Text>
                             {comp.company_code && <Tag color="blue" style={{ marginLeft: 8, fontSize: 10 }}>{comp.company_code}</Tag>}
                           </Col>
-                          <Col span={8}>
+                          <Col xs={24} sm={8}>
                             <Text type="secondary" style={{ fontSize: 11 }}>Contact</Text><br />
                             <Text style={{ fontSize: 12 }}>{[comp.phone, comp.email].filter(Boolean).join(' | ') || '—'}</Text>
                           </Col>
-                          <Col span={8}>
+                          <Col xs={24} sm={8}>
                             <Text type="secondary" style={{ fontSize: 11 }}>Address</Text><br />
                             <Text style={{ fontSize: 12 }}>{[comp.address, comp.city, comp.state, comp.zipcode].filter(Boolean).join(', ') || '—'}</Text>
                           </Col>
@@ -671,9 +671,9 @@ const RoofingEstimateDetail: React.FC = () => {
 
                 <Divider orientation="left">Property</Divider>
                 <Row gutter={16}>
-                  <Col span={12}><Form.Item label="Property Address" name="property_address"><Input /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="City" name="city"><Input /></Form.Item></Col>
-                  <Col span={4}>
+                  <Col xs={24} md={12}><Form.Item label="Property Address" name="property_address"><Input /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="City" name="city"><Input /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}>
                     <Form.Item label="State" name="state">
                       <Select options={[
                         { label: 'MD', value: 'MD' },
@@ -682,18 +682,18 @@ const RoofingEstimateDetail: React.FC = () => {
                       ]} />
                     </Form.Item>
                   </Col>
-                  <Col span={4}><Form.Item label="Zip Code" name="zip_code"><Input /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Zip Code" name="zip_code"><Input /></Form.Item></Col>
                 </Row>
 
                 <Divider orientation="left">Building Details</Divider>
                 <Row gutter={16}>
-                  <Col span={4}>
+                  <Col xs={12} sm={8} md={4}>
                     <Form.Item label="Building Type" name="building_type">
                       <Select options={pricingInfo?.building_types?.map(t => ({ label: t.toUpperCase(), value: t })) || []} />
                     </Form.Item>
                   </Col>
-                  <Col span={4}><Form.Item label="Year Built" name="year_built"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col span={4}>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Year Built" name="year_built"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}>
                     <Form.Item label="Stories" name="stories">
                       <Select options={[
                         { label: '1 Story', value: 1 },
@@ -702,8 +702,8 @@ const RoofingEstimateDetail: React.FC = () => {
                       ]} />
                     </Form.Item>
                   </Col>
-                  <Col span={4}><Form.Item label="HOA" name="hoa" valuePropName="checked"><Switch /></Form.Item></Col>
-                  <Col span={4}>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="HOA" name="hoa" valuePropName="checked"><Switch /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}>
                     <Form.Item label="Roof Access" name="roof_access">
                       <Select options={[
                         { label: 'Easy', value: 'easy' },
@@ -714,8 +714,8 @@ const RoofingEstimateDetail: React.FC = () => {
                   </Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={8}><Form.Item label="Notes" name="notes"><Input.TextArea rows={3} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Insurance Job" name="insurance_job" valuePropName="checked"><Switch /></Form.Item></Col>
+                  <Col xs={24} sm={12} md={8}><Form.Item label="Notes" name="notes"><Input.TextArea rows={3} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Insurance Job" name="insurance_job" valuePropName="checked"><Switch /></Form.Item></Col>
                 </Row>
               </Card>
             ),
@@ -726,7 +726,7 @@ const RoofingEstimateDetail: React.FC = () => {
             children: (
               <Card>
                 <Row gutter={16} style={{ marginBottom: 16 }}>
-                  <Col span={12}>
+                  <Col xs={24} md={12}>
                     <Card title="EagleView Upload" size="small">
                       <Upload
                         accept=".json,.JSON"
@@ -747,7 +747,7 @@ const RoofingEstimateDetail: React.FC = () => {
                       )}
                     </Card>
                   </Col>
-                  <Col span={6}>
+                  <Col xs={12} sm={12} md={6}>
                     <Form.Item label="Source" name="measurement_source">
                       <Select options={[
                         { label: 'EagleView', value: 'eagleview' },
@@ -756,7 +756,7 @@ const RoofingEstimateDetail: React.FC = () => {
                       ]} />
                     </Form.Item>
                   </Col>
-                  <Col span={6}>
+                  <Col xs={12} sm={12} md={6}>
                     <Form.Item label="Roof Complexity" name="roof_complexity">
                       <Select options={pricingInfo?.roof_complexities?.map(c => ({
                         label: c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
@@ -775,7 +775,7 @@ const RoofingEstimateDetail: React.FC = () => {
                   >
                     <Row gutter={[16, 8]}>
                       {eagleViewResult.structures.map(s => (
-                        <Col key={s.index} span={8}>
+                        <Col key={s.index} xs={24} sm={12} md={8}>
                           <Checkbox
                             checked={selectedStructures.includes(s.index)}
                             onChange={(e) => handleStructureToggle(s.index, e.target.checked)}
@@ -799,7 +799,7 @@ const RoofingEstimateDetail: React.FC = () => {
                       {eagleViewResult.all_faces
                         .filter(f => !f.is_accessory && selectedStructures.includes(f.structure_index))
                         .map(face => (
-                        <Col key={face.id} span={6}>
+                        <Col key={face.id} xs={12} sm={8} md={6}>
                           <Checkbox
                             checked={selectedFaces.includes(face.id)}
                             onChange={(e) => handleFaceToggle(face.id, e.target.checked)}
@@ -866,27 +866,27 @@ const RoofingEstimateDetail: React.FC = () => {
 
                 <Divider orientation="left">Measurements</Divider>
                 <Row gutter={16}>
-                  <Col span={4}><Form.Item label="Total SF" name="total_sf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Squares" name="squares"><InputNumber style={{ width: '100%' }} step={0.1} /></Form.Item></Col>
-                  <Col span={4}>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Total SF" name="total_sf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Squares" name="squares"><InputNumber style={{ width: '100%' }} step={0.1} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}>
                     <Form.Item label="Predominant Pitch" name="predominant_pitch">
                       <Select options={Object.keys(pricingInfo?.pitch_multipliers || {}).map(p => ({ label: p, value: p }))} />
                     </Form.Item>
                   </Col>
-                  <Col span={4}><Form.Item label="Waste Factor" name="waste_factor"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={0.3} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Waste Factor" name="waste_factor"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={0.3} /></Form.Item></Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={4}><Form.Item label="Ridge (LF)" name="ridge_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Hip (LF)" name="hip_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Valley (LF)" name="valley_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Eave (LF)" name="eave_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Rake (LF)" name="rake_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Step Flash (LF)" name="step_flashing_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Ridge (LF)" name="ridge_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Hip (LF)" name="hip_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Valley (LF)" name="valley_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Eave (LF)" name="eave_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Rake (LF)" name="rake_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Step Flash (LF)" name="step_flashing_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col span={4}><Form.Item label="Penetrations" name="penetration_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Skylights" name="skylight_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Chimneys" name="chimney_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Penetrations" name="penetration_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Skylights" name="skylight_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Chimneys" name="chimney_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
                 </Row>
               </Card>
             ),
@@ -898,8 +898,8 @@ const RoofingEstimateDetail: React.FC = () => {
               <Card>
                 <Divider orientation="left">Tear-off Scope</Divider>
                 <Row gutter={16}>
-                  <Col span={4}><Form.Item label="Full Tear-off" name="full_tearoff" valuePropName="checked"><Switch /></Form.Item></Col>
-                  <Col span={4}>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Full Tear-off" name="full_tearoff" valuePropName="checked"><Switch /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}>
                     <Form.Item label="Existing Layers" name="layer_count">
                       <Select options={[
                         { label: '1 Layer', value: 1 },
@@ -908,7 +908,7 @@ const RoofingEstimateDetail: React.FC = () => {
                       ]} />
                     </Form.Item>
                   </Col>
-                  <Col span={4}>
+                  <Col xs={12} sm={8} md={4}>
                     <Form.Item label="Existing Material" name="existing_material">
                       <Select options={pricingInfo?.existing_materials?.map(m => ({
                         label: m.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
@@ -920,7 +920,7 @@ const RoofingEstimateDetail: React.FC = () => {
 
                 <Divider orientation="left">Shingle Selection</Divider>
                 <Row gutter={16}>
-                  <Col span={6}>
+                  <Col xs={12} sm={12} md={6}>
                     <Form.Item label="Shingle Type" name="shingle_type">
                       <Select options={pricingInfo?.shingle_types?.map(t => ({
                         label: t.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
@@ -928,7 +928,7 @@ const RoofingEstimateDetail: React.FC = () => {
                       })) || []} />
                     </Form.Item>
                   </Col>
-                  <Col span={6}>
+                  <Col xs={12} sm={12} md={6}>
                     <Form.Item label="Brand" name="shingle_brand">
                       <Select options={pricingInfo?.shingle_brands?.map(b => ({
                         label: b.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
@@ -936,13 +936,13 @@ const RoofingEstimateDetail: React.FC = () => {
                       })) || []} />
                     </Form.Item>
                   </Col>
-                  <Col span={6}><Form.Item label="Product" name="shingle_product"><Input placeholder="e.g. Timberline HDZ" /></Form.Item></Col>
-                  <Col span={6}><Form.Item label="Color" name="shingle_color"><Input placeholder="e.g. Charcoal" /></Form.Item></Col>
+                  <Col xs={12} sm={12} md={6}><Form.Item label="Product" name="shingle_product"><Input placeholder="e.g. Timberline HDZ" /></Form.Item></Col>
+                  <Col xs={12} sm={12} md={6}><Form.Item label="Color" name="shingle_color"><Input placeholder="e.g. Charcoal" /></Form.Item></Col>
                 </Row>
 
                 <Divider orientation="left">Underlayment</Divider>
                 <Row gutter={16}>
-                  <Col span={6}>
+                  <Col xs={12} sm={12} md={6}>
                     <Form.Item label="Underlayment Type" name="underlayment_type">
                       <Select options={pricingInfo?.underlayment_types?.map(t => ({
                         label: t.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
@@ -954,7 +954,7 @@ const RoofingEstimateDetail: React.FC = () => {
 
                 <Divider orientation="left">Flashing & Penetrations</Divider>
                 <Row gutter={16}>
-                  <Col span={6}>
+                  <Col xs={12} sm={12} md={6}>
                     <Form.Item label="Pipe Boot Type" name="pipe_boot_type">
                       <Select options={pricingInfo?.pipe_boot_types?.map(t => ({
                         label: t.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
@@ -962,8 +962,8 @@ const RoofingEstimateDetail: React.FC = () => {
                       })) || []} />
                     </Form.Item>
                   </Col>
-                  <Col span={4}><Form.Item label="Ridge Vent" name="ridge_vent" valuePropName="checked"><Switch defaultChecked /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Static Vents" name="static_vents"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Ridge Vent" name="ridge_vent" valuePropName="checked"><Switch defaultChecked /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Static Vents" name="static_vents"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
                 </Row>
               </Card>
             ),
@@ -975,7 +975,7 @@ const RoofingEstimateDetail: React.FC = () => {
               <Card>
                 <Divider orientation="left">Decking Clause</Divider>
                 <Row gutter={16}>
-                  <Col span={6}>
+                  <Col xs={12} sm={12} md={6}>
                     <Form.Item label="Decking Material" name="decking_material">
                       <Select options={pricingInfo?.decking_materials?.map(m => ({
                         label: m.replace(/_/g, ' ').toUpperCase(),
@@ -983,22 +983,22 @@ const RoofingEstimateDetail: React.FC = () => {
                       })) || []} />
                     </Form.Item>
                   </Col>
-                  <Col span={4}><Form.Item label="Free Sheets" name="decking_free_sheets"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Rate/Sheet ($)" name="decking_rate"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Est. Sheets Needed" name="decking_estimated"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Re-nail Existing" name="re_nail_existing" valuePropName="checked"><Switch /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Free Sheets" name="decking_free_sheets"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Rate/Sheet ($)" name="decking_rate"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Est. Sheets Needed" name="decking_estimated"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Re-nail Existing" name="re_nail_existing" valuePropName="checked"><Switch /></Form.Item></Col>
                 </Row>
 
                 <Divider orientation="left">Gutter (Optional)</Divider>
                 {/* Common gutter settings */}
                 <Row gutter={16}>
-                  <Col span={4}><Form.Item label="Include Gutter" name="gutter_included" valuePropName="checked"><Switch /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Include Gutter" name="gutter_included" valuePropName="checked"><Switch /></Form.Item></Col>
                 </Row>
                 <Form.Item noStyle shouldUpdate={(prev, cur) => prev.gutter_included !== cur.gutter_included}>
                   {({ getFieldValue }) => getFieldValue('gutter_included') && (
                     <>
                       <Row gutter={16}>
-                        <Col span={4}>
+                        <Col xs={12} sm={8} md={4}>
                           <Form.Item label="Style" name="gutter_style">
                             <Select options={pricingInfo?.gutter_styles?.map(s => ({
                               label: s.replace(/_/g, '-').replace(/\b\w/g, l => l.toUpperCase()),
@@ -1006,15 +1006,15 @@ const RoofingEstimateDetail: React.FC = () => {
                             })) || []} />
                           </Form.Item>
                         </Col>
-                        <Col span={4}>
+                        <Col xs={12} sm={8} md={4}>
                           <Form.Item label="Size" name="gutter_size">
                             <Select options={pricingInfo?.gutter_sizes?.map(s => ({ label: `${s}"`, value: s })) || []} />
                           </Form.Item>
                         </Col>
-                        <Col span={4}><Form.Item label="Gutter Guards" name="gutter_guards" valuePropName="checked"><Switch /></Form.Item></Col>
+                        <Col xs={12} sm={8} md={4}><Form.Item label="Gutter Guards" name="gutter_guards" valuePropName="checked"><Switch /></Form.Item></Col>
                         <Form.Item noStyle shouldUpdate={(prev, cur) => prev.gutter_guards !== cur.gutter_guards}>
                           {({ getFieldValue: gfv }) => gfv('gutter_guards') && (
-                            <Col span={6}>
+                            <Col xs={12} sm={12} md={6}>
                               <Form.Item label="Guard Type" name="gutter_guard_type">
                                 <Select options={pricingInfo?.gutter_guard_types?.map(t => ({
                                   label: t.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
@@ -1036,7 +1036,7 @@ const RoofingEstimateDetail: React.FC = () => {
                               <Card key={s.index} size="small" style={{ marginBottom: 12, background: '#fafbfc' }}
                                 title={<Text strong>{s.label} <Text type="secondary">({s.total_sf.toLocaleString()} SF)</Text></Text>}>
                                 <Row gutter={16} align="middle">
-                                  <Col span={3}>
+                                  <Col xs={8} sm={6} md={3}>
                                     <Form.Item label="Include" name={`${fieldPrefix}_included`} valuePropName="checked"
                                       initialValue={s.index === 0}>
                                       <Switch size="small" />
@@ -1046,32 +1046,32 @@ const RoofingEstimateDetail: React.FC = () => {
                                     prev[`${fieldPrefix}_included`] !== cur[`${fieldPrefix}_included`]}>
                                     {({ getFieldValue: gfv2 }) => gfv2(`${fieldPrefix}_included`) && (
                                       <>
-                                        <Col span={3}>
+                                        <Col xs={8} sm={6} md={3}>
                                           <Form.Item label="Gutter LF" name={`${fieldPrefix}_total_lf`}>
                                             <InputNumber style={{ width: '100%' }} min={0} />
                                           </Form.Item>
                                         </Col>
-                                        <Col span={3}>
+                                        <Col xs={8} sm={6} md={3}>
                                           <Form.Item label="DS Count" name={`${fieldPrefix}_ds_count`}>
                                             <InputNumber style={{ width: '100%' }} min={0} />
                                           </Form.Item>
                                         </Col>
-                                        <Col span={3}>
+                                        <Col xs={8} sm={6} md={3}>
                                           <Form.Item label="DS (LF)" name={`${fieldPrefix}_ds_lf`}>
                                             <InputNumber style={{ width: '100%' }} min={0} />
                                           </Form.Item>
                                         </Col>
-                                        <Col span={3}>
+                                        <Col xs={8} sm={6} md={3}>
                                           <Form.Item label="Splash" name={`${fieldPrefix}_splash`}>
                                             <InputNumber style={{ width: '100%' }} min={0} />
                                           </Form.Item>
                                         </Col>
-                                        <Col span={3}>
+                                        <Col xs={8} sm={6} md={3}>
                                           <Form.Item label="Detach & Reset" name={`${fieldPrefix}_remove`} valuePropName="checked">
                                             <Switch size="small" />
                                           </Form.Item>
                                         </Col>
-                                        <Col span={4} style={{ display: 'flex', alignItems: 'end', paddingBottom: 24 }}>
+                                        <Col xs={12} sm={8} md={4} style={{ display: 'flex', alignItems: 'end', paddingBottom: 24 }}>
                                           <Button size="small" type="dashed" block onClick={() => {
                                             const evFaces = eagleViewResult.all_faces.filter(
                                               f => f.structure_index === s.index && !f.is_accessory
@@ -1109,17 +1109,17 @@ const RoofingEstimateDetail: React.FC = () => {
                         /* Single structure gutter fields */
                         <>
                           <Row gutter={16}>
-                            <Col span={4}>
+                            <Col xs={12} sm={8} md={4}>
                               <Form.Item label="DS Spacing (ft)" name="downspout_spacing" initialValue={40}>
                                 <InputNumber style={{ width: '100%' }} min={20} max={60} />
                               </Form.Item>
                             </Col>
-                            <Col span={4}>
+                            <Col xs={12} sm={8} md={4}>
                               <Form.Item label="DS Height/Story (ft)" name="downspout_height_per_story" initialValue={10}>
                                 <InputNumber style={{ width: '100%' }} min={5} max={20} />
                               </Form.Item>
                             </Col>
-                            <Col span={4} style={{ display: 'flex', alignItems: 'end', paddingBottom: 24 }}>
+                            <Col xs={12} sm={8} md={4} style={{ display: 'flex', alignItems: 'end', paddingBottom: 24 }}>
                               <Button
                                 type="dashed"
                                 onClick={() => {
@@ -1149,13 +1149,13 @@ const RoofingEstimateDetail: React.FC = () => {
                             </Col>
                           </Row>
                           <Row gutter={16}>
-                            <Col span={4}><Form.Item label="Gutter (LF)" name="gutter_total_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                            <Col span={4}><Form.Item label="Downspout Count" name="gutter_downspout_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-                            <Col span={4}><Form.Item label="Downspout (LF)" name="gutter_downspout_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                            <Col span={4}><Form.Item label="Splash Blocks" name="gutter_splash_blocks"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+                            <Col xs={12} sm={8} md={4}><Form.Item label="Gutter (LF)" name="gutter_total_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                            <Col xs={12} sm={8} md={4}><Form.Item label="Downspout Count" name="gutter_downspout_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+                            <Col xs={12} sm={8} md={4}><Form.Item label="Downspout (LF)" name="gutter_downspout_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                            <Col xs={12} sm={8} md={4}><Form.Item label="Splash Blocks" name="gutter_splash_blocks"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
                           </Row>
                           <Row gutter={16}>
-                            <Col span={4}><Form.Item label="Detach & Reset" name="gutter_remove_existing" valuePropName="checked"><Switch /></Form.Item></Col>
+                            <Col xs={12} sm={8} md={4}><Form.Item label="Detach & Reset" name="gutter_remove_existing" valuePropName="checked"><Switch /></Form.Item></Col>
                           </Row>
                         </>
                       )}
@@ -1172,15 +1172,15 @@ const RoofingEstimateDetail: React.FC = () => {
               <Card>
                 <Divider orientation="left">Additional Costs</Divider>
                 <Row gutter={16}>
-                  <Col span={4}><Form.Item label="Dumpster" name="hc_dumpster" valuePropName="checked" initialValue={true}><Checkbox defaultChecked /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Lead RRP" name="hc_lead" valuePropName="checked"><Checkbox /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Vent Cap Replace" name="hc_vent_cap" valuePropName="checked"><Checkbox /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Satellite Removal" name="hc_satellite" valuePropName="checked"><Checkbox /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Dumpster" name="hc_dumpster" valuePropName="checked" initialValue={true}><Checkbox defaultChecked /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Lead RRP" name="hc_lead" valuePropName="checked"><Checkbox /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Vent Cap Replace" name="hc_vent_cap" valuePropName="checked"><Checkbox /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Satellite Removal" name="hc_satellite" valuePropName="checked"><Checkbox /></Form.Item></Col>
                 </Row>
 
                 <Divider orientation="left">Permit</Divider>
                 <Row gutter={16}>
-                  <Col span={6}>
+                  <Col xs={12} sm={12} md={6}>
                     <Form.Item label="Building Permit" name="hc_permit_option" initialValue="state">
                       <Select options={[
                         { label: 'No Permit', value: 'none' },
@@ -1194,7 +1194,7 @@ const RoofingEstimateDetail: React.FC = () => {
                   </Col>
                   <Form.Item noStyle shouldUpdate={(prev, cur) => prev.hc_permit_option !== cur.hc_permit_option}>
                     {({ getFieldValue }) => getFieldValue('hc_permit_option') === 'custom' && (
-                      <Col span={4}>
+                      <Col xs={12} sm={8} md={4}>
                         <Form.Item label="Custom Fee ($)" name="hc_permit_custom_fee">
                           <InputNumber style={{ width: '100%' }} min={0} step={25} placeholder="e.g. 300" />
                         </Form.Item>
@@ -1205,16 +1205,16 @@ const RoofingEstimateDetail: React.FC = () => {
 
                 <Divider orientation="left">Markup & Pricing</Divider>
                 <Row gutter={16}>
-                  <Col span={4}><Form.Item label="Material Markup %" name="material_markup_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={1} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Labor Markup %" name="labor_markup_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={1} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="Contingency %" name="contingency_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={0.2} /></Form.Item></Col>
-                  <Col span={4}><Form.Item label="O&P (Insurance)" name="include_overhead_profit" valuePropName="checked"><Switch /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Material Markup %" name="material_markup_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={1} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Labor Markup %" name="labor_markup_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={1} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="Contingency %" name="contingency_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={0.2} /></Form.Item></Col>
+                  <Col xs={12} sm={8} md={4}><Form.Item label="O&P (Insurance)" name="include_overhead_profit" valuePropName="checked"><Switch /></Form.Item></Col>
                 </Row>
                 <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_overhead_profit !== cur.include_overhead_profit}>
                   {({ getFieldValue }) => getFieldValue('include_overhead_profit') && (
                     <Row gutter={16}>
-                      <Col span={4}><Form.Item label="Overhead %" name="overhead_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={0.5} /></Form.Item></Col>
-                      <Col span={4}><Form.Item label="Profit %" name="profit_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={0.5} /></Form.Item></Col>
+                      <Col xs={12} sm={8} md={4}><Form.Item label="Overhead %" name="overhead_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={0.5} /></Form.Item></Col>
+                      <Col xs={12} sm={8} md={4}><Form.Item label="Profit %" name="profit_pct"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={0.5} /></Form.Item></Col>
                     </Row>
                   )}
                 </Form.Item>
@@ -1227,7 +1227,7 @@ const RoofingEstimateDetail: React.FC = () => {
                   style={{ marginBottom: 16 }}
                 />
                 <Row gutter={16} align="middle">
-                  <Col span={6}>
+                  <Col xs={24} sm={12} md={6}>
                     <Form.Item label="Target Total ($)" name="target_total">
                       <InputNumber
                         style={{ width: '100%' }}
@@ -1239,7 +1239,7 @@ const RoofingEstimateDetail: React.FC = () => {
                       />
                     </Form.Item>
                   </Col>
-                  <Col span={4}>
+                  <Col xs={12} sm={8} md={4}>
                     {estimate.adjustment_factor && (
                       <Statistic
                         title="Adjustment Factor"
@@ -1253,7 +1253,7 @@ const RoofingEstimateDetail: React.FC = () => {
                       />
                     )}
                   </Col>
-                  <Col span={6}>
+                  <Col xs={12} sm={12} md={6}>
                     <Button
                       type="dashed"
                       onClick={() => {
@@ -1283,7 +1283,7 @@ const RoofingEstimateDetail: React.FC = () => {
 
                 <Divider orientation="left">Labor Warranty Period</Divider>
                 <Row gutter={16}>
-                  <Col span={6}>
+                  <Col xs={24} sm={12} md={6}>
                     <Form.Item label="Labor Warranty (Years)" name="labor_warranty_years">
                       <InputNumber
                         style={{ width: '100%' }}
@@ -1293,7 +1293,7 @@ const RoofingEstimateDetail: React.FC = () => {
                       />
                     </Form.Item>
                   </Col>
-                  <Col span={18}>
+                  <Col xs={24} md={18}>
                     <Text type="secondary" style={{ display: 'block', marginTop: 30 }}>
                       Industry standard: 5-10 years for workmanship warranty. Premium contractors may offer up to 25 years.
                     </Text>
@@ -1417,6 +1417,7 @@ const RoofingEstimateDetail: React.FC = () => {
                                 rowKey="id"
                                 pagination={false}
                                 size="small"
+                                scroll={{ x: 800 }}
                               />
                             </div>
                           );
@@ -1443,6 +1444,7 @@ const RoofingEstimateDetail: React.FC = () => {
                       rowKey="id"
                       pagination={false}
                       size="small"
+                      scroll={{ x: 800 }}
                       summary={() => (
                         <Table.Summary.Row>
                           <Table.Summary.Cell index={0} colSpan={5}>
