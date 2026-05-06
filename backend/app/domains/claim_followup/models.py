@@ -235,6 +235,9 @@ class CommunicationLog(Base, BaseModel):
     # Audit
     logged_by_id = Column(UUIDType(), ForeignKey("staff.id"))
 
+    # Relationships
+    followup_task = relationship("FollowUpTask", back_populates="communications")
+
 
 class SentEmail(Base, BaseModel):
     """
