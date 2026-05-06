@@ -146,6 +146,14 @@ class Claim(Base, BaseModel):
         "CabinetEstimate", back_populates="claim_ref",
         foreign_keys="CabinetEstimate.claim_id", lazy='select'
     )
+    bathroom_estimates = relationship(
+        "BathroomEstimate", back_populates="claim_ref",
+        foreign_keys="BathroomEstimate.claim_id", lazy='select'
+    )
+    roofing_estimates = relationship(
+        "RoofingEstimate", back_populates="claim_ref",
+        foreign_keys="RoofingEstimate.claim_id", lazy='select'
+    )
 
 
 class ClaimNegotiation(Base, BaseModel):

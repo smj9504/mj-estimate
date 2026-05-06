@@ -78,6 +78,14 @@ const ScopeItemCategoriesManagement = lazy(() => import('./pages/ScopeItemCatego
 const CabinetEstimateList = lazy(() => import('./pages/CabinetEstimateList'));
 const CabinetEstimateDetail = lazy(() => import('./pages/CabinetEstimateDetail'));
 
+// Bathroom Estimate Pages
+const BathroomEstimateList = lazy(() => import('./pages/BathroomEstimateList'));
+const BathroomEstimateDetail = lazy(() => import('./pages/BathroomEstimateDetail'));
+
+// Roofing Estimate Pages
+const RoofingEstimateList = lazy(() => import('./pages/RoofingEstimateList'));
+const RoofingEstimateDetail = lazy(() => import('./pages/RoofingEstimateDetail'));
+
 // Reconstruction Estimate Pages
 const DebrisCalculator = lazy(() => import('./pages/DebrisCalculator'));
 const MaterialDetectionPage = lazy(() => import('./pages/MaterialDetectionPage'));
@@ -644,6 +652,56 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <CabinetEstimateDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Bathroom Estimate routes
+  {
+    path: "/bathroom-estimates",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <BathroomEstimateList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/bathroom-estimates/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <BathroomEstimateDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Roofing Estimate routes
+  {
+    path: "/roofing-estimates",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RoofingEstimateList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/roofing-estimates/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RoofingEstimateDetail />
           </Suspense>
         </Layout>
       </ProtectedRoute>

@@ -136,6 +136,14 @@ from app.domains.cabinet_estimate.api import router as cabinet_estimate_router
 from app.domains.cabinet_estimate.models import (
     CabinetEstimate, CabinetBox, CabinetEstimateLineItem, CabinetEstimateHistory
 )
+from app.domains.bathroom_estimate.api import router as bathroom_estimate_router
+from app.domains.bathroom_estimate.models import (
+    BathroomEstimate, BathroomEstimateLineItem, BathroomEstimateHistory
+)
+from app.domains.roofing_estimate.api import router as roofing_estimate_router
+from app.domains.roofing_estimate.models import (
+    RoofingEstimate, RoofingEstimateLineItem, RoofingEstimateHistory
+)
 from app.domains.water_mitigation.api import router as water_mitigation_router
 from app.domains.water_mitigation.scope_api import router as wm_scope_router
 from app.domains.water_mitigation.standard_scope_api import (
@@ -650,6 +658,8 @@ app.include_router(
 
 # Cabinet Estimate System endpoints
 app.include_router(cabinet_estimate_router, prefix="/api", tags=["Cabinet Estimates"])
+app.include_router(bathroom_estimate_router, prefix="/api", tags=["Bathroom Estimates"])
+app.include_router(roofing_estimate_router, prefix="/api", tags=["Roofing Estimates"])
 
 # Reconstruction Estimate System endpoints
 app.include_router(reconstruction_estimate_router)
