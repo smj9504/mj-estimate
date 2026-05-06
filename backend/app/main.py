@@ -408,8 +408,8 @@ async def lifespan(app: FastAPI):
                 # Claim Follow-up tables
                 FollowUpTask.__table__.create(_db.engine, checkfirst=True)
                 EmailTemplate.__table__.create(_db.engine, checkfirst=True)
-                CommunicationLog.__table__.create(_db.engine, checkfirst=True)
                 SentEmail.__table__.create(_db.engine, checkfirst=True)
+                CommunicationLog.__table__.create(_db.engine, checkfirst=True)
                 # Material Order tables
                 from app.domains.material_order.models import MaterialOrder, MaterialOrderItem
                 MaterialOrder.__table__.create(_db.engine, checkfirst=True)
