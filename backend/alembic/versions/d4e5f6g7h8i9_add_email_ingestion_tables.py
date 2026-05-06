@@ -24,8 +24,8 @@ def upgrade() -> None:
     # Create email_accounts table
     op.create_table(
         'email_accounts',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('company_id', sa.String(), sa.ForeignKey('companies.id'), nullable=True),
+        sa.Column('id', sa.UUID(), primary_key=True, server_default=sa.text('gen_random_uuid()')),
+        sa.Column('company_id', sa.UUID(), sa.ForeignKey('companies.id'), nullable=True),
         sa.Column('display_name', sa.String(255), nullable=False),
         sa.Column('email_address', sa.String(255), nullable=False, unique=True),
         sa.Column('provider_type', sa.String(50), nullable=False, server_default='gmail'),
@@ -45,8 +45,8 @@ def upgrade() -> None:
     # Create email_ingestion_logs table
     op.create_table(
         'email_ingestion_logs',
-        sa.Column('id', sa.String(), primary_key=True),
-        sa.Column('email_account_id', sa.String(), sa.ForeignKey('email_accounts.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('id', sa.UUID(), primary_key=True, server_default=sa.text('gen_random_uuid()')),
+        sa.Column('email_account_id', sa.UUID(), sa.ForeignKey('email_accounts.id', ondelete='CASCADE'), nullable=False),
         sa.Column('message_id', sa.String(500), nullable=False, unique=True),
         sa.Column('subject', sa.Text(), nullable=True),
         sa.Column('sender', sa.String(500), nullable=True),
@@ -56,12 +56,12 @@ def upgrade() -> None:
         sa.Column('status', sa.String(50), nullable=False, server_default='pending'),
         sa.Column('is_insurance_estimate', sa.Boolean(), nullable=True),
         sa.Column('classification_reason', sa.Text(), nullable=True),
-        sa.Column('matched_client_id', sa.String(), sa.ForeignKey('clients.id', ondelete='SET NULL'), nullable=True),
-        sa.Column('matched_claim_id', sa.String(), sa.ForeignKey('claims.id', ondelete='SET NULL'), nullable=True),
+        sa.Column('matched_client_id', sa.UUID(), sa.ForeignKey('clients.id', ondelete='SET NULL'), nullable=True),
+        sa.Column('matched_claim_id', sa.UUID(), sa.ForeignKey('claims.id', ondelete='SET NULL'), nullable=True),
         sa.Column('match_method', sa.String(100), nullable=True),
         sa.Column('match_confidence', sa.Integer(), nullable=True),
         sa.Column('claim_created', sa.Boolean(), nullable=False, server_default='false'),
-        sa.Column('negotiation_id', sa.String(), nullable=True),
+        sa.Column('negotiation_id', sa.UUID(), nullable=True),
         sa.Column('file_id', sa.String(255), nullable=True),
         sa.Column('skip_reason', sa.Text(), nullable=True),
         sa.Column('error_message', sa.Text(), nullable=True),
