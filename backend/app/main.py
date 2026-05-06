@@ -163,6 +163,7 @@ from app.domains.water_mitigation.sketch_models import (
 from app.domains.client.api import router as client_router
 from app.domains.contract.api import router as contract_router
 from app.domains.contract.signing_api import router as signing_router
+from app.domains.material_order.api import router as material_order_router
 from app.domains.work_order.api import router as work_order_router
 from app.domains.xactimate.api import router as xactimate_router
 from app.domains.xactimate_helper.api import router as xactimate_helper_router
@@ -660,6 +661,9 @@ app.include_router(
 app.include_router(cabinet_estimate_router, prefix="/api", tags=["Cabinet Estimates"])
 app.include_router(bathroom_estimate_router, prefix="/api", tags=["Bathroom Estimates"])
 app.include_router(roofing_estimate_router, prefix="/api", tags=["Roofing Estimates"])
+
+# Material Order System endpoints
+app.include_router(material_order_router, prefix="/api", tags=["Material Orders"])
 
 # Reconstruction Estimate System endpoints
 app.include_router(reconstruction_estimate_router)

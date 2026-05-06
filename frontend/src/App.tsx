@@ -86,6 +86,9 @@ const BathroomEstimateDetail = lazy(() => import('./pages/BathroomEstimateDetail
 const RoofingEstimateList = lazy(() => import('./pages/RoofingEstimateList'));
 const RoofingEstimateDetail = lazy(() => import('./pages/RoofingEstimateDetail'));
 
+// Material Order Pages
+const MaterialOrderPage = lazy(() => import('./pages/MaterialOrderPage'));
+
 // Reconstruction Estimate Pages
 const DebrisCalculator = lazy(() => import('./pages/DebrisCalculator'));
 const MaterialDetectionPage = lazy(() => import('./pages/MaterialDetectionPage'));
@@ -702,6 +705,19 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <RoofingEstimateDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Material Order route
+  {
+    path: "/material-order",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <MaterialOrderPage />
           </Suspense>
         </Layout>
       </ProtectedRoute>
