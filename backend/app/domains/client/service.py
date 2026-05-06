@@ -417,3 +417,145 @@ class ClaimPaymentService:
                 value = str(value)
             result[column.name] = value
         return result
+
+
+class ClaimExpenseService:
+    """Service for claim expense tracking and profitability analysis"""
+
+    def __init__(self, database=None):
+        from app.core.database_factory import get_database
+        self.database = database or get_database()
+
+    def _to_dict(self, obj) -> Dict[str, Any]:
+        result = {}
+        for column in obj.__table__.columns:
+            value = getattr(obj, column.name, None)
+            if hasattr(value, 'isoformat'):
+                value = value.isoformat()
+            elif hasattr(value, '__str__') and not isinstance(value, (str, int, float, bool, type(None))):
+                value = str(value)
+            result[column.name] = value
+        return result
+
+    def create_expense(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimExpense
+            expense = ClaimExpense(**data)
+            session.add(expense)
+            session.flush()
+            result = self._to_dict(expense)
+            session.commit()
+            return result
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def update_expense(self, expense_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimExpense
+            expense = session.query(ClaimExpense).filter(ClaimExpense.id == expense_id).first()
+            if not expense:
+                return None
+            for key, value in data.items():
+                if hasattr(expense, key) and value is not None:
+                    setattr(expense, key, value)
+            session.flush()
+            result = self._to_dict(expense)
+            session.commit()
+            return result
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def delete_expense(self, expense_id: str) -> bool:
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimExpense
+            expense = session.query(ClaimExpense).filter(ClaimExpense.id == expense_id).first()
+            if not expense:
+                return False
+            session.delete(expense)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_expenses_by_claim(self, claim_id: str) -> List[Dict[str, Any]]:
+        session = self.database.get_readonly_session()
+        try:
+            from app.domains.client.models import ClaimExpense
+            expenses = session.query(ClaimExpense).filter(
+                ClaimExpense.claim_id == claim_id
+            ).order_by(ClaimExpense.created_at).all()
+            return [self._to_dict(e) for e in expenses]
+        finally:
+            session.close()
+
+    def get_profitability_summary(self, claim_id: str) -> Dict[str, Any]:
+        session = self.database.get_readonly_session()
+        try:
+            from app.domains.client.models import Claim, ClaimExpense, ClaimPayment
+            from decimal import Decimal
+
+            claim = session.query(Claim).filter(Claim.id == claim_id).first()
+            if not claim:
+                raise ValueError(f"Claim {claim_id} not found")
+
+            expenses = session.query(ClaimExpense).filter(
+                ClaimExpense.claim_id == claim_id
+            ).all()
+
+            # Revenue = total insurance paid
+            total_paid = float(claim.total_insurance_paid or 0)
+
+            # PA fee calculation
+            pa_pct = float(claim.pa_fee_percentage or 0)
+            pa_fee = total_paid * (pa_pct / 100) if claim.has_public_adjuster and pa_pct > 0 else 0
+
+            # Expense breakdown by category
+            cat_totals = {}
+            for exp in expenses:
+                cat = exp.category or 'other'
+                cat_totals[cat] = cat_totals.get(cat, 0) + float(exp.amount or 0)
+
+            total_material = cat_totals.get('material', 0)
+            total_labor = cat_totals.get('labor', 0)
+            total_subcontractor = cat_totals.get('subcontractor', 0)
+            total_equipment = cat_totals.get('equipment', 0)
+            total_other = sum(v for k, v in cat_totals.items()
+                             if k not in ('material', 'labor', 'subcontractor', 'equipment'))
+            total_expenses = sum(cat_totals.values())
+
+            # Profit calculations
+            gross_profit = total_paid - pa_fee  # Revenue after PA fee
+            net_profit = gross_profit - total_expenses
+            gross_margin_pct = (gross_profit / total_paid * 100) if total_paid > 0 else 0
+            net_margin_pct = (net_profit / total_paid * 100) if total_paid > 0 else 0
+
+            return {
+                "total_insurance_paid": total_paid,
+                "pa_fee_percentage": pa_pct,
+                "pa_fee_amount": round(pa_fee, 2),
+                "total_material": round(total_material, 2),
+                "total_labor": round(total_labor, 2),
+                "total_subcontractor": round(total_subcontractor, 2),
+                "total_equipment": round(total_equipment, 2),
+                "total_other_expenses": round(total_other, 2),
+                "total_expenses": round(total_expenses, 2),
+                "gross_profit": round(gross_profit, 2),
+                "gross_margin_pct": round(gross_margin_pct, 1),
+                "net_profit": round(net_profit, 2),
+                "net_margin_pct": round(net_margin_pct, 1),
+                "expenses": [self._to_dict(e) for e in expenses],
+            }
+        finally:
+            session.close()

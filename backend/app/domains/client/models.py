@@ -129,6 +129,14 @@ class Claim(Base, BaseModel):
     insurance_estimate_file_id = Column(String(255), comment="Stored PDF file ID")
     insurance_estimate_file_name = Column(String(500))
 
+    # Public Adjuster fee
+    has_public_adjuster = Column(Boolean, default=False)
+    pa_fee_percentage = Column(DECIMAL(5, 2), default=0, comment="PA fee percentage (e.g., 15.00, 20.00)")
+    pa_name = Column(String(255))
+    pa_company = Column(String(255))
+    pa_email = Column(String(255))
+    pa_phone = Column(String(50))
+
     # Supplement tracking
     needs_supplement = Column(Boolean, default=False)
     supplement_status = Column(
@@ -179,6 +187,11 @@ class Claim(Base, BaseModel):
         "ClaimPayment", back_populates="claim",
         cascade="all, delete-orphan", lazy='select',
         order_by="ClaimPayment.received_date.desc()"
+    )
+    expenses = relationship(
+        "ClaimExpense", back_populates="claim",
+        cascade="all, delete-orphan", lazy='select',
+        order_by="ClaimExpense.created_at"
     )
 
 
@@ -260,3 +273,43 @@ class ClaimPayment(Base, BaseModel):
 
     # Relationship
     claim = relationship("Claim", back_populates="payments")
+
+
+class ClaimExpense(Base, BaseModel):
+    """Expense record for a claim (material, labor, subcontractor, etc.)"""
+    __tablename__ = "claim_expenses"
+    __table_args__ = (
+        Index('ix_claim_expenses_claim_id', 'claim_id'),
+        Index('ix_claim_expenses_category', 'category'),
+        {'extend_existing': True}
+    )
+
+    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=False)
+
+    # Expense classification
+    category = Column(
+        String(50), nullable=False,
+        comment="material | labor | subcontractor | equipment | permit | overhead | other"
+    )
+    description = Column(String(500), nullable=False)
+
+    # Amounts
+    amount = Column(DECIMAL(15, 2), nullable=False)
+    quantity = Column(DECIMAL(10, 2), default=1)
+    unit_cost = Column(DECIMAL(15, 2), comment="Per-unit cost (amount = quantity * unit_cost)")
+
+    # Vendor/Source
+    vendor_name = Column(String(255))
+    receipt_file_id = Column(String(255), comment="Receipt/invoice file ID")
+    receipt_file_name = Column(String(500))
+
+    # Date
+    expense_date = Column(DateTime(timezone=True))
+
+    notes = Column(Text)
+
+    # Audit
+    created_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+
+    # Relationship
+    claim = relationship("Claim", back_populates="expenses")

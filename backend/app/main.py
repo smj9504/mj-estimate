@@ -62,7 +62,7 @@ from app.domains.water_mitigation.models import (
 from app.domains.company.models import Company
 
 # Client management system models
-from app.domains.client.models import Client, Claim, ClaimNegotiation, ClaimPayment
+from app.domains.client.models import Client, Claim, ClaimNegotiation, ClaimPayment, ClaimExpense
 
 # Contract system models
 from app.domains.contract.models import (
@@ -303,6 +303,13 @@ def _auto_add_columns():
         ("claims", "needs_supplement", "BOOLEAN"),
         ("claims", "supplement_status", "VARCHAR(50)"),
         ("claims", "supplement_notes", "TEXT"),
+        # PA fee fields
+        ("claims", "has_public_adjuster", "BOOLEAN"),
+        ("claims", "pa_fee_percentage", "DECIMAL(5,2)"),
+        ("claims", "pa_name", "VARCHAR(255)"),
+        ("claims", "pa_company", "VARCHAR(255)"),
+        ("claims", "pa_email", "VARCHAR(255)"),
+        ("claims", "pa_phone", "VARCHAR(50)"),
     ]
 
     existing = {}
@@ -389,6 +396,7 @@ async def lifespan(app: FastAPI):
                 EmailIngestionLog.__table__.create(_db.engine, checkfirst=True)
                 # Claim Payment table
                 ClaimPayment.__table__.create(_db.engine, checkfirst=True)
+                ClaimExpense.__table__.create(_db.engine, checkfirst=True)
                 # Supplement tables
                 SupplementRequest.__table__.create(_db.engine, checkfirst=True)
                 BidItemEstimate.__table__.create(_db.engine, checkfirst=True)

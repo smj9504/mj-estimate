@@ -13,7 +13,10 @@ import type {
   ClaimNegotiationCreate,
   ClaimPayment,
   ClaimPaymentCreate,
+  ClaimExpense,
+  ClaimExpenseCreate,
   PaymentSummary,
+  ProfitabilitySummary,
   PdfExtractionResult,
 } from '../types/client';
 
@@ -180,6 +183,44 @@ export const paymentService = {
   async delete(clientId: string, claimId: string, paymentId: string) {
     await api.delete(
       `/api/clients/${clientId}/claims/${claimId}/payments/${paymentId}`
+    );
+  },
+};
+
+export const expenseService = {
+  async list(clientId: string, claimId: string) {
+    const { data } = await api.get(
+      `/api/clients/${clientId}/claims/${claimId}/expenses`
+    );
+    return data as ClaimExpense[];
+  },
+
+  async getProfitability(clientId: string, claimId: string) {
+    const { data } = await api.get(
+      `/api/clients/${clientId}/claims/${claimId}/profitability`
+    );
+    return data as ProfitabilitySummary;
+  },
+
+  async create(clientId: string, claimId: string, payload: ClaimExpenseCreate) {
+    const { data } = await api.post(
+      `/api/clients/${clientId}/claims/${claimId}/expenses`,
+      payload
+    );
+    return data as ClaimExpense;
+  },
+
+  async update(clientId: string, claimId: string, expenseId: string, payload: Partial<ClaimExpenseCreate>) {
+    const { data } = await api.put(
+      `/api/clients/${clientId}/claims/${claimId}/expenses/${expenseId}`,
+      payload
+    );
+    return data as ClaimExpense;
+  },
+
+  async delete(clientId: string, claimId: string, expenseId: string) {
+    await api.delete(
+      `/api/clients/${clientId}/claims/${claimId}/expenses/${expenseId}`
     );
   },
 };

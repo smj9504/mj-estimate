@@ -26,8 +26,12 @@ from app.domains.client.schemas import (
     ClaimPaymentUpdate,
     ClaimPaymentResponse,
     PaymentSummary,
+    ClaimExpenseCreate,
+    ClaimExpenseUpdate,
+    ClaimExpenseResponse,
+    ProfitabilitySummary,
 )
-from app.domains.client.service import ClientService, ClaimService, ClaimNegotiationService, ClaimPaymentService
+from app.domains.client.service import ClientService, ClaimService, ClaimNegotiationService, ClaimPaymentService, ClaimExpenseService
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +56,11 @@ def _get_negotiation_service():
 def _get_payment_service():
     from app.core.database_factory import get_database
     return ClaimPaymentService(get_database())
+
+
+def _get_expense_service():
+    from app.core.database_factory import get_database
+    return ClaimExpenseService(get_database())
 
 
 # ============================================================
@@ -579,3 +588,65 @@ async def delete_payment(
     except Exception as e:
         logger.error(f"Error deleting payment: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Claim Expense & Profitability endpoints
+# ============================================================
+
+@router.get("/{client_id}/claims/{claim_id}/expenses", response_model=None)
+async def get_expenses(
+    client_id: str, claim_id: str,
+    service: ClaimExpenseService = Depends(_get_expense_service),
+):
+    """Get all expenses for a claim"""
+    return service.get_expenses_by_claim(claim_id)
+
+
+@router.get("/{client_id}/claims/{claim_id}/profitability", response_model=None)
+async def get_profitability(
+    client_id: str, claim_id: str,
+    service: ClaimExpenseService = Depends(_get_expense_service),
+):
+    """Get profitability summary (revenue, PA fee, expenses, profit)"""
+    try:
+        return service.get_profitability_summary(claim_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/{client_id}/claims/{claim_id}/expenses", response_model=None)
+async def create_expense(
+    client_id: str, claim_id: str, data: ClaimExpenseCreate,
+    service: ClaimExpenseService = Depends(_get_expense_service),
+):
+    """Record an expense"""
+    expense_data = data.dict()
+    expense_data['claim_id'] = claim_id
+    try:
+        return service.create_expense(expense_data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/{client_id}/claims/{claim_id}/expenses/{expense_id}", response_model=None)
+async def update_expense(
+    client_id: str, claim_id: str, expense_id: str, data: ClaimExpenseUpdate,
+    service: ClaimExpenseService = Depends(_get_expense_service),
+):
+    """Update an expense"""
+    result = service.update_expense(expense_id, data.dict(exclude_unset=True))
+    if not result:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    return result
+
+
+@router.delete("/{client_id}/claims/{claim_id}/expenses/{expense_id}")
+async def delete_expense(
+    client_id: str, claim_id: str, expense_id: str,
+    service: ClaimExpenseService = Depends(_get_expense_service),
+):
+    """Delete an expense"""
+    if not service.delete_expense(expense_id):
+        raise HTTPException(status_code=404, detail="Expense not found")
+    return {"message": "Expense deleted"}

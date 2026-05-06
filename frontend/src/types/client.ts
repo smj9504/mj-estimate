@@ -115,6 +115,12 @@ export interface Claim {
   insurance_estimate_received_date?: string;
   insurance_estimate_file_id?: string;
   insurance_estimate_file_name?: string;
+  has_public_adjuster: boolean;
+  pa_fee_percentage: number;
+  pa_name?: string;
+  pa_company?: string;
+  pa_email?: string;
+  pa_phone?: string;
   needs_supplement: boolean;
   supplement_status?: string;
   supplement_notes?: string;
@@ -122,6 +128,7 @@ export interface Claim {
   notes?: string;
   negotiations: ClaimNegotiation[];
   payments: ClaimPayment[];
+  expenses: ClaimExpense[];
   invoice_count: number;
   estimate_count: number;
   wm_job_count: number;
@@ -170,6 +177,61 @@ export interface PaymentSummary {
   needs_supplement: boolean;
   payments: ClaimPayment[];
 }
+
+export interface ClaimExpense {
+  id: string;
+  claim_id: string;
+  category: string;
+  description: string;
+  amount: number;
+  quantity?: number;
+  unit_cost?: number;
+  vendor_name?: string;
+  receipt_file_id?: string;
+  receipt_file_name?: string;
+  expense_date?: string;
+  notes?: string;
+  created_at?: string;
+}
+
+export interface ClaimExpenseCreate {
+  claim_id: string;
+  category: string;
+  description: string;
+  amount: number;
+  quantity?: number;
+  unit_cost?: number;
+  vendor_name?: string;
+  expense_date?: string;
+  notes?: string;
+}
+
+export interface ProfitabilitySummary {
+  total_insurance_paid: number;
+  pa_fee_percentage: number;
+  pa_fee_amount: number;
+  total_material: number;
+  total_labor: number;
+  total_subcontractor: number;
+  total_equipment: number;
+  total_other_expenses: number;
+  total_expenses: number;
+  gross_profit: number;
+  gross_margin_pct: number;
+  net_profit: number;
+  net_margin_pct: number;
+  expenses: ClaimExpense[];
+}
+
+export const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
+  material: 'Material',
+  labor: 'Labor',
+  subcontractor: 'Subcontractor',
+  equipment: 'Equipment',
+  permit: 'Permit',
+  overhead: 'Overhead',
+  other: 'Other',
+};
 
 export interface ClaimCreate {
   client_id: string;

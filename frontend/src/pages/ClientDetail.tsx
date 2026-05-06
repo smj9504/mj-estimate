@@ -51,7 +51,7 @@ import {
 import dayjs from 'dayjs';
 import { clientService, claimService, negotiationService } from '../services/clientService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
-import { PaymentTracker } from '../components/claim-followup';
+import { PaymentTracker, ProfitabilityTracker } from '../components/claim-followup';
 import type {
   Client,
   ClientCreate,
@@ -1344,6 +1344,20 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                   claimNumber={claim.claim_number}
                   insuranceCompany={claim.insurance_company}
                   onClaimUpdate={() => {
+                    queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
+                  }}
+                />
+
+                {/* Profitability Tracker */}
+                <Divider style={{ margin: '16px 0 12px' }} />
+                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+                  <DollarOutlined style={{ marginRight: 6 }} />
+                  Profitability
+                </Text>
+                <ProfitabilityTracker
+                  clientId={client.id}
+                  claimId={claim.id}
+                  onUpdate={() => {
                     queryClient.invalidateQueries({ queryKey: ['claims', client.id] });
                   }}
                 />

@@ -160,6 +160,12 @@ class ClaimUpdate(BaseModel):
     insurance_estimate_received_date: Optional[datetime] = None
     insurance_estimate_file_id: Optional[str] = None
     insurance_estimate_file_name: Optional[str] = None
+    has_public_adjuster: Optional[bool] = None
+    pa_fee_percentage: Optional[float] = None
+    pa_name: Optional[str] = None
+    pa_company: Optional[str] = None
+    pa_email: Optional[str] = None
+    pa_phone: Optional[str] = None
     needs_supplement: Optional[bool] = None
     supplement_status: Optional[str] = None
     supplement_notes: Optional[str] = None
@@ -248,6 +254,12 @@ class ClaimDetailResponse(ClaimBase):
     insurance_estimate_received_date: Optional[datetime] = None
     insurance_estimate_file_id: Optional[str] = None
     insurance_estimate_file_name: Optional[str] = None
+    has_public_adjuster: bool = False
+    pa_fee_percentage: Optional[float] = 0
+    pa_name: Optional[str] = None
+    pa_company: Optional[str] = None
+    pa_email: Optional[str] = None
+    pa_phone: Optional[str] = None
     needs_supplement: bool = False
     supplement_status: Optional[str] = None
     supplement_notes: Optional[str] = None
@@ -257,6 +269,7 @@ class ClaimDetailResponse(ClaimBase):
     # Nested
     negotiations: List[ClaimNegotiationResponse] = []
     payments: List[ClaimPaymentResponse] = []
+    expenses: List['ClaimExpenseResponse'] = []
 
     # Linked document counts (populated by service)
     invoice_count: int = 0
@@ -268,6 +281,74 @@ class ClaimDetailResponse(ClaimBase):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================
+# ============================================================
+# ClaimExpense schemas
+# ============================================================
+
+class ClaimExpenseBase(BaseModel):
+    category: str = Field(..., description="material | labor | subcontractor | equipment | permit | overhead | other")
+    description: str
+    amount: float
+    quantity: Optional[float] = 1
+    unit_cost: Optional[float] = None
+    vendor_name: Optional[str] = None
+    expense_date: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class ClaimExpenseCreate(ClaimExpenseBase):
+    claim_id: UUID
+    receipt_file_id: Optional[str] = None
+    receipt_file_name: Optional[str] = None
+
+
+class ClaimExpenseUpdate(BaseModel):
+    category: Optional[str] = None
+    description: Optional[str] = None
+    amount: Optional[float] = None
+    quantity: Optional[float] = None
+    unit_cost: Optional[float] = None
+    vendor_name: Optional[str] = None
+    expense_date: Optional[datetime] = None
+    receipt_file_id: Optional[str] = None
+    receipt_file_name: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ClaimExpenseResponse(ClaimExpenseBase):
+    id: UUID
+    claim_id: UUID
+    receipt_file_id: Optional[str] = None
+    receipt_file_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ProfitabilitySummary(BaseModel):
+    """Full profitability breakdown for a claim"""
+    # Revenue
+    total_insurance_paid: float = 0
+    # Costs
+    pa_fee_percentage: float = 0
+    pa_fee_amount: float = 0
+    total_material: float = 0
+    total_labor: float = 0
+    total_subcontractor: float = 0
+    total_equipment: float = 0
+    total_other_expenses: float = 0
+    total_expenses: float = 0
+    # Profit
+    gross_profit: float = 0
+    gross_margin_pct: float = 0
+    net_profit: float = 0
+    net_margin_pct: float = 0
+    # Detail
+    expenses: List[ClaimExpenseResponse] = []
 
 
 # ============================================================
