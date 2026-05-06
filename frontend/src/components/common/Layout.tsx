@@ -159,24 +159,36 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         ],
       },
       {
-        key: '/claim-followup',
-        icon: <ContactsOutlined />,
-        label: 'Claim Follow-up',
-      },
-      {
-        key: '/supplements',
-        icon: <FileTextOutlined />,
-        label: 'Supplements',
-      },
-      {
-        key: '/rebuild-projects',
-        icon: <BuildOutlined />,
-        label: 'Rebuild Projects',
-      },
-      {
-        key: '/email-ingestion',
-        icon: <MailOutlined />,
-        label: 'Email Ingestion',
+        key: '/claims-management',
+        icon: <SafetyCertificateOutlined />,
+        label: 'Claims Management',
+        children: [
+          {
+            key: '/claims-lifecycle',
+            icon: <BarChartOutlined />,
+            label: 'Dashboard',
+          },
+          {
+            key: '/claim-followup',
+            icon: <ContactsOutlined />,
+            label: 'Follow-up',
+          },
+          {
+            key: '/supplements',
+            icon: <FileTextOutlined />,
+            label: 'Supplements',
+          },
+          {
+            key: '/rebuild-projects',
+            icon: <BuildOutlined />,
+            label: 'Rebuild Projects',
+          },
+          {
+            key: '/email-ingestion',
+            icon: <MailOutlined />,
+            label: 'Email Ingestion',
+          },
+        ],
       },
       {
         key: '/reconstruction-estimate',

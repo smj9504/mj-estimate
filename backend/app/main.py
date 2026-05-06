@@ -196,6 +196,7 @@ from app.domains.claim_followup.models import (
     FollowUpTask, EmailTemplate, CommunicationLog, SentEmail
 )
 from app.domains.claim_followup.api import router as claim_followup_router
+from app.domains.claim_followup.lifecycle_api import router as lifecycle_router
 
 # Supplement system models
 from app.domains.supplement.models import (
@@ -745,6 +746,7 @@ app.include_router(email_ingestion_router, prefix="/api/email-ingestion", tags=[
 
 # Claim Follow-up endpoints
 app.include_router(claim_followup_router, prefix="/api/claim-followup", tags=["Claim Follow-up"])
+app.include_router(lifecycle_router, prefix="/api/claims", tags=["Claims Lifecycle"])
 
 # Supplement endpoints
 app.include_router(supplement_router, prefix="/api", tags=["Supplements"])

@@ -128,6 +128,9 @@ const SupplementManagement = lazy(() => import('./pages/SupplementManagement'));
 // Rebuild Projects
 const RebuildProjectList = lazy(() => import('./pages/RebuildProjectList'));
 
+// Claims Lifecycle Dashboard
+const ClaimsLifecycleDashboard = lazy(() => import('./pages/ClaimsLifecycleDashboard'));
+
 // Crew Upload (Public)
 const CrewUploadPage = lazy(() => import('./pages/CrewUploadPage'));
 
@@ -753,6 +756,19 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <EmailAccountSettings />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Claims Lifecycle Dashboard
+  {
+    path: "/claims-lifecycle",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <ClaimsLifecycleDashboard />
           </Suspense>
         </Layout>
       </ProtectedRoute>
