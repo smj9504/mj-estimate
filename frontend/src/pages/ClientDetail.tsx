@@ -1102,6 +1102,7 @@ interface ClaimsTabProps {
 }
 
 const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
+  const navigate = useNavigate();
   const [claimModalOpen, setClaimModalOpen] = useState(false);
   const [editingClaim, setEditingClaim] = useState<Claim | null>(null);
   const queryClient = useQueryClient();
@@ -1328,6 +1329,39 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                     </Descriptions.Item>
                   )}
                 </Descriptions>
+
+                {/* Water Mitigation Jobs */}
+                {claim.wm_jobs && claim.wm_jobs.length > 0 && (
+                  <>
+                    <Divider style={{ margin: '12px 0 8px' }} />
+                    <div style={{ marginBottom: 12 }}>
+                      <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 8 }}>
+                        <FileTextOutlined style={{ marginRight: 6 }} />
+                        Water Mitigation Jobs ({claim.wm_jobs.length})
+                      </Text>
+                      <Space wrap size={8}>
+                        {claim.wm_jobs.map((job) => (
+                          <Button
+                            key={job.id}
+                            size="small"
+                            type="default"
+                            onClick={() => navigate(`/water-mitigation/${job.id}`)}
+                          >
+                            {job.property_address || job.claim_number || 'WM Job'}
+                            {job.status && (
+                              <Tag
+                                color={job.status === 'Completed' ? 'green' : job.status === 'Lead' ? 'blue' : 'orange'}
+                                style={{ marginLeft: 6, fontSize: 11 }}
+                              >
+                                {job.status}
+                              </Tag>
+                            )}
+                          </Button>
+                        ))}
+                      </Space>
+                    </div>
+                  </>
+                )}
 
                 {/* Negotiation table */}
                 <NegotiationHistory clientId={client.id} claim={claim} />

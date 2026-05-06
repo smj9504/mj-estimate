@@ -255,9 +255,19 @@ class ClaimSQLAlchemyRepository(SQLAlchemyRepository):
             claim_dict['estimate_count'] = self.db_session.query(Estimate).filter(
                 Estimate.claim_id == claim_id
             ).count()
-            claim_dict['wm_job_count'] = self.db_session.query(WaterMitigationJob).filter(
+            wm_jobs = self.db_session.query(WaterMitigationJob).filter(
                 WaterMitigationJob.claim_id == claim_id
-            ).count()
+            ).all()
+            claim_dict['wm_job_count'] = len(wm_jobs)
+            claim_dict['wm_jobs'] = [
+                {
+                    'id': str(j.id),
+                    'property_address': j.property_address,
+                    'status': j.status,
+                    'claim_number': j.claim_number,
+                }
+                for j in wm_jobs
+            ]
             claim_dict['work_order_count'] = self.db_session.query(WorkOrder).filter(
                 WorkOrder.claim_id == claim_id
             ).count()

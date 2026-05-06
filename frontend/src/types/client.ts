@@ -132,6 +132,7 @@ export interface Claim {
   invoice_count: number;
   estimate_count: number;
   wm_job_count: number;
+  wm_jobs: { id: string; property_address?: string; status?: string; claim_number?: string }[];
   work_order_count: number;
   cabinet_estimate_count: number;
   plumber_report_id?: string | null;
