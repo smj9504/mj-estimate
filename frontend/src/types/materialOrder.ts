@@ -127,6 +127,8 @@ export const DEFAULT_SIDING_MEASUREMENTS: SidingMeasurements = {
 };
 
 export interface EagleViewRoofingResult {
+  property_address?: string;
+  report_number?: string;
   total_area_sf: number;
   squares: number;
   squares_with_waste: number;

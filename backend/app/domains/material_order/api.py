@@ -101,6 +101,18 @@ def parse_eagleview_for_material_order(
     except (ValueError, KeyError) as e:
         raise HTTPException(status_code=400, detail=f"EagleView parse error: {str(e)}")
 
+    # Extract report/location metadata from raw JSON
+    ev_root = raw_data.get("EAGLEVIEW_EXPORT", raw_data)
+    report_node = ev_root.get("REPORT", {})
+    location_node = ev_root.get("LOCATION", {})
+
+    report_id = report_node.get("@reportId", report_node.get("reportId", ""))
+    address = location_node.get("@address", location_node.get("address", ""))
+    city = location_node.get("@city", location_node.get("city", ""))
+    state = location_node.get("@state", location_node.get("state", ""))
+    postal = location_node.get("@postal", location_node.get("postal", ""))
+    property_address = f"{address}, {city}, {state} {postal}".strip(", ") if address else ""
+
     # Map to material order roofing fields
     eaves = measurements.get("eave_lf", 0)
     rakes = measurements.get("rake_lf", 0)
@@ -121,6 +133,8 @@ def parse_eagleview_for_material_order(
             complexity = "Normal"
 
     return {
+        "property_address": property_address,
+        "report_number": str(report_id),
         "total_area_sf": measurements.get("total_sf", 0),
         "squares": squares,
         "squares_with_waste": round(squares * (1 + waste_pct / 100), 2),

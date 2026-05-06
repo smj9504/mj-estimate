@@ -73,8 +73,10 @@ const MaterialOrderPage: React.FC = () => {
       setUploading(true);
       const result = await materialOrderService.parseEagleView(file);
 
-      // Auto-fill roofing measurement fields
+      // Auto-fill job info + roofing measurement fields
       form.setFieldsValue({
+        property_address: result.property_address || form.getFieldValue('property_address'),
+        report_number: result.report_number || form.getFieldValue('report_number'),
         total_area_sf: result.total_area_sf,
         squares: result.squares,
         squares_with_waste: result.squares_with_waste,

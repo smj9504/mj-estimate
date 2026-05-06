@@ -1,5 +1,7 @@
 {
   "EAGLEVIEW_EXPORT": {
+    "REPORT": { "@reportId": "12345678", "@claimId": "TEST-001" },
+    "LOCATION": { "@address": "123 Test Lane", "@city": "Fairfax", "@state": "VA", "@postal": "22033" },
     "STRUCTURES": {
       "ROOF": {
         "POINTS": {
