@@ -191,6 +191,7 @@ const MaterialOrderPage: React.FC = () => {
           hips_lf: values.hips_lf || 0,
           valleys_lf: values.valleys_lf || 0,
           step_flashing_lf: values.step_flashing_lf || 0,
+          flashing_lf: values.flashing_lf || 0,
           drip_edge_lf: values.drip_edge_lf || 0,
           penetration_count: values.penetration_count || 0,
           waste_pct: wastePct,
@@ -520,6 +521,7 @@ const MaterialOrderPage: React.FC = () => {
 
       <Col span={6}><Form.Item label="Valleys (LF)" name="valleys_lf"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
       <Col span={6}><Form.Item label="Step Flashing (LF)" name="step_flashing_lf"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+      <Col span={6}><Form.Item label="Flashing (LF)" name="flashing_lf"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
       <Col span={6}><Form.Item label="Drip Edge (LF)" name="drip_edge_lf"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
       <Col span={6}><Form.Item label="Penetrations" name="penetration_count"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
 
@@ -587,7 +589,7 @@ const MaterialOrderPage: React.FC = () => {
   );
 
   return (
-    <div style={{ padding: '24px', maxWidth: 1400, margin: '0 auto' }}>
+    <div style={{ padding: '16px' }}>
       <Title level={3} style={{ marginBottom: 24 }}>
         <ShoppingCartOutlined style={{ marginRight: 8 }} />
         Material Order

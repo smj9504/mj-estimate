@@ -198,13 +198,14 @@ def calculate_roofing(
             formula=f"Penetrations: {m.penetration_count}",
         ))
 
-    # Roofing Coil (counter flashing for wall/penetration areas)
-    if m.step_flashing_lf > 0 or m.penetration_count > 0:
+    # Trim Coil (counter flashing for wall/penetration areas)
+    if m.flashing_lf >= 5:
+        qty_coil_rl = math.ceil(m.flashing_lf / 50)
         items.append(MaterialItem(
             category=MaterialCategory.trim,
-            item="Roofing Coil",
-            qty=1, unit="RL",
-            formula="step_flashing or penetrations",
+            item='Trim Coil 24"x50',
+            qty=qty_coil_rl, unit="RL",
+            formula=f"CEIL({m.flashing_lf:.0f} / 50)",
         ))
 
     # Snow Guards

@@ -39,6 +39,7 @@ class RoofingMeasurements(BaseModel):
     hips_lf: float = 0
     valleys_lf: float = 0
     step_flashing_lf: float = 0
+    flashing_lf: float = 0
     drip_edge_lf: float = 0
     penetration_count: int = 0
     waste_pct: float = 12.0
