@@ -27,7 +27,7 @@ BRAND_SPECS: Dict[str, Dict[str, Any]] = {
             "hip_ridge": {"lf_per_bd": 30, "product": "Shadow Ridge AR"},
             "ice_water": {"sq_per_rl": 2, "product": "WinterGuard Sand"},
             "felt": {"sq_per_rl": 10, "product": "RoofRunner"},
-            "ridge_vent": {"lf_per_pc": 4, "product": "FilterVent III"},
+            "ridge_vent": {"lf_per_pc": 4, "product": "FilterVent III", "item": '4\' Ridge Vent 12" Filtered'},
         },
         "siding": {
             "panel": {"sqft_per_ctn": 200},
@@ -169,9 +169,10 @@ def calculate_roofing(
     rv_product = rv.get("product", "Ridge Vent")
     if m.ridges_lf > 0:
         qty_rv = math.ceil(m.ridges_lf / rv_lf_per_pc)
+        rv_item_name = rv.get("item") or f"{brand} {rv_product}"
         items.append(MaterialItem(
             category=MaterialCategory.trim,
-            item=f"{brand} {rv_product}",
+            item=rv_item_name,
             qty=qty_rv, unit="PC",
             formula=f"ROUNDUP({m.ridges_lf:.0f} / {rv_lf_per_pc})",
             note=f"{rv_lf_per_pc} LF/PC",
@@ -192,10 +193,33 @@ def calculate_roofing(
     if m.penetration_count > 0:
         items.append(MaterialItem(
             category=MaterialCategory.trim,
-            item="Pipe Flashing (verify sizes on-site)",
+            item='Pipe Flashing 1-3" Aluminum',
             qty=m.penetration_count, unit="EA",
             formula=f"Penetrations: {m.penetration_count}",
-            note="Verify sizes on-site",
+        ))
+
+    # Roofing Coil (counter flashing for wall/penetration areas)
+    if m.step_flashing_lf > 0 or m.penetration_count > 0:
+        items.append(MaterialItem(
+            category=MaterialCategory.trim,
+            item="Roofing Coil",
+            qty=1, unit="RL",
+            formula="step_flashing or penetrations",
+        ))
+
+    # Snow Guards
+    if m.include_snow_guards and m.eaves_lf > 0 and m.roof_pitch and m.rafter_length_lf:
+        pitch = m.roof_pitch
+        rafter = m.rafter_length_lf
+        row_spacing = 15 if pitch <= 2 else 10 if pitch <= 4 else 8 if pitch <= 6 else 5
+        num_rows = max(1, math.ceil(rafter / row_spacing))
+        guards_per_row = math.ceil(m.eaves_lf)
+        total_guards = guards_per_row * num_rows
+        items.append(MaterialItem(
+            category=MaterialCategory.misc,
+            item="Snow Guard",
+            qty=total_guards, unit="EA",
+            formula=f"CEIL({m.eaves_lf:.0f} LF) x {num_rows} rows ({pitch}/12 pitch, {rafter:.0f}ft rafter)",
         ))
 
     # Coil Nails 1-1/4"

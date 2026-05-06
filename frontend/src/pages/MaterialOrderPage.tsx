@@ -25,6 +25,7 @@ import {
   Tag,
   DatePicker,
   Upload,
+  Checkbox,
 } from 'antd';
 import {
   CalculatorOutlined,
@@ -74,6 +75,7 @@ const MaterialOrderPage: React.FC = () => {
   const [eagleViewParsed, setEagleViewParsed] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [savedOrderId, setSavedOrderId] = useState<string | null>(id && id !== 'new' ? id : null);
+  const [includeSnowGuards, setIncludeSnowGuards] = useState(false);
 
   // ── Load existing order ──
   useEffect(() => {
@@ -193,6 +195,9 @@ const MaterialOrderPage: React.FC = () => {
           penetration_count: values.penetration_count || 0,
           waste_pct: wastePct,
           structure_complexity: values.structure_complexity || undefined,
+          include_snow_guards: includeSnowGuards,
+          roof_pitch: includeSnowGuards ? (values.roof_pitch || undefined) : undefined,
+          rafter_length_lf: includeSnowGuards ? (values.rafter_length_lf || undefined) : undefined,
         };
       } else {
         payload.siding_measurements = {
@@ -362,52 +367,30 @@ const MaterialOrderPage: React.FC = () => {
         title: 'Category',
         dataIndex: 'category',
         width: 120,
-        render: (cat: MaterialCategory, _: MaterialItem, idx: number) => {
-          const isManual = editedMaterials[idx]?.ai_qty === null;
-          if (isManual) {
-            return (
-              <Select
-                size="small"
-                value={cat}
-                onChange={(val) => updateMaterial(idx, 'category', val)}
-                style={{ width: '100%' }}
-              >
-                {(Object.keys(CAT_LABELS) as MaterialCategory[]).map((k) => (
-                  <Option key={k} value={k}>{CAT_LABELS[k]}</Option>
-                ))}
-              </Select>
-            );
-          }
-          return (
-            <Tag color={
-              cat === 'main' ? 'blue' :
-              cat === 'underlayment' ? 'green' :
-              cat === 'trim' ? 'orange' :
-              cat === 'fastener' ? 'red' : 'default'
-            }>
-              {CAT_LABELS[cat] || cat}
-            </Tag>
-          );
-        },
+        render: (cat: MaterialCategory, _: MaterialItem, idx: number) => (
+          <Select
+            size="small"
+            value={cat}
+            onChange={(val) => updateMaterial(idx, 'category', val)}
+            style={{ width: '100%' }}
+          >
+            {(Object.keys(CAT_LABELS) as MaterialCategory[]).map((k) => (
+              <Option key={k} value={k}>{CAT_LABELS[k]}</Option>
+            ))}
+          </Select>
+        ),
       },
       {
         title: 'Description',
         dataIndex: 'item',
-        ellipsis: true,
-        render: (text: string, _: MaterialItem, idx: number) => {
-          const isManual = editedMaterials[idx]?.ai_qty === null;
-          if (isManual) {
-            return (
-              <Input
-                size="small"
-                value={text}
-                placeholder="Item description"
-                onChange={(e) => updateMaterial(idx, 'item', e.target.value)}
-              />
-            );
-          }
-          return text;
-        },
+        render: (text: string, _: MaterialItem, idx: number) => (
+          <Input
+            size="small"
+            value={text}
+            placeholder="Item description"
+            onChange={(e) => updateMaterial(idx, 'item', e.target.value)}
+          />
+        ),
       },
       {
         title: 'Qty',
@@ -434,24 +417,18 @@ const MaterialOrderPage: React.FC = () => {
         dataIndex: 'unit',
         width: 70,
         align: 'center' as const,
-        render: (unit: string, _: MaterialItem, idx: number) => {
-          const isManual = editedMaterials[idx]?.ai_qty === null;
-          if (isManual) {
-            return (
-              <Select
-                size="small"
-                value={unit}
-                onChange={(val) => updateMaterial(idx, 'unit', val)}
-                style={{ width: '100%' }}
-              >
-                {['BD', 'RL', 'PC', 'BX', 'EA', 'TB', 'CTN', 'SQ', 'LF', 'SF'].map((u) => (
-                  <Option key={u} value={u}>{u}</Option>
-                ))}
-              </Select>
-            );
-          }
-          return unit;
-        },
+        render: (unit: string, _: MaterialItem, idx: number) => (
+          <Select
+            size="small"
+            value={unit}
+            onChange={(val) => updateMaterial(idx, 'unit', val)}
+            style={{ width: '100%' }}
+          >
+            {['BD', 'RL', 'PC', 'BX', 'EA', 'TB', 'CTN', 'SQ', 'LF', 'SF'].map((u) => (
+              <Option key={u} value={u}>{u}</Option>
+            ))}
+          </Select>
+        ),
       },
       {
         title: 'Formula',
@@ -509,7 +486,6 @@ const MaterialOrderPage: React.FC = () => {
       title: '',
       width: 65,
       render: (_: any, record: MaterialItem, idx: number) => {
-        const isManual = record.ai_qty === null;
         const isEdited = record.ai_qty != null && record.qty !== record.ai_qty;
         return (
           <Space size={0}>
@@ -518,11 +494,9 @@ const MaterialOrderPage: React.FC = () => {
                 <Button type="link" size="small" icon={<ReloadOutlined />} onClick={() => resetToAiQty(idx)} />
               </Tooltip>
             )}
-            {isManual && (
-              <Tooltip title="Remove item">
-                <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => removeItem(idx)} />
-              </Tooltip>
-            )}
+            <Tooltip title="Remove item">
+              <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => removeItem(idx)} />
+            </Tooltip>
           </Space>
         );
       },
@@ -556,6 +530,40 @@ const MaterialOrderPage: React.FC = () => {
           </Select>
         </Form.Item>
       </Col>
+
+      <Col span={24}>
+        <Divider orientation="left" style={{ margin: '4px 0 12px' }}>
+          <Checkbox
+            checked={includeSnowGuards}
+            onChange={(e) => setIncludeSnowGuards(e.target.checked)}
+          >
+            <Text strong>Include Snow Guards</Text>
+          </Checkbox>
+        </Divider>
+      </Col>
+
+      {includeSnowGuards && (
+        <>
+          <Col span={6}>
+            <Form.Item
+              label="Roof Pitch (X/12)"
+              name="roof_pitch"
+              extra="e.g. 6 for 6/12"
+            >
+              <InputNumber min={1} max={24} step={1} style={{ width: '100%' }} placeholder="e.g. 6" />
+            </Form.Item>
+          </Col>
+          <Col span={6}>
+            <Form.Item
+              label="Rafter Length (ft)"
+              name="rafter_length_lf"
+              extra="Horizontal run from eave to ridge"
+            >
+              <InputNumber min={0} step={0.5} style={{ width: '100%' }} placeholder="e.g. 18" />
+            </Form.Item>
+          </Col>
+        </>
+      )}
     </Row>
   );
 

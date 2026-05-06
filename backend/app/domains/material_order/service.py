@@ -82,9 +82,14 @@ class MaterialOrderService:
     def _to_dict(self, order) -> Dict[str, Any]:
         """Convert ORM object to response dict."""
         d = self.order_repo._convert_to_dict(order)
-        d["items"] = [
-            self.item_repo._convert_to_dict(item) for item in order.items
-        ]
+        items = [self.item_repo._convert_to_dict(item) for item in order.items]
+        for item in items:
+            if "Pipe Flashing" in (item.get("item") or "") and "verify" in (item.get("item") or ""):
+                item["item"] = 'Pipe Flashing 1-3" Aluminum'
+                item["note"] = None
+            if "FilterVent" in (item.get("item") or ""):
+                item["item"] = '4\' Ridge Vent 12" Filtered'
+        d["items"] = items
         return d
 
     def create(self, data: dict, created_by_id: Optional[str] = None) -> Dict[str, Any]:

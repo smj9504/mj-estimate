@@ -43,6 +43,9 @@ class RoofingMeasurements(BaseModel):
     penetration_count: int = 0
     waste_pct: float = 12.0
     structure_complexity: Optional[str] = None
+    include_snow_guards: bool = False
+    roof_pitch: Optional[float] = None
+    rafter_length_lf: Optional[float] = None
 
 
 class SidingMeasurements(BaseModel):
@@ -67,7 +70,7 @@ class MaterialItem(BaseModel):
     qty: float = 0
     unit: str = ""  # BD, RL, PC, BX, EA, TB, CTN
     formula: str = ""
-    note: str = ""
+    note: Optional[str] = None
     unit_price: Optional[float] = None
     ai_qty: Optional[float] = None  # original AI quantity before user edit
 

@@ -224,12 +224,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             icon: <HomeOutlined />,
             label: 'Roofing Estimate',
           },
-          {
-            key: '/material-orders',
-            icon: <ShoppingCartOutlined />,
-            label: 'Material Order',
-          },
         ],
+      },
+      {
+        key: '/material-orders',
+        icon: <ShoppingCartOutlined />,
+        label: 'Material Order',
       },
       {
         key: 'tools-menu',

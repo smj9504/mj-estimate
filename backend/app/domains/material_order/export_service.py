@@ -158,8 +158,8 @@ def generate_pdf(
     elements.append(info_table)
     elements.append(Spacer(1, 12))
 
-    # ── Measurement Summary ──
-    if measurements:
+    # ── Measurement Summary (Internal Estimate only) ──
+    if not is_supply_order and measurements:
         elements.append(Paragraph("EagleView Measurement Summary", section_style))
         meas_rows = []
         for key, val in measurements.items():
@@ -219,8 +219,8 @@ def generate_pdf(
 
     if is_supply_order:
         # Supply Order: Qty + U/M + Description only
-        header = ["#", "Qty", "U/M", "Description", "Notes"]
-        col_widths = [0.35 * inch, 0.6 * inch, 0.5 * inch, 3.5 * inch, 2.05 * inch]
+        header = ["#", "Qty", "U/M", "Description"]
+        col_widths = [0.35 * inch, 0.6 * inch, 0.5 * inch, 5.6 * inch]
     else:
         # Internal Estimate: Qty + U/M + Description + Unit Price + Subtotal
         header = ["#", "Qty", "U/M", "Description", "Formula", "Unit $", "Subtotal"]
@@ -239,7 +239,7 @@ def generate_pdf(
         # Category header row
         cat_label = CATEGORY_LABELS.get(cat_key, cat_key.title())
         if is_supply_order:
-            table_data.append(["", "", "", Paragraph(f"<b>{cat_label}</b>", normal_style), ""])
+            table_data.append(["", "", "", Paragraph(f"<b>{cat_label}</b>", normal_style)])
         else:
             table_data.append(["", "", "", Paragraph(f"<b>{cat_label}</b>", normal_style), "", "", ""])
         row_idx += 1
@@ -255,7 +255,6 @@ def generate_pdf(
                     str(int(item.qty)) if item.qty == int(item.qty) else f"{item.qty:.1f}",
                     item.unit,
                     Paragraph(item.item, small_style),
-                    Paragraph(item.note, small_style) if item.note else "",
                 ])
             else:
                 price_str = f"${item.unit_price:,.2f}" if item.unit_price else "-"
@@ -346,8 +345,8 @@ def generate_pdf(
         mat_table.setStyle(TableStyle(style_commands))
         elements.append(mat_table)
 
-    # ── Notes ──
-    if notes:
+    # ── Notes (Internal Estimate only) ──
+    if not is_supply_order and notes:
         elements.append(Spacer(1, 12))
         elements.append(Paragraph("Notes", section_style))
         for note_text in notes:

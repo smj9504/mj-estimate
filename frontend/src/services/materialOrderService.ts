@@ -77,7 +77,10 @@ export const materialOrderService = {
     });
     const outputLabel =
       payload.output_type === 'supply_order' ? 'supply_order' : 'internal_estimate';
-    const filename = `${outputLabel}_${payload.scope_type}.pdf`;
+    const addressPart = payload.property_address
+      ? '_' + payload.property_address.split(',')[0].trim().replace(/\s+/g, '_')
+      : '';
+    const filename = `${outputLabel}_${payload.scope_type}${addressPart}.pdf`;
 
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
