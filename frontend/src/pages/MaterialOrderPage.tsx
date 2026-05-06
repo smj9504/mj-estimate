@@ -34,6 +34,8 @@ import {
   AppstoreOutlined,
   CloudUploadOutlined,
   CheckCircleOutlined,
+  PlusOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import { materialOrderService } from '../services/materialOrderService';
 import type {
@@ -195,6 +197,27 @@ const MaterialOrderPage: React.FC = () => {
     });
   }, []);
 
+  // ── Add / Remove items ──
+  const addItem = useCallback(() => {
+    setEditedMaterials((prev) => [
+      ...prev,
+      {
+        category: 'misc' as MaterialCategory,
+        item: '',
+        qty: 1,
+        unit: 'EA',
+        formula: 'Manual',
+        note: '',
+        unit_price: null,
+        ai_qty: null, // null = manually added
+      },
+    ]);
+  }, []);
+
+  const removeItem = useCallback((index: number) => {
+    setEditedMaterials((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   // ── Export PDF ──
   const handleExport = useCallback(async (outputType: OutputType) => {
     if (!result) return;
@@ -244,22 +267,53 @@ const MaterialOrderPage: React.FC = () => {
       {
         title: 'Category',
         dataIndex: 'category',
-        width: 110,
-        render: (cat: MaterialCategory) => (
-          <Tag color={
-            cat === 'main' ? 'blue' :
-            cat === 'underlayment' ? 'green' :
-            cat === 'trim' ? 'orange' :
-            cat === 'fastener' ? 'red' : 'default'
-          }>
-            {CAT_LABELS[cat] || cat}
-          </Tag>
-        ),
+        width: 120,
+        render: (cat: MaterialCategory, _: MaterialItem, idx: number) => {
+          const isManual = editedMaterials[idx]?.ai_qty === null;
+          if (isManual) {
+            return (
+              <Select
+                size="small"
+                value={cat}
+                onChange={(val) => updateMaterial(idx, 'category', val)}
+                style={{ width: '100%' }}
+              >
+                {(Object.keys(CAT_LABELS) as MaterialCategory[]).map((k) => (
+                  <Option key={k} value={k}>{CAT_LABELS[k]}</Option>
+                ))}
+              </Select>
+            );
+          }
+          return (
+            <Tag color={
+              cat === 'main' ? 'blue' :
+              cat === 'underlayment' ? 'green' :
+              cat === 'trim' ? 'orange' :
+              cat === 'fastener' ? 'red' : 'default'
+            }>
+              {CAT_LABELS[cat] || cat}
+            </Tag>
+          );
+        },
       },
       {
         title: 'Description',
         dataIndex: 'item',
         ellipsis: true,
+        render: (text: string, _: MaterialItem, idx: number) => {
+          const isManual = editedMaterials[idx]?.ai_qty === null;
+          if (isManual) {
+            return (
+              <Input
+                size="small"
+                value={text}
+                placeholder="Item description"
+                onChange={(e) => updateMaterial(idx, 'item', e.target.value)}
+              />
+            );
+          }
+          return text;
+        },
       },
       {
         title: 'Qty',
@@ -284,8 +338,26 @@ const MaterialOrderPage: React.FC = () => {
       {
         title: 'U/M',
         dataIndex: 'unit',
-        width: 55,
+        width: 70,
         align: 'center' as const,
+        render: (unit: string, _: MaterialItem, idx: number) => {
+          const isManual = editedMaterials[idx]?.ai_qty === null;
+          if (isManual) {
+            return (
+              <Select
+                size="small"
+                value={unit}
+                onChange={(val) => updateMaterial(idx, 'unit', val)}
+                style={{ width: '100%' }}
+              >
+                {['BD', 'RL', 'PC', 'BX', 'EA', 'TB', 'CTN', 'SQ', 'LF', 'SF'].map((u) => (
+                  <Option key={u} value={u}>{u}</Option>
+                ))}
+              </Select>
+            );
+          }
+          return unit;
+        },
       },
       {
         title: 'Formula',
@@ -341,19 +413,29 @@ const MaterialOrderPage: React.FC = () => {
 
     baseColumns.push({
       title: '',
-      width: 40,
+      width: 65,
       render: (_: any, record: MaterialItem, idx: number) => {
+        const isManual = record.ai_qty === null;
         const isEdited = record.ai_qty != null && record.qty !== record.ai_qty;
-        return isEdited ? (
-          <Tooltip title="Reset to calculated value">
-            <Button type="link" size="small" icon={<ReloadOutlined />} onClick={() => resetToAiQty(idx)} />
-          </Tooltip>
-        ) : null;
+        return (
+          <Space size={0}>
+            {isEdited && (
+              <Tooltip title="Reset to calculated value">
+                <Button type="link" size="small" icon={<ReloadOutlined />} onClick={() => resetToAiQty(idx)} />
+              </Tooltip>
+            )}
+            {isManual && (
+              <Tooltip title="Remove item">
+                <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => removeItem(idx)} />
+              </Tooltip>
+            )}
+          </Space>
+        );
       },
     });
 
     return baseColumns;
-  }, [viewMode, editedMaterials, updateMaterial, resetToAiQty]);
+  }, [viewMode, editedMaterials, updateMaterial, resetToAiQty, removeItem]);
 
   // ── Roofing measurement fields ──
   const renderRoofingFields = () => (
@@ -580,6 +662,15 @@ const MaterialOrderPage: React.FC = () => {
               );
             }}
           />
+
+          <Button
+            type="dashed"
+            icon={<PlusOutlined />}
+            onClick={addItem}
+            style={{ width: '100%', marginTop: 8 }}
+          >
+            Add Item
+          </Button>
 
           {/* Notes */}
           {result.notes.length > 0 && (
