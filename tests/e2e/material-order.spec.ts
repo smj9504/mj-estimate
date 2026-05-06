@@ -1,7 +1,10 @@
 import { test, expect } from '@playwright/test';
+import * as path from 'path';
+import * as fs from 'fs';
 
 const BASE_URL = 'http://localhost:3000';
 const API = 'http://localhost:8000';
+const FIXTURE_DIR = path.join(__dirname, 'fixtures');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -725,5 +728,139 @@ test.describe('Material Order — Calculation Accuracy', () => {
     const sealant = data.materials.find((m: any) => m.item.includes('Sealant'));
     // MAX(8, ROUNDUP(18 / 3)) = MAX(8, 6) = 8
     expect(sealant.qty).toBe(8);
+  });
+});
+
+// ─── EagleView Upload Tests ───────────────────────────────────────────────────
+
+test.describe('Material Order — EagleView Upload API', () => {
+  let token: string;
+
+  test.beforeAll(async () => {
+    token = await getAuthToken();
+  });
+
+  test('POST /api/material-orders/parse-eagleview — parses JSON and returns roofing measurements', async () => {
+    const filePath = path.join(FIXTURE_DIR, 'sample-eagleview.json');
+    const fileContent = fs.readFileSync(filePath);
+    const blob = new Blob([fileContent], { type: 'application/json' });
+
+    const formData = new FormData();
+    formData.append('file', blob, 'sample-eagleview.json');
+
+    const res = await fetch(`${API}/api/material-orders/parse-eagleview`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+
+    // Verify measurements are populated
+    expect(data.total_area_sf).toBe(3400);
+    expect(data.squares).toBe(34);
+    expect(data.squares_with_waste).toBeGreaterThan(34);
+    expect(data.eaves_lf).toBe(100);
+    expect(data.ridges_lf).toBe(50);
+    expect(data.hips_lf).toBeGreaterThan(0);
+    expect(data.valleys_lf).toBeGreaterThan(0);
+    expect(data.step_flashing_lf).toBe(30);
+    expect(data.drip_edge_lf).toBe(168); // eaves + rakes
+    expect(data.penetration_count).toBe(1);
+    expect(data.waste_pct).toBeGreaterThan(0);
+    expect(data.structure_complexity).toBeTruthy();
+    expect(data.predominant_pitch).toBe('6/12');
+  });
+
+  test('POST /api/material-orders/parse-eagleview — invalid JSON returns 400', async () => {
+    const blob = new Blob(['not a json'], { type: 'application/json' });
+    const formData = new FormData();
+    formData.append('file', blob, 'bad.json');
+
+    const res = await fetch(`${API}/api/material-orders/parse-eagleview`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+test.describe('Material Order — EagleView Upload UI', () => {
+  test('Upload EagleView JSON auto-fills roofing measurement fields', async ({ page }) => {
+    await page.goto(`${BASE_URL}/material-order`);
+    await page.waitForLoadState('networkidle');
+
+    // Upload button should be visible for Roofing
+    const uploadBtn = page.locator('button').filter({ hasText: 'Upload EagleView JSON' });
+    await expect(uploadBtn).toBeVisible();
+
+    // Upload the fixture file
+    const filePath = path.join(FIXTURE_DIR, 'sample-eagleview.json');
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles(filePath);
+
+    // Wait for success message
+    await page.waitForSelector('.ant-message-success', { timeout: 10000 });
+
+    // Verify fields are auto-filled
+    const squaresVal = await page.locator('input#squares').inputValue();
+    expect(parseFloat(squaresVal)).toBe(34);
+
+    const eavesVal = await page.locator('input#eaves_lf').inputValue();
+    expect(parseFloat(eavesVal)).toBe(100);
+
+    const ridgesVal = await page.locator('input#ridges_lf').inputValue();
+    expect(parseFloat(ridgesVal)).toBe(50);
+
+    const penetrationVal = await page.locator('input#penetration_count').inputValue();
+    expect(parseInt(penetrationVal)).toBe(1);
+
+    // "auto-filled" indicator visible
+    await expect(page.locator('text=Measurements auto-filled from EagleView')).toBeVisible();
+
+    await page.screenshot({ path: 'tests/e2e/screenshots/material-order-eagleview-upload.png', fullPage: true });
+  });
+
+  test('Upload EagleView JSON then generate material list end-to-end', async ({ page }) => {
+    await page.goto(`${BASE_URL}/material-order`);
+    await page.waitForLoadState('networkidle');
+
+    // Fill job info
+    await page.fill('input#property_address', '789 EagleView Test Rd');
+
+    // Upload EagleView file
+    const filePath = path.join(FIXTURE_DIR, 'sample-eagleview.json');
+    await page.locator('input[type="file"]').setInputFiles(filePath);
+    await page.waitForSelector('.ant-message-success', { timeout: 10000 });
+
+    // Generate material list
+    await page.locator('button').filter({ hasText: 'Generate Material List' }).click();
+    await page.waitForSelector('.ant-table', { timeout: 15000 });
+
+    // Verify results table populated
+    const tableRows = page.locator('.ant-table-row');
+    expect(await tableRows.count()).toBeGreaterThan(5);
+
+    // Export PDF should work
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 15000 }),
+      page.locator('button').filter({ hasText: 'Supply Order PDF' }).click(),
+    ]);
+    expect(download.suggestedFilename()).toContain('supply_order');
+  });
+
+  test('EagleView upload is hidden on Siding tab', async ({ page }) => {
+    await page.goto(`${BASE_URL}/material-order`);
+    await page.waitForLoadState('networkidle');
+
+    // Upload visible on Roofing
+    await expect(page.locator('button').filter({ hasText: 'Upload EagleView JSON' })).toBeVisible();
+
+    // Switch to Siding
+    await page.locator('.ant-tabs-tab').filter({ hasText: 'Siding' }).click();
+
+    // Upload should be hidden
+    await expect(page.locator('button').filter({ hasText: 'Upload EagleView JSON' })).not.toBeVisible();
   });
 });

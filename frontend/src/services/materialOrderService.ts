@@ -8,6 +8,7 @@ import type {
   MaterialOrderResponse,
   MaterialOrderExportRequest,
   BrandInfo,
+  EagleViewRoofingResult,
 } from '../types/materialOrder';
 
 const BASE_URL = '/api/material-orders';
@@ -21,6 +22,15 @@ export const materialOrderService = {
   async calculate(payload: MaterialOrderRequest) {
     const { data } = await api.post(`${BASE_URL}/calculate`, payload);
     return data as MaterialOrderResponse;
+  },
+
+  async parseEagleView(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post(`${BASE_URL}/parse-eagleview`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data as EagleViewRoofingResult;
   },
 
   async exportPdf(payload: MaterialOrderExportRequest) {

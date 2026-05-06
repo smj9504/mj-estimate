@@ -126,6 +126,31 @@ export const DEFAULT_SIDING_MEASUREMENTS: SidingMeasurements = {
   waste_pct: 10,
 };
 
+export interface EagleViewRoofingResult {
+  total_area_sf: number;
+  squares: number;
+  squares_with_waste: number;
+  eaves_lf: number;
+  rakes_lf: number;
+  ridges_lf: number;
+  hips_lf: number;
+  valleys_lf: number;
+  step_flashing_lf: number;
+  drip_edge_lf: number;
+  penetration_count: number;
+  waste_pct: number;
+  structure_complexity?: string;
+  predominant_pitch?: string;
+  structures?: Array<{
+    index: number;
+    label: string;
+    total_sf: number;
+    facet_count: number;
+    predominant_pitch: string;
+    complexity: string;
+  }>;
+}
+
 export const CATEGORY_LABELS: Record<MaterialCategory, string> = {
   main: 'Main Material',
   underlayment: 'Underlayment',

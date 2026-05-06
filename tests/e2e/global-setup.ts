@@ -27,6 +27,19 @@ async function globalSetup(config: FullConfig) {
 
   // Perform login
   await page.goto(`${baseURL}/login`);
+
+  // Dismiss webpack dev server error overlay if present
+  try {
+    const overlay = page.locator('iframe#webpack-dev-server-client-overlay');
+    if (await overlay.count() > 0) {
+      await page.evaluate(() => {
+        const iframe = document.getElementById('webpack-dev-server-client-overlay');
+        if (iframe) iframe.remove();
+      });
+      console.log('[global-setup] Dismissed webpack error overlay');
+    }
+  } catch { /* no overlay */ }
+
   await page.waitForSelector('input#login_username', { timeout: 10000 });
 
   // Check for rate limit
@@ -38,21 +51,29 @@ async function globalSetup(config: FullConfig) {
     await page.waitForSelector('input#login_username', { timeout: 10000 });
   }
 
+  // Remove overlay before interacting
+  await page.evaluate(() => {
+    document.getElementById('webpack-dev-server-client-overlay')?.remove();
+  });
+
   await page.fill('input#login_username', 'admin');
   await page.fill('input#login_password', 'admin123');
   await page.click('button[type="submit"]');
 
   try {
-    await page.waitForURL(/\/(dashboard|water-mitigation|estimate|invoice|bathroom|cabinet|roofing|packing)/, { timeout: 15000 });
+    await page.waitForURL(/\/(dashboard|water-mitigation|estimate|invoice|bathroom|cabinet|roofing|packing|material-order|claim-followup)/, { timeout: 15000 });
   } catch {
     // Retry once more
     await page.waitForTimeout(5000);
     await page.goto(`${baseURL}/login`);
+    await page.evaluate(() => {
+      document.getElementById('webpack-dev-server-client-overlay')?.remove();
+    });
     await page.waitForSelector('input#login_username', { timeout: 10000 });
     await page.fill('input#login_username', 'admin');
     await page.fill('input#login_password', 'admin123');
     await page.click('button[type="submit"]');
-    await page.waitForURL(/\/(dashboard|water-mitigation|estimate|invoice|bathroom|cabinet|roofing|packing)/, { timeout: 15000 });
+    await page.waitForURL(/\/(dashboard|water-mitigation|estimate|invoice|bathroom|cabinet|roofing|packing|material-order|claim-followup)/, { timeout: 15000 });
   }
 
   // Save storage state

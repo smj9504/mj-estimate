@@ -23,6 +23,7 @@ import {
   Tooltip,
   Tag,
   DatePicker,
+  Upload,
 } from 'antd';
 import {
   CalculatorOutlined,
@@ -31,6 +32,8 @@ import {
   ReloadOutlined,
   HomeOutlined,
   AppstoreOutlined,
+  CloudUploadOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { materialOrderService } from '../services/materialOrderService';
 import type {
@@ -61,6 +64,47 @@ const MaterialOrderPage: React.FC = () => {
   const [result, setResult] = useState<MaterialOrderResponse | null>(null);
   const [editedMaterials, setEditedMaterials] = useState<MaterialItem[]>([]);
   const [viewMode, setViewMode] = useState<'supply_order' | 'full_estimate'>('full_estimate');
+  const [eagleViewParsed, setEagleViewParsed] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  // ── EagleView Upload ──
+  const handleEagleViewUpload = useCallback(async (file: File) => {
+    try {
+      setUploading(true);
+      const result = await materialOrderService.parseEagleView(file);
+
+      // Auto-fill roofing measurement fields
+      form.setFieldsValue({
+        total_area_sf: result.total_area_sf,
+        squares: result.squares,
+        squares_with_waste: result.squares_with_waste,
+        eaves_lf: result.eaves_lf,
+        rakes_lf: result.rakes_lf,
+        ridges_lf: result.ridges_lf,
+        hips_lf: result.hips_lf,
+        valleys_lf: result.valleys_lf,
+        step_flashing_lf: result.step_flashing_lf,
+        drip_edge_lf: result.drip_edge_lf,
+        penetration_count: result.penetration_count,
+        waste_pct: result.waste_pct,
+        structure_complexity: result.structure_complexity,
+      });
+
+      setEagleViewParsed(true);
+      const structInfo = result.structures && result.structures.length > 1
+        ? ` (${result.structures.length} structures)`
+        : '';
+      message.success(
+        `EagleView parsed: ${result.total_area_sf.toFixed(0)} SF, ` +
+        `${result.squares.toFixed(1)} SQ${structInfo}`
+      );
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to parse EagleView file');
+      setEagleViewParsed(false);
+    } finally {
+      setUploading(false);
+    }
+  }, [form]);
 
   // ── Calculate ──
   const handleCalculate = useCallback(async () => {
@@ -374,6 +418,7 @@ const MaterialOrderPage: React.FC = () => {
               setScopeType(key as ScopeType);
               setResult(null);
               setEditedMaterials([]);
+              setEagleViewParsed(false);
               form.resetFields();
             }}
             items={[
@@ -423,10 +468,38 @@ const MaterialOrderPage: React.FC = () => {
             </Col>
           </Row>
 
+          {/* EagleView Upload (Roofing only for now) */}
+          {scopeType === 'roofing' && (
+            <div style={{ margin: '8px 0 16px', padding: '12px 16px', background: '#f6f8fa', borderRadius: 6, border: '1px dashed #d0d5dd' }}>
+              <Space align="center">
+                <Upload
+                  accept=".json,.JSON"
+                  showUploadList={false}
+                  beforeUpload={(file) => { handleEagleViewUpload(file); return false; }}
+                >
+                  <Button icon={<CloudUploadOutlined />} loading={uploading}>
+                    Upload EagleView JSON
+                  </Button>
+                </Upload>
+                {eagleViewParsed && (
+                  <Text type="success">
+                    <CheckCircleOutlined style={{ marginRight: 4 }} />
+                    Measurements auto-filled from EagleView
+                  </Text>
+                )}
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  EagleView Premium Report JSON export
+                </Text>
+              </Space>
+            </div>
+          )}
+
           <Divider orientation="left" style={{ margin: '8px 0 16px' }}>
             {scopeType === 'roofing' ? 'Roofing Measurements' : 'Siding Measurements'}
             <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-              (from EagleView Report Summary)
+              {eagleViewParsed && scopeType === 'roofing'
+                ? '(auto-filled from EagleView — editable)'
+                : '(from EagleView Report Summary)'}
             </Text>
           </Divider>
 

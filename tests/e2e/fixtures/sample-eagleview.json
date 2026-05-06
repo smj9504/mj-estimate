@@ -1,0 +1,75 @@
+{
+  "EAGLEVIEW_EXPORT": {
+    "STRUCTURES": {
+      "ROOF": {
+        "POINTS": {
+          "POINT": [
+            { "@id": "P1", "@data": "0,0,0" },
+            { "@id": "P2", "@data": "50,0,0" },
+            { "@id": "P3", "@data": "50,30,0" },
+            { "@id": "P4", "@data": "0,30,0" },
+            { "@id": "P5", "@data": "25,15,8" },
+            { "@id": "P6", "@data": "50,15,8" },
+            { "@id": "P7", "@data": "0,15,8" }
+          ]
+        },
+        "LINES": {
+          "LINE": [
+            { "@id": "L1", "@type": "EAVE", "@path": "P1,P2" },
+            { "@id": "L2", "@type": "EAVE", "@path": "P3,P4" },
+            { "@id": "L3", "@type": "RAKE", "@path": "P1,P7" },
+            { "@id": "L4", "@type": "RAKE", "@path": "P2,P6" },
+            { "@id": "L5", "@type": "RAKE", "@path": "P3,P6" },
+            { "@id": "L6", "@type": "RAKE", "@path": "P4,P7" },
+            { "@id": "L7", "@type": "RIDGE", "@path": "P7,P5" },
+            { "@id": "L8", "@type": "RIDGE", "@path": "P5,P6" },
+            { "@id": "L9", "@type": "HIP", "@path": "P1,P5" },
+            { "@id": "L10", "@type": "HIP", "@path": "P4,P5" },
+            { "@id": "L11", "@type": "VALLEY", "@path": "P2,P5" },
+            { "@id": "L12", "@type": "VALLEY", "@path": "P3,P5" },
+            { "@id": "L13", "@type": "STEPFLASH", "@path": "P1,P4" }
+          ]
+        },
+        "FACES": {
+          "FACE": [
+            {
+              "@id": "F1",
+              "@designator": "A",
+              "@type": "ROOF",
+              "@pitch": "6/12",
+              "POLYGON": { "@size": "850", "@path": "L1,L9,L7,L3" }
+            },
+            {
+              "@id": "F2",
+              "@designator": "B",
+              "@type": "ROOF",
+              "@pitch": "6/12",
+              "POLYGON": { "@size": "850", "@path": "L1,L4,L8,L11" }
+            },
+            {
+              "@id": "F3",
+              "@designator": "C",
+              "@type": "ROOF",
+              "@pitch": "6/12",
+              "POLYGON": { "@size": "850", "@path": "L2,L5,L8,L12" }
+            },
+            {
+              "@id": "F4",
+              "@designator": "D",
+              "@type": "ROOF",
+              "@pitch": "6/12",
+              "POLYGON": { "@size": "850", "@path": "L2,L13,L10,L7,L6" }
+            },
+            {
+              "@id": "F5",
+              "@designator": "1",
+              "@type": "ACCESSORY",
+              "@pitch": "0/12",
+              "POLYGON": { "@size": "12", "@path": "L9,L10" }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
