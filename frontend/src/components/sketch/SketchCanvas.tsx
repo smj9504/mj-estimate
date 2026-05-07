@@ -92,6 +92,7 @@ const SketchCanvasInternal: React.FC<SketchCanvasProps> = ({
     const containerRef = useRef<HTMLDivElement>(null);
     const viewportRef = useRef<HTMLDivElement>(null);
     const [viewportSize, setViewportSize] = useState({ width: 800, height: 600 });
+    const [highlightedTileZone, setHighlightedTileZone] = useState<string | null>(null);
 
   // Detect viewport size for responsive canvas with proper container measurement
   useEffect(() => {
@@ -297,6 +298,7 @@ const SketchCanvasInternal: React.FC<SketchCanvasProps> = ({
               <SketchViewport
                 width={viewportSize.width}
                 height={viewportSize.height}
+                highlightedTileZone={highlightedTileZone}
               />
             </Content>
 
@@ -310,7 +312,7 @@ const SketchCanvasInternal: React.FC<SketchCanvasProps> = ({
                 breakpoint="lg"
                 collapsedWidth={0}
               >
-                <SketchSidebar />
+                <SketchSidebar onHighlightTileZone={setHighlightedTileZone} />
               </Sider>
             )}
           </Layout>

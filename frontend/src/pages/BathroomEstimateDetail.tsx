@@ -29,6 +29,7 @@ import {
   QuestionCircleOutlined,
   SaveOutlined,
   RobotOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -42,6 +43,7 @@ import type {
   BathroomPricingInfo,
 } from '../types/bathroomEstimate';
 import { PHASE_LABELS } from '../types/bathroomEstimate';
+import SketchCanvas from '../components/sketch/SketchCanvas';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -459,7 +461,38 @@ const BathroomEstimateDetail: React.FC = () => {
             ),
           },
 
-          // ════════ TAB 3: Shower & Tub ════════
+          // ════════ TAB 3: Sketch ════════
+          {
+            key: 'sketch',
+            label: (
+              <span>
+                <EditOutlined style={{ marginRight: 4 }} />
+                Sketch
+              </span>
+            ),
+            children: (
+              <Card
+                title="Bathroom Floor Plan & Tile Estimation"
+                extra={
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Draw walls, place fixtures (tub, shower, vanity, toilet), then use the Tile tool to estimate tile quantities
+                  </Text>
+                }
+              >
+                <SketchCanvas
+                  instanceId={`bathroom-estimate-${id}`}
+                  documentType="estimate"
+                  documentId={id}
+                  height="700px"
+                  showSidebar={true}
+                  showToolbar={true}
+                  showStatusBar={true}
+                />
+              </Card>
+            ),
+          },
+
+          // ════════ TAB 4: Shower & Tub ════════
           {
             key: 'shower_tub',
             label: 'Shower & Tub',

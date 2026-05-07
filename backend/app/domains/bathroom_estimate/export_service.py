@@ -69,17 +69,12 @@ class BathroomExportService:
         est_id_short = str(estimate.get("id", ""))[:8].upper()
         prop_addr = estimate.get("property_address", "") or ""
 
-        def _on_later_pages(canvas, doc_ref):
+        def _on_page(canvas, doc_ref):
             canvas.saveState()
+            page_num = canvas.getPageNumber()
             canvas.setFont("Helvetica", 7.5)
             canvas.setFillColor(colors.HexColor("#4a5568"))
-            canvas.drawString(margin, page_h - margin + 8, prop_addr)
-            canvas.drawRightString(page_w - margin, page_h - margin + 8, f"Quote # {est_id_short}")
-            canvas.setStrokeColor(colors.HexColor("#e2e8f0"))
-            canvas.setLineWidth(0.5)
-            canvas.line(margin, page_h - margin + 3, page_w - margin, page_h - margin + 3)
-            canvas.setFont("Helvetica", 7.5)
-            canvas.drawCentredString(page_w / 2, 0.45 * inch, f"Page {doc_ref.page}")
+            canvas.drawCentredString(page_w / 2, 0.45 * inch, f"Page {page_num}")
             canvas.restoreState()
 
         # Colors
@@ -344,6 +339,6 @@ class BathroomExportService:
             elements.append(sig_table)
 
         # ══════ BUILD ══════
-        doc.build(elements, onFirstPage=_on_later_pages, onLaterPages=_on_later_pages)
+        doc.build(elements, onFirstPage=_on_page, onLaterPages=_on_page)
         buffer.seek(0)
         return buffer

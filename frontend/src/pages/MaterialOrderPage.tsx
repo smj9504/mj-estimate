@@ -76,6 +76,7 @@ const MaterialOrderPage: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const [savedOrderId, setSavedOrderId] = useState<string | null>(id && id !== 'new' ? id : null);
   const [includeSnowGuards, setIncludeSnowGuards] = useState(false);
+  const [includeNotes, setIncludeNotes] = useState(true);
 
   // ── Load existing order ──
   useEffect(() => {
@@ -335,6 +336,7 @@ const MaterialOrderPage: React.FC = () => {
         measurements: result.measurements,
         materials: editedMaterials,
         notes: result.notes,
+        include_notes: includeNotes,
       });
       message.success(
         outputType === 'supply_order'
@@ -346,7 +348,7 @@ const MaterialOrderPage: React.FC = () => {
     } finally {
       setExporting(false);
     }
-  }, [result, editedMaterials]);
+  }, [result, editedMaterials, includeNotes]);
 
   // ── Grand total ──
   const grandTotal = useMemo(() => {
@@ -724,6 +726,12 @@ const MaterialOrderPage: React.FC = () => {
                 size="small"
               />
               <Divider type="vertical" />
+              <Checkbox
+                checked={includeNotes}
+                onChange={(e) => setIncludeNotes(e.target.checked)}
+              >
+                Include Notes
+              </Checkbox>
               <Button
                 icon={<ShoppingCartOutlined />}
                 onClick={() => handleExport('supply_order')}

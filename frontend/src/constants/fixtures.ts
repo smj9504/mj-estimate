@@ -9,10 +9,13 @@ import {
   WindowType,
   CabinetType,
   BathroomType,
+  BathtubSubType,
   FixtureCategory,
   WallFixtureCategory,
   RoomFixtureCategory,
-  Dimensions
+  Dimensions,
+  TileSizeOption,
+  TileSize
 } from '../types/sketch';
 
 // Default dimensions in INCHES (converted to pixels with feetToPixels(inches/12))
@@ -194,8 +197,32 @@ export const BATHROOM_VARIANTS: FixtureVariant[] = [
     icon: '🚽'
   },
   {
-    id: 'bathtub',
-    name: 'Bathtub',
+    id: 'bathtub_standard',
+    name: 'Standard Bathtub (Alcove)',
+    category: 'bathroom',
+    type: 'bathtub',
+    defaultDimensions: { width: 30, height: 60 }, // inches
+    icon: '🛁'
+  },
+  {
+    id: 'bathtub_corner',
+    name: 'Corner/Garden Tub',
+    category: 'bathroom',
+    type: 'bathtub',
+    defaultDimensions: { width: 60, height: 60 }, // inches
+    icon: '🛁'
+  },
+  {
+    id: 'bathtub_dropin',
+    name: 'Drop-in Bathtub',
+    category: 'bathroom',
+    type: 'bathtub',
+    defaultDimensions: { width: 42, height: 60 }, // inches
+    icon: '🛁'
+  },
+  {
+    id: 'bathtub_freestanding',
+    name: 'Freestanding Bathtub',
     category: 'bathroom',
     type: 'bathtub',
     defaultDimensions: { width: 30, height: 60 }, // inches
@@ -210,6 +237,103 @@ export const BATHROOM_VARIANTS: FixtureVariant[] = [
     icon: '🚿'
   }
 ];
+
+// Bathtub subtype defaults - deck/surround properties
+export const BATHTUB_SUBTYPE_DEFAULTS: Record<BathtubSubType, {
+  fixtureId: string;
+  deckWidth: number;      // inches
+  deckHeight: number;     // inches
+  surroundHeight: number; // inches
+  surroundWalls: number;  // number of walls
+}> = {
+  standard_alcove: {
+    fixtureId: 'bathtub_standard',
+    deckWidth: 0,
+    deckHeight: 16,
+    surroundHeight: 72,   // 6 feet above tub
+    surroundWalls: 3
+  },
+  corner_garden: {
+    fixtureId: 'bathtub_corner',
+    deckWidth: 12,         // 1 foot deck
+    deckHeight: 20,
+    surroundHeight: 48,    // 4 feet above deck
+    surroundWalls: 2
+  },
+  drop_in: {
+    fixtureId: 'bathtub_dropin',
+    deckWidth: 8,
+    deckHeight: 18,
+    surroundHeight: 60,
+    surroundWalls: 3
+  },
+  freestanding: {
+    fixtureId: 'bathtub_freestanding',
+    deckWidth: 0,
+    deckHeight: 0,
+    surroundHeight: 0,
+    surroundWalls: 0
+  }
+};
+
+// Tile size presets
+export const TILE_SIZE_OPTIONS: TileSizeOption[] = [
+  { id: '4x4', label: '4" x 4"', widthInches: 4, heightInches: 4 },
+  { id: '6x6', label: '6" x 6"', widthInches: 6, heightInches: 6 },
+  { id: '3x6_subway', label: '3" x 6" Subway', widthInches: 3, heightInches: 6 },
+  { id: '4x12_subway', label: '4" x 12" Subway', widthInches: 4, heightInches: 12 },
+  { id: '12x12', label: '12" x 12"', widthInches: 12, heightInches: 12 },
+  { id: '12x24', label: '12" x 24"', widthInches: 12, heightInches: 24 },
+  { id: '18x18', label: '18" x 18"', widthInches: 18, heightInches: 18 },
+  { id: '24x24', label: '24" x 24"', widthInches: 24, heightInches: 24 },
+  { id: 'custom', label: 'Custom Size', widthInches: 12, heightInches: 12 },
+];
+
+export const getTileSizeOption = (id: TileSize): TileSizeOption => {
+  return TILE_SIZE_OPTIONS.find(t => t.id === id) || TILE_SIZE_OPTIONS[4]; // default 12x12
+};
+
+// =====================
+// Default Pricing (2026 Market Rates)
+// =====================
+
+/** Material cost per SF by zone type */
+export const DEFAULT_MATERIAL_PRICES: Record<string, number> = {
+  floor: 4.00,             // Porcelain 12x12/12x24
+  wall: 2.50,              // Ceramic subway
+  tub_deck: 5.00,          // Porcelain 12x12
+  tub_front_panel: 4.00,   // Ceramic/Porcelain 12x12
+  tub_surround: 3.50,      // Ceramic/Porcelain subway or 12x24
+  shower_wall: 5.00,       // Porcelain 12x24
+  shower_floor: 7.00,      // Mosaic/small tile 4x4
+};
+
+/** Labor cost per SF by zone type */
+export const DEFAULT_LABOR_RATES: Record<string, number> = {
+  floor: 6.00,
+  wall: 7.00,
+  tub_deck: 10.00,
+  tub_front_panel: 9.00,
+  tub_surround: 10.00,
+  shower_wall: 9.00,
+  shower_floor: 12.00,
+};
+
+/** Shower pan pricing (fixed cost, not per-SF) */
+export const SHOWER_PAN_PRICES = {
+  fiberglass_pan: {
+    label: 'Fiberglass Pan',
+    materialCost: 275,   // avg $150-$400
+    laborCost: 460,      // avg $350-$570
+    totalCost: 735,
+  },
+  acrylic_pan: {
+    label: 'Acrylic Pan',
+    materialCost: 410,   // avg $200-$620
+    laborCost: 460,      // avg $350-$570
+    totalCost: 870,
+  },
+};
 
 // Removed - appliances are no longer separate fixtures, use generic cabinet instead
 

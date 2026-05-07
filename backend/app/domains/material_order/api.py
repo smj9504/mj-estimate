@@ -68,7 +68,7 @@ def export_material_order_pdf(req: MaterialOrderExportRequest):
             color=req.color,
             measurements=req.measurements,
             materials=[m.model_dump() for m in req.materials],
-            notes=req.notes,
+            notes=req.notes if req.include_notes else [],
         )
 
         filename_prefix = "supply_order" if req.output_type == OutputType.supply_order else "internal_estimate"

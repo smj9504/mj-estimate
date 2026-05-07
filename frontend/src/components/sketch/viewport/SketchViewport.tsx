@@ -5,7 +5,9 @@ import { Modal, Input, InputNumber, Form, Button } from 'antd';
 import Konva from 'konva';
 import { useSketchContext } from '../context/SketchProvider';
 import { FixtureLayer } from '../rendering/FixtureRenderer';
-import { Wall as SketchWall, SketchRoom, WallFixture } from '../../../types/sketch';
+import TileZoneRenderer from '../rendering/TileZoneRenderer';
+import { Wall as SketchWall, SketchRoom, WallFixture, TileCalculationResult } from '../../../types/sketch';
+import { calculateBathroomTiles } from '../utils/tileCalculations';
 import { DOOR_VARIANTS, WINDOW_VARIANTS, CABINET_VARIANTS, BATHROOM_VARIANTS } from '../../../constants/fixtures';
 import { WallSegmentEditor } from '../ui/WallSegmentEditor';
 import { RoomFixtureEditor } from '../ui/RoomFixtureEditor';
@@ -113,6 +115,7 @@ interface SketchViewportProps {
   gridSize?: number;
   onStageClick?: (e: any) => void;
   onStageMouseMove?: (e: any) => void;
+  highlightedTileZone?: string | null;
 }
 
 // Type converter functions
@@ -183,6 +186,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
   gridSize = 20,
   onStageClick = () => {},
   onStageMouseMove = () => {},
+  highlightedTileZone = null,
 }) => {
   const {
     sketch,
@@ -4121,6 +4125,29 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
             );
           })()}
         </Layer>
+
+        {/* Tile Zone Overlay Layer */}
+        {currentTool === 'tile_estimate' && sketch && (
+          <Layer>
+            {sketch.rooms
+              .filter(room => room.type === 'bathroom')
+              .map(room => {
+                const roomFixtures = sketch.roomFixtures.filter(f => f.roomId === room.id);
+                const tileResult = calculateBathroomTiles(room, sketch);
+                return (
+                  <TileZoneRenderer
+                    key={`tile-${room.id}`}
+                    room={room}
+                    roomFixtures={roomFixtures}
+                    result={tileResult}
+                    pixelsPerFoot={sketch.metadata.scale.pixelsPerFoot}
+                    highlightedZoneType={highlightedTileZone}
+                    visible={true}
+                  />
+                );
+              })}
+          </Layer>
+        )}
       </Stage>
 
       {/* Context Menu - Use Portal to render directly in document.body to avoid parent transform issues */}

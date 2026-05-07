@@ -157,6 +157,12 @@ export type BathroomType =
   | 'bathtub'
   | 'shower';
 
+export type BathtubSubType =
+  | 'standard_alcove'   // 3-wall alcove (일반 욕조)
+  | 'corner_garden'     // Corner/garden tub (코너 가든 터브)
+  | 'drop_in'           // Drop-in with deck (드롭인)
+  | 'freestanding';     // Freestanding (독립형)
+
 export interface FixtureVariant {
   id: string;
   name: string;
@@ -232,6 +238,17 @@ export interface FixtureProperties {
   /** Cabinet specific */
   cabinetType?: 'upper' | 'lower' | 'tall';
   doorCount?: number;
+
+  /** Bathtub specific */
+  bathtubSubType?: BathtubSubType;
+  /** Deck width in inches (for corner_garden, drop_in) */
+  deckWidth?: number;
+  /** Deck height from floor in inches */
+  deckHeight?: number;
+  /** Tile surround height in inches (above deck/tub) */
+  surroundHeight?: number;
+  /** Number of walls with tile surround (1-3) */
+  surroundWalls?: number;
 
   /** Custom properties for extensibility */
   [key: string]: any;
@@ -388,8 +405,6 @@ export interface SketchSettings {
 // =====================
 // Interaction System
 // =====================
-
-export type SketchTool = 'select' | 'wall' | 'room' | 'fixture' | 'measure' | 'pan' | 'zoom' | 'fixture_door' | 'fixture_window' | 'wall_split';
 
 export type InteractionMode = 'draw' | 'edit' | 'view';
 
@@ -559,3 +574,62 @@ export interface SketchSnapshot {
   thumbnail?: string;
   createdAt: string;
 }
+
+// =====================
+// Tile Estimation System
+// =====================
+
+export type TileSize = '4x4' | '6x6' | '12x12' | '12x24' | '18x18' | '24x24' | '3x6_subway' | '4x12_subway' | 'custom';
+
+export interface TileSizeOption {
+  id: TileSize;
+  label: string;
+  /** Width in inches */
+  widthInches: number;
+  /** Height in inches */
+  heightInches: number;
+}
+
+export type ShowerFloorType = 'tile' | 'fiberglass_pan' | 'acrylic_pan';
+
+export interface TileZone {
+  id: string;
+  /** Zone type */
+  type: 'floor' | 'wall' | 'tub_deck' | 'tub_front_panel' | 'tub_surround' | 'shower_wall' | 'shower_floor';
+  /** Zone label */
+  label: string;
+  /** Area in square feet */
+  areaSqFt: number;
+  /** Selected tile size */
+  tileSize: TileSize;
+  /** Custom tile dimensions (when tileSize is 'custom') */
+  customTileWidth?: number;
+  customTileHeight?: number;
+  /** Waste percentage (default 10%) */
+  wastePercent: number;
+  /** Material cost per SF */
+  unitPrice: number;
+  /** Labor cost per SF */
+  laborRate: number;
+  /** Whether this zone uses tile (false = pan/pad) */
+  isTiled: boolean;
+  /** Fixed cost override (e.g., shower pan is a fixed cost, not per-SF) */
+  fixedCost?: number;
+}
+
+export interface TileCalculationResult {
+  /** Room this calculation belongs to */
+  roomId: string;
+  roomName: string;
+  /** All tile zones */
+  zones: TileZone[];
+  /** Summary */
+  totalAreaSqFt: number;
+  totalTileCount: number;
+  totalBoxes: number;
+  totalMaterialCost: number;
+  totalLaborCost: number;
+  grandTotal: number;
+}
+
+export type SketchTool = 'select' | 'wall' | 'room' | 'fixture' | 'measure' | 'pan' | 'zoom' | 'fixture_door' | 'fixture_window' | 'wall_split' | 'tile_estimate';

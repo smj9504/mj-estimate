@@ -87,6 +87,7 @@ export interface MaterialOrderExportRequest {
   measurements: Record<string, any>;
   materials: MaterialItem[];
   notes: string[];
+  include_notes?: boolean;
 }
 
 export interface MaterialOrderSaveItem {

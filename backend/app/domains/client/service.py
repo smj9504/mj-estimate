@@ -223,7 +223,7 @@ class ClaimNegotiationService(BaseService[Dict[str, Any], str]):
                         File.id == file_id, File.is_active == True
                     ).first()
                     if file_record:
-                        negotiation_data['document_url'] = file_record.url
+                        negotiation_data['document_url'] = str(file_record.id)
                         negotiation_data['document_name'] = file_record.original_name
                 finally:
                     session_for_file.close()

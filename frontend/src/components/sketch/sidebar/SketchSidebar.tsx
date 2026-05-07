@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Card, List, Button, Space, Typography, Divider, Collapse, message } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, CloseOutlined, CalculatorOutlined } from '@ant-design/icons';
 import { useSketchContext } from '../context/SketchProvider';
 import FixtureSelector from '../ui/FixtureSelector';
+import TileCalculationPanel from '../ui/TileCalculationPanel';
 import { FixtureVariant, Dimensions, WallFixtureCategory, RoomFixtureCategory, DoorType, WindowType, CabinetType, BathroomType } from '../../../types/sketch';
 
 const { Title, Text } = Typography;
@@ -10,10 +11,12 @@ const { Panel } = Collapse;
 
 interface SketchSidebarProps {
   width?: number;
+  onHighlightTileZone?: (zoneType: string | null) => void;
 }
 
 const SketchSidebar: React.FC<SketchSidebarProps> = ({
   width = 300,
+  onHighlightTileZone,
 }) => {
   const {
     sketch,
@@ -26,6 +29,7 @@ const SketchSidebar: React.FC<SketchSidebarProps> = ({
     setFixturePlacement
   } = useSketchContext();
   const [showFixtureSelector, setShowFixtureSelector] = useState(false);
+  const [showTilePanel, setShowTilePanel] = useState(false);
 
   // Get current sketch data
   const rooms = sketch?.rooms || [];
@@ -224,6 +228,34 @@ const SketchSidebar: React.FC<SketchSidebarProps> = ({
             </Space>
           </Card>
         )}
+
+        {/* Tile Estimation Section */}
+        <Card
+          title={
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Title level={5} style={{ margin: 0 }}>
+                <CalculatorOutlined style={{ marginRight: 4 }} />
+                Tile Estimate
+              </Title>
+              <Button
+                type={showTilePanel ? 'primary' : 'default'}
+                size="small"
+                onClick={() => setShowTilePanel(!showTilePanel)}
+              >
+                {showTilePanel ? 'Hide' : 'Show'}
+              </Button>
+            </div>
+          }
+          size="small"
+        >
+          {showTilePanel ? (
+            <TileCalculationPanel onHighlightZone={onHighlightTileZone} />
+          ) : (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              Calculate tile quantities for bathroom rooms
+            </Typography.Text>
+          )}
+        </Card>
 
         {/* Properties Section */}
         <Card title="Properties" size="small">

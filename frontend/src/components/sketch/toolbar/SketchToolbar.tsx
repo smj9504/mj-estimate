@@ -7,6 +7,7 @@ import {
   AppstoreOutlined,
   ColumnHeightOutlined,
   ScissorOutlined,
+  CalculatorOutlined,
 } from '@ant-design/icons';
 import { useSketchContext } from '../context/SketchProvider';
 
@@ -19,6 +20,7 @@ const SketchToolbar: React.FC = () => {
     { key: 'fixture', icon: <AppstoreOutlined />, label: 'Fixture' },
     { key: 'measure', icon: <ColumnHeightOutlined />, label: 'Measure' },
     { key: 'wall_split', icon: <ScissorOutlined />, label: 'Split Wall', tooltip: 'Click on a wall to split it at that point' },
+    { key: 'tile_estimate', icon: <CalculatorOutlined />, label: 'Tile', tooltip: 'Show tile estimation overlays on bathroom rooms' },
   ];
 
   return (

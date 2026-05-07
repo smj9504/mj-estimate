@@ -142,3 +142,4 @@ class MaterialOrderExportRequest(BaseModel):
     measurements: Dict[str, Any] = {}
     materials: List[MaterialItem] = []
     notes: List[str] = []
+    include_notes: bool = True
