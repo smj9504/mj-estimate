@@ -336,7 +336,7 @@ def list_estimates(
             PackCalculation.status == status
         )
 
-    total = query.count()
+    total = query.with_entities(PackCalculation.id).count()
     items = query.offset(skip).limit(limit).all()
 
     return {

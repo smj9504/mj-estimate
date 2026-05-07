@@ -99,7 +99,7 @@ class PackCalculation(Base, BaseModel):
     claim_id = Column(UUIDType(), ForeignKey("claims.id"), nullable=True)
 
     # Estimate mode & status
-    mode = Column(SQLEnum(PackEstimateMode), default=PackEstimateMode.QUICK)
+    mode = Column(SQLEnum(PackEstimateMode), default=PackEstimateMode.PHOTO_AI)
     status = Column(SQLEnum(PackEstimateStatus), default=PackEstimateStatus.DRAFT)
 
     # Building information
