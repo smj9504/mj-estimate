@@ -799,6 +799,9 @@ const WaterMitigationDetail: React.FC = () => {
                         <Descriptions.Item label="CompanyCam Project">
                           {job.companycam_project_id || '-'}
                         </Descriptions.Item>
+                        <Descriptions.Item label="PA (Sheet)">
+                          {job.google_sheet_name || '-'}
+                        </Descriptions.Item>
                         <Descriptions.Item label="Google Sheet Row">
                           {job.google_sheet_row_number || '-'}
                         </Descriptions.Item>

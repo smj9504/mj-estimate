@@ -113,7 +113,7 @@ class ClaimNegotiationResponse(ClaimNegotiationBase):
 # ============================================================
 
 class ClaimBase(BaseModel):
-    claim_number: str
+    claim_number: Optional[str] = None
     company_id: Optional[UUID] = None
     insurance_company: Optional[str] = None
     insurance_policy_number: Optional[str] = None
@@ -166,6 +166,8 @@ class ClaimUpdate(BaseModel):
     pa_company: Optional[str] = None
     pa_email: Optional[str] = None
     pa_phone: Optional[str] = None
+    wm_cost_status: Optional[str] = None
+    wm_estimate_amount: Optional[float] = None
     needs_supplement: Optional[bool] = None
     supplement_status: Optional[str] = None
     supplement_notes: Optional[str] = None
@@ -260,6 +262,8 @@ class ClaimDetailResponse(ClaimBase):
     pa_company: Optional[str] = None
     pa_email: Optional[str] = None
     pa_phone: Optional[str] = None
+    wm_cost_status: Optional[str] = None
+    wm_estimate_amount: Optional[float] = None
     needs_supplement: bool = False
     supplement_status: Optional[str] = None
     supplement_notes: Optional[str] = None

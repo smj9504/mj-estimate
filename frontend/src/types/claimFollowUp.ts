@@ -2,7 +2,7 @@
  * Claim Follow-up types
  */
 
-export type TaskType = 'docs_sent' | 'payment_check' | 'estimate_request' | 'supplement_sent' | 'general';
+export type TaskType = 'wm_docs_sent' | 'supplement_sent' | 'depreciation_recovery' | 'estimate_request' | 'payment_check' | 'docs_sent' | 'general';
 export type TaskStatus = 'pending' | 'awaiting_response' | 'responded' | 'resolved' | 'overdue' | 'cancelled';
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type AssignedRole = 'adjuster' | 'public_adjuster' | 'contractor';
@@ -17,7 +17,7 @@ export interface FollowUpTask {
   title: string;
   description?: string;
   status: TaskStatus;
-  due_date: string;
+  due_date?: string;
   priority: TaskPriority;
   last_contacted_at?: string;
   next_followup_date?: string;
@@ -39,6 +39,7 @@ export interface FollowUpTask {
   claim_number?: string;
   property_address?: string;
   insurance_company?: string;
+  supplement_statuses?: Record<string, number>;
 }
 
 export interface FollowUpTaskCreate {
@@ -47,7 +48,8 @@ export interface FollowUpTaskCreate {
   task_type: TaskType;
   title: string;
   description?: string;
-  due_date: string;
+  due_date?: string;
+  next_followup_date?: string;
   priority?: TaskPriority;
   assigned_to_name?: string;
   assigned_to_email?: string;
@@ -214,10 +216,12 @@ export interface FollowUpDashboardStats {
 
 // UI helper types
 export const TASK_TYPE_LABELS: Record<TaskType, string> = {
-  docs_sent: 'Documents Sent',
-  payment_check: 'Payment Check',
-  estimate_request: 'Estimate Request',
+  wm_docs_sent: 'WM Docs Sent',
   supplement_sent: 'Supplement Sent',
+  depreciation_recovery: 'Depreciation Recovery',
+  estimate_request: 'Estimate Request',
+  payment_check: 'Payment Check',
+  docs_sent: 'Documents Sent',
   general: 'General',
 };
 

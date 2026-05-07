@@ -207,6 +207,13 @@ const WaterMitigationList: React.FC = () => {
       ellipsis: true
     },
     {
+      title: 'PA',
+      dataIndex: 'google_sheet_name',
+      key: 'google_sheet_name',
+      width: 90,
+      render: (name: string) => name ? <Tag color="purple">{name}</Tag> : null,
+    },
+    {
       title: 'Claim #',
       dataIndex: 'claim_number',
       key: 'claim_number',

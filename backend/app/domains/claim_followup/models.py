@@ -60,7 +60,7 @@ class FollowUpTask(Base, BaseModel):
     task_type = Column(
         String(50),
         nullable=False,
-        comment="docs_sent | payment_check | estimate_request | supplement_sent | general"
+        comment="wm_docs_sent | supplement_sent | depreciation_recovery | estimate_request | payment_check | general"
     )
     title = Column(String(500), nullable=False)
     description = Column(Text)
@@ -74,7 +74,7 @@ class FollowUpTask(Base, BaseModel):
     )
 
     # Scheduling
-    due_date = Column(DateTime(timezone=True), nullable=False)
+    due_date = Column(DateTime(timezone=True), nullable=True)
     last_contacted_at = Column(DateTime(timezone=True))
     next_followup_date = Column(DateTime(timezone=True))
     contact_count = Column(Integer, default=0, comment="Number of times contacted")

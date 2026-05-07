@@ -13,10 +13,12 @@ logger = logging.getLogger(__name__)
 # Email context prompts by type
 CONTEXT_PROMPTS = {
     "initial_send": "Write a professional email to the insurance adjuster informing them that water mitigation documents have been submitted. Include: Invoice, Certificate of Satisfaction, Emergency Work Authorization, and Photo Report.",
+    "wm_docs_sent": "Write a professional follow-up email to the insurance adjuster regarding water mitigation documents that were previously submitted. The documents include: Invoice, Certificate of Satisfaction (COS), Emergency Work Authorization (EWA), and Photo Report. Request confirmation of receipt and a status update.",
     "followup": "Write a follow-up email to the insurance adjuster asking if they received the previously sent documents and requesting a status update on the claim.",
     "payment_inquiry": "Write a professional email inquiring about the payment status for a water mitigation claim. Ask when the payment will be processed.",
     "supplement": "Write a professional email to the public adjuster regarding a supplement estimate that has been submitted. Request an update on the review status.",
     "estimate_request": "Write a professional email to the insurance adjuster requesting the rebuild estimate for the property.",
+    "depreciation_recovery": "Write a professional email to the insurance adjuster requesting the recoverable depreciation payment. The construction/repair work has been completed and we are submitting the completion documents to release the recoverable depreciation funds.",
     "general": "Write a professional email regarding the insurance claim.",
 }
 
@@ -167,6 +169,21 @@ def _generate_fallback_email(
     insurance_company = claim_context.get('insurance_company', '')
 
     templates = {
+        "wm_docs_sent": {
+            "subject": f"Follow-up: Water Mitigation Documents - Claim #{claim_number}",
+            "body": f"""<p>Dear {adjuster_name},</p>
+<p>I am following up on the water mitigation documents submitted for Claim #{claim_number} at {property_address}.</p>
+<p>The following documents were included:</p>
+<ul>
+<li>Invoice</li>
+<li>Certificate of Satisfaction (COS)</li>
+<li>Emergency Work Authorization (EWA)</li>
+<li>Photo Report</li>
+</ul>
+<p>Could you please confirm receipt and provide a status update on the claim?</p>
+<p>Thank you.</p>
+<p>Best regards</p>""",
+        },
         "initial_send": {
             "subject": f"Water Mitigation Documents Submitted - Claim #{claim_number}",
             "body": f"""<p>Dear {adjuster_name},</p>
@@ -212,6 +229,15 @@ def _generate_fallback_email(
 <p>I am writing to request the rebuild estimate for Claim #{claim_number} at {property_address}.</p>
 <p>Please let us know when we can expect to receive the estimate.</p>
 <p>Thank you.</p>
+<p>Best regards</p>""",
+        },
+        "depreciation_recovery": {
+            "subject": f"Recoverable Depreciation Request - Claim #{claim_number}",
+            "body": f"""<p>Dear {adjuster_name},</p>
+<p>I am writing regarding Claim #{claim_number} at {property_address}.</p>
+<p>The repair/construction work has been completed. We have submitted all required completion documents and are requesting the release of the recoverable depreciation funds.</p>
+<p>Please let us know if any additional documentation is needed to process this payment.</p>
+<p>Thank you for your prompt attention to this matter.</p>
 <p>Best regards</p>""",
         },
     }

@@ -137,6 +137,13 @@ class Claim(Base, BaseModel):
     pa_email = Column(String(255))
     pa_phone = Column(String(50))
 
+    # Water Mitigation cost tracking
+    wm_cost_status = Column(
+        String(50),
+        comment="included_in_rebuild | separate_estimate | not_received | not_applicable"
+    )
+    wm_estimate_amount = Column(DECIMAL(15, 2), comment="WM amount if received separately")
+
     # Supplement tracking
     needs_supplement = Column(Boolean, default=False)
     supplement_status = Column(
@@ -192,6 +199,11 @@ class Claim(Base, BaseModel):
         "ClaimExpense", back_populates="claim",
         cascade="all, delete-orphan", lazy='select',
         order_by="ClaimExpense.created_at"
+    )
+    activities = relationship(
+        "ClaimActivity", back_populates="claim",
+        cascade="all, delete-orphan", lazy='select',
+        order_by="ClaimActivity.created_at.desc()"
     )
 
 
@@ -313,3 +325,38 @@ class ClaimExpense(Base, BaseModel):
 
     # Relationship
     claim = relationship("Claim", back_populates="expenses")
+
+
+class ClaimActivity(Base, BaseModel):
+    """Unified activity/history log for a claim lifecycle"""
+    __tablename__ = "claim_activities"
+    __table_args__ = (
+        Index('ix_claim_activities_claim_id', 'claim_id'),
+        Index('ix_claim_activities_type', 'activity_type'),
+        {'extend_existing': True}
+    )
+
+    claim_id = Column(
+        UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    activity_type = Column(
+        String(50), nullable=False,
+        comment="wm_sent_to_adjuster | followup_created | estimate_received | estimate_denied | rebuild_created | supplement_created | payment_received | status_changed | note"
+    )
+    title = Column(String(500), nullable=False)
+    description = Column(Text)
+
+    # Optional references to related entities
+    related_entity_type = Column(
+        String(50),
+        comment="wm_job | followup_task | rebuild_project | supplement | negotiation | payment"
+    )
+    related_entity_id = Column(UUIDType())
+
+    # Audit
+    created_by_id = Column(UUIDType(), ForeignKey("staff.id"))
+
+    # Relationship
+    claim = relationship("Claim", back_populates="activities")

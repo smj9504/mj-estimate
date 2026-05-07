@@ -39,7 +39,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         sort_by: str = "due_date",
         sort_order: str = "asc",
     ) -> Tuple[List[Dict[str, Any]], int]:
-        """Get tasks with filtering, pagination, and sorting"""
+        """Get tasks with filtering, pagination, and sorting (enriched with claim data)"""
         query = self.db_session.query(FollowUpTask)
 
         if status:
@@ -56,7 +56,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             now = datetime.now(timezone.utc)
             query = query.filter(
                 and_(
-                    FollowUpTask.due_date < now,
+                    FollowUpTask.next_followup_date < now,
                     FollowUpTask.status.in_(['pending', 'awaiting_response'])
                 )
             )
@@ -64,7 +64,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         total = query.count()
 
         # Sorting
-        sort_column = getattr(FollowUpTask, sort_by, FollowUpTask.due_date)
+        sort_column = getattr(FollowUpTask, sort_by, FollowUpTask.next_followup_date)
         if sort_order == "desc":
             query = query.order_by(sort_column.desc())
         else:
@@ -74,17 +74,65 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         offset = (page - 1) * page_size
         tasks = query.offset(offset).limit(page_size).all()
 
-        return [self._convert_to_dict(t) for t in tasks], total
+        # Enrich with claim data + supplement status
+        # Pre-fetch supplement statuses for all claim_ids in one query
+        claim_ids = list(set(str(t.claim_id) for t in tasks if t.claim_id))
+        supplement_map = {}
+        if claim_ids:
+            try:
+                from app.domains.supplement.models import SupplementRequest
+                from sqlalchemy import func as sqlfunc
+                supp_rows = self.db_session.query(
+                    SupplementRequest.claim_id,
+                    SupplementRequest.status,
+                    sqlfunc.count(SupplementRequest.id),
+                ).filter(
+                    SupplementRequest.claim_id.in_(claim_ids)
+                ).group_by(
+                    SupplementRequest.claim_id,
+                    SupplementRequest.status,
+                ).all()
+                for cid, status, cnt in supp_rows:
+                    key = str(cid)
+                    if key not in supplement_map:
+                        supplement_map[key] = {}
+                    supplement_map[key][status] = cnt
+            except Exception:
+                pass
+
+        results = []
+        for t in tasks:
+            d = self._convert_to_dict(t)
+            try:
+                if t.claim:
+                    d['claim_number'] = t.claim.claim_number or ''
+                    d['insurance_company'] = t.claim.insurance_company or ''
+                    d['supplement_statuses'] = supplement_map.get(str(t.claim_id), {})
+                    # Address is on the Client model
+                    if hasattr(t.claim, 'client') and t.claim.client:
+                        client = t.claim.client
+                        d['property_address'] = client.address or ''
+                    else:
+                        from app.domains.client.models import Client
+                        client = self.db_session.query(Client).filter(
+                            Client.id == t.claim.client_id
+                        ).first()
+                        d['property_address'] = client.address if client else ''
+            except Exception:
+                pass
+            results.append(d)
+
+        return results, total
 
     def get_overdue_tasks(self) -> List[Dict[str, Any]]:
-        """Get all tasks that are overdue"""
+        """Get all tasks that are overdue (next_followup_date has passed)"""
         now = datetime.now(timezone.utc)
         tasks = self.db_session.query(FollowUpTask).filter(
             and_(
-                FollowUpTask.due_date < now,
+                FollowUpTask.next_followup_date < now,
                 FollowUpTask.status.in_(['pending', 'awaiting_response'])
             )
-        ).order_by(FollowUpTask.due_date.asc()).all()
+        ).order_by(FollowUpTask.next_followup_date.asc()).all()
         return [self._convert_to_dict(t) for t in tasks]
 
     def get_tasks_needing_followup(self) -> List[Dict[str, Any]]:
@@ -111,7 +159,23 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         tasks = self.db_session.query(FollowUpTask).filter(
             FollowUpTask.claim_id == claim_id
         ).order_by(FollowUpTask.due_date.desc()).all()
-        return [self._convert_to_dict(t) for t in tasks]
+
+        results = []
+        for t in tasks:
+            d = self._convert_to_dict(t)
+            try:
+                if t.claim:
+                    d['claim_number'] = t.claim.claim_number or ''
+                    d['insurance_company'] = t.claim.insurance_company or ''
+                    from app.domains.client.models import Client
+                    client = self.db_session.query(Client).filter(
+                        Client.id == t.claim.client_id
+                    ).first()
+                    d['property_address'] = client.address if client else ''
+            except Exception:
+                pass
+            results.append(d)
+        return results
 
     def get_dashboard_stats(self) -> Dict[str, Any]:
         """Get summary statistics for the dashboard"""
@@ -131,7 +195,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
 
         overdue = self.db_session.query(func.count(FollowUpTask.id)).filter(
             and_(
-                FollowUpTask.due_date < now,
+                FollowUpTask.next_followup_date < now,
                 FollowUpTask.status.in_(['pending', 'awaiting_response'])
             )
         ).scalar() or 0

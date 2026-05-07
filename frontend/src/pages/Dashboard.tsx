@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Card, Row, Col, Statistic, Button, Space, Typography } from 'antd';
+import { Card, Row, Col, Statistic, Button, Space, Typography, Alert } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import {
   FileTextOutlined,
@@ -9,6 +9,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { documentService } from '../services/documentService';
 import { companyService } from '../services/companyService';
+import { supplementService } from '../services/supplementService';
 import { useStore } from '../store/useStore';
 
 const { Title } = Typography;
@@ -70,10 +71,30 @@ const Dashboard: React.FC = () => {
     },
   ];
 
+  const { data: pendingSupplements = [] } = useQuery({
+    queryKey: ['supplements-pending-review'],
+    queryFn: () => supplementService.getPendingReview(),
+  });
+
   return (
     <div>
       <Title level={2}>Dashboard</Title>
-      
+
+      {pendingSupplements.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          style={{ marginBottom: 16 }}
+          message={`${pendingSupplements.length} insurance estimate${pendingSupplements.length > 1 ? 's' : ''} pending review`}
+          action={
+            <Button size="small" type="primary" onClick={() => navigate('/supplements')}>
+              Review Now
+            </Button>
+          }
+        />
+      )}
+
       {/* Statistics Cards */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} lg={6}>

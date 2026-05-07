@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber,
   Select, message, Typography, Row, Col, Statistic, Tooltip, Badge,
-  Dropdown, Collapse, Descriptions, DatePicker, Divider, Empty,
+  Dropdown, Collapse, Descriptions, DatePicker, Divider, Empty, Checkbox, Alert,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
@@ -38,6 +38,16 @@ const BID_STATUS_COLORS: Record<string, string> = {
   draft: 'default', sent: 'blue', approved: 'green', revision_needed: 'orange', denied: 'red',
 };
 
+const REQUIRED_ESTIMATE_OPTIONS = [
+  { key: 'xactimate', label: 'Xactimate' },
+  { key: 'pack_in_out', label: 'Pack-in / Pack-out' },
+  { key: 'cabinet', label: 'Cabinet' },
+  { key: 'bathroom', label: 'Bathroom' },
+  { key: 'roofing', label: 'Roofing' },
+  { key: 'kitchen', label: 'Kitchen' },
+  { key: 'flooring', label: 'Flooring' },
+];
+
 const formatCurrency = (val?: number) => {
   if (val == null) return '$0.00';
   return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -64,6 +74,11 @@ const SupplementManagement: React.FC = () => {
   const { data: supplements = [], isLoading, refetch } = useQuery({
     queryKey: ['supplements', statusFilter],
     queryFn: () => supplementService.list({ status: statusFilter, page_size: 100 }),
+  });
+
+  const { data: pendingReview = [] } = useQuery({
+    queryKey: ['supplements-pending-review'],
+    queryFn: () => supplementService.getPendingReview(),
   });
 
   // Mutations
@@ -128,19 +143,33 @@ const SupplementManagement: React.FC = () => {
     },
   });
 
+  const openDetail = (r: SupplementRequest) => {
+    supplementService.get(r.id).then(data => {
+      setSelectedSupplement(data);
+      setDetailModalOpen(true);
+    });
+  };
+
   const columns: ColumnsType<SupplementRequest> = [
     {
       title: 'Claim #',
       key: 'claim',
       width: 140,
       render: (_, r) => (
-        <Space direction="vertical" size={0}>
-          <Text strong>{r.claim_number || '-'}</Text>
+        <Space direction="vertical" size={0} style={{ cursor: 'pointer' }} onClick={() => openDetail(r)}>
+          <Text strong style={{ color: '#1890ff' }}>{r.claim_number || '-'}</Text>
           <Text type="secondary" style={{ fontSize: 11 }}>{r.insurance_company}</Text>
         </Space>
       ),
     },
-    { title: 'Title', dataIndex: 'title', key: 'title', ellipsis: true },
+    {
+      title: 'Title', dataIndex: 'title', key: 'title', ellipsis: true,
+      render: (title: string, r) => (
+        <Text style={{ cursor: 'pointer', color: '#1890ff' }} onClick={() => openDetail(r)}>
+          {title}
+        </Text>
+      ),
+    },
     {
       title: 'Original', dataIndex: 'original_amount', key: 'original', width: 110,
       align: 'right', render: formatCurrency,
@@ -160,27 +189,36 @@ const SupplementManagement: React.FC = () => {
       render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s.replace('_', ' ').toUpperCase()}</Tag>,
     },
     {
+      title: 'Required', key: 'required_estimates', width: 200,
+      render: (_, r) => {
+        const re = r.required_estimates || {};
+        const active = Object.entries(re).filter(([, v]) => v);
+        if (active.length === 0) return <Text type="secondary">-</Text>;
+        return (
+          <Space size={[0, 4]} wrap>
+            {active.map(([k]) => {
+              const opt = REQUIRED_ESTIMATE_OPTIONS.find(o => o.key === k);
+              return <Tag key={k} color="blue">{opt?.label || k}</Tag>;
+            })}
+          </Space>
+        );
+      },
+    },
+    {
       title: 'Bid Items', dataIndex: 'bid_item_count', key: 'bid_items', width: 80, align: 'center',
       render: (c: number) => <Badge count={c} showZero style={{ backgroundColor: c > 0 ? '#1890ff' : '#d9d9d9' }} />,
     },
     {
-      title: '', key: 'actions', width: 80, align: 'center',
+      title: '', key: 'actions', width: 50, align: 'center',
       render: (_, r) => (
-        <Space size={4}>
-          <Tooltip title="View Details">
-            <Button type="link" size="small" onClick={() => {
-              supplementService.get(r.id).then(data => { setSelectedSupplement(data); setDetailModalOpen(true); });
-            }}>Detail</Button>
-          </Tooltip>
-          <Dropdown menu={{
-            items: [
-              { key: 'delete', label: 'Delete', danger: true, icon: <DeleteOutlined />,
-                onClick: () => Modal.confirm({ title: 'Delete?', onOk: () => deleteMutation.mutate(r.id) }) },
-            ],
-          }}>
-            <Button type="text" size="small" icon={<EllipsisOutlined />} />
-          </Dropdown>
-        </Space>
+        <Dropdown menu={{
+          items: [
+            { key: 'delete', label: 'Delete', danger: true, icon: <DeleteOutlined />,
+              onClick: () => Modal.confirm({ title: 'Delete?', onOk: () => deleteMutation.mutate(r.id) }) },
+          ],
+        }}>
+          <Button type="text" size="small" icon={<EllipsisOutlined />} />
+        </Dropdown>
       ),
     },
   ];
@@ -196,6 +234,41 @@ const SupplementManagement: React.FC = () => {
           </Button>
         </Space>
       </div>
+
+      {/* Pending Review Alert */}
+      {pendingReview.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={
+            <span>
+              <strong>{pendingReview.length} estimate{pendingReview.length > 1 ? 's' : ''} pending review</strong>
+              {' — '}Insurance estimates received but not yet reviewed for supplement needs.
+            </span>
+          }
+          description={
+            <Space direction="vertical" size={4} style={{ marginTop: 4 }}>
+              {pendingReview.map(s => (
+                <Button
+                  key={s.id}
+                  type="link"
+                  size="small"
+                  style={{ padding: 0, height: 'auto' }}
+                  onClick={() => {
+                    supplementService.get(s.id).then(data => {
+                      setSelectedSupplement(data);
+                      setDetailModalOpen(true);
+                    });
+                  }}
+                >
+                  {s.title} — {s.claim_number || 'No claim #'} ({s.insurance_company || 'N/A'})
+                </Button>
+              ))}
+            </Space>
+          }
+        />
+      )}
 
       {/* Stats */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -231,7 +304,14 @@ const SupplementManagement: React.FC = () => {
 
       {/* Create Modal */}
       <Modal title="Create Supplement Request" open={createModalOpen} width={550}
-        onOk={() => createForm.validateFields().then(v => createMutation.mutate(v))}
+        onOk={() => createForm.validateFields().then(v => {
+          const { required_estimate_keys, ...rest } = v;
+          const required_estimates: Record<string, boolean> = {};
+          REQUIRED_ESTIMATE_OPTIONS.forEach(opt => {
+            required_estimates[opt.key] = (required_estimate_keys || []).includes(opt.key);
+          });
+          createMutation.mutate({ ...rest, required_estimates });
+        })}
         onCancel={() => { setCreateModalOpen(false); createForm.resetFields(); }}
         confirmLoading={createMutation.isPending}>
         <Form form={createForm} layout="vertical" size="small">
@@ -274,6 +354,17 @@ const SupplementManagement: React.FC = () => {
               { value: 'high', label: 'High' }, { value: 'urgent', label: 'Urgent' },
             ]} />
           </Form.Item>
+          <Form.Item name="required_estimate_keys" label="Required Estimates">
+            <Checkbox.Group>
+              <Row>
+                {REQUIRED_ESTIMATE_OPTIONS.map(opt => (
+                  <Col span={12} key={opt.key}>
+                    <Checkbox value={opt.key}>{opt.label}</Checkbox>
+                  </Col>
+                ))}
+              </Row>
+            </Checkbox.Group>
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -308,6 +399,33 @@ const SupplementManagement: React.FC = () => {
                 <div>{selectedSupplement.reason}</div>
               </div>
             )}
+
+            {/* Required Estimates Checklist */}
+            <div style={{ marginBottom: 16 }}>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>Required Estimates</Text>
+              <Checkbox.Group
+                value={Object.entries(selectedSupplement.required_estimates || {})
+                  .filter(([, v]) => v).map(([k]) => k)}
+                onChange={(checkedValues) => {
+                  const required_estimates: Record<string, boolean> = {};
+                  REQUIRED_ESTIMATE_OPTIONS.forEach(opt => {
+                    required_estimates[opt.key] = checkedValues.includes(opt.key);
+                  });
+                  updateMutation.mutate({
+                    id: selectedSupplement.id,
+                    data: { required_estimates },
+                  });
+                }}
+              >
+                <Row>
+                  {REQUIRED_ESTIMATE_OPTIONS.map(opt => (
+                    <Col span={12} key={opt.key}>
+                      <Checkbox value={opt.key}>{opt.label}</Checkbox>
+                    </Col>
+                  ))}
+                </Row>
+              </Checkbox.Group>
+            </div>
 
             <Divider style={{ margin: '12px 0' }} />
 

@@ -6,7 +6,7 @@ import {
   Dropdown, Descriptions, DatePicker, Divider, Empty, Popconfirm,
 } from 'antd';
 import {
-  PlusOutlined, ReloadOutlined, EllipsisOutlined, DeleteOutlined,
+  PlusOutlined, ReloadOutlined, EllipsisOutlined, DeleteOutlined, EditOutlined,
   BuildOutlined, TeamOutlined, FileTextOutlined, CheckCircleOutlined,
   ToolOutlined, HomeOutlined, DollarOutlined, SendOutlined,
 } from '@ant-design/icons';
@@ -44,7 +44,9 @@ const RebuildProjectList: React.FC = () => {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [docModalOpen, setDocModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<RebuildProject | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const [createForm] = Form.useForm();
+  const [editForm] = Form.useForm();
   const [contractorForm] = Form.useForm();
   const [docForm] = Form.useForm();
 
@@ -282,7 +284,32 @@ const RebuildProjectList: React.FC = () => {
       </Modal>
 
       {/* Project Detail Modal */}
-      <Modal title={selectedProject?.title} open={detailModalOpen} width={700} footer={null}
+      <Modal title={selectedProject?.title} open={detailModalOpen} width={700}
+        footer={
+          <Space>
+            <Button onClick={() => { setDetailModalOpen(false); setSelectedProject(null); }}>Close</Button>
+            <Button type="primary" onClick={() => {
+              if (selectedProject) {
+                editForm.setFieldsValue({
+                  title: selectedProject.title,
+                  description: selectedProject.description,
+                  scope_of_work: selectedProject.scope_of_work,
+                  property_address: selectedProject.property_address,
+                  status: selectedProject.status,
+                  priority: selectedProject.priority,
+                  contractor_id: selectedProject.contractor_id,
+                  insurance_estimate_amount: selectedProject.insurance_estimate_amount,
+                  contract_amount: selectedProject.contract_amount,
+                  final_invoice_amount: selectedProject.final_invoice_amount,
+                  start_date: selectedProject.start_date ? dayjs(selectedProject.start_date) : undefined,
+                  estimated_completion: selectedProject.estimated_completion ? dayjs(selectedProject.estimated_completion) : undefined,
+                  notes: selectedProject.notes,
+                });
+                setEditModalOpen(true);
+              }
+            }}>Edit</Button>
+          </Space>
+        }
         onCancel={() => { setDetailModalOpen(false); setSelectedProject(null); }}>
         {selectedProject && (
           <div>
@@ -341,6 +368,89 @@ const RebuildProjectList: React.FC = () => {
             </Space>
           </div>
         )}
+      </Modal>
+
+      {/* Edit Project Modal */}
+      <Modal title="Edit Project" open={editModalOpen} width={600}
+        onOk={() => editForm.validateFields().then(values => {
+          if (selectedProject) {
+            const payload = {
+              ...values,
+              start_date: values.start_date?.toISOString() || null,
+              estimated_completion: values.estimated_completion?.toISOString() || null,
+            };
+            updateProjectMutation.mutate({ id: selectedProject.id, data: payload });
+            setEditModalOpen(false);
+          }
+        })}
+        onCancel={() => { setEditModalOpen(false); editForm.resetFields(); }}
+        confirmLoading={updateProjectMutation.isPending}>
+        <Form form={editForm} layout="vertical" size="small">
+          <Form.Item name="title" label="Title" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="status" label="Status">
+                <Select options={['pending','assigned','in_progress','completed','invoiced','docs_sent','closed']
+                  .map(s => ({ value: s, label: s.replace('_',' ').toUpperCase() }))} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="priority" label="Priority">
+                <Select options={[
+                  { value: 'low', label: 'Low' }, { value: 'normal', label: 'Normal' },
+                  { value: 'high', label: 'High' }, { value: 'urgent', label: 'Urgent' },
+                ]} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="contractor_id" label="Contractor">
+            <Select allowClear placeholder="Select contractor"
+              options={contractors.map((c: RebuildContractor) => ({ value: c.id, label: c.company_name }))} />
+          </Form.Item>
+          <Form.Item name="property_address" label="Property Address">
+            <Input />
+          </Form.Item>
+          <Row gutter={12}>
+            <Col span={8}>
+              <Form.Item name="insurance_estimate_amount" label="Insurance $">
+                <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="contract_amount" label="Contract $">
+                <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="final_invoice_amount" label="Final Invoice $">
+                <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="start_date" label="Start Date">
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="estimated_completion" label="Est. Completion">
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="scope_of_work" label="Scope of Work">
+            <TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="description" label="Description">
+            <TextArea rows={2} />
+          </Form.Item>
+          <Form.Item name="notes" label="Notes">
+            <TextArea rows={2} />
+          </Form.Item>
+        </Form>
       </Modal>
 
       {/* Add Document Modal */}

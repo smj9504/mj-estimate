@@ -80,6 +80,7 @@ export interface WaterMitigationJob {
   // Integration fields
   companycam_project_id?: string;
   google_sheet_row_number?: number;
+  google_sheet_name?: string;
   companycam_last_sync?: string;
   sheets_last_sync?: string;
 
@@ -154,6 +155,7 @@ export interface JobCreateRequest {
   // Integration fields
   companycam_project_id?: string;
   google_sheet_row_number?: number;
+  google_sheet_name?: string;
 }
 
 // Alias for backward compatibility
@@ -203,6 +205,7 @@ export interface JobUpdate {
   // Integration fields
   companycam_project_id?: string;
   google_sheet_row_number?: number;
+  google_sheet_name?: string;
 }
 
 export interface JobStatusUpdate {

@@ -3,9 +3,9 @@ Claim Follow-up API endpoints.
 """
 
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 from app.domains.claim_followup.schemas import (
     CommunicationLogCreate,
@@ -117,10 +117,163 @@ async def update_task(task_id: str, data: FollowUpTaskUpdate):
 
 
 @router.post("/tasks/{task_id}/resolve")
-async def resolve_task(task_id: str, resolution_notes: Optional[str] = None):
-    """Mark a follow-up task as resolved"""
+async def resolve_task(
+    task_id: str,
+    outcome: Optional[str] = Form(None),
+    resolution_notes: Optional[str] = Form(None),
+    acv_amount: Optional[float] = Form(None),
+    rcv_amount: Optional[float] = Form(None),
+    depreciation_amount: Optional[float] = Form(None),
+    deductible: Optional[float] = Form(None),
+    wm_cost_status: Optional[str] = Form(None),
+    wm_estimate_amount: Optional[float] = Form(None),
+    sections_data: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+):
+    """Mark a follow-up task as resolved with optional outcome, amounts, and file"""
     service = _get_service()
-    result = service.resolve_task(task_id, resolution_notes)
+
+    # Handle file upload if provided
+    file_id = None
+    file_name = None
+    if file and file.filename:
+        try:
+            import io
+            import os as _os
+            from app.core.database_factory import get_database
+            from app.domains.file.service import FileService
+            from app.domains.claim_followup.models import FollowUpTask as FUTask
+            from app.domains.client.models import Claim, ClaimNegotiation, Client
+            from sqlalchemy import func as sqlfunc
+
+            db = get_database()
+            session = db.get_session()
+            try:
+                # Build filename: [address]-[version].pdf
+                ext = _os.path.splitext(file.filename)[1] or '.pdf'
+                address_part = ''
+                version = 1
+                task_obj = session.query(FUTask).filter(FUTask.id == task_id).first()
+                if task_obj and task_obj.claim_id:
+                    claim_obj = session.query(Claim).filter(Claim.id == task_obj.claim_id).first()
+                    if claim_obj:
+                        client_obj = session.query(Client).filter(Client.id == claim_obj.client_id).first()
+                        if client_obj and client_obj.address:
+                            address_part = client_obj.address.strip()
+                        max_rev = session.query(sqlfunc.max(ClaimNegotiation.revision_number)).filter(
+                            ClaimNegotiation.claim_id == str(claim_obj.id)
+                        ).scalar() or 0
+                        version = max_rev + 1
+
+                if address_part:
+                    # Sanitize address for filename
+                    safe_address = address_part.replace('/', '-').replace('\\', '-').replace(':', '').replace('"', '')
+                    upload_filename = f"{safe_address}-v{version}{ext}"
+                else:
+                    upload_filename = f"Insurance-Estimate-v{version}{ext}"
+
+                file_service = FileService(db)
+                file_content = await file.read()
+                file_record = await file_service.upload_file(
+                    file_data=io.BytesIO(file_content),
+                    original_filename=upload_filename,
+                    content_type=file.content_type or "application/pdf",
+                    context="insurance_estimate",
+                    context_id=task_id,
+                )
+                session.commit()
+                file_id = str(file_record.get("id", ""))
+                file_name = upload_filename
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"File upload failed during resolve: {e}")
+
+    # Parse sections_data JSON string
+    parsed_sections = None
+    if sections_data:
+        try:
+            import json
+            parsed_sections = json.loads(sections_data)
+        except Exception:
+            pass
+
+    estimate_data = None
+    if acv_amount is not None or rcv_amount is not None or file_id:
+        estimate_data = {
+            'acv_amount': acv_amount or 0,
+            'rcv_amount': rcv_amount or 0,
+            'depreciation_amount': depreciation_amount or 0,
+            'deductible': deductible or 0,
+            'file_id': file_id,
+            'file_name': file_name,
+            'sections_data': parsed_sections,
+            'wm_cost_status': wm_cost_status,
+            'wm_estimate_amount': wm_estimate_amount,
+        }
+
+    result = service.resolve_task(
+        task_id,
+        resolution_notes=resolution_notes,
+        outcome=outcome,
+        estimate_data=estimate_data,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return result
+
+
+@router.post("/tasks/parse-estimate")
+async def parse_estimate_pdf(file: UploadFile = File(...)):
+    """Parse insurance estimate PDF and return extracted sections + totals"""
+    import os
+    import tempfile
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    tmp_path = None
+    try:
+        file_content = await file.read()
+
+        # Write to temp file
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        try:
+            with os.fdopen(tmp_fd, "wb") as tmp_f:
+                tmp_f.write(file_content)
+        except Exception:
+            try:
+                os.close(tmp_fd)
+            except OSError:
+                pass
+            raise
+
+        from app.domains.client.negotiation_pdf_service import extract_summary_from_pdf
+        result = extract_summary_from_pdf(tmp_path)
+
+        return {
+            "sections": result["sections"],
+            "totals": result["totals"],
+            "validation": result.get("validation", {}),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error parsing estimate PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if tmp_path and os.path.isfile(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+@router.post("/tasks/{task_id}/reopen")
+async def reopen_task(task_id: str):
+    """Reopen a resolved follow-up task"""
+    service = _get_service()
+    result = service.reopen_task(task_id)
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")
     return result

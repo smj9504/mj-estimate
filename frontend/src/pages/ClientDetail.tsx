@@ -52,7 +52,8 @@ import {
   SendOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { clientService, claimService, negotiationService } from '../services/clientService';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import { clientService, claimService, negotiationService, claimActivityService } from '../services/clientService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
 import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory } from '../components/claim-followup';
 import type {
@@ -70,6 +71,8 @@ import type {
   PlumberReportSummary,
 } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
+
+dayjs.extend(relativeTime);
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -115,6 +118,56 @@ const formatCurrency = (amount?: number) =>
 
 const formatDate = (dateStr?: string) =>
   dateStr ? dayjs(dateStr).format('MM/DD/YYYY') : '—';
+
+// Activity type config for timeline display
+const ACTIVITY_TYPE_CONFIG: Record<string, { color: string; icon: string }> = {
+  wm_sent_to_adjuster: { color: 'blue', icon: '📤' },
+  followup_created: { color: 'orange', icon: '📋' },
+  estimate_received: { color: 'green', icon: '📨' },
+  estimate_denied: { color: 'red', icon: '❌' },
+  rebuild_created: { color: 'cyan', icon: '🏗️' },
+  supplement_created: { color: 'purple', icon: '📝' },
+  payment_received: { color: 'green', icon: '💰' },
+  status_changed: { color: 'default', icon: '🔄' },
+  note: { color: 'default', icon: '📌' },
+};
+
+const ClaimActivityTimeline: React.FC<{ clientId: string; claimId: string }> = ({ clientId, claimId }) => {
+  const { data: activities = [], isLoading } = useQuery({
+    queryKey: ['claim-activities', claimId],
+    queryFn: () => claimActivityService.getActivities(clientId, claimId),
+  });
+
+  if (isLoading) return <Spin size="small" />;
+  if (activities.length === 0) return <Text type="secondary">No activity recorded yet.</Text>;
+
+  return (
+    <div>
+      <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+        Activity History
+      </Text>
+      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+        {activities.map((activity: any) => {
+          const cfg = ACTIVITY_TYPE_CONFIG[activity.activity_type] || ACTIVITY_TYPE_CONFIG.note;
+          return (
+            <div key={activity.id} style={{ display: 'flex', gap: 8, marginBottom: 8, padding: '4px 0', borderBottom: '1px solid #f0f0f0' }}>
+              <span>{cfg.icon}</span>
+              <div style={{ flex: 1 }}>
+                <Text strong style={{ fontSize: 13 }}>{activity.title}</Text>
+                {activity.description && (
+                  <div><Text type="secondary" style={{ fontSize: 12 }}>{activity.description}</Text></div>
+                )}
+              </div>
+              <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+                {activity.created_at ? dayjs(activity.created_at).fromNow() : ''}
+              </Text>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 const primaryOwner = (owners: OwnerInfo[]) =>
   owners.find((o) => o.is_primary) ?? owners[0];
@@ -346,6 +399,23 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
   }, [open, editingClaim, form]);
 
   const handleFinish = async (values: any) => {
+    if (!values.claim_number) {
+      Modal.confirm({
+        title: 'Claim Number is empty',
+        content: 'Claim number is not entered. You can add it later when you receive it from the insurance company. Continue without claim number?',
+        okText: 'Continue',
+        cancelText: 'Go Back',
+        onOk: async () => {
+          const payload: ClaimCreate = {
+            ...values,
+            client_id: clientId,
+            date_of_loss: values.date_of_loss ? dayjs(values.date_of_loss).format('YYYY-MM-DD') : undefined,
+          };
+          await onSubmit(payload);
+        },
+      });
+      return;
+    }
     const payload: ClaimCreate = {
       ...values,
       client_id: clientId,
@@ -374,8 +444,8 @@ const ClaimModal: React.FC<ClaimModalProps> = ({
         <Row gutter={12}>
           <Col xs={24} sm={12}>
             <Form.Item name="claim_number" label="Claim Number"
-              rules={[{ required: true, message: 'Claim number is required' }]}>
-              <Input placeholder="CLM-2024-001" />
+              tooltip="Insurance claim number (can be added later)">
+              <Input placeholder="e.g. CLM-2024-001" />
             </Form.Item>
           </Col>
           <Col xs={24} sm={12}>
@@ -1169,7 +1239,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
       title: 'Claim #',
       dataIndex: 'claim_number',
       key: 'claim_number',
-      render: (num: string) => <Text strong>{num}</Text>,
+      render: (num: string) => num ? <Text strong>{num}</Text> : <Text type="warning">Not assigned</Text>,
     },
     {
       title: 'Insurance Co.',
@@ -1356,6 +1426,18 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                   {claim.adjuster_email && (
                     <Descriptions.Item label="Adjuster Email">{claim.adjuster_email}</Descriptions.Item>
                   )}
+                  <Descriptions.Item label="Insurance Estimate">
+                    {claim.insurance_estimate_received ? (
+                      <Tag color="green">Received{claim.insurance_estimate_file_name ? ` - ${claim.insurance_estimate_file_name}` : ''}</Tag>
+                    ) : (
+                      <Tag color="orange">Not Received</Tag>
+                    )}
+                  </Descriptions.Item>
+                  {(claim.current_acv > 0 || claim.current_rcv > 0) && (
+                    <Descriptions.Item label="Insurance ACV / RCV">
+                      {formatCurrency(claim.current_acv)} / {formatCurrency(claim.current_rcv)}
+                    </Descriptions.Item>
+                  )}
                   {claim.loss_description && (
                     <Descriptions.Item label="Loss Description" span={3}>
                       {claim.loss_description}
@@ -1443,6 +1525,10 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                   Email History
                 </Text>
                 <EmailHistory claimId={claim.id} />
+
+                {/* Claim Activity Timeline */}
+                <Divider style={{ margin: '16px 0 12px' }} />
+                <ClaimActivityTimeline clientId={client.id} claimId={claim.id} />
               </Panel>
             );
           })}

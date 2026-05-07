@@ -59,6 +59,16 @@ async def get_supplement_stats():
     return service.get_dashboard_stats()
 
 
+@router.get("/supplements/pending-review")
+async def get_pending_review_supplements():
+    """Get supplements that need review (status=identified)"""
+    service = _get_service()
+    items = service.get_requests({'status': 'identified', 'page_size': 50})
+    if isinstance(items, tuple):
+        return items[0]
+    return items
+
+
 @router.get("/supplements/by-claim/{claim_id}", response_model=List[SupplementRequestResponse])
 async def get_supplements_by_claim(claim_id: str):
     service = _get_service()

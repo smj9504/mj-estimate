@@ -37,10 +37,13 @@ class ClaimFollowUpService:
             from app.domains.claim_followup.repository import get_followup_task_repository
             repo = get_followup_task_repository(session)
 
-            # Set initial next_followup_date if auto follow-up is enabled
-            if data.get('auto_followup_enabled'):
-                interval = data.get('followup_interval_days', 3)
-                data['next_followup_date'] = data['due_date']
+            # Set initial next_followup_date if not already set
+            if not data.get('next_followup_date'):
+                if data.get('due_date'):
+                    data['next_followup_date'] = data['due_date']
+                else:
+                    interval = data.get('followup_interval_days', 3)
+                    data['next_followup_date'] = datetime.now(timezone.utc) + timedelta(days=interval)
 
             result = repo.create(data)
             session.commit()
@@ -113,20 +116,397 @@ class ClaimFollowUpService:
         finally:
             session.close()
 
-    def resolve_task(self, task_id: str, resolution_notes: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Mark a task as resolved"""
+    def resolve_task(
+        self,
+        task_id: str,
+        resolution_notes: Optional[str] = None,
+        outcome: Optional[str] = None,
+        estimate_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Mark a task as resolved and process outcome"""
         session = self._get_session()
         try:
             from app.domains.claim_followup.repository import get_followup_task_repository
             repo = get_followup_task_repository(session)
             result = repo.resolve_task(task_id, resolution_notes)
+            if not result:
+                return None
+
+            claim_id = result.get('claim_id')
+
+            # Process outcome
+            if outcome and claim_id:
+                self._process_resolve_outcome(
+                    session, claim_id, result, outcome, resolution_notes,
+                    estimate_data=estimate_data,
+                )
+
             session.commit()
             return result
         except Exception as e:
             session.rollback()
+            logger.error(f"Error resolving task: {e}")
             raise
         finally:
             session.close()
+
+    def reopen_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Reopen a resolved task back to pending"""
+        session = self._get_session()
+        try:
+            from app.domains.claim_followup.repository import get_followup_task_repository
+            repo = get_followup_task_repository(session)
+            task = repo.get_by_id(task_id)
+            if not task:
+                return None
+            result = repo.update(task_id, {
+                'status': 'pending',
+                'resolved_at': None,
+                'resolution_notes': None,
+            })
+            session.commit()
+            return result
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error reopening task: {e}")
+            raise
+        finally:
+            session.close()
+
+    def _process_resolve_outcome(
+        self,
+        session,
+        claim_id: str,
+        task: Dict[str, Any],
+        outcome: str,
+        notes: Optional[str] = None,
+        estimate_data: Optional[Dict[str, Any]] = None,
+    ):
+        """Process follow-up resolution outcome - update claim, create rebuild, log activity"""
+        from app.domains.client.models import Claim, ClaimActivity
+
+        claim = session.query(Claim).filter(Claim.id == claim_id).first()
+        if not claim:
+            logger.warning(f"Claim {claim_id} not found for outcome processing")
+            return
+
+        property_address = task.get('property_address', '') or ''
+
+        if outcome == 'estimate_received':
+            # Update claim - insurance estimate received
+            claim.insurance_estimate_received = True
+            claim.insurance_estimate_received_date = datetime.now(timezone.utc)
+            if claim.status == 'open':
+                claim.status = 'negotiating'
+
+            # Store file info on claim if provided
+            if estimate_data:
+                if estimate_data.get('file_id'):
+                    claim.insurance_estimate_file_id = estimate_data['file_id']
+                    claim.insurance_estimate_file_name = estimate_data.get('file_name', '')
+
+                # Update claim amounts
+                acv = estimate_data.get('acv_amount', 0)
+                rcv = estimate_data.get('rcv_amount', 0)
+                dep = estimate_data.get('depreciation_amount', 0)
+                if acv or rcv:
+                    claim.current_acv = acv
+                    claim.current_rcv = rcv
+                    claim.current_depreciation = dep
+
+                # Create ClaimNegotiation record
+                self._create_negotiation_from_estimate(
+                    session, claim_id, estimate_data
+                )
+
+            # WM cost status tracking
+            wm_cost_status = None
+            if estimate_data:
+                wm_cost_status = estimate_data.get('wm_cost_status')
+                if wm_cost_status:
+                    claim.wm_cost_status = wm_cost_status
+                wm_est_amount = estimate_data.get('wm_estimate_amount')
+                if wm_est_amount:
+                    claim.wm_estimate_amount = wm_est_amount
+
+            # Log activity
+            amount_info = ''
+            if estimate_data and (estimate_data.get('acv_amount') or estimate_data.get('rcv_amount')):
+                amount_info = f" ACV: ${estimate_data.get('acv_amount', 0):,.2f}, RCV: ${estimate_data.get('rcv_amount', 0):,.2f}"
+
+            wm_info = ''
+            if wm_cost_status == 'included_in_rebuild':
+                wm_info = ' | WM costs included in rebuild estimate.'
+            elif wm_cost_status == 'separate_estimate':
+                wm_info = f' | WM estimate received separately.'
+                if estimate_data and estimate_data.get('wm_estimate_amount'):
+                    wm_info += f" WM Amount: ${estimate_data['wm_estimate_amount']:,.2f}"
+            elif wm_cost_status == 'not_received':
+                wm_info = ' | WM costs NOT received - follow-up needed.'
+
+            session.add(ClaimActivity(
+                claim_id=claim_id,
+                activity_type='estimate_received',
+                title='Insurance estimate received',
+                description=(notes or 'Insurance company sent their estimate.') + amount_info + wm_info,
+                related_entity_type='followup_task',
+                related_entity_id=task.get('id'),
+            ))
+
+            # Auto-create Rebuild Project
+            self._auto_create_rebuild_project(session, claim, property_address)
+
+            # Auto-create Supplement for estimate review
+            self._auto_create_supplement(session, claim, estimate_data)
+
+            # Update WM job status if paperwork received
+            if wm_cost_status in ('included_in_rebuild', 'separate_estimate'):
+                self._update_wm_jobs_paperwork_received(session, claim_id)
+
+            # Auto-create WM follow-up task if WM costs not received
+            if wm_cost_status == 'not_received':
+                self._auto_create_wm_followup(session, claim_id, task, claim)
+
+        elif outcome == 'denied':
+            claim.status = 'denied'
+
+            session.add(ClaimActivity(
+                claim_id=claim_id,
+                activity_type='estimate_denied',
+                title='Insurance claim denied',
+                description=notes or 'Insurance company denied the claim.',
+                related_entity_type='followup_task',
+                related_entity_id=task.get('id'),
+            ))
+
+        session.flush()
+
+    def _auto_create_wm_followup(
+        self, session, claim_id: str, source_task: Dict[str, Any], claim
+    ):
+        """Auto-create a follow-up task for WM cost recovery when not received"""
+        try:
+            from app.domains.claim_followup.models import FollowUpTask as FollowUpTaskModel
+            from app.domains.client.models import ClaimActivity
+
+            # Check if a WM payment follow-up already exists
+            existing = session.query(FollowUpTaskModel).filter(
+                FollowUpTaskModel.claim_id == claim_id,
+                FollowUpTaskModel.task_type == 'payment_check',
+                FollowUpTaskModel.status.in_(['pending', 'awaiting_response']),
+                FollowUpTaskModel.title.ilike('%water mitigation%'),
+            ).first()
+            if existing:
+                logger.info(f"WM follow-up already exists for claim {claim_id}")
+                return
+
+            wm_task = FollowUpTaskModel(
+                claim_id=claim_id,
+                task_type='payment_check',
+                title=f'Follow up: WM costs not included in estimate',
+                description=(
+                    'Insurance estimate was received but Water Mitigation costs were not included. '
+                    'Follow up with insurance company to request WM cost coverage.'
+                ),
+                status='pending',
+                priority='high',
+                next_followup_date=datetime.now(timezone.utc) + timedelta(days=3),
+                assigned_to_name=source_task.get('assigned_to_name'),
+                assigned_to_email=source_task.get('assigned_to_email'),
+                assigned_to_role=source_task.get('assigned_to_role', 'adjuster'),
+                auto_followup_enabled=True,
+                followup_interval_days=3,
+                max_followup_count=5,
+            )
+            session.add(wm_task)
+            session.flush()
+
+            session.add(ClaimActivity(
+                claim_id=claim_id,
+                activity_type='followup_created',
+                title='WM cost follow-up auto-created',
+                description='Water mitigation costs not included in insurance estimate. Auto-created follow-up task.',
+                related_entity_type='followup_task',
+                related_entity_id=wm_task.id,
+            ))
+
+            logger.info(f"Auto-created WM follow-up task for claim {claim_id}")
+        except Exception as e:
+            logger.error(f"Error auto-creating WM follow-up: {e}")
+
+    def _update_wm_jobs_paperwork_received(self, session, claim_id: str):
+        """Update WM jobs linked to this claim to 'Paperwork received' status"""
+        try:
+            from app.domains.water_mitigation.models import WaterMitigationJob, WMJobStatusHistory
+            from app.domains.client.models import ClaimActivity
+
+            wm_jobs = session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.claim_id == claim_id,
+                WaterMitigationJob.active == True,
+                WaterMitigationJob.status.in_(['Sent to adjuster', 'Follow up']),
+            ).all()
+
+            for job in wm_jobs:
+                prev_status = job.status
+                job.status = 'Paperwork received'
+
+                # Create status history
+                history = WMJobStatusHistory(
+                    job_id=job.id,
+                    previous_status=prev_status,
+                    new_status='Paperwork received',
+                    notes='Auto-updated: insurance estimate received with WM costs included.',
+                )
+                session.add(history)
+
+                session.add(ClaimActivity(
+                    claim_id=claim_id,
+                    activity_type='status_changed',
+                    title=f'WM Job: {prev_status} → Paperwork received',
+                    description=f'Auto-updated after insurance estimate received ({job.property_address}).',
+                    related_entity_type='wm_job',
+                    related_entity_id=job.id,
+                ))
+
+            if wm_jobs:
+                session.flush()
+                logger.info(f"Updated {len(wm_jobs)} WM job(s) to 'Paperwork received' for claim {claim_id}")
+        except Exception as e:
+            logger.error(f"Error updating WM jobs to paperwork received: {e}")
+
+    def _auto_create_supplement(
+        self, session, claim, estimate_data: Optional[Dict[str, Any]]
+    ):
+        """Auto-create a Supplement Request when insurance estimate is received for review"""
+        try:
+            from app.domains.supplement.models import SupplementRequest
+            from app.domains.client.models import ClaimActivity, Client
+
+            claim_id = str(claim.id)
+
+            # Check if pending review supplement already exists
+            existing = session.query(SupplementRequest).filter(
+                SupplementRequest.claim_id == claim_id,
+                SupplementRequest.status == 'identified',
+            ).first()
+            if existing:
+                logger.info(f"Pending supplement already exists for claim {claim_id}")
+                return
+
+            # Get address
+            client = session.query(Client).filter(Client.id == claim.client_id).first()
+            address = client.address if client else ''
+
+            insurance_rcv = float(estimate_data.get('rcv_amount', 0)) if estimate_data else 0
+
+            supplement = SupplementRequest(
+                claim_id=claim_id,
+                title=f"Review Insurance Estimate - {address}" if address else "Review Insurance Estimate",
+                reason="Insurance estimate received. Review and compare with our estimate to identify supplement needs.",
+                original_amount=insurance_rcv,
+                supplement_amount=0,
+                difference=0 - insurance_rcv,
+                status='identified',
+                priority='high',
+            )
+            session.add(supplement)
+            session.flush()
+
+            # Update claim
+            claim.needs_supplement = True
+            claim.supplement_status = 'identified'
+
+            session.add(ClaimActivity(
+                claim_id=claim_id,
+                activity_type='supplement_created',
+                title='Supplement review created',
+                description=f'Insurance estimate received (RCV: ${insurance_rcv:,.2f}). Review needed to identify supplement requirements.',
+                related_entity_type='supplement',
+                related_entity_id=supplement.id,
+            ))
+
+            logger.info(f"Auto-created supplement for claim {claim_id}")
+        except Exception as e:
+            logger.error(f"Error auto-creating supplement: {e}")
+
+    def _create_negotiation_from_estimate(
+        self, session, claim_id: str, estimate_data: Dict[str, Any]
+    ):
+        """Create a ClaimNegotiation record from insurance estimate data"""
+        try:
+            from app.domains.client.models import ClaimNegotiation
+            from sqlalchemy import func as sqlfunc
+
+            # Get next revision number
+            max_rev = session.query(sqlfunc.max(ClaimNegotiation.revision_number)).filter(
+                ClaimNegotiation.claim_id == claim_id
+            ).scalar() or 0
+
+            negotiation = ClaimNegotiation(
+                claim_id=claim_id,
+                revision_number=max_rev + 1,
+                revision_type='initial',
+                acv_amount=estimate_data.get('acv_amount', 0),
+                rcv_amount=estimate_data.get('rcv_amount', 0),
+                depreciation_amount=estimate_data.get('depreciation_amount', 0),
+                deductible=estimate_data.get('deductible', 0),
+                date_received=datetime.now(timezone.utc),
+                received_from='Insurance Company',
+                document_url=estimate_data.get('file_id', ''),
+                document_name=estimate_data.get('file_name', ''),
+                sections_data=estimate_data.get('sections_data'),
+                notes='Uploaded during follow-up resolution',
+            )
+            session.add(negotiation)
+            session.flush()
+            logger.info(f"Created negotiation revision {max_rev + 1} for claim {claim_id}")
+        except Exception as e:
+            logger.error(f"Error creating negotiation: {e}")
+
+    def _auto_create_rebuild_project(self, session, claim, property_address: str):
+        """Auto-create a Rebuild Project when insurance estimate is received"""
+        try:
+            from app.domains.rebuild.models import RebuildProject
+            from app.domains.client.models import ClaimActivity
+
+            # Check if rebuild project already exists for this claim
+            existing = session.query(RebuildProject).filter(
+                RebuildProject.claim_id == str(claim.id)
+            ).first()
+            if existing:
+                logger.info(f"Rebuild project already exists for claim {claim.id}")
+                return
+
+            claim_number = claim.claim_number or ''
+            address = property_address or (
+                getattr(claim, 'client', None) and
+                getattr(claim.client, 'address', '')
+            ) or ''
+
+            project = RebuildProject(
+                claim_id=str(claim.id),
+                title=f"Rebuild - {address or claim_number}",
+                property_address=address,
+                status='pending',
+                insurance_estimate_amount=float(claim.current_rcv or 0),
+                priority='normal',
+            )
+            session.add(project)
+            session.flush()
+
+            # Log activity
+            session.add(ClaimActivity(
+                claim_id=str(claim.id),
+                activity_type='rebuild_created',
+                title='Rebuild project created',
+                description=f'Auto-created rebuild project after insurance estimate received.',
+                related_entity_type='rebuild_project',
+                related_entity_id=project.id,
+            ))
+
+            logger.info(f"Auto-created rebuild project for claim {claim.id}")
+        except Exception as e:
+            logger.error(f"Error auto-creating rebuild project: {e}")
 
     def delete_task(self, task_id: str) -> bool:
         """Delete a follow-up task"""

@@ -444,11 +444,34 @@ async def add_negotiation(
     data: ClaimNegotiationCreate,
     service: ClaimNegotiationService = Depends(_get_negotiation_service),
 ):
-    """Add a new negotiation revision (auto-updates claim amounts)"""
+    """Add a new negotiation revision (auto-updates claim amounts, creates supplement for review)"""
     try:
         neg_dict = data.dict()
         neg_dict['claim_id'] = claim_id
         result = service.add_negotiation(neg_dict)
+
+        # Auto-create supplement for review
+        try:
+            from app.domains.claim_followup.service import ClaimFollowUpService
+            followup_service = ClaimFollowUpService()
+            from app.core.database_factory import get_database
+            db = get_database()
+            session = db.get_session()
+            try:
+                from app.domains.client.models import Claim
+                claim = session.query(Claim).filter(Claim.id == claim_id).first()
+                if claim:
+                    estimate_data = {
+                        'rcv_amount': float(neg_dict.get('rcv_amount', 0)),
+                        'acv_amount': float(neg_dict.get('acv_amount', 0)),
+                    }
+                    followup_service._auto_create_supplement(session, claim, estimate_data)
+                    session.commit()
+            finally:
+                session.close()
+        except Exception as e:
+            logger.warning(f"Auto supplement creation failed: {e}")
+
         return result
     except Exception as e:
         logger.error(f"Error adding negotiation: {e}")
@@ -650,3 +673,37 @@ async def delete_expense(
     if not service.delete_expense(expense_id):
         raise HTTPException(status_code=404, detail="Expense not found")
     return {"message": "Expense deleted"}
+
+
+# ============================================================
+# Claim Activity (History) endpoints
+# ============================================================
+
+@router.get("/{client_id}/claims/{claim_id}/activities", response_model=None)
+async def get_claim_activities(client_id: str, claim_id: str):
+    """Get all activity history for a claim"""
+    from app.core.database_factory import get_database
+    from app.domains.client.models import ClaimActivity
+
+    database = get_database()
+    session = database.get_readonly_session()
+    try:
+        activities = session.query(ClaimActivity).filter(
+            ClaimActivity.claim_id == claim_id
+        ).order_by(ClaimActivity.created_at.desc()).all()
+
+        return [
+            {
+                "id": str(a.id),
+                "claim_id": str(a.claim_id),
+                "activity_type": a.activity_type,
+                "title": a.title,
+                "description": a.description,
+                "related_entity_type": a.related_entity_type,
+                "related_entity_id": str(a.related_entity_id) if a.related_entity_id else None,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+            }
+            for a in activities
+        ]
+    finally:
+        session.close()

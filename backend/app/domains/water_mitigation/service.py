@@ -143,7 +143,87 @@ class WaterMitigationService:
 
         logger.info(f"Job {job_id} status changed: {previous_status} → {new_status}")
 
+        # Auto-create follow-up task when status changes to "Sent to adjuster"
+        if new_status == 'Sent to adjuster' and previous_status != 'Sent to adjuster':
+            self._create_followup_for_sent_to_adjuster(job, job_id)
+
+        # Log activity on claim
+        self._log_claim_activity(job, job_id, previous_status, new_status)
+
         return updated_job
+
+    def _log_claim_activity(self, job, job_id, previous_status, new_status):
+        """Log WM status change as a ClaimActivity on the linked claim"""
+        try:
+            claim_id = job.get('claim_id') if isinstance(job, dict) else getattr(job, 'claim_id', None)
+            if not claim_id:
+                return
+
+            from app.domains.client.models import ClaimActivity
+
+            property_address = job.get('property_address', '') if isinstance(job, dict) else getattr(job, 'property_address', '')
+
+            activity = ClaimActivity(
+                claim_id=claim_id,
+                activity_type='wm_sent_to_adjuster' if new_status == 'Sent to adjuster' else 'status_changed',
+                title=f"WM Job: {previous_status} → {new_status}",
+                description=f"Water mitigation job ({property_address}) status changed.",
+                related_entity_type='wm_job',
+                related_entity_id=str(job_id),
+            )
+            self.session.add(activity)
+            self.session.flush()
+        except Exception as e:
+            logger.error(f"Error logging claim activity for WM job {job_id}: {e}")
+
+    def _create_followup_for_sent_to_adjuster(
+        self,
+        job: Dict[str, Any],
+        job_id: UUID
+    ):
+        """Auto-create a follow-up task when WM job is sent to adjuster"""
+        try:
+            claim_id = job.get('claim_id') if isinstance(job, dict) else getattr(job, 'claim_id', None)
+            if not claim_id:
+                logger.warning(f"WM Job {job_id} has no linked claim, skipping follow-up creation")
+                return
+
+            from app.domains.claim_followup.models import FollowUpTask
+            from datetime import timedelta, timezone
+
+            property_address = job.get('property_address', '') if isinstance(job, dict) else getattr(job, 'property_address', '')
+            adjuster_name = job.get('adjuster_name', '') if isinstance(job, dict) else getattr(job, 'adjuster_name', '')
+            adjuster_email = job.get('adjuster_email', '') if isinstance(job, dict) else getattr(job, 'adjuster_email', '')
+            adjuster_phone = job.get('adjuster_phone', '') if isinstance(job, dict) else getattr(job, 'adjuster_phone', '')
+            sheet_name = job.get('google_sheet_name', '') if isinstance(job, dict) else getattr(job, 'google_sheet_name', '')
+
+            pa_info = f" | PA: {sheet_name}" if sheet_name else ""
+            next_followup = datetime.now(timezone.utc) + timedelta(days=3)
+
+            followup = FollowUpTask(
+                claim_id=claim_id,
+                wm_job_id=str(job_id),
+                task_type='wm_docs_sent',
+                title=f"WM Follow up - Docs sent to adjuster ({property_address}){pa_info}",
+                description=f"Water mitigation documents (Invoice, COS, EWA, Photo Report) sent to adjuster.{pa_info}",
+                status='pending',
+                next_followup_date=next_followup,
+                auto_followup_enabled=True,
+                followup_interval_days=3,
+                max_followup_count=5,
+                assigned_to_name=adjuster_name,
+                assigned_to_email=adjuster_email,
+                assigned_to_phone=adjuster_phone,
+                assigned_to_role='adjuster',
+                priority='normal',
+            )
+            self.session.add(followup)
+            self.session.commit()
+            logger.info(f"Auto-created follow-up task for WM Job {job_id} (sent to adjuster)")
+
+        except Exception as e:
+            logger.error(f"Error auto-creating follow-up for WM Job {job_id}: {e}")
+            # Don't fail the status update if follow-up creation fails
 
     def toggle_job_active(
         self,

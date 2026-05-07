@@ -14,10 +14,11 @@ from pydantic import BaseModel, Field, validator
 # ============================================================
 
 class FollowUpTaskBase(BaseModel):
-    task_type: str = Field(..., description="docs_sent | payment_check | estimate_request | supplement_sent | general")
+    task_type: str = Field(..., description="docs_sent | payment_check | estimate_request | supplement_sent | depreciation_recovery | general")
     title: str
     description: Optional[str] = None
-    due_date: datetime
+    due_date: Optional[datetime] = None
+    next_followup_date: Optional[datetime] = None
     priority: str = Field("normal", description="low | normal | high | urgent")
     assigned_to_name: Optional[str] = None
     assigned_to_email: Optional[str] = None
@@ -29,7 +30,7 @@ class FollowUpTaskBase(BaseModel):
 
     @validator('task_type')
     def validate_task_type(cls, v):
-        allowed = ['docs_sent', 'payment_check', 'estimate_request', 'supplement_sent', 'general']
+        allowed = ['wm_docs_sent', 'supplement_sent', 'depreciation_recovery', 'estimate_request', 'payment_check', 'docs_sent', 'general']
         if v not in allowed:
             raise ValueError(f"task_type must be one of {allowed}")
         return v
@@ -68,6 +69,20 @@ class FollowUpTaskUpdate(BaseModel):
             allowed = ['pending', 'awaiting_response', 'responded', 'resolved', 'overdue', 'cancelled']
             if v not in allowed:
                 raise ValueError(f"status must be one of {allowed}")
+        return v
+
+
+class FollowUpTaskResolve(BaseModel):
+    """Request body for resolving a follow-up task with outcome"""
+    resolution_notes: Optional[str] = None
+    outcome: Optional[str] = None  # estimate_received | denied | other
+
+    @validator('outcome')
+    def validate_outcome(cls, v):
+        if v is not None:
+            allowed = ['estimate_received', 'denied', 'other']
+            if v not in allowed:
+                raise ValueError(f"outcome must be one of {allowed}")
         return v
 
 

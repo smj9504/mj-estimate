@@ -27,6 +27,11 @@ export const supplementService = {
     return data;
   },
 
+  async getPendingReview(): Promise<SupplementRequest[]> {
+    const { data } = await api.get(`${BASE_URL}/pending-review`);
+    return data;
+  },
+
   async getByClaim(claimId: string): Promise<SupplementRequest[]> {
     const { data } = await api.get(`${BASE_URL}/by-claim/${claimId}`);
     return data;

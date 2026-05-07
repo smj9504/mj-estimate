@@ -78,6 +78,13 @@ class SupplementRequest(Base, BaseModel):
     response_date = Column(DateTime(timezone=True))
     response_notes = Column(Text)
 
+    # Required estimate types checklist (e.g. {"xactimate": true, "pack_in_out": false, ...})
+    required_estimates = Column(
+        JSONB,
+        default={},
+        comment="Checklist of required estimate types: xactimate, pack_in_out, cabinet, bathroom"
+    )
+
     # Document reference (supplement estimate PDF)
     document_file_id = Column(String(255), comment="Supplement estimate PDF file ID")
     document_file_name = Column(String(500))

@@ -224,3 +224,12 @@ export const expenseService = {
     );
   },
 };
+
+export const claimActivityService = {
+  async getActivities(clientId: string, claimId: string) {
+    const { data } = await api.get(
+      `/api/clients/${clientId}/claims/${claimId}/activities`
+    );
+    return data;
+  },
+};

@@ -22,6 +22,7 @@ class SupplementRequestBase(BaseModel):
     priority: str = "normal"
     submitted_to: Optional[str] = None
     submitted_to_email: Optional[str] = None
+    required_estimates: Optional[Dict[str, bool]] = None
 
 
 class SupplementRequestCreate(SupplementRequestBase):
@@ -44,6 +45,7 @@ class SupplementRequestUpdate(BaseModel):
     response_notes: Optional[str] = None
     document_file_id: Optional[str] = None
     document_file_name: Optional[str] = None
+    required_estimates: Optional[Dict[str, bool]] = None
 
     @validator('status')
     def validate_status(cls, v):

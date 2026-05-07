@@ -23,6 +23,7 @@ export interface SupplementRequest {
   submitted_date?: string;
   response_date?: string;
   response_notes?: string;
+  required_estimates?: Record<string, boolean>;
   document_file_id?: string;
   document_file_name?: string;
   created_at?: string;
@@ -47,6 +48,7 @@ export interface SupplementRequestCreate {
   priority?: string;
   submitted_to?: string;
   submitted_to_email?: string;
+  required_estimates?: Record<string, boolean>;
 }
 
 export interface BidItemEstimate {
