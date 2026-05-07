@@ -137,8 +137,14 @@ def generate_pdf(
 
     # ── Job Info Table ──
     today = datetime.now().strftime("%m/%d/%Y")
+    info_val_style = ParagraphStyle(
+        "InfoValue",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=12,
+    )
     info_data = [
-        ["Property Address:", property_address or "N/A", "Order Date:", today],
+        ["Property Address:", Paragraph(property_address or "N/A", info_val_style), "Order Date:", today],
         ["EagleView Report #:", report_number or "N/A", "Delivery Date:", delivery_date or "TBD"],
         ["Brand:", brand or "N/A", "Product:", product or "N/A"],
         ["Color:", color or "N/A", "", ""],
@@ -154,6 +160,7 @@ def generate_pdf(
         ("TEXTCOLOR", (2, 0), (2, -1), colors.HexColor(COLOR_PRIMARY)),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
     ]))
     elements.append(info_table)
     elements.append(Spacer(1, 12))
@@ -218,9 +225,9 @@ def generate_pdf(
     mat_items = [MaterialItem(**m) if isinstance(m, dict) else m for m in materials]
 
     if is_supply_order:
-        # Supply Order: Qty + U/M + Description + Note
-        header = ["#", "Qty", "U/M", "Description", "Note"]
-        col_widths = [0.35 * inch, 0.6 * inch, 0.5 * inch, 3.5 * inch, 2.05 * inch]
+        # Supply Order: Qty + U/M + Description
+        header = ["#", "Qty", "U/M", "Description"]
+        col_widths = [0.35 * inch, 0.6 * inch, 0.5 * inch, 5.55 * inch]
     else:
         # Internal Estimate: Qty + U/M + Description + Unit Price + Subtotal
         header = ["#", "Qty", "U/M", "Description", "Formula", "Unit $", "Subtotal"]
@@ -239,7 +246,7 @@ def generate_pdf(
         # Category header row
         cat_label = CATEGORY_LABELS.get(cat_key, cat_key.title())
         if is_supply_order:
-            table_data.append(["", "", "", Paragraph(f"<b>{cat_label}</b>", normal_style), ""])
+            table_data.append(["", "", "", Paragraph(f"<b>{cat_label}</b>", normal_style)])
         else:
             table_data.append(["", "", "", Paragraph(f"<b>{cat_label}</b>", normal_style), "", "", ""])
         row_idx += 1
@@ -255,7 +262,6 @@ def generate_pdf(
                     str(int(item.qty)) if item.qty == int(item.qty) else f"{item.qty:.1f}",
                     item.unit,
                     Paragraph(item.item, small_style),
-                    Paragraph(item.note, small_style) if item.note else "",
                 ])
             else:
                 price_str = f"${item.unit_price:,.2f}" if item.unit_price else "-"
