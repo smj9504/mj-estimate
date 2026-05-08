@@ -27,6 +27,7 @@ export type WMSketchTool =
   | 'select'
   | 'demolition'
   | 'demolition_line'
+  | 'demolition_polygon'
   | 'equipment'
   | 'containment'
   | 'floor_protection'
@@ -399,6 +400,17 @@ export interface WMDemolitionZone {
    * when dimension2_ft is still 0. Not persisted to the database.
    */
   pixel_height?: number;
+  /**
+   * Polygon vertices in canvas pixel coordinates (relative to zone x,y origin).
+   * When present, the zone is rendered as a closed polygon instead of a rectangle.
+   * Used for irregular ceiling/floor demolition areas that follow wall contours.
+   */
+  polygon_points?: { x: number; y: number }[];
+  /**
+   * Snapshot of original zones before combining.
+   * Present only on a combined (grouped) zone. Used to restore individual zones on Ungroup.
+   */
+  combined_from?: WMDemolitionZone[];
 }
 
 /** A piece of drying equipment placed at a specific canvas position */

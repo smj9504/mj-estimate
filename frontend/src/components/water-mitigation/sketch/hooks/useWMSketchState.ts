@@ -68,6 +68,8 @@ type WMSketchAction =
   | { type: 'ADD_DEMOLITION_ZONE'; payload: WMDemolitionZone }
   | { type: 'UPDATE_DEMOLITION_ZONE'; payload: Partial<WMDemolitionZone> & { id: string } }
   | { type: 'REMOVE_DEMOLITION_ZONE'; payload: string }
+  | { type: 'COMBINE_DEMOLITION_ZONES'; payload: { removeIds: string[]; addZone: WMDemolitionZone } }
+  | { type: 'UNGROUP_DEMOLITION_ZONE'; payload: { removeId: string; addZones: WMDemolitionZone[] } }
 
   // Equipment placements
   | { type: 'ADD_EQUIPMENT'; payload: WMEquipmentPlacement }
@@ -261,6 +263,45 @@ function wmSketchReducer(
           demolition_zones: state.overlayData.demolition_zones.filter(
             (z) => z.id !== action.payload
           ),
+        },
+      };
+    }
+
+    case 'COMBINE_DEMOLITION_ZONES': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const removeSet = new Set(action.payload.removeIds);
+      const remaining = state.overlayData.demolition_zones.filter(
+        (z) => !removeSet.has(z.id)
+      );
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        selections: [],
+        selection: null,
+        overlayData: {
+          ...state.overlayData,
+          demolition_zones: [...remaining, action.payload.addZone],
+        },
+      };
+    }
+
+    case 'UNGROUP_DEMOLITION_ZONE': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const remaining = state.overlayData.demolition_zones.filter(
+        (z) => z.id !== action.payload.removeId
+      );
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        selections: [],
+        selection: null,
+        overlayData: {
+          ...state.overlayData,
+          demolition_zones: [...remaining, ...action.payload.addZones],
         },
       };
     }
@@ -882,6 +923,8 @@ export interface WMSketchStateReturn {
   addDemolitionZone: (zone: WMDemolitionZone) => void;
   updateDemolitionZone: (patch: Partial<WMDemolitionZone> & { id: string }) => void;
   removeDemolitionZone: (id: string) => void;
+  combineDemolitionZones: (removeIds: string[], addZone: WMDemolitionZone) => void;
+  ungroupDemolitionZone: (removeId: string, addZones: WMDemolitionZone[]) => void;
 
   // Equipment
   addEquipment: (placement: WMEquipmentPlacement) => void;
@@ -1019,6 +1062,18 @@ export function useWMSketchState(
 
   const removeDemolitionZone = useCallback(
     (id: string) => dispatch({ type: 'REMOVE_DEMOLITION_ZONE', payload: id }),
+    []
+  );
+
+  const combineDemolitionZones = useCallback(
+    (removeIds: string[], addZone: WMDemolitionZone) =>
+      dispatch({ type: 'COMBINE_DEMOLITION_ZONES', payload: { removeIds, addZone } }),
+    []
+  );
+
+  const ungroupDemolitionZone = useCallback(
+    (removeId: string, addZones: WMDemolitionZone[]) =>
+      dispatch({ type: 'UNGROUP_DEMOLITION_ZONE', payload: { removeId, addZones } }),
     []
   );
 
@@ -1213,6 +1268,8 @@ export function useWMSketchState(
     addDemolitionZone,
     updateDemolitionZone,
     removeDemolitionZone,
+    combineDemolitionZones,
+    ungroupDemolitionZone,
     addEquipment,
     updateEquipment,
     removeEquipment,

@@ -303,7 +303,7 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
   // ------------------------------------------------------------------
   const toolButtonType = (tool: WMSketchTool) => {
     if (tool === 'demolition') {
-      return (activeTool === 'demolition' || activeTool === 'demolition_line')
+      return (activeTool === 'demolition' || activeTool === 'demolition_line' || activeTool === 'demolition_polygon')
         ? ('primary' as const)
         : ('default' as const);
     }
@@ -436,6 +436,28 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           />
         </Dropdown>
       </SpaceCompact>
+
+      {/* Group 2b — Polygon Demolition */}
+      <Tooltip title="Draw irregular polygon demolition zone (click vertices, double-click or click near start to close)">
+        <Button
+          type={activeTool === 'demolition_polygon' ? 'primary' : 'default'}
+          size="small"
+          onClick={() => {
+            if (!activeMaterialTypeId && materialTypes.length > 0) {
+              onMaterialTypeChange(materialTypes[0].id);
+            }
+            onToolChange('demolition_polygon');
+          }}
+          style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+        >
+          <span role="img" className="anticon" style={{ display: 'inline-flex' }}>
+            <svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <polygon points="3,12 1,5 5,1 12,2 15,8 13,14 7,15" />
+            </svg>
+          </span>
+          Polygon
+        </Button>
+      </Tooltip>
 
       {/* Group 3 — Equipment */}
       <SpaceCompact>

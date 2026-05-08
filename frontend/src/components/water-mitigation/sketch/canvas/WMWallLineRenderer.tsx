@@ -2,13 +2,14 @@
  * WMWallLineRenderer
  * Renders a wall demolition or baseboard/quarter-round zone as a line
  * on the Konva canvas. Walls are thicker solid lines; baseboards are
- * thinner dashed lines. Both support drag and endpoint manipulation.
+ * thinner dashed lines. Both support drag, endpoint manipulation,
+ * and independent rotation via a dedicated rotation handle.
  *
  * - Wall (SF): drawn as a thick line; area = length_ft * height_ft
  * - Baseboard / Quarter Round (LF): drawn as a thinner dashed line; value = length in LF
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useRef, useMemo } from 'react';
 import { Group, Line, Circle, Rect, Text } from 'react-konva';
 import Konva from 'konva';
 import { WMDemolitionZone, DemoMaterialType, DEFAULT_DEMO_MATERIAL_TYPES } from '../../../../types/wmSketch';
@@ -32,6 +33,9 @@ function getMaterial(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]) 
   );
 }
 
+/** Rotation anchor offset above the line midpoint */
+const ROTATE_ANCHOR_OFFSET = 24;
+
 const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
   zone,
   isSelected,
@@ -44,10 +48,16 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
 }) => {
   const mat = getMaterial(zone, materialTypes);
   const isLF = mat?.unit === 'LF';
+  const groupRef = useRef<Konva.Group>(null);
 
   // dimension1_ft stores the line length
   const lengthPx = zone.dimension1_ft * scalePixelsPerFoot;
   const color = zone.color || mat?.color || '#FF5722';
+
+  // Live rotation state for preview while dragging rotation handle
+  const [liveRotation, setLiveRotation] = useState<number | null>(null);
+  const isRotating = liveRotation !== null;
+  const displayRotation = liveRotation ?? zone.rotation;
 
   // Line styling
   const lineWidth = isLF ? 3 : 5;
@@ -77,6 +87,7 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
     [zone.id, onDragEnd],
   );
 
+  // Endpoint drag — changes both length and angle
   const handleEndpointDrag = useCallback(
     (e: Konva.KonvaEventObject<DragEvent>) => {
       if (!onTransformEnd) return;
@@ -105,6 +116,57 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
     [zone.id, scalePixelsPerFoot, onTransformEnd],
   );
 
+  // Rotation handle — changes only rotation, keeps length fixed
+  const handleRotateDragMove = useCallback(
+    (e: Konva.KonvaEventObject<DragEvent>) => {
+      e.cancelBubble = true;
+      const handle = e.target;
+      const stage = handle.getStage();
+      if (!stage) return;
+
+      const group = handle.getParent();
+      if (!group) return;
+
+      // Get the group's origin in stage (canvas) coords
+      const groupAbsPos = group.getAbsolutePosition();
+      const stageTransform = stage.getAbsoluteTransform().copy().invert();
+      const groupCanvas = stageTransform.point(groupAbsPos);
+
+      // Get the handle's current position in stage (canvas) coords
+      const handleAbsPos = handle.getAbsolutePosition();
+      const handleCanvas = stageTransform.point(handleAbsPos);
+
+      // Calculate angle from group origin to handle position
+      const dx = handleCanvas.x - groupCanvas.x;
+      const dy = handleCanvas.y - groupCanvas.y;
+      const angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
+
+      // Adjust: the handle sits at midpoint offset above the line,
+      // so we need to subtract 90 degrees (anchor is perpendicular)
+      const rotationDeg = angleDeg + 90;
+
+      setLiveRotation(rotationDeg);
+
+      // Reset handle to its nominal local position (midpoint above line)
+      // so it doesn't fly away from the group
+      handle.position({ x: lengthPx / 2, y: -ROTATE_ANCHOR_OFFSET });
+    },
+    [lengthPx],
+  );
+
+  const handleRotateDragEnd = useCallback(
+    (e: Konva.KonvaEventObject<DragEvent>) => {
+      e.cancelBubble = true;
+      if (!onTransformEnd || liveRotation === null) {
+        setLiveRotation(null);
+        return;
+      }
+      onTransformEnd(zone.id, zone.dimension1_ft, liveRotation);
+      setLiveRotation(null);
+    },
+    [zone.id, zone.dimension1_ft, liveRotation, onTransformEnd],
+  );
+
   // Zero-length: show a small placeholder so multiple list-only zones are
   // visible and selectable (they would otherwise stack invisibly at 0 LF).
   if (lengthPx <= 0) {
@@ -112,7 +174,7 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
       <Group
         x={zone.x}
         y={zone.y}
-        rotation={zone.rotation}
+        rotation={displayRotation}
         draggable
         onClick={handleClick}
         onTap={handleClick}
@@ -162,10 +224,11 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
 
   return (
     <Group
+      ref={groupRef}
       x={zone.x}
       y={zone.y}
-      rotation={zone.rotation}
-      draggable
+      rotation={displayRotation}
+      draggable={!isRotating}
       onClick={handleClick}
       onTap={handleClick}
       onDragEnd={handleDragEnd}
@@ -259,9 +322,10 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
         </>
       )}
 
-      {/* Endpoint handles (only when selected) */}
+      {/* Endpoint handles + Rotation handle (only when selected) */}
       {isSelected && (
         <>
+          {/* Start endpoint (fixed) */}
           <Circle
             x={0}
             y={0}
@@ -271,6 +335,8 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
             strokeWidth={2}
             listening={false}
           />
+
+          {/* End endpoint (draggable — changes length + angle) */}
           <Circle
             x={lengthPx}
             y={0}
@@ -288,6 +354,47 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
               const s = e.target.getStage();
               if (s) s.container().style.cursor = '';
             }}
+          />
+
+          {/* Rotation handle — above the midpoint */}
+          <Line
+            points={[lengthPx / 2, 0, lengthPx / 2, -ROTATE_ANCHOR_OFFSET]}
+            stroke="#1890ff"
+            strokeWidth={1}
+            dash={[3, 2]}
+            listening={false}
+          />
+          <Circle
+            x={lengthPx / 2}
+            y={-ROTATE_ANCHOR_OFFSET}
+            radius={5}
+            fill={isRotating ? '#1890ff' : '#ffffff'}
+            stroke="#1890ff"
+            strokeWidth={2}
+            draggable
+            onDragStart={(e) => {
+              e.cancelBubble = true;
+              setLiveRotation(zone.rotation);
+            }}
+            onDragMove={handleRotateDragMove}
+            onDragEnd={handleRotateDragEnd}
+            onMouseEnter={(e) => {
+              const s = e.target.getStage();
+              if (s) s.container().style.cursor = 'crosshair';
+            }}
+            onMouseLeave={(e) => {
+              const s = e.target.getStage();
+              if (s) s.container().style.cursor = '';
+            }}
+          />
+          {/* Rotation icon (↻) on the handle */}
+          <Text
+            x={lengthPx / 2 - 4}
+            y={-ROTATE_ANCHOR_OFFSET - 4}
+            text="↻"
+            fontSize={8}
+            fill="#1890ff"
+            listening={false}
           />
         </>
       )}

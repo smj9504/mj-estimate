@@ -49,6 +49,8 @@ import {
   ArrowUpOutlined,
   ArrowDownOutlined,
   DeleteOutlined,
+  GroupOutlined,
+  UngroupOutlined,
 } from '@ant-design/icons';
 import { Stage, Layer } from 'react-konva';
 import type Konva from 'konva';
@@ -87,6 +89,7 @@ import {
   generateOverlayId,
   pixelsToFeet,
   calcDemoZoneSqft,
+  calcPolygonAreaSqft,
   calcContainmentSqft,
   calcFloorProtectionSqft,
   calcContentProtectionSqft,
@@ -165,6 +168,42 @@ function polygonArea(polygon: { x: number; y: number }[]): number {
     area += (polygon[j].x + polygon[i].x) * (polygon[j].y - polygon[i].y);
   }
   return area / 2;
+}
+
+/**
+ * Compute the convex hull of a set of 2D points using Andrew's monotone chain.
+ * Returns vertices in counter-clockwise order.
+ */
+function convexHull(pts: { x: number; y: number }[]): { x: number; y: number }[] {
+  const sorted = [...pts].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (sorted.length <= 2) return sorted;
+
+  const cross = (o: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  // Lower hull
+  const lower: { x: number; y: number }[] = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+
+  // Upper hull
+  const upper: { x: number; y: number }[] = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+
+  // Remove last point of each half because it's repeated
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
 }
 
 /** Find the closest point on a line segment to a given point */
@@ -377,6 +416,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     setActiveEquipmentType,
     addDemolitionZone,
     updateDemolitionZone,
+    combineDemolitionZones,
+    ungroupDemolitionZone,
     addEquipment,
     updateEquipment,
     addContainment,
@@ -594,6 +635,15 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   wallDrawStartRef.current = wallDrawStart;
   const [wallDrawCursor, setWallDrawCursor] = useState<{ x: number; y: number } | null>(null);
   const [wallSnapEnd, setWallSnapEnd] = useState<{ x: number; y: number } | null>(null);
+
+  // ------------------------------------------------------------------
+  // Polygon drawing state (click-to-place vertices, double-click or close to finish)
+  // ------------------------------------------------------------------
+  const [polygonDrawPoints, setPolygonDrawPoints] = useState<{ x: number; y: number }[]>([]);
+  const polygonDrawPointsRef = useRef<{ x: number; y: number }[]>([]);
+  polygonDrawPointsRef.current = polygonDrawPoints;
+  const [polygonDrawCursor, setPolygonDrawCursor] = useState<{ x: number; y: number } | null>(null);
+  const POLYGON_CLOSE_THRESHOLD = 15; // px distance to first vertex to close
 
   /**
    * Find the nearest existing wall endpoint within snap threshold.
@@ -859,6 +909,244 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     [selectElement, bringToFront, setTool]
   );
 
+  /** Finalize a polygon demolition zone from accumulated polygon drawing points */
+  const finalizePolygon = useCallback(
+    (points: { x: number; y: number }[]) => {
+      if (points.length < 3) {
+        setPolygonDrawPoints([]);
+        setPolygonDrawCursor(null);
+        return;
+      }
+
+      const st = stateRef.current;
+      const fs = floorSketchRef.current;
+      const mats = materialTypesRef.current;
+
+      const matId = st.activeMaterialTypeId ?? mats[0]?.id ?? 'ceiling';
+      const matDef =
+        mats.find((m) => m.id === matId) ??
+        DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === matId);
+
+      // Compute bounding box origin
+      let minX = Infinity, minY = Infinity;
+      for (const p of points) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+      }
+
+      // Store points relative to the zone's (x, y) = (minX, minY)
+      const relativePoints = points.map((p) => ({
+        x: p.x - minX,
+        y: p.y - minY,
+      }));
+
+      const areaSqft = calcPolygonAreaSqft(points, fs.scale_pixels_per_foot);
+
+      const newId = generateOverlayId();
+      const zone: WMDemolitionZone = {
+        id: newId,
+        floor_sketch_id: fs.id,
+        material_type: matId,
+        surface: matDef?.surface ?? 'ceiling',
+        color: matDef?.color ?? '#228B22',
+        x: minX,
+        y: minY,
+        dimension1_ft: 0,
+        dimension2_ft: 0,
+        rotation: 0,
+        calculated_sqft: areaSqft,
+        display_order: st.overlayData.demolition_zones.length,
+        render_mode: matDef?.render_mode,
+        stroke_style: matDef?.stroke_style,
+        fill_opacity: matDef?.fill_opacity,
+        polygon_points: relativePoints,
+      };
+
+      addDemolitionZone(zone);
+      selectNewElement(newId, 'demolition');
+      setPolygonDrawPoints([]);
+      setPolygonDrawCursor(null);
+    },
+    [addDemolitionZone, selectNewElement],
+  );
+
+  // ------------------------------------------------------------------
+  // Combine / Ungroup demolition zones
+  // ------------------------------------------------------------------
+
+  /**
+   * Convert a rect zone to absolute polygon points (canvas coords).
+   * Returns 4 corners of the rectangle, accounting for rotation.
+   */
+  const rectToAbsolutePolygon = useCallback(
+    (zone: WMDemolitionZone): { x: number; y: number }[] => {
+      const scale = floorSketch.scale_pixels_per_foot;
+      let w: number, h: number;
+      if (zone.dimension1_ft > 0 && zone.dimension2_ft > 0) {
+        w = zone.dimension1_ft * scale;
+        h = zone.dimension2_ft * scale;
+      } else {
+        w = zone.pixel_width || 60;
+        h = zone.pixel_height || 40;
+      }
+      // Rectangle corners in local coords
+      const corners = [
+        { x: 0, y: 0 },
+        { x: w, y: 0 },
+        { x: w, y: h },
+        { x: 0, y: h },
+      ];
+      // Apply rotation around (0,0) then translate
+      const rad = (zone.rotation || 0) * Math.PI / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      return corners.map((c) => ({
+        x: zone.x + c.x * cos - c.y * sin,
+        y: zone.y + c.x * sin + c.y * cos,
+      }));
+    },
+    [floorSketch.scale_pixels_per_foot],
+  );
+
+  /**
+   * Get absolute polygon points for any demolition zone (rect or polygon).
+   */
+  const getAbsolutePoints = useCallback(
+    (zone: WMDemolitionZone): { x: number; y: number }[] => {
+      if (zone.polygon_points && zone.polygon_points.length >= 3) {
+        return zone.polygon_points.map((p) => ({ x: p.x + zone.x, y: p.y + zone.y }));
+      }
+      return rectToAbsolutePolygon(zone);
+    },
+    [rectToAbsolutePolygon],
+  );
+
+  /**
+   * Combine selected demolition zones into a single polygon zone.
+   * All zones must be the same material type.
+   * The combined zone stores original zones in `combined_from` for ungroup.
+   */
+  const combineSelectedZones = useCallback(() => {
+    const st = stateRef.current;
+    const demoSelections = st.selections.filter((s) => s.element_type === 'demolition');
+    if (demoSelections.length < 2) {
+      message.warning('Combine하려면 2개 이상의 demolition 요소를 선택하세요.');
+      return;
+    }
+
+    const zones = demoSelections
+      .map((s) => st.overlayData.demolition_zones.find((z) => z.id === s.element_id))
+      .filter((z): z is WMDemolitionZone => z != null);
+
+    if (zones.length < 2) return;
+
+    // All zones must have the same material type
+    const materialType = zones[0].material_type;
+    const mixedMaterials = zones.some((z) => z.material_type !== materialType);
+    if (mixedMaterials) {
+      message.warning('같은 Material Type의 요소만 Combine할 수 있습니다.');
+      return;
+    }
+
+    // Collect all polygon outlines
+    const allPolygons = zones.map((z) => getAbsolutePoints(z));
+
+    // Build a convex hull from all points as the combined boundary
+    const allPts: { x: number; y: number }[] = [];
+    for (const poly of allPolygons) {
+      for (const p of poly) allPts.push(p);
+    }
+
+    const hull = convexHull(allPts);
+    if (hull.length < 3) return;
+
+    // Compute origin (top-left of hull bounding box)
+    let minX = Infinity, minY = Infinity;
+    for (const p of hull) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+    }
+    const relativePoints = hull.map((p) => ({ x: p.x - minX, y: p.y - minY }));
+
+    // Sum areas from original zones
+    const totalSqft = zones.reduce((sum, z) => sum + z.calculated_sqft, 0);
+
+    const fs = floorSketchRef.current;
+    const mats = materialTypesRef.current;
+    const matDef = mats.find((m) => m.id === materialType) ??
+      DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === materialType);
+
+    // Save clean copies of original zones (without nested combined_from to avoid bloat)
+    const originalZones: WMDemolitionZone[] = zones.map((z) => {
+      const { combined_from, ...rest } = z;
+      return rest;
+    });
+
+    const newId = generateOverlayId();
+    const combinedZone: WMDemolitionZone = {
+      id: newId,
+      floor_sketch_id: fs.id,
+      material_type: materialType,
+      sub_type: zones[0].sub_type,
+      surface: zones[0].surface,
+      color: zones[0].color,
+      x: minX,
+      y: minY,
+      dimension1_ft: 0,
+      dimension2_ft: 0,
+      rotation: 0,
+      calculated_sqft: Math.round(totalSqft * 100) / 100,
+      display_order: st.overlayData.demolition_zones.length,
+      render_mode: matDef?.render_mode,
+      stroke_style: matDef?.stroke_style,
+      fill_opacity: matDef?.fill_opacity,
+      polygon_points: relativePoints,
+      combined_from: originalZones,
+      label: `Combined (${zones.length})`,
+    };
+
+    // Atomic: remove originals + add combined in a single undo entry
+    combineDemolitionZones(zones.map((z) => z.id), combinedZone);
+    selectElement({ element_id: newId, element_type: 'demolition' });
+    message.success(`${zones.length}개 요소가 Combine 되었습니다.`);
+  }, [getAbsolutePoints, combineDemolitionZones, selectElement]);
+
+  /**
+   * Ungroup a combined zone back into its original individual zones.
+   */
+  const ungroupZone = useCallback((zoneId: string) => {
+    const st = stateRef.current;
+    const zone = st.overlayData.demolition_zones.find((z) => z.id === zoneId);
+    if (!zone || !zone.combined_from || zone.combined_from.length === 0) {
+      message.warning('이 요소는 Ungroup할 수 없습니다.');
+      return;
+    }
+
+    const fs = floorSketchRef.current;
+    // Restore each original zone with new IDs
+    const restoredZones: WMDemolitionZone[] = [];
+    for (const original of zone.combined_from) {
+      const newId = generateOverlayId();
+      restoredZones.push({
+        ...original,
+        id: newId,
+        floor_sketch_id: fs.id,
+      });
+    }
+
+    // Atomic: remove combined + add originals in a single undo entry
+    ungroupDemolitionZone(zoneId, restoredZones);
+
+    // Select restored zones
+    if (restoredZones.length > 0) {
+      selectElement({ element_id: restoredZones[0].id, element_type: 'demolition' });
+      for (let i = 1; i < restoredZones.length; i++) {
+        toggleSelectElement({ element_id: restoredZones[i].id, element_type: 'demolition' });
+      }
+    }
+    message.success(`${restoredZones.length}개 요소로 Ungroup 되었습니다.`);
+  }, [ungroupDemolitionZone, selectElement, toggleSelectElement]);
+
   // ------------------------------------------------------------------
   // Right-click context menu
   // ------------------------------------------------------------------
@@ -869,8 +1157,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     const el = containerRef.current;
     if (!el) return;
     const handler = (e: MouseEvent) => {
-      const sel = stateRef.current.selections;
-      if (sel.length === 0) return; // no element selected → use browser default
+      // Always show context menu on canvas — even without selection
+      // (the menu will show available actions based on current state)
       e.preventDefault();
       setContextMenu({ x: e.clientX, y: e.clientY });
     };
@@ -895,7 +1183,47 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     if (sel.length === 0) return [];
     const id = sel[0].element_id;
     const type = sel[0].element_type;
-    return [
+
+    // Check if combine is possible (2+ demo zones selected, same material type)
+    const demoSels = sel.filter((s) => s.element_type === 'demolition');
+    const demoZones = demoSels
+      .map((s) => state.overlayData.demolition_zones.find((z) => z.id === s.element_id))
+      .filter((z): z is WMDemolitionZone => z != null);
+    const canCombine = demoZones.length >= 2 &&
+      demoZones.every((z) => z.material_type === demoZones[0].material_type);
+
+    // Check if ungroup is possible (single combined zone selected)
+    const canUngroup = sel.length === 1 && type === 'demolition' &&
+      (() => {
+        const zone = state.overlayData.demolition_zones.find((z) => z.id === id);
+        return zone?.combined_from && zone.combined_from.length > 0;
+      })();
+
+    const items: MenuProps['items'] = [];
+
+    // Combine / Ungroup section
+    if (canCombine || canUngroup) {
+      if (canCombine) {
+        items.push({
+          key: 'combine',
+          icon: <GroupOutlined />,
+          label: `Combine (${demoZones.length}개 요소)`,
+          onClick: () => combineSelectedZones(),
+        });
+      }
+      if (canUngroup) {
+        const zone = state.overlayData.demolition_zones.find((z) => z.id === id);
+        items.push({
+          key: 'ungroup',
+          icon: <UngroupOutlined />,
+          label: `Ungroup (${zone?.combined_from?.length ?? 0}개로 분리)`,
+          onClick: () => ungroupZone(id),
+        });
+      }
+      items.push({ type: 'divider' as const, key: 'div-combine' });
+    }
+
+    items.push(
       {
         key: 'bring-front',
         icon: <VerticalAlignTopOutlined />,
@@ -927,19 +1255,24 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         label: 'Delete',
         danger: true,
         onClick: () => {
-          if (type === 'demolition') removeDemolitionZone(id);
-          else if (type === 'equipment') removeEquipment(id);
-          else if (type === 'containment') removeContainment(id);
-          else if (type === 'floor_protection') removeFloorProtection(id);
-          else if (type === 'content_protection') removeContentProtection(id);
-          else if (type === 'text') removeTextAnnotation(id);
-          else if (type === 'shape') removeShape(id);
-          else if (type === 'wall') removeWall(id);
-          else if (type === 'room') removeRoom(id);
+          for (const s of sel) {
+            const { element_id, element_type } = s;
+            if (element_type === 'demolition') removeDemolitionZone(element_id);
+            else if (element_type === 'equipment') removeEquipment(element_id);
+            else if (element_type === 'containment') removeContainment(element_id);
+            else if (element_type === 'floor_protection') removeFloorProtection(element_id);
+            else if (element_type === 'content_protection') removeContentProtection(element_id);
+            else if (element_type === 'text') removeTextAnnotation(element_id);
+            else if (element_type === 'shape') removeShape(element_id);
+            else if (element_type === 'wall') removeWall(element_id);
+            else if (element_type === 'room') removeRoom(element_id);
+          }
         },
       },
-    ];
-  }, [state.selections, bringToFront, bringForward, sendBackward, sendToBack, removeDemolitionZone, removeEquipment, removeContainment, removeFloorProtection, removeContentProtection, removeTextAnnotation, removeShape, removeWall, removeRoom]);
+    );
+
+    return items;
+  }, [state.selections, state.overlayData.demolition_zones, bringToFront, bringForward, sendBackward, sendToBack, removeDemolitionZone, removeEquipment, removeContainment, removeFloorProtection, removeContentProtection, removeTextAnnotation, removeShape, removeWall, removeRoom, combineSelectedZones, ungroupZone]);
 
   // ------------------------------------------------------------------
   // Mouse event handlers on Stage
@@ -1123,6 +1456,25 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         selectNewElement(newId, 'text');
       }
 
+      // ---- Polygon demolition tool: click-to-place vertices ----
+      if (activeTool === 'demolition_polygon') {
+        const pts = polygonDrawPointsRef.current;
+        // Close polygon if clicking near the first vertex (and >=3 points exist)
+        if (pts.length >= 3) {
+          const first = pts[0];
+          const dist = Math.hypot(pos.x - first.x, pos.y - first.y);
+          if (dist < POLYGON_CLOSE_THRESHOLD) {
+            finalizePolygon(pts);
+            return;
+          }
+        }
+        // Add vertex
+        const newPts = [...pts, pos];
+        setPolygonDrawPoints(newPts);
+        setPolygonDrawCursor(pos);
+        return;
+      }
+
       // ---- Wall tool: click-click paradigm ----
       if (activeTool === 'wall') {
         const snapped = snapToWallEndpoint(pos);
@@ -1257,7 +1609,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [getCanvasPos, deselect, addEquipment, addDemolitionZone, addShape, addTextAnnotation, selectNewElement, selectElement, snapToWallEndpoint, constrainToAxis, addWall, detectRoomAtPoint, addRoom, removeWall, autoDetectRooms, setDrawStateSync]
+    [getCanvasPos, deselect, addEquipment, addDemolitionZone, addShape, addTextAnnotation, selectNewElement, selectElement, snapToWallEndpoint, constrainToAxis, addWall, detectRoomAtPoint, addRoom, removeWall, autoDetectRooms, setDrawStateSync, finalizePolygon]
   );
 
   const handleMouseMove = useCallback(
@@ -1268,6 +1620,13 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         const dy = e.evt.clientY - lastPointerRef.current.y;
         lastPointerRef.current = { x: e.evt.clientX, y: e.evt.clientY };
         setStagePos((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+        return;
+      }
+
+      // Polygon drawing preview
+      if (stateRef.current.activeTool === 'demolition_polygon' && polygonDrawPointsRef.current.length > 0) {
+        const pos = getCanvasPos(e);
+        setPolygonDrawCursor(pos);
         return;
       }
 
@@ -1697,8 +2056,27 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         return;
       }
 
-      // Cancel wall drawing on Escape
+      // Combine (Ctrl+G)
+      if (cmd && !e.shiftKey && e.key === 'g') {
+        e.preventDefault();
+        combineSelectedZones();
+        return;
+      }
+      // Ungroup (Ctrl+Shift+G)
+      if (cmd && e.shiftKey && (e.key === 'G' || e.key === 'g')) {
+        e.preventDefault();
+        if (state.selections.length === 1 && state.selections[0].element_type === 'demolition') {
+          ungroupZone(state.selections[0].element_id);
+        }
+        return;
+      }
+
+      // Cancel wall/polygon drawing on Escape
       if (e.key === 'Escape') {
+        if (polygonDrawPointsRef.current.length > 0) {
+          setPolygonDrawPoints([]);
+          setPolygonDrawCursor(null);
+        }
         if (wallDrawStart) {
           setWallDrawStart(null);
           setWallDrawCursor(null);
@@ -1709,9 +2087,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
 
       // Tool shortcuts (only without Ctrl/Cmd to avoid conflict with copy/paste)
       if (!cmd) {
-        if (e.key === 'v' || e.key === 'V') { setTool('select'); setWallDrawStart(null); return; }
-        if (e.key === 'h' || e.key === 'H') { setTool('pan'); setWallDrawStart(null); return; }
-        if (e.key === 't' || e.key === 'T') { setTool('text'); setWallDrawStart(null); return; }
+        if (e.key === 'v' || e.key === 'V') { setTool('select'); setWallDrawStart(null); setPolygonDrawPoints([]); setPolygonDrawCursor(null); return; }
+        if (e.key === 'h' || e.key === 'H') { setTool('pan'); setWallDrawStart(null); setPolygonDrawPoints([]); setPolygonDrawCursor(null); return; }
+        if (e.key === 't' || e.key === 'T') { setTool('text'); setWallDrawStart(null); setPolygonDrawPoints([]); setPolygonDrawCursor(null); return; }
         if (e.key === 'w' || e.key === 'W') { setTool('wall'); return; }
         if (e.key === 'r' || e.key === 'R') { setTool('room'); return; }
       }
@@ -1768,6 +2146,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     addShape,
     selectElement,
     toggleSelectElement,
+    combineSelectedZones,
+    ungroupZone,
   ]);
 
   // ------------------------------------------------------------------
@@ -2000,6 +2380,12 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
+            onDblClick={() => {
+              // Double-click to finalize polygon drawing
+              if (stateRef.current.activeTool === 'demolition_polygon' && polygonDrawPointsRef.current.length >= 3) {
+                finalizePolygon(polygonDrawPointsRef.current);
+              }
+            }}
             onMouseLeave={() => {
               isPanningRef.current = false;
               if (drawStateRef.current.isDrawing) setDrawStateSync(INITIAL_DRAW_STATE);
@@ -2051,6 +2437,13 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                 onDragEnd={handleDragEnd}
                 onTransformEnd={handleTransformEnd}
                 onUpdateTextAnnotation={(id, patch) => updateTextAnnotation({ id, ...patch })}
+                onPolygonPointsChanged={(id, pts) => {
+                  // Recalculate area when polygon vertices are dragged
+                  const zone = state.overlayData.demolition_zones.find((z) => z.id === id);
+                  if (!zone) return;
+                  const areaSqft = calcPolygonAreaSqft(pts, floorSketch.scale_pixels_per_foot);
+                  updateDemolitionZone({ id, polygon_points: pts, calculated_sqft: areaSqft });
+                }}
                 onWallDragEndpoint={(wallId, endpoint, x, y) => {
                   const snap = snapToWallEndpoint({ x, y });
                   const pt = snap.point;
@@ -2084,6 +2477,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                   );
                   autoDetectRooms(updatedWalls);
                 }}
+                polygonPreviewPoints={polygonDrawPoints.length > 0 ? polygonDrawPoints : undefined}
+                polygonPreviewCursor={polygonDrawCursor}
                 wallPreview={
                   wallDrawStart && wallDrawCursor
                     ? {

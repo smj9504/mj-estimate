@@ -42,6 +42,7 @@ import {
 } from '../../../../types/wmSketch';
 import { DEFAULT_DEMO_MATERIAL_TYPES, getEffectiveRenderMode } from '../../../../types/wmSketch';
 import WMDemolitionRenderer from './WMDemolitionRenderer';
+import WMDemolitionPolygonRenderer from './WMDemolitionPolygonRenderer';
 import WMEquipmentRenderer from './WMEquipmentRenderer';
 import WMContainmentRenderer from './WMContainmentRenderer';
 import WMFloorProtectionRenderer from './WMFloorProtectionRenderer';
@@ -70,7 +71,12 @@ export interface WMOverlayLayerProps {
   onDragEnd: (id: string, type: string, x: number, y: number) => void;
   onTransformEnd?: (id: string, type: string, widthFt: number, heightFt: number, rotation?: number) => void;
   onUpdateTextAnnotation?: (id: string, patch: Partial<WMTextAnnotation>) => void;
+  onPolygonPointsChanged?: (id: string, points: { x: number; y: number }[]) => void;
   onWallDragEndpoint?: (wallId: string, endpoint: 'start' | 'end', x: number, y: number) => void;
+
+  // Polygon drawing preview (click-to-place vertices)
+  polygonPreviewPoints?: { x: number; y: number }[];
+  polygonPreviewCursor?: { x: number; y: number } | null;
 
   // Wall drawing preview
   wallPreview?: { startX: number; startY: number; endX: number; endY: number; snappedEnd?: { x: number; y: number } | null } | null;
@@ -95,10 +101,19 @@ function getZoneRenderMode(zone: WMDemolitionZone, materialTypes: DemoMaterialTy
 }
 
 /**
+ * Returns true if a demolition zone has polygon points and should be rendered
+ * as an irregular polygon via WMDemolitionPolygonRenderer.
+ */
+function isPolygonZone(zone: WMDemolitionZone): boolean {
+  return (zone.polygon_points?.length ?? 0) >= 3;
+}
+
+/**
  * Returns true if a demolition zone should be rendered as a rectangle
  * (area or shape render modes) via WMDemolitionRenderer.
  */
 function isRectZone(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]): boolean {
+  if (isPolygonZone(zone)) return false;
   const mode = getZoneRenderMode(zone, materialTypes);
   return mode === 'area' || mode === 'shape';
 }
@@ -134,7 +149,10 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   onDragEnd,
   onTransformEnd,
   onUpdateTextAnnotation,
+  onPolygonPointsChanged,
   onWallDragEndpoint,
+  polygonPreviewPoints,
+  polygonPreviewCursor,
   wallPreview,
   canvasWidth: _canvasWidth,
   canvasHeight: _canvasHeight,
@@ -189,6 +207,11 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   const dragShapeHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'shape', x, y), [onDragEnd]);
   const transformShapeHandler = useCallback((id: string, w: number, h: number, rotation?: number) => onTransformEnd?.(id, 'shape', w, h, rotation), [onTransformEnd]);
 
+  const polygonPointsHandler = useCallback(
+    (id: string, points: { x: number; y: number }[]) => onPolygonPointsChanged?.(id, points),
+    [onPolygonPointsChanged],
+  );
+
   // ---------------------------------------------------------------------------
   // Compute zone numbers: 1-based index within each material_type group
   // ---------------------------------------------------------------------------
@@ -226,6 +249,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   const isDrawingTool =
     activeTool === 'demolition' ||
     activeTool === 'demolition_line' ||
+    activeTool === 'demolition_polygon' ||
     activeTool === 'containment' ||
     activeTool === 'floor_protection' ||
     activeTool === 'content_protection' ||
@@ -252,6 +276,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
     | { kind: 'content_protection'; id: string }
     | { kind: 'containment'; id: string }
     | { kind: 'demo_rect'; id: string }
+    | { kind: 'demo_polygon'; id: string }
     | { kind: 'demo_line'; id: string }
     | { kind: 'demo_text'; id: string }
     | { kind: 'equipment'; id: string }
@@ -265,7 +290,8 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
     for (const cp of overlayData.content_protections ?? []) items.push({ kind: 'content_protection', id: cp.id });
     for (const c of overlayData.containment_zones) items.push({ kind: 'containment', id: c.id });
     for (const z of overlayData.demolition_zones) {
-      if (isRectZone(z, materialTypes)) items.push({ kind: 'demo_rect', id: z.id });
+      if (isPolygonZone(z)) items.push({ kind: 'demo_polygon', id: z.id });
+      else if (isRectZone(z, materialTypes)) items.push({ kind: 'demo_rect', id: z.id });
       else if (isLineZone(z, materialTypes)) items.push({ kind: 'demo_line', id: z.id });
       else if (isTextZone(z, materialTypes)) items.push({ kind: 'demo_text', id: z.id });
     }
@@ -340,6 +366,12 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
             const zone = containMap.get(item.id);
             return zone ? (
               <WMContainmentRenderer key={zone.id} zone={zone} isSelected={isSelected(zone.id)} scalePixelsPerFoot={scalePixelsPerFoot} onSelect={selectContainHandler} onDragEnd={dragContainHandler} onTransformEnd={transformContainHandler} />
+            ) : null;
+          }
+          case 'demo_polygon': {
+            const zone = demoMap.get(item.id);
+            return zone ? (
+              <WMDemolitionPolygonRenderer key={zone.id} zone={zone} isSelected={isSelected(zone.id)} scalePixelsPerFoot={scalePixelsPerFoot} zoneNumber={zoneNumberMap.get(zone.id)} onSelect={selectDemoHandler} onDragEnd={dragDemoHandler} onPolygonPointsChanged={polygonPointsHandler} />
             ) : null;
           }
           case 'demo_rect': {
@@ -432,7 +464,80 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
         />
       )}
 
-      {/* 8. Wall drawing preview */}
+      {/* 8a. Polygon drawing preview */}
+      {polygonPreviewPoints && polygonPreviewPoints.length > 0 && (() => {
+        const previewFlat: number[] = [];
+        for (const p of polygonPreviewPoints) {
+          previewFlat.push(p.x, p.y);
+        }
+        if (polygonPreviewCursor) {
+          previewFlat.push(polygonPreviewCursor.x, polygonPreviewCursor.y);
+        }
+        return (
+          <>
+            <Line
+              points={previewFlat}
+              stroke={activeMaterialColor}
+              strokeWidth={2}
+              dash={[6, 3]}
+              opacity={0.7}
+              listening={false}
+              closed={false}
+            />
+            {/* Close line from cursor to first point */}
+            {polygonPreviewCursor && polygonPreviewPoints.length >= 2 && (
+              <Line
+                points={[polygonPreviewCursor.x, polygonPreviewCursor.y, polygonPreviewPoints[0].x, polygonPreviewPoints[0].y]}
+                stroke={activeMaterialColor}
+                strokeWidth={1}
+                dash={[4, 4]}
+                opacity={0.4}
+                listening={false}
+              />
+            )}
+            {/* Placed vertices */}
+            {polygonPreviewPoints.map((p, i) => (
+              <React.Fragment key={`ppv-${i}`}>
+                <Line
+                  points={[p.x - 4, p.y - 4, p.x + 4, p.y + 4]}
+                  stroke={activeMaterialColor}
+                  strokeWidth={2}
+                  listening={false}
+                />
+                <Line
+                  points={[p.x + 4, p.y - 4, p.x - 4, p.y + 4]}
+                  stroke={activeMaterialColor}
+                  strokeWidth={2}
+                  listening={false}
+                />
+              </React.Fragment>
+            ))}
+            {/* First vertex highlight (close target) */}
+            {polygonPreviewPoints.length >= 3 && (
+              <Line
+                points={(() => {
+                  const p = polygonPreviewPoints[0];
+                  const r = 8;
+                  const sides = 12;
+                  const pts: number[] = [];
+                  for (let i = 0; i <= sides; i++) {
+                    const a = (2 * Math.PI * i) / sides;
+                    pts.push(p.x + r * Math.cos(a), p.y + r * Math.sin(a));
+                  }
+                  return pts;
+                })()}
+                stroke={activeMaterialColor}
+                strokeWidth={1.5}
+                dash={[3, 3]}
+                opacity={0.6}
+                listening={false}
+              />
+            )}
+          </>
+        );
+      })()}
+
+      {/* 8b. Wall drawing preview */}
       {wallPreview && (
         <WMWallPreview
           startX={wallPreview.startX}

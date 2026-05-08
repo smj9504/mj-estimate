@@ -147,6 +147,25 @@ export function calcDemoZoneSqft(dim1Ft: number, dim2Ft: number): number {
 }
 
 /**
+ * Calculate area of a polygon using the Shoelace formula.
+ * Points are in canvas pixels; result is converted to square feet using scale.
+ * Returns absolute area (always positive).
+ */
+export function calcPolygonAreaSqft(
+  points: { x: number; y: number }[],
+  scalePixelsPerFoot: number,
+): number {
+  if (points.length < 3 || scalePixelsPerFoot <= 0) return 0;
+  let area = 0;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    area += (points[j].x + points[i].x) * (points[j].y - points[i].y);
+  }
+  const areaPixels = Math.abs(area / 2);
+  const sqft = areaPixels / (scalePixelsPerFoot * scalePixelsPerFoot);
+  return Math.round(sqft * 100) / 100;
+}
+
+/**
  * Calculate square footage for a floor protection strip: paperWidthFt × lengthFt.
  * Rounds to 2 decimal places.
  */

@@ -92,20 +92,24 @@ const ZoneEditForm: React.FC<{
   const isEA = unit === 'EA';
   const isStair = zone.material_type === 'stair_demo';
   const isLineType = isWallSF || isLF;
+  const isPolygon = (zone.polygon_points?.length ?? 0) >= 3;
   const areaLabel = isEA ? 'EA' : isLF ? 'LF' : 'SF';
 
-  const needsDimensions = isEA
+  const needsDimensions = isPolygon
+    ? false // polygon area is auto-calculated from vertices
+    : isEA
     ? (isStair && zone.dimension1_ft === 0)
     : isLineType
       ? zone.dimension1_ft === 0
       : zone.dimension1_ft === 0 || zone.dimension2_ft === 0;
 
   const calculatedArea = useMemo(() => {
+    if (isPolygon) return zone.calculated_sqft; // already computed from polygon vertices
     if (isEA) return isStair ? zone.dimension1_ft : 1;
     if (isLF) return zone.dimension1_ft;
     if (isWallSF) return zone.dimension1_ft * (zone.height_ft ?? 8);
     return calcDemoZoneSqft(zone.dimension1_ft, zone.dimension2_ft);
-  }, [zone.dimension1_ft, zone.dimension2_ft, zone.height_ft, isLF, isWallSF, isEA, isStair]);
+  }, [zone.dimension1_ft, zone.dimension2_ft, zone.height_ft, zone.calculated_sqft, isLF, isWallSF, isEA, isStair, isPolygon]);
 
   const handleMaterialChange = (value: string) => {
     const mat = materialTypes.find((m) => m.id === value);
@@ -449,6 +453,21 @@ const ZoneEditForm: React.FC<{
             }
           />
         </div>
+      ) : isPolygon ? (
+        /* Polygon: area is auto-calculated, show vertex count */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            Polygon ({zone.polygon_points!.length} vertices) — drag vertices to adjust
+          </Text>
+          <Text style={{ fontSize: 13, fontWeight: 600 }}>
+            Area: {zone.calculated_sqft.toFixed(2)} SF
+          </Text>
+          {zone.combined_from && zone.combined_from.length > 0 && (
+            <Tag color="blue" style={{ alignSelf: 'flex-start', fontSize: 11 }}>
+              Combined from {zone.combined_from.length} zones (right-click to Ungroup)
+            </Tag>
+          )}
+        </div>
       ) : (
         /* Floor / Ceiling: two dimensions */
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -610,7 +629,7 @@ const SummaryView: React.FC<{
         const unit = group.material?.unit ?? 'SF';
         const color = group.material?.color ?? group.zones[0].color;
         const name = group.material?.name ?? materialId;
-        const needsCount = group.zones.filter((z) => z.dimension1_ft === 0).length;
+        const needsCount = group.zones.filter((z) => z.dimension1_ft === 0 && !(z.polygon_points && z.polygon_points.length >= 3)).length;
 
         return (
           <div key={materialId}>
@@ -662,7 +681,7 @@ const SummaryView: React.FC<{
             {isExpanded && (
               <div style={{ paddingLeft: 22 }}>
                 {group.zones.map((zone, i) => {
-                  const needsDims = zone.dimension1_ft === 0;
+                  const needsDims = zone.dimension1_ft === 0 && !(zone.polygon_points && zone.polygon_points.length >= 3);
                   return (
                     <div
                       key={zone.id}
