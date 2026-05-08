@@ -25,12 +25,13 @@ BRAND_SPECS: Dict[str, Dict[str, Any]] = {
             "shingle": {"bd_per_sq": 3},
             "starter": {"lf_per_bd": 116, "product": 'SwiftStart 7-5/8"'},
             "hip_ridge": {"lf_per_bd": 30, "product": "Shadow Ridge AR"},
-            "ice_water": {"sq_per_rl": 2, "product": "WinterGuard Sand"},
+            "ice_water": {"sq_per_rl": 2, "lf_per_rl": 48, "product": "WinterGuard Sand"},
             "felt": {"sq_per_rl": 10, "product": "RoofRunner"},
             "ridge_vent": {"lf_per_pc": 4, "product": "FilterVent III", "item": '4\' Ridge Vent 12" Filtered'},
         },
         "siding": {
             "panel": {"sqft_per_ctn": 200},
+            "starter": {"lf_per_pc": 10},
             "corner_post": {"lf_per_pc": 10},
             "j_channel": {"lf_per_pc": 12.5},
         },
@@ -40,12 +41,13 @@ BRAND_SPECS: Dict[str, Dict[str, Any]] = {
             "shingle": {"bd_per_sq": 3},
             "starter": {"lf_per_bd": 120, "product": "Pro-Start"},
             "hip_ridge": {"lf_per_bd": 25, "product": "Seal-A-Ridge"},
-            "ice_water": {"sq_per_rl": 2, "product": "WeatherWatch"},
+            "ice_water": {"sq_per_rl": 2, "lf_per_rl": 48, "product": "WeatherWatch"},
             "felt": {"sq_per_rl": 10, "product": "FeltBuster"},
             "ridge_vent": {"lf_per_pc": 4, "product": "Cobra Snow Country"},
         },
         "siding": {
             "panel": {"sqft_per_ctn": 200},
+            "starter": {"lf_per_pc": 10},
             "corner_post": {"lf_per_pc": 10},
             "j_channel": {"lf_per_pc": 12.5},
         },
@@ -55,12 +57,13 @@ BRAND_SPECS: Dict[str, Dict[str, Any]] = {
             "shingle": {"bd_per_sq": 3},
             "starter": {"lf_per_bd": 105, "product": "Starter Strip"},
             "hip_ridge": {"lf_per_bd": 25, "product": "DecoRidge"},
-            "ice_water": {"sq_per_rl": 2, "product": "WeatherLock G"},
+            "ice_water": {"sq_per_rl": 2, "lf_per_rl": 48, "product": "WeatherLock G"},
             "felt": {"sq_per_rl": 10, "product": "ProArmor"},
             "ridge_vent": {"lf_per_pc": 4, "product": "VentSure"},
         },
         "siding": {
             "panel": {"sqft_per_ctn": 200},
+            "starter": {"lf_per_pc": 10},
             "corner_post": {"lf_per_pc": 10},
             "j_channel": {"lf_per_pc": 12.5},
         },
@@ -82,7 +85,7 @@ def calculate_roofing(
     spec = _get_brand_spec(brand, "roofing")
     items: List[MaterialItem] = []
 
-    sq_w_waste = m.squares_with_waste if m.squares_with_waste > 0 else m.squares * (1 + m.waste_pct / 100)
+    sq_w_waste = m.squares * (1 + m.waste_pct / 100) if m.squares > 0 else m.squares_with_waste
     drip_edge_ft = m.drip_edge_lf if m.drip_edge_lf > 0 else m.eaves_lf + m.rakes_lf
 
     color_str = f" ({color})" if color else ""
@@ -127,17 +130,19 @@ def calculate_roofing(
             note=f"{hr_lf_per_bd} LF/BD",
         ))
 
-    # Ice & Water Shield
+    # Ice & Water Shield (eaves + valleys)
     iw = spec.get("ice_water", {})
     iw_sq_per_rl = iw.get("sq_per_rl", 2)
+    iw_lf_per_rl = iw.get("lf_per_rl", 48)
     iw_product = iw.get("product", "Ice & Water Shield")
-    qty_iw = math.ceil(m.eaves_lf / 48)  # 48 LF/RL for 2 SQ coverage
+    iw_total_lf = m.eaves_lf + m.valleys_lf
+    qty_iw = math.ceil(iw_total_lf / iw_lf_per_rl) if iw_total_lf > 0 else 0
     items.append(MaterialItem(
         category=MaterialCategory.underlayment,
         item=f"{brand} {iw_product}",
         qty=qty_iw, unit="RL",
-        formula=f"ROUNDUP({m.eaves_lf:.0f} / 48)",
-        note=f"{iw_sq_per_rl} SQ/RL",
+        formula=f"ROUNDUP(({m.eaves_lf:.0f}+{m.valleys_lf:.0f}) / {iw_lf_per_rl})",
+        note=f"{iw_sq_per_rl} SQ/RL, {iw_lf_per_rl} LF/RL",
     ))
 
     # Synthetic Felt
@@ -214,13 +219,17 @@ def calculate_roofing(
         rafter = m.rafter_length_lf
         row_spacing = 15 if pitch <= 2 else 10 if pitch <= 4 else 8 if pitch <= 6 else 5
         num_rows = max(1, math.ceil(rafter / row_spacing))
-        guards_per_row = math.ceil(m.eaves_lf)
+        guard_spacing_ft = 2  # 24" on center (industry standard)
+        guards_per_row = math.ceil(m.eaves_lf / guard_spacing_ft)
         total_guards = guards_per_row * num_rows
         items.append(MaterialItem(
             category=MaterialCategory.misc,
             item="Snow Guard",
             qty=total_guards, unit="EA",
-            formula=f"CEIL({m.eaves_lf:.0f} LF) x {num_rows} rows ({pitch}/12 pitch, {rafter:.0f}ft rafter)",
+            formula=(
+                f"CEIL({m.eaves_lf:.0f}/{guard_spacing_ft}ft) x "
+                f"{num_rows} rows ({pitch}/12, {rafter:.0f}ft rafter)"
+            ),
         ))
 
     # Coil Nails 1-1/4"
@@ -301,13 +310,14 @@ def calculate_siding(
     ))
 
     # Starter Strip
-    qty_starter = math.ceil(m.bottom_wall_lf * waste / lf_per_pc_j)
+    lf_per_pc_starter = spec.get("starter", {}).get("lf_per_pc", 10)
+    qty_starter = math.ceil(m.bottom_wall_lf * waste / lf_per_pc_starter)
     items.append(MaterialItem(
         category=MaterialCategory.main,
         item="Starter Strip",
         qty=qty_starter, unit="PC",
-        formula=f"ROUNDUP({m.bottom_wall_lf:.0f} x {waste:.2f} / {lf_per_pc_j})",
-        note="EV: Bottom of Siding Walls",
+        formula=f"ROUNDUP({m.bottom_wall_lf:.0f} x {waste:.2f} / {lf_per_pc_starter})",
+        note=f"EV: Bottom of Siding Walls, {lf_per_pc_starter} LF/PC",
     ))
 
     # J-Channel 3/4"

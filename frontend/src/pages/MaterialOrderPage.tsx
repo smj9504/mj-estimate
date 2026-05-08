@@ -185,7 +185,7 @@ const MaterialOrderPage: React.FC = () => {
         payload.roofing_measurements = {
           total_area_sf: values.total_area_sf || 0,
           squares: sq,
-          squares_with_waste: values.squares_with_waste || sq * (1 + wastePct / 100),
+          squares_with_waste: sq > 0 ? sq * (1 + wastePct / 100) : (values.squares_with_waste || 0),
           eaves_lf: values.eaves_lf || 0,
           rakes_lf: values.rakes_lf || 0,
           ridges_lf: values.ridges_lf || 0,
