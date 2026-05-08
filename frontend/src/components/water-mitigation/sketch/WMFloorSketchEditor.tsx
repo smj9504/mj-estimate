@@ -1048,29 +1048,6 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       return;
     }
 
-    // Collect all polygon outlines
-    const allPolygons = zones.map((z) => getAbsolutePoints(z));
-
-    // Build a convex hull from all points as the combined boundary
-    const allPts: { x: number; y: number }[] = [];
-    for (const poly of allPolygons) {
-      for (const p of poly) allPts.push(p);
-    }
-
-    const hull = convexHull(allPts);
-    if (hull.length < 3) return;
-
-    // Compute origin (top-left of hull bounding box)
-    let minX = Infinity, minY = Infinity;
-    for (const p of hull) {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-    }
-    const relativePoints = hull.map((p) => ({ x: p.x - minX, y: p.y - minY }));
-
-    // Sum areas from original zones
-    const totalSqft = zones.reduce((sum, z) => sum + z.calculated_sqft, 0);
-
     const fs = floorSketchRef.current;
     const mats = materialTypesRef.current;
     const matDef = mats.find((m) => m.id === materialType) ??
@@ -1082,28 +1059,81 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       return rest;
     });
 
+    const isLF = matDef?.unit === 'LF';
+    const isLine = isLF || matDef?.surface === 'wall';
+
+    // Sum values from original zones
+    const totalValue = zones.reduce((sum, z) => sum + z.calculated_sqft, 0);
+    const totalDim1 = zones.reduce((sum, z) => sum + z.dimension1_ft, 0);
+
     const newId = generateOverlayId();
-    const combinedZone: WMDemolitionZone = {
-      id: newId,
-      floor_sketch_id: fs.id,
-      material_type: materialType,
-      sub_type: zones[0].sub_type,
-      surface: zones[0].surface,
-      color: zones[0].color,
-      x: minX,
-      y: minY,
-      dimension1_ft: 0,
-      dimension2_ft: 0,
-      rotation: 0,
-      calculated_sqft: Math.round(totalSqft * 100) / 100,
-      display_order: st.overlayData.demolition_zones.length,
-      render_mode: matDef?.render_mode,
-      stroke_style: matDef?.stroke_style,
-      fill_opacity: matDef?.fill_opacity,
-      polygon_points: relativePoints,
-      combined_from: originalZones,
-      label: `Combined (${zones.length})`,
-    };
+    let combinedZone: WMDemolitionZone;
+
+    if (isLine) {
+      // ---- LF / Line zones: keep as line, sum lengths ----
+      // Use the first zone's position and average rotation
+      const firstZone = zones[0];
+      combinedZone = {
+        id: newId,
+        floor_sketch_id: fs.id,
+        material_type: materialType,
+        sub_type: zones[0].sub_type,
+        surface: zones[0].surface,
+        color: zones[0].color,
+        x: firstZone.x,
+        y: firstZone.y,
+        dimension1_ft: Math.round(totalDim1 * 100) / 100,
+        dimension2_ft: 0,
+        height_ft: firstZone.height_ft,
+        rotation: firstZone.rotation,
+        calculated_sqft: Math.round(totalValue * 100) / 100,
+        display_order: st.overlayData.demolition_zones.length,
+        render_mode: matDef?.render_mode || 'line',
+        stroke_style: matDef?.stroke_style,
+        fill_opacity: matDef?.fill_opacity,
+        combined_from: originalZones,
+        label: `Combined ${zones.length}x (${isLF ? totalDim1.toFixed(1) + ' LF' : totalValue.toFixed(1) + ' SF'})`,
+      };
+    } else {
+      // ---- Area (SF) zones: merge into convex hull polygon ----
+      const allPolygons = zones.map((z) => getAbsolutePoints(z));
+      const allPts: { x: number; y: number }[] = [];
+      for (const poly of allPolygons) {
+        for (const p of poly) allPts.push(p);
+      }
+
+      const hull = convexHull(allPts);
+      if (hull.length < 3) return;
+
+      let minX = Infinity, minY = Infinity;
+      for (const p of hull) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+      }
+      const relativePoints = hull.map((p) => ({ x: p.x - minX, y: p.y - minY }));
+
+      combinedZone = {
+        id: newId,
+        floor_sketch_id: fs.id,
+        material_type: materialType,
+        sub_type: zones[0].sub_type,
+        surface: zones[0].surface,
+        color: zones[0].color,
+        x: minX,
+        y: minY,
+        dimension1_ft: 0,
+        dimension2_ft: 0,
+        rotation: 0,
+        calculated_sqft: Math.round(totalValue * 100) / 100,
+        display_order: st.overlayData.demolition_zones.length,
+        render_mode: matDef?.render_mode,
+        stroke_style: matDef?.stroke_style,
+        fill_opacity: matDef?.fill_opacity,
+        polygon_points: relativePoints,
+        combined_from: originalZones,
+        label: `Combined (${zones.length})`,
+      };
+    }
 
     // Atomic: remove originals + add combined in a single undo entry
     combineDemolitionZones(zones.map((z) => z.id), combinedZone);
@@ -1180,96 +1210,115 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
 
   const contextMenuItems: MenuProps['items'] = React.useMemo(() => {
     const sel = state.selections;
-    if (sel.length === 0) return [];
-    const id = sel[0].element_id;
-    const type = sel[0].element_type;
+    const items: MenuProps['items'] = [];
 
-    // Check if combine is possible (2+ demo zones selected, same material type)
+    // --- Combine / Ungroup (always shown for demolition zones) ---
     const demoSels = sel.filter((s) => s.element_type === 'demolition');
     const demoZones = demoSels
       .map((s) => state.overlayData.demolition_zones.find((z) => z.id === s.element_id))
       .filter((z): z is WMDemolitionZone => z != null);
+
     const canCombine = demoZones.length >= 2 &&
       demoZones.every((z) => z.material_type === demoZones[0].material_type);
 
-    // Check if ungroup is possible (single combined zone selected)
-    const canUngroup = sel.length === 1 && type === 'demolition' &&
-      (() => {
-        const zone = state.overlayData.demolition_zones.find((z) => z.id === id);
-        return zone?.combined_from && zone.combined_from.length > 0;
-      })();
+    const ungroupableZones = demoZones.filter(
+      (z) => z.combined_from && z.combined_from.length > 0
+    );
 
-    const items: MenuProps['items'] = [];
+    // Always show Combine/Ungroup when at least 1 demolition zone is selected
+    if (demoZones.length > 0) {
+      // Combine — enabled when 2+ same-material demo zones selected
+      const combineDisabledReason =
+        demoZones.length < 2
+          ? 'Ctrl+Click으로 2개 이상 선택'
+          : !demoZones.every((z) => z.material_type === demoZones[0].material_type)
+            ? '같은 Material만 가능'
+            : '';
+      items.push({
+        key: 'combine',
+        icon: <GroupOutlined />,
+        label: canCombine
+          ? `Combine ${demoZones.length}개 요소`
+          : `Combine${combineDisabledReason ? ` (${combineDisabledReason})` : ''}`,
+        disabled: !canCombine,
+        onClick: canCombine ? () => combineSelectedZones() : undefined,
+      });
 
-    // Combine / Ungroup section
-    if (canCombine || canUngroup) {
-      if (canCombine) {
-        items.push({
-          key: 'combine',
-          icon: <GroupOutlined />,
-          label: `Combine (${demoZones.length}개 요소)`,
-          onClick: () => combineSelectedZones(),
-        });
-      }
-      if (canUngroup) {
-        const zone = state.overlayData.demolition_zones.find((z) => z.id === id);
+      // Ungroup — enabled when any selected zone has combined_from
+      if (ungroupableZones.length > 0) {
+        for (const uz of ungroupableZones) {
+          items.push({
+            key: `ungroup-${uz.id}`,
+            icon: <UngroupOutlined />,
+            label: ungroupableZones.length === 1
+              ? `Ungroup → ${uz.combined_from!.length}개로 분리`
+              : `Ungroup "${uz.label || uz.material_type}" → ${uz.combined_from!.length}개`,
+            onClick: () => ungroupZone(uz.id),
+          });
+        }
+      } else {
         items.push({
           key: 'ungroup',
           icon: <UngroupOutlined />,
-          label: `Ungroup (${zone?.combined_from?.length ?? 0}개로 분리)`,
-          onClick: () => ungroupZone(id),
+          label: 'Ungroup (Combined 요소만 가능)',
+          disabled: true,
         });
       }
+
       items.push({ type: 'divider' as const, key: 'div-combine' });
     }
 
-    items.push(
-      {
-        key: 'bring-front',
-        icon: <VerticalAlignTopOutlined />,
-        label: 'Bring to Front',
-        onClick: () => bringToFront(id),
-      },
-      {
-        key: 'bring-forward',
-        icon: <ArrowUpOutlined />,
-        label: 'Bring Forward',
-        onClick: () => bringForward(id),
-      },
-      {
-        key: 'send-backward',
-        icon: <ArrowDownOutlined />,
-        label: 'Send Backward',
-        onClick: () => sendBackward(id),
-      },
-      {
-        key: 'send-back',
-        icon: <VerticalAlignBottomOutlined />,
-        label: 'Send to Back',
-        onClick: () => sendToBack(id),
-      },
-      { type: 'divider' as const, key: 'div-1' },
-      {
-        key: 'delete',
-        icon: <DeleteOutlined />,
-        label: 'Delete',
-        danger: true,
-        onClick: () => {
-          for (const s of sel) {
-            const { element_id, element_type } = s;
-            if (element_type === 'demolition') removeDemolitionZone(element_id);
-            else if (element_type === 'equipment') removeEquipment(element_id);
-            else if (element_type === 'containment') removeContainment(element_id);
-            else if (element_type === 'floor_protection') removeFloorProtection(element_id);
-            else if (element_type === 'content_protection') removeContentProtection(element_id);
-            else if (element_type === 'text') removeTextAnnotation(element_id);
-            else if (element_type === 'shape') removeShape(element_id);
-            else if (element_type === 'wall') removeWall(element_id);
-            else if (element_type === 'room') removeRoom(element_id);
-          }
+    // --- Z-order (only when something is selected) ---
+    if (sel.length > 0) {
+      const id = sel[0].element_id;
+      items.push(
+        {
+          key: 'bring-front',
+          icon: <VerticalAlignTopOutlined />,
+          label: 'Bring to Front',
+          onClick: () => bringToFront(id),
         },
-      },
-    );
+        {
+          key: 'bring-forward',
+          icon: <ArrowUpOutlined />,
+          label: 'Bring Forward',
+          onClick: () => bringForward(id),
+        },
+        {
+          key: 'send-backward',
+          icon: <ArrowDownOutlined />,
+          label: 'Send Backward',
+          onClick: () => sendBackward(id),
+        },
+        {
+          key: 'send-back',
+          icon: <VerticalAlignBottomOutlined />,
+          label: 'Send to Back',
+          onClick: () => sendToBack(id),
+        },
+        { type: 'divider' as const, key: 'div-1' },
+        {
+          key: 'delete',
+          icon: <DeleteOutlined />,
+          label: sel.length > 1 ? `Delete ${sel.length}개 요소` : 'Delete',
+          danger: true,
+          onClick: () => {
+            for (const s of sel) {
+              const { element_id, element_type } = s;
+              if (element_type === 'demolition') removeDemolitionZone(element_id);
+              else if (element_type === 'equipment') removeEquipment(element_id);
+              else if (element_type === 'containment') removeContainment(element_id);
+              else if (element_type === 'floor_protection') removeFloorProtection(element_id);
+              else if (element_type === 'content_protection') removeContentProtection(element_id);
+              else if (element_type === 'text') removeTextAnnotation(element_id);
+              else if (element_type === 'shape') removeShape(element_id);
+              else if (element_type === 'wall') removeWall(element_id);
+              else if (element_type === 'room') removeRoom(element_id);
+            }
+          },
+        },
+      );
+    }
 
     return items;
   }, [state.selections, state.overlayData.demolition_zones, bringToFront, bringForward, sendBackward, sendToBack, removeDemolitionZone, removeEquipment, removeContainment, removeFloorProtection, removeContentProtection, removeTextAnnotation, removeShape, removeWall, removeRoom, combineSelectedZones, ungroupZone]);
@@ -1965,6 +2014,12 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       if (ctrlKey) {
         toggleSelectElement(sel);
       } else {
+        // If this element is already part of the current multi-selection,
+        // don't reduce to single-select (preserves multi-select on right-click)
+        const current = stateRef.current.selections;
+        if (current.length > 1 && current.some((s) => s.element_id === id)) {
+          return; // keep existing multi-selection
+        }
         selectElement(sel);
       }
     },
@@ -2056,14 +2111,14 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         return;
       }
 
-      // Combine (Ctrl+G)
-      if (cmd && !e.shiftKey && e.key === 'g') {
+      // Combine (Ctrl+Shift+K)
+      if (cmd && e.shiftKey && (e.key === 'K' || e.key === 'k')) {
         e.preventDefault();
         combineSelectedZones();
         return;
       }
-      // Ungroup (Ctrl+Shift+G)
-      if (cmd && e.shiftKey && (e.key === 'G' || e.key === 'g')) {
+      // Ungroup (Ctrl+Shift+U)
+      if (cmd && e.shiftKey && (e.key === 'U' || e.key === 'u')) {
         e.preventDefault();
         if (state.selections.length === 1 && state.selections[0].element_type === 'demolition') {
           ungroupZone(state.selections[0].element_id);
@@ -2503,7 +2558,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           />
 
           {/* Right-click context menu */}
-          {contextMenu && (
+          {contextMenu && contextMenuItems && contextMenuItems.length > 0 && (
             <div
               style={{
                 position: 'fixed',

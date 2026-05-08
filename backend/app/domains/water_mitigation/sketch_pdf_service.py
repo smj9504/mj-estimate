@@ -8,10 +8,12 @@ Generates a PDF report from floor sketch data, including:
 """
 
 import base64
+import hashlib
 import html as html_lib
 import io
 import logging
 import mimetypes
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -32,6 +34,11 @@ from app.domains.water_mitigation.sketch_models import (
 from app.domains.water_mitigation.sketch_service import SketchService
 
 logger = logging.getLogger(__name__)
+
+# ── Local disk cache for cloud-downloaded images ──
+# Avoids re-downloading the same image on every PDF regeneration.
+_IMAGE_CACHE_DIR = Path(tempfile.gettempdir()) / "mj_sketch_image_cache"
+_IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Matches frontend EQUIPMENT_CONFIG in wmSketch.ts
 EQUIPMENT_CONFIG: Dict[str, Dict[str, str]] = {
@@ -203,17 +210,36 @@ class SketchPdfService:
 
         image_bytes: Optional[bytes] = None
 
-        # Cloud storage
+        # Cloud storage — with local disk cache
         if provider != "local" and file_id:
-            try:
-                from app.domains.storage.factory import StorageFactory
-                storage = StorageFactory.get_instance(provider)
-                image_bytes = storage.download(file_id)
-            except Exception as exc:
-                logger.warning(
-                    "Could not download background image for sketch %s "
-                    "from %s: %s", floor.id, provider, exc,
-                )
+            cache_path = _IMAGE_CACHE_DIR / f"{file_id}"
+            if cache_path.exists():
+                try:
+                    image_bytes = cache_path.read_bytes()
+                    logger.debug("Image cache HIT for file_id=%s", file_id)
+                except Exception:
+                    image_bytes = None
+
+            if image_bytes is None:
+                try:
+                    from app.domains.storage.factory import StorageFactory
+                    storage = StorageFactory.get_instance(provider)
+                    image_bytes = storage.download(file_id)
+                    # Save to local cache for subsequent PDF generations
+                    if image_bytes:
+                        try:
+                            cache_path.write_bytes(image_bytes)
+                            logger.info(
+                                "Image cache MISS → saved %d bytes for file_id=%s",
+                                len(image_bytes), file_id,
+                            )
+                        except Exception as cache_exc:
+                            logger.debug("Could not write image cache: %s", cache_exc)
+                except Exception as exc:
+                    logger.warning(
+                        "Could not download background image for sketch %s "
+                        "from %s: %s", floor.id, provider, exc,
+                    )
 
         # Local storage fallback
         if image_bytes is None and bg_url:

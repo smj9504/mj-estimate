@@ -30,6 +30,12 @@ class WaterMitigationJob(Base, BaseModel):
         Index('ix_wm_jobs_active_status', 'active', 'status'),
         Index('ix_wm_jobs_company', 'company_id'),
         Index('ix_wm_jobs_company_status', 'company_id', 'status'),
+        Index(
+            'uq_wm_jobs_sheet_row',
+            'google_sheet_row_number', 'google_sheet_name',
+            unique=True,
+            postgresql_where=Column('google_sheet_row_number').isnot(None)
+        ),
         {'extend_existing': True}
     )
 

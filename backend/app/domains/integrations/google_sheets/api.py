@@ -214,6 +214,23 @@ async def get_sync_history(
     ]
 
 
+@router.post("/cleanup-duplicates")
+async def cleanup_duplicate_jobs(
+    db: Session = Depends(get_db)
+):
+    """
+    Find and deactivate duplicate jobs that share the same
+    (google_sheet_row_number, google_sheet_name).
+
+    Keeps the most recently updated job and deactivates the rest.
+    This should be run once to clean up existing duplicates before
+    applying the unique index migration.
+    """
+    sync_service = GoogleSheetsSyncService(db, "")
+    result = sync_service.cleanup_duplicate_jobs()
+    return result
+
+
 @router.get("/sheet-metadata")
 async def get_sheet_metadata(
     spreadsheet_id: str

@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -702,6 +702,80 @@ class GoogleSheetsSyncService:
             logger.warning(f"Client sync after job create failed (non-fatal): {e}")
 
         return job
+
+    def cleanup_duplicate_jobs(self) -> Dict[str, Any]:
+        """
+        Find and remove duplicate jobs that share the same
+        (google_sheet_row_number, google_sheet_name).
+
+        For each duplicate group, keep the most recently updated job
+        and soft-delete (active=False) the rest.
+
+        Returns:
+            Summary with duplicates found and cleaned count
+        """
+        # Find all (row, sheet) combos with more than 1 job
+        dup_query = (
+            select(
+                WaterMitigationJob.google_sheet_row_number,
+                WaterMitigationJob.google_sheet_name,
+                func.count().label("cnt")
+            )
+            .where(
+                WaterMitigationJob.google_sheet_row_number.isnot(None),
+                WaterMitigationJob.google_sheet_name.isnot(None),
+            )
+            .group_by(
+                WaterMitigationJob.google_sheet_row_number,
+                WaterMitigationJob.google_sheet_name,
+            )
+            .having(func.count() > 1)
+        )
+        dup_groups = self.db.execute(dup_query).all()
+
+        total_deactivated = 0
+        details = []
+
+        for row_number, sheet_name, count in dup_groups:
+            # Get all jobs for this (row, sheet), ordered by updated_at desc
+            jobs_query = (
+                select(WaterMitigationJob)
+                .where(
+                    WaterMitigationJob.google_sheet_row_number == row_number,
+                    WaterMitigationJob.google_sheet_name == sheet_name,
+                )
+                .order_by(WaterMitigationJob.updated_at.desc())
+            )
+            jobs = self.db.execute(jobs_query).scalars().all()
+
+            # Keep the first (most recently updated), deactivate the rest
+            keeper = jobs[0]
+            duplicates_removed = []
+            for dup in jobs[1:]:
+                dup.active = False
+                dup.google_sheet_row_number = None  # unlink from sheet
+                duplicates_removed.append(str(dup.id))
+                total_deactivated += 1
+
+            details.append({
+                "sheet": sheet_name,
+                "row": row_number,
+                "kept": str(keeper.id),
+                "deactivated": duplicates_removed,
+            })
+
+        self.db.commit()
+
+        logger.info(
+            f"Duplicate cleanup completed: {len(dup_groups)} groups, "
+            f"{total_deactivated} jobs deactivated"
+        )
+
+        return {
+            "duplicate_groups": len(dup_groups),
+            "jobs_deactivated": total_deactivated,
+            "details": details,
+        }
 
     async def get_sync_history(
         self,
