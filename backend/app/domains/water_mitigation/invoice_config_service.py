@@ -580,21 +580,41 @@ class InvoiceConfigService:
                 # Add default note from standard item
                 if std_item and std_item.default_invoice_note:
                     config_kwargs["default_note"] = std_item.default_invoice_note
-                # Auto-generate demolition material note
-                elif "drywall" in item_name_lower:
-                    if "wall" in item_name_lower:
-                        config_kwargs["default_note"] = "wall"
-                    elif "ceiling" in item_name_lower:
-                        config_kwargs["default_note"] = "ceiling"
-                elif "baseboard" in item_name_lower:
-                    if "quarter round" in item_name_lower:
+                # Auto-generate demolition material note with sub-type
+                elif scope_item.item_type == "demolition":
+                    # Extract sub-type from name: "Wood Floor (Hardwood)" → "Hardwood"
+                    import re
+                    sub_match = re.search(r'\(([^)]+)\)', scope_item.name or "")
+                    sub_type_label = sub_match.group(1) if sub_match else ""
+
+                    if "drywall" in item_name_lower:
+                        base_note = "wall" if "wall" in item_name_lower else "ceiling"
+                        config_kwargs["default_note"] = (
+                            f"{base_note} - {sub_type_label}" if sub_type_label else base_note
+                        )
+                    elif "baseboard" in item_name_lower:
                         config_kwargs["default_note"] = (
                             "baseboard + quarter round"
+                            if "quarter round" in item_name_lower
+                            else "baseboard"
                         )
-                    else:
-                        config_kwargs["default_note"] = "baseboard"
-                elif "quarter round" in item_name_lower:
-                    config_kwargs["default_note"] = "quarter round"
+                    elif "quarter round" in item_name_lower:
+                        config_kwargs["default_note"] = "quarter round"
+                    elif "wood floor" in item_name_lower:
+                        config_kwargs["default_note"] = sub_type_label or "wood floor"
+                    elif "carpet" in item_name_lower:
+                        config_kwargs["default_note"] = sub_type_label or "carpet"
+                    elif "tile" in item_name_lower:
+                        config_kwargs["default_note"] = sub_type_label or "tile"
+                    elif "ceiling" in item_name_lower:
+                        config_kwargs["default_note"] = sub_type_label or "ceiling"
+                    elif "insulation" in item_name_lower:
+                        config_kwargs["default_note"] = sub_type_label or "insulation"
+                    elif "toe kick" in item_name_lower:
+                        config_kwargs["default_note"] = "toe kick"
+                    elif sub_type_label:
+                        # Generic: use sub-type as note for any demolition item with sub-type
+                        config_kwargs["default_note"] = sub_type_label
                 # Auto-generate equipment note if not already set
                 elif is_equipment and not config_kwargs.get("default_note"):
                     # Use placeholder format: {qty} Unit(s) @ {days} days

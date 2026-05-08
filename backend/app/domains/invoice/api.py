@@ -23,7 +23,7 @@ def sanitize_surrogates(text: str) -> str:
     # Remove surrogate pairs (characters in range U+D800 to U+DFFF)
     return re.sub(r'[\ud800-\udfff]', '', text)
 
-from app.common.services.pdf_service import pdf_service
+from app.common.services.pdf_service import get_pdf_service
 from app.common.utils.security import validate_file_path, PathTraversalError
 from app.common.utils.temp_file import temp_file_handler, get_temp_dir
 from app.core.database_factory import get_db_session as get_db
@@ -1023,12 +1023,12 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
         }
 
     # Generate HTML
-    if not pdf_service:
+    if not get_pdf_service():
         raise HTTPException(status_code=500, detail="PDF service not available")
 
     try:
         # Generate HTML
-        html_content = pdf_service.generate_invoice_html(html_data)
+        html_content = get_pdf_service().generate_invoice_html(html_data)
 
         # Return HTML as response
         return Response(
@@ -1177,14 +1177,14 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
         }
 
     # Generate PDF
-    if not pdf_service:
+    if not get_pdf_service():
         raise HTTPException(status_code=500, detail="PDF service not available")
 
     # Use temp_file_handler for automatic cleanup
     with temp_file_handler(suffix=".pdf", prefix="invoice_") as temp_path:
         try:
             # Generate PDF
-            pdf_path = pdf_service.generate_invoice_pdf(pdf_data, str(temp_path))
+            pdf_path = get_pdf_service().generate_invoice_pdf(pdf_data, str(temp_path))
 
             # Validate the PDF path to prevent path traversal attacks
             try:
@@ -1219,7 +1219,7 @@ async def preview_invoice_html(data: InvoicePDFRequest):
     import logging
     logger = logging.getLogger(__name__)
 
-    if not pdf_service:
+    if not get_pdf_service():
         raise HTTPException(status_code=500, detail="PDF service not available")
 
     try:
@@ -1239,7 +1239,7 @@ async def preview_invoice_html(data: InvoicePDFRequest):
             logger.warning(f"No valid sections in HTML preview data - sections value: {sections_data}")
 
         # Generate HTML
-        html_content = pdf_service.generate_invoice_html(html_data)
+        html_content = get_pdf_service().generate_invoice_html(html_data)
 
         # Sanitize any surrogate characters that could cause encoding errors
         html_content = sanitize_surrogates(html_content)
@@ -1266,7 +1266,7 @@ async def preview_invoice_pdf(data: InvoicePDFRequest):
     
     # Debug pdf_service import
     
-    if not pdf_service:
+    if not get_pdf_service():
         raise HTTPException(status_code=500, detail="PDF service not available")
     
     # Use temp_file_handler for automatic cleanup (cross-platform compatible)
@@ -1288,7 +1288,7 @@ async def preview_invoice_pdf(data: InvoicePDFRequest):
                 logger.warning(f"No valid sections in preview data - sections value: {sections_data}")
 
             # Generate PDF
-            pdf_path = pdf_service.generate_invoice_pdf(pdf_data, str(temp_path))
+            pdf_path = get_pdf_service().generate_invoice_pdf(pdf_data, str(temp_path))
 
             # Validate the PDF path to prevent path traversal attacks
             try:
@@ -1718,12 +1718,12 @@ async def generate_receipt_html(invoice_id: str, db=Depends(get_db)):
         }
 
     # Generate HTML receipt
-    if not pdf_service:
+    if not get_pdf_service():
         raise HTTPException(status_code=500, detail="PDF service not available")
 
     try:
         # Generate HTML receipt
-        html_content = pdf_service.generate_receipt_html(html_data)
+        html_content = get_pdf_service().generate_receipt_html(html_data)
 
         # Update invoice with receipt generation timestamp
         service.update(invoice_id, {
@@ -1813,14 +1813,14 @@ async def generate_receipt_pdf(invoice_id: str, db=Depends(get_db)):
         }
 
     # Generate PDF receipt
-    if not pdf_service:
+    if not get_pdf_service():
         raise HTTPException(status_code=500, detail="PDF service not available")
 
     # Use temp_file_handler for automatic cleanup (cross-platform compatible)
     with temp_file_handler(suffix=".pdf", prefix="invoice_receipt_") as temp_path:
         try:
             # Generate PDF receipt
-            pdf_path = pdf_service.generate_receipt_pdf(pdf_data, str(temp_path))
+            pdf_path = get_pdf_service().generate_receipt_pdf(pdf_data, str(temp_path))
 
             # Validate the PDF path to prevent path traversal attacks
             try:

@@ -8,7 +8,6 @@ Generates a PDF report from floor sketch data, including:
 """
 
 import base64
-import hashlib
 import html as html_lib
 import io
 import logging
@@ -228,6 +227,7 @@ class SketchPdfService:
                     # Save to local cache for subsequent PDF generations
                     if image_bytes:
                         try:
+                            cache_path.parent.mkdir(parents=True, exist_ok=True)
                             cache_path.write_bytes(image_bytes)
                             logger.info(
                                 "Image cache MISS → saved %d bytes for file_id=%s",
@@ -818,9 +818,56 @@ class SketchPdfService:
                 )
             return parts
 
-        # Rectangle zone — use pixel_width/pixel_height as fallback
-        zone_w = d1 * scale if d1 > 0 else float(z.get("pixel_width", 0))
-        zone_h = d2 * scale if d2 > 0 else float(z.get("pixel_height", 0))
+        # ── Polygon zone (irregular shape with polygon_points) ──
+        poly_pts = z.get("polygon_points")
+        if poly_pts and isinstance(poly_pts, list) and len(poly_pts) >= 3:
+            # polygon_points are relative to zone origin (x, y)
+            def _pt_xy(p):
+                if isinstance(p, dict):
+                    return float(p.get("x", 0)), float(p.get("y", 0))
+                return float(p[0]), float(p[1])
+
+            points_str = " ".join(
+                f"{_pt_xy(p)[0]:.1f},{_pt_xy(p)[1]:.1f}"
+                for p in poly_pts
+            )
+            fill_op = custom_fill_opacity if custom_fill_opacity is not None else 0.22
+            dash_part = self._stroke_style_to_dasharray(stroke_style)
+            parts = [
+                f'<g transform="translate({x:.1f},{y:.1f})">',
+                f'<polygon points="{points_str}" '
+                f'fill="{color}" fill-opacity="{fill_op:.2f}" '
+                f'stroke="{color}" stroke-width="1.5"{dash_part}/>',
+            ]
+            # Calculate centroid for label placement
+            px = [_pt_xy(p)[0] for p in poly_pts]
+            py = [_pt_xy(p)[1] for p in poly_pts]
+            cx = sum(px) / len(px)
+            cy = sum(py) / len(py)
+            sqft = float(z.get("calculated_sqft", 0))
+            base_lbl = _DEMO_MATERIAL_LABELS.get(mt, mt)
+            z_st = z.get("sub_type") or ""
+            if mt == "wood_floor" and z_st:
+                st_lbl = _WOOD_FLOOR_SUB_TYPE_LABELS.get(z_st, z_st)
+                base_lbl = f"{base_lbl} ({st_lbl})"
+            label = html_lib.escape(base_lbl)
+            parts.append(
+                f'<text x="{cx:.1f}" y="{cy - 4:.1f}" text-anchor="middle" '
+                f'font-size="10" font-family="Arial" fill="{color}" font-weight="600">'
+                f'{label}</text>'
+            )
+            if sqft > 0:
+                parts.append(
+                    f'<text x="{cx:.1f}" y="{cy + 8:.1f}" text-anchor="middle" '
+                    f'font-size="10" font-family="Arial" fill="#555">'
+                    f'{sqft:.1f} SF</text>'
+                )
+            parts.append("</g>")
+            return parts
+
+        # ── Rectangle zone — use pixel_width/pixel_height as fallback ──
+        zone_w = d1 * scale if d1 > 0 else float(z.get("pixel_width") or 0)
+        zone_h = d2 * scale if d2 > 0 else float(z.get("pixel_height") or 0)
         if zone_w <= 0 or zone_h <= 0:
             return []
 
@@ -1088,7 +1135,43 @@ class SketchPdfService:
             f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">'
         ]
 
-        if shape_type == "circle":
+        preset_id = shape.get("preset_id", "")
+
+        if preset_id == "door":
+            # Industry-standard door symbol: line + quarter-circle arc
+            flipped = bool(shape.get("flip_x", False))
+            r = min(w, h)
+            sw = max(2, stroke_w)
+            arc_sw = max(1, stroke_w * 0.7)
+            hinge_x = w if flipped else 0
+            tip_x = 0 if flipped else w
+            # Door panel line
+            parts.append(
+                f'<line x1="{hinge_x:.1f}" y1="{h:.1f}" '
+                f'x2="{tip_x:.1f}" y2="{h:.1f}" '
+                f'stroke="{stroke}" stroke-width="{sw:.1f}"/>'
+            )
+            # Quarter-circle arc (swing from tip sweeping up)
+            if flipped:
+                parts.append(
+                    f'<path d="M {w - r:.1f} {h:.1f} '
+                    f'A {r:.1f} {r:.1f} 0 0 1 {w:.1f} {h - r:.1f}" '
+                    f'fill="none" stroke="{stroke}" '
+                    f'stroke-width="{arc_sw:.1f}"/>'
+                )
+            else:
+                parts.append(
+                    f'<path d="M {r:.1f} {h:.1f} '
+                    f'A {r:.1f} {r:.1f} 0 0 0 0 {h - r:.1f}" '
+                    f'fill="none" stroke="{stroke}" '
+                    f'stroke-width="{arc_sw:.1f}"/>'
+                )
+            # Hinge dot
+            parts.append(
+                f'<circle cx="{hinge_x:.1f}" cy="{h:.1f}" r="3" '
+                f'fill="{stroke}"/>'
+            )
+        elif shape_type == "circle":
             rx = w / 2
             ry = h / 2
             parts.append(
@@ -1105,9 +1188,6 @@ class SketchPdfService:
                 f'stroke="{stroke}" stroke-width="{stroke_w:.1f}" '
                 f'rx="2"/>'
             )
-
-        # Stairs tread lines and direction arrow (matches frontend WMShapeRenderer)
-        preset_id = shape.get("preset_id", "")
         if preset_id == "stairs" and shape_type == "rectangle" and h > 10:
             tread_count = max(2, round(h / max(w * 0.28, 8)))
             step = h / tread_count
@@ -1190,6 +1270,7 @@ class SketchPdfService:
         demo_by_material: Dict[str, Dict] = {}
         carpet_pad_sqft: float = 0.0
         insulation_sqft: float = 0.0
+        glue_down_sqft: float = 0.0
         total_demo_sf: float = 0.0
         total_demo_lf: float = 0.0
         total_demo_ea: float = 0.0
@@ -1244,6 +1325,8 @@ class SketchPdfService:
                 carpet_pad_sqft += qty
             if getattr(zone, "include_insulation", False) and qty > 0:
                 insulation_sqft += qty
+            if getattr(zone, "glue_down", False) and qty > 0:
+                glue_down_sqft += qty
 
         equip_counts: Dict[str, int] = {}
         for equip in (floor.equipment_placements or []):
@@ -1276,6 +1359,7 @@ class SketchPdfService:
             "total_demo_ea": total_demo_ea,
             "carpet_pad_sqft": carpet_pad_sqft,
             "insulation_sqft": insulation_sqft,
+            "glue_down_sqft": glue_down_sqft,
         }
 
     # ──────────────────────────────────────────────────────────────────────

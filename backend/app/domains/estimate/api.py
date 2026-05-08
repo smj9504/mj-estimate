@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from app.common.services.pdf_service import pdf_service
+from app.common.services.pdf_service import get_pdf_service
 from app.common.utils.security import validate_file_path, PathTraversalError
 from app.common.utils.temp_file import temp_file_handler, get_temp_dir
 from app.core.database_factory import get_db_session as get_db
@@ -966,7 +966,7 @@ async def generate_estimate_pdf(estimate_id: str, db=Depends(get_db)):
     with temp_file_handler(suffix=".pdf", prefix="estimate_") as temp_path:
         try:
             # Generate PDF
-            pdf_path = pdf_service.generate_estimate_pdf(pdf_data, str(temp_path))
+            pdf_path = get_pdf_service().generate_estimate_pdf(pdf_data, str(temp_path))
 
             # Validate the PDF path to prevent path traversal attacks
             try:
@@ -1030,7 +1030,7 @@ async def preview_estimate_html(data: EstimatePDFRequest):
         # Use the same PDF service but get HTML instead of PDF
         if not pdf_service:
             raise HTTPException(status_code=500, detail="PDF service not available")
-        html_content = pdf_service.generate_estimate_html(html_data, template_type=template_type)
+        html_content = get_pdf_service().generate_estimate_html(html_data, template_type=template_type)
 
         logger.info(f"HTML content length: {len(html_content)} characters")
 
@@ -1078,7 +1078,7 @@ async def preview_estimate_pdf(data: EstimatePDFRequest):
                 logger.info(f"Generated {len(sections_data)} sections for PDF preview")
 
             # Generate PDF
-            pdf_path = pdf_service.generate_estimate_pdf(pdf_data, str(temp_path), template_type=template_type)
+            pdf_path = get_pdf_service().generate_estimate_pdf(pdf_data, str(temp_path), template_type=template_type)
             logger.info(f"PDF generated successfully at: {pdf_path}")
 
             # Validate the PDF path to prevent path traversal attacks

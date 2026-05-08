@@ -10,12 +10,11 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool, QueuePool
 
-# Conditional import for Supabase (only needed when DATABASE_TYPE=supabase)
-try:
-    from supabase import Client, create_client
-except ImportError:
-    create_client = None
-    Client = None
+# Supabase imports are deferred to avoid loading heavy dependencies
+# (gotrue, postgrest, realtime, storage3, httpx, websockets ~8s)
+# Only loaded when DATABASE_TYPE=supabase is actually used
+create_client = None
+Client = None
 
 import logging
 import os
@@ -182,7 +181,7 @@ class SQLAlchemySession(DatabaseSession):
 class SupabaseSession(DatabaseSession):
     """Supabase client wrapper implementing DatabaseSession interface"""
     
-    def __init__(self, client: Client):
+    def __init__(self, client):
         self._client = client
         self._closed = False
     
@@ -691,9 +690,10 @@ class SupabaseDatabase(DatabaseProvider):
         self.client = self._create_client()
         logger.info("Supabase client initialized")
     
-    def _create_client(self) -> Client:
+    def _create_client(self):
         """Create a new Supabase client"""
         try:
+            from supabase import create_client
             return create_client(self.url, self.key)
         except Exception as e:
             logger.error(f"Failed to create Supabase client: {e}")
@@ -795,40 +795,12 @@ class DatabaseFactory:
                 else:
                     raise ValueError(f"Unsupported database type: {db_type}")
                 
-                # Initialize database (optional - controlled by DB_AUTO_INIT setting)
-                # Skip if DB_AUTO_INIT=false (useful when using migrations like Alembic)
-                if settings.DB_AUTO_INIT:
-                    try:
-                        cls._database.init_database()
-                        logger.info(f"Database tables initialized successfully")
-                    except Exception as init_error:
-                        logger.warning(
-                            f"Database initialization failed (will retry on first use): "
-                            f"{init_error}"
-                        )
-                        logger.warning(
-                            "Server will continue to start. Database will be initialized "
-                            "on first connection attempt."
-                        )
-                else:
-                    logger.info(
-                        "Database auto-initialization disabled (DB_AUTO_INIT=false). "
-                        "Using migrations or manual table creation."
-                    )
+                # Table initialization deferred to lifespan handler
+                # This avoids duplicate inspect() calls on remote DB (~2s saved on NeonDB)
+                # Lifespan handles: table creation + column migration in single connection
                 
-                # Perform health check (non-blocking)
-                try:
-                    if not cls._database.health_check():
-                        logger.warning(
-                            f"{db_type} database health check failed. "
-                            "Will retry on first use."
-                        )
-                except Exception as health_error:
-                    logger.warning(
-                        f"Database health check failed (will retry on first use): "
-                        f"{health_error}"
-                    )
-                
+                # Skip health check during startup - init_database already validates connection
+                # Health check adds an extra network round trip (~0.5s on NeonDB)
                 logger.info(f"Database factory created {db_type} database successfully")
                 return cls._database
                 

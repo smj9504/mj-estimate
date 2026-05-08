@@ -263,81 +263,60 @@ error_logger = get_error_logger()
 app_logger = logging.getLogger(__name__)
 
 
-def _auto_add_columns():
-    """Add new nullable columns if they don't exist yet."""
-    from sqlalchemy import inspect, text
-    from app.core.database_factory import get_database
+_NEEDED_COLUMNS = [
+    ("wm_floor_sketches", "storage_file_id", "VARCHAR(500)"),
+    ("wm_floor_sketches", "storage_provider", "VARCHAR(50)"),
+    ("invoices", "client_id", "UUID"),
+    ("invoices", "claim_id", "UUID"),
+    ("estimates", "client_id", "UUID"),
+    ("estimates", "claim_id", "UUID"),
+    ("work_orders", "client_id", "UUID"),
+    ("work_orders", "claim_id", "UUID"),
+    ("water_mitigation_jobs", "claim_id", "UUID"),
+    ("clients", "normalized_address", "VARCHAR(500)"),
+    ("claims", "total_insurance_paid", "DECIMAL(15,2)"),
+    ("claims", "payment_status", "VARCHAR(50)"),
+    ("claims", "insurance_estimate_received", "BOOLEAN"),
+    ("claims", "insurance_estimate_received_date", "TIMESTAMPTZ"),
+    ("claims", "insurance_estimate_file_id", "VARCHAR(255)"),
+    ("claims", "insurance_estimate_file_name", "VARCHAR(500)"),
+    ("claims", "needs_supplement", "BOOLEAN"),
+    ("claims", "supplement_status", "VARCHAR(50)"),
+    ("claims", "supplement_notes", "TEXT"),
+    ("claims", "has_public_adjuster", "BOOLEAN"),
+    ("claims", "pa_fee_percentage", "DECIMAL(5,2)"),
+    ("claims", "pa_name", "VARCHAR(255)"),
+    ("claims", "pa_company", "VARCHAR(255)"),
+    ("claims", "pa_email", "VARCHAR(255)"),
+    ("claims", "pa_phone", "VARCHAR(50)"),
+    ("sent_emails", "reply_received", "BOOLEAN"),
+    ("sent_emails", "reply_received_at", "TIMESTAMPTZ"),
+    ("sent_emails", "reply_summary", "TEXT"),
+]
 
-    db = get_database()
-    engine = db.engine
-    insp = inspect(engine)
 
-    _needed = [
-        (
-            "wm_floor_sketches",
-            "storage_file_id",
-            "VARCHAR(500)",
-        ),
-        (
-            "wm_floor_sketches",
-            "storage_provider",
-            "VARCHAR(50)",
-        ),
-        # Client/Claim linkage columns
-        ("invoices", "client_id", "UUID"),
-        ("invoices", "claim_id", "UUID"),
-        ("estimates", "client_id", "UUID"),
-        ("estimates", "claim_id", "UUID"),
-        ("work_orders", "client_id", "UUID"),
-        ("work_orders", "claim_id", "UUID"),
-        ("water_mitigation_jobs", "claim_id", "UUID"),
-        # Normalized address for email ingestion matching
-        ("clients", "normalized_address", "VARCHAR(500)"),
-        # Claim payment tracking fields
-        ("claims", "total_insurance_paid", "DECIMAL(15,2)"),
-        ("claims", "payment_status", "VARCHAR(50)"),
-        ("claims", "insurance_estimate_received", "BOOLEAN"),
-        ("claims", "insurance_estimate_received_date", "TIMESTAMPTZ"),
-        ("claims", "insurance_estimate_file_id", "VARCHAR(255)"),
-        ("claims", "insurance_estimate_file_name", "VARCHAR(500)"),
-        ("claims", "needs_supplement", "BOOLEAN"),
-        ("claims", "supplement_status", "VARCHAR(50)"),
-        ("claims", "supplement_notes", "TEXT"),
-        # PA fee fields
-        ("claims", "has_public_adjuster", "BOOLEAN"),
-        ("claims", "pa_fee_percentage", "DECIMAL(5,2)"),
-        ("claims", "pa_name", "VARCHAR(255)"),
-        ("claims", "pa_company", "VARCHAR(255)"),
-        ("claims", "pa_email", "VARCHAR(255)"),
-        ("claims", "pa_phone", "VARCHAR(50)"),
-        # SentEmail reply tracking
-        ("sent_emails", "reply_received", "BOOLEAN"),
-        ("sent_emails", "reply_received_at", "TIMESTAMPTZ"),
-        ("sent_emails", "reply_summary", "TEXT"),
-    ]
+def _auto_add_columns_with_conn(conn):
+    """Add new nullable columns using an existing connection (no extra round trip)."""
+    from sqlalchemy import text
+
+    target_tables = list({t for t, _, _ in _NEEDED_COLUMNS})
+    rows = conn.execute(text(
+        "SELECT table_name, column_name "
+        "FROM information_schema.columns "
+        "WHERE table_schema = 'public' "
+        "AND table_name = ANY(:tables)"
+    ), {"tables": target_tables}).fetchall()
 
     existing = {}
-    for table, col, _ in _needed:
-        if table not in existing:
-            try:
-                cols = insp.get_columns(table)
-                existing[table] = {
-                    c["name"] for c in cols
-                }
-            except Exception:
-                existing[table] = set()
+    for table_name, column_name in rows:
+        existing.setdefault(table_name, set()).add(column_name)
 
-    with engine.begin() as conn:
-        for table, col, col_type in _needed:
-            if col not in existing.get(table, set()):
-                stmt = (
-                    f"ALTER TABLE {table} "
-                    f"ADD COLUMN {col} {col_type}"
-                )
-                conn.execute(text(stmt))
-                print(
-                    f"[MIGRATION] Added {table}.{col}"
-                )
+    for table, col, col_type in _NEEDED_COLUMNS:
+        if col not in existing.get(table, set()):
+            conn.execute(text(
+                f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
+            ))
+            print(f"[MIGRATION] Added {table}.{col}")
 
 
 @asynccontextmanager
@@ -378,56 +357,41 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[STARTUP] Trash scheduler skipped: {e}")
 
-        # Create new tables if they don't exist
+        # Create missing tables + auto-migrate columns in a single DB connection
         try:
             from app.core.database_factory import get_database
             _db = get_database()
             if hasattr(_db, 'engine'):
-                from app.domains.client.models import Client, Claim, ClaimNegotiation
-                Client.__table__.create(_db.engine, checkfirst=True)
-                Claim.__table__.create(_db.engine, checkfirst=True)
-                ClaimNegotiation.__table__.create(_db.engine, checkfirst=True)
-                from app.domains.contract.models import (
-                    ContractTemplate as CT, ContractInstance as CI,
-                    ContractSignature as CS, ClaimCompany as CC
-                )
-                CT.__table__.create(_db.engine, checkfirst=True)
-                CI.__table__.create(_db.engine, checkfirst=True)
-                CS.__table__.create(_db.engine, checkfirst=True)
-                CC.__table__.create(_db.engine, checkfirst=True)
-                # Email Ingestion tables
-                EmailAccount.__table__.create(_db.engine, checkfirst=True)
-                EmailIngestionLog.__table__.create(_db.engine, checkfirst=True)
-                # Claim Payment table
-                ClaimPayment.__table__.create(_db.engine, checkfirst=True)
-                ClaimExpense.__table__.create(_db.engine, checkfirst=True)
-                # Supplement tables
-                SupplementRequest.__table__.create(_db.engine, checkfirst=True)
-                BidItemEstimate.__table__.create(_db.engine, checkfirst=True)
-                SupplementFollowUp.__table__.create(_db.engine, checkfirst=True)
-                # Rebuild tables
-                RebuildContractor.__table__.create(_db.engine, checkfirst=True)
-                RebuildProject.__table__.create(_db.engine, checkfirst=True)
-                RebuildCompletionDoc.__table__.create(_db.engine, checkfirst=True)
-                # Claim Follow-up tables
-                FollowUpTask.__table__.create(_db.engine, checkfirst=True)
-                EmailTemplate.__table__.create(_db.engine, checkfirst=True)
-                SentEmail.__table__.create(_db.engine, checkfirst=True)
-                CommunicationLog.__table__.create(_db.engine, checkfirst=True)
-                # Material Order tables
+                from sqlalchemy import text, inspect
                 from app.domains.material_order.models import MaterialOrder, MaterialOrderItem
-                MaterialOrder.__table__.create(_db.engine, checkfirst=True)
-                MaterialOrderItem.__table__.create(_db.engine, checkfirst=True)
-                print("[STARTUP] Client/Claim/Contract/EmailIngestion/ClaimFollowup/MaterialOrder tables ensured")
-        except Exception as e:
-            print(f"[STARTUP] Client table creation skipped: {e}")
+                from app.common.base_repository import Base
 
-        # Lightweight auto-migration for new nullable columns
-        try:
-            _auto_add_columns()
-            print("[STARTUP] Column migration check done")
+                with _db.engine.begin() as conn:
+                    # 1) Check for missing tables using single query
+                    existing = set(inspect(conn).get_table_names())
+                    tables_to_create = [
+                        t for t in Base.metadata.sorted_tables
+                        if t.name not in existing
+                    ]
+                    if tables_to_create:
+                        Base.metadata.create_all(
+                            bind=conn, tables=tables_to_create
+                        )
+                        print(f"[STARTUP] Created {len(tables_to_create)} new tables")
+                    else:
+                        print("[STARTUP] All tables exist")
+
+                    # 2) Auto-migrate columns in same connection
+                    _auto_add_columns_with_conn(conn)
+                    print("[STARTUP] Column migration done")
+
+                # Mark tables as initialized so get_session() skips redundant init
+                _db._tables_initialized = True
         except Exception as e:
-            print(f"[STARTUP] Column migration skipped: {e}")
+            print(f"[STARTUP] Table/migration skipped: {e}")
+
+        # Start SQLAdmin in background after DB is ready (avoids connection contention)
+        threading.Thread(target=_init_sqladmin, daemon=True).start()
 
         print("[STARTUP] Ready - database/storage initialize on first use")
         yield
@@ -639,22 +603,24 @@ async def configuration_exception_handler(request: Request, exc: ConfigurationEr
     )
 
 
-# Setup SQLAdmin directly on the FastAPI app
-# This must happen AFTER middleware setup
-database = get_database()
-if hasattr(database, 'engine'):
+# SQLAdmin initialization moved to lifespan to avoid competing for NeonDB connection
+import threading
+
+
+def _init_sqladmin():
     try:
-        from app.admin import setup_admin
-        setup_admin(app, database.engine)
-        logger.info("SQLAdmin successfully initialized at /admin")
+        database = get_database()
+        if hasattr(database, 'engine'):
+            from app.admin import setup_admin
+            setup_admin(app, database.engine)
+            logger.info("SQLAdmin successfully initialized at /admin")
     except ImportError as e:
         logger.warning(f"SQLAdmin not available (missing dependency): {e}")
     except Exception as e:
         logger.error(f"Failed to initialize SQLAdmin: {e}", exc_info=True)
-else:
-    logger.warning("Database does not have engine attribute - SQLAdmin not initialized")
 
-# Include routers AFTER SQLAdmin setup
+
+# Include routers
 # Authentication endpoints
 app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 

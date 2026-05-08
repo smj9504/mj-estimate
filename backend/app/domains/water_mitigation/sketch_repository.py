@@ -137,55 +137,106 @@ class SketchRepository:
         )
 
         # Fields that exist only on the frontend / JSONB, not in the DB table
-        _DEMO_ZONE_SKIP = {"pixel_width", "pixel_height"}
+        _DEMO_ZONE_SKIP = {"pixel_width", "pixel_height", "polygon_points", "combined_from", "group_id"}
 
-        # --- Step 2: insert new child rows ---
+        # --- Step 2: insert new child rows (DB tables for relational queries) ---
         for zone_data in overlay_data.demolition_zones:
             d = {
                 k: v for k, v in zone_data.dict().items()
                 if k not in _DEMO_ZONE_SKIP
             }
-            zone = WMDemolitionZone(
-                floor_sketch_id=floor_sketch_id,
-                **d,
-            )
-            self.db.add(zone)
+            self.db.add(WMDemolitionZone(
+                floor_sketch_id=floor_sketch_id, **d,
+            ))
 
         for equip_data in overlay_data.equipment_placements:
-            equip = WMEquipmentPlacement(
+            self.db.add(WMEquipmentPlacement(
                 floor_sketch_id=floor_sketch_id,
                 **equip_data.dict(),
-            )
-            self.db.add(equip)
+            ))
 
         for contain_data in overlay_data.containment_zones:
-            contain = WMContainmentZone(
+            self.db.add(WMContainmentZone(
                 floor_sketch_id=floor_sketch_id,
                 **contain_data.dict(),
-            )
-            self.db.add(contain)
+            ))
 
         for protect_data in overlay_data.floor_protections:
-            protect = WMFloorProtection(
+            self.db.add(WMFloorProtection(
                 floor_sketch_id=floor_sketch_id,
                 **protect_data.dict(),
-            )
-            self.db.add(protect)
+            ))
 
         for content_data in overlay_data.content_protections:
-            content = WMContentProtection(
+            self.db.add(WMContentProtection(
                 floor_sketch_id=floor_sketch_id,
                 **content_data.dict(),
-            )
-            self.db.add(content)
+            ))
 
-        # --- Step 3: flush to assign IDs, then build JSONB snapshot ---
         self.db.flush()
 
-        # Expire all cached objects so selectinload re-fetches the freshly
-        # inserted child rows instead of returning stale relationship
-        # collections from the identity map.
-        self.db.expire_all()
+        # --- Step 3: build JSONB snapshot directly from frontend input ---
+        # This preserves ALL frontend-only fields (polygon_points, pixel_width,
+        # combined_from, group_id, etc.) without fragile index-based merging.
+        from decimal import Decimal as _Dec
+
+        def _safe(v):
+            """Convert Decimal / UUID to JSON-safe types, recurse into dicts/lists."""
+            if isinstance(v, _Dec):
+                return float(v)
+            if isinstance(v, UUID):
+                return str(v)
+            if isinstance(v, dict):
+                return {k: _safe(vv) for k, vv in v.items()}
+            if isinstance(v, list):
+                return [_safe(i) for i in v]
+            return v
+
+        def _pydantic_to_dict(obj):
+            d = obj.dict() if hasattr(obj, 'dict') else (obj if isinstance(obj, dict) else {})
+            return _safe(d)
+
+        fsi = str(floor_sketch_id)
+        snapshot = {
+            "demolition_zones": [
+                {**_pydantic_to_dict(z), "floor_sketch_id": fsi}
+                for z in overlay_data.demolition_zones
+            ],
+            "equipment_placements": [
+                {**_pydantic_to_dict(e), "floor_sketch_id": fsi}
+                for e in overlay_data.equipment_placements
+            ],
+            "containment_zones": [
+                {**_pydantic_to_dict(c), "floor_sketch_id": fsi}
+                for c in overlay_data.containment_zones
+            ],
+            "floor_protections": [
+                {**_pydantic_to_dict(fp), "floor_sketch_id": fsi}
+                for fp in overlay_data.floor_protections
+            ],
+            "content_protections": [
+                {**_pydantic_to_dict(cp), "floor_sketch_id": fsi}
+                for cp in overlay_data.content_protections
+            ],
+            "text_annotations": [
+                {**_pydantic_to_dict(ta), "floor_sketch_id": fsi}
+                for ta in (overlay_data.text_annotations or [])
+            ],
+            "shapes": [
+                {**_pydantic_to_dict(s), "floor_sketch_id": fsi}
+                for s in (overlay_data.shapes or [])
+            ],
+            "walls": [
+                {**_pydantic_to_dict(w), "floor_sketch_id": fsi}
+                for w in (overlay_data.walls or [])
+            ],
+            "rooms": [
+                {**_pydantic_to_dict(r), "floor_sketch_id": fsi}
+                for r in (overlay_data.rooms or [])
+            ],
+        }
+        if overlay_data.element_order:
+            snapshot["element_order"] = overlay_data.element_order
 
         sketch = self.db.execute(
             select(WMFloorSketch)
@@ -199,188 +250,8 @@ class SketchRepository:
             )
         ).scalar_one_or_none()
         if sketch is None:
-            raise ValueError(
-                f"Floor sketch {floor_sketch_id} not found"
-            )
+            raise ValueError(f"Floor sketch {floor_sketch_id} not found")
 
-        # ── Helper: serialise a Pydantic model to a JSON-safe dict ──
-        def _to_dict(obj):
-            d = obj.dict() if hasattr(obj, 'dict') else obj
-            # Convert Decimal / UUID to JSON-safe types
-            from decimal import Decimal as _Dec
-            out = {}
-            for k, v in d.items():
-                if isinstance(v, _Dec):
-                    out[k] = float(v)
-                elif isinstance(v, UUID):
-                    out[k] = str(v)
-                else:
-                    out[k] = v
-            return out
-
-        # ── Build JSONB snapshot ──
-        # DB child records provide server-generated IDs.
-        # Frontend input (overlay_data) provides pixel_width/height
-        # and other canvas-only fields.
-        # We merge both: DB record + frontend extras.
-        def _merge_demo(db_z, idx):
-            """Merge DB record with frontend overlay_data."""
-            base = {
-                "id": str(db_z.id),
-                "floor_sketch_id": str(db_z.floor_sketch_id),
-                "material_type": db_z.material_type,
-                "sub_type": db_z.sub_type,
-                "surface": db_z.surface,
-                "color": db_z.color,
-                "x": float(db_z.x),
-                "y": float(db_z.y),
-                "dimension1_ft": float(
-                    db_z.dimension1_ft
-                ) if db_z.dimension1_ft else 0,
-                "dimension2_ft": float(
-                    db_z.dimension2_ft
-                ) if db_z.dimension2_ft else 0,
-                "rotation": float(db_z.rotation or 0),
-                "calculated_sqft": float(
-                    db_z.calculated_sqft
-                ) if db_z.calculated_sqft else 0,
-                "height_ft": float(
-                    db_z.height_ft
-                ) if db_z.height_ft else None,
-                "include_pad": db_z.include_pad or False,
-                "include_insulation": (
-                    db_z.include_insulation or False
-                ),
-                "label": db_z.label,
-                "display_order": db_z.display_order,
-                "scope_item_id": str(
-                    db_z.scope_item_id
-                ) if db_z.scope_item_id else None,
-            }
-            # Merge pixel dimensions from frontend input
-            if idx < len(overlay_data.demolition_zones):
-                src = overlay_data.demolition_zones[idx]
-                pw = getattr(src, 'pixel_width', None)
-                ph = getattr(src, 'pixel_height', None)
-                if pw:
-                    base["pixel_width"] = float(pw)
-                if ph:
-                    base["pixel_height"] = float(ph)
-            return base
-
-        def _equip_dict(e):
-            return {
-                "id": str(e.id),
-                "floor_sketch_id": str(e.floor_sketch_id),
-                "equipment_type": e.equipment_type,
-                "x": float(e.x),
-                "y": float(e.y),
-                "icon_shape": e.icon_shape,
-                "color": e.color,
-                "label": e.label,
-            }
-
-        def _contain_dict(c):
-            return {
-                "id": str(c.id),
-                "floor_sketch_id": str(c.floor_sketch_id),
-                "containment_type": c.containment_type,
-                "x": float(c.x),
-                "y": float(c.y),
-                "length_ft": float(
-                    c.length_ft
-                ) if c.length_ft else 0,
-                "height_ft": float(
-                    c.height_ft
-                ) if c.height_ft else 0,
-                "rotation": float(c.rotation or 0),
-                "calculated_sqft": float(
-                    c.calculated_sqft
-                ) if c.calculated_sqft else 0,
-                "color": c.color,
-                "label": c.label,
-                "zipper_count": (
-                    c.zipper_count if hasattr(c, 'zipper_count')
-                    else 0
-                ),
-            }
-
-        def _fp_dict(fp):
-            return {
-                "id": str(fp.id),
-                "floor_sketch_id": str(fp.floor_sketch_id),
-                "protection_type": fp.protection_type,
-                "paper_width_ft": float(fp.paper_width_ft),
-                "x": float(fp.x),
-                "y": float(fp.y),
-                "length_ft": float(
-                    fp.length_ft
-                ) if fp.length_ft else 0,
-                "rotation": float(fp.rotation or 0),
-                "calculated_sqft": float(
-                    fp.calculated_sqft
-                ) if fp.calculated_sqft else 0,
-                "color": fp.color,
-            }
-
-        def _cp_dict(cp):
-            return {
-                "id": str(cp.id),
-                "floor_sketch_id": str(cp.floor_sketch_id),
-                "protection_type": cp.protection_type,
-                "x": float(cp.x),
-                "y": float(cp.y),
-                "width_ft": float(
-                    cp.width_ft
-                ) if cp.width_ft else 0,
-                "length_ft": float(
-                    cp.length_ft
-                ) if cp.length_ft else 0,
-                "rotation": float(cp.rotation or 0),
-                "calculated_sqft": float(
-                    cp.calculated_sqft
-                ) if cp.calculated_sqft else 0,
-                "color": cp.color,
-            }
-
-        snapshot = {
-            "demolition_zones": [
-                _merge_demo(z, i)
-                for i, z in enumerate(sketch.demolition_zones)
-            ],
-            "equipment_placements": [
-                _equip_dict(e)
-                for e in sketch.equipment_placements
-            ],
-            "containment_zones": [
-                _contain_dict(c)
-                for c in sketch.containment_zones
-            ],
-            "floor_protections": [
-                _fp_dict(fp)
-                for fp in sketch.floor_protections
-            ],
-            "content_protections": [
-                _cp_dict(cp)
-                for cp in sketch.content_protections
-            ],
-            "text_annotations": [
-                _to_dict(ta)
-                for ta in (overlay_data.text_annotations or [])
-            ],
-            "shapes": [
-                _to_dict(s)
-                for s in (overlay_data.shapes or [])
-            ],
-            "walls": [
-                _to_dict(w)
-                for w in (overlay_data.walls or [])
-            ],
-            "rooms": [
-                r.dict() if hasattr(r, 'dict') else r
-                for r in (overlay_data.rooms or [])
-            ],
-        }
         sketch.overlay_data = snapshot
         self.db.flush()
         return sketch

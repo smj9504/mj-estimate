@@ -118,32 +118,21 @@ def _merge_overlay_response(
             return str(obj)
         return obj
 
+    # Use JSONB as the single source of truth for overlay_data.
+    # The JSONB snapshot preserves ALL fields including frontend-only ones
+    # (polygon_points, pixel_width, combined_from, group_id, etc.)
+    # that don't exist in the DB child tables.
     return _to_json({
-        "demolition_zones": [
-            z.dict() if hasattr(z, 'dict') else z
-            for z in (resp.demolition_zones or [])
-        ],
-        "equipment_placements": [
-            e.dict() if hasattr(e, 'dict') else e
-            for e in (resp.equipment_placements or [])
-        ],
-        "containment_zones": [
-            c.dict() if hasattr(c, 'dict') else c
-            for c in (resp.containment_zones or [])
-        ],
-        "floor_protections": [
-            p.dict() if hasattr(p, 'dict') else p
-            for p in (resp.floor_protections or [])
-        ],
-        "content_protections": jsonb.get(
-            "content_protections", []
-        ),
-        "text_annotations": jsonb.get(
-            "text_annotations", []
-        ),
+        "demolition_zones": jsonb.get("demolition_zones", []),
+        "equipment_placements": jsonb.get("equipment_placements", []),
+        "containment_zones": jsonb.get("containment_zones", []),
+        "floor_protections": jsonb.get("floor_protections", []),
+        "content_protections": jsonb.get("content_protections", []),
+        "text_annotations": jsonb.get("text_annotations", []),
         "shapes": jsonb.get("shapes", []),
         "walls": jsonb.get("walls", []),
         "rooms": jsonb.get("rooms", []),
+        "element_order": jsonb.get("element_order", []),
     })
 
 
@@ -188,34 +177,18 @@ def get_floor_sketches(
         jsonb = s.overlay_data if isinstance(
             s.overlay_data, dict
         ) else {}
-        # Merge DB child records with JSONB-only data
+        # Use JSONB as single source of truth (preserves all frontend-only fields)
         resp.overlay_data = _to_json({
-            "demolition_zones": [
-                WMDemolitionZoneSchema.from_orm(z).dict()
-                for z in (s.demolition_zones or [])
-            ],
-            "equipment_placements": [
-                WMEquipmentPlacementSchema.from_orm(e).dict()
-                for e in (s.equipment_placements or [])
-            ],
-            "containment_zones": [
-                WMContainmentZoneSchema.from_orm(c).dict()
-                for c in (s.containment_zones or [])
-            ],
-            "floor_protections": [
-                WMFloorProtectionSchema.from_orm(p).dict()
-                for p in (s.floor_protections or [])
-            ],
-            "content_protections": [
-                WMContentProtectionSchema.from_orm(cp).dict()
-                for cp in (s.content_protections or [])
-            ],
-            "text_annotations": jsonb.get(
-                "text_annotations", []
-            ),
+            "demolition_zones": jsonb.get("demolition_zones", []),
+            "equipment_placements": jsonb.get("equipment_placements", []),
+            "containment_zones": jsonb.get("containment_zones", []),
+            "floor_protections": jsonb.get("floor_protections", []),
+            "content_protections": jsonb.get("content_protections", []),
+            "text_annotations": jsonb.get("text_annotations", []),
             "shapes": jsonb.get("shapes", []),
             "walls": jsonb.get("walls", []),
             "rooms": jsonb.get("rooms", []),
+            "element_order": jsonb.get("element_order", []),
         })
         items.append(resp)
 
@@ -336,6 +309,16 @@ def save_overlay_data(
     """
     import logging
     logger = logging.getLogger(__name__)
+    logger.info(
+        "save_overlay_data floor=%s: shapes=%d, demo_zones=%d, equip=%d",
+        floor_sketch_id,
+        len(overlay_data.shapes or []),
+        len(overlay_data.demolition_zones),
+        len(overlay_data.equipment_placements),
+    )
+    if overlay_data.shapes:
+        for s in overlay_data.shapes[:3]:
+            logger.info("  shape: id=%s preset=%s x=%.0f y=%.0f", s.id, s.preset_id, s.x, s.y)
     service = SketchService(db)
     try:
         sketch = service.save_overlay_data(floor_sketch_id, overlay_data)

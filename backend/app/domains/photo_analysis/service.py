@@ -15,12 +15,6 @@ from app.domains.photo_analysis.schemas import (
 )
 from app.domains.photo_analysis.repository import PhotoAnalysisCacheRepository
 from app.domains.photo_analysis.aggregator import PhotoResultAggregator
-from app.domains.photo_analysis.providers import (
-    OpenAIVisionProvider,
-    GeminiVisionProvider,
-    MockPhotoAnalysisProvider,
-    PhotoAnalysisProvider
-)
 from app.domains.photo_analysis.prompts import get_room_prompt
 from app.core.config import settings
 
@@ -35,7 +29,12 @@ class PhotoAnalysisService:
         self.cache_repo = PhotoAnalysisCacheRepository()
         self.cache_enabled = getattr(settings, 'PHOTO_ANALYSIS_CACHE_ENABLED', True)
 
-        # Initialize providers
+        # Lazy-initialize providers to avoid heavy imports at startup
+        from app.domains.photo_analysis.providers import (
+            OpenAIVisionProvider,
+            GeminiVisionProvider,
+            MockPhotoAnalysisProvider,
+        )
         self.providers = {
             "openai": OpenAIVisionProvider(),
             "gemini": GeminiVisionProvider(),
@@ -78,7 +77,7 @@ class PhotoAnalysisService:
         )
         return None
 
-    def _get_provider(self, provider_name: str) -> PhotoAnalysisProvider:
+    def _get_provider(self, provider_name: str):
         """
         Get analysis provider by name with automatic fallback.
 

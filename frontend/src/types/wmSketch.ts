@@ -375,6 +375,8 @@ export interface WMDemolitionZone {
   include_pad?: boolean;
   /** When true, insulation demo is included with this wall/ceiling zone */
   include_insulation?: boolean;
+  /** When true, floor is glued down to substrate — adds extra removal cost */
+  glue_down?: boolean;
   /** Trim removal extent: full (all sides), half, quarter, or custom LF */
   trim_removal?: TrimRemovalExtent;
   /** Custom trim length in LF (used when trim_removal === 'custom') */
@@ -407,10 +409,16 @@ export interface WMDemolitionZone {
    */
   polygon_points?: { x: number; y: number }[];
   /**
-   * Snapshot of original zones before combining.
+   * Snapshot of original zones before combining (area/polygon combine only).
    * Present only on a combined (grouped) zone. Used to restore individual zones on Ungroup.
    */
   combined_from?: WMDemolitionZone[];
+  /**
+   * Group ID for logically linked zones (LF/line combine).
+   * Zones sharing the same group_id are displayed as a group in the sidebar
+   * but remain as individual elements on the canvas.
+   */
+  group_id?: string;
 }
 
 /** A piece of drying equipment placed at a specific canvas position */
@@ -558,7 +566,7 @@ export interface ShapePreset {
  *  default_width / default_height are fallbacks when scale is not calibrated (20 px/ft default).
  */
 export const SHAPE_PRESETS: ShapePreset[] = [
-  { id: 'door',       name: 'Door',       shape_type: 'rectangle', default_width: 36, default_height: 8,  real_width_ft: 3,    real_height_ft: 0.4,  fill_color: '#A0522D', stroke_color: '#6B3410', abbreviation: 'DR' },
+  { id: 'door',       name: 'Door',       shape_type: 'rectangle', default_width: 60, default_height: 60, real_width_ft: 3,    real_height_ft: 3,    fill_color: 'transparent', stroke_color: '#6B3410', abbreviation: '' },
   { id: 'cabinet',    name: 'Cabinet',    shape_type: 'rectangle', default_width: 60, default_height: 30, real_width_ft: 5,    real_height_ft: 2,    fill_color: '#D2B48C', stroke_color: '#8B7355', abbreviation: 'CAB' },
   { id: 'vanity',     name: 'Vanity',     shape_type: 'rectangle', default_width: 48, default_height: 24, real_width_ft: 4,    real_height_ft: 1.75, fill_color: '#C4A882', stroke_color: '#8B7355', abbreviation: 'VAN' },
   { id: 'tub',        name: 'Tub/Shower', shape_type: 'rectangle', default_width: 60, default_height: 36, real_width_ft: 5,    real_height_ft: 2.5,  fill_color: '#87CEEB', stroke_color: '#4682B4', abbreviation: 'TUB' },
@@ -601,6 +609,8 @@ export interface WMShapeAnnotation {
   opacity: number;
   /** Short label inside the shape (e.g. "DR", "CAB") */
   label: string;
+  /** Horizontal flip (mirrors the shape, e.g. door hinge side) */
+  flip_x?: boolean;
 }
 
 // ============================================================================

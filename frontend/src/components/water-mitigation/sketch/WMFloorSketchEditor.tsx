@@ -51,6 +51,7 @@ import {
   DeleteOutlined,
   GroupOutlined,
   UngroupOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import { Stage, Layer } from 'react-konva';
 import type Konva from 'konva';
@@ -418,6 +419,10 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     updateDemolitionZone,
     combineDemolitionZones,
     ungroupDemolitionZone,
+    groupDemolitionZones,
+    clearDemolitionGroup,
+    rotateDemolitionGroup,
+    moveDemolitionGroup,
     addEquipment,
     updateEquipment,
     addContainment,
@@ -1060,40 +1065,17 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     });
 
     const isLF = matDef?.unit === 'LF';
-    const isLine = isLF || matDef?.surface === 'wall';
+    const isLine = isLF || (matDef?.surface === 'wall' && matDef?.unit === 'SF');
+    const renderMode = matDef ? getEffectiveRenderMode(matDef) : 'area';
+    const isLineRender = renderMode === 'line' || isLine;
 
-    // Sum values from original zones
-    const totalValue = zones.reduce((sum, z) => sum + z.calculated_sqft, 0);
-    const totalDim1 = zones.reduce((sum, z) => sum + z.dimension1_ft, 0);
-
-    const newId = generateOverlayId();
-    let combinedZone: WMDemolitionZone;
-
-    if (isLine) {
-      // ---- LF / Line zones: keep as line, sum lengths ----
-      // Use the first zone's position and average rotation
-      const firstZone = zones[0];
-      combinedZone = {
-        id: newId,
-        floor_sketch_id: fs.id,
-        material_type: materialType,
-        sub_type: zones[0].sub_type,
-        surface: zones[0].surface,
-        color: zones[0].color,
-        x: firstZone.x,
-        y: firstZone.y,
-        dimension1_ft: Math.round(totalDim1 * 100) / 100,
-        dimension2_ft: 0,
-        height_ft: firstZone.height_ft,
-        rotation: firstZone.rotation,
-        calculated_sqft: Math.round(totalValue * 100) / 100,
-        display_order: st.overlayData.demolition_zones.length,
-        render_mode: matDef?.render_mode || 'line',
-        stroke_style: matDef?.stroke_style,
-        fill_opacity: matDef?.fill_opacity,
-        combined_from: originalZones,
-        label: `Combined ${zones.length}x (${isLF ? totalDim1.toFixed(1) + ' LF' : totalValue.toFixed(1) + ' SF'})`,
-      };
+    if (isLineRender) {
+      // ---- LF / Line zones: logical grouping only (no merge) ----
+      // Each line stays in its original position. Just assign a shared group_id.
+      const groupId = generateOverlayId();
+      groupDemolitionZones(zones.map((z) => z.id), groupId);
+      const totalLF = zones.reduce((sum, z) => sum + z.dimension1_ft, 0);
+      message.success(`${zones.length}개 요소가 그룹되었습니다. (${totalLF.toFixed(1)} ${matDef?.unit || 'LF'})`);
     } else {
       // ---- Area (SF) zones: merge into convex hull polygon ----
       const allPolygons = zones.map((z) => getAbsolutePoints(z));
@@ -1112,7 +1094,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       }
       const relativePoints = hull.map((p) => ({ x: p.x - minX, y: p.y - minY }));
 
-      combinedZone = {
+      const totalSqft = zones.reduce((sum, z) => sum + z.calculated_sqft, 0);
+      const newId = generateOverlayId();
+      const combinedZone: WMDemolitionZone = {
         id: newId,
         floor_sketch_id: fs.id,
         material_type: materialType,
@@ -1124,7 +1108,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         dimension1_ft: 0,
         dimension2_ft: 0,
         rotation: 0,
-        calculated_sqft: Math.round(totalValue * 100) / 100,
+        calculated_sqft: Math.round(totalSqft * 100) / 100,
         display_order: st.overlayData.demolition_zones.length,
         render_mode: matDef?.render_mode,
         stroke_style: matDef?.stroke_style,
@@ -1133,49 +1117,54 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         combined_from: originalZones,
         label: `Combined (${zones.length})`,
       };
-    }
 
-    // Atomic: remove originals + add combined in a single undo entry
-    combineDemolitionZones(zones.map((z) => z.id), combinedZone);
-    selectElement({ element_id: newId, element_type: 'demolition' });
-    message.success(`${zones.length}개 요소가 Combine 되었습니다.`);
-  }, [getAbsolutePoints, combineDemolitionZones, selectElement]);
+      combineDemolitionZones(zones.map((z) => z.id), combinedZone);
+      selectElement({ element_id: newId, element_type: 'demolition' });
+      message.success(`${zones.length}개 요소가 Combine 되었습니다.`);
+    }
+  }, [getAbsolutePoints, combineDemolitionZones, groupDemolitionZones, selectElement]);
 
   /**
    * Ungroup a combined zone back into its original individual zones.
    */
+  /**
+   * Ungroup: handles both combined_from (area merge) and group_id (line grouping).
+   */
   const ungroupZone = useCallback((zoneId: string) => {
     const st = stateRef.current;
     const zone = st.overlayData.demolition_zones.find((z) => z.id === zoneId);
-    if (!zone || !zone.combined_from || zone.combined_from.length === 0) {
-      message.warning('이 요소는 Ungroup할 수 없습니다.');
+    if (!zone) return;
+
+    // Case 1: Area polygon combine (combined_from) — restore originals
+    if (zone.combined_from && zone.combined_from.length > 0) {
+      const fs = floorSketchRef.current;
+      const restoredZones: WMDemolitionZone[] = [];
+      for (const original of zone.combined_from) {
+        const newId = generateOverlayId();
+        restoredZones.push({ ...original, id: newId, floor_sketch_id: fs.id });
+      }
+      ungroupDemolitionZone(zoneId, restoredZones);
+      if (restoredZones.length > 0) {
+        selectElement({ element_id: restoredZones[0].id, element_type: 'demolition' });
+        for (let i = 1; i < restoredZones.length; i++) {
+          toggleSelectElement({ element_id: restoredZones[i].id, element_type: 'demolition' });
+        }
+      }
+      message.success(`${restoredZones.length}개 요소로 Ungroup 되었습니다.`);
       return;
     }
 
-    const fs = floorSketchRef.current;
-    // Restore each original zone with new IDs
-    const restoredZones: WMDemolitionZone[] = [];
-    for (const original of zone.combined_from) {
-      const newId = generateOverlayId();
-      restoredZones.push({
-        ...original,
-        id: newId,
-        floor_sketch_id: fs.id,
-      });
+    // Case 2: Line group_id grouping — just clear the group_id
+    if (zone.group_id) {
+      const groupId = zone.group_id;
+      const groupZones = st.overlayData.demolition_zones.filter((z) => z.group_id === groupId);
+      clearDemolitionGroup(groupId);
+      message.success(`${groupZones.length}개 요소의 그룹이 해제되었습니다.`);
+      return;
     }
 
-    // Atomic: remove combined + add originals in a single undo entry
-    ungroupDemolitionZone(zoneId, restoredZones);
-
-    // Select restored zones
-    if (restoredZones.length > 0) {
-      selectElement({ element_id: restoredZones[0].id, element_type: 'demolition' });
-      for (let i = 1; i < restoredZones.length; i++) {
-        toggleSelectElement({ element_id: restoredZones[i].id, element_type: 'demolition' });
-      }
-    }
-    message.success(`${restoredZones.length}개 요소로 Ungroup 되었습니다.`);
-  }, [ungroupDemolitionZone, selectElement, toggleSelectElement]);
+    message.warning('이 요소는 Ungroup할 수 없습니다.');
+  }, [ungroupDemolitionZone, clearDemolitionGroup, selectElement, toggleSelectElement]);
 
   // ------------------------------------------------------------------
   // Right-click context menu
@@ -1221,9 +1210,13 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     const canCombine = demoZones.length >= 2 &&
       demoZones.every((z) => z.material_type === demoZones[0].material_type);
 
-    const ungroupableZones = demoZones.filter(
+    // Zones with combined_from (area merge)
+    const combinedFromZones = demoZones.filter(
       (z) => z.combined_from && z.combined_from.length > 0
     );
+    // Zones with group_id (line grouping)
+    const groupedZones = demoZones.filter((z) => !!z.group_id);
+    const hasUngroupable = combinedFromZones.length > 0 || groupedZones.length > 0;
 
     // Always show Combine/Ungroup when at least 1 demolition zone is selected
     if (demoZones.length > 0) {
@@ -1244,28 +1237,59 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         onClick: canCombine ? () => combineSelectedZones() : undefined,
       });
 
-      // Ungroup — enabled when any selected zone has combined_from
-      if (ungroupableZones.length > 0) {
-        for (const uz of ungroupableZones) {
+      // Ungroup
+      if (combinedFromZones.length > 0) {
+        for (const uz of combinedFromZones) {
           items.push({
             key: `ungroup-${uz.id}`,
             icon: <UngroupOutlined />,
-            label: ungroupableZones.length === 1
-              ? `Ungroup → ${uz.combined_from!.length}개로 분리`
-              : `Ungroup "${uz.label || uz.material_type}" → ${uz.combined_from!.length}개`,
+            label: `Ungroup → ${uz.combined_from!.length}개로 분리`,
             onClick: () => ungroupZone(uz.id),
+          });
+        }
+      } else if (groupedZones.length > 0) {
+        // Find unique group_ids among selected zones
+        const seen: Record<string, boolean> = {};
+        const groupIds: string[] = [];
+        for (const gz of groupedZones) {
+          if (gz.group_id && !seen[gz.group_id]) {
+            seen[gz.group_id] = true;
+            groupIds.push(gz.group_id);
+          }
+        }
+        for (const gid of groupIds) {
+          const groupCount = state.overlayData.demolition_zones.filter((z) => z.group_id === gid).length;
+          items.push({
+            key: `ungroup-grp-${gid}`,
+            icon: <UngroupOutlined />,
+            label: `Ungroup (${groupCount}개 그룹 해제)`,
+            onClick: () => ungroupZone(groupedZones.find((z) => z.group_id === gid)!.id),
           });
         }
       } else {
         items.push({
           key: 'ungroup',
           icon: <UngroupOutlined />,
-          label: 'Ungroup (Combined 요소만 가능)',
+          label: 'Ungroup (그룹된 요소만 가능)',
           disabled: true,
         });
       }
 
       items.push({ type: 'divider' as const, key: 'div-combine' });
+    }
+
+    // --- Flip (for door shapes) ---
+    if (sel.length === 1 && sel[0].element_type === 'shape') {
+      const shapeEl = (state.overlayData.shapes ?? []).find((s) => s.id === sel[0].element_id);
+      if (shapeEl?.preset_id === 'door') {
+        items.push({
+          key: 'flip-door',
+          icon: <SwapOutlined />,
+          label: `Flip Door (${shapeEl.flip_x ? '← Left' : 'Right →'})`,
+          onClick: () => updateShape({ id: shapeEl.id, flip_x: !shapeEl.flip_x }),
+        });
+        items.push({ type: 'divider' as const, key: 'div-flip' });
+      }
     }
 
     // --- Z-order (only when something is selected) ---
@@ -1321,7 +1345,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     }
 
     return items;
-  }, [state.selections, state.overlayData.demolition_zones, bringToFront, bringForward, sendBackward, sendToBack, removeDemolitionZone, removeEquipment, removeContainment, removeFloorProtection, removeContentProtection, removeTextAnnotation, removeShape, removeWall, removeRoom, combineSelectedZones, ungroupZone]);
+  }, [state.selections, state.overlayData.demolition_zones, state.overlayData.shapes, bringToFront, bringForward, sendBackward, sendToBack, removeDemolitionZone, removeEquipment, removeContainment, removeFloorProtection, removeContentProtection, removeTextAnnotation, removeShape, removeWall, removeRoom, combineSelectedZones, ungroupZone, updateShape]);
 
   // ------------------------------------------------------------------
   // Mouse event handlers on Stage
@@ -1941,6 +1965,27 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           const rot = heightFt;
           const isLF = mat.unit === 'LF';
           const wallHeight = zone.height_ft ?? 8;
+
+          // If this zone is part of a group, rotate the entire group
+          if (zone.group_id) {
+            const deltaAngle = rot - (zone.rotation || 0);
+            if (Math.abs(deltaAngle) > 0.01) {
+              // Compute group centroid as pivot
+              const groupZones = state.overlayData.demolition_zones.filter(
+                (z) => z.group_id === zone.group_id
+              );
+              let cx = 0, cy = 0;
+              for (const gz of groupZones) {
+                cx += gz.x;
+                cy += gz.y;
+              }
+              cx /= groupZones.length;
+              cy /= groupZones.length;
+              rotateDemolitionGroup(zone.group_id, cx, cy, deltaAngle);
+            }
+            return; // group rotation handles all zones at once
+          }
+
           updateDemolitionZone({
             id,
             dimension1_ft: lengthFt,
@@ -1999,7 +2044,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         });
       }
     },
-    [updateDemolitionZone, updateContainment, updateFloorProtection, updateContentProtection, updateShape, state.overlayData.containment_zones, state.overlayData.demolition_zones, materialTypes]
+    [updateDemolitionZone, updateContainment, updateFloorProtection, updateContentProtection, updateShape, rotateDemolitionGroup, state.overlayData.containment_zones, state.overlayData.demolition_zones, materialTypes]
   );
 
   // ------------------------------------------------------------------
@@ -2532,6 +2577,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                   );
                   autoDetectRooms(updatedWalls);
                 }}
+                onMoveGroup={moveDemolitionGroup}
+                onRotateGroup={rotateDemolitionGroup}
                 polygonPreviewPoints={polygonDrawPoints.length > 0 ? polygonDrawPoints : undefined}
                 polygonPreviewCursor={polygonDrawCursor}
                 wallPreview={

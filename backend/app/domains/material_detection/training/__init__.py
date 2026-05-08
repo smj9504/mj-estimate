@@ -14,7 +14,6 @@ from .models import (
     TrainingJobStatus
 )
 from .service import TrainingService
-from .gpt4_labeler import GPT4VisionLabeler
 from .api import router
 
 __all__ = [
@@ -26,6 +25,5 @@ __all__ = [
     "LabelingStatus",
     "TrainingJobStatus",
     "TrainingService",
-    "GPT4VisionLabeler",
     "router"
 ]

@@ -74,8 +74,10 @@ function ensureOverlayIds(overlay: WMOverlayData): WMOverlayData {
     floor_protections: fix(overlay.floor_protections),
     content_protections: fix(overlay.content_protections ?? []),
     text_annotations: fix(overlay.text_annotations ?? []),
+    shapes: fix(overlay.shapes ?? []),
     walls: fix(overlay.walls ?? []),
     rooms: fix(overlay.rooms ?? []),
+    element_order: overlay.element_order,
   };
   return patched ? result : overlay;
 }

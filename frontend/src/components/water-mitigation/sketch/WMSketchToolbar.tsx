@@ -273,17 +273,26 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
     key: preset.id,
     label: (
       <Space size={6}>
-        <span
-          style={{
-            display: 'inline-block',
-            width: 14,
-            height: 14,
-            borderRadius: preset.shape_type === 'circle' ? '50%' : 2,
-            background: preset.fill_color,
-            border: `1.5px solid ${preset.stroke_color}`,
-            flexShrink: 0,
-          }}
-        />
+        {preset.id === 'door' ? (
+          /* Door icon: quarter-arc symbol */
+          <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+            <line x1="0" y1="13" x2="13" y2="13" stroke={preset.stroke_color} strokeWidth="1.5" />
+            <path d="M 13 13 A 13 13 0 0 0 0 0" fill="none" stroke={preset.stroke_color} strokeWidth="1" />
+            <circle cx="0" cy="13" r="1.5" fill={preset.stroke_color} />
+          </svg>
+        ) : (
+          <span
+            style={{
+              display: 'inline-block',
+              width: 14,
+              height: 14,
+              borderRadius: preset.shape_type === 'circle' ? '50%' : 2,
+              background: preset.fill_color,
+              border: `1.5px solid ${preset.stroke_color}`,
+              flexShrink: 0,
+            }}
+          />
+        )}
         <span>{preset.name}</span>
         {preset.abbreviation && (
           <span style={{ fontSize: 10, color: token.colorTextTertiary, fontFamily: 'monospace' }}>
@@ -564,16 +573,23 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
           >
             {activeShapePreset ? (
               <Space size={4}>
-                <span
-                  style={{
-                    display: 'inline-block',
-                    width: 10,
-                    height: 10,
-                    borderRadius: activeShapePreset.shape_type === 'circle' ? '50%' : 2,
-                    background: activeShapePreset.fill_color,
-                    border: `1px solid ${activeShapePreset.stroke_color}`,
-                  }}
-                />
+                {activeShapePreset.id === 'door' ? (
+                  <svg width="10" height="10" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+                    <line x1="0" y1="13" x2="13" y2="13" stroke={activeShapePreset.stroke_color} strokeWidth="2" />
+                    <path d="M 13 13 A 13 13 0 0 0 0 0" fill="none" stroke={activeShapePreset.stroke_color} strokeWidth="1.5" />
+                  </svg>
+                ) : (
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: 10,
+                      height: 10,
+                      borderRadius: activeShapePreset.shape_type === 'circle' ? '50%' : 2,
+                      background: activeShapePreset.fill_color,
+                      border: `1px solid ${activeShapePreset.stroke_color}`,
+                    }}
+                  />
+                )}
                 <span
                   style={{
                     maxWidth: 60,

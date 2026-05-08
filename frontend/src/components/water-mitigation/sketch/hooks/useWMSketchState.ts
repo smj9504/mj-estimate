@@ -70,6 +70,10 @@ type WMSketchAction =
   | { type: 'REMOVE_DEMOLITION_ZONE'; payload: string }
   | { type: 'COMBINE_DEMOLITION_ZONES'; payload: { removeIds: string[]; addZone: WMDemolitionZone } }
   | { type: 'UNGROUP_DEMOLITION_ZONE'; payload: { removeId: string; addZones: WMDemolitionZone[] } }
+  | { type: 'GROUP_DEMOLITION_ZONES'; payload: { zoneIds: string[]; groupId: string } }
+  | { type: 'CLEAR_DEMOLITION_GROUP'; payload: { groupId: string } }
+  | { type: 'ROTATE_DEMOLITION_GROUP'; payload: { groupId: string; pivotX: number; pivotY: number; deltaAngleDeg: number } }
+  | { type: 'MOVE_DEMOLITION_GROUP'; payload: { groupId: string; dx: number; dy: number } }
 
   // Equipment placements
   | { type: 'ADD_EQUIPMENT'; payload: WMEquipmentPlacement }
@@ -302,6 +306,87 @@ function wmSketchReducer(
         overlayData: {
           ...state.overlayData,
           demolition_zones: [...remaining, ...action.payload.addZones],
+        },
+      };
+    }
+
+    case 'GROUP_DEMOLITION_ZONES': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const idSet = new Set(action.payload.zoneIds);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          demolition_zones: state.overlayData.demolition_zones.map((z) =>
+            idSet.has(z.id) ? { ...z, group_id: action.payload.groupId } : z
+          ),
+        },
+      };
+    }
+
+    case 'CLEAR_DEMOLITION_GROUP': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          demolition_zones: state.overlayData.demolition_zones.map((z) =>
+            z.group_id === action.payload.groupId ? { ...z, group_id: undefined } : z
+          ),
+        },
+      };
+    }
+
+    case 'ROTATE_DEMOLITION_GROUP': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const { groupId, pivotX, pivotY, deltaAngleDeg } = action.payload;
+      const deltaRad = (deltaAngleDeg * Math.PI) / 180;
+      const cos = Math.cos(deltaRad);
+      const sin = Math.sin(deltaRad);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          demolition_zones: state.overlayData.demolition_zones.map((z) => {
+            if (z.group_id !== groupId) return z;
+            // Rotate position around pivot
+            const dx = z.x - pivotX;
+            const dy = z.y - pivotY;
+            const newX = pivotX + dx * cos - dy * sin;
+            const newY = pivotY + dx * sin + dy * cos;
+            return {
+              ...z,
+              x: newX,
+              y: newY,
+              rotation: (z.rotation || 0) + deltaAngleDeg,
+            };
+          }),
+        },
+      };
+    }
+
+    case 'MOVE_DEMOLITION_GROUP': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const { groupId, dx, dy } = action.payload;
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          demolition_zones: state.overlayData.demolition_zones.map((z) =>
+            z.group_id === groupId ? { ...z, x: z.x + dx, y: z.y + dy } : z
+          ),
         },
       };
     }
@@ -925,6 +1010,10 @@ export interface WMSketchStateReturn {
   removeDemolitionZone: (id: string) => void;
   combineDemolitionZones: (removeIds: string[], addZone: WMDemolitionZone) => void;
   ungroupDemolitionZone: (removeId: string, addZones: WMDemolitionZone[]) => void;
+  groupDemolitionZones: (zoneIds: string[], groupId: string) => void;
+  clearDemolitionGroup: (groupId: string) => void;
+  rotateDemolitionGroup: (groupId: string, pivotX: number, pivotY: number, deltaAngleDeg: number) => void;
+  moveDemolitionGroup: (groupId: string, dx: number, dy: number) => void;
 
   // Equipment
   addEquipment: (placement: WMEquipmentPlacement) => void;
@@ -1074,6 +1163,30 @@ export function useWMSketchState(
   const ungroupDemolitionZone = useCallback(
     (removeId: string, addZones: WMDemolitionZone[]) =>
       dispatch({ type: 'UNGROUP_DEMOLITION_ZONE', payload: { removeId, addZones } }),
+    []
+  );
+
+  const groupDemolitionZones = useCallback(
+    (zoneIds: string[], groupId: string) =>
+      dispatch({ type: 'GROUP_DEMOLITION_ZONES', payload: { zoneIds, groupId } }),
+    []
+  );
+
+  const clearDemolitionGroup = useCallback(
+    (groupId: string) =>
+      dispatch({ type: 'CLEAR_DEMOLITION_GROUP', payload: { groupId } }),
+    []
+  );
+
+  const rotateDemolitionGroup = useCallback(
+    (groupId: string, pivotX: number, pivotY: number, deltaAngleDeg: number) =>
+      dispatch({ type: 'ROTATE_DEMOLITION_GROUP', payload: { groupId, pivotX, pivotY, deltaAngleDeg } }),
+    []
+  );
+
+  const moveDemolitionGroup = useCallback(
+    (groupId: string, dx: number, dy: number) =>
+      dispatch({ type: 'MOVE_DEMOLITION_GROUP', payload: { groupId, dx, dy } }),
     []
   );
 
@@ -1270,6 +1383,10 @@ export function useWMSketchState(
     removeDemolitionZone,
     combineDemolitionZones,
     ungroupDemolitionZone,
+    groupDemolitionZones,
+    clearDemolitionGroup,
+    rotateDemolitionGroup,
+    moveDemolitionGroup,
     addEquipment,
     updateEquipment,
     removeEquipment,

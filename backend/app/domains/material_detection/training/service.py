@@ -15,7 +15,6 @@ from .models import (
     TrainingDataset, TrainingImage, TrainingJob, TrainingDetectedMaterial,
     DatasetStatus, LabelingStatus, TrainingJobStatus
 )
-from .gpt4_labeler import GPT4VisionLabeler
 from app.domains.file.models import File
 from app.domains.analytics.models import ApiUsageLog
 
@@ -240,6 +239,7 @@ class TrainingService:
             }
         """
         if not self.gpt4_labeler:
+            from .gpt4_labeler import GPT4VisionLabeler
             self.gpt4_labeler = GPT4VisionLabeler()
 
         dataset = self.get_dataset(dataset_id)
@@ -474,6 +474,7 @@ class TrainingService:
     ) -> Dict[str, Any]:
         """Estimate GPT-4 Vision labeling cost"""
         if not self.gpt4_labeler:
+            from .gpt4_labeler import GPT4VisionLabeler
             self.gpt4_labeler = GPT4VisionLabeler()
 
         cost_estimate = self.gpt4_labeler.estimate_cost(num_images, detail)

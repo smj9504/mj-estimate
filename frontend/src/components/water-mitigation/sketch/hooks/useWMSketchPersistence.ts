@@ -123,6 +123,38 @@ export function useWMSketchPersistence({
     };
   }, [autoSaveInterval, floorSketchId, save]);
 
+  // ------------------------------------------------------------------
+  // Save on tab switch / window blur / unmount to prevent data loss
+  // ------------------------------------------------------------------
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const floorSketchIdRef = useRef(floorSketchId);
+  floorSketchIdRef.current = floorSketchId;
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && isDirtyRef.current && floorSketchIdRef.current) {
+        saveRef.current();
+      }
+    };
+    const handleBeforeUnload = () => {
+      if (isDirtyRef.current && floorSketchIdRef.current) {
+        saveRef.current();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      // Save on unmount (e.g. switching tabs within the app)
+      if (isDirtyRef.current && floorSketchIdRef.current) {
+        saveRef.current();
+      }
+    };
+  }, []);
+
   return {
     save,
     isSaving,

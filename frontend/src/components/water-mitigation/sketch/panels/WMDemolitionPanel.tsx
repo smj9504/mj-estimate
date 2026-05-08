@@ -529,6 +529,21 @@ const ZoneEditForm: React.FC<{
         </Checkbox>
       )}
 
+      {/* Glue Down checkbox — for floor SF materials (extra removal cost) */}
+      {selectedMaterial?.surface === 'floor' && selectedMaterial?.unit === 'SF' && (
+        <Checkbox
+          checked={zone.glue_down ?? false}
+          onChange={(e) => onUpdate({ glue_down: e.target.checked })}
+        >
+          <span style={{ fontSize: 12 }}>Glue Down (extra removal)</span>
+          {zone.glue_down && !needsDimensions && (
+            <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
+              (+{calculatedArea.toFixed(2)} SF)
+            </Text>
+          )}
+        </Checkbox>
+      )}
+
       {/* Insulation checkbox — for wall/ceiling SF materials only (not trim/baseboard LF) */}
       {(selectedMaterial?.surface === 'wall' || selectedMaterial?.surface === 'ceiling')
         && selectedMaterial?.unit === 'SF'

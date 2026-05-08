@@ -42,6 +42,7 @@ import {
 } from '../../../../types/wmSketch';
 import { DEFAULT_DEMO_MATERIAL_TYPES, getEffectiveRenderMode } from '../../../../types/wmSketch';
 import WMDemolitionRenderer from './WMDemolitionRenderer';
+import WMGroupOverlay from './WMGroupOverlay';
 import WMDemolitionPolygonRenderer from './WMDemolitionPolygonRenderer';
 import WMEquipmentRenderer from './WMEquipmentRenderer';
 import WMContainmentRenderer from './WMContainmentRenderer';
@@ -72,6 +73,8 @@ export interface WMOverlayLayerProps {
   onTransformEnd?: (id: string, type: string, widthFt: number, heightFt: number, rotation?: number) => void;
   onUpdateTextAnnotation?: (id: string, patch: Partial<WMTextAnnotation>) => void;
   onPolygonPointsChanged?: (id: string, points: { x: number; y: number }[]) => void;
+  onMoveGroup?: (groupId: string, dx: number, dy: number) => void;
+  onRotateGroup?: (groupId: string, pivotX: number, pivotY: number, deltaDeg: number) => void;
   onWallDragEndpoint?: (wallId: string, endpoint: 'start' | 'end', x: number, y: number) => void;
 
   // Polygon drawing preview (click-to-place vertices)
@@ -150,6 +153,8 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   onTransformEnd,
   onUpdateTextAnnotation,
   onPolygonPointsChanged,
+  onMoveGroup,
+  onRotateGroup,
   onWallDragEndpoint,
   polygonPreviewPoints,
   polygonPreviewCursor,
@@ -463,6 +468,29 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
           listening={false}
         />
       )}
+
+      {/* 7b. Group overlay (bounding box + rotation handle) */}
+      {(() => {
+        // Find group_id from selected zones
+        const selectedDemoIds = Array.from(selectedIds);
+        const selectedDemoZones = selectedDemoIds
+          .map((id) => demoMap.get(id))
+          .filter((z): z is WMDemolitionZone => z != null && !!z.group_id);
+        if (selectedDemoZones.length === 0) return null;
+        // Get the first group_id from selection
+        const activeGroupId = selectedDemoZones[0].group_id!;
+        const groupZones = overlayData.demolition_zones.filter((z) => z.group_id === activeGroupId);
+        if (groupZones.length < 2) return null;
+        return (
+          <WMGroupOverlay
+            groupId={activeGroupId}
+            zones={groupZones}
+            scalePixelsPerFoot={scalePixelsPerFoot}
+            onMoveGroup={onMoveGroup ?? (() => {})}
+            onRotateGroup={onRotateGroup ?? (() => {})}
+          />
+        );
+      })()}
 
       {/* 8a. Polygon drawing preview */}
       {polygonPreviewPoints && polygonPreviewPoints.length > 0 && (() => {

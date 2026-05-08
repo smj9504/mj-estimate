@@ -477,6 +477,12 @@
               <td class="text-right" style="color:#E91E63;">{{ "%.1f"|format(item.summary.insulation_sqft) }}</td>
             </tr>
           {% endif %}
+          {% if item.summary.glue_down_sqft|default(0) > 0 %}
+            <tr style="background:#fff3e0;">
+              <td colspan="3" style="padding-left:20px; color:#E65100; font-style:italic;">+ Glue Down Floor Removal</td>
+              <td class="text-right" style="color:#E65100;">{{ "%.1f"|format(item.summary.glue_down_sqft) }} SF</td>
+            </tr>
+          {% endif %}
           </tbody>
           <tfoot>
             {% if item.summary.total_demo_sf|default(0) > 0 %}

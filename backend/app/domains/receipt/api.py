@@ -23,7 +23,7 @@ from app.domains.receipt.schemas import (
     ReceiptTemplateUpdate,
     ReceiptTemplateResponse
 )
-from app.common.services.pdf_service import pdf_service
+from app.common.services.pdf_service import get_pdf_service
 from app.common.utils.temp_file import temp_file_handler, get_temp_dir
 from app.domains.receipt.service import ReceiptService, ReceiptTemplateService
 
@@ -645,7 +645,7 @@ async def generate_receipt_html(
         if not pdf_service:
             raise HTTPException(status_code=500, detail="PDF service not available")
 
-        html_content = pdf_service.generate_receipt_html(html_data)
+        html_content = get_pdf_service().generate_receipt_html(html_data)
 
         # Return HTML as response
         return Response(
@@ -829,7 +829,7 @@ async def generate_receipt_pdf(
         with temp_file_handler(suffix=".pdf", prefix="receipt_") as temp_path:
             try:
                 # Generate PDF
-                pdf_path = pdf_service.generate_receipt_pdf(pdf_data, str(temp_path))
+                pdf_path = get_pdf_service().generate_receipt_pdf(pdf_data, str(temp_path))
 
                 # Read PDF file
                 with open(pdf_path, "rb") as pdf_file:
@@ -984,7 +984,7 @@ async def preview_receipt_html(
         if not pdf_service:
             raise HTTPException(status_code=500, detail="PDF service not available")
 
-        html_content = pdf_service.generate_receipt_html(preview_data)
+        html_content = get_pdf_service().generate_receipt_html(preview_data)
 
         logger.info(f"Receipt HTML preview generated successfully, length: {len(html_content)}")
 
@@ -1118,7 +1118,7 @@ async def preview_receipt_pdf(
         # Use temp_file_handler for automatic cleanup (cross-platform compatible)
         with temp_file_handler(suffix=".pdf", prefix="receipt_preview_") as temp_path:
             try:
-                pdf_path = pdf_service.generate_receipt_pdf(preview_data, str(temp_path))
+                pdf_path = get_pdf_service().generate_receipt_pdf(preview_data, str(temp_path))
                 with open(pdf_path, "rb") as pdf_file:
                     pdf_content = pdf_file.read()
 

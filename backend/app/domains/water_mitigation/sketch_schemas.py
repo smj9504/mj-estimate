@@ -36,6 +36,7 @@ class WMDemolitionZoneBase(PydanticBaseModel):
     height_ft: Optional[Decimal] = Field(None, ge=0, description="Wall height in feet for SF calculation")
     include_pad: bool = Field(False, description="Include carpet pad with this carpet zone")
     include_insulation: bool = Field(False, description="Include insulation demo with wall/ceiling zone")
+    glue_down: bool = Field(False, description="Floor is glued down to substrate, adds extra removal cost")
     trim_removal: Optional[str] = Field(None, max_length=20, description="Trim removal extent: full, half, quarter, custom")
     trim_lf: Optional[Decimal] = Field(None, ge=0, description="Custom trim length in LF")
     label: Optional[str] = Field(None, max_length=255)
@@ -46,6 +47,9 @@ class WMDemolitionZoneBase(PydanticBaseModel):
     render_mode: Optional[str] = Field(None, max_length=20, description="Visual render mode: area, line, shape, text")
     stroke_style: Optional[str] = Field(None, max_length=20, description="Stroke style: solid, dashed, dotted")
     fill_opacity: Optional[float] = Field(None, ge=0, le=1, description="Fill opacity 0-1")
+    polygon_points: Optional[List[Dict[str, float]]] = Field(None, description="Polygon vertices [{x,y}] for irregular shapes")
+    combined_from: Optional[List[Any]] = Field(None, description="Snapshot of original zones before combining")
+    group_id: Optional[str] = Field(None, max_length=100, description="Group ID for logically linked zones")
 
 
 class WMDemolitionZoneCreate(WMDemolitionZoneBase):
@@ -189,6 +193,8 @@ class WMContentProtectionSchema(WMContentProtectionBase):
 
 class WMTextAnnotationBase(PydanticBaseModel):
     """Shared fields for text annotation create/update"""
+    id: Optional[str] = None
+    floor_sketch_id: Optional[str] = None
     x: float
     y: float
     text: str = Field(..., max_length=500)
@@ -208,6 +214,8 @@ class WMTextAnnotationCreate(WMTextAnnotationBase):
 
 class WMShapeAnnotationBase(PydanticBaseModel):
     """Shared fields for shape annotation create/update"""
+    id: Optional[str] = None
+    floor_sketch_id: Optional[str] = None
     preset_id: str = Field(..., max_length=50)
     shape_type: str = Field(..., max_length=20)  # 'rectangle' | 'circle'
     x: float
@@ -274,6 +282,7 @@ class WMOverlayData(PydanticBaseModel):
     shapes: List[WMShapeAnnotationCreate] = Field(default_factory=list)
     walls: List[WMWallCreate] = Field(default_factory=list)
     rooms: List[WMRoomCreate] = Field(default_factory=list)
+    element_order: Optional[List[str]] = Field(None, description="Z-order of overlay element IDs")
 
 
 # =============================================================================

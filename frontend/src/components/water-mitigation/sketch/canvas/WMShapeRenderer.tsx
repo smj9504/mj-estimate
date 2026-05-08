@@ -8,7 +8,7 @@
  */
 
 import React, { useCallback, useRef, useEffect } from 'react';
-import { Group, Rect, Ellipse, Text, Line, Transformer } from 'react-konva';
+import { Group, Rect, Ellipse, Text, Line, Arc, Transformer } from 'react-konva';
 import Konva from 'konva';
 import type { WMShapeAnnotation } from '../../../../types/wmSketch';
 
@@ -182,6 +182,7 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
     onTransformEnd?.(shape.id, newWidth, newHeight, newRotation);
   }, [shape.id, shape.shape_type, onDragEnd, onTransformEnd]);
 
+  const isDoor = shape.preset_id === 'door';
   const isStairs = shape.preset_id === 'stairs';
 
   // Generate stair tread lines: evenly spaced horizontal lines inside the rectangle
@@ -286,6 +287,70 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
               />
             )}
           </>
+        ) : isDoor ? (
+          (() => {
+            const flipped = !!shape.flip_x;
+            const r = Math.min(width, height);
+            // Hinge position: left (default) or right (flipped)
+            const hingeX = flipped ? width : 0;
+            const tipX = flipped ? 0 : width;
+            // Arc: pivots at hinge, sweeps 90° upward
+            const arcRotation = flipped ? -180 : -90;
+            return (
+              <>
+                {/* Invisible hit area for selection/drag */}
+                <Rect
+                  ref={shapeNodeRef as React.RefObject<Konva.Rect>}
+                  width={width}
+                  height={height}
+                  fill="transparent"
+                  opacity={0}
+                  strokeWidth={0}
+                />
+                {/* Door panel line */}
+                <Line
+                  points={[hingeX, height, tipX, height]}
+                  stroke={shape.stroke_color}
+                  strokeWidth={Math.max(2, shape.stroke_width)}
+                  listening={false}
+                />
+                {/* Quarter-circle arc (swing) */}
+                <Arc
+                  x={hingeX}
+                  y={height}
+                  innerRadius={0}
+                  outerRadius={r}
+                  angle={90}
+                  rotation={arcRotation}
+                  fill={shape.fill_color || 'transparent'}
+                  opacity={shape.opacity * 0.3}
+                  stroke={shape.stroke_color}
+                  strokeWidth={Math.max(1, shape.stroke_width * 0.7)}
+                  listening={false}
+                />
+                {/* Hinge dot */}
+                <Line
+                  points={[hingeX, height]}
+                  stroke={shape.stroke_color}
+                  strokeWidth={6}
+                  lineCap="round"
+                  listening={false}
+                />
+                {/* Selection highlight */}
+                {isSelected && (
+                  <Rect
+                    width={width}
+                    height={height}
+                    fill="transparent"
+                    stroke="#1890ff"
+                    strokeWidth={2}
+                    dash={[6, 3]}
+                    listening={false}
+                  />
+                )}
+              </>
+            );
+          })()
         ) : (
           <>
             <Rect

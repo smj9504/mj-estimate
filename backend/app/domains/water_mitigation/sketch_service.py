@@ -537,6 +537,7 @@ class SketchService:
             demo_groups: dict[tuple[str, str], float] = {}
             carpet_pad_sqft: float = 0.0
             insulation_sqft: float = 0.0
+            glue_down_sqft: float = 0.0
             for zone in (sketch.demolition_zones or []):
                 mt = zone.material_type or "unknown"
                 st = getattr(zone, "sub_type", None) or ""
@@ -557,6 +558,9 @@ class SketchService:
                 # Accumulate insulation area (from wall/ceiling checkbox)
                 if getattr(zone, "include_insulation", False) and sqft > 0:
                     insulation_sqft += sqft
+                # Accumulate glue down area (floor SF materials)
+                if getattr(zone, "glue_down", False) and sqft > 0:
+                    glue_down_sqft += sqft
 
             for (material_type, sub_type), total_qty in demo_groups.items():
                 base_name = self._MATERIAL_TYPE_NAMES.get(
@@ -663,6 +667,26 @@ class SketchService:
                 all_items.append(GeneratedScopeItemSummary(
                     name="Insulation", item_type="demolition",
                     quantity=round(insulation_sqft, 2), unit="SF",
+                    floor_label=floor_label,
+                ))
+
+            # Glue Down Removal — separate add-on line item
+            if glue_down_sqft > 0:
+                gd_item = WMScopeItem(
+                    location_id=location.id,
+                    item_type="demolition",
+                    name="Glue Down Floor Removal",
+                    quantity=Decimal(str(round(glue_down_sqft, 2))),
+                    unit="SF",
+                    include_in_debris=False,
+                    display_order=item_order,
+                )
+                self.db.add(gd_item)
+                items_created += 1
+                item_order += 1
+                all_items.append(GeneratedScopeItemSummary(
+                    name="Glue Down Floor Removal", item_type="demolition",
+                    quantity=round(glue_down_sqft, 2), unit="SF",
                     floor_label=floor_label,
                 ))
 
