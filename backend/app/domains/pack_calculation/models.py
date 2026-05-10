@@ -181,7 +181,7 @@ class PackCalculation(Base, BaseModel):
 
     # Relationships
     rooms = relationship("PackRoom", back_populates="calculation", cascade="all, delete-orphan")
-    client = relationship("Client", foreign_keys=[client_id], lazy="select")
+    client = relationship("Client", foreign_keys=[client_id], back_populates="pack_estimates", lazy="select")
     company = relationship("Company", foreign_keys=[company_id], lazy="select")
     claim = relationship("Claim", foreign_keys=[claim_id], lazy="select")
 

@@ -364,7 +364,7 @@ async def lifespan(app: FastAPI):
             if hasattr(_db, 'engine'):
                 from sqlalchemy import text, inspect
                 from app.domains.material_order.models import MaterialOrder, MaterialOrderItem
-                from app.common.base_repository import Base
+                from app.core.database_factory import Base
 
                 with _db.engine.begin() as conn:
                     # 1) Check for missing tables using single query
