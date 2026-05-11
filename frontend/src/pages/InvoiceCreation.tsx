@@ -1847,6 +1847,7 @@ const InvoiceCreation: React.FC = () => {
       id: `adj-${Date.now()}`,
       name: '',
       percentage: 0,
+      fixedAmount: 0,
       type: 'add',
       order: adjustments.length + 1,
     };
@@ -3422,7 +3423,7 @@ const InvoiceCreation: React.FC = () => {
                         fontSize: '12px',
                         color: '#666'
                       }}>
-                        <strong>Fields:</strong> Name | <strong>% / $</strong> (percentage or fixed amount) | <strong>+/-</strong> (add/subtract) | <strong>Order</strong> (lower = first) | <strong>Amount</strong> (calculated)
+                        <strong>Name</strong> | <strong>+/−</strong> (add or subtract) | <strong>Amount</strong> ($ or %) | <strong>Result</strong> (auto-calculated)
                       </div>
                     )}
                     {adjustments.length === 0 && (
@@ -3441,17 +3442,28 @@ const InvoiceCreation: React.FC = () => {
                           background: '#fafafa'
                         }}>
                           <Row gutter={8} align="middle">
-                            <Col span={6}>
+                            <Col span={7}>
                               <Input
-                                placeholder="Name (e.g., Holiday Premium)"
+                                placeholder="Name (e.g., Deductible)"
                                 value={adj.name}
                                 onChange={(e) => handleAdjustmentChange(adj.id, 'name', e.target.value)}
                                 size="small"
                               />
                             </Col>
-                            <Col span={5}>
+                            <Col span={3}>
+                              <Select
+                                value={adj.type}
+                                onChange={(value) => handleAdjustmentChange(adj.id, 'type', value)}
+                                size="small"
+                                style={{ width: '100%' }}
+                              >
+                                <Select.Option value="add">+ Add</Select.Option>
+                                <Select.Option value="subtract">− Sub</Select.Option>
+                              </Select>
+                            </Col>
+                            <Col span={7}>
                               <InputNumber
-                                placeholder={adj.fixedAmount != null ? "Amount" : "Value"}
+                                placeholder={adj.fixedAmount != null ? "Dollar amount" : "Percentage"}
                                 value={adj.fixedAmount != null ? adj.fixedAmount : adj.percentage}
                                 onChange={(value) => {
                                   if (adj.fixedAmount != null) {
@@ -3481,43 +3493,16 @@ const InvoiceCreation: React.FC = () => {
                                     style={{ width: 52 }}
                                     popupMatchSelectWidth={false}
                                   >
-                                    <Select.Option value="%">%</Select.Option>
                                     <Select.Option value="$">$</Select.Option>
+                                    <Select.Option value="%">%</Select.Option>
                                   </Select>
                                 }
                               />
                             </Col>
-                            <Col span={3}>
-                              <Tooltip title="Add (+) or Subtract (-) from subtotal">
-                                <Select
-                                  value={adj.type}
-                                  onChange={(value) => handleAdjustmentChange(adj.id, 'type', value)}
-                                  size="small"
-                                  style={{ width: '100%' }}
-                                >
-                                  <Select.Option value="add">+</Select.Option>
-                                  <Select.Option value="subtract">-</Select.Option>
-                                </Select>
-                              </Tooltip>
-                            </Col>
-                            <Col span={4}>
-                              <Tooltip title="Application order (lower number = applied first)">
-                                <InputNumber
-                                  placeholder="Order"
-                                  value={adj.order}
-                                  onChange={(value) => handleAdjustmentChange(adj.id, 'order', value || 1)}
-                                  min={1}
-                                  size="small"
-                                  style={{ width: '100%' }}
-                                />
-                              </Tooltip>
-                            </Col>
-                            <Col span={4}>
-                              <Tooltip title="Calculated adjustment amount">
-                                <span style={{ fontSize: '12px', color: '#666', fontWeight: '500' }}>
-                                  ${calculatedAdj?.amount?.toFixed(2) || '0.00'}
-                                </span>
-                              </Tooltip>
+                            <Col span={5}>
+                              <span style={{ fontSize: '13px', color: adj.type === 'subtract' ? '#cf1322' : '#389e0d', fontWeight: '600' }}>
+                                {adj.type === 'subtract' ? '−' : '+'} ${calculatedAdj?.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                              </span>
                             </Col>
                             <Col span={2}>
                               <Button

@@ -486,6 +486,7 @@ const DocumentList: React.FC = () => {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 120,
+      sorter: (a: TableDocument, b: TableDocument) => dayjs(a.created_at).valueOf() - dayjs(b.created_at).valueOf(),
       render: (date: string) => {
         if (!date) return '-';
         const formattedDate = dayjs(date);
@@ -497,6 +498,8 @@ const DocumentList: React.FC = () => {
       dataIndex: 'updated_at',
       key: 'updated_at',
       width: 120,
+      sorter: (a: TableDocument, b: TableDocument) => dayjs(a.updated_at).valueOf() - dayjs(b.updated_at).valueOf(),
+      defaultSortOrder: 'descend' as const,
       render: (date: string) => {
         if (!date) return '-';
         const formattedDate = dayjs(date);
