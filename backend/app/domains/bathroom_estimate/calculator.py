@@ -475,7 +475,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         faucet_key = f"faucet_{faucet}"
         faucet_price = VANITY_EXTRAS.get(faucet_key, 195)
         _add(line_items, 5, f"Vanity faucet - {faucet.replace('_', ' ')}",
-             van.get("sinks", 1), "EA", faucet_price * brand_mult, "fixture")
+             van.get("sinks", 1), "EA", faucet_price, "fixture")
 
         # Mirror
         mirror = van.get("mirror_type", "framed")
