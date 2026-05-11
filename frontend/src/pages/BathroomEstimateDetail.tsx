@@ -44,6 +44,7 @@ import type {
 } from '../types/bathroomEstimate';
 import { PHASE_LABELS } from '../types/bathroomEstimate';
 import BESketchTab from '../components/bathroom-estimate/sketch/BESketchTab';
+import type { SketchFixtureSync } from '../components/bathroom-estimate/sketch/BESketchTab';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -86,10 +87,17 @@ const BathroomEstimateDetail: React.FC = () => {
 
   // Auto-fill address when client/claim is selected
   const handleClaimSelect = useCallback((claimId: string | null) => {
-    if (!claimId || !clientResults?.clients) return;
-    const client = (clientResults.clients as any[]).find((c: any) =>
-      (c.claims || []).some((cl: any) => cl.id === claimId)
-    );
+    if (!clientResults?.clients) return;
+    let client: any = null;
+    if (claimId) {
+      // Find client by claim id
+      client = (clientResults.clients as any[]).find((c: any) =>
+        (c.claims || []).some((cl: any) => cl.id === claimId)
+      );
+    } else {
+      // "No claim" selected — use first client in results (most recently searched)
+      client = (clientResults.clients as any[])[0];
+    }
     if (client) {
       form.setFieldsValue({
         property_address: client.address || '',
@@ -156,6 +164,35 @@ const BathroomEstimateDetail: React.FC = () => {
     const values = form.getFieldsValue(true);
     calculateMutation.mutate(values);
   }, [form, calculateMutation]);
+
+  // ── Sketch → Form sync ──
+  const handleFixtureSync = useCallback((sync: SketchFixtureSync) => {
+    const current = form.getFieldsValue(true);
+    const updates: Record<string, any> = {};
+
+    // Replace flags
+    if (sync.replace_tub !== undefined) updates.replace_tub = sync.replace_tub;
+    if (sync.replace_shower !== undefined) updates.replace_shower = sync.replace_shower;
+    if (sync.replace_vanity !== undefined) updates.replace_vanity = sync.replace_vanity;
+    if (sync.replace_toilet !== undefined) updates.replace_toilet = sync.replace_toilet;
+
+    // Merge specs (keep existing form values, override with sketch values)
+    if (sync.bathtub_spec) {
+      updates.bathtub_spec = { ...(current.bathtub_spec || {}), ...sync.bathtub_spec };
+    }
+    if (sync.shower_spec) {
+      updates.shower_spec = {
+        ...(current.shower_spec || {}),
+        ...sync.shower_spec,
+        tile_spec: { ...(current.shower_spec?.tile_spec || {}), ...(sync.shower_spec.tile_spec || {}) },
+      };
+    }
+    if (sync.vanity_spec) {
+      updates.vanity_spec = { ...(current.vanity_spec || {}), ...sync.vanity_spec };
+    }
+
+    form.setFieldsValue(updates);
+  }, [form]);
 
   const selectOpts = (items: string[] | undefined) =>
     (items || []).map(v => ({ label: formatLabel(v), value: v }));
@@ -512,6 +549,7 @@ const BathroomEstimateDetail: React.FC = () => {
                     estimateData={form.getFieldsValue()}
                     initialSketchData={estimate?.sketch_data as any}
                     isActive={activeTab === 'sketch'}
+                    onFixtureSync={handleFixtureSync}
                   />
                 </div>
               </Card>
@@ -660,26 +698,52 @@ const BathroomEstimateDetail: React.FC = () => {
                           </Row>
                           {form.getFieldValue(['bathtub_spec', 'surround_tile']) && (
                             <>
-                              <Row gutter={16}>
-                                <Col xs={12} sm={8} md={4}>
-                                  <Form.Item label="Tub Length (in)" name={['bathtub_spec', 'tub_length_in']} style={{ marginBottom: 8 }}>
-                                    <InputNumber style={{ width: '100%' }} min={0} placeholder="e.g. 60" />
+                              <Row gutter={16} align="middle">
+                                <Col xs={16} sm={10} md={6}>
+                                  <Form.Item label="Tub Size" name={['bathtub_spec', 'tub_size_preset']} style={{ marginBottom: 8 }}>
+                                    <Select
+                                      placeholder="Select tub size"
+                                      onChange={(val: string) => {
+                                        const presets: Record<string, { length: number; depth: number; sf: number }> = {
+                                          '60x30': { length: 60, depth: 30, sf: 60 },
+                                          '60x32': { length: 60, depth: 32, sf: 62 },
+                                          '66x32': { length: 66, depth: 32, sf: 65 },
+                                          '66x36': { length: 66, depth: 36, sf: 69 },
+                                          '72x36': { length: 72, depth: 36, sf: 72 },
+                                          '72x42': { length: 72, depth: 42, sf: 78 },
+                                          '60x42_corner': { length: 60, depth: 42, sf: 72 },
+                                          '60x60_corner': { length: 60, depth: 60, sf: 90 },
+                                        };
+                                        const p = val ? presets[val] : null;
+                                        if (p) {
+                                          form.setFieldsValue({
+                                            bathtub_spec: {
+                                              ...form.getFieldValue('bathtub_spec'),
+                                              tub_length_in: p.length,
+                                              tub_depth_in: p.depth,
+                                              surround_height_in: 72,
+                                              surround_tile_sf: p.sf,
+                                            },
+                                          });
+                                        }
+                                      }}
+                                      options={[
+                                        { label: '60" × 30" (Standard) — 60 SF', value: '60x30' },
+                                        { label: '60" × 32" — 62 SF', value: '60x32' },
+                                        { label: '66" × 32" — 65 SF', value: '66x32' },
+                                        { label: '66" × 36" (Large) — 69 SF', value: '66x36' },
+                                        { label: '72" × 36" (XL) — 72 SF', value: '72x36' },
+                                        { label: '72" × 42" (Soaking) — 78 SF', value: '72x42' },
+                                        { label: '60" × 42" (Corner) — 72 SF', value: '60x42_corner' },
+                                        { label: '60" × 60" (Corner/Garden) — 90 SF', value: '60x60_corner' },
+                                      ]}
+                                    />
                                   </Form.Item>
                                 </Col>
-                                <Col xs={12} sm={8} md={4}>
-                                  <Form.Item label="Tub Depth (in)" name={['bathtub_spec', 'tub_depth_in']} style={{ marginBottom: 8 }}>
-                                    <InputNumber style={{ width: '100%' }} min={0} placeholder="30" />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={12} sm={8} md={4}>
-                                  <Form.Item label="Surround H (in)" name={['bathtub_spec', 'surround_height_in']} style={{ marginBottom: 8 }}>
-                                    <InputNumber style={{ width: '100%' }} min={0} placeholder="e.g. 72" />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={12} sm={8} md={4}>
+                                <Col xs={8} sm={6} md={4}>
                                   <Form.Item label="Surround SF" name={['bathtub_spec', 'surround_tile_sf']} style={{ marginBottom: 8 }}
-                                    tooltip="Leave blank to auto-calculate from dimensions">
-                                    <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                                    tooltip={'3-wall surround, 72" height (standard)'}>
+                                    <InputNumber style={{ width: '100%' }} min={0} addonAfter="SF" />
                                   </Form.Item>
                                 </Col>
                               </Row>
@@ -829,28 +893,78 @@ const BathroomEstimateDetail: React.FC = () => {
                     </Row>
                   </Panel>
                   <Panel header="Substrate" key="substrate">
-                    <Row gutter={16}>
-                      <Col xs={12} sm={8} md={4}>
-                        <Form.Item label={<Space size={4}>Durock SF<Tooltip title="Cement backer board (sq ft). Used behind tile in wet areas like showers/tub surrounds. Moisture & mold resistant."><QuestionCircleOutlined style={{ color: '#999' }} /></Tooltip></Space>} name={['substrate_spec', 'durock_sf']}>
-                          <InputNumber style={{ width: '100%' }} min={0} />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={8} md={4}>
-                        <Form.Item label={<Space size={4}>Greenboard SF<Tooltip title="Moisture-resistant drywall (sq ft). Used on bathroom walls/ceilings where water doesn't directly contact. Not for shower interiors."><QuestionCircleOutlined style={{ color: '#999' }} /></Tooltip></Space>} name={['substrate_spec', 'greenboard_sf']}>
-                          <InputNumber style={{ width: '100%' }} min={0} />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={12} md={6}>
-                        <Form.Item label={<Space size={4}>Waterproofing<Tooltip title="Waterproof membrane/coating (e.g. RedGard, Hydroban, Kerdi) applied over Durock before tiling in wet areas."><QuestionCircleOutlined style={{ color: '#999' }} /></Tooltip></Space>} name={['substrate_spec', 'waterproof_type']}>
-                          <Select options={selectOpts(pricingInfo?.waterproof_types)} allowClear />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={8} md={4}>
-                        <Form.Item label={<Space size={4}>Waterproof SF<Tooltip title="Total area (sq ft) to be waterproofed. Typically shower walls/floor and tub surround where water directly contacts."><QuestionCircleOutlined style={{ color: '#999' }} /></Tooltip></Space>} name={['substrate_spec', 'waterproof_sf']}>
-                          <InputNumber style={{ width: '100%' }} min={0} />
-                        </Form.Item>
-                      </Col>
-                    </Row>
+                    <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                      prev?.shower_spec?.type !== cur?.shower_spec?.type ||
+                      prev?.shower_spec?.tile_spec?.sf !== cur?.shower_spec?.tile_spec?.sf ||
+                      prev?.shower_spec?.width_in !== cur?.shower_spec?.width_in ||
+                      prev?.shower_spec?.depth_in !== cur?.shower_spec?.depth_in ||
+                      prev?.shower_spec?.tile_height_in !== cur?.shower_spec?.tile_height_in ||
+                      prev?.bathtub_spec?.surround_tile_sf !== cur?.bathtub_spec?.surround_tile_sf ||
+                      prev?.bathtub_spec?.surround_tile !== cur?.bathtub_spec?.surround_tile ||
+                      prev?.replace_shower !== cur?.replace_shower ||
+                      prev?.replace_floor !== cur?.replace_floor ||
+                      prev?.floor_sf !== cur?.floor_sf ||
+                      prev?.length_ft !== cur?.length_ft ||
+                      prev?.width_ft !== cur?.width_ft
+                    }>
+                      {() => {
+                        // Auto-calculate wet-area SF from shower/tub
+                        const vals = form.getFieldsValue();
+                        let wetSF = 0;
+                        if (vals.replace_shower && vals.shower_spec?.type === 'custom_tile') {
+                          const ts = vals.shower_spec?.tile_spec?.sf;
+                          if (ts) {
+                            wetSF += ts;
+                          } else {
+                            const sw = vals.shower_spec?.width_in || 0;
+                            const sd = vals.shower_spec?.depth_in || 0;
+                            const sh = vals.shower_spec?.tile_height_in || 0;
+                            if (sw && sd && sh) wetSF += (sw + 2 * sd) * sh / 144;
+                          }
+                        }
+                        if (vals.bathtub_spec?.surround_tile) {
+                          wetSF += vals.bathtub_spec?.surround_tile_sf || 0;
+                        }
+                        wetSF = Math.round(wetSF * 10) / 10;
+
+                        return (
+                          <>
+                            {wetSF > 0 && (
+                              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+                                Auto-calculated from tile areas: Shower + Tub Surround = <Text strong>{wetSF} SF</Text> (Durock & Waterproofing).
+                                Leave blank to use auto value, or enter to override.
+                              </Text>
+                            )}
+                            <Row gutter={16}>
+                              <Col xs={12} sm={8} md={4}>
+                                <Form.Item label={<Space size={4}>Durock SF<Tooltip title={`Cement backer board for wet areas. ${wetSF > 0 ? `Auto: ${wetSF} SF from shower/tub tile areas.` : 'Enter manually.'} Override if needed.`}><QuestionCircleOutlined style={{ color: '#999' }} /></Tooltip></Space>} name={['substrate_spec', 'durock_sf']}>
+                                  <InputNumber style={{ width: '100%' }} min={0} placeholder={wetSF > 0 ? `auto: ${wetSF}` : '0'} />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={12} sm={8} md={4}>
+                                <Form.Item label={<Space size={4}>Greenboard SF<Tooltip title="Moisture-resistant drywall. Used on bathroom walls/ceilings not directly in wet areas."><QuestionCircleOutlined style={{ color: '#999' }} /></Tooltip></Space>} name={['substrate_spec', 'greenboard_sf']}>
+                                  <InputNumber style={{ width: '100%' }} min={0} />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={12} sm={12} md={6}>
+                                <Form.Item label="Waterproofing" name={['substrate_spec', 'waterproof_type']}>
+                                  <Select
+                                    options={selectOpts(pricingInfo?.waterproof_types)}
+                                    allowClear
+                                    placeholder="RedGard (default)"
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={12} sm={8} md={4}>
+                                <Form.Item label={<Space size={4}>Waterproof SF<Tooltip title={`Waterproofing area. ${wetSF > 0 ? `Auto: same as Durock (${wetSF} SF).` : 'Enter manually.'}`}><QuestionCircleOutlined style={{ color: '#999' }} /></Tooltip></Space>} name={['substrate_spec', 'waterproof_sf']}>
+                                  <InputNumber style={{ width: '100%' }} min={0} placeholder={wetSF > 0 ? `auto: ${wetSF}` : '0'} />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          </>
+                        );
+                      }}
+                    </Form.Item>
                     <Row gutter={16}>
                       <Col xs={12} sm={8} md={4}>
                         <Form.Item name={['substrate_spec', 'subfloor_repair']} valuePropName="checked">

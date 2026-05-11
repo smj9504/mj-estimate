@@ -18,6 +18,7 @@ import type {
   BEFixtureType,
   BEFixtureProperties,
   BESketchSettings,
+  BERoomType,
 } from '../../../../types/bathroomSketch';
 import {
   EMPTY_BE_SKETCH,
@@ -27,6 +28,7 @@ import {
   TILE_ZONE_COLORS,
 } from '../../../../types/bathroomSketch';
 import { generateTileZones } from '../utils/beTileZoneGenerator';
+import { findClosedWallLoop } from '../utils/beWallLoop';
 
 let _idCounter = 0;
 function generateId(prefix: string): string {
@@ -46,6 +48,43 @@ function inchesToPx(inches: number, pixelsPerFoot: number): number {
 
 function calcDistance(a: BEPoint, b: BEPoint): number {
   return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+}
+
+/** Ray-casting point-in-polygon test */
+function pointInPolygon(pt: BEPoint, poly: BEPoint[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y;
+    const xj = poly[j].x, yj = poly[j].y;
+    if ((yi > pt.y) !== (yj > pt.y) && pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Find parent room: the existing room whose boundary contains the centroid of the new room */
+function findParentRoom(rooms: BERoom[], newBoundary: BEPoint[], excludeId?: string): string | undefined {
+  const cx = newBoundary.reduce((s, p) => s + p.x, 0) / newBoundary.length;
+  const cy = newBoundary.reduce((s, p) => s + p.y, 0) / newBoundary.length;
+  const centroid = { x: cx, y: cy };
+  for (const room of rooms) {
+    if (room.id === excludeId) continue;
+    if (pointInPolygon(centroid, room.boundary)) {
+      return room.id;
+    }
+  }
+  return undefined;
+}
+
+/** Recalculate netFloorAreaSF for all rooms (gross - sub-rooms) */
+function recalcNetAreas(rooms: BERoom[]): BERoom[] {
+  return rooms.map((room) => {
+    const childArea = rooms
+      .filter((r) => r.parentRoomId === room.id)
+      .reduce((sum, r) => sum + r.floorAreaSF, 0);
+    return { ...room, netFloorAreaSF: Math.round((room.floorAreaSF - childArea) * 100) / 100 };
+  });
 }
 
 // ── Undo/Redo history ──
@@ -122,12 +161,57 @@ export function useBESketchState(initialData?: BESketchData) {
         start,
         end,
         thickness: 4,
-        heightInches: data.settings.pixelsPerFoot > 0 ? 96 : 96,
+        heightInches: 96,
       };
-      mutate((d) => ({ ...d, walls: [...d.walls, wall] }));
+      mutate((d) => {
+        const newWalls = [...d.walls, wall];
+        // Auto-detect closed loop → create Room
+        const loop = findClosedWallLoop(newWalls);
+        if (loop && loop.boundary.length >= 3) {
+          // Check if a room with these walls already exists
+          const existingWallIds = new Set(d.rooms.flatMap((r) => r.wallIds));
+          const alreadyUsed = loop.wallIds.some((id) => existingWallIds.has(id));
+          if (!alreadyUsed) {
+            const ppf = d.settings.pixelsPerFoot;
+            let perimeterPx = 0;
+            for (let i = 0; i < loop.boundary.length; i++) {
+              const next = loop.boundary[(i + 1) % loop.boundary.length];
+              perimeterPx += calcDistance(loop.boundary[i], next);
+            }
+            let areaPx2 = 0;
+            for (let i = 0; i < loop.boundary.length; i++) {
+              const j = (i + 1) % loop.boundary.length;
+              areaPx2 += loop.boundary[i].x * loop.boundary[j].y;
+              areaPx2 -= loop.boundary[j].x * loop.boundary[i].y;
+            }
+            areaPx2 = Math.abs(areaPx2) / 2;
+            const floorAreaSF = areaPx2 / (ppf * ppf);
+            const perimeterLF = pxToInches(perimeterPx, ppf) / 12;
+            const wallAreaSF = (perimeterLF * 96) / 144;
+
+            const parentRoomId = findParentRoom(d.rooms, loop.boundary);
+            const room: BERoom = {
+              id: generateId('room'),
+              name: parentRoomId ? 'Closet' : 'Bathroom',
+              roomType: parentRoomId ? 'closet' : 'bathroom',
+              boundary: loop.boundary,
+              wallIds: loop.wallIds,
+              parentRoomId,
+              heightInches: 96,
+              floorAreaSF: Math.round(floorAreaSF * 100) / 100,
+              netFloorAreaSF: Math.round(floorAreaSF * 100) / 100,
+              wallAreaSF: Math.round(wallAreaSF * 100) / 100,
+              perimeterLF: Math.round(perimeterLF * 100) / 100,
+            };
+            const newRooms = recalcNetAreas([...d.rooms, room]);
+            return { ...d, walls: newWalls, rooms: newRooms };
+          }
+        }
+        return { ...d, walls: newWalls };
+      });
       return wall.id;
     },
-    [mutate, data.settings.pixelsPerFoot],
+    [mutate],
   );
 
   const updateWall = useCallback(
@@ -151,15 +235,13 @@ export function useBESketchState(initialData?: BESketchData) {
   // ── Room CRUD ──
 
   const addRoom = useCallback(
-    (boundary: BEPoint[], wallIds: string[], name?: string) => {
+    (boundary: BEPoint[], wallIds: string[], name?: string, roomType?: BERoomType) => {
       const ppf = data.settings.pixelsPerFoot;
-      // Calculate perimeter
       let perimeterPx = 0;
       for (let i = 0; i < boundary.length; i++) {
         const next = boundary[(i + 1) % boundary.length];
         perimeterPx += calcDistance(boundary[i], next);
       }
-      // Calculate area (Shoelace formula)
       let areaPx2 = 0;
       for (let i = 0; i < boundary.length; i++) {
         const j = (i + 1) % boundary.length;
@@ -173,18 +255,32 @@ export function useBESketchState(initialData?: BESketchData) {
       const heightInches = 96;
       const wallAreaSF = (perimeterLF * heightInches) / 144;
 
-      const room: BERoom = {
-        id: generateId('room'),
-        name: name ?? 'Bathroom',
-        boundary,
-        wallIds,
-        heightInches,
-        floorAreaSF: Math.round(floorAreaSF * 100) / 100,
-        wallAreaSF: Math.round(wallAreaSF * 100) / 100,
-        perimeterLF: Math.round(perimeterLF * 100) / 100,
-      };
-      mutate((d) => ({ ...d, rooms: [...d.rooms, room] }));
-      return room.id;
+      mutate((d) => {
+        // Auto-detect parent room
+        const parentRoomId = findParentRoom(d.rooms, boundary);
+        const isSubRoom = !!parentRoomId;
+        const defaultType: BERoomType = isSubRoom ? 'closet' : 'bathroom';
+        const defaultName = isSubRoom
+          ? (roomType === 'toilet_room' ? 'Toilet Room' : roomType === 'linen_closet' ? 'Linen Closet' : 'Closet')
+          : 'Bathroom';
+
+        const room: BERoom = {
+          id: generateId('room'),
+          name: name ?? defaultName,
+          roomType: roomType ?? defaultType,
+          boundary,
+          wallIds,
+          parentRoomId,
+          heightInches,
+          floorAreaSF: Math.round(floorAreaSF * 100) / 100,
+          netFloorAreaSF: Math.round(floorAreaSF * 100) / 100,
+          wallAreaSF: Math.round(wallAreaSF * 100) / 100,
+          perimeterLF: Math.round(perimeterLF * 100) / 100,
+        };
+        const newRooms = recalcNetAreas([...d.rooms, room]);
+        return { ...d, rooms: newRooms };
+      });
+      return generateId('room'); // Note: actual ID created inside mutate
     },
     [mutate, data.settings.pixelsPerFoot],
   );
@@ -210,31 +306,43 @@ export function useBESketchState(initialData?: BESketchData) {
       const heightInches = 96;
       const wallAreaSF = (perimeterLF * heightInches) / 144;
 
-      mutate((d) => ({
-        ...d,
-        rooms: d.rooms.map((r) =>
+      mutate((d) => {
+        const updated = d.rooms.map((r) =>
           r.id === id
             ? {
                 ...r,
                 boundary,
                 floorAreaSF: Math.round(floorAreaSF * 100) / 100,
+                netFloorAreaSF: Math.round(floorAreaSF * 100) / 100,
                 wallAreaSF: Math.round(wallAreaSF * 100) / 100,
                 perimeterLF: Math.round(perimeterLF * 100) / 100,
               }
             : r,
-        ),
-      }));
+        );
+        return { ...d, rooms: recalcNetAreas(updated) };
+      });
     },
     [mutate, data.settings.pixelsPerFoot],
   );
 
-  const removeRoom = useCallback(
-    (id: string) => {
+  const updateRoomMeta = useCallback(
+    (id: string, updates: Partial<Pick<BERoom, 'name' | 'roomType' | 'heightInches'>>) => {
       mutate((d) => ({
         ...d,
-        rooms: d.rooms.filter((r) => r.id !== id),
-        fixtures: d.fixtures.filter((f) => f.roomId !== id),
+        rooms: d.rooms.map((r) => (r.id === id ? { ...r, ...updates } : r)),
       }));
+    },
+    [mutate],
+  );
+
+  const removeRoom = useCallback(
+    (id: string) => {
+      mutate((d) => {
+        const filtered = d.rooms.filter((r) => r.id !== id);
+        // Re-parent children: clear parentRoomId for any child rooms
+        const updated = filtered.map((r) => r.parentRoomId === id ? { ...r, parentRoomId: undefined } : r);
+        return { ...d, rooms: recalcNetAreas(updated), fixtures: d.fixtures.filter((f) => f.roomId !== id) };
+      });
       if (selectedId === id) setSelectedId(null);
     },
     [mutate, selectedId],
@@ -398,14 +506,7 @@ export function useBESketchState(initialData?: BESketchData) {
 
   useEffect(() => {
     const newZones = generateTileZones(data.fixtures, data.rooms, data.settings.pixelsPerFoot);
-    setData((prev) => {
-      // Only update if zones actually changed
-      if (JSON.stringify(prev.tileZones.map((z) => z.areaSF)) === JSON.stringify(newZones.map((z) => z.areaSF))
-          && prev.tileZones.length === newZones.length) {
-        return prev;
-      }
-      return { ...prev, tileZones: newZones };
-    });
+    setData((prev) => ({ ...prev, tileZones: newZones }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fixtureSignature, roomSignature, data.settings.pixelsPerFoot]);
 
@@ -429,6 +530,7 @@ export function useBESketchState(initialData?: BESketchData) {
     // Room ops
     addRoom,
     updateRoom,
+    updateRoomMeta,
     removeRoom,
 
     // Fixture ops

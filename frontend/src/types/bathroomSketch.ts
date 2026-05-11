@@ -79,17 +79,25 @@ export interface BEWall {
 // Room
 // =====================
 
+export type BERoomType = 'bathroom' | 'closet' | 'toilet_room' | 'linen_closet' | 'other';
+
 export interface BERoom {
   id: string;
   name: string;
+  /** Room sub-type */
+  roomType: BERoomType;
   /** Boundary points forming the room polygon */
   boundary: BEPoint[];
   /** Wall IDs forming this room */
   wallIds: string[];
+  /** Parent room ID (if this is a sub-room inside another room) */
+  parentRoomId?: string;
   /** Room height in inches */
   heightInches: number;
-  /** Calculated floor area in SF */
+  /** Calculated gross floor area in SF (before sub-room deduction) */
   floorAreaSF: number;
+  /** Net floor area after sub-rooms deducted */
+  netFloorAreaSF: number;
   /** Calculated wall area in SF */
   wallAreaSF: number;
   /** Calculated perimeter in LF */

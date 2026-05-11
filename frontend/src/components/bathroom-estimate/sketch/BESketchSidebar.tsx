@@ -32,6 +32,7 @@ import type {
   BathtubSubType,
   ShowerFloorType,
   BEFixture,
+  BEWall,
   BEPoint,
 } from '../../../types/bathroomSketch';
 import {
@@ -239,18 +240,52 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
             <FixturePropertiesPanel fixture={selectedFixture} api={api} />
           ) : selectedRoom ? (
             <div>
-              <Text strong>{selectedRoom.name}</Text>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text strong>{selectedRoom.name}</Text>
+                <Select
+                  size="small"
+                  value={selectedRoom.roomType ?? 'bathroom'}
+                  onChange={(v) => {
+                    const nameMap: Record<string, string> = {
+                      bathroom: 'Bathroom', closet: 'Closet',
+                      toilet_room: 'Toilet Room', linen_closet: 'Linen Closet', other: 'Room',
+                    };
+                    api.updateRoomMeta(selectedRoom.id, { roomType: v, name: nameMap[v] ?? v });
+                  }}
+                  style={{ width: 120 }}
+                  options={[
+                    { label: 'Bathroom', value: 'bathroom' },
+                    { label: 'Closet', value: 'closet' },
+                    { label: 'Toilet Room', value: 'toilet_room' },
+                    { label: 'Linen Closet', value: 'linen_closet' },
+                    { label: 'Other', value: 'other' },
+                  ]}
+                />
+              </div>
+              {selectedRoom.parentRoomId && (
+                <Tag color="orange" style={{ marginTop: 4 }}>Sub-room</Tag>
+              )}
               <Divider style={{ margin: '8px 0' }} />
               <div style={{ fontSize: 12 }}>
-                <div>Floor Area: <strong>{selectedRoom.floorAreaSF} SF</strong></div>
+                <div>Floor Area: <strong>{selectedRoom.floorAreaSF} SF</strong>
+                  {selectedRoom.netFloorAreaSF !== selectedRoom.floorAreaSF && (
+                    <span style={{ color: '#1890ff' }}> (Net: {selectedRoom.netFloorAreaSF} SF)</span>
+                  )}
+                </div>
                 <div>Wall Area: <strong>{selectedRoom.wallAreaSF} SF</strong></div>
                 <div>Perimeter: <strong>{selectedRoom.perimeterLF} LF</strong></div>
                 <div>Height: <strong>{selectedRoom.heightInches}"</strong> ({(selectedRoom.heightInches / 12).toFixed(1)} ft)</div>
               </div>
             </div>
+          ) : data.walls.find((w) => w.id === selectedId) ? (
+            <WallPropertiesPanel
+              wall={data.walls.find((w) => w.id === selectedId)!}
+              ppf={data.settings.pixelsPerFoot}
+              api={api}
+            />
           ) : (
             <Text type="secondary" style={{ fontSize: 12 }}>
-              Wall or damage zone selected.
+              Damage zone selected.
             </Text>
           )}
 
@@ -546,6 +581,91 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
         onChange={(v) => v != null && api.updateFixture(fixture.id, { rotation: v })}
         style={{ width: '100%' }}
       />
+    </div>
+  );
+};
+
+// ── Wall Properties Sub-Panel ──
+
+const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchStateAPI }> = ({
+  wall,
+  ppf,
+  api,
+}) => {
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+  const lengthPx = Math.sqrt(dx * dx + dy * dy);
+  const lengthInches = Math.round((lengthPx / ppf) * 12);
+  const lengthFt = lengthInches / 12;
+  const angle = Math.atan2(dy, dx); // radians
+
+  const handleLengthChange = (newInches: number | null) => {
+    if (!newInches || newInches < 1) return;
+    const newPx = (newInches / 12) * ppf;
+    // Keep same direction (angle), adjust end point
+    const newEnd: BEPoint = {
+      x: Math.round(wall.start.x + Math.cos(angle) * newPx),
+      y: Math.round(wall.start.y + Math.sin(angle) * newPx),
+    };
+    api.updateWall(wall.id, { end: newEnd });
+  };
+
+  const handleHeightChange = (newHeight: number | null) => {
+    if (!newHeight || newHeight < 12) return;
+    api.updateWall(wall.id, { heightInches: newHeight });
+  };
+
+  return (
+    <div style={{ fontSize: 12 }}>
+      <Text strong>Wall</Text>
+      <Tag style={{ marginLeft: 6 }} color="blue">{wall.label || wall.id.slice(0, 12)}</Tag>
+      <Divider style={{ margin: '6px 0' }} />
+
+      <div style={{ marginBottom: 8 }}>
+        <Text type="secondary">Length:</Text>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <InputNumber
+            size="small"
+            addonAfter="in"
+            value={lengthInches}
+            min={1}
+            max={600}
+            onChange={handleLengthChange}
+            style={{ width: '50%' }}
+          />
+          <Text type="secondary" style={{ lineHeight: '24px', fontSize: 11 }}>
+            {lengthFt.toFixed(1)} ft
+          </Text>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 8 }}>
+        <Text type="secondary">Wall Height:</Text>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <InputNumber
+            size="small"
+            addonAfter="in"
+            value={wall.heightInches}
+            min={12}
+            max={240}
+            onChange={handleHeightChange}
+            style={{ width: '50%' }}
+          />
+          <Text type="secondary" style={{ lineHeight: '24px', fontSize: 11 }}>
+            {(wall.heightInches / 12).toFixed(1)} ft
+          </Text>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 4 }}>
+        <Text type="secondary">Label:</Text>
+        <input
+          style={{ marginLeft: 8, width: 80, fontSize: 12, border: '1px solid #d9d9d9', borderRadius: 4, padding: '2px 6px' }}
+          value={wall.label || ''}
+          placeholder="e.g. North"
+          onChange={(e) => api.updateWall(wall.id, { label: e.target.value || undefined })}
+        />
+      </div>
     </div>
   );
 };

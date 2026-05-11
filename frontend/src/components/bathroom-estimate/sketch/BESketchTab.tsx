@@ -33,6 +33,17 @@ const { Text } = Typography;
 
 // ── Props ──
 
+/** Extracted fixture data for syncing sketch → form fields */
+export interface SketchFixtureSync {
+  bathtub_spec?: Record<string, any>;
+  shower_spec?: Record<string, any>;
+  vanity_spec?: Record<string, any>;
+  replace_tub?: boolean;
+  replace_shower?: boolean;
+  replace_vanity?: boolean;
+  replace_toilet?: boolean;
+}
+
 export interface BESketchTabProps {
   /** Bathroom estimate ID for persistence */
   estimateId: string;
@@ -40,6 +51,8 @@ export interface BESketchTabProps {
   estimateData?: Record<string, any>;
   /** Callback when sketch data changes */
   onSketchChange?: (data: BESketchData) => void;
+  /** Callback to sync fixture data → estimate form fields */
+  onFixtureSync?: (sync: SketchFixtureSync) => void;
   /** Initial sketch data (loaded from backend) */
   initialSketchData?: BESketchData;
   /** Whether this tab is currently active */
@@ -48,10 +61,64 @@ export interface BESketchTabProps {
 
 // ── Component ──
 
+/** Build sync payload from sketch fixtures → estimate form fields */
+function buildFixtureSync(fixtures: BESketchData['fixtures']): SketchFixtureSync {
+  const sync: SketchFixtureSync = {};
+
+  const bathtub = fixtures.find(f => f.type === 'bathtub');
+  const shower = fixtures.find(f => f.type === 'shower');
+  const vanity = fixtures.find(f => f.type === 'vanity');
+  const toilet = fixtures.find(f => f.type === 'toilet');
+
+  sync.replace_tub = !!bathtub;
+  sync.replace_shower = !!shower;
+  sync.replace_vanity = !!vanity;
+  sync.replace_toilet = !!toilet;
+
+  if (bathtub) {
+    const p = bathtub.properties;
+    const subType = p.bathtubSubType ?? 'standard_alcove';
+    const typeMap: Record<string, string> = {
+      standard_alcove: 'alcove', drop_in: 'drop_in',
+      corner_garden: 'corner', freestanding: 'freestanding',
+    };
+    sync.bathtub_spec = {
+      type: typeMap[subType] ?? 'alcove',
+      material: 'acrylic',
+      surround_tile: !!p.hasSurround,
+      tub_length_in: bathtub.dimensions.width,
+      tub_depth_in: bathtub.dimensions.height,
+      surround_height_in: p.surroundHeight ?? 72,
+    };
+  }
+
+  if (shower) {
+    const p = shower.properties;
+    sync.shower_spec = {
+      type: (p.showerWallCount ?? 3) > 0 ? 'custom_tile' : 'one_piece',
+      width_in: shower.dimensions.width,
+      depth_in: shower.dimensions.height,
+      tile_height_in: p.showerTileHeight ?? 84,
+      niches: p.nicheCount ?? 0,
+      bench: !!p.hasBench,
+    };
+  }
+
+  if (vanity) {
+    sync.vanity_spec = {
+      width: vanity.dimensions.width,
+      sinks: vanity.properties.sinkCount ?? 1,
+    };
+  }
+
+  return sync;
+}
+
 const BESketchTab: React.FC<BESketchTabProps> = ({
   estimateId,
   estimateData,
   onSketchChange,
+  onFixtureSync,
   initialSketchData,
   isActive = false,
 }) => {
@@ -67,10 +134,10 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
     const updateSize = () => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const sidebarW = sidebarCollapsed ? 0 : 280;
+      const sidebarW = sidebarCollapsed ? 0 : 260;
       setCanvasSize({
-        width: Math.max(400, rect.width - sidebarW - 2),
-        height: Math.max(400, rect.height - 2),
+        width: Math.max(200, rect.width - sidebarW - 2),
+        height: Math.max(200, rect.height - 2),
       });
     };
 
@@ -87,6 +154,14 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
     }
   }, [api.data, api.isDirty, onSketchChange]);
 
+  // ── Sync fixtures → estimate form fields ──
+  useEffect(() => {
+    if (onFixtureSync && api.isDirty) {
+      const sync = buildFixtureSync(api.data.fixtures);
+      onFixtureSync(sync);
+    }
+  }, [api.data.fixtures, api.isDirty, onFixtureSync]);
+
   // ── Save handler ──
   const handleSave = useCallback(async () => {
     try {
@@ -102,21 +177,22 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
   }, [api, estimateId]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 500 }}>
-      {/* Top bar: Toolbar + Save */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 300 }}>
+      {/* Top bar: Toolbar + Save (single row, no wrap) */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        flexShrink: 0, borderBottom: '1px solid #e8e8e8',
+      }}>
         <BESketchToolbar api={api} />
-        <Space style={{ padding: '6px 12px' }}>
-          {api.isDirty && <Text type="warning" style={{ fontSize: 11 }}>Unsaved changes</Text>}
+        <Space size={4} style={{ padding: '4px 8px', flexShrink: 0 }}>
+          {api.isDirty && <Text type="warning" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>*</Text>}
           <Tooltip title="Save sketch (Ctrl+S)">
             <Button
               size="small"
               icon={<SaveOutlined />}
               type={api.isDirty ? 'primary' : 'default'}
               onClick={handleSave}
-            >
-              Save
-            </Button>
+            />
           </Tooltip>
           <Tooltip title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>
             <Button
@@ -128,36 +204,37 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         </Space>
       </div>
 
-      {/* Main area: Canvas + Sidebar */}
+      {/* Main area: Canvas + Sidebar (fills remaining height) */}
       <div
         ref={containerRef}
-        style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}
+        style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}
       >
-        <div style={{ flex: 1, overflow: 'hidden' }}>
+        <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
           <BESketchCanvas api={api} width={canvasSize.width} height={canvasSize.height} />
         </div>
 
         {!sidebarCollapsed && (
-          <BESketchSidebar api={api} width={280} />
+          <BESketchSidebar api={api} width={260} />
         )}
       </div>
 
-      {/* Status bar */}
+      {/* Status bar (compact) */}
       <div
         style={{
-          padding: '4px 12px',
+          padding: '2px 8px',
           borderTop: '1px solid #e8e8e8',
           backgroundColor: '#fafafa',
-          fontSize: 11,
+          fontSize: 10,
           display: 'flex',
-          gap: 16,
-          color: '#666',
+          gap: 12,
+          color: '#888',
+          flexShrink: 0,
         }}
       >
-        <span>Tool: <strong style={{ textTransform: 'capitalize' }}>{api.activeTool.replace('_', ' ')}</strong></span>
-        <span>Walls: {api.data.walls.length}</span>
-        <span>Rooms: {api.data.rooms.length}</span>
-        <span>Fixtures: {api.data.fixtures.length}</span>
+        <span><strong style={{ textTransform: 'capitalize' }}>{api.activeTool.replace('_', ' ')}</strong></span>
+        <span>W:{api.data.walls.length}</span>
+        <span>R:{api.data.rooms.length}</span>
+        <span>F:{api.data.fixtures.length}</span>
         <span>Scale: {api.data.settings.pixelsPerFoot} px/ft</span>
         {api.selectedId && <span>Selected: {api.selectedId.slice(0, 15)}</span>}
       </div>

@@ -13,9 +13,9 @@ export interface FixtureShape {
 }
 
 const S = '#444';     // stroke
-const SL = '#888';    // stroke light
-const F = '#f5f5f5';  // fill
-const FL = '#eee';    // fill light
+const SL = '#999';    // stroke light
+const F = 'none';     // fill — transparent (blueprint style)
+const FL = 'none';    // fill light — transparent
 const N = 'none';     // no fill
 
 // ── Bathtub ──
@@ -117,30 +117,43 @@ const vanityDouble: FixtureShape = {
   ],
 };
 
-// ── Toilet ──
+// ── Toilet (plan view: rectangular tank + elongated oval bowl) ──
+// Standard: 15"W x 29"D elongated. Tank at back (top), bowl tapers to front (bottom).
+// Reference: ANSI/AIA architectural symbol standard
 
 const toilet: FixtureShape = {
   label: 'Toilet',
   paths: [
-    // Tank
-    { d: 'M0.15,0 L0.85,0 Q0.9,0 0.9,0.05 L0.9,0.25 Q0.9,0.3 0.85,0.3 L0.15,0.3 Q0.1,0.3 0.1,0.25 L0.1,0.05 Q0.1,0 0.15,0 Z', fill: F, stroke: S, strokeWidth: 1.5 },
-    // Bowl
-    { d: 'M0.15,0.3 L0.85,0.3 Q0.95,0.3 0.95,0.5 L0.95,0.75 Q0.95,0.98 0.5,0.98 Q0.05,0.98 0.05,0.75 L0.05,0.5 Q0.05,0.3 0.15,0.3 Z', fill: F, stroke: S, strokeWidth: 2 },
-    // Seat opening
-    { d: 'M0.22,0.35 L0.78,0.35 Q0.85,0.35 0.85,0.5 L0.85,0.7 Q0.85,0.9 0.5,0.9 Q0.15,0.9 0.15,0.7 L0.15,0.5 Q0.15,0.35 0.22,0.35 Z', fill: FL, stroke: S, strokeWidth: 1 },
-    // Flush handle
-    { d: 'M0.82,0.1 L0.95,0.1', fill: N, stroke: S, strokeWidth: 1.2 },
+    // Tank (rectangular, flat back against wall) — top 28% of fixture
+    { d: 'M0.1,0.02 L0.9,0.02 Q0.95,0.02 0.95,0.06 L0.95,0.26 Q0.95,0.3 0.9,0.3 L0.1,0.3 Q0.05,0.3 0.05,0.26 L0.05,0.06 Q0.05,0.02 0.1,0.02 Z', fill: F, stroke: S, strokeWidth: 1.5 },
+    // Bowl outer (elongated oval, wider at tank connection, tapers to front)
+    { d: 'M0.08,0.3 L0.92,0.3 Q0.98,0.3 0.98,0.42 L0.98,0.68 Q0.98,0.98 0.5,0.98 Q0.02,0.98 0.02,0.68 L0.02,0.42 Q0.02,0.3 0.08,0.3 Z', fill: F, stroke: S, strokeWidth: 2 },
+    // Seat opening (inner oval, slightly inset from bowl)
+    { d: 'M0.18,0.34 L0.82,0.34 Q0.88,0.34 0.88,0.44 L0.88,0.64 Q0.88,0.92 0.5,0.92 Q0.12,0.92 0.12,0.64 L0.12,0.44 Q0.12,0.34 0.18,0.34 Z', fill: F, stroke: SL, strokeWidth: 0.8 },
+    // Tank-bowl connection line
+    { d: 'M0.1,0.3 L0.9,0.3', fill: N, stroke: S, strokeWidth: 0.5 },
+    // Flush handle (small line on right side of tank)
+    { d: 'M0.88,0.14 L1.0,0.14', fill: N, stroke: S, strokeWidth: 1 },
   ],
 };
 
-// ── Door ──
+// ── Door (plan view: thin panel line + 90° swing arc) ──
+// Standard architectural symbol: a thin line (door panel) perpendicular to wall,
+// plus a quarter-circle arc showing the swing direction.
+// Oriented: hinge at top-left (0,0), swings from closed (vertical) to open (horizontal).
+// Panel is along the left edge, arc sweeps from bottom of panel to the right.
 
 const door: FixtureShape = {
   label: 'Door',
   paths: [
-    { d: 'M0,0 L0.12,0 L0.12,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 1.5 },
-    { d: 'M0.12,1 Q1,1 1,0', fill: N, stroke: SL, strokeWidth: 0.8 },
-    { d: 'M0.06,0.48 L0.06,0.52', fill: N, stroke: S, strokeWidth: 1.5 },
+    // Door panel (thin vertical line from hinge to door edge)
+    // Hinge at (0, 0), panel extends down to (0, 1)
+    { d: 'M0,0 L0,1', fill: N, stroke: S, strokeWidth: 2.5 },
+    // 90° swing arc from door-edge (0,1) sweeping to open position (1,0)
+    // Quarter circle: center at hinge (0,0), radius = 1 (normalized)
+    { d: 'M0,1 A1,1 0 0,1 1,0', fill: N, stroke: SL, strokeWidth: 0.6 },
+    // Hinge dot
+    { d: 'M0,0 m-0.04,0 a0.04,0.04 0 1,0 0.08,0 a0.04,0.04 0 1,0 -0.08,0', fill: S, stroke: S, strokeWidth: 0.3 },
   ],
 };
 

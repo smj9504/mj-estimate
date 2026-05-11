@@ -40,6 +40,45 @@ function fmtInches(totalInches: number): string {
   return `${ft}' ${inches}"`;
 }
 
+/**
+ * Parse dimension input string to total inches.
+ * Supports: "7' 2\"", "7'2", "7.5'", "86\"", "86", "7 2"
+ */
+function parseDimension(input: string): number | null {
+  const s = input.trim();
+  if (!s) return null;
+
+  // "7' 2\"" or "7'2\"" or "7' 2" or "7'2"
+  const ftInMatch = s.match(/^(\d+(?:\.\d+)?)\s*['′]\s*(\d+(?:\.\d+)?)\s*["″]?\s*$/);
+  if (ftInMatch) {
+    return Math.round(parseFloat(ftInMatch[1]) * 12 + parseFloat(ftInMatch[2]));
+  }
+
+  // "7'" or "7.5'"
+  const ftOnly = s.match(/^(\d+(?:\.\d+)?)\s*['′]\s*$/);
+  if (ftOnly) {
+    return Math.round(parseFloat(ftOnly[1]) * 12);
+  }
+
+  // "86\"" or "86""
+  const inOnly = s.match(/^(\d+(?:\.\d+)?)\s*["″]\s*$/);
+  if (inOnly) {
+    return Math.round(parseFloat(inOnly[1]));
+  }
+
+  // "7 2" (feet space inches, no symbols)
+  const spaceMatch = s.match(/^(\d+)\s+(\d+(?:\.\d+)?)\s*$/);
+  if (spaceMatch) {
+    return Math.round(parseInt(spaceMatch[1], 10) * 12 + parseFloat(spaceMatch[2]));
+  }
+
+  // Plain number → inches
+  const num = parseFloat(s);
+  if (!isNaN(num) && num > 0) return Math.round(num);
+
+  return null;
+}
+
 function calcWallLengthPx(wall: BEWall): number {
   const dx = wall.end.x - wall.start.x;
   const dy = wall.end.y - wall.start.y;
@@ -111,6 +150,17 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
   const ppf = settings.pixelsPerFoot;
   const gridPx = ppf * settings.gridSizeFt;
 
+  // ── Wall inline edit state ──
+  const [editingWallId, setEditingWallId] = useState<string | null>(null);
+  const [editingWallValue, setEditingWallValue] = useState('');
+  const wallInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Room inline edit state ──
+  // edgeIdx: index of the first vertex of the edge (edge = boundary[edgeIdx] → boundary[edgeIdx+1])
+  const [editingRoomEdge, setEditingRoomEdge] = useState<{ roomId: string; edgeIdx: number; edge: 'width' | 'depth' } | null>(null);
+  const [editingRoomValue, setEditingRoomValue] = useState('');
+  const roomInputRef = useRef<HTMLInputElement>(null);
+
   // ── Drawing state ──
   const [drawingWall, setDrawingWall] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
   // Rectangle room (shift+drag)
@@ -176,6 +226,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
       } else if (activeTool === 'select') {
         if (e.target === e.target.getStage()) {
           setSelectedId(null);
+          setEditingWallId(null);
         }
       }
     },
@@ -310,7 +361,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
     return fmtInches(lenIn);
   }, [drawingWall, ppf]);
 
-  // ── Drawing preview room area ──
+  // ── Drawing preview room area (rect mode) ──
   const previewRoomLabel = useMemo(() => {
     if (!drawingRoom) return '';
     const dx = Math.abs(drawingRoom.current.x - drawingRoom.start.x);
@@ -320,8 +371,215 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
     return `${wFt.toFixed(1)}' x ${hFt.toFixed(1)}' = ${(wFt * hFt).toFixed(1)} SF`;
   }, [drawingRoom, ppf]);
 
+  // ── Polygon room: close-snap detection ──
+  const polyCloseSnap = useMemo(() => {
+    if (!polyRoom || polyRoom.vertices.length < 3) return false;
+    return dist(polyRoom.current, polyRoom.vertices[0]) < CLOSE_THRESHOLD;
+  }, [polyRoom]);
+
+  // ── Polygon room: preview area ──
+  const polyAreaLabel = useMemo(() => {
+    if (!polyRoom || polyRoom.vertices.length < 2) return '';
+    const verts = [...polyRoom.vertices, polyRoom.current];
+    let areaPx2 = 0;
+    for (let i = 0; i < verts.length; i++) {
+      const j = (i + 1) % verts.length;
+      areaPx2 += verts[i].x * verts[j].y;
+      areaPx2 -= verts[j].x * verts[i].y;
+    }
+    const sf = Math.abs(areaPx2) / 2 / (ppf * ppf);
+    return `${sf.toFixed(1)} SF`;
+  }, [polyRoom, ppf]);
+
+  // ── Wall inline length edit ──
+  const handleWallDblClick = useCallback((wallId: string) => {
+    const wall = walls.find(w => w.id === wallId);
+    if (!wall) return;
+    const lenIn = Math.round((calcWallLengthPx(wall) / ppf) * 12);
+    setEditingWallId(wallId);
+    setEditingWallValue(fmtInches(lenIn));
+    setTimeout(() => { wallInputRef.current?.focus(); wallInputRef.current?.select(); }, 50);
+  }, [walls, ppf]);
+
+  const commitWallEdit = useCallback(() => {
+    if (!editingWallId) return;
+    const wall = walls.find(w => w.id === editingWallId);
+    if (!wall) { setEditingWallId(null); return; }
+    const newInches = parseDimension(editingWallValue);
+    if (!newInches || newInches < 1) { setEditingWallId(null); return; }
+    const dx = wall.end.x - wall.start.x;
+    const dy = wall.end.y - wall.start.y;
+    const angle = Math.atan2(dy, dx);
+    const newPx = (newInches / 12) * ppf;
+    const oldEnd = wall.end;
+    const newEnd: BEPoint = {
+      x: Math.round(wall.start.x + Math.cos(angle) * newPx),
+      y: Math.round(wall.start.y + Math.sin(angle) * newPx),
+    };
+    api.updateWall(editingWallId, { end: newEnd });
+
+    // Sync room boundaries: move any room vertex that matched oldEnd
+    for (const room of rooms) {
+      const idx = room.boundary.findIndex(
+        p => Math.abs(p.x - oldEnd.x) < 2 && Math.abs(p.y - oldEnd.y) < 2
+      );
+      if (idx >= 0) {
+        const b = [...room.boundary];
+        b[idx] = newEnd;
+        updateRoom(room.id, b);
+      }
+    }
+    setEditingWallId(null);
+  }, [editingWallId, editingWallValue, walls, rooms, ppf, api, updateRoom]);
+
+  // Compute editing wall overlay position
+  const editingWall = editingWallId ? walls.find(w => w.id === editingWallId) : null;
+  const editOverlayPos = editingWall ? wallMidpoint(editingWall) : null;
+
+  // ── Room inline dimension edit ──
+  const handleRoomEdgeEdit = useCallback((roomId: string, edgeIdx: number, edge: 'width' | 'depth') => {
+    const room = rooms.find(r => r.id === roomId);
+    if (!room) return;
+    const pt = room.boundary[edgeIdx];
+    const npt = room.boundary[(edgeIdx + 1) % room.boundary.length];
+    const edgePx = dist(pt, npt);
+    const inches = Math.round((edgePx / ppf) * 12);
+    setEditingRoomEdge({ roomId, edgeIdx, edge });
+    setEditingRoomValue(fmtInches(inches));
+    setTimeout(() => { roomInputRef.current?.focus(); roomInputRef.current?.select(); }, 50);
+  }, [rooms, ppf]);
+
+  const commitRoomEdit = useCallback(() => {
+    if (!editingRoomEdge) return;
+    const room = rooms.find(r => r.id === editingRoomEdge.roomId);
+    if (!room) { setEditingRoomEdge(null); return; }
+    const newInches = parseDimension(editingRoomValue);
+    if (!newInches || newInches < 12) { setEditingRoomEdge(null); return; }
+    const newPx = (newInches / 12) * ppf;
+
+    const idx = editingRoomEdge.edgeIdx;
+    const nIdx = (idx + 1) % room.boundary.length;
+    const pt = room.boundary[idx];
+    const npt = room.boundary[nIdx];
+
+    // Compute direction of this edge
+    const dx = npt.x - pt.x;
+    const dy = npt.y - pt.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 1) { setEditingRoomEdge(null); return; }
+
+    // New end point = start + direction * newPx
+    const newNpt: BEPoint = {
+      x: Math.round(pt.x + (dx / len) * newPx),
+      y: Math.round(pt.y + (dy / len) * newPx),
+    };
+
+    // Compute delta to apply to the moved vertex
+    const deltaX = newNpt.x - npt.x;
+    const deltaY = newNpt.y - npt.y;
+
+    const oldB = [...room.boundary];
+    const b = [...room.boundary];
+    b[nIdx] = newNpt;
+
+    // For rectangular rooms: also move the adjacent vertex that shares the same axis
+    if (room.boundary.length === 4) {
+      // The vertex after nIdx shares one coordinate with nIdx
+      const nnIdx = (nIdx + 1) % 4;
+      const isH = Math.abs(dy) < Math.abs(dx); // edge is horizontal
+      if (isH) {
+        // Horizontal edge moved: nIdx.x changed → nnIdx.x should follow
+        b[nnIdx] = { x: b[nnIdx].x + deltaX, y: b[nnIdx].y };
+      } else {
+        // Vertical edge moved: nIdx.y changed → nnIdx.y should follow
+        b[nnIdx] = { x: b[nnIdx].x, y: b[nnIdx].y + deltaY };
+      }
+    }
+
+    updateRoom(room.id, b);
+
+    // Sync wall endpoints
+    for (let i = 0; i < oldB.length; i++) {
+      if (Math.abs(oldB[i].x - b[i].x) < 1 && Math.abs(oldB[i].y - b[i].y) < 1) continue;
+      for (const w of walls) {
+        if (Math.abs(w.start.x - oldB[i].x) < 2 && Math.abs(w.start.y - oldB[i].y) < 2) {
+          api.updateWall(w.id, { start: b[i] });
+        }
+        if (Math.abs(w.end.x - oldB[i].x) < 2 && Math.abs(w.end.y - oldB[i].y) < 2) {
+          api.updateWall(w.id, { end: b[i] });
+        }
+      }
+    }
+    setEditingRoomEdge(null);
+  }, [editingRoomEdge, editingRoomValue, rooms, walls, ppf, updateRoom, api]);
+
+  // Room edit overlay position
+  const editingRoom = editingRoomEdge ? rooms.find(r => r.id === editingRoomEdge.roomId) : null;
+  const roomEditOverlayPos = (() => {
+    if (!editingRoom || !editingRoomEdge) return null;
+    const pt = editingRoom.boundary[editingRoomEdge.edgeIdx];
+    const npt = editingRoom.boundary[(editingRoomEdge.edgeIdx + 1) % editingRoom.boundary.length];
+    return { x: (pt.x + npt.x) / 2, y: (pt.y + npt.y) / 2 };
+  })();
+
   return (
-    <div style={{ cursor, border: '1px solid #d9d9d9', backgroundColor: settings.backgroundColor }}>
+    <div style={{ position: 'relative', cursor, border: '1px solid #d9d9d9', backgroundColor: settings.backgroundColor }}>
+      {/* Inline wall length input overlay */}
+      {editingWallId && editOverlayPos && (
+        <div style={{
+          position: 'absolute',
+          left: editOverlayPos.x - 40,
+          top: editOverlayPos.y - 32,
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+        }}>
+          <input
+            ref={wallInputRef}
+            value={editingWallValue}
+            onChange={(e) => setEditingWallValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitWallEdit();
+              if (e.key === 'Escape') setEditingWallId(null);
+            }}
+            onBlur={commitWallEdit}
+            style={{
+              width: 70, height: 24, fontSize: 12, fontWeight: 600,
+              textAlign: 'center', border: '2px solid #1890ff',
+              borderRadius: 4, outline: 'none', background: '#fff',
+            }}
+          />
+        </div>
+      )}
+      {/* Inline room dimension input overlay */}
+      {editingRoomEdge && roomEditOverlayPos && (
+        <div style={{
+          position: 'absolute',
+          left: roomEditOverlayPos.x - 40,
+          top: roomEditOverlayPos.y - 30,
+          zIndex: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+        }}>
+          <input
+            ref={roomInputRef}
+            value={editingRoomValue}
+            onChange={(e) => setEditingRoomValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitRoomEdit();
+              if (e.key === 'Escape') setEditingRoomEdge(null);
+            }}
+            onBlur={commitRoomEdit}
+            style={{
+              width: 70, height: 24, fontSize: 12, fontWeight: 600,
+              textAlign: 'center', border: '2px solid #1890ff',
+              borderRadius: 4, outline: 'none', background: '#fff',
+            }}
+          />
+        </div>
+      )}
       <Stage
         ref={stageRef}
         width={width}
@@ -329,6 +587,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onDblClick={handleDblClick}
       >
         {/* ── Grid Layer ── */}
         {settings.showGrid && (
@@ -365,140 +624,118 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
             const cx = room.boundary.reduce((s, p) => s + p.x, 0) / room.boundary.length;
             const cy = room.boundary.reduce((s, p) => s + p.y, 0) / room.boundary.length;
             const isRoomSelected = selectedId === room.id && activeTool === 'select';
-            // Bounding box for dimension labels
+            const isRect = room.boundary.length === 4;
             const xs = room.boundary.map((p) => p.x);
             const ys = room.boundary.map((p) => p.y);
             const minX = Math.min(...xs);
             const maxX = Math.max(...xs);
             const minY = Math.min(...ys);
             const maxY = Math.max(...ys);
-            const roomWFt = (maxX - minX) / ppf;
-            const roomDFt = (maxY - minY) / ppf;
             return (
               <Group key={room.id}>
                 <Line
                   points={pts}
                   closed
-                  fill="rgba(200, 230, 255, 0.25)"
-                  stroke={isRoomSelected ? '#1890ff' : '#90caf9'}
+                  fill={room.parentRoomId ? 'rgba(255, 235, 200, 0.3)' : 'rgba(200, 230, 255, 0.25)'}
+                  stroke={isRoomSelected ? '#1890ff' : room.parentRoomId ? '#d48806' : '#90caf9'}
                   strokeWidth={isRoomSelected ? 2.5 : 1}
                   onClick={() => setSelectedId(room.id)}
                   hitStrokeWidth={6}
                 />
                 {settings.showAreaLabels && (
                   <Text
-                    x={cx - 35}
-                    y={cy - 14}
-                    text={`${room.name}\n${room.floorAreaSF} SF`}
-                    fontSize={11}
-                    fill="#444"
-                    align="center"
-                    fontStyle="bold"
+                    x={cx - 35} y={cy - 14}
+                    text={`${room.name}\n${room.netFloorAreaSF ?? room.floorAreaSF} SF`}
+                    fontSize={room.parentRoomId ? 10 : 11}
+                    fill={room.parentRoomId ? '#8c6d1f' : '#444'}
+                    align="center" fontStyle="bold"
                   />
                 )}
-                {/* Room dimension labels when selected */}
-                {isRoomSelected && (
-                  <>
-                    {/* Width label (top) */}
-                    <Rect x={minX + (maxX - minX) / 2 - 30} y={minY - 22} width={60} height={16} fill="rgba(24,144,255,0.9)" cornerRadius={3} listening={false} />
-                    <Text x={minX + (maxX - minX) / 2 - 30} y={minY - 20} width={60} text={`${roomWFt.toFixed(1)}'`} fontSize={11} fill="#fff" fontStyle="bold" align="center" listening={false} />
-                    {/* Depth label (left) */}
-                    <Rect x={minX - 50} y={minY + (maxY - minY) / 2 - 8} width={44} height={16} fill="rgba(24,144,255,0.9)" cornerRadius={3} listening={false} />
-                    <Text x={minX - 50} y={minY + (maxY - minY) / 2 - 6} width={44} text={`${roomDFt.toFixed(1)}'`} fontSize={11} fill="#fff" fontStyle="bold" align="center" listening={false} />
-                  </>
-                )}
-                {/* Corner resize handles */}
+                {/* Dimension labels */}
+                {/* Room selected dimension labels are now in top-most layer */}
+                {/* Vertex handles (all polygon shapes) */}
                 {isRoomSelected && room.boundary.map((pt, idx) => (
                   <Circle
-                    key={`rh-${room.id}-${idx}`}
-                    x={pt.x}
-                    y={pt.y}
-                    radius={6}
-                    fill="#fff"
-                    stroke="#1890ff"
-                    strokeWidth={2}
+                    key={`rv-${room.id}-${idx}`}
+                    x={pt.x} y={pt.y}
+                    radius={5}
+                    fill="#fff" stroke="#1890ff" strokeWidth={2}
                     draggable
-                    onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'nwse-resize'; }}
+                    onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'move'; }}
                     onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
                     onDragMove={(e) => {
-                      // Live update the boundary during drag
                       const raw = { x: e.target.x(), y: e.target.y() };
                       const pos = settings.snapToGrid
-                        ? { x: Math.round(raw.x / gridPx) * gridPx, y: Math.round(raw.y / gridPx) * gridPx }
+                        ? snapToGrid(raw, gridPx)
                         : raw;
                       e.target.position(pos);
-                      // For rectangular rooms: dragging one corner moves the two adjacent corners
+
                       const b = [...room.boundary];
-                      const prev = (idx + 3) % 4;
-                      const next = (idx + 1) % 4;
-                      // Corners: TL(0) TR(1) BR(2) BL(3) — share x or y with neighbors
-                      if (b.length === 4) {
+                      if (isRect) {
+                        // Rectangular: move dragged corner + adjust adjacent to stay rectangular
+                        // 0=TL, 1=TR, 2=BR, 3=BL
                         b[idx] = pos;
-                        // Adjacent corners share one axis
-                        b[prev] = { x: b[prev].x, y: pos.y };  // same row
-                        b[next] = { x: pos.x, y: b[next].y };  // same col
-                        // Wait — TL(0)-TR(1) share Y, TR(1)-BR(2) share X, etc.
-                        // For standard rect: 0=TL, 1=TR, 2=BR, 3=BL
-                        // Corner 0 (TL): neighbors are 3(BL) shares X, 1(TR) shares Y
-                        // Corner 1 (TR): neighbors are 0(TL) shares Y, 2(BR) shares X
-                        // Corner 2 (BR): neighbors are 1(TR) shares X, 3(BL) shares Y
-                        // Corner 3 (BL): neighbors are 2(BR) shares Y, 0(TL) shares X
-                        // Pattern: prev shares X if idx is even, Y if idx is odd
-                        if (idx % 2 === 0) {
-                          // TL or BR: prev shares X, next shares Y
-                          b[prev] = { x: pos.x, y: b[prev].y };
-                          b[next] = { x: b[next].x, y: pos.y };
-                        } else {
-                          // TR or BL: prev shares Y, next shares X
-                          b[prev] = { x: b[prev].x, y: pos.y };
-                          b[next] = { x: pos.x, y: b[next].y };
+                        const prevI = (idx + 3) % 4;
+                        const nextI = (idx + 1) % 4;
+                        // TL(0)↔BL(3) share X, TL(0)↔TR(1) share Y
+                        // TR(1)↔BR(2) share X, BL(3)↔BR(2) share Y
+                        if (idx === 0) { // TL: BL shares X, TR shares Y
+                          b[3] = { x: pos.x, y: b[3].y };
+                          b[1] = { x: b[1].x, y: pos.y };
+                        } else if (idx === 1) { // TR: TL shares Y, BR shares X
+                          b[0] = { x: b[0].x, y: pos.y };
+                          b[2] = { x: pos.x, y: b[2].y };
+                        } else if (idx === 2) { // BR: TR shares X, BL shares Y
+                          b[1] = { x: pos.x, y: b[1].y };
+                          b[3] = { x: b[3].x, y: pos.y };
+                        } else { // BL: BR shares Y, TL shares X
+                          b[2] = { x: b[2].x, y: pos.y };
+                          b[0] = { x: pos.x, y: b[0].y };
                         }
-                        updateRoom(room.id, b);
+                      } else {
+                        // Polygon: free-move single vertex
+                        b[idx] = pos;
                       }
-                    }}
-                    onDragEnd={() => {
-                      // Final snap already applied in onDragMove
+                      updateRoom(room.id, b);
                     }}
                   />
                 ))}
-                {/* Edge midpoint resize handles (for rectangular rooms) */}
-                {isRoomSelected && room.boundary.length === 4 && room.boundary.map((pt, idx) => {
-                  const next = room.boundary[(idx + 1) % 4];
-                  const mx = (pt.x + next.x) / 2;
-                  const my = (pt.y + next.y) / 2;
-                  const isHoriz = Math.abs(pt.y - next.y) < 2;
+                {/* Edge midpoint handles (all rooms) */}
+                {isRoomSelected && room.boundary.map((pt, idx) => {
+                  const nIdx = (idx + 1) % room.boundary.length;
+                  const npt = room.boundary[nIdx];
+                  const mx = (pt.x + npt.x) / 2;
+                  const my = (pt.y + npt.y) / 2;
+                  const edgeDx = npt.x - pt.x;
+                  const edgeDy = npt.y - pt.y;
+                  const edgeLen = Math.sqrt(edgeDx * edgeDx + edgeDy * edgeDy);
+                  if (edgeLen < 15) return null; // skip tiny edges
+                  // Edge is horizontal if |dy| < |dx|
+                  const isH = Math.abs(edgeDy) < Math.abs(edgeDx);
                   return (
                     <Rect
                       key={`re-${room.id}-${idx}`}
-                      x={mx - (isHoriz ? 8 : 3)}
-                      y={my - (isHoriz ? 3 : 8)}
-                      width={isHoriz ? 16 : 6}
-                      height={isHoriz ? 6 : 16}
-                      fill="#fff"
-                      stroke="#1890ff"
-                      strokeWidth={1.5}
-                      cornerRadius={2}
+                      x={mx - (isH ? 8 : 3)} y={my - (isH ? 3 : 8)}
+                      width={isH ? 16 : 6} height={isH ? 6 : 16}
+                      fill="#fff" stroke="#1890ff" strokeWidth={1.5} cornerRadius={2}
                       draggable
                       dragBoundFunc={(pos) => {
-                        // Constrain to one axis
-                        if (isHoriz) return { x: mx, y: pos.y };
+                        // Constrain perpendicular to edge direction
+                        if (isH) return { x: mx, y: pos.y };
                         return { x: pos.x, y: my };
                       }}
-                      onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = isHoriz ? 'ns-resize' : 'ew-resize'; }}
+                      onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = isH ? 'ns-resize' : 'ew-resize'; }}
                       onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
                       onDragMove={(e) => {
-                        const raw = { x: e.target.x() + (isHoriz ? 8 : 3), y: e.target.y() + (isHoriz ? 3 : 8) };
-                        const pos = settings.snapToGrid
-                          ? { x: Math.round(raw.x / gridPx) * gridPx, y: Math.round(raw.y / gridPx) * gridPx }
-                          : raw;
+                        const raw = { x: e.target.x() + (isH ? 8 : 3), y: e.target.y() + (isH ? 3 : 8) };
+                        const pos = settings.snapToGrid ? snapToGrid(raw, gridPx) : raw;
                         const b = [...room.boundary];
-                        const nIdx = (idx + 1) % 4;
-                        if (isHoriz) {
+                        if (isH) {
                           // Move both endpoints of this edge vertically
                           b[idx] = { x: b[idx].x, y: pos.y };
                           b[nIdx] = { x: b[nIdx].x, y: pos.y };
                         } else {
-                          // Move both endpoints of this edge horizontally
+                          // Move both endpoints horizontally
                           b[idx] = { x: pos.x, y: b[idx].y };
                           b[nIdx] = { x: pos.x, y: b[nIdx].y };
                         }
@@ -510,6 +747,72 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
               </Group>
             );
           })}
+
+          {/* ── Polygon room drawing preview ── */}
+          {polyRoom && polyRoom.vertices.length > 0 && (() => {
+            const verts = polyRoom.vertices;
+            const allPts = [...verts, polyRoom.current].flatMap((p) => [p.x, p.y]);
+            const closedPts = verts.flatMap((p) => [p.x, p.y]);
+            const first = verts[0];
+            const cx = [...verts, polyRoom.current].reduce((s, p) => s + p.x, 0) / (verts.length + 1);
+            const cy = [...verts, polyRoom.current].reduce((s, p) => s + p.y, 0) / (verts.length + 1);
+            return (
+              <Group>
+                {/* Filled preview */}
+                <Line
+                  points={allPts}
+                  closed
+                  fill="rgba(24, 144, 255, 0.08)"
+                  stroke="#1890ff"
+                  strokeWidth={2}
+                  dash={[6, 4]}
+                  listening={false}
+                />
+                {/* Placed vertices */}
+                {verts.map((v, i) => (
+                  <Circle
+                    key={`pv-${i}`}
+                    x={v.x} y={v.y}
+                    radius={i === 0 ? 7 : 4}
+                    fill={i === 0 ? (polyCloseSnap ? '#52c41a' : '#1890ff') : '#fff'}
+                    stroke={i === 0 ? (polyCloseSnap ? '#52c41a' : '#1890ff') : '#1890ff'}
+                    strokeWidth={2}
+                    listening={false}
+                  />
+                ))}
+                {/* Current mouse position */}
+                <Circle
+                  x={polyRoom.current.x} y={polyRoom.current.y}
+                  radius={4} fill="rgba(24,144,255,0.4)" stroke="#1890ff" strokeWidth={1}
+                  listening={false}
+                />
+                {/* Close snap indicator */}
+                {polyCloseSnap && (
+                  <Circle
+                    x={first.x} y={first.y}
+                    radius={12} stroke="#52c41a" strokeWidth={2}
+                    fill="rgba(82,196,26,0.15)" listening={false}
+                  />
+                )}
+                {/* Area label */}
+                {polyAreaLabel && (
+                  <Text
+                    x={cx - 25} y={cy - 8}
+                    text={polyAreaLabel}
+                    fontSize={12} fill="#1890ff" fontStyle="bold"
+                    listening={false}
+                  />
+                )}
+                {/* Vertex count hint */}
+                <Text
+                  x={polyRoom.current.x + 12} y={polyRoom.current.y - 8}
+                  text={verts.length < 3 ? `${verts.length}/3+ pts` : (polyCloseSnap ? 'Click to close' : 'Dbl-click to close')}
+                  fontSize={10} fill={polyCloseSnap ? '#52c41a' : '#1890ff'}
+                  listening={false}
+                />
+              </Group>
+            );
+          })()}
         </Layer>
 
         {/* ── Tile Zone Overlays ── */}
@@ -560,44 +863,80 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
           {walls.map((wall) => {
             const lenIn = (calcWallLengthPx(wall) / ppf) * 12;
             const mid = wallMidpoint(wall);
-            const isSelected = selectedId === wall.id;
+            const isWallSelected = selectedId === wall.id && activeTool === 'select';
             return (
               <Group key={wall.id}>
                 <Line
                   points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
-                  stroke={isSelected ? '#1890ff' : '#333'}
+                  stroke={isWallSelected ? '#1890ff' : '#333'}
                   strokeWidth={wall.thickness}
                   lineCap="round"
-                  onClick={() => setSelectedId(wall.id)}
+                  onMouseDown={(e) => { e.cancelBubble = true; }}
+                  onClick={(e) => {
+                    e.cancelBubble = true;
+                    if (isWallSelected) {
+                      handleWallDblClick(wall.id);
+                    } else {
+                      setSelectedId(wall.id);
+                    }
+                  }}
                   hitStrokeWidth={14}
                 />
-                {/* Endpoints */}
-                <Circle x={wall.start.x} y={wall.start.y} radius={isSelected ? 5 : 3} fill={isSelected ? '#1890ff' : '#666'} />
-                <Circle x={wall.end.x} y={wall.end.y} radius={isSelected ? 5 : 3} fill={isSelected ? '#1890ff' : '#666'} />
-                {/* Dimension label */}
-                {settings.showDimensions && lenIn > 6 && (
+                {/* Endpoints (static when not selected) */}
+                {!isWallSelected && (
                   <>
-                    {/* Background for readability */}
-                    <Rect
-                      x={mid.x - 22}
-                      y={mid.y - 20}
-                      width={44}
-                      height={14}
-                      fill="rgba(255,255,255,0.85)"
-                      cornerRadius={2}
+                    <Circle x={wall.start.x} y={wall.start.y} radius={3} fill="#666" />
+                    <Circle x={wall.end.x} y={wall.end.y} radius={3} fill="#666" />
+                  </>
+                )}
+                {/* Draggable endpoint handles (when selected) */}
+                {isWallSelected && (
+                  <>
+                    <Circle
+                      x={wall.start.x} y={wall.start.y}
+                      radius={6} fill="#fff" stroke="#1890ff" strokeWidth={2}
+                      draggable
+                      onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'move'; }}
+                      onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                      onDragMove={(e) => {
+                        const oldPos = wall.start;
+                        let pos = settings.snapToGrid
+                          ? snapToGrid({ x: e.target.x(), y: e.target.y() }, gridPx)
+                          : { x: e.target.x(), y: e.target.y() };
+                        pos = snapToWallEndpoints(pos, walls, wall.id);
+                        e.target.position(pos);
+                        api.updateWall(wall.id, { start: pos });
+                        // Sync room vertices
+                        for (const rm of rooms) {
+                          const vi = rm.boundary.findIndex(p => Math.abs(p.x - oldPos.x) < 2 && Math.abs(p.y - oldPos.y) < 2);
+                          if (vi >= 0) { const b = [...rm.boundary]; b[vi] = pos; updateRoom(rm.id, b); }
+                        }
+                      }}
                     />
-                    <Text
-                      x={mid.x - 22}
-                      y={mid.y - 19}
-                      width={44}
-                      text={fmtInches(lenIn)}
-                      fontSize={10}
-                      fill="#1890ff"
-                      fontStyle="bold"
-                      align="center"
+                    <Circle
+                      x={wall.end.x} y={wall.end.y}
+                      radius={6} fill="#fff" stroke="#1890ff" strokeWidth={2}
+                      draggable
+                      onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'move'; }}
+                      onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                      onDragMove={(e) => {
+                        const oldPos = wall.end;
+                        let pos = settings.snapToGrid
+                          ? snapToGrid({ x: e.target.x(), y: e.target.y() }, gridPx)
+                          : { x: e.target.x(), y: e.target.y() };
+                        pos = snapToWallEndpoints(pos, walls, wall.id);
+                        e.target.position(pos);
+                        api.updateWall(wall.id, { end: pos });
+                        // Sync room vertices
+                        for (const rm of rooms) {
+                          const vi = rm.boundary.findIndex(p => Math.abs(p.x - oldPos.x) < 2 && Math.abs(p.y - oldPos.y) < 2);
+                          if (vi >= 0) { const b = [...rm.boundary]; b[vi] = pos; updateRoom(rm.id, b); }
+                        }
+                      }}
                     />
                   </>
                 )}
+                {/* Dimension label moved to top-most layer */}
               </Group>
             );
           })}
@@ -682,12 +1021,96 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
               isSelected={selectedId === fix.id}
               isDraggable={activeTool === 'select'}
               snapToGrid={settings.snapToGrid}
-              isResizable={activeTool === 'select' && (fix.type === 'bathtub' || fix.type === 'shower' || fix.type === 'vanity')}
+              isResizable={activeTool === 'select'}
               onSelect={() => setSelectedId(fix.id)}
               onDragEnd={(pos) => api.updateFixture(fix.id, { position: pos })}
               onResize={(w, h) => api.updateFixture(fix.id, { dimensions: { width: w, height: h } })}
             />
           ))}
+        </Layer>
+
+        {/* ── Dimension Labels Layer (top-most, always visible) ── */}
+        <Layer>
+          {/* Wall dimension labels */}
+          {walls.map((wall) => {
+            const lenIn = (calcWallLengthPx(wall) / ppf) * 12;
+            if (!settings.showDimensions || lenIn <= 6 || editingWallId === wall.id) return null;
+            const mid = wallMidpoint(wall);
+            return (
+              <Group key={`wdim-${wall.id}`}>
+                <Rect
+                  x={mid.x - 30} y={mid.y - 24}
+                  width={60} height={20}
+                  fill="rgba(255,255,255,0.9)" cornerRadius={3}
+                  stroke="#1890ff" strokeWidth={0.5}
+                  onMouseDown={(e) => { e.cancelBubble = true; }}
+                  onClick={(e) => {
+                    e.cancelBubble = true;
+                    setSelectedId(wall.id);
+                    handleWallDblClick(wall.id);
+                  }}
+                  onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'text'; }}
+                  onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                />
+                <Text
+                  x={mid.x - 30} y={mid.y - 21}
+                  width={60} text={fmtInches(lenIn)}
+                  fontSize={11} fill="#1890ff" fontStyle="bold" align="center"
+                  listening={false}
+                />
+              </Group>
+            );
+          })}
+          {/* Room edge dimension labels (when room has no separate walls) */}
+          {settings.showDimensions && rooms.map((room) => {
+            return room.boundary.map((pt, idx) => {
+              const nIdx = (idx + 1) % room.boundary.length;
+              const npt = room.boundary[nIdx];
+              const edgeLenPx = dist(pt, npt);
+              const edgeIn = Math.round((edgeLenPx / ppf) * 12);
+              if (edgeIn <= 6) return null;
+              // Skip if a wall already covers this edge (within 4px tolerance)
+              const hasWall = walls.some(w => {
+                const matchStart = (dist(w.start, pt) < 4 && dist(w.end, npt) < 4);
+                const matchReverse = (dist(w.start, npt) < 4 && dist(w.end, pt) < 4);
+                return matchStart || matchReverse;
+              });
+              if (hasWall) return null;
+              const mx = (pt.x + npt.x) / 2;
+              const my = (pt.y + npt.y) / 2;
+              const isH = Math.abs(npt.y - pt.y) < Math.abs(npt.x - pt.x);
+              // Determine which room edge: top/bottom/left/right
+              const edgeType: 'width' | 'depth' = isH ? 'width' : 'depth';
+              const isEditing = editingRoomEdge?.roomId === room.id && editingRoomEdge?.edgeIdx === idx;
+              if (isEditing) return null;
+              const lx = isH ? mx - 30 : mx - 46;
+              const ly = isH ? my - 24 : my - 10;
+              return (
+                <Group key={`rdim-${room.id}-${idx}`}>
+                  <Rect
+                    x={lx} y={ly}
+                    width={60} height={20}
+                    fill="rgba(255,255,255,0.9)" cornerRadius={3}
+                    stroke="#1890ff" strokeWidth={0.5}
+                    onMouseDown={(e) => { e.cancelBubble = true; }}
+                    onClick={(e) => {
+                      e.cancelBubble = true;
+                      setSelectedId(room.id);
+                      handleRoomEdgeEdit(room.id, idx, edgeType);
+                    }}
+                    onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'text'; }}
+                    onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                  />
+                  <Text
+                    x={lx} y={ly + 3}
+                    width={60} text={fmtInches(edgeIn)}
+                    fontSize={11} fill="#1890ff" fontStyle="bold" align="center"
+                    listening={false}
+                  />
+                </Group>
+              );
+            });
+          })}
         </Layer>
       </Stage>
     </div>
@@ -721,7 +1144,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
   onDragEnd,
   onResize,
 }) => {
-  const shapeRef = useRef<Konva.Rect>(null);
+  const trTargetRef = useRef<Konva.Rect>(null);
   const trRef = useRef<Konva.Transformer>(null);
 
   const wPx = (fix.dimensions.width / 12) * ppf;
@@ -732,10 +1155,10 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
     fix.properties.sinkCount,
   );
 
-  // Attach transformer to the resize-target rect
+  // Attach transformer to the standalone Rect (outside the Group)
   useEffect(() => {
-    if (isSelected && isResizable && trRef.current && shapeRef.current) {
-      trRef.current.nodes([shapeRef.current]);
+    if (isSelected && isResizable && trRef.current && trTargetRef.current) {
+      trRef.current.nodes([trTargetRef.current]);
       trRef.current.forceUpdate();
       trRef.current.getLayer()?.batchDraw();
     }
@@ -759,36 +1182,17 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
         e.target.position(snapped);
       }}
     >
-      {/* Resize-target rect: Transformer attaches here */}
+      {/* Hit area rect */}
       <Rect
-        ref={shapeRef}
         x={-wPx / 2}
         y={-hPx / 2}
         width={wPx}
         height={hPx}
         fill="transparent"
         stroke="transparent"
-        onTransformEnd={() => {
-          const node = shapeRef.current;
-          if (!node) return;
-          const scaleX = node.scaleX();
-          const scaleY = node.scaleY();
-          const newW = Math.round((wPx * scaleX / ppf) * 12);
-          const newH = Math.round((hPx * scaleY / ppf) * 12);
-          // Reset scale & position
-          node.scaleX(1);
-          node.scaleY(1);
-          node.position({ x: -wPx / 2, y: -hPx / 2 });
-          node.width(wPx);
-          node.height(hPx);
-          onResize(
-            Math.max(12, Math.min(120, newW)),
-            Math.max(12, Math.min(120, newH)),
-          );
-        }}
       />
 
-      {/* SVG shape paths (scaled to fixture pixel size) */}
+      {/* SVG shape paths (normalized 0-1, scaled to fixture pixel size) */}
       {shape.paths.map((p, i) => (
         <Path
           key={i}
@@ -800,6 +1204,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
           strokeWidth={p.strokeWidth}
           scaleX={wPx}
           scaleY={hPx}
+          strokeScaleEnabled={false}
           listening={false}
         />
       ))}
@@ -875,7 +1280,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
         />
       )}
 
-      {/* Selection border */}
+      {/* Selection border (non-resizable mode) */}
       {isSelected && !isResizable && (
         <Rect
           x={-wPx / 2 - 2}
@@ -891,27 +1296,64 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
       )}
     </Group>
 
-    {/* Transformer for resize */}
+    {/* Transformer target — standalone Rect at absolute coords, outside Group */}
     {isSelected && isResizable && (
-      <Transformer
-        ref={trRef}
-        rotateEnabled={false}
-        keepRatio={false}
-        enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center']}
-        boundBoxFunc={(oldBox, newBox) => {
-          const minPx = ppf;
-          const maxPx = ppf * 10;
-          if (newBox.width < minPx || newBox.height < minPx) return oldBox;
-          if (newBox.width > maxPx || newBox.height > maxPx) return oldBox;
-          return newBox;
-        }}
-        borderStroke="#1890ff"
-        borderStrokeWidth={1.5}
-        anchorFill="#fff"
-        anchorStroke="#1890ff"
-        anchorSize={7}
-        anchorCornerRadius={1}
-      />
+      <>
+        <Rect
+          ref={trTargetRef}
+          x={fix.position.x - wPx / 2}
+          y={fix.position.y - hPx / 2}
+          width={wPx}
+          height={hPx}
+          fill="transparent"
+          stroke="transparent"
+          listening={false}
+          onTransformEnd={() => {
+            const node = trTargetRef.current;
+            if (!node) return;
+            const scaleX = node.scaleX();
+            const scaleY = node.scaleY();
+            const newW = Math.round((wPx * scaleX / ppf) * 12);
+            const newH = Math.round((hPx * scaleY / ppf) * 12);
+            node.scaleX(1);
+            node.scaleY(1);
+            node.position({ x: fix.position.x - wPx / 2, y: fix.position.y - hPx / 2 });
+            node.width(wPx);
+            node.height(hPx);
+            // Window: only width changes, keep original height
+            const finalH = fix.type === 'window' ? fix.dimensions.height : Math.max(12, Math.min(120, newH));
+            onResize(
+              Math.max(12, Math.min(120, newW)),
+              finalH,
+            );
+          }}
+        />
+        <Transformer
+          ref={trRef}
+          rotateEnabled={false}
+          keepRatio={fix.type === 'toilet'}
+          enabledAnchors={
+            fix.type === 'toilet'
+              ? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+              : fix.type === 'window'
+              ? ['middle-left', 'middle-right']
+              : ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center']
+          }
+          boundBoxFunc={(oldBox, newBox) => {
+            const minPx = ppf * 0.5;
+            const maxPx = ppf * 10;
+            if (newBox.width < minPx || newBox.height < minPx) return oldBox;
+            if (newBox.width > maxPx || newBox.height > maxPx) return oldBox;
+            return newBox;
+          }}
+          borderStroke="#1890ff"
+          borderStrokeWidth={1.5}
+          anchorFill="#fff"
+          anchorStroke="#1890ff"
+          anchorSize={7}
+          anchorCornerRadius={1}
+        />
+      </>
     )}
     </>
   );

@@ -32,7 +32,7 @@ interface BESketchToolbarProps {
 const TOOLS: { key: BESketchTool; icon: React.ReactNode; label: string; tooltip: string }[] = [
   { key: 'select', icon: <SelectOutlined />, label: 'Select', tooltip: 'Select and move elements' },
   { key: 'wall', icon: <LineOutlined />, label: 'Wall', tooltip: 'Draw walls' },
-  { key: 'room', icon: <BorderOutlined />, label: 'Room', tooltip: 'Create room from walls or draw rectangle' },
+  { key: 'room', icon: <BorderOutlined />, label: 'Room', tooltip: 'Click vertices to draw polygon room (dbl-click to close). Shift+drag for rectangle.' },
   { key: 'fixture', icon: <AppstoreOutlined />, label: 'Fixture', tooltip: 'Place bathroom fixtures (tub, shower, vanity, toilet)' },
   { key: 'measure', icon: <ColumnHeightOutlined />, label: 'Measure', tooltip: 'Measure distances' },
   { key: 'tile_zone', icon: <CalculatorOutlined />, label: 'Tile', tooltip: 'View and configure tile zones' },
@@ -45,18 +45,18 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api }) => {
   return (
     <div
       style={{
-        padding: '6px 12px',
+        padding: '4px 8px',
         borderBottom: '1px solid #e8e8e8',
         backgroundColor: '#fafafa',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        flexWrap: 'wrap',
         gap: 4,
+        overflow: 'hidden',
+        flexShrink: 0,
       }}
     >
-      {/* Left: Tools */}
-      <Space size={4} wrap>
+      {/* Tools */}
+      <Space size={2} style={{ flexShrink: 0 }}>
         {TOOLS.map((t) => (
           <Tooltip key={t.key} title={t.tooltip}>
             <Button
@@ -64,16 +64,17 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api }) => {
               icon={t.icon}
               size="small"
               onClick={() => setActiveTool(t.key)}
-            >
-              {t.label}
-            </Button>
+              style={{ padding: '0 6px', fontSize: 12 }}
+            />
           </Tooltip>
         ))}
       </Space>
 
-      {/* Right: Actions + Toggles */}
-      <Space size={4} wrap>
-        <Divider type="vertical" />
+      <Divider type="vertical" style={{ margin: '0 2px' }} />
+
+      {/* Actions */}
+      <Space size={2} style={{ flexShrink: 0 }}>
+        <Divider type="vertical" style={{ display: 'none' }} />
 
         {/* Undo / Redo */}
         <Tooltip title="Undo (Ctrl+Z)">
@@ -83,9 +84,8 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api }) => {
           <Button size="small" icon={<RedoOutlined />} disabled={!canRedo} onClick={redo} />
         </Tooltip>
 
-        <Divider type="vertical" />
+        <Divider type="vertical" style={{ margin: '0 2px' }} />
 
-        {/* Display toggles */}
         <Tooltip title="Toggle grid">
           <Button
             size="small"

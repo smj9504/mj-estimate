@@ -182,20 +182,58 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     # ────────────────────────────────────────
     sub = estimate.substrate_spec or {}
 
-    durock_sf = sub.get("durock_sf", 0)
+    # Auto-calculate wet-area SF from shower/tub tile areas if not manually specified
+    auto_wet_sf = 0
+    shower_spec = estimate.shower_spec or {}
+    tub_spec_sub = estimate.bathtub_spec or {}
+
+    # Shower wall tile SF
+    if estimate.replace_shower and shower_spec.get("type") == "custom_tile":
+        s_tile = shower_spec.get("tile_spec", {})
+        s_sf = s_tile.get("sf", 0)
+        if not s_sf:
+            sw = shower_spec.get("width_in", 0) or 0
+            sd = shower_spec.get("depth_in", 0) or 0
+            sh = shower_spec.get("tile_height_in", 0) or 0
+            if sw and sd and sh:
+                s_sf = (sw + 2 * sd) * sh / 144
+        auto_wet_sf += s_sf or 0
+
+    # Tub surround tile SF
+    if tub_spec_sub.get("surround_tile") and tub_spec_sub.get("type") == "drop_in":
+        t_sf = tub_spec_sub.get("surround_tile_sf", 0)
+        if not t_sf:
+            tl = tub_spec_sub.get("tub_length_in", 0) or 0
+            tsh = tub_spec_sub.get("surround_height_in", 0) or 0
+            td = tub_spec_sub.get("tub_depth_in", 30) or 30
+            if tl and tsh:
+                t_sf = (tl + 2 * td) * tsh / 144
+        auto_wet_sf += t_sf or 0
+
+    # Durock: use manual value if provided, else auto from wet areas
+    durock_sf = sub.get("durock_sf", 0) or auto_wet_sf
     if durock_sf > 0:
         _add(line_items, 3, "Cement board (Durock) - wet area", durock_sf, "SF",
              SUBSTRATE_RATES["durock_per_sf"] * labor_mult, "substrate")
+
+    # Floor cement board (1/4") if replacing tile floor
+    if estimate.replace_floor and floor_sf > 0:
+        floor_spec_sub = estimate.floor_spec or {}
+        floor_mat = floor_spec_sub.get("material", "porcelain")
+        if floor_mat in ("porcelain", "ceramic", "natural_stone", "mosaic"):
+            _add(line_items, 3, "Cement board (1/4\") - floor underlayment", floor_sf, "SF",
+                 SUBSTRATE_RATES["durock_floor_per_sf"] * labor_mult, "substrate")
 
     greenboard_sf = sub.get("greenboard_sf", 0)
     if greenboard_sf > 0:
         _add(line_items, 3, "Moisture-resistant drywall (greenboard)", greenboard_sf, "SF",
              SUBSTRATE_RATES["greenboard_per_sf"] * labor_mult, "substrate")
 
-    wp_type = sub.get("waterproof_type", "none")
-    wp_sf = sub.get("waterproof_sf", 0)
-    if wp_type != "none" and wp_sf > 0:
-        wp_rate = SUBSTRATE_RATES.get(f"{wp_type}_per_sf", 0)
+    # Waterproofing: use manual value if provided, else same as durock (wet areas)
+    wp_type = sub.get("waterproof_type", "redgard")
+    wp_sf = sub.get("waterproof_sf", 0) or durock_sf
+    if wp_sf > 0 and wp_type != "none":
+        wp_rate = SUBSTRATE_RATES.get(f"{wp_type}_per_sf", SUBSTRATE_RATES["redgard_per_sf"])
         wp_label = {"redgard": "RedGard", "kerdi": "Schluter Kerdi", "hydroban": "HydroBan"}.get(wp_type, wp_type)
         _add(line_items, 3, f"Waterproofing membrane - {wp_label}", wp_sf, "SF",
              wp_rate * labor_mult, "substrate")
