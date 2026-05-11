@@ -526,7 +526,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
               showDragHandle={true}
               dragHandlePosition="start"
               dragColumnWidth={30}
-              getRowId={(record: any) => `item-${sectionIndex}-${record.id}`}
+              getRowId={(record: any, idx: number) => `item-${sectionIndex}-${record.id || record.key || idx}`}
               disableDrag={false}
               sectionIndex={sectionIndex}
               dragType="item"
