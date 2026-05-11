@@ -778,24 +778,30 @@ class PDFService:
             
             for adj in sorted_adjustments:
                 percentage = float(adj.get('percentage', 0))
+                fixed_amount = adj.get('fixed_amount')
                 adj_type = adj.get('type', 'add')
                 adj_name = adj.get('name', 'Adjustment')
-                
-                # Calculate adjustment amount
-                adj_amount = current_subtotal * (abs(percentage) / 100)
-                
+
+                # Calculate adjustment amount: use fixed_amount when percentage is 0
+                if percentage != 0:
+                    adj_amount = current_subtotal * (abs(percentage) / 100)
+                else:
+                    adj_amount = abs(float(fixed_amount)) if fixed_amount else 0
+
                 # Apply adjustment
                 if adj_type == 'subtract' or percentage < 0:
                     current_subtotal -= adj_amount
                 else:
                     current_subtotal += adj_amount
-                
+
                 calculated_adjustments.append({
                     'name': adj_name,
                     'percentage': percentage,
+                    'fixed_amount': fixed_amount,
                     'type': adj_type,
                     'order': adj.get('order', 999),
-                    'amount': adj_amount
+                    'amount': adj_amount,
+                    'note': adj.get('note') or '',
                 })
             
             context['adjustments'] = calculated_adjustments
@@ -832,10 +838,14 @@ class PDFService:
                 if adjustments and len(adjustments) > 0:
                     for adj in sorted_adjustments:
                         percentage = float(adj.get('percentage', 0))
+                        fixed_amt = adj.get('fixed_amount')
                         adj_type = adj.get('type', 'add')
-                        
-                        taxable_adj_amount = taxable_current * (abs(percentage) / 100)
-                        
+
+                        if percentage != 0:
+                            taxable_adj_amount = taxable_current * (abs(percentage) / 100)
+                        else:
+                            taxable_adj_amount = abs(float(fixed_amt)) * taxable_ratio if fixed_amt else 0
+
                         if adj_type == 'subtract' or percentage < 0:
                             taxable_current -= taxable_adj_amount
                         else:
@@ -1132,20 +1142,27 @@ class PDFService:
             processed_adjustments = []
             for adj in sorted_adjustments:
                 percentage = float(adj.get('percentage', 0))
+                fixed_amount = adj.get('fixed_amount')
                 adj_type = adj.get('type', 'add')
-                amount = current_subtotal * (abs(percentage) / 100)
-                
+
+                if percentage != 0:
+                    amount = current_subtotal * (abs(percentage) / 100)
+                else:
+                    amount = abs(float(fixed_amount)) if fixed_amount else 0
+
                 if adj_type == 'subtract' or percentage < 0:
                     current_subtotal -= amount
                 else:
                     current_subtotal += amount
-                
+
                 processed_adjustments.append({
                     'name': adj.get('name', ''),
                     'percentage': percentage,
+                    'fixed_amount': fixed_amount,
                     'type': adj_type,
                     'order': adj.get('order', 999),
-                    'amount': amount
+                    'amount': amount,
+                    'note': adj.get('note') or '',
                 })
             
             context['adjustments'] = processed_adjustments

@@ -393,6 +393,12 @@
           {% endif %}
         </span>
       </div>
+      {% if adjustment.note %}
+      <div class="total-row" style="margin-top: -2px; margin-bottom: 2px;">
+        <span class="total-label" style="font-size: 0.85em; color: #666; padding-left: 8px;">{{ adjustment.note }}</span>
+        <span class="total-value"></span>
+      </div>
+      {% endif %}
       {% endfor %}
     {% else %}
       {# Backward compatibility: show op_percent if adjustments not used #}

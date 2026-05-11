@@ -51,9 +51,11 @@ class Adjustment(BaseModel):
     """Adjustment schema for invoice/estimate (e.g., Holiday Premium, Discount, O&P)"""
     name: str = Field(..., description="Adjustment name (e.g., 'Holiday Premium', 'Discount', 'O&P')")
     percentage: float = Field(..., description="Percentage value (can be positive or negative)")
+    fixed_amount: Optional[float] = Field(None, description="Fixed dollar amount (used when percentage is 0)")
     type: str = Field("add", description="Type: 'add' or 'subtract'")
     order: int = Field(..., description="Application order (lower number = applied first)")
     amount: Optional[float] = Field(None, description="Calculated amount (computed, not user input)")
+    note: Optional[str] = Field(None, description="Optional note for this adjustment")
 
     @validator('type')
     def validate_type(cls, v):

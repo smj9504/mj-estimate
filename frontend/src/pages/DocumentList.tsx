@@ -425,7 +425,7 @@ const DocumentList: React.FC = () => {
       dataIndex: 'type',
       key: 'type',
       width: 150,
-      hidden: type === 'plumber_report',
+      hidden: type !== 'estimate',
       render: (documentType: DocumentType, record: any) => {
         if (type === 'estimate' && record.estimate_type) {
           return (
@@ -577,18 +577,15 @@ const DocumentList: React.FC = () => {
 
   return (
     <div>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
-        <Col>
-          <Title level={2}>
-            {type === 'estimate' && 'Estimate List'}
-            {type === 'invoice' && 'Invoice List'}
-            {type === 'insurance_estimate' && 'Insurance Estimate List'}
-            {type === 'plumber_report' && 'Plumber Report List'}
-            {!type && 'All Documents'}
-          </Title>
-        </Col>
-        <Col>
-          <Button type="primary" onClick={() => {
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
+        <Title level={2} style={{ margin: 0 }}>
+          {type === 'estimate' && 'Estimate List'}
+          {type === 'invoice' && 'Invoice List'}
+          {type === 'insurance_estimate' && 'Insurance Estimate List'}
+          {type === 'plumber_report' && 'Plumber Report List'}
+          {!type && 'All Documents'}
+        </Title>
+        <Button type="primary" onClick={() => {
             let createPath: string;
             if (type === 'plumber_report') {
               createPath = '/create/plumber-report';
@@ -601,8 +598,7 @@ const DocumentList: React.FC = () => {
           }}>
             Create New Document
           </Button>
-        </Col>
-      </Row>
+      </div>
 
       {/* Filters */}
       <Card style={{ marginBottom: 16 }}>

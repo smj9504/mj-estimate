@@ -139,9 +139,11 @@ interface Adjustment {
   id: string;
   name: string;
   percentage: number;
+  fixedAmount?: number; // Direct dollar amount (used when percentage is 0)
   type: 'add' | 'subtract';
   order: number;
   amount?: number; // Calculated
+  note?: string; // Optional note displayed on PDF
 }
 
 // Sortable wrapper for each section in the Collapse
@@ -1375,8 +1377,10 @@ const InvoiceCreation: React.FC = () => {
         id: `adj-${Date.now()}-${index}`,
         name: adj.name || '',
         percentage: parseFloat(String(adj.percentage)) || 0,
+        fixedAmount: adj.fixed_amount != null ? parseFloat(String(adj.fixed_amount)) : undefined,
         type: adj.type || 'add',
         order: adj.order || index + 1,
+        note: adj.note || '',
       }));
       setAdjustments(loadedAdjustments);
     } else {
@@ -1854,7 +1858,7 @@ const InvoiceCreation: React.FC = () => {
   };
 
   const handleAdjustmentChange = (id: string, field: keyof Adjustment, value: any) => {
-    setAdjustments(adjustments.map(adj => 
+    setAdjustments(prev => prev.map(adj =>
       adj.id === id ? { ...adj, [field]: value } : adj
     ));
   };
@@ -1872,7 +1876,10 @@ const InvoiceCreation: React.FC = () => {
       .slice()
       .sort((a, b) => a.order - b.order)
       .map(adj => {
-        const amount = currentSubtotal * (Math.abs(adj.percentage) / 100);
+        // Use fixedAmount if percentage is 0 and fixedAmount is set
+        const amount = (adj.percentage !== 0)
+          ? currentSubtotal * (Math.abs(adj.percentage) / 100)
+          : Math.abs(adj.fixedAmount || 0);
         if (adj.type === 'subtract' || adj.percentage < 0) {
           currentSubtotal -= amount;
         } else {
@@ -1920,7 +1927,9 @@ const InvoiceCreation: React.FC = () => {
         
         if (adjustments.length > 0) {
           for (const adj of calculatedAdjustments) {
-            const taxableAdjAmount = taxableCurrent * (Math.abs(adj.percentage) / 100);
+            const taxableAdjAmount = (adj.percentage !== 0)
+              ? taxableCurrent * (Math.abs(adj.percentage) / 100)
+              : Math.abs(adj.fixedAmount || 0) * taxableRatio;
             if (adj.type === 'subtract' || adj.percentage < 0) {
               taxableCurrent -= taxableAdjAmount;
             } else {
@@ -2038,8 +2047,10 @@ const InvoiceCreation: React.FC = () => {
         invoiceData.adjustments = adjustments.map(adj => ({
           name: adj.name,
           percentage: adj.percentage,
+          fixed_amount: adj.fixedAmount ?? null,
           type: adj.type,
           order: adj.order,
+          note: adj.note || '',
         }));
       } else {
         // Backward compatibility
@@ -2158,8 +2169,10 @@ const InvoiceCreation: React.FC = () => {
         adjustments: adjustments.length > 0 ? adjustments.map(adj => ({
           name: adj.name,
           percentage: adj.percentage,
+          fixed_amount: adj.fixedAmount ?? null,
           type: adj.type,
           order: adj.order,
+          note: adj.note || '',
         })) : undefined,
         op_percent: adjustments.length === 0 ? opPercent : 0, // For backward compatibility
         tax_method: taxMethod,
@@ -2644,8 +2657,10 @@ const InvoiceCreation: React.FC = () => {
           id: `adj-${Date.now()}-${idx}`,
           name: adj.name || '',
           percentage: parseFloat(adj.percentage) || 0,
+          fixedAmount: adj.fixed_amount != null ? parseFloat(String(adj.fixed_amount)) : undefined,
           type: adj.type === 'subtract' ? 'subtract' : 'add',
           order: adj.order || idx + 1,
+          note: adj.note || '',
         }));
         setAdjustments(newAdjustments);
       }
@@ -3407,7 +3422,7 @@ const InvoiceCreation: React.FC = () => {
                         fontSize: '12px',
                         color: '#666'
                       }}>
-                        <strong>Fields:</strong> Name | <strong>%</strong> (percentage) | <strong>+/-</strong> (add/subtract) | <strong>Order</strong> (application order, lower = first) | <strong>Amount</strong> (calculated)
+                        <strong>Fields:</strong> Name | <strong>% / $</strong> (percentage or fixed amount) | <strong>+/-</strong> (add/subtract) | <strong>Order</strong> (lower = first) | <strong>Amount</strong> (calculated)
                       </div>
                     )}
                     {adjustments.length === 0 && (
@@ -3434,23 +3449,45 @@ const InvoiceCreation: React.FC = () => {
                                 size="small"
                               />
                             </Col>
-                            <Col span={4}>
-                              <Tooltip title="Percentage value (e.g., 10 for 10%, -5 for -5%)">
-                                <InputNumber
-                                  placeholder="%"
-                                  value={adj.percentage}
-                                  onChange={(value) => handleAdjustmentChange(adj.id, 'percentage', value || 0)}
-                                  min={-100}
-                                  max={100}
-                                  step={0.1}
-                                  size="small"
-                                  style={{ width: '100%' }}
-                                  formatter={(value?: string | number) => `${value}%`}
-                                  parser={(value?: string) => parseFloat(value?.replace('%', '') || '0') || 0}
-                                />
-                              </Tooltip>
+                            <Col span={5}>
+                              <InputNumber
+                                placeholder={adj.fixedAmount != null ? "Amount" : "Value"}
+                                value={adj.fixedAmount != null ? adj.fixedAmount : adj.percentage}
+                                onChange={(value) => {
+                                  if (adj.fixedAmount != null) {
+                                    handleAdjustmentChange(adj.id, 'fixedAmount', value || 0);
+                                  } else {
+                                    handleAdjustmentChange(adj.id, 'percentage', value || 0);
+                                  }
+                                }}
+                                min={adj.fixedAmount != null ? 0 : -100}
+                                max={adj.fixedAmount != null ? undefined : 100}
+                                step={adj.fixedAmount != null ? 1 : 0.1}
+                                size="small"
+                                style={{ width: '100%' }}
+                                addonAfter={
+                                  <Select
+                                    value={adj.fixedAmount != null ? '$' : '%'}
+                                    onChange={(mode) => {
+                                      setAdjustments(prev => prev.map(a =>
+                                        a.id === adj.id
+                                          ? mode === '$'
+                                            ? { ...a, fixedAmount: 0, percentage: 0 }
+                                            : { ...a, fixedAmount: undefined, percentage: 0 }
+                                          : a
+                                      ));
+                                    }}
+                                    size="small"
+                                    style={{ width: 52 }}
+                                    popupMatchSelectWidth={false}
+                                  >
+                                    <Select.Option value="%">%</Select.Option>
+                                    <Select.Option value="$">$</Select.Option>
+                                  </Select>
+                                }
+                              />
                             </Col>
-                            <Col span={4}>
+                            <Col span={3}>
                               <Tooltip title="Add (+) or Subtract (-) from subtotal">
                                 <Select
                                   value={adj.type}
@@ -3491,6 +3528,15 @@ const InvoiceCreation: React.FC = () => {
                               />
                             </Col>
                           </Row>
+                          <div style={{ marginTop: 6 }}>
+                            <Input
+                              placeholder="Note (optional, shown on PDF)"
+                              value={adj.note || ''}
+                              onChange={(e) => handleAdjustmentChange(adj.id, 'note', e.target.value)}
+                              size="small"
+                              style={{ width: '100%' }}
+                            />
+                          </div>
                         </div>
                       );
                     })}
@@ -3695,16 +3741,22 @@ const InvoiceCreation: React.FC = () => {
                   totals.adjustments
                     .sort((a, b) => a.order - b.order)
                     .map((adj, index) => (
-                      <Row key={index} justify="space-between" style={{ marginBottom: 8 }}>
-                        <Col>
-                          {adj.name}
-                          {adj.percentage !== 0 && ` (${Math.abs(adj.percentage)}%)`}
-                        </Col>
-                        <Col>
-                          {adj.type === 'subtract' || adj.percentage < 0 ? '-' : '+'}
-                          ${formatCurrency(adj.amount || 0)}
-                        </Col>
-                      </Row>
+                      <div key={index}>
+                        <Row justify="space-between" style={{ marginBottom: adj.note ? 2 : 8 }}>
+                          <Col>
+                            {adj.name}
+                            {adj.percentage !== 0 && ` (${Math.abs(adj.percentage)}%)`}
+                            {adj.percentage === 0 && adj.fixedAmount != null && adj.fixedAmount !== 0 && ` ($${Math.abs(adj.fixedAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`}
+                          </Col>
+                          <Col>
+                            {adj.type === 'subtract' || adj.percentage < 0 ? '-' : '+'}
+                            ${formatCurrency(adj.amount || 0)}
+                          </Col>
+                        </Row>
+                        {adj.note && (
+                          <div style={{ fontSize: '12px', color: '#888', paddingLeft: 8, marginBottom: 8 }}>{adj.note}</div>
+                        )}
+                      </div>
                     ))
                 ) : (
                   <>

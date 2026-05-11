@@ -75,9 +75,11 @@ export interface InvoiceSection {
 export interface Adjustment {
   name: string;
   percentage: number;
+  fixed_amount?: number | null;
   type: 'add' | 'subtract';
   order: number;
   amount?: number; // Calculated
+  note?: string;
 }
 
 export interface InvoiceData {
