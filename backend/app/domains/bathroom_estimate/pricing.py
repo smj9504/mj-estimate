@@ -295,15 +295,6 @@ SHOWER_VALVE_PRICES = {
     "thermostatic": 550,              # premium
 }
 
-TRIM_BRAND_MULTIPLIER = {
-    "delta": 1.00,
-    "moen": 1.05,
-    "kohler": 1.15,
-    "pfister": 0.95,
-    "grohe": 1.35,
-    "other": 1.00,
-}
-
 TRIM_GRADE_MULTIPLIER = {
     "builder": 0.80,
     "mid": 1.00,
@@ -386,6 +377,16 @@ BASEBOARD_PRICES = {
     "pvc": 6.50,                      # PVC (recommended for bath)
     "mdf": 5.00,
     "wood": 8.50,
+    "tile": 12.00,                    # Tile baseboard avg ($8-$15/LF, see TILE_BASEBOARD_PRICES)
+}
+
+# Tile baseboard pricing by tile material (material + labor per LF)
+# Sources: HomeAdvisor 2025, Angi 2026, FlooringClarity
+TILE_BASEBOARD_PRICES = {
+    "ceramic": 9.00,                  # $8-$12/LF installed
+    "porcelain": 12.00,               # $10-$15/LF installed
+    "natural_stone": 18.00,           # $15-$25/LF installed
+    "glass_mosaic": 20.00,            # $16-$25/LF installed
 }
 
 # Accessories (material + install per piece)
@@ -413,6 +414,27 @@ ACCESSORY_GRADE_MULTIPLIER = {
     "builder": 0.75,
     "mid": 1.00,
     "premium": 1.50,
+}
+
+# ──────────────────────────────────────────────
+# Detach & Reset (D&R) - Labor Only
+# ──────────────────────────────────────────────
+# For water mitigation / restoration work: fixture is carefully removed,
+# stored, then reinstalled after wall/floor work is completed.
+# All costs are LABOR ONLY (no new material).
+# Sources: Xactimate D&R codes, Angi, CountBricks, HomeWyse 2025-2026
+DETACH_RESET_COSTS = {
+    # Toilet: disconnect water, remove wax ring, store, reinstall w/ new wax ring
+    "toilet": 185,                    # ~1.5 hrs plumber ($125-$250)
+    # Vanity + sink: disconnect plumbing, remove, store, reinstall & reconnect
+    "vanity": 275,                    # ~2.5 hrs ($200-$350)
+    # Bathtub: disconnect plumbing, remove, store, reinstall
+    "bathtub_standard": 450,          # ~4 hrs ($350-$550)
+    "bathtub_cast_iron": 650,         # ~6 hrs, heavy ($500-$800)
+    # Shower door/enclosure: careful glass removal, store, reinstall
+    "shower_door": 275,               # ~2.5 hrs ($200-$350)
+    # Shower surround (prefab): remove panels, store, reinstall
+    "shower_surround": 350,           # ~3 hrs ($275-$425)
 }
 
 # ──────────────────────────────────────────────
@@ -486,7 +508,6 @@ BATHROOM_FUNCTIONS = ["full", "three_quarter", "half"]
 SHOWER_TYPES = ["tub_combo", "one_piece", "multi_piece_kit", "custom_tile", "curbless"]
 ENCLOSURE_TYPES = ["curtain", "sliding", "pivot", "frameless", "half_wall_glass"]
 SHOWERHEAD_TYPES = ["standard", "rain", "handheld", "combo", "body_spray"]
-TRIM_BRANDS = ["delta", "moen", "kohler", "pfister", "grohe", "other"]
 TRIM_GRADES = ["builder", "mid", "premium"]
 
 BATHTUB_TYPES = ["alcove", "drop_in", "freestanding", "walk_in", "none"]
@@ -513,7 +534,7 @@ EXHAUST_FAN_CFMS = [50, 80, 110, 150]
 EXHAUST_FAN_SWITCH_TYPES = ["standard", "timer", "humidity"]
 
 PAINT_GRADES = ["builder", "mid", "premium"]
-BASEBOARD_MATERIALS = ["pvc", "mdf", "wood"]
+BASEBOARD_MATERIALS = ["pvc", "mdf", "wood", "tile"]
 
 
 def get_labor_multiplier(zip_code: str) -> float:

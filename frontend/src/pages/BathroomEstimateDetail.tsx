@@ -10,6 +10,7 @@ import {
   Input,
   InputNumber,
   message,
+  Radio,
   Row,
   Select,
   Space,
@@ -175,10 +176,25 @@ const BathroomEstimateDetail: React.FC = () => {
     if (sync.width_ft) updates.width_ft = sync.width_ft;
 
     // Replace & demo flags
-    if (sync.replace_tub !== undefined) updates.replace_tub = sync.replace_tub;
-    if (sync.replace_shower !== undefined) updates.replace_shower = sync.replace_shower;
-    if (sync.replace_vanity !== undefined) updates.replace_vanity = sync.replace_vanity;
-    if (sync.replace_toilet !== undefined) updates.replace_toilet = sync.replace_toilet;
+    // When sketch adds/removes a fixture, sync the action flags.
+    // If user already chose D&R for a fixture, don't override to replace.
+    const syncFixtureAction = (fixture: string, hasFixture?: boolean) => {
+      if (hasFixture === undefined) return;
+      if (hasFixture) {
+        // Fixture exists on sketch: set replace only if D&R not already chosen
+        if (!current[`detach_reset_${fixture}`]) {
+          updates[`replace_${fixture}`] = true;
+        }
+      } else {
+        // Fixture removed from sketch: clear both flags
+        updates[`replace_${fixture}`] = false;
+        updates[`detach_reset_${fixture}`] = false;
+      }
+    };
+    syncFixtureAction('tub', sync.replace_tub);
+    syncFixtureAction('shower', sync.replace_shower);
+    syncFixtureAction('vanity', sync.replace_vanity);
+    syncFixtureAction('toilet', sync.replace_toilet);
     if (sync.replace_floor !== undefined) updates.replace_floor = sync.replace_floor;
     if (sync.demo_floor !== undefined) updates.demo_floor = sync.demo_floor;
     if (sync.demo_walls !== undefined) updates.demo_walls = sync.demo_walls;
@@ -457,22 +473,68 @@ const BathroomEstimateDetail: React.FC = () => {
                   )}
                 </Form.Item>
 
-                <Divider orientation="left" plain>Fixture Replacement</Divider>
-                <Row gutter={[16, 8]}>
-                  {[
-                    ['replace_shower', 'Replace Shower'],
-                    ['replace_tub', 'Replace Tub'],
-                    ['replace_vanity', 'Replace Vanity'],
-                    ['replace_toilet', 'Replace Toilet'],
-                    ['replace_floor', 'Replace Floor'],
-                  ].map(([name, label]) => (
-                    <Col xs={12} sm={8} md={4} key={name}>
-                      <Form.Item name={name} valuePropName="checked" style={{ marginBottom: 8 }}>
-                        <Checkbox>{label}</Checkbox>
-                      </Form.Item>
-                    </Col>
-                  ))}
-                </Row>
+                <Divider orientation="left" plain>Fixture Scope</Divider>
+                <Form.Item noStyle shouldUpdate={(prev: any, cur: any) =>
+                  prev.replace_shower !== cur.replace_shower ||
+                  prev.replace_tub !== cur.replace_tub ||
+                  prev.replace_vanity !== cur.replace_vanity ||
+                  prev.replace_toilet !== cur.replace_toilet ||
+                  prev.replace_floor !== cur.replace_floor ||
+                  prev.detach_reset_shower !== cur.detach_reset_shower ||
+                  prev.detach_reset_tub !== cur.detach_reset_tub ||
+                  prev.detach_reset_vanity !== cur.detach_reset_vanity ||
+                  prev.detach_reset_toilet !== cur.detach_reset_toilet
+                }>
+                  {() => {
+                    const getAction = (fixture: string) => {
+                      if (form.getFieldValue(`replace_${fixture}`)) return 'replace';
+                      if (form.getFieldValue(`detach_reset_${fixture}`)) return 'detach_reset';
+                      return 'none';
+                    };
+                    const setAction = (fixture: string, action: string) => {
+                      form.setFieldsValue({
+                        [`replace_${fixture}`]: action === 'replace',
+                        [`detach_reset_${fixture}`]: action === 'detach_reset',
+                      });
+                    };
+                    return (
+                      <Row gutter={[16, 8]}>
+                        {[
+                          ['shower', 'Shower'],
+                          ['tub', 'Bathtub'],
+                          ['vanity', 'Vanity'],
+                          ['toilet', 'Toilet'],
+                        ].map(([key, label]) => (
+                          <Col xs={24} sm={12} md={6} key={key}>
+                            <div style={{ marginBottom: 8 }}>
+                              <Text strong style={{ display: 'block', marginBottom: 4 }}>{label}</Text>
+                              <Radio.Group
+                                value={getAction(key)}
+                                onChange={(e) => setAction(key, e.target.value)}
+                                size="small"
+                              >
+                                <Radio.Button value="none">None</Radio.Button>
+                                <Radio.Button value="replace">Replace</Radio.Button>
+                                <Radio.Button value="detach_reset">D&R</Radio.Button>
+                              </Radio.Group>
+                            </div>
+                          </Col>
+                        ))}
+                        <Col xs={24} sm={12} md={6}>
+                          <div style={{ marginBottom: 8 }}>
+                            <Text strong style={{ display: 'block', marginBottom: 4 }}>Floor</Text>
+                            <Form.Item name="replace_floor" valuePropName="checked" style={{ marginBottom: 0 }}>
+                              <Checkbox>Replace</Checkbox>
+                            </Form.Item>
+                          </div>
+                        </Col>
+                      </Row>
+                    );
+                  }}
+                </Form.Item>
+                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+                  Replace = new fixture (material + labor) | D&R = Detach & Reset (labor only, reinstall same fixture)
+                </Text>
 
                 <Divider orientation="left" plain>Conditions</Divider>
                 <Row gutter={[16, 8]}>
@@ -592,13 +654,6 @@ const BathroomEstimateDetail: React.FC = () => {
                           <Select options={selectOpts(pricingInfo?.showerhead_types)} allowClear />
                         </Form.Item>
                       </Col>
-                      <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Trim Brand" name={['shower_spec', 'trim_brand']}>
-                          <Select options={selectOpts(pricingInfo?.trim_brands)} allowClear />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                    <Row gutter={16}>
                       <Col xs={12} sm={12} md={6}>
                         <Form.Item label="Trim Grade" name={['shower_spec', 'trim_grade']}>
                           <Select options={selectOpts(pricingInfo?.trim_grades)} allowClear />

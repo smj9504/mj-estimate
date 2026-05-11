@@ -43,6 +43,10 @@ class BathroomEstimateBase(BaseModel):
     replace_vanity: bool = False
     replace_toilet: bool = False
     replace_floor: bool = False
+    detach_reset_shower: bool = False
+    detach_reset_tub: bool = False
+    detach_reset_vanity: bool = False
+    detach_reset_toilet: bool = False
     water_damage: bool = False
     mold_suspected: bool = False
     existing_tub_material: Optional[str] = None
@@ -106,6 +110,10 @@ class BathroomEstimateUpdate(BaseModel):
     replace_vanity: Optional[bool] = None
     replace_toilet: Optional[bool] = None
     replace_floor: Optional[bool] = None
+    detach_reset_shower: Optional[bool] = None
+    detach_reset_tub: Optional[bool] = None
+    detach_reset_vanity: Optional[bool] = None
+    detach_reset_toilet: Optional[bool] = None
     water_damage: Optional[bool] = None
     mold_suspected: Optional[bool] = None
     existing_tub_material: Optional[str] = None
@@ -190,6 +198,10 @@ class BathroomEstimateResponse(BaseModel):
     replace_vanity: bool = False
     replace_toilet: bool = False
     replace_floor: bool = False
+    detach_reset_shower: bool = False
+    detach_reset_tub: bool = False
+    detach_reset_vanity: bool = False
+    detach_reset_toilet: bool = False
     water_damage: bool = False
     mold_suspected: bool = False
     existing_tub_material: Optional[str] = None
@@ -276,7 +288,6 @@ class PricingInfoResponse(BaseModel):
     enclosure_types: List[str]
     shower_door_types: List[str]
     showerhead_types: List[str]
-    trim_brands: List[str]
     trim_grades: List[str]
     bathtub_types: List[str]
     bathtub_materials: List[str]

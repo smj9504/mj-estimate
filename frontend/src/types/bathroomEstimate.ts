@@ -12,7 +12,6 @@ export interface ShowerSpec {
   bench?: boolean;
   showerhead_type?: string;
   valve_replace?: boolean;
-  trim_brand?: string;
   trim_grade?: string;
   tile_spec?: {
     material?: string;
@@ -173,6 +172,10 @@ export interface BathroomEstimate {
   replace_vanity?: boolean;
   replace_toilet?: boolean;
   replace_floor?: boolean;
+  detach_reset_shower?: boolean;
+  detach_reset_tub?: boolean;
+  detach_reset_vanity?: boolean;
+  detach_reset_toilet?: boolean;
   water_damage?: boolean;
   mold_suspected?: boolean;
   existing_tub_material?: string;
@@ -268,7 +271,6 @@ export interface BathroomPricingInfo {
   enclosure_types: string[];
   shower_door_types: string[];
   showerhead_types: string[];
-  trim_brands: string[];
   trim_grades: string[];
   bathtub_types: string[];
   bathtub_materials: string[];

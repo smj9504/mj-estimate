@@ -80,6 +80,11 @@ class BathroomEstimate(Base, BaseModel):
     replace_vanity = Column(Boolean, default=False)
     replace_toilet = Column(Boolean, default=False)
     replace_floor = Column(Boolean, default=False)
+    # Detach & Reset flags (labor only, no new material)
+    detach_reset_shower = Column(Boolean, default=False)
+    detach_reset_tub = Column(Boolean, default=False)
+    detach_reset_vanity = Column(Boolean, default=False)
+    detach_reset_toilet = Column(Boolean, default=False)
     water_damage = Column(Boolean, default=False)
     mold_suspected = Column(Boolean, default=False)
     existing_tub_material = Column(String(50))  # for cast iron surcharge

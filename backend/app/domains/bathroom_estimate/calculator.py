@@ -12,6 +12,7 @@ from .pricing import (
     ACCESSORY_PRICES,
     BASEBOARD_PRICES,
     BATHTUB_EXTRAS,
+    TILE_BASEBOARD_PRICES,
     BATHTUB_INSTALL,
     BATHTUB_PRICES,
     DEMO_RATES,
@@ -37,8 +38,8 @@ from .pricing import (
     TILE_SIZE_MULTIPLIER,
     TOILET_EXTRAS,
     TOILET_PRICES,
-    TRIM_BRAND_MULTIPLIER,
     TRIM_GRADE_MULTIPLIER,
+    DETACH_RESET_COSTS,
     VANITY_EXTRAS,
     VANITY_INSTALL,
     VANITY_PRICES,
@@ -429,10 +430,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         # Showerhead
         sh_type = shower_spec.get("showerhead_type", "standard")
         sh_price = SHOWERHEAD_PRICES.get(sh_type, 65)
-        brand_mult = TRIM_BRAND_MULTIPLIER.get(shower_spec.get("trim_brand", "delta"), 1.0)
         grade_mult = TRIM_GRADE_MULTIPLIER.get(shower_spec.get("trim_grade", "mid"), 1.0)
         _add(line_items, 5, f"Showerhead - {sh_type}", 1, "EA",
-             sh_price * brand_mult * grade_mult, "fixture")
+             sh_price * grade_mult, "fixture")
 
         # Valve
         if shower_spec.get("valve_replace"):
@@ -505,6 +505,38 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             warnings.append("Bidet seat requires GFCI outlet nearby")
 
     # ────────────────────────────────────────
+    # Detach & Reset (labor only, no material)
+    # ────────────────────────────────────────
+    if getattr(estimate, 'detach_reset_tub', False):
+        tub_mat = estimate.existing_tub_material or "acrylic"
+        dr_key = "bathtub_cast_iron" if tub_mat == "cast_iron" else "bathtub_standard"
+        _add(line_items, 5, f"Detach & Reset - Bathtub ({tub_mat})",
+             1, "EA", DETACH_RESET_COSTS[dr_key] * labor_mult, "fixture",
+             notes="Labor only: remove, store, reinstall")
+
+    if getattr(estimate, 'detach_reset_shower', False):
+        shower_spec_dr = estimate.shower_spec or {}
+        stype_dr = shower_spec_dr.get("type", "one_piece")
+        if stype_dr in ("one_piece", "multi_piece_kit"):
+            _add(line_items, 5, "Detach & Reset - Shower surround",
+                 1, "EA", DETACH_RESET_COSTS["shower_surround"] * labor_mult,
+                 "fixture", notes="Labor only: remove panels, store, reinstall")
+        else:
+            _add(line_items, 5, "Detach & Reset - Shower door/enclosure",
+                 1, "EA", DETACH_RESET_COSTS["shower_door"] * labor_mult,
+                 "fixture", notes="Labor only: remove, store, reinstall")
+
+    if getattr(estimate, 'detach_reset_vanity', False):
+        _add(line_items, 5, "Detach & Reset - Vanity & sink",
+             1, "EA", DETACH_RESET_COSTS["vanity"] * labor_mult, "fixture",
+             notes="Labor only: disconnect plumbing, remove, store, reinstall")
+
+    if getattr(estimate, 'detach_reset_toilet', False):
+        _add(line_items, 5, "Detach & Reset - Toilet",
+             1, "EA", DETACH_RESET_COSTS["toilet"] * labor_mult, "fixture",
+             notes="Labor only: remove, store, reinstall w/ new wax ring")
+
+    # ────────────────────────────────────────
     # Phase 3 (Electrical - grouped with trades)
     # ────────────────────────────────────────
     elec = estimate.electrical_spec or {}
@@ -560,11 +592,25 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         perimeter = 2 * (estimate.length_ft + estimate.width_ft)
         # Subtract door opening ~3 LF
         bb_lf = max(perimeter - 3, 0)
-        bb_rate = BASEBOARD_PRICES.get(bb_mat, 6.50)
-        _add(line_items, 6, f"Baseboard - {bb_mat.upper()} (supply + install)", bb_lf, "LF",
-             bb_rate * labor_mult, "finish")
-        _add(line_items, 6, "Baseboard painting", bb_lf, "LF",
-             PAINT_RATES["trim_per_lf"] * pg_mult * labor_mult, "finish")
+
+        if bb_mat == "tile":
+            # Tile baseboard - price varies by tile material (match floor tile)
+            floor_tile_mat = (estimate.floor_spec or {}).get("material", "porcelain")
+            tb_rate = TILE_BASEBOARD_PRICES.get(floor_tile_mat, 12.00)
+            tile_label = floor_tile_mat.replace("_", " ").title()
+            _add(line_items, 6, f"Tile baseboard - {tile_label} (supply + install)", bb_lf, "LF",
+                 tb_rate * labor_mult, "finish",
+                 notes="Matching floor tile material")
+            # Tile baseboard needs grout/thinset
+            _add(line_items, 6, "Tile baseboard supplies (thinset, grout)", bb_lf, "LF",
+                 1.50 * labor_mult, "finish")
+            # No painting needed for tile baseboard
+        else:
+            bb_rate = BASEBOARD_PRICES.get(bb_mat, 6.50)
+            _add(line_items, 6, f"Baseboard - {bb_mat.upper()} (supply + install)", bb_lf, "LF",
+                 bb_rate * labor_mult, "finish")
+            _add(line_items, 6, "Baseboard painting", bb_lf, "LF",
+                 PAINT_RATES["trim_per_lf"] * pg_mult * labor_mult, "finish")
 
     # ────────────────────────────────────────
     # Phase 7: Accessories + Punch/Cleanup
