@@ -461,7 +461,10 @@ class PostgreSQLDatabase(DatabaseProvider):
             # NeonDB free tier: Databases auto-suspend after 5 minutes of inactivity
             # First connection attempt may take 15-30 seconds to wake up the database
             # Increase timeout to accommodate cold starts
-            connect_timeout = 30 if "neon.tech" in self.database_url else 10
+            is_neon = "neon.tech" in self.database_url
+            connect_timeout = 30 if is_neon else 10
+            # NeonDB pooler drops idle connections after ~5 min; recycle before that
+            pool_recycle = min(settings.DB_POOL_RECYCLE, 270) if is_neon else settings.DB_POOL_RECYCLE
 
             self.engine = create_engine(
                 self.database_url,
@@ -469,14 +472,21 @@ class PostgreSQLDatabase(DatabaseProvider):
                 pool_size=settings.DB_POOL_SIZE,
                 max_overflow=settings.DB_MAX_OVERFLOW,
                 pool_pre_ping=True,  # Verify connections before using
-                pool_recycle=settings.DB_POOL_RECYCLE,  # Recycle connections to prevent stale connections
+                pool_recycle=pool_recycle,  # Recycle connections to prevent stale connections
                 pool_timeout=settings.DB_POOL_TIMEOUT,  # Timeout for getting connection from pool
                 echo=settings.DEBUG,
                 future=True,
                 connect_args=self._build_connect_args(connect_timeout)
             )
 
-            logger.info(f"PostgreSQL engine created with connect_timeout={connect_timeout}s (NeonDB cold start aware)")
+            # Invalidate connections on SSL/disconnect errors (NeonDB pooler race condition)
+            @event.listens_for(self.engine, "handle_error")
+            def handle_disconnect(context):
+                if context.original_exception and "SSL SYSCALL" in str(context.original_exception):
+                    logger.warning("SSL SYSCALL error detected — invalidating connection")
+                    context.invalidate_connection_on_error = True
+
+            logger.info(f"PostgreSQL engine created with connect_timeout={connect_timeout}s, pool_recycle={pool_recycle}s")
         except UnicodeDecodeError as e:
             logger.error(f"Unicode decode error when creating database engine: {e}")
             logger.error(f"Database URL (first 100 chars): {self.database_url[:100]}")
@@ -489,7 +499,9 @@ class PostgreSQLDatabase(DatabaseProvider):
                 # Reconstruct with proper encoding
                 sanitized_url = urllib.parse.urlunparse(parsed)
 
-                connect_timeout = 30 if "neon.tech" in sanitized_url else 10
+                is_neon_fb = "neon.tech" in sanitized_url
+                connect_timeout = 30 if is_neon_fb else 10
+                pool_recycle_fb = min(settings.DB_POOL_RECYCLE, 270) if is_neon_fb else settings.DB_POOL_RECYCLE
 
                 self.engine = create_engine(
                     sanitized_url,
@@ -497,12 +509,19 @@ class PostgreSQLDatabase(DatabaseProvider):
                     pool_size=settings.DB_POOL_SIZE,
                     max_overflow=settings.DB_MAX_OVERFLOW,
                     pool_pre_ping=True,
-                    pool_recycle=settings.DB_POOL_RECYCLE,
+                    pool_recycle=pool_recycle_fb,
                     pool_timeout=settings.DB_POOL_TIMEOUT,
                     echo=settings.DEBUG,
                     future=True,
                     connect_args=self._build_connect_args(connect_timeout)
                 )
+
+                @event.listens_for(self.engine, "handle_error")
+                def handle_disconnect_fb(context):
+                    if context.original_exception and "SSL SYSCALL" in str(context.original_exception):
+                        logger.warning("SSL SYSCALL error detected — invalidating connection")
+                        context.invalidate_connection_on_error = True
+
                 self.database_url = sanitized_url
                 logger.info("Database engine created successfully after URL sanitization")
             except Exception as e2:
