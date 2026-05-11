@@ -29,6 +29,10 @@ export interface BathtubSpec {
   drain_location?: string;
   jetted?: boolean;
   spout_type?: string;
+  surround_tile?: boolean;         // drop_in tub surround tile
+  surround_tile_sf?: number;       // surround tile area SF
+  surround_tile_material?: string; // porcelain, ceramic, etc.
+  surround_tile_pattern?: string;  // straight, diagonal, herringbone
 }
 
 export interface VanitySpec {
@@ -157,8 +161,7 @@ export interface BathroomEstimate {
   floor_sf?: number;
   wall_sf?: number;
 
-  // Demo scope
-  demo_scope?: string;
+  // Demo flags
   demo_floor?: boolean;
   demo_floor_sf?: number;
   demo_walls?: boolean;
@@ -173,6 +176,10 @@ export interface BathroomEstimate {
   water_damage?: boolean;
   mold_suspected?: boolean;
   existing_tub_material?: string;
+  demo_cement_board?: boolean;
+  demo_cement_board_sf?: number;
+  replace_cement_board?: boolean;
+  replace_cement_board_sf?: number;
 
   // Component specs (JSONB)
   shower_spec?: ShowerSpec;
@@ -186,6 +193,9 @@ export interface BathroomEstimate {
   electrical_spec?: ElectricalSpec;
   substrate_spec?: SubstrateSpec;
   hidden_costs?: HiddenCostFlags;
+
+  // Sketch data
+  sketch_data?: Record<string, any>;
 
   // Overview & O&P
   overview_text?: string;
@@ -254,9 +264,9 @@ export interface BathroomPricingInfo {
   building_types: string[];
   designations: string[];
   bath_functions: string[];
-  demo_scopes: string[];
   shower_types: string[];
   enclosure_types: string[];
+  shower_door_types: string[];
   showerhead_types: string[];
   trim_brands: string[];
   trim_grades: string[];
@@ -271,6 +281,7 @@ export interface BathroomPricingInfo {
   toilet_types: string[];
   tile_materials: string[];
   tile_patterns: string[];
+  tile_sizes: string[];
   waterproof_types: string[];
   accessory_finishes: string[];
   accessory_grades: string[];

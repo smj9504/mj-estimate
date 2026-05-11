@@ -31,8 +31,7 @@ class BathroomEstimateBase(BaseModel):
     floor_sf: Optional[float] = None
     wall_sf: Optional[float] = None
 
-    # Demo scope
-    demo_scope: Optional[str] = Field(None, max_length=50)
+    # Demo flags
     demo_floor: bool = False
     demo_floor_sf: Optional[float] = None
     demo_walls: bool = False
@@ -47,6 +46,10 @@ class BathroomEstimateBase(BaseModel):
     water_damage: bool = False
     mold_suspected: bool = False
     existing_tub_material: Optional[str] = None
+    demo_cement_board: bool = False
+    demo_cement_board_sf: Optional[float] = None
+    replace_cement_board: bool = False
+    replace_cement_board_sf: Optional[float] = None
 
     # Component specs (JSONB)
     shower_spec: Optional[Dict[str, Any]] = None
@@ -60,6 +63,9 @@ class BathroomEstimateBase(BaseModel):
     electrical_spec: Optional[Dict[str, Any]] = None
     substrate_spec: Optional[Dict[str, Any]] = None
     hidden_costs: Optional[Dict[str, Any]] = None
+
+    # Sketch data
+    sketch_data: Optional[Dict[str, Any]] = None
 
     # Overview & O&P
     overview_text: Optional[str] = None
@@ -89,7 +95,6 @@ class BathroomEstimateUpdate(BaseModel):
     height_ft: Optional[float] = None
     floor_sf: Optional[float] = None
     wall_sf: Optional[float] = None
-    demo_scope: Optional[str] = Field(None, max_length=50)
     demo_floor: Optional[bool] = None
     demo_floor_sf: Optional[float] = None
     demo_walls: Optional[bool] = None
@@ -104,6 +109,10 @@ class BathroomEstimateUpdate(BaseModel):
     water_damage: Optional[bool] = None
     mold_suspected: Optional[bool] = None
     existing_tub_material: Optional[str] = None
+    demo_cement_board: Optional[bool] = None
+    demo_cement_board_sf: Optional[float] = None
+    replace_cement_board: Optional[bool] = None
+    replace_cement_board_sf: Optional[float] = None
     shower_spec: Optional[Dict[str, Any]] = None
     bathtub_spec: Optional[Dict[str, Any]] = None
     vanity_spec: Optional[Dict[str, Any]] = None
@@ -115,6 +124,7 @@ class BathroomEstimateUpdate(BaseModel):
     electrical_spec: Optional[Dict[str, Any]] = None
     substrate_spec: Optional[Dict[str, Any]] = None
     hidden_costs: Optional[Dict[str, Any]] = None
+    sketch_data: Optional[Dict[str, Any]] = None
     overview_text: Optional[str] = None
     include_overhead_profit: Optional[bool] = None
     overhead_pct: Optional[float] = None
@@ -168,8 +178,7 @@ class BathroomEstimateResponse(BaseModel):
     floor_sf: Optional[float] = None
     wall_sf: Optional[float] = None
 
-    # Demo scope
-    demo_scope: Optional[str] = None
+    # Demo flags
     demo_floor: bool = False
     demo_floor_sf: Optional[float] = None
     demo_walls: bool = False
@@ -184,6 +193,10 @@ class BathroomEstimateResponse(BaseModel):
     water_damage: bool = False
     mold_suspected: bool = False
     existing_tub_material: Optional[str] = None
+    demo_cement_board: bool = False
+    demo_cement_board_sf: Optional[float] = None
+    replace_cement_board: bool = False
+    replace_cement_board_sf: Optional[float] = None
 
     # Component specs
     shower_spec: Optional[Dict[str, Any]] = None
@@ -258,9 +271,9 @@ class PricingInfoResponse(BaseModel):
     building_types: List[str]
     designations: List[str]
     bath_functions: List[str]
-    demo_scopes: List[str]
     shower_types: List[str]
     enclosure_types: List[str]
+    shower_door_types: List[str]
     showerhead_types: List[str]
     trim_brands: List[str]
     trim_grades: List[str]
@@ -275,6 +288,7 @@ class PricingInfoResponse(BaseModel):
     toilet_types: List[str]
     tile_materials: List[str]
     tile_patterns: List[str]
+    tile_sizes: List[str]
     waterproof_types: List[str]
     accessory_finishes: List[str]
     accessory_grades: List[str]

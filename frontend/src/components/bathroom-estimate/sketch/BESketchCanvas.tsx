@@ -113,9 +113,14 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
 
   // ── Drawing state ──
   const [drawingWall, setDrawingWall] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
+  // Rectangle room (shift+drag)
   const [drawingRoom, setDrawingRoom] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
+  // Polygon room (click-to-place vertices)
+  const [polyRoom, setPolyRoom] = useState<{ vertices: BEPoint[]; current: BEPoint } | null>(null);
   const [snapIndicator, setSnapIndicator] = useState<BEPoint | null>(null);
   const [shiftHeld, setShiftHeld] = useState(false);
+
+  const CLOSE_THRESHOLD = 15; // px to snap-close polygon
 
   // Track shift key
   useEffect(() => {
@@ -148,14 +153,33 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
       if (activeTool === 'wall') {
         setDrawingWall({ start: pos, current: pos });
       } else if (activeTool === 'room') {
-        setDrawingRoom({ start: pos, current: pos });
+        if (shiftHeld) {
+          // Shift+drag → rectangle mode
+          setDrawingRoom({ start: pos, current: pos });
+        } else {
+          // Click → polygon mode: add vertex
+          if (!polyRoom) {
+            // Start new polygon
+            setPolyRoom({ vertices: [pos], current: pos });
+          } else {
+            // Check if clicking near start point → close polygon
+            const first = polyRoom.vertices[0];
+            if (polyRoom.vertices.length >= 3 && dist(pos, first) < CLOSE_THRESHOLD) {
+              addRoom(polyRoom.vertices, []);
+              setPolyRoom(null);
+            } else {
+              // Add vertex
+              setPolyRoom({ vertices: [...polyRoom.vertices, pos], current: pos });
+            }
+          }
+        }
       } else if (activeTool === 'select') {
         if (e.target === e.target.getStage()) {
           setSelectedId(null);
         }
       }
     },
-    [activeTool, getStagePoint, setSelectedId],
+    [activeTool, getStagePoint, setSelectedId, shiftHeld, polyRoom, addRoom],
   );
 
   const handleMouseMove = useCallback(
@@ -178,11 +202,14 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
       } else if (drawingRoom) {
         const pos = getStagePoint(e);
         setDrawingRoom((prev) => prev ? { ...prev, current: pos } : null);
+      } else if (polyRoom) {
+        const pos = getStagePoint(e);
+        setPolyRoom((prev) => prev ? { ...prev, current: pos } : null);
       } else {
         setSnapIndicator(null);
       }
     },
-    [drawingWall, drawingRoom, getStagePoint, walls, shiftHeld],
+    [drawingWall, drawingRoom, polyRoom, getStagePoint, walls, shiftHeld],
   );
 
   const handleMouseUp = useCallback(
@@ -198,6 +225,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
         setSnapIndicator(null);
       }
 
+      // Rectangle room (shift+drag)
       if (activeTool === 'room' && drawingRoom) {
         const pos = getStagePoint(e);
         const dx = Math.abs(pos.x - drawingRoom.start.x);
@@ -216,6 +244,17 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
       }
     },
     [activeTool, drawingWall, drawingRoom, addWall, addRoom, getStagePoint, shiftHeld],
+  );
+
+  // ── Double-click to close polygon ──
+  const handleDblClick = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (activeTool === 'room' && polyRoom && polyRoom.vertices.length >= 3) {
+        addRoom(polyRoom.vertices, []);
+        setPolyRoom(null);
+      }
+    },
+    [activeTool, polyRoom, addRoom],
   );
 
   // ── Keyboard shortcuts ──
@@ -243,6 +282,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
       } else if (e.key === 'Escape') {
         setDrawingWall(null);
         setDrawingRoom(null);
+        setPolyRoom(null);
         setSelectedId(null);
       }
     };

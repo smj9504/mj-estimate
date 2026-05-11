@@ -83,6 +83,10 @@ class BathroomEstimate(Base, BaseModel):
     water_damage = Column(Boolean, default=False)
     mold_suspected = Column(Boolean, default=False)
     existing_tub_material = Column(String(50))  # for cast iron surcharge
+    demo_cement_board = Column(Boolean, default=False)
+    demo_cement_board_sf = Column(Float, nullable=True)
+    replace_cement_board = Column(Boolean, default=False)
+    replace_cement_board_sf = Column(Float, nullable=True)
 
     # ── Shower Spec (JSONB for flexibility) ──
     shower_spec = Column(JSONB, nullable=True)
@@ -148,6 +152,10 @@ class BathroomEstimate(Base, BaseModel):
     profit_amount = Column(Float, default=0)
     tax_amount = Column(Float, default=0)
     total = Column(Float, default=0)
+
+    # ── Sketch Data ──
+    sketch_data = Column(JSONB, nullable=True)
+    # { version, walls, rooms, fixtures, tileZones, damageZones, settings }
 
     # ── Documentation ──
     methodology_notes = Column(Text, nullable=True)

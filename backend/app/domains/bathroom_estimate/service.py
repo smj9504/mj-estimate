@@ -170,7 +170,7 @@ class BathroomEstimateService:
             "claim_id", "company_id", "property_address", "city", "state",
             "zip_code", "building_type", "year_built", "designation",
             "bath_function", "length_ft", "width_ft", "height_ft",
-            "floor_sf", "wall_sf", "demo_scope", "demo_floor", "demo_walls",
+            "floor_sf", "wall_sf", "demo_floor", "demo_walls",
             "demo_ceiling", "replace_shower", "replace_tub", "replace_vanity",
             "replace_toilet", "replace_floor", "water_damage", "mold_suspected",
             "existing_tub_material", "shower_spec", "bathtub_spec",

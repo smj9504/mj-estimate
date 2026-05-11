@@ -73,7 +73,10 @@ def _generate_template_note(estimate) -> str:
         tub_spec = estimate.bathtub_spec or {}
         tub_type = (tub_spec.get("type", "alcove")).replace("_", " ")
         tub_mat = (tub_spec.get("material", "acrylic")).replace("_", " ")
-        scope_items.append(f"{tub_type} bathtub ({tub_mat})")
+        tub_desc = f"{tub_type} bathtub ({tub_mat})"
+        if tub_spec.get("surround_tile"):
+            tub_desc += " with tiled surround"
+        scope_items.append(tub_desc)
     if estimate.replace_shower:
         shower_spec = estimate.shower_spec or {}
         s_type = (shower_spec.get("type", "")).replace("_", " ")
@@ -90,7 +93,10 @@ def _generate_template_note(estimate) -> str:
         f_mat = (floor_spec.get("material", "tile")).replace("_", " ")
         scope_items.append(f"{f_mat} flooring")
 
-    demo_scope = (estimate.demo_scope or "").replace("_", " ")
+    demo_areas = []
+    if estimate.demo_floor: demo_areas.append("floor")
+    if estimate.demo_walls: demo_areas.append("walls")
+    if estimate.demo_ceiling: demo_areas.append("ceiling")
 
     parts.append(
         f"This estimate covers a like-for-like {designation} {bath_fn} bathroom "
@@ -103,9 +109,9 @@ def _generate_template_note(estimate) -> str:
             scope_str += f", and {scope_items[-1]}"
         else:
             scope_str = scope_items[0]
+        demo_desc = f", with {', '.join(demo_areas)} demolition" if demo_areas else ""
         parts.append(
-            f"The scope of work includes replacement of {scope_str}"
-            f"{f', with {demo_scope} demolition' if demo_scope else ''}."
+            f"The scope of work includes replacement of {scope_str}{demo_desc}."
         )
 
     # Substrate & waterproofing
@@ -122,6 +128,8 @@ def _generate_template_note(estimate) -> str:
     specials = []
     if estimate.water_damage:
         specials.append("existing water damage (scope may expand upon demo)")
+    if getattr(estimate, 'demo_cement_board', False) or getattr(estimate, 'replace_cement_board', False):
+        specials.append("water-damaged cement board requiring demo and replacement")
     if estimate.mold_suspected:
         specials.append("suspected mold presence (separate remediation required)")
     year = estimate.year_built or 2000
@@ -173,7 +181,7 @@ def _build_context(estimate) -> str:
     if estimate.demo_floor: demo_parts.append("floor")
     if estimate.demo_walls: demo_parts.append("walls")
     if estimate.demo_ceiling: demo_parts.append("ceiling")
-    lines.append(f"Demo scope: {estimate.demo_scope or 'N/A'}, areas: {', '.join(demo_parts) or 'N/A'}")
+    lines.append(f"Demo areas: {', '.join(demo_parts) or 'none'}")
 
     # What's being replaced
     replacements = []
@@ -192,7 +200,10 @@ def _build_context(estimate) -> str:
 
     tub = estimate.bathtub_spec or {}
     if tub:
-        lines.append(f"Bathtub: type={tub.get('type')}, material={tub.get('material')}")
+        tub_info = f"Bathtub: type={tub.get('type')}, material={tub.get('material')}"
+        if tub.get("surround_tile"):
+            tub_info += f", surround_tile={tub.get('surround_tile_sf')}SF {tub.get('surround_tile_material', 'porcelain')}"
+        lines.append(tub_info)
 
     van = estimate.vanity_spec or {}
     if van:
@@ -204,6 +215,10 @@ def _build_context(estimate) -> str:
 
     # Special conditions
     if estimate.water_damage: lines.append("CONDITION: Water damage present")
+    if getattr(estimate, 'demo_cement_board', False):
+        lines.append(f"CONDITION: Cement board demo {getattr(estimate, 'demo_cement_board_sf', 0) or 0}SF")
+    if getattr(estimate, 'replace_cement_board', False):
+        lines.append(f"CONDITION: Cement board replacement {getattr(estimate, 'replace_cement_board_sf', 0) or 0}SF")
     if estimate.mold_suspected: lines.append("CONDITION: Mold suspected")
     if (estimate.year_built or 2000) < 1978: lines.append("CONDITION: Pre-1978 (lead paint risk)")
     if estimate.existing_tub_material == "cast_iron": lines.append("CONDITION: Cast iron tub")

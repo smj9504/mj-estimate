@@ -23,6 +23,8 @@ from .pricing import (
     PAINT_RATES,
     PLUMBING_RATES,
     SHOWER_CUSTOM_EXTRAS,
+    SHOWER_DOOR_INSTALL,
+    SHOWER_DOOR_PRICES,
     SHOWER_ENCLOSURE_PRICES,
     SHOWER_INSERT_PRICES,
     SHOWER_VALVE_PRICES,
@@ -32,6 +34,7 @@ from .pricing import (
     TILE_LABOR_RATES,
     TILE_MATERIAL_RATES,
     TILE_PATTERN_MULTIPLIER,
+    TILE_SIZE_MULTIPLIER,
     TOILET_EXTRAS,
     TOILET_PRICES,
     TRIM_BRAND_MULTIPLIER,
@@ -129,6 +132,13 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         _add(line_items, 1, "Demo - Toilet removal", 1, "EA",
              DEMO_RATES["toilet"] * labor_mult, "demo")
 
+    # Cement board demo (water damage in tub/shower area)
+    if getattr(estimate, 'demo_cement_board', False):
+        cb_demo_sf = getattr(estimate, 'demo_cement_board_sf', 0) or 0
+        if cb_demo_sf > 0:
+            _add(line_items, 1, "Demo - Cement board removal (water damaged)",
+                 cb_demo_sf, "SF", DEMO_RATES["durock_per_sf"] * labor_mult, "demo")
+
     # Dumpster
     hc = estimate.hidden_costs or {}
     if hc.get("dumpster", True):
@@ -194,6 +204,13 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         _add(line_items, 3, "Subfloor repair/replacement", sub["subfloor_repair_sf"], "SF",
              SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate")
 
+    # Cement board replacement (water damage repair)
+    if getattr(estimate, 'replace_cement_board', False):
+        cb_sf = getattr(estimate, 'replace_cement_board_sf', 0) or 0
+        if cb_sf > 0:
+            _add(line_items, 3, "Cement board replacement (water damage repair)",
+                 cb_sf, "SF", SUBSTRATE_RATES["durock_per_sf"] * labor_mult, "substrate")
+
     # ────────────────────────────────────────
     # Phase 4: Tile & Flooring
     # ────────────────────────────────────────
@@ -201,19 +218,21 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     if estimate.replace_floor and floor_sf > 0:
         tile_mat = floor_spec.get("material", "porcelain")
         pattern = floor_spec.get("pattern", "straight")
+        tile_size = floor_spec.get("size", "12x24")
         mat_rate = TILE_MATERIAL_RATES.get(tile_mat, 7.50)
         labor_rate = TILE_LABOR_RATES["floor_per_sf"] * labor_mult
         pat_mult = TILE_PATTERN_MULTIPLIER.get(pattern, 1.0)
+        size_mult = TILE_SIZE_MULTIPLIER.get(tile_size, 1.0)
         waste = TILE_EXTRAS["waste_factor"]
 
         # Material (with waste)
-        _add(line_items, 4, f"Floor tile - {tile_mat} ({floor_spec.get('size', '12x24')})",
+        _add(line_items, 4, f"Floor tile - {tile_mat} ({tile_size})",
              floor_sf * (1 + waste), "SF", mat_rate, "tile",
              notes=f"Includes {int(waste*100)}% waste")
 
         # Labor
         _add(line_items, 4, f"Floor tile installation - {pattern} lay",
-             floor_sf, "SF", labor_rate * pat_mult, "tile")
+             floor_sf, "SF", labor_rate * pat_mult * size_mult, "tile")
 
         # Grout + thinset
         _add(line_items, 4, "Thinset, grout & supplies",
@@ -228,19 +247,57 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     if estimate.replace_shower and shower_spec.get("type") == "custom_tile":
         tile_spec = shower_spec.get("tile_spec", {})
         shower_wall_sf = tile_spec.get("sf", 0)
+        # Auto-compute from dimensions if SF not provided
+        if not shower_wall_sf:
+            sw = shower_spec.get("width_in", 0) or 0
+            sd = shower_spec.get("depth_in", 0) or 0
+            sh = shower_spec.get("tile_height_in", 0) or 0
+            if sw and sd and sh:
+                shower_wall_sf = (sw + 2 * sd) * sh / 144  # 3-wall surround
         if shower_wall_sf > 0:
             stile_mat = tile_spec.get("material", "porcelain")
             spattern = tile_spec.get("pattern", "straight")
+            stile_size = tile_spec.get("size", "12x24")
             smat_rate = TILE_MATERIAL_RATES.get(stile_mat, 7.50)
             slabor_rate = TILE_LABOR_RATES["shower_wall_per_sf"] * labor_mult
             spat_mult = TILE_PATTERN_MULTIPLIER.get(spattern, 1.0)
+            ssize_mult = TILE_SIZE_MULTIPLIER.get(stile_size, 1.0)
 
-            _add(line_items, 4, f"Shower wall tile - {stile_mat}",
+            _add(line_items, 4, f"Shower wall tile - {stile_mat} ({stile_size})",
                  shower_wall_sf * (1 + TILE_EXTRAS["waste_factor"]), "SF", smat_rate, "tile")
             _add(line_items, 4, f"Shower tile installation - {spattern}",
-                 shower_wall_sf, "SF", slabor_rate * spat_mult, "tile")
+                 shower_wall_sf, "SF", slabor_rate * spat_mult * ssize_mult, "tile")
             _add(line_items, 4, "Shower tile supplies (thinset, grout)",
                  shower_wall_sf, "SF",
+                 TILE_EXTRAS["grout_per_sf"] + TILE_EXTRAS["thinset_per_sf"], "tile")
+
+    # Bathtub surround tile (drop-in tub)
+    tub_spec = estimate.bathtub_spec or {}
+    if tub_spec.get("surround_tile") and tub_spec.get("type") == "drop_in":
+        surround_sf = tub_spec.get("surround_tile_sf", 0)
+        # Auto-compute from dimensions if SF not provided
+        if not surround_sf:
+            tl = tub_spec.get("tub_length_in", 0) or 0
+            sh = tub_spec.get("surround_height_in", 0) or 0
+            td = tub_spec.get("tub_depth_in", 30) or 30
+            if tl and sh:
+                surround_sf = (tl + 2 * td) * sh / 144
+        if surround_sf > 0:
+            sur_mat = tub_spec.get("surround_tile_material", "porcelain")
+            sur_pattern = tub_spec.get("surround_tile_pattern", "straight")
+            sur_size = tub_spec.get("surround_tile_size", "12x24")
+            sur_mat_rate = TILE_MATERIAL_RATES.get(sur_mat, 7.50)
+            sur_labor_rate = BATHTUB_EXTRAS["surround_tile_labor_per_sf"] * labor_mult
+            sur_pat_mult = TILE_PATTERN_MULTIPLIER.get(sur_pattern, 1.0)
+            sur_size_mult = TILE_SIZE_MULTIPLIER.get(sur_size, 1.0)
+
+            _add(line_items, 4, f"Bathtub surround tile - {sur_mat} ({sur_size})",
+                 surround_sf * (1 + TILE_EXTRAS["waste_factor"]), "SF", sur_mat_rate, "tile",
+                 notes=f"Includes {int(TILE_EXTRAS['waste_factor']*100)}% waste")
+            _add(line_items, 4, f"Bathtub surround tile installation - {sur_pattern}",
+                 surround_sf, "SF", sur_labor_rate * sur_pat_mult * sur_size_mult, "tile")
+            _add(line_items, 4, "Bathtub surround tile supplies (thinset, grout)",
+                 surround_sf, "SF",
                  TILE_EXTRAS["grout_per_sf"] + TILE_EXTRAS["thinset_per_sf"], "tile")
 
     if floor_spec.get("heated_floor") and floor_sf > 0:
@@ -281,15 +338,39 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             _add(line_items, 5, "Shower unit installation", 1, "EA",
                  425 * labor_mult, "fixture")
 
-        # Enclosure
-        enclosure = shower_spec.get("enclosure")
-        if enclosure and enclosure != "curtain":
-            enc_price = SHOWER_ENCLOSURE_PRICES.get(enclosure, 350)
-            _add(line_items, 5, f"Shower enclosure - {enclosure.replace('_', ' ')}",
-                 1, "EA", enc_price, "fixture")
-        elif enclosure == "curtain":
-            _add(line_items, 5, "Shower curtain rod + curtain", 1, "EA",
-                 SHOWER_ENCLOSURE_PRICES["curtain"], "fixture")
+        # Shower door
+        door_type = shower_spec.get("door_type")
+        door_width = shower_spec.get("door_width_in", 0) or 0
+        if door_type and door_type in SHOWER_DOOR_PRICES:
+            prices = SHOWER_DOOR_PRICES[door_type]
+            if "any" in prices:
+                mat_price = prices["any"]
+            else:
+                # Find closest width
+                widths = sorted(prices.keys())
+                w = min(widths, key=lambda x: abs(x - door_width)) if door_width else widths[len(widths) // 2]
+                mat_price = prices[w]
+            install = SHOWER_DOOR_INSTALL.get(door_type, 250)
+            label = door_type.replace("_", " ").title()
+            if door_type == "curtain":
+                _add(line_items, 5, "Shower curtain rod + curtain",
+                     1, "EA", mat_price, "fixture")
+            else:
+                width_note = f"{door_width}\" opening" if door_width else None
+                _add(line_items, 5, f"Shower door - {label}",
+                     1, "EA", mat_price, "fixture", notes=width_note)
+                _add(line_items, 5, f"Shower door installation - {label}",
+                     1, "EA", install * labor_mult, "fixture")
+        else:
+            # Legacy fallback: enclosure field
+            enclosure = shower_spec.get("enclosure")
+            if enclosure and enclosure != "curtain":
+                enc_price = SHOWER_ENCLOSURE_PRICES.get(enclosure, 350)
+                _add(line_items, 5, f"Shower enclosure - {enclosure.replace('_', ' ')}",
+                     1, "EA", enc_price, "fixture")
+            elif enclosure == "curtain":
+                _add(line_items, 5, "Shower curtain rod + curtain", 1, "EA",
+                     SHOWER_ENCLOSURE_PRICES["curtain"], "fixture")
 
         # Custom tile extras
         if stype in ("custom_tile", "curbless"):

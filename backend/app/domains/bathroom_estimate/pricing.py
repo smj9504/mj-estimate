@@ -133,6 +133,27 @@ TILE_PATTERN_MULTIPLIER = {
     "versailles": 1.35,
 }
 
+# Tile size labor multiplier
+# Standard (12x12, 12x24) = 1.0 baseline
+# Mosaic = more cuts, more grout lines → +30-40% labor
+# Large format = leveling systems, 2-person handling → +20-30% labor
+# Sources: HomeGuide 2026, Apollo Tile, Fixr
+TILE_SIZE_MULTIPLIER = {
+    "1x1_mosaic": 1.40,       # mosaic sheets, $12-14/SF labor
+    "2x2_mosaic": 1.35,       # mosaic sheets
+    "4x4": 1.15,              # small format, more grout lines
+    "6x6": 1.10,              # small format
+    "12x12": 1.00,            # standard baseline
+    "12x24": 1.00,            # standard, most common
+    "6x24": 1.05,             # plank style, slightly more cuts
+    "24x24": 1.10,            # large, needs leveling
+    "24x48": 1.25,            # large format, 2-person install
+    "4x12_subway": 1.05,      # subway tile, many joints
+    "3x6_subway": 1.10,       # classic subway, more joints
+}
+
+TILE_SIZES = list(TILE_SIZE_MULTIPLIER.keys())
+
 TILE_EXTRAS = {
     "waste_factor": 0.10,             # 10% waste
     "grout_per_sf": 1.50,             # grout material
@@ -180,15 +201,71 @@ BATHTUB_INSTALL = {
 BATHTUB_EXTRAS = {
     "whirlpool_upgrade": 800,         # jets + pump + dedicated circuit
     "air_jet_upgrade": 600,
+    "surround_tile_labor_per_sf": 13.00,  # surround tile install ($10-$16/SF)
 }
 
-# Shower enclosure
+# Shower door / enclosure
+# Material price by type × opening width (inches)
+# Sources: Angi 2026, HomeGuide 2026, ThisOldHouse 2026
+SHOWER_DOOR_PRICES = {
+    # Curtain - flat rate
+    "curtain": {"any": 45},
+    # Framed sliding/bypass - budget ($400-$900 installed)
+    "framed_sliding": {
+        48: 280, 60: 350, 72: 420,
+    },
+    # Semi-frameless sliding ($700-$1,500 installed)
+    "semi_frameless_sliding": {
+        48: 450, 60: 550, 72: 650,
+    },
+    # Frameless sliding ($800-$1,600 installed)
+    "frameless_sliding": {
+        48: 700, 60: 850, 72: 1000,
+    },
+    # Framed pivot ($400-$1,100 installed)
+    "framed_pivot": {
+        28: 250, 32: 300, 36: 350,
+    },
+    # Semi-frameless pivot
+    "semi_frameless_pivot": {
+        28: 400, 32: 475, 36: 550,
+    },
+    # Frameless pivot ($600-$1,900 installed)
+    "frameless_pivot": {
+        28: 650, 32: 800, 36: 950,
+    },
+    # Fixed panel / half wall glass
+    "fixed_panel": {
+        24: 400, 30: 550, 36: 700,
+    },
+}
+
+# Installation labor by door category
+SHOWER_DOOR_INSTALL = {
+    "curtain": 0,
+    "framed_sliding": 200,
+    "semi_frameless_sliding": 275,
+    "frameless_sliding": 350,
+    "framed_pivot": 200,
+    "semi_frameless_pivot": 275,
+    "frameless_pivot": 350,
+    "fixed_panel": 250,
+}
+
+SHOWER_DOOR_TYPES = [
+    "curtain",
+    "framed_sliding", "semi_frameless_sliding", "frameless_sliding",
+    "framed_pivot", "semi_frameless_pivot", "frameless_pivot",
+    "fixed_panel",
+]
+
+# Legacy compat — still referenced by enclosure dropdown
 SHOWER_ENCLOSURE_PRICES = {
-    "curtain": 45,                    # rod + curtain
-    "sliding": 350,                   # sliding bypass door ($250-$500)
-    "pivot": 550,                     # pivot door ($400-$800)
-    "frameless": 1650,                # frameless glass ($1,000-$2,500, Angi avg $1,400)
-    "half_wall_glass": 1200,          # half wall + fixed glass panel
+    "curtain": 45,
+    "sliding": 350,
+    "pivot": 550,
+    "frameless": 1650,
+    "half_wall_glass": 1200,
 }
 
 SHOWER_INSERT_PRICES = {
@@ -428,8 +505,6 @@ TILE_MATERIALS = ["ceramic", "porcelain", "natural_stone", "glass_mosaic", "lvt_
 TILE_PATTERNS = ["straight", "diagonal", "herringbone", "versailles"]
 
 WATERPROOF_TYPES = ["redgard", "kerdi", "hydroban", "none"]
-
-DEMO_SCOPES = ["full_gut", "floor_only", "walls_only", "tub_shower_only", "vanity_only", "toilet_only"]
 
 ACCESSORY_FINISHES = ["chrome", "brushed_nickel", "matte_black", "brass", "mixed"]
 ACCESSORY_GRADES = ["builder", "mid", "premium"]

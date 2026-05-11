@@ -43,7 +43,7 @@ import type {
   BathroomPricingInfo,
 } from '../types/bathroomEstimate';
 import { PHASE_LABELS } from '../types/bathroomEstimate';
-import SketchCanvas from '../components/sketch/SketchCanvas';
+import BESketchTab from '../components/bathroom-estimate/sketch/BESketchTab';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -83,6 +83,22 @@ const BathroomEstimateDetail: React.FC = () => {
     queryFn: () => clientService.list({ search: clientSearch, limit: 10 }),
     enabled: clientSearch.length >= 2,
   });
+
+  // Auto-fill address when client/claim is selected
+  const handleClaimSelect = useCallback((claimId: string | null) => {
+    if (!claimId || !clientResults?.clients) return;
+    const client = (clientResults.clients as any[]).find((c: any) =>
+      (c.claims || []).some((cl: any) => cl.id === claimId)
+    );
+    if (client) {
+      form.setFieldsValue({
+        property_address: client.address || '',
+        city: client.city || '',
+        state: client.state || '',
+        zip_code: client.zipcode || '',
+      });
+    }
+  }, [clientResults, form]);
 
   // ── Mutations ──
   const saveMutation = useMutation({
@@ -178,26 +194,23 @@ const BathroomEstimateDetail: React.FC = () => {
   return (
     <div style={{ padding: '16px' }}>
       {/* Header */}
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }} gutter={[8, 8]}>
-        <Col xs={24} md="auto">
-          <Space wrap>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/bathroom-estimates')} />
-            <Title level={3} style={{ margin: 0 }}>
-              Bathroom Estimate
-              {estimate?.status && (
-                <Tag color={
-                  estimate.status === 'draft' ? 'default' :
-                  estimate.status === 'calculated' ? 'processing' :
-                  estimate.status === 'approved' ? 'success' : 'purple'
-                } style={{ marginLeft: 8 }}>
-                  {estimate.status.toUpperCase()}
-                </Tag>
-              )}
-            </Title>
-          </Space>
-        </Col>
-        <Col xs={24} md="auto">
-          <Space wrap>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <Space wrap>
+          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/bathroom-estimates')} />
+          <Title level={3} style={{ margin: 0 }}>
+            Bathroom Estimate
+            {estimate?.status && (
+              <Tag color={
+                estimate.status === 'draft' ? 'default' :
+                estimate.status === 'calculated' ? 'processing' :
+                estimate.status === 'approved' ? 'success' : 'purple'
+              } style={{ marginLeft: 8 }}>
+                {estimate.status.toUpperCase()}
+              </Tag>
+            )}
+          </Title>
+        </Space>
+        <Space wrap>
             <Button icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>
               Save
             </Button>
@@ -212,9 +225,8 @@ const BathroomEstimateDetail: React.FC = () => {
             <Button icon={<CopyOutlined />} onClick={() => cloneMutation.mutate()}>
               Clone
             </Button>
-          </Space>
-        </Col>
-      </Row>
+        </Space>
+      </div>
 
       <Form form={form} layout="vertical" size="small">
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
@@ -232,6 +244,7 @@ const BathroomEstimateDetail: React.FC = () => {
                         showSearch
                         filterOption={false}
                         onSearch={setClientSearch}
+                        onChange={handleClaimSelect}
                         placeholder="Search client..."
                         allowClear
                         options={(clientResults?.clients || []).flatMap((c: any) =>
@@ -339,33 +352,6 @@ const BathroomEstimateDetail: React.FC = () => {
               <Card>
                 <Row gutter={16}>
                   <Col xs={24} sm={12} md={8}>
-                    <Form.Item label="Demo Scope" name="demo_scope">
-                      <Select
-                        options={selectOpts(pricingInfo?.demo_scopes)}
-                        allowClear
-                        onChange={(value) => {
-                          const presets: Record<string, Record<string, boolean>> = {
-                            full_gut: { demo_floor: true, demo_walls: true, demo_ceiling: true,
-                              replace_shower: true, replace_tub: true, replace_vanity: true,
-                              replace_toilet: true, replace_floor: true },
-                            floor_only: { demo_floor: true, demo_walls: false, demo_ceiling: false,
-                              replace_floor: true },
-                            walls_only: { demo_floor: false, demo_walls: true, demo_ceiling: false },
-                            tub_shower_only: { demo_floor: false, demo_walls: false, demo_ceiling: false,
-                              replace_shower: true, replace_tub: true },
-                            vanity_only: { demo_floor: false, demo_walls: false, demo_ceiling: false,
-                              replace_vanity: true },
-                            toilet_only: { demo_floor: false, demo_walls: false, demo_ceiling: false,
-                              replace_toilet: true },
-                          };
-                          if (value && presets[value]) {
-                            form.setFieldsValue(presets[value]);
-                          }
-                        }}
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} sm={12} md={8}>
                     <Form.Item label="Existing Tub Material" name="existing_tub_material">
                       <Select options={selectOpts(pricingInfo?.bathtub_materials)} allowClear />
                     </Form.Item>
@@ -457,6 +443,46 @@ const BathroomEstimateDetail: React.FC = () => {
                     </Form.Item>
                   </Col>
                 </Row>
+
+                <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                  prev.demo_cement_board !== cur.demo_cement_board ||
+                  prev.replace_cement_board !== cur.replace_cement_board
+                }>
+                  {() => (
+                    <>
+                      <Divider orientation="left" plain>Cement Board (Water Damage Repair)</Divider>
+                      <Row gutter={[16, 8]} align="middle">
+                        <Col xs={12} sm={8} md={5}>
+                          <Form.Item name="demo_cement_board" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Demo Cement Board</Checkbox>
+                          </Form.Item>
+                        </Col>
+                        {form.getFieldValue('demo_cement_board') && (
+                          <Col xs={12} sm={8} md={4}>
+                            <Form.Item label="Demo SF" name="demo_cement_board_sf" style={{ marginBottom: 8 }}>
+                              <InputNumber style={{ width: '100%' }} min={0} placeholder="SF" />
+                            </Form.Item>
+                          </Col>
+                        )}
+                        <Col xs={12} sm={8} md={5}>
+                          <Form.Item name="replace_cement_board" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Replace Cement Board</Checkbox>
+                          </Form.Item>
+                        </Col>
+                        {form.getFieldValue('replace_cement_board') && (
+                          <Col xs={12} sm={8} md={4}>
+                            <Form.Item label="Replace SF" name="replace_cement_board_sf" style={{ marginBottom: 8 }}>
+                              <InputNumber style={{ width: '100%' }} min={0} placeholder="SF" />
+                            </Form.Item>
+                          </Col>
+                        )}
+                      </Row>
+                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+                        For water-damaged cement board behind tub/shower surround. Demo removes old board; Replace installs new Durock.
+                      </Text>
+                    </>
+                  )}
+                </Form.Item>
               </Card>
             ),
           },
@@ -478,16 +504,16 @@ const BathroomEstimateDetail: React.FC = () => {
                     Draw walls, place fixtures (tub, shower, vanity, toilet), then use the Tile tool to estimate tile quantities
                   </Text>
                 }
+                bodyStyle={{ padding: 0 }}
               >
-                <SketchCanvas
-                  instanceId={`bathroom-estimate-${id}`}
-                  documentType="estimate"
-                  documentId={id}
-                  height="700px"
-                  showSidebar={true}
-                  showToolbar={true}
-                  showStatusBar={true}
-                />
+                <div style={{ height: 700 }}>
+                  <BESketchTab
+                    estimateId={id!}
+                    estimateData={form.getFieldsValue()}
+                    initialSketchData={estimate?.sketch_data as any}
+                    isActive={activeTab === 'sketch'}
+                  />
+                </div>
               </Card>
             ),
           },
@@ -507,8 +533,13 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Enclosure" name={['shower_spec', 'enclosure']}>
-                          <Select options={selectOpts(pricingInfo?.enclosure_types)} allowClear />
+                        <Form.Item label="Door Type" name={['shower_spec', 'door_type']}>
+                          <Select options={selectOpts(pricingInfo?.shower_door_types)} allowClear />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={4}>
+                        <Form.Item label="Door Opening (in)" name={['shower_spec', 'door_width_in']}>
+                          <InputNumber style={{ width: '100%' }} min={0} placeholder="e.g. 60" />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={12} md={6}>
@@ -546,6 +577,29 @@ const BathroomEstimateDetail: React.FC = () => {
                     </Row>
                     <Divider orientation="left" plain>Custom Tile (if applicable)</Divider>
                     <Row gutter={16}>
+                      <Col xs={12} sm={8} md={4}>
+                        <Form.Item label="Width (in)" name={['shower_spec', 'width_in']}>
+                          <InputNumber style={{ width: '100%' }} min={0} placeholder="e.g. 60" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={4}>
+                        <Form.Item label="Depth (in)" name={['shower_spec', 'depth_in']}>
+                          <InputNumber style={{ width: '100%' }} min={0} placeholder="e.g. 36" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={4}>
+                        <Form.Item label="Tile Height (in)" name={['shower_spec', 'tile_height_in']}>
+                          <InputNumber style={{ width: '100%' }} min={0} placeholder="e.g. 84" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={4}>
+                        <Form.Item label="Tile SF" name={['shower_spec', 'tile_spec', 'sf']}
+                          tooltip="Leave blank to auto-calculate from dimensions">
+                          <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <Row gutter={16}>
                       <Col xs={12} sm={12} md={6}>
                         <Form.Item label="Tile Material" name={['shower_spec', 'tile_spec', 'material']}>
                           <Select options={selectOpts(pricingInfo?.tile_materials)} allowClear />
@@ -557,13 +611,8 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={8} md={4}>
-                        <Form.Item label="Tile SF" name={['shower_spec', 'tile_spec', 'sf']}>
-                          <InputNumber style={{ width: '100%' }} min={0} />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={8} md={4}>
                         <Form.Item label="Tile Size" name={['shower_spec', 'tile_spec', 'size']}>
-                          <Input placeholder="12x24" />
+                          <Select options={selectOpts(pricingInfo?.tile_sizes)} allowClear placeholder="12x24" />
                         </Form.Item>
                       </Col>
                     </Row>
@@ -595,6 +644,67 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Form.Item>
                       </Col>
                     </Row>
+                    <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                      prev?.bathtub_spec?.type !== cur?.bathtub_spec?.type ||
+                      prev?.bathtub_spec?.surround_tile !== cur?.bathtub_spec?.surround_tile
+                    }>
+                      {() => form.getFieldValue(['bathtub_spec', 'type']) === 'drop_in' && (
+                        <>
+                          <Divider orientation="left" plain style={{ margin: '8px 0' }}>Surround Tile</Divider>
+                          <Row gutter={16} align="middle">
+                            <Col xs={12} sm={8} md={4}>
+                              <Form.Item name={['bathtub_spec', 'surround_tile']} valuePropName="checked" style={{ marginBottom: 8 }}>
+                                <Checkbox>Surround Tile</Checkbox>
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                          {form.getFieldValue(['bathtub_spec', 'surround_tile']) && (
+                            <>
+                              <Row gutter={16}>
+                                <Col xs={12} sm={8} md={4}>
+                                  <Form.Item label="Tub Length (in)" name={['bathtub_spec', 'tub_length_in']} style={{ marginBottom: 8 }}>
+                                    <InputNumber style={{ width: '100%' }} min={0} placeholder="e.g. 60" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={8} md={4}>
+                                  <Form.Item label="Tub Depth (in)" name={['bathtub_spec', 'tub_depth_in']} style={{ marginBottom: 8 }}>
+                                    <InputNumber style={{ width: '100%' }} min={0} placeholder="30" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={8} md={4}>
+                                  <Form.Item label="Surround H (in)" name={['bathtub_spec', 'surround_height_in']} style={{ marginBottom: 8 }}>
+                                    <InputNumber style={{ width: '100%' }} min={0} placeholder="e.g. 72" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={8} md={4}>
+                                  <Form.Item label="Surround SF" name={['bathtub_spec', 'surround_tile_sf']} style={{ marginBottom: 8 }}
+                                    tooltip="Leave blank to auto-calculate from dimensions">
+                                    <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                              <Row gutter={16}>
+                                <Col xs={12} sm={8} md={4}>
+                                  <Form.Item label="Tile Material" name={['bathtub_spec', 'surround_tile_material']} style={{ marginBottom: 8 }}>
+                                    <Select options={selectOpts(pricingInfo?.tile_materials)} allowClear placeholder="porcelain" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={8} md={4}>
+                                  <Form.Item label="Pattern" name={['bathtub_spec', 'surround_tile_pattern']} style={{ marginBottom: 8 }}>
+                                    <Select options={selectOpts(pricingInfo?.tile_patterns)} allowClear placeholder="straight" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={8} md={4}>
+                                  <Form.Item label="Tile Size" name={['bathtub_spec', 'surround_tile_size']} style={{ marginBottom: 8 }}>
+                                    <Select options={selectOpts(pricingInfo?.tile_sizes)} allowClear placeholder="12x24" />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </Form.Item>
                   </Panel>
                 </Collapse>
               </Card>
@@ -694,7 +804,7 @@ const BathroomEstimateDetail: React.FC = () => {
                       </Col>
                       <Col xs={12} sm={8} md={4}>
                         <Form.Item label="Tile Size" name={['floor_spec', 'size']}>
-                          <Input placeholder="12x24" />
+                          <Select options={selectOpts(pricingInfo?.tile_sizes)} allowClear placeholder="12x24" />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={8} md={4}>
