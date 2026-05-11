@@ -29,7 +29,9 @@ export type BEFixtureType =
   | 'vanity'
   | 'toilet'
   | 'door'
-  | 'window';
+  | 'window'
+  | 'mirror'
+  | 'light';
 
 export type BathtubSubType =
   | 'standard_alcove'
@@ -342,6 +344,8 @@ export const BE_FIXTURE_DEFAULTS: Record<BEFixtureType, BEDimensions> = {
   toilet: { width: 15, height: 29 },    // 15" wide x 29" deep (elongated)
   door: { width: 32, height: 32 },      // plan-view swing arc (square)
   window: { width: 36, height: 6 },     // plan-view wall opening (thin strip)
+  mirror: { width: 30, height: 4 },     // plan-view wall-mounted (thin strip)
+  light: { width: 8, height: 8 },       // plan-view ceiling/wall light (small square)
 };
 
 // Bathtub surround defaults by subtype

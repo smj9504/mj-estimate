@@ -1233,12 +1233,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
       onClick={onSelect}
       onTap={onSelect}
       onDragEnd={(e) => {
-        const raw = { x: e.target.x(), y: e.target.y() };
-        const snapped = doSnap
-          ? { x: Math.round(raw.x / gridPx) * gridPx, y: Math.round(raw.y / gridPx) * gridPx }
-          : raw;
-        onDragEnd(snapped);
-        e.target.position(snapped);
+        onDragEnd({ x: e.target.x(), y: e.target.y() });
       }}
     >
       {/* Hit area rect */}
@@ -1379,21 +1374,19 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
             const newH = Math.round((hPx * scaleY / ppf) * 12);
             const rawDeg = node.rotation();
             const snappedDeg = Math.round(rawDeg / 15) * 15;
+            // Capture the new center position (Transformer may have shifted it)
+            const newPos = { x: node.x(), y: node.y() };
             // Reset transform state
             node.scaleX(1);
             node.scaleY(1);
-            node.rotation(fix.rotation);
-            node.position({ x: fix.position.x, y: fix.position.y });
-            node.width(wPx);
-            node.height(hPx);
-            node.offsetX(wPx / 2);
-            node.offsetY(hPx / 2);
             // Apply rotation
             if (Math.abs(snappedDeg - fix.rotation) > 0.5) {
               onRotate(snappedDeg % 360);
             }
+            // Update position to where Transformer left it
+            onDragEnd(newPos);
             // Apply resize
-            const finalH = fix.type === 'window' ? fix.dimensions.height : Math.max(12, Math.min(120, newH));
+            const finalH = (fix.type === 'window' || fix.type === 'mirror') ? fix.dimensions.height : Math.max(12, Math.min(120, newH));
             if (Math.abs(scaleX - 1) > 0.01 || Math.abs(scaleY - 1) > 0.01) {
               onResize(
                 Math.max(12, Math.min(120, newW)),
@@ -1406,11 +1399,11 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
           ref={trRef}
           rotateEnabled={true}
           rotationSnaps={[0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 195, 210, 225, 240, 255, 270, 285, 300, 315, 330, 345]}
-          keepRatio={fix.type === 'toilet'}
+          keepRatio={fix.type === 'toilet' || fix.type === 'light'}
           enabledAnchors={
-            fix.type === 'toilet'
+            fix.type === 'toilet' || fix.type === 'light'
               ? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
-              : fix.type === 'window'
+              : fix.type === 'window' || fix.type === 'mirror'
               ? ['middle-left', 'middle-right']
               : ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center']
           }

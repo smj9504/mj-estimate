@@ -61,6 +61,8 @@ const FIXTURE_PALETTE: { type: BEFixtureType; label: string; icon: string }[] = 
   { type: 'toilet', label: 'Toilet', icon: '🚽' },
   { type: 'door', label: 'Door', icon: '🚪' },
   { type: 'window', label: 'Window', icon: '🪟' },
+  { type: 'mirror', label: 'Mirror', icon: '🪞' },
+  { type: 'light', label: 'Light', icon: '💡' },
 ];
 
 const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) => {

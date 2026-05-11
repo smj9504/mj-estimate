@@ -172,6 +172,37 @@ const windowShape: FixtureShape = {
   ],
 };
 
+// ── Mirror (plan view: thin strip on wall, reflective surface) ──
+
+const mirror: FixtureShape = {
+  label: 'Mirror',
+  paths: [
+    // Frame
+    { d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: N, stroke: S, strokeWidth: 1.5 },
+    // Reflective surface (diagonal hatching)
+    { d: 'M0.15,0 L0,0.6', fill: N, stroke: SL, strokeWidth: 0.4 },
+    { d: 'M0.4,0 L0.05,1', fill: N, stroke: SL, strokeWidth: 0.4 },
+    { d: 'M0.65,0 L0.3,1', fill: N, stroke: SL, strokeWidth: 0.4 },
+    { d: 'M0.9,0 L0.55,1', fill: N, stroke: SL, strokeWidth: 0.4 },
+    { d: 'M1,0.2 L0.8,1', fill: N, stroke: SL, strokeWidth: 0.4 },
+  ],
+};
+
+// ── Light fixture (plan view: circle with rays) ──
+
+const light: FixtureShape = {
+  label: 'Light',
+  paths: [
+    // Outer circle
+    { d: 'M0.5,0.1 A0.4,0.4 0 1,1 0.5,0.9 A0.4,0.4 0 1,1 0.5,0.1 Z', fill: N, stroke: S, strokeWidth: 1.5 },
+    // Inner circle (bulb)
+    { d: 'M0.5,0.25 A0.25,0.25 0 1,1 0.5,0.75 A0.25,0.25 0 1,1 0.5,0.25 Z', fill: N, stroke: SL, strokeWidth: 0.8 },
+    // Cross lines (filament)
+    { d: 'M0.35,0.5 L0.65,0.5', fill: N, stroke: SL, strokeWidth: 0.6 },
+    { d: 'M0.5,0.35 L0.5,0.65', fill: N, stroke: SL, strokeWidth: 0.6 },
+  ],
+};
+
 // ── Lookup ──
 
 const BATHTUB_SHAPES: Record<BathtubSubType, FixtureShape> = {
@@ -199,6 +230,10 @@ export function getFixtureShape(
       return door;
     case 'window':
       return windowShape;
+    case 'mirror':
+      return mirror;
+    case 'light':
+      return light;
     default:
       return { label: type, paths: [{ d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 1.5 }] };
   }
