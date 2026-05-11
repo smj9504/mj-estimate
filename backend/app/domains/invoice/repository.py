@@ -77,21 +77,23 @@ class InvoiceRepositoryMixin:
             sorted_adjustments = sorted(adjustments, key=lambda x: x.get('order', 999))
             for adj in sorted_adjustments:
                 percentage = Decimal(str(adj.get('percentage', 0)))
+                fixed_amount = adj.get('fixed_amount')
                 adj_type = adj.get('type', 'add')
-                adj_name = adj.get('name', 'Adjustment')
 
-                adj_amount = current_subtotal * (abs(percentage) / 100)
+                # Use fixed_amount when percentage is 0
+                if percentage != 0:
+                    adj_amount = current_subtotal * (abs(percentage) / 100)
+                else:
+                    adj_amount = abs(Decimal(str(fixed_amount))) if fixed_amount else Decimal('0')
 
                 if adj_type == 'subtract' or percentage < 0:
                     current_subtotal -= adj_amount
                 else:
                     current_subtotal += adj_amount
 
+                # Preserve all original fields + add calculated amount
                 calculated_adjustments.append({
-                    'name': adj_name,
-                    'percentage': float(percentage),
-                    'type': adj_type,
-                    'order': adj.get('order', 999),
+                    **adj,
                     'amount': float(adj_amount)
                 })
         else:

@@ -308,23 +308,24 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                 
                 for adj in sorted_adjustments:
                     percentage = Decimal(str(adj.get('percentage', 0)))
+                    fixed_amount = adj.get('fixed_amount')
                     adj_type = adj.get('type', 'add')
-                    adj_name = adj.get('name', 'Adjustment')
-                    
-                    # Calculate adjustment amount based on current subtotal
-                    adj_amount = current_subtotal * (abs(percentage) / 100)
-                    
+
+                    # Calculate: use fixed_amount when percentage is 0
+                    if percentage != 0:
+                        adj_amount = current_subtotal * (abs(percentage) / 100)
+                    else:
+                        adj_amount = abs(Decimal(str(fixed_amount))) if fixed_amount else Decimal('0')
+
                     # Apply adjustment based on type
                     if adj_type == 'subtract' or percentage < 0:
                         current_subtotal -= adj_amount
                     else:
                         current_subtotal += adj_amount
-                    
+
+                    # Preserve all original fields + add calculated amount
                     calculated_adjustments.append({
-                        'name': adj_name,
-                        'percentage': float(percentage),
-                        'type': adj_type,
-                        'order': adj.get('order', 999),
+                        **adj,
                         'amount': float(adj_amount)
                     })
             
@@ -357,10 +358,14 @@ class InvoiceService(TransactionalService[Dict[str, Any], str]):
                     if adjustments:
                         for adj in sorted_adjustments:
                             percentage = Decimal(str(adj.get('percentage', 0)))
+                            fixed_amount = adj.get('fixed_amount')
                             adj_type = adj.get('type', 'add')
-                            
-                            taxable_adj_amount = taxable_current * (abs(percentage) / 100)
-                            
+
+                            if percentage != 0:
+                                taxable_adj_amount = taxable_current * (abs(percentage) / 100)
+                            else:
+                                taxable_adj_amount = abs(Decimal(str(fixed_amount))) * taxable_ratio if fixed_amount else Decimal('0')
+
                             if adj_type == 'subtract' or percentage < 0:
                                 taxable_current -= taxable_adj_amount
                             else:
