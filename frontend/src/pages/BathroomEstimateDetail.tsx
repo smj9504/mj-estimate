@@ -170,11 +170,18 @@ const BathroomEstimateDetail: React.FC = () => {
     const current = form.getFieldsValue(true);
     const updates: Record<string, any> = {};
 
-    // Replace flags
+    // Room dimensions
+    if (sync.length_ft) updates.length_ft = sync.length_ft;
+    if (sync.width_ft) updates.width_ft = sync.width_ft;
+
+    // Replace & demo flags
     if (sync.replace_tub !== undefined) updates.replace_tub = sync.replace_tub;
     if (sync.replace_shower !== undefined) updates.replace_shower = sync.replace_shower;
     if (sync.replace_vanity !== undefined) updates.replace_vanity = sync.replace_vanity;
     if (sync.replace_toilet !== undefined) updates.replace_toilet = sync.replace_toilet;
+    if (sync.replace_floor !== undefined) updates.replace_floor = sync.replace_floor;
+    if (sync.demo_floor !== undefined) updates.demo_floor = sync.demo_floor;
+    if (sync.demo_walls !== undefined) updates.demo_walls = sync.demo_walls;
 
     // Merge specs (keep existing form values, override with sketch values)
     if (sync.bathtub_spec) {

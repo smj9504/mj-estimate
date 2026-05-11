@@ -33,15 +33,29 @@ const { Text } = Typography;
 
 // ── Props ──
 
-/** Extracted fixture data for syncing sketch → form fields */
+/** Extracted sketch data for syncing sketch → estimate form fields */
 export interface SketchFixtureSync {
-  bathtub_spec?: Record<string, any>;
-  shower_spec?: Record<string, any>;
-  vanity_spec?: Record<string, any>;
+  // Room dimensions
+  length_ft?: number;
+  width_ft?: number;
+  floor_sf?: number;
+  wall_sf?: number;
+
+  // Fixture replace flags
   replace_tub?: boolean;
   replace_shower?: boolean;
   replace_vanity?: boolean;
   replace_toilet?: boolean;
+  replace_floor?: boolean;
+
+  // Demo flags
+  demo_floor?: boolean;
+  demo_walls?: boolean;
+
+  // Specs
+  bathtub_spec?: Record<string, any>;
+  shower_spec?: Record<string, any>;
+  vanity_spec?: Record<string, any>;
 }
 
 export interface BESketchTabProps {
@@ -61,10 +75,31 @@ export interface BESketchTabProps {
 
 // ── Component ──
 
-/** Build sync payload from sketch fixtures → estimate form fields */
-function buildFixtureSync(fixtures: BESketchData['fixtures']): SketchFixtureSync {
+/** Build sync payload from sketch rooms + fixtures → estimate form fields */
+function buildSketchSync(data: BESketchData): SketchFixtureSync {
+  const { fixtures, rooms } = data;
+  const ppf = data.settings.pixelsPerFoot;
   const sync: SketchFixtureSync = {};
 
+  // ── Room dimensions (use primary bathroom room) ──
+  const bathroom = rooms.find(r => r.roomType === 'bathroom') || rooms[0];
+  if (bathroom && bathroom.boundary.length >= 3) {
+    const xs = bathroom.boundary.map(p => p.x);
+    const ys = bathroom.boundary.map(p => p.y);
+    const widthPx = Math.max(...xs) - Math.min(...xs);
+    const depthPx = Math.max(...ys) - Math.min(...ys);
+    const widthFt = Math.round((widthPx / ppf) * 10) / 10;
+    const depthFt = Math.round((depthPx / ppf) * 10) / 10;
+    sync.length_ft = widthFt;
+    sync.width_ft = depthFt;
+    sync.floor_sf = Math.round(widthFt * depthFt * 10) / 10;
+
+    const heightFt = (bathroom.heightInches || 96) / 12;
+    const perimeterFt = 2 * (widthFt + depthFt);
+    sync.wall_sf = Math.round(perimeterFt * heightFt * 10) / 10;
+  }
+
+  // ── Fixture flags & specs ──
   const bathtub = fixtures.find(f => f.type === 'bathtub');
   const shower = fixtures.find(f => f.type === 'shower');
   const vanity = fixtures.find(f => f.type === 'vanity');
@@ -74,6 +109,10 @@ function buildFixtureSync(fixtures: BESketchData['fixtures']): SketchFixtureSync
   sync.replace_shower = !!shower;
   sync.replace_vanity = !!vanity;
   sync.replace_toilet = !!toilet;
+  // If there are fixtures, floor is being replaced
+  sync.replace_floor = !!(bathtub || shower || vanity || toilet);
+  sync.demo_floor = sync.replace_floor;
+  sync.demo_walls = !!(shower || bathtub);
 
   if (bathtub) {
     const p = bathtub.properties;
@@ -154,13 +193,13 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
     }
   }, [api.data, api.isDirty, onSketchChange]);
 
-  // ── Sync fixtures → estimate form fields ──
+  // ── Sync sketch (rooms + fixtures) → estimate form fields ──
   useEffect(() => {
     if (onFixtureSync && api.isDirty) {
-      const sync = buildFixtureSync(api.data.fixtures);
+      const sync = buildSketchSync(api.data);
       onFixtureSync(sync);
     }
-  }, [api.data.fixtures, api.isDirty, onFixtureSync]);
+  }, [api.data.fixtures, api.data.rooms, api.isDirty, onFixtureSync]);
 
   // ── Save handler ──
   const handleSave = useCallback(async () => {

@@ -231,6 +231,10 @@ const WaterMitigationDetail: React.FC = () => {
   };
 
   const handleStatusChange = (newStatus: JobStatus) => {
+    if (job && newStatus === job.status) {
+      message.warning('Already in this status');
+      return;
+    }
     setSelectedStatus(newStatus);
     setShowStatusModal(true);
   };

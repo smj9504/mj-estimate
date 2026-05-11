@@ -176,7 +176,7 @@ class BathroomEstimateService:
             "existing_tub_material", "shower_spec", "bathtub_spec",
             "vanity_spec", "toilet_spec", "floor_spec", "walls_spec",
             "accessories_spec", "plumbing_spec", "electrical_spec",
-            "substrate_spec", "hidden_costs", "overview_text",
+            "substrate_spec", "hidden_costs", "sketch_data", "overview_text",
             "include_overhead_profit", "overhead_pct", "profit_pct",
         ]
 

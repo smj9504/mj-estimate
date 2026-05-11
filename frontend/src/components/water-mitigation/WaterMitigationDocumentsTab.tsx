@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
-import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Tabs, Grid } from 'antd';
+import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Grid } from 'antd';
 import { FilePdfOutlined, PlusOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined, EditOutlined } from '@ant-design/icons';
 import FileGallery from '../common/FileGallery/FileGallery';
 import WMDocumentList from './WMDocumentList';
@@ -67,7 +67,6 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [customFilename, setCustomFilename] = useState<string>('');
   const [compressPdf, setCompressPdf] = useState<boolean>(false);  // Compress PDF option
   const [creatingPdf, setCreatingPdf] = useState(false);
-  const [activeTab, setActiveTab] = useState<string>('documents');
   const [annotatorOpen, setAnnotatorOpen] = useState(false);
   const [editingDocumentId, setEditingDocumentId] = useState<string | undefined>(undefined);
   const [editingAnnotations, setEditingAnnotations] = useState<PdfAnnotationData | null>(null);
@@ -256,68 +255,52 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   };
 
   return (
-    <div className="wm-documents-tab" style={{ height: isMobile ? 'auto' : 'calc(100vh - 180px)', minHeight: isMobile ? 'calc(100vh - 250px)' : undefined, padding: isMobile ? '8px' : '16px' }}>
-      <Tabs
-        activeKey={activeTab}
-        onChange={setActiveTab}
-        items={[
-          {
-            key: 'documents',
-            label: (
-              <span>
-                <FileTextOutlined />
-                Documents
-              </span>
-            ),
-            children: (
-              <div>
-                <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={handleCreateDocument}
-                  >
-                    Create Document
-                  </Button>
-                  <Button
-                    icon={<EditOutlined />}
-                    onClick={handleOpenAnnotator}
-                  >
-                    Annotate PDF
-                  </Button>
-                </div>
-                <div style={{ height: isMobile ? 'auto' : 'calc(100vh - 300px)', overflow: 'auto' }}>
-                  <WMDocumentList
-                    ref={documentListRef}
-                    jobId={jobId}
-                    onDelete={() => {
-                      // Refresh list after delete
-                    }}
-                    onEditAnnotation={handleEditAnnotatedDocument}
-                  />
-                </div>
-              </div>
-            ),
-          },
-          {
-            key: 'invoices',
-            label: (
-              <span>
-                <DollarOutlined />
-                Invoices
-              </span>
-            ),
-            children: (
-              <div style={{ height: isMobile ? 'auto' : 'calc(100vh - 260px)', overflow: 'auto' }}>
-                <WMInvoiceList
-                  ref={invoiceListRef}
-                  jobId={jobId}
-                />
-              </div>
-            ),
-          },
-        ]}
-      />
+    <div className="wm-documents-tab" style={{ height: isMobile ? 'auto' : 'calc(100vh - 180px)', minHeight: isMobile ? 'calc(100vh - 250px)' : undefined, padding: isMobile ? '8px' : '16px', overflow: 'auto' }}>
+      {/* Documents Section */}
+      <Card
+        title={<span><FileTextOutlined style={{ marginRight: 8 }} />Documents</span>}
+        size="small"
+        extra={
+          <Space size="small">
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={handleCreateDocument}
+              size="small"
+            >
+              Create
+            </Button>
+            <Button
+              icon={<EditOutlined />}
+              onClick={handleOpenAnnotator}
+              size="small"
+            >
+              Annotate
+            </Button>
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        <WMDocumentList
+          ref={documentListRef}
+          jobId={jobId}
+          onDelete={() => {
+            // Refresh list after delete
+          }}
+          onEditAnnotation={handleEditAnnotatedDocument}
+        />
+      </Card>
+
+      {/* Invoices Section */}
+      <Card
+        title={<span><DollarOutlined style={{ marginRight: 8 }} />Invoices</span>}
+        size="small"
+      >
+        <WMInvoiceList
+          ref={invoiceListRef}
+          jobId={jobId}
+        />
+      </Card>
 
       <Modal
         title="Create Document"

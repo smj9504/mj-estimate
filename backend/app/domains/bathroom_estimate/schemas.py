@@ -210,6 +210,7 @@ class BathroomEstimateResponse(BaseModel):
     electrical_spec: Optional[Dict[str, Any]] = None
     substrate_spec: Optional[Dict[str, Any]] = None
     hidden_costs: Optional[Dict[str, Any]] = None
+    sketch_data: Optional[Dict[str, Any]] = None
 
     # Overview & O&P
     overview_text: Optional[str] = None
