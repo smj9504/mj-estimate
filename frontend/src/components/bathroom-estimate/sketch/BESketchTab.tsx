@@ -165,6 +165,37 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const stageRef = useRef<any>(null); // Konva.Stage ref passed to canvas
+
+  // ── Zoom controls ──
+  const handleZoom = useCallback((direction: 'in' | 'out' | 'fit') => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    if (direction === 'fit') {
+      stage.scale({ x: 1, y: 1 });
+      stage.position({ x: 0, y: 0 });
+      setZoomLevel(1);
+    } else {
+      const scaleBy = 1.25;
+      const oldScale = stage.scaleX();
+      const center = { x: canvasSize.width / 2, y: canvasSize.height / 2 };
+      const mousePointTo = {
+        x: (center.x - stage.x()) / oldScale,
+        y: (center.y - stage.y()) / oldScale,
+      };
+      const newScale = direction === 'in'
+        ? Math.min(5, oldScale * scaleBy)
+        : Math.max(0.2, oldScale / scaleBy);
+      stage.scale({ x: newScale, y: newScale });
+      stage.position({
+        x: center.x - mousePointTo.x * newScale,
+        y: center.y - mousePointTo.y * newScale,
+      });
+      setZoomLevel(newScale);
+    }
+    stage.batchDraw();
+  }, [canvasSize]);
 
   // ── Resize observer ──
   useEffect(() => {
@@ -222,7 +253,13 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         flexShrink: 0, borderBottom: '1px solid #e8e8e8',
       }}>
-        <BESketchToolbar api={api} />
+        <BESketchToolbar
+          api={api}
+          onZoomIn={() => handleZoom('in')}
+          onZoomOut={() => handleZoom('out')}
+          onZoomFit={() => handleZoom('fit')}
+          zoomLevel={zoomLevel}
+        />
         <Space size={4} style={{ padding: '4px 8px', flexShrink: 0 }}>
           {api.isDirty && <Text type="warning" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>*</Text>}
           <Tooltip title="Save sketch (Ctrl+S)">
@@ -249,7 +286,7 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}
       >
         <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
-          <BESketchCanvas api={api} width={canvasSize.width} height={canvasSize.height} />
+          <BESketchCanvas api={api} width={canvasSize.width} height={canvasSize.height} stageRef={stageRef} onZoomChange={setZoomLevel} />
         </div>
 
         {!sidebarCollapsed && (

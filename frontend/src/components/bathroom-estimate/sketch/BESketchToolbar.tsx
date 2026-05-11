@@ -19,6 +19,9 @@ import {
   RedoOutlined,
   EyeOutlined,
   TableOutlined,
+  ZoomInOutlined,
+  ZoomOutOutlined,
+  CompressOutlined,
 } from '@ant-design/icons';
 import type { BESketchTool } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
@@ -27,6 +30,10 @@ const { Text } = Typography;
 
 interface BESketchToolbarProps {
   api: BESketchStateAPI;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onZoomFit?: () => void;
+  zoomLevel?: number;
 }
 
 const TOOLS: { key: BESketchTool; icon: React.ReactNode; label: string; tooltip: string }[] = [
@@ -39,7 +46,7 @@ const TOOLS: { key: BESketchTool; icon: React.ReactNode; label: string; tooltip:
   { key: 'damage_zone', icon: <WarningOutlined />, label: 'Damage', tooltip: 'Mark water damage / cement board areas' },
 ];
 
-const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api }) => {
+const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoomOut, onZoomFit, zoomLevel }) => {
   const { activeTool, setActiveTool, undo, redo, canUndo, canRedo, data, updateSettings } = api;
 
   return (
@@ -103,6 +110,23 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api }) => {
             ghost={data.settings.showDimensions}
             onClick={() => updateSettings({ showDimensions: !data.settings.showDimensions })}
           />
+        </Tooltip>
+
+        <Divider type="vertical" style={{ margin: '0 2px' }} />
+
+        <Tooltip title="Zoom in (Ctrl+Scroll up)">
+          <Button size="small" icon={<ZoomInOutlined />} onClick={onZoomIn} />
+        </Tooltip>
+        {zoomLevel != null && (
+          <span style={{ fontSize: 10, minWidth: 32, textAlign: 'center', color: '#666' }}>
+            {Math.round(zoomLevel * 100)}%
+          </span>
+        )}
+        <Tooltip title="Zoom out (Ctrl+Scroll down)">
+          <Button size="small" icon={<ZoomOutOutlined />} onClick={onZoomOut} />
+        </Tooltip>
+        <Tooltip title="Fit to view">
+          <Button size="small" icon={<CompressOutlined />} onClick={onZoomFit} />
         </Tooltip>
       </Space>
     </div>

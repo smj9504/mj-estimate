@@ -28,6 +28,8 @@ interface BESketchCanvasProps {
   api: BESketchStateAPI;
   width: number;
   height: number;
+  stageRef?: React.MutableRefObject<any>;
+  onZoomChange?: (level: number) => void;
 }
 
 // ── Helpers ──
@@ -135,8 +137,9 @@ function constrainAxis(start: BEPoint, current: BEPoint): BEPoint {
 
 // ── Component ──
 
-const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) => {
-  const stageRef = useRef<Konva.Stage>(null);
+const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, stageRef: externalStageRef, onZoomChange }) => {
+  const internalStageRef = useRef<Konva.Stage>(null);
+  const stageRef = externalStageRef ?? internalStageRef;
   const {
     data,
     activeTool,
@@ -608,8 +611,30 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
           e.evt.preventDefault();
           const stage = stageRef.current;
           if (!stage) return;
-          const oldPos = stage.position();
-          stage.position({ x: oldPos.x - e.evt.deltaX, y: oldPos.y - e.evt.deltaY });
+
+          if (e.evt.ctrlKey || e.evt.metaKey) {
+            // Ctrl+Wheel → Zoom (toward pointer)
+            const scaleBy = 1.08;
+            const oldScale = stage.scaleX();
+            const pointer = stage.getPointerPosition();
+            if (!pointer) return;
+            const mousePointTo = {
+              x: (pointer.x - stage.x()) / oldScale,
+              y: (pointer.y - stage.y()) / oldScale,
+            };
+            const direction = e.evt.deltaY > 0 ? -1 : 1;
+            const newScale = Math.min(5, Math.max(0.2, direction > 0 ? oldScale * scaleBy : oldScale / scaleBy));
+            stage.scale({ x: newScale, y: newScale });
+            stage.position({
+              x: pointer.x - mousePointTo.x * newScale,
+              y: pointer.y - mousePointTo.y * newScale,
+            });
+            onZoomChange?.(newScale);
+          } else {
+            // Normal wheel → Pan
+            const oldPos = stage.position();
+            stage.position({ x: oldPos.x - e.evt.deltaX, y: oldPos.y - e.evt.deltaY });
+          }
           stage.batchDraw();
         }}
         onMouseDown={handleMouseDown}
