@@ -127,9 +127,10 @@ function snapToWallEndpoints(p: BEPoint, walls: BEWall[], excludeId?: string): B
 function constrainAxis(start: BEPoint, current: BEPoint): BEPoint {
   const dx = Math.abs(current.x - start.x);
   const dy = Math.abs(current.y - start.y);
-  if (dx > dy * 2) return { x: current.x, y: start.y }; // horizontal
-  if (dy > dx * 2) return { x: start.x, y: current.y }; // vertical
-  return current;
+  // Snap to horizontal if angle < ~34° (tan≈0.67), vertical if > ~56°
+  if (dx > dy * 1.5) return { x: current.x, y: start.y }; // horizontal
+  if (dy > dx * 1.5) return { x: start.x, y: current.y }; // vertical
+  return current; // diagonal (45° zone)
 }
 
 // ── Component ──
@@ -267,7 +268,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       if (activeTool === 'wall' && drawingWall) {
         let pos = getStagePoint(e, true);
-        if (shiftHeld) pos = constrainAxis(drawingWall.start, pos);
+        // Always snap to axis if close (within 5°), Shift forces strict axis lock
+        pos = constrainAxis(drawingWall.start, pos);
         const lenPx = dist(drawingWall.start, pos);
         if (lenPx > 8) {
           addWall(drawingWall.start, pos);
@@ -323,6 +325,17 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
       } else if (e.ctrlKey && e.key === 's') {
         e.preventDefault();
         // Trigger save via parent (BESketchTab handles this)
+      } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        if (selectedId) {
+          const fix = fixtures.find((fx) => fx.id === selectedId);
+          if (fix) {
+            e.preventDefault();
+            const step = e.shiftKey ? 10 : 1;
+            const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+            const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+            api.updateFixture(fix.id, { position: { x: fix.position.x + dx, y: fix.position.y + dy } });
+          }
+        }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedId) {
           if (fixtures.find((fx) => fx.id === selectedId)) api.removeFixture(selectedId);
@@ -409,7 +422,12 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
     if (!newInches || newInches < 1) { setEditingWallId(null); return; }
     const dx = wall.end.x - wall.start.x;
     const dy = wall.end.y - wall.start.y;
-    const angle = Math.atan2(dy, dx);
+    let angle = Math.atan2(dy, dx);
+    // Snap to axis: if within 15° of horizontal or vertical, lock it
+    const deg = (angle * 180) / Math.PI;
+    if (Math.abs(deg) < 15 || Math.abs(deg) > 165) angle = Math.abs(deg) > 90 ? Math.PI : 0;
+    else if (Math.abs(deg - 90) < 15) angle = Math.PI / 2;
+    else if (Math.abs(deg + 90) < 15) angle = -Math.PI / 2;
     const newPx = (newInches / 12) * ppf;
     const oldEnd = wall.end;
     const newEnd: BEPoint = {
@@ -462,37 +480,38 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
     const pt = room.boundary[idx];
     const npt = room.boundary[nIdx];
 
-    // Compute direction of this edge
-    const dx = npt.x - pt.x;
-    const dy = npt.y - pt.y;
+    // Snap edge direction to axis
+    let dx = npt.x - pt.x;
+    let dy = npt.y - pt.y;
     const len = Math.sqrt(dx * dx + dy * dy);
     if (len < 1) { setEditingRoomEdge(null); return; }
+    // Force horizontal/vertical if close
+    const isH = Math.abs(dy) < Math.abs(dx) * 0.2; // nearly horizontal
+    const isV = Math.abs(dx) < Math.abs(dy) * 0.2; // nearly vertical
+    if (isH) { dy = 0; dx = dx > 0 ? len : -len; }
+    else if (isV) { dx = 0; dy = dy > 0 ? len : -len; }
+    const dirLen = Math.sqrt(dx * dx + dy * dy);
 
     // New end point = start + direction * newPx
     const newNpt: BEPoint = {
-      x: Math.round(pt.x + (dx / len) * newPx),
-      y: Math.round(pt.y + (dy / len) * newPx),
+      x: Math.round(pt.x + (dx / dirLen) * newPx),
+      y: Math.round(pt.y + (dy / dirLen) * newPx),
     };
-
-    // Compute delta to apply to the moved vertex
-    const deltaX = newNpt.x - npt.x;
-    const deltaY = newNpt.y - npt.y;
 
     const oldB = [...room.boundary];
     const b = [...room.boundary];
     b[nIdx] = newNpt;
 
-    // For rectangular rooms: also move the adjacent vertex that shares the same axis
+    // For rectangular rooms: move any vertex that shared X or Y with old npt
     if (room.boundary.length === 4) {
-      // The vertex after nIdx shares one coordinate with nIdx
-      const nnIdx = (nIdx + 1) % 4;
-      const isH = Math.abs(dy) < Math.abs(dx); // edge is horizontal
-      if (isH) {
-        // Horizontal edge moved: nIdx.x changed → nnIdx.x should follow
-        b[nnIdx] = { x: b[nnIdx].x + deltaX, y: b[nnIdx].y };
-      } else {
-        // Vertical edge moved: nIdx.y changed → nnIdx.y should follow
-        b[nnIdx] = { x: b[nnIdx].x, y: b[nnIdx].y + deltaY };
+      for (let i = 0; i < 4; i++) {
+        if (i === nIdx) continue;
+        if (Math.abs(oldB[i].x - oldB[nIdx].x) < 2) {
+          b[i] = { x: newNpt.x, y: b[i].y };
+        }
+        if (Math.abs(oldB[i].y - oldB[nIdx].y) < 2) {
+          b[i] = { x: b[i].x, y: newNpt.y };
+        }
       }
     }
 
@@ -584,6 +603,15 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
         ref={stageRef}
         width={width}
         height={height}
+        draggable={activeTool === 'select' && !drawingWall && !drawingRoom && !polyRoom}
+        onWheel={(e) => {
+          e.evt.preventDefault();
+          const stage = stageRef.current;
+          if (!stage) return;
+          const oldPos = stage.position();
+          stage.position({ x: oldPos.x - e.evt.deltaX, y: oldPos.y - e.evt.deltaY });
+          stage.batchDraw();
+        }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -672,28 +700,21 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
 
                       const b = [...room.boundary];
                       if (isRect) {
-                        // Rectangular: move dragged corner + adjust adjacent to stay rectangular
-                        // 0=TL, 1=TR, 2=BR, 3=BL
+                        // Rectangular: find which vertices share X or Y with dragged vertex
+                        const old = b[idx];
                         b[idx] = pos;
-                        const prevI = (idx + 3) % 4;
-                        const nextI = (idx + 1) % 4;
-                        // TL(0)↔BL(3) share X, TL(0)↔TR(1) share Y
-                        // TR(1)↔BR(2) share X, BL(3)↔BR(2) share Y
-                        if (idx === 0) { // TL: BL shares X, TR shares Y
-                          b[3] = { x: pos.x, y: b[3].y };
-                          b[1] = { x: b[1].x, y: pos.y };
-                        } else if (idx === 1) { // TR: TL shares Y, BR shares X
-                          b[0] = { x: b[0].x, y: pos.y };
-                          b[2] = { x: pos.x, y: b[2].y };
-                        } else if (idx === 2) { // BR: TR shares X, BL shares Y
-                          b[1] = { x: pos.x, y: b[1].y };
-                          b[3] = { x: b[3].x, y: pos.y };
-                        } else { // BL: BR shares Y, TL shares X
-                          b[2] = { x: b[2].x, y: pos.y };
-                          b[0] = { x: pos.x, y: b[0].y };
+                        for (let i = 0; i < 4; i++) {
+                          if (i === idx) continue;
+                          // Vertex that shared X with old position → update its X
+                          if (Math.abs(b[i].x - old.x) < 2) {
+                            b[i] = { x: pos.x, y: b[i].y };
+                          }
+                          // Vertex that shared Y with old position → update its Y
+                          if (Math.abs(b[i].y - old.y) < 2) {
+                            b[i] = { x: b[i].x, y: pos.y };
+                          }
                         }
                       } else {
-                        // Polygon: free-move single vertex
                         b[idx] = pos;
                       }
                       updateRoom(room.id, b);
@@ -1025,12 +1046,13 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height }) =
               onSelect={() => setSelectedId(fix.id)}
               onDragEnd={(pos) => api.updateFixture(fix.id, { position: pos })}
               onResize={(w, h) => api.updateFixture(fix.id, { dimensions: { width: w, height: h } })}
+              onRotate={(deg) => api.updateFixture(fix.id, { rotation: deg })}
             />
           ))}
         </Layer>
 
-        {/* ── Dimension Labels Layer (top-most, always visible) ── */}
-        <Layer>
+        {/* ── Dimension Labels Layer (top-most, but non-interactive when fixture selected) ── */}
+        <Layer listening={!fixtures.some(f => f.id === selectedId)}>
           {/* Wall dimension labels */}
           {walls.map((wall) => {
             const lenIn = (calcWallLengthPx(wall) / ppf) * 12;
@@ -1130,6 +1152,7 @@ interface FixtureNodeProps {
   onSelect: () => void;
   onDragEnd: (pos: BEPoint) => void;
   onResize: (widthInches: number, heightInches: number) => void;
+  onRotate: (degrees: number) => void;
 }
 
 const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
@@ -1143,6 +1166,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
   onSelect,
   onDragEnd,
   onResize,
+  onRotate,
 }) => {
   const trTargetRef = useRef<Konva.Rect>(null);
   const trRef = useRef<Konva.Transformer>(null);
@@ -1155,14 +1179,24 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
     fix.properties.sinkCount,
   );
 
-  // Attach transformer to the standalone Rect (outside the Group)
+  // Attach transformer to the standalone Rect; re-sync on dimension/rotation change
   useEffect(() => {
     if (isSelected && isResizable && trRef.current && trTargetRef.current) {
-      trRef.current.nodes([trTargetRef.current]);
+      // Ensure target rect matches current fixture state
+      const node = trTargetRef.current;
+      node.position({ x: fix.position.x, y: fix.position.y });
+      node.width(wPx);
+      node.height(hPx);
+      node.offsetX(wPx / 2);
+      node.offsetY(hPx / 2);
+      node.rotation(fix.rotation);
+      node.scaleX(1);
+      node.scaleY(1);
+      trRef.current.nodes([node]);
       trRef.current.forceUpdate();
       trRef.current.getLayer()?.batchDraw();
     }
-  }, [isSelected, isResizable, wPx, hPx]);
+  }, [isSelected, isResizable, wPx, hPx, fix.position.x, fix.position.y, fix.rotation]);
 
   return (
     <>
@@ -1301,10 +1335,13 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
       <>
         <Rect
           ref={trTargetRef}
-          x={fix.position.x - wPx / 2}
-          y={fix.position.y - hPx / 2}
+          x={fix.position.x}
+          y={fix.position.y}
           width={wPx}
           height={hPx}
+          offsetX={wPx / 2}
+          offsetY={hPx / 2}
+          rotation={fix.rotation}
           fill="transparent"
           stroke="transparent"
           listening={false}
@@ -1315,22 +1352,35 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
             const scaleY = node.scaleY();
             const newW = Math.round((wPx * scaleX / ppf) * 12);
             const newH = Math.round((hPx * scaleY / ppf) * 12);
+            const rawDeg = node.rotation();
+            const snappedDeg = Math.round(rawDeg / 15) * 15;
+            // Reset transform state
             node.scaleX(1);
             node.scaleY(1);
-            node.position({ x: fix.position.x - wPx / 2, y: fix.position.y - hPx / 2 });
+            node.rotation(fix.rotation);
+            node.position({ x: fix.position.x, y: fix.position.y });
             node.width(wPx);
             node.height(hPx);
-            // Window: only width changes, keep original height
+            node.offsetX(wPx / 2);
+            node.offsetY(hPx / 2);
+            // Apply rotation
+            if (Math.abs(snappedDeg - fix.rotation) > 0.5) {
+              onRotate(snappedDeg % 360);
+            }
+            // Apply resize
             const finalH = fix.type === 'window' ? fix.dimensions.height : Math.max(12, Math.min(120, newH));
-            onResize(
-              Math.max(12, Math.min(120, newW)),
-              finalH,
-            );
+            if (Math.abs(scaleX - 1) > 0.01 || Math.abs(scaleY - 1) > 0.01) {
+              onResize(
+                Math.max(12, Math.min(120, newW)),
+                finalH,
+              );
+            }
           }}
         />
         <Transformer
           ref={trRef}
-          rotateEnabled={false}
+          rotateEnabled={true}
+          rotationSnaps={[0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 195, 210, 225, 240, 255, 270, 285, 300, 315, 330, 345]}
           keepRatio={fix.type === 'toilet'}
           enabledAnchors={
             fix.type === 'toilet'
