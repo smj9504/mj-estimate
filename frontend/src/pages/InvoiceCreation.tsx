@@ -1373,15 +1373,20 @@ const InvoiceCreation: React.FC = () => {
 
     // Set adjustments if provided
     if (data.adjustments && Array.isArray(data.adjustments) && data.adjustments.length > 0) {
-      const loadedAdjustments: Adjustment[] = data.adjustments.map((adj: any, index: number) => ({
-        id: `adj-${Date.now()}-${index}`,
-        name: adj.name || '',
-        percentage: parseFloat(String(adj.percentage)) || 0,
-        fixedAmount: adj.fixed_amount != null ? parseFloat(String(adj.fixed_amount)) : undefined,
-        type: adj.type || 'add',
-        order: adj.order || index + 1,
-        note: adj.note || '',
-      }));
+      const loadedAdjustments: Adjustment[] = data.adjustments.map((adj: any, index: number) => {
+        const pct = parseFloat(String(adj.percentage)) || 0;
+        const fixedAmt = adj.fixed_amount != null ? parseFloat(String(adj.fixed_amount)) : undefined;
+        return {
+          id: `adj-${Date.now()}-${index}`,
+          name: adj.name || '',
+          percentage: pct,
+          // Default to $ mode when percentage is 0 and no fixed_amount set
+          fixedAmount: fixedAmt !== undefined ? fixedAmt : (pct === 0 ? 0 : undefined),
+          type: adj.type || 'add',
+          order: adj.order || index + 1,
+          note: adj.note || '',
+        };
+      });
       setAdjustments(loadedAdjustments);
     } else {
       setAdjustments([]);
@@ -2654,15 +2659,18 @@ const InvoiceCreation: React.FC = () => {
 
       // 5. Adjustments
       if (parsed.adjustments && Array.isArray(parsed.adjustments)) {
-        const newAdjustments: Adjustment[] = parsed.adjustments.map((adj: any, idx: number) => ({
+        const newAdjustments: Adjustment[] = parsed.adjustments.map((adj: any, idx: number) => {
+          const pct = parseFloat(adj.percentage) || 0;
+          const fixedAmt = adj.fixed_amount != null ? parseFloat(String(adj.fixed_amount)) : undefined;
+          return {
           id: `adj-${Date.now()}-${idx}`,
           name: adj.name || '',
-          percentage: parseFloat(adj.percentage) || 0,
-          fixedAmount: adj.fixed_amount != null ? parseFloat(String(adj.fixed_amount)) : undefined,
+          percentage: pct,
+          fixedAmount: fixedAmt !== undefined ? fixedAmt : (pct === 0 ? 0 : undefined),
           type: adj.type === 'subtract' ? 'subtract' : 'add',
           order: adj.order || idx + 1,
           note: adj.note || '',
-        }));
+        };});
         setAdjustments(newAdjustments);
       }
 
