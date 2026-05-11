@@ -227,10 +227,8 @@ const BathroomEstimateDetail: React.FC = () => {
     return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>;
   }
 
-  // ── Line items table columns ──
+  // ── Line items table columns (per-phase, no Phase column needed) ──
   const lineItemColumns = [
-    { title: 'Phase', dataIndex: 'phase', key: 'phase', width: 60,
-      render: (p: number) => <Tag>{p}</Tag> },
     { title: 'Description', dataIndex: 'description', key: 'description' },
     { title: 'Qty', dataIndex: 'quantity', key: 'qty', width: 70, align: 'right' as const,
       render: (v: number) => v?.toFixed(1) },
@@ -239,8 +237,8 @@ const BathroomEstimateDetail: React.FC = () => {
       render: (v: number) => `$${v?.toFixed(2)}` },
     { title: 'Total', dataIndex: 'total', key: 'total', width: 100, align: 'right' as const,
       render: (v: number) => `$${v?.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-    { title: 'Category', dataIndex: 'category', key: 'cat', width: 80,
-      render: (c: string) => <Tag>{c}</Tag> },
+    { title: 'Notes', dataIndex: 'notes', key: 'notes', width: 140, ellipsis: true,
+      render: (n: string) => n ? <Text type="secondary" style={{ fontSize: 12 }}>{n}</Text> : null },
   ];
 
   // Group line items by phase for summary
@@ -1309,15 +1307,46 @@ const BathroomEstimateDetail: React.FC = () => {
                       </Card>
                     )}
 
-                    {/* Detailed line items */}
-                    <Table
-                      columns={lineItemColumns}
-                      dataSource={lineItems}
-                      rowKey="id"
-                      size="small"
-                      pagination={false}
-                      scroll={{ x: 700 }}
-                    />
+                    {/* Detailed line items grouped by phase */}
+                    <Collapse
+                      defaultActiveKey={phaseSummary.map(p => String(p.phase))}
+                      style={{ background: 'transparent' }}
+                    >
+                      {phaseSummary.map(p => {
+                        const phaseItems = lineItems.filter(li => li.phase === p.phase);
+                        return (
+                          <Panel
+                            header={
+                              <Row justify="space-between" style={{ width: '100%', paddingRight: 8 }}>
+                                <Col><Text strong>Phase {p.phase}: {p.label}</Text> <Tag>{p.count} items</Tag></Col>
+                                <Col><Text strong>${p.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text></Col>
+                              </Row>
+                            }
+                            key={String(p.phase)}
+                          >
+                            <Table
+                              columns={lineItemColumns}
+                              dataSource={phaseItems}
+                              rowKey="id"
+                              size="small"
+                              pagination={false}
+                              scroll={{ x: 600 }}
+                              summary={() => (
+                                <Table.Summary.Row>
+                                  <Table.Summary.Cell index={0} colSpan={4}>
+                                    <Text strong>Phase {p.phase} Subtotal</Text>
+                                  </Table.Summary.Cell>
+                                  <Table.Summary.Cell index={4} align="right">
+                                    <Text strong>${p.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                                  </Table.Summary.Cell>
+                                  <Table.Summary.Cell index={5} />
+                                </Table.Summary.Row>
+                              )}
+                            />
+                          </Panel>
+                        );
+                      })}
+                    </Collapse>
                   </>
                 )}
               </Card>
