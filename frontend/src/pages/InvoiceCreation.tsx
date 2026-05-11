@@ -178,6 +178,90 @@ const SortableSectionItem: React.FC<SortableSectionItemProps> = ({ id, children 
   );
 };
 
+// Sortable adjustment item for drag-and-drop reordering
+const SortableAdjustmentItem: React.FC<{
+  adj: Adjustment;
+  calculatedAdj: any;
+  handleAdjustmentChange: (id: string, field: keyof Adjustment, value: any) => void;
+  handleRemoveAdjustment: (id: string) => void;
+  setAdjustments: React.Dispatch<React.SetStateAction<Adjustment[]>>;
+}> = ({ adj, calculatedAdj, handleAdjustmentChange, handleRemoveAdjustment, setAdjustments }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: adj.id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    marginBottom: 12, padding: 12,
+    border: isDragging ? '1px dashed #1890ff' : '1px solid #f0f0f0',
+    borderRadius: 4, background: '#fafafa',
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      <Row gutter={8} align="middle">
+        <Col span={1}>
+          <span {...listeners} style={{ cursor: 'grab', color: '#999' }}><HolderOutlined /></span>
+        </Col>
+        <Col span={6}>
+          <Input placeholder="Name (e.g., Deductible)" value={adj.name} onChange={(e) => handleAdjustmentChange(adj.id, 'name', e.target.value)} size="small" />
+        </Col>
+        <Col span={3}>
+          <Select value={adj.type} onChange={(value) => handleAdjustmentChange(adj.id, 'type', value)} size="small" style={{ width: '100%' }}>
+            <Select.Option value="add">+ Add</Select.Option>
+            <Select.Option value="subtract">− Sub</Select.Option>
+          </Select>
+        </Col>
+        <Col span={7}>
+          <InputNumber
+            placeholder={adj.fixedAmount != null ? "Dollar amount" : "Percentage"}
+            value={adj.fixedAmount != null ? adj.fixedAmount : adj.percentage}
+            onChange={(value) => {
+              if (adj.fixedAmount != null) {
+                handleAdjustmentChange(adj.id, 'fixedAmount', value || 0);
+              } else {
+                handleAdjustmentChange(adj.id, 'percentage', value || 0);
+              }
+            }}
+            min={adj.fixedAmount != null ? 0 : -100}
+            max={adj.fixedAmount != null ? undefined : 100}
+            step={adj.fixedAmount != null ? 1 : 0.1}
+            size="small"
+            style={{ width: '100%' }}
+            addonAfter={
+              <Select
+                value={adj.fixedAmount != null ? '$' : '%'}
+                onChange={(mode) => {
+                  setAdjustments(prev => prev.map(a =>
+                    a.id === adj.id
+                      ? mode === '$'
+                        ? { ...a, fixedAmount: 0, percentage: 0 }
+                        : { ...a, fixedAmount: undefined, percentage: 0 }
+                      : a
+                  ));
+                }}
+                size="small" style={{ width: 52 }} popupMatchSelectWidth={false}
+              >
+                <Select.Option value="$">$</Select.Option>
+                <Select.Option value="%">%</Select.Option>
+              </Select>
+            }
+          />
+        </Col>
+        <Col span={5}>
+          <span style={{ fontSize: '13px', color: adj.type === 'subtract' ? '#cf1322' : '#389e0d', fontWeight: '600' }}>
+            {adj.type === 'subtract' ? '−' : '+'} ${calculatedAdj?.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+          </span>
+        </Col>
+        <Col span={2}>
+          <Button danger size="small" icon={<DeleteOutlined />} onClick={() => handleRemoveAdjustment(adj.id)} />
+        </Col>
+      </Row>
+      <div style={{ marginTop: 6, paddingLeft: 32 }}>
+        <Input placeholder="Note (optional, shown on PDF)" value={adj.note || ''} onChange={(e) => handleAdjustmentChange(adj.id, 'note', e.target.value)} size="small" />
+      </div>
+    </div>
+  );
+};
+
 // Section header component that receives drag listeners
 interface SectionHeaderProps {
   section: InvoiceSection;
@@ -3439,100 +3523,28 @@ const InvoiceCreation: React.FC = () => {
                         No adjustments. Use legacy O&P and Discount fields below, or add custom adjustments above.
                       </div>
                     )}
-                    {adjustments.map((adj, index) => {
-                      const calculatedAdj = totals.adjustments?.find(a => a.id === adj.id);
-                      return (
-                        <div key={adj.id} style={{ 
-                          marginBottom: 12, 
-                          padding: 12, 
-                          border: '1px solid #f0f0f0', 
-                          borderRadius: 4,
-                          background: '#fafafa'
-                        }}>
-                          <Row gutter={8} align="middle">
-                            <Col span={7}>
-                              <Input
-                                placeholder="Name (e.g., Deductible)"
-                                value={adj.name}
-                                onChange={(e) => handleAdjustmentChange(adj.id, 'name', e.target.value)}
-                                size="small"
-                              />
-                            </Col>
-                            <Col span={3}>
-                              <Select
-                                value={adj.type}
-                                onChange={(value) => handleAdjustmentChange(adj.id, 'type', value)}
-                                size="small"
-                                style={{ width: '100%' }}
-                              >
-                                <Select.Option value="add">+ Add</Select.Option>
-                                <Select.Option value="subtract">− Sub</Select.Option>
-                              </Select>
-                            </Col>
-                            <Col span={7}>
-                              <InputNumber
-                                placeholder={adj.fixedAmount != null ? "Dollar amount" : "Percentage"}
-                                value={adj.fixedAmount != null ? adj.fixedAmount : adj.percentage}
-                                onChange={(value) => {
-                                  if (adj.fixedAmount != null) {
-                                    handleAdjustmentChange(adj.id, 'fixedAmount', value || 0);
-                                  } else {
-                                    handleAdjustmentChange(adj.id, 'percentage', value || 0);
-                                  }
-                                }}
-                                min={adj.fixedAmount != null ? 0 : -100}
-                                max={adj.fixedAmount != null ? undefined : 100}
-                                step={adj.fixedAmount != null ? 1 : 0.1}
-                                size="small"
-                                style={{ width: '100%' }}
-                                addonAfter={
-                                  <Select
-                                    value={adj.fixedAmount != null ? '$' : '%'}
-                                    onChange={(mode) => {
-                                      setAdjustments(prev => prev.map(a =>
-                                        a.id === adj.id
-                                          ? mode === '$'
-                                            ? { ...a, fixedAmount: 0, percentage: 0 }
-                                            : { ...a, fixedAmount: undefined, percentage: 0 }
-                                          : a
-                                      ));
-                                    }}
-                                    size="small"
-                                    style={{ width: 52 }}
-                                    popupMatchSelectWidth={false}
-                                  >
-                                    <Select.Option value="$">$</Select.Option>
-                                    <Select.Option value="%">%</Select.Option>
-                                  </Select>
-                                }
-                              />
-                            </Col>
-                            <Col span={5}>
-                              <span style={{ fontSize: '13px', color: adj.type === 'subtract' ? '#cf1322' : '#389e0d', fontWeight: '600' }}>
-                                {adj.type === 'subtract' ? '−' : '+'} ${calculatedAdj?.amount?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
-                              </span>
-                            </Col>
-                            <Col span={2}>
-                              <Button
-                                danger
-                                size="small"
-                                icon={<DeleteOutlined />}
-                                onClick={() => handleRemoveAdjustment(adj.id)}
-                              />
-                            </Col>
-                          </Row>
-                          <div style={{ marginTop: 6 }}>
-                            <Input
-                              placeholder="Note (optional, shown on PDF)"
-                              value={adj.note || ''}
-                              onChange={(e) => handleAdjustmentChange(adj.id, 'note', e.target.value)}
-                              size="small"
-                              style={{ width: '100%' }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      modifiers={[restrictToVerticalAxis]}
+                      onDragEnd={(event) => {
+                        const { active, over } = event;
+                        if (!over || active.id === over.id) return;
+                        const oldIdx = adjustments.findIndex(a => a.id === active.id);
+                        const newIdx = adjustments.findIndex(a => a.id === over.id);
+                        if (oldIdx !== -1 && newIdx !== -1) {
+                          const reordered = arrayMove(adjustments, oldIdx, newIdx).map((a, i) => ({ ...a, order: i + 1 }));
+                          setAdjustments(reordered);
+                        }
+                      }}
+                    >
+                      <SortableContext items={adjustments.map(a => a.id)} strategy={verticalListSortingStrategy}>
+                        {adjustments.map((adj) => {
+                          const calculatedAdj = totals.adjustments?.find(a => a.id === adj.id);
+                          return <SortableAdjustmentItem key={adj.id} adj={adj} calculatedAdj={calculatedAdj} handleAdjustmentChange={handleAdjustmentChange} handleRemoveAdjustment={handleRemoveAdjustment} setAdjustments={setAdjustments} />;
+                        })}
+                      </SortableContext>
+                    </DndContext>
                   </div>
                 </Col>
               </Row>
