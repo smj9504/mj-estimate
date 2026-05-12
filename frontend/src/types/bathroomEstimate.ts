@@ -218,6 +218,10 @@ export interface BathroomEstimate {
   overhead_pct?: number;
   profit_pct?: number;
 
+  // Target total
+  target_total?: number | null;
+  adjustment_factor?: number | null;
+
   // Totals
   subtotal?: number;
   overhead_amount?: number;

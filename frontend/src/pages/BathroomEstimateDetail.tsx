@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
+  Alert,
   Button,
   Card,
   Checkbox,
@@ -15,6 +16,7 @@ import {
   Select,
   Space,
   Spin,
+  Statistic,
   Table,
   Tabs,
   Tag,
@@ -35,6 +37,7 @@ import {
   RobotOutlined,
   EditOutlined,
   BookOutlined,
+  AimOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -1435,6 +1438,53 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Form.Item>
                       </Col>
                     </Row>
+                    <Divider orientation="left" plain><AimOutlined /> Target Total (Reverse Pricing)</Divider>
+                    <Alert
+                      message="Set a desired total and all line items will scale proportionally when you Calculate. The final total will always meet or exceed the target."
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                    />
+                    <Row gutter={16} align="middle">
+                      <Col xs={24} sm={12} md={6}>
+                        <Form.Item label="Target Total ($)" name="target_total">
+                          <InputNumber
+                            style={{ width: '100%' }}
+                            min={0}
+                            step={1000}
+                            formatter={(v) => v ? `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                            parser={(v) => (v ? Number(v.replace(/,/g, '')) : 0) as any}
+                            placeholder="e.g. 12000"
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={4}>
+                        {estimate?.adjustment_factor && (
+                          <Statistic
+                            title="Adjustment Factor"
+                            value={estimate.adjustment_factor}
+                            precision={4}
+                            suffix="x"
+                            valueStyle={{
+                              color: estimate.adjustment_factor > 1 ? '#cf1322' : '#3f8600',
+                              fontSize: 16,
+                            }}
+                          />
+                        )}
+                      </Col>
+                      <Col xs={12} sm={12} md={6}>
+                        <Button
+                          type="dashed"
+                          onClick={() => {
+                            form.setFieldsValue({ target_total: null });
+                            message.info('Target total cleared. Click Calculate to restore original pricing.');
+                          }}
+                        >
+                          Clear Target
+                        </Button>
+                      </Col>
+                    </Row>
+
                     <Row gutter={16}>
                       <Col xs={24} md={16}>
                         <Form.Item label="Notes" name="notes">
@@ -1496,6 +1546,15 @@ const BathroomEstimateDetail: React.FC = () => {
                         <Col><Title level={4} style={{ margin: 0 }}>${(estimate?.total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Title></Col>
                       </Row>
                     </Card>
+
+                    {estimate?.target_total && estimate?.adjustment_factor && (
+                      <Alert
+                        message={`Target: $${estimate.target_total.toLocaleString()} | Factor: ${estimate.adjustment_factor.toFixed(4)}x`}
+                        type="info"
+                        showIcon
+                        style={{ marginBottom: 12 }}
+                      />
+                    )}
 
                     {/* Methodology */}
                     {estimate?.methodology_notes && (

@@ -151,6 +151,10 @@ class BathroomEstimate(Base, BaseModel):
     overhead_pct = Column(Float, default=0.10)
     profit_pct = Column(Float, default=0.10)
 
+    # ── Target Total (reverse-engineer pricing) ──
+    target_total = Column(Float, nullable=True)         # desired grand total
+    adjustment_factor = Column(Float, nullable=True)    # multiplier applied to line items
+
     # ── Calculated totals ──
     subtotal = Column(Float, default=0)
     overhead_amount = Column(Float, default=0)

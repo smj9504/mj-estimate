@@ -78,6 +78,9 @@ class BathroomEstimateBase(BaseModel):
     profit_pct: float = 0.10
     notes: Optional[str] = None
 
+    # Target total (reverse pricing)
+    target_total: Optional[float] = None
+
 
 class BathroomEstimateCreate(BathroomEstimateBase):
     pass
@@ -138,6 +141,7 @@ class BathroomEstimateUpdate(BaseModel):
     overhead_pct: Optional[float] = None
     profit_pct: Optional[float] = None
     notes: Optional[str] = None
+    target_total: Optional[float] = None
 
 
 # ── Line item schemas ──
@@ -229,6 +233,10 @@ class BathroomEstimateResponse(BaseModel):
     include_overhead_profit: bool = False
     overhead_pct: float = 0.10
     profit_pct: float = 0.10
+
+    # Target total
+    target_total: Optional[float] = None
+    adjustment_factor: Optional[float] = None
 
     # Totals
     subtotal: float = 0

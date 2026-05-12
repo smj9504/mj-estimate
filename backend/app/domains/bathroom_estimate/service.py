@@ -162,6 +162,7 @@ class BathroomEstimateService:
             "profit_amount": result["profit_amount"],
             "tax_amount": result["tax_amount"],
             "total": result["total"],
+            "adjustment_factor": result.get("adjustment_factor"),
             "methodology_notes": result.get("methodology_notes"),
             "warning_flags": result.get("warning_flags", []),
             "status": "calculated",

@@ -4,6 +4,7 @@ Bathroom Remodel Estimate calculator.
 """
 
 import logging
+import math
 from typing import Any, Dict, List, Optional
 
 from .pricing import (
@@ -854,6 +855,37 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     total = round(subtotal + overhead_amount + profit_amount + tax_amount, 2)
 
+    # ────────────────────────────────────────
+    # Target total adjustment (reverse pricing)
+    # ────────────────────────────────────────
+    adjustment_factor = None
+    target_total = getattr(estimate, "target_total", None)
+    if target_total and target_total > 0 and subtotal > 0:
+        if total < target_total:
+            # Scale line items so grand total >= target_total
+            # Use ceiling rounding on unit prices to guarantee total never falls below target
+            adjustment_factor = target_total / total
+
+            for item in line_items:
+                item["unit_price"] = round(
+                    math.ceil(item["unit_price"] * adjustment_factor * 100) / 100, 2,
+                )
+                item["total"] = round(item["quantity"] * item["unit_price"], 2)
+
+            # Recalculate totals with adjusted line items
+            subtotal = sum(item["total"] for item in line_items)
+            if include_op:
+                overhead_amount = round(subtotal * overhead_pct, 2)
+                profit_amount = round(subtotal * profit_pct, 2)
+            material_portion = subtotal * 0.50
+            tax_amount = round(material_portion * tax_rate, 2)
+            total = round(subtotal + overhead_amount + profit_amount + tax_amount, 2)
+
+            warnings.append(
+                f"Target total applied: ${target_total:,.2f} "
+                f"(adjustment factor: {adjustment_factor:.4f})"
+            )
+
     # Methodology notes
     method_parts = [
         f"DMV region pricing ({state}), labor multiplier: {labor_mult:.2f}",
@@ -863,6 +895,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         method_parts.append(f"O&P: {overhead_pct*100:.0f}% overhead + {profit_pct*100:.0f}% profit")
     else:
         method_parts.append("O&P: Not included (contractor direct pricing)")
+    if adjustment_factor:
+        method_parts.append(f"Target total: ${target_total:,.2f} (factor: {adjustment_factor:.4f}x)")
 
     return {
         "line_items": line_items,
@@ -871,6 +905,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         "profit_amount": profit_amount,
         "tax_amount": tax_amount,
         "total": total,
+        "adjustment_factor": round(adjustment_factor, 6) if adjustment_factor else None,
         "methodology_notes": " | ".join(method_parts),
         "warning_flags": warnings,
     }
