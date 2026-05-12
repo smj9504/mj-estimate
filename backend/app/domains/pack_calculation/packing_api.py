@@ -9,7 +9,7 @@ client/company DB integration.
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 import logging
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import Optional
 
 from app.core.database_factory import get_db
@@ -320,7 +320,11 @@ def list_estimates(
     current_user: Staff = Depends(get_current_user),
 ):
     """List packing estimates with optional filters."""
-    query = db.query(PackCalculation).order_by(
+    query = db.query(PackCalculation).options(
+        joinedload(PackCalculation.client),
+        joinedload(PackCalculation.company),
+        joinedload(PackCalculation.rooms),
+    ).order_by(
         PackCalculation.created_at.desc()
     )
     if client_id:
@@ -336,7 +340,21 @@ def list_estimates(
             PackCalculation.status == status
         )
 
-    total = query.with_entities(PackCalculation.id).count()
+    # Count without joinedload for efficiency
+    count_query = db.query(PackCalculation.id)
+    if client_id:
+        count_query = count_query.filter(
+            PackCalculation.client_id == client_id
+        )
+    if company_id:
+        count_query = count_query.filter(
+            PackCalculation.company_id == company_id
+        )
+    if status:
+        count_query = count_query.filter(
+            PackCalculation.status == status
+        )
+    total = count_query.count()
     items = query.offset(skip).limit(limit).all()
 
     return {
@@ -354,7 +372,11 @@ def get_estimate(
     current_user: Staff = Depends(get_current_user),
 ):
     """Get a packing estimate by ID."""
-    calc = db.query(PackCalculation).filter(
+    calc = db.query(PackCalculation).options(
+        joinedload(PackCalculation.client),
+        joinedload(PackCalculation.company),
+        joinedload(PackCalculation.rooms),
+    ).filter(
         PackCalculation.id == calc_id
     ).first()
     if not calc:
