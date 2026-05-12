@@ -11,6 +11,7 @@ import type {
   SupplementFollowUp,
   SupplementDashboardStats,
 } from '../types/supplement';
+import type { ClaimNegotiation } from '../types/client';
 
 const BASE_URL = '/api/supplements';
 
@@ -79,6 +80,12 @@ export const supplementService = {
 
   async deleteBidItem(supplementId: string, itemId: string): Promise<void> {
     await api.delete(`${BASE_URL}/${supplementId}/bid-items/${itemId}`);
+  },
+
+  // Insurance Estimate (latest negotiation for claim)
+  async getInsuranceEstimate(claimId: string): Promise<ClaimNegotiation | null> {
+    const { data } = await api.get(`${BASE_URL}/insurance-estimate/${claimId}`);
+    return data;
   },
 
   // Follow-ups

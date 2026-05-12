@@ -122,11 +122,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         ],
       },
       {
-        key: '/insurance-extractions',
-        icon: <SafetyCertificateOutlined />,
-        label: 'Insurance Extraction',
-      },
-      {
         key: '/work-orders',
         icon: <ProjectOutlined />,
         label: 'Work Orders',
@@ -196,15 +191,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         label: 'Reconstruction Estimate',
         children: [
           {
-            key: '/reconstruction-estimate/debris',
-            label: 'Debris Calculator',
-          },
-          {
-            key: '/reconstruction-estimate/material-detection',
-            icon: <RobotOutlined />,
-            label: 'AI Material Detection',
-          },
-          {
             key: '/reconstruction-estimate/pack-calculator-new/list',
             icon: <RocketOutlined />,
             label: 'Pack Calculator',
@@ -236,6 +222,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         icon: <ToolOutlined />,
         label: 'Tools',
         children: [
+          {
+            key: '/reconstruction-estimate/debris',
+            icon: <CalculatorOutlined />,
+            label: 'Debris Calculator',
+          },
+          {
+            key: '/reconstruction-estimate/material-detection',
+            icon: <RobotOutlined />,
+            label: 'AI Material Detection',
+          },
+          {
+            key: '/insurance-extractions',
+            icon: <SafetyCertificateOutlined />,
+            label: 'Insurance Extraction',
+          },
           {
             key: '/tools/photo-metadata',
             icon: <FileImageOutlined />,

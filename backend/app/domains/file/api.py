@@ -118,9 +118,12 @@ async def upload_files(
 @router.get("/download/{file_id}")
 async def download_file(
     file_id: str,
+    inline: bool = Query(False, description="If true, display in browser instead of downloading"),
     service: FileService = Depends(get_file_service)
 ):
-    """Download a file by ID (supports both local and cloud storage)"""
+    """Download a file by ID (supports both local and cloud storage).
+    Use ?inline=true to open in browser tab instead of downloading.
+    """
     try:
         from fastapi.responses import StreamingResponse
 
@@ -139,6 +142,9 @@ async def download_file(
             media_type, _ = mimetypes.guess_type(file_record.get('original_name', ''))
             media_type = media_type or 'application/octet-stream'
 
+        disposition = "inline" if inline else "attachment"
+        filename = file_record["original_name"]
+
         # Check if file is in cloud storage (gs:// or other remote URL)
         if file_url.startswith('gs://') or file_url.startswith('https://') or file_url.startswith('http://'):
             # Get file from storage provider
@@ -147,7 +153,7 @@ async def download_file(
                 return StreamingResponse(
                     io.BytesIO(file_data),
                     media_type=media_type,
-                    headers={"Content-Disposition": f'attachment; filename="{file_record["original_name"]}"'}
+                    headers={"Content-Disposition": f'{disposition}; filename="{filename}"'}
                 )
             except Exception as e:
                 logger.error(f"Error downloading file from storage: {e}")
@@ -161,7 +167,8 @@ async def download_file(
         return FastAPIFileResponse(
             path=str(file_path),
             filename=file_record['original_name'],
-            media_type=media_type
+            media_type=media_type,
+            headers={"Content-Disposition": f'{disposition}; filename="{filename}"'}
         )
 
     except HTTPException:

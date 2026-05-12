@@ -1053,8 +1053,8 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       width: 40,
       render: (_: any, record) =>
         record.document_url ? (
-          <Tooltip title={record.document_name || 'Download PDF'}>
-            <a href={`/api/files/download/${record.document_url}`} target="_blank" rel="noopener noreferrer">
+          <Tooltip title={record.document_name || 'View PDF'}>
+            <a href={`/api/files/download/${record.document_url}?inline=true`} target="_blank" rel="noopener noreferrer">
               <FilePdfOutlined style={{ color: '#ff4d4f' }} />
             </a>
           </Tooltip>

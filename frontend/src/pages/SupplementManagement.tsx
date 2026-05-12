@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber,
@@ -9,7 +9,7 @@ import {
   PlusOutlined, ReloadOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
   EditOutlined, DeleteOutlined, EllipsisOutlined, FileTextOutlined,
   DollarOutlined, SendOutlined, PhoneOutlined, ClockCircleOutlined,
-  AuditOutlined,
+  AuditOutlined, FilePdfOutlined, SaveOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { supplementService } from '../services/supplementService';
@@ -18,6 +18,7 @@ import type {
   BidItemEstimateCreate, SupplementFollowUp, SupplementStatus,
   SUPPLEMENT_STATUS_COLORS, BID_ITEM_TYPE_LABELS, BID_ITEM_STATUS_COLORS,
 } from '../types/supplement';
+import type { ClaimNegotiation, NegotiationSection } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
 
 const { Title, Text } = Typography;
@@ -61,6 +62,10 @@ const SupplementManagement: React.FC = () => {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [bidItemModalOpen, setBidItemModalOpen] = useState(false);
   const [followupModalOpen, setFollowupModalOpen] = useState(false);
+  const [insuranceEstimate, setInsuranceEstimate] = useState<(ClaimNegotiation & { file_download_id?: string | null }) | null>(null);
+  const [insuranceEstimateLoading, setInsuranceEstimateLoading] = useState(false);
+  const [editedRequiredEstimates, setEditedRequiredEstimates] = useState<string[]>([]);
+  const [requiredEstimatesDirty, setRequiredEstimatesDirty] = useState(false);
   const [createForm] = Form.useForm();
   const [bidItemForm] = Form.useForm();
   const [followupForm] = Form.useForm();
@@ -80,6 +85,28 @@ const SupplementManagement: React.FC = () => {
     queryKey: ['supplements-pending-review'],
     queryFn: () => supplementService.getPendingReview(),
   });
+
+  // Pre-load insurance estimate file IDs for all supplements in the list
+  const [estimateFileMap, setEstimateFileMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!supplements.length) return;
+    const claimIds = Array.from(new Set(supplements.map(s => s.claim_id).filter(Boolean)));
+    const newIds = claimIds.filter(id => !(id in estimateFileMap));
+    if (!newIds.length) return;
+
+    newIds.forEach(claimId => {
+      supplementService.getInsuranceEstimate(claimId).then(est => {
+        if (est && (est as any).file_download_id) {
+          setEstimateFileMap(prev => ({ ...prev, [claimId]: (est as any).file_download_id }));
+        } else {
+          setEstimateFileMap(prev => ({ ...prev, [claimId]: '' }));
+        }
+      }).catch(() => {
+        setEstimateFileMap(prev => ({ ...prev, [claimId]: '' }));
+      });
+    });
+  }, [supplements]);
 
   // Mutations
   const createMutation = useMutation({
@@ -147,6 +174,18 @@ const SupplementManagement: React.FC = () => {
     supplementService.get(r.id).then(data => {
       setSelectedSupplement(data);
       setDetailModalOpen(true);
+      // Init required estimates local state
+      const re = data.required_estimates || {};
+      setEditedRequiredEstimates(Object.entries(re).filter(([, v]) => v).map(([k]) => k));
+      setRequiredEstimatesDirty(false);
+      // Fetch latest insurance estimate for this claim
+      if (data.claim_id) {
+        setInsuranceEstimateLoading(true);
+        supplementService.getInsuranceEstimate(data.claim_id)
+          .then(est => setInsuranceEstimate(est))
+          .catch(() => setInsuranceEstimate(null))
+          .finally(() => setInsuranceEstimateLoading(false));
+      }
     });
   };
 
@@ -207,6 +246,21 @@ const SupplementManagement: React.FC = () => {
     {
       title: 'Bid Items', dataIndex: 'bid_item_count', key: 'bid_items', width: 80, align: 'center',
       render: (c: number) => <Badge count={c} showZero style={{ backgroundColor: c > 0 ? '#1890ff' : '#d9d9d9' }} />,
+    },
+    {
+      title: 'Estimate', key: 'estimate_pdf', width: 70, align: 'center',
+      render: (_, r) => {
+        const fileId = estimateFileMap[r.claim_id];
+        if (fileId === undefined) return <Text type="secondary" style={{ fontSize: 11 }}>...</Text>;
+        if (!fileId) return <Text type="secondary">-</Text>;
+        return (
+          <Tooltip title="View Insurance Estimate PDF">
+            <a href={`/api/files/download/${fileId}?inline=true`} target="_blank" rel="noopener noreferrer">
+              <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 16 }} />
+            </a>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '', key: 'actions', width: 50, align: 'center',
@@ -370,7 +424,7 @@ const SupplementManagement: React.FC = () => {
 
       {/* Detail Modal */}
       <Modal title={selectedSupplement?.title} open={detailModalOpen} width={700} footer={null}
-        onCancel={() => { setDetailModalOpen(false); setSelectedSupplement(null); }}>
+        onCancel={() => { setDetailModalOpen(false); setSelectedSupplement(null); setInsuranceEstimate(null); }}>
         {selectedSupplement && (
           <div>
             <Descriptions size="small" column={2} style={{ marginBottom: 16 }}>
@@ -400,21 +454,116 @@ const SupplementManagement: React.FC = () => {
               </div>
             )}
 
+            {/* Insurance Company Estimate */}
+            <Collapse
+              size="small"
+              style={{ marginBottom: 16 }}
+              items={[{
+                key: 'insurance-estimate',
+                label: (
+                  <Space>
+                    <FileTextOutlined />
+                    <Text strong>Insurance Company Estimate</Text>
+                    {insuranceEstimate && (
+                      <Tag color="blue">Rev #{insuranceEstimate.revision_number} — {insuranceEstimate.revision_type}</Tag>
+                    )}
+                  </Space>
+                ),
+                children: insuranceEstimateLoading ? (
+                  <div style={{ textAlign: 'center', padding: 16 }}>
+                    <Text type="secondary">Loading...</Text>
+                  </div>
+                ) : !insuranceEstimate ? (
+                  <Empty description="No insurance estimate found for this claim" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                ) : (
+                  <div>
+                    <Descriptions size="small" column={2} style={{ marginBottom: 12 }}>
+                      <Descriptions.Item label="RCV">{formatCurrency(insuranceEstimate.rcv_amount)}</Descriptions.Item>
+                      <Descriptions.Item label="ACV">{formatCurrency(insuranceEstimate.acv_amount)}</Descriptions.Item>
+                      <Descriptions.Item label="Depreciation">{formatCurrency(insuranceEstimate.depreciation_amount)}</Descriptions.Item>
+                      <Descriptions.Item label="Deductible">{formatCurrency(insuranceEstimate.deductible)}</Descriptions.Item>
+                      {insuranceEstimate.received_from && (
+                        <Descriptions.Item label="Received From">{insuranceEstimate.received_from}</Descriptions.Item>
+                      )}
+                      {insuranceEstimate.date_received && (
+                        <Descriptions.Item label="Date Received">
+                          {dayjs(insuranceEstimate.date_received).format('MM/DD/YYYY')}
+                        </Descriptions.Item>
+                      )}
+                      {insuranceEstimate.file_download_id && (
+                        <Descriptions.Item label="Document" span={2}>
+                          <a href={`/api/files/download/${insuranceEstimate.file_download_id}?inline=true`} target="_blank" rel="noopener noreferrer">
+                            <Space size={4}>
+                              <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                              <span>{insuranceEstimate.document_name || 'View PDF'}</span>
+                            </Space>
+                          </a>
+                        </Descriptions.Item>
+                      )}
+                    </Descriptions>
+
+                    {insuranceEstimate.sections_data && insuranceEstimate.sections_data.length > 0 && (
+                      <>
+                        <Text strong style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>Section Breakdown</Text>
+                        <Table
+                          size="small"
+                          dataSource={insuranceEstimate.sections_data}
+                          rowKey={(r: NegotiationSection, i?: number) => `${r.section_name}-${i}`}
+                          pagination={false}
+                          scroll={{ x: 500 }}
+                          columns={[
+                            { title: 'Section', dataIndex: 'section_name', key: 'section', width: 180, ellipsis: true },
+                            { title: 'RCV', dataIndex: 'rcv', key: 'rcv', width: 100, align: 'right' as const,
+                              render: (v?: number) => v != null ? formatCurrency(v) : '-' },
+                            { title: 'Depreciation', dataIndex: 'depreciation', key: 'dep', width: 100, align: 'right' as const,
+                              render: (v?: number) => v != null ? formatCurrency(v) : '-' },
+                            { title: 'Net ACV', dataIndex: 'net_acv', key: 'acv', width: 100, align: 'right' as const,
+                              render: (v?: number) => v != null ? formatCurrency(v) : '-' },
+                          ]}
+                        />
+                      </>
+                    )}
+
+                    {insuranceEstimate.notes && (
+                      <div style={{ marginTop: 8 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>Notes: {insuranceEstimate.notes}</Text>
+                      </div>
+                    )}
+                  </div>
+                ),
+              }]}
+            />
+
             {/* Required Estimates Checklist */}
             <div style={{ marginBottom: 16 }}>
-              <Text strong style={{ display: 'block', marginBottom: 8 }}>Required Estimates</Text>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text strong>Required Estimates</Text>
+                {requiredEstimatesDirty && (
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    loading={updateMutation.isPending}
+                    onClick={() => {
+                      const required_estimates: Record<string, boolean> = {};
+                      REQUIRED_ESTIMATE_OPTIONS.forEach(opt => {
+                        required_estimates[opt.key] = editedRequiredEstimates.includes(opt.key);
+                      });
+                      updateMutation.mutate(
+                        { id: selectedSupplement.id, data: { required_estimates } },
+                        { onSuccess: () => { setRequiredEstimatesDirty(false); } },
+                      );
+                    }}
+                  >
+                    Save
+                  </Button>
+                )}
+              </div>
               <Checkbox.Group
-                value={Object.entries(selectedSupplement.required_estimates || {})
-                  .filter(([, v]) => v).map(([k]) => k)}
+                value={editedRequiredEstimates}
                 onChange={(checkedValues) => {
-                  const required_estimates: Record<string, boolean> = {};
-                  REQUIRED_ESTIMATE_OPTIONS.forEach(opt => {
-                    required_estimates[opt.key] = checkedValues.includes(opt.key);
-                  });
-                  updateMutation.mutate({
-                    id: selectedSupplement.id,
-                    data: { required_estimates },
-                  });
+                  setEditedRequiredEstimates(checkedValues as string[]);
+                  setRequiredEstimatesDirty(true);
                 }}
               >
                 <Row>

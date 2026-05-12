@@ -19,6 +19,7 @@ from app.domains.supplement.schemas import (
     SupplementRequestResponse,
     SupplementRequestUpdate,
 )
+from app.core.database_factory import get_database
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,75 @@ async def get_pending_review_supplements():
 async def get_supplements_by_claim(claim_id: str):
     service = _get_service()
     return service.get_by_claim(claim_id)
+
+
+@router.get("/supplements/insurance-estimate/{claim_id}")
+async def get_latest_insurance_estimate(claim_id: str):
+    """Get the latest insurance company estimate (ClaimNegotiation) for a claim.
+    Also resolves a valid file_download_id for the PDF document.
+    """
+    try:
+        from app.domains.client.models import ClaimNegotiation
+        from app.domains.file.models import File
+        database = get_database()
+        session = database.get_session()
+        try:
+            negotiation = (
+                session.query(ClaimNegotiation)
+                .filter(ClaimNegotiation.claim_id == claim_id)
+                .order_by(ClaimNegotiation.revision_number.desc())
+                .first()
+            )
+            if not negotiation:
+                return None
+
+            from decimal import Decimal
+            result = {}
+            for col in ClaimNegotiation.__table__.columns:
+                val = getattr(negotiation, col.name)
+                if hasattr(val, 'hex'):
+                    val = str(val)
+                elif isinstance(val, Decimal):
+                    val = float(val)
+                elif hasattr(val, 'isoformat'):
+                    val = val.isoformat()
+                elif isinstance(val, (int, float, str, bool, list, dict)) or val is None:
+                    pass
+                else:
+                    val = str(val)
+                result[col.name] = val
+
+            # Resolve a valid file ID for download
+            result['file_download_id'] = None
+            doc_url = negotiation.document_url
+            if doc_url:
+                # 1) Try direct file ID lookup
+                file_rec = session.query(File).filter(
+                    File.id == doc_url, File.is_active == True
+                ).first()
+                if file_rec:
+                    result['file_download_id'] = str(file_rec.id)
+                else:
+                    # 2) Fallback: find by context=negotiation + context_id=claim_id
+                    file_rec = (
+                        session.query(File)
+                        .filter(
+                            File.context == 'negotiation',
+                            File.context_id == claim_id,
+                            File.is_active == True,
+                        )
+                        .order_by(File.created_at.desc())
+                        .first()
+                    )
+                    if file_rec:
+                        result['file_download_id'] = str(file_rec.id)
+
+            return result
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"Error fetching insurance estimate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/supplements/{supplement_id}", response_model=SupplementRequestResponse)
