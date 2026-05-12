@@ -25,7 +25,7 @@ const { Title, Text, Paragraph } = Typography;
 
 const PackCalculatorNew: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(0);
-  const [mode, setMode] = useState<PackingMode>('quick');
+  const [mode, setMode] = useState<PackingMode>('photo_ai');
 
   // Details state
   const [settings, setSettings] = useState<PackingSettings>({
