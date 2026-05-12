@@ -129,7 +129,11 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  DEMO_RATES["shower_surround"] * labor_mult, "demo")
 
     if estimate.replace_vanity:
-        _add(line_items, 1, "Demo - Vanity & top removal", 1, "EA",
+        van_count = len(
+            (estimate.vanity_spec or {}).get("items", [])
+        ) or 1
+        _add(line_items, 1, "Demo - Vanity & top removal",
+             van_count, "EA",
              DEMO_RATES["vanity"] * labor_mult, "demo")
 
     if estimate.replace_toilet:
@@ -143,16 +147,45 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             _add(line_items, 1, "Demo - Cement board removal (water damaged)",
                  cb_demo_sf, "SF", DEMO_RATES["durock_per_sf"] * labor_mult, "demo")
 
-    # Dumpster
+    # Dumpster — size based on total demo volume, not just floor SF
     hc = estimate.hidden_costs or {}
-    if hc.get("dumpster", True):
+    has_demo = (
+        estimate.demo_floor or estimate.demo_walls
+        or estimate.demo_ceiling
+        or estimate.replace_tub or estimate.replace_shower
+        or estimate.replace_vanity or estimate.replace_toilet
+    )
+    if hc.get("dumpster", True) and has_demo:
+        # Estimate debris volume: floor + wall + ceiling SF + fixtures
+        demo_sf = 0
+        if estimate.demo_floor:
+            demo_sf += demo_floor_sf
+        if estimate.demo_walls:
+            demo_sf += demo_wall_sf
+        if estimate.demo_ceiling:
+            demo_sf += demo_ceiling_sf
+        # Each fixture adds ~10-20 SF equivalent of debris
+        fixture_count = sum([
+            bool(estimate.replace_tub),
+            bool(estimate.replace_shower),
+            bool(estimate.replace_vanity),
+            bool(estimate.replace_toilet),
+        ])
+        demo_sf += fixture_count * 15
+
         dumpster_size = "dumpster_10yard"
-        if floor_sf > 60:
+        if demo_sf > 100:
             dumpster_size = "dumpster_15yard"
-        if floor_sf > 100:
+        if demo_sf > 200:
             dumpster_size = "dumpster_20yard"
-        _add(line_items, 1, f"Dumpster rental ({dumpster_size.replace('dumpster_', '')})",
-             1, "EA", DEMO_RATES[dumpster_size] + DEMO_RATES["dump_tip_fee"], "demo")
+
+        size_label = dumpster_size.replace("dumpster_", "")
+        _add(line_items, 1,
+             f"Dumpster rental ({size_label})",
+             1, "EA",
+             DEMO_RATES[dumpster_size]
+             + DEMO_RATES["dump_tip_fee"],
+             "demo")
 
     # ────────────────────────────────────────
     # Phase 2: Plumbing Rough
@@ -456,44 +489,69 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  PLUMBING_RATES["shower_valve_trim"] * labor_mult,
                  "plumbing")
 
-    # Vanity
-    van = estimate.vanity_spec or {}
-    if estimate.replace_vanity and van:
-        v_width = van.get("width", 36)
-        v_source = van.get("source", "stock_rta")
-        v_prices = VANITY_PRICES.get(v_source, VANITY_PRICES["stock_rta"])
-        v_price = v_prices.get(v_width, v_prices.get(36, 500))
-        _add(line_items, 5, f"Vanity cabinet - {v_source.replace('_', ' ')} ({v_width}\")",
-             1, "EA", v_price, "fixture")
+    # Vanity (supports multiple vanities via items array)
+    van_raw = estimate.vanity_spec or {}
+    if estimate.replace_vanity and van_raw:
+        # Backward compat: old format has no 'items' key
+        vanity_items = van_raw.get("items") or [van_raw]
 
-        # Vanity top
-        v_top = van.get("top_material", "quartz")
-        top_rate = VANITY_TOP_PRICES.get(v_top, 18)
-        _add(line_items, 5, f"Vanity countertop - {v_top.replace('_', ' ')}",
-             v_width, "IN", top_rate, "fixture",
-             notes=f"{v_width}\" width")
+        for vi, van in enumerate(vanity_items):
+            if not van or not isinstance(van, dict):
+                continue
+            label = f" #{vi + 1}" if len(vanity_items) > 1 else ""
 
-        # Install
-        _add(line_items, 5, "Vanity installation", 1, "EA",
-             VANITY_INSTALL * labor_mult, "fixture")
+            v_width = van.get("width", 36)
+            v_source = van.get("source", "stock_rta")
+            v_prices = VANITY_PRICES.get(
+                v_source, VANITY_PRICES["stock_rta"])
+            v_price = v_prices.get(
+                v_width, v_prices.get(36, 500))
+            src_label = v_source.replace('_', ' ')
+            _add(line_items, 5,
+                 f"Vanity{label} cabinet"
+                 f" - {src_label} ({v_width}\")",
+                 1, "EA", v_price, "fixture")
 
-        # Wall mount blocking
-        if van.get("mounting") == "wall_mount":
-            _add(line_items, 5, "Wall-mount vanity blocking", 1, "EA",
-                 VANITY_EXTRAS["wall_mount_blocking"] * labor_mult, "fixture")
+            # Vanity top
+            v_top = van.get("top_material", "quartz")
+            top_rate = VANITY_TOP_PRICES.get(v_top, 14)
+            top_label = v_top.replace('_', ' ')
+            _add(line_items, 5,
+                 f"Vanity{label} countertop - {top_label}",
+                 v_width, "IN", top_rate, "fixture",
+                 notes=f"{v_width}\" width")
 
-        # Faucet
-        faucet = van.get("faucet_type", "single_hole")
-        faucet_key = f"faucet_{faucet}"
-        faucet_price = VANITY_EXTRAS.get(faucet_key, 195)
-        _add(line_items, 5, f"Vanity faucet - {faucet.replace('_', ' ')}",
-             van.get("sinks", 1), "EA", faucet_price, "fixture")
+            # Install
+            _add(line_items, 5,
+                 f"Vanity{label} installation", 1, "EA",
+                 VANITY_INSTALL * labor_mult, "fixture")
 
-        # Mirror
-        mirror = van.get("mirror_type", "framed")
-        mirror_price = MIRROR_PRICES.get(mirror, 175)
-        _add(line_items, 5, f"Mirror/cabinet - {mirror.replace('_', ' ')}", 1, "EA",
-             mirror_price + MIRROR_INSTALL * labor_mult, "fixture")
+            # Wall mount blocking
+            if van.get("mounting") == "wall_mount":
+                _add(line_items, 5,
+                     f"Vanity{label} wall-mount blocking",
+                     1, "EA",
+                     VANITY_EXTRAS["wall_mount_blocking"]
+                     * labor_mult, "fixture")
+
+            # Faucet
+            faucet = van.get("faucet_type", "single_hole")
+            faucet_key = f"faucet_{faucet}"
+            faucet_price = VANITY_EXTRAS.get(faucet_key, 195)
+            faucet_label = faucet.replace('_', ' ')
+            _add(line_items, 5,
+                 f"Vanity{label} faucet - {faucet_label}",
+                 van.get("sinks", 1), "EA",
+                 faucet_price, "fixture")
+
+            # Mirror
+            mirror = van.get("mirror_type", "framed")
+            mirror_price = MIRROR_PRICES.get(mirror, 175)
+            mirror_label = mirror.replace('_', ' ')
+            _add(line_items, 5,
+                 f"Mirror{label} - {mirror_label}", 1, "EA",
+                 mirror_price + MIRROR_INSTALL * labor_mult,
+                 "fixture")
 
     # Toilet
     tlt = estimate.toilet_spec or {}
@@ -541,9 +599,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  "fixture", notes="Labor only: remove, store, reinstall")
 
     if getattr(estimate, 'detach_reset_vanity', False):
+        dr_van_count = len(
+            (estimate.vanity_spec or {}).get("items", [])
+        ) or 1
         _add(line_items, 5, "Detach & Reset - Vanity & sink",
-             1, "EA", DETACH_RESET_COSTS["vanity"] * labor_mult, "fixture",
-             notes="Labor only: disconnect plumbing, remove, store, reinstall")
+             dr_van_count, "EA",
+             DETACH_RESET_COSTS["vanity"] * labor_mult,
+             "fixture",
+             notes="Labor only: disconnect, remove, reinstall")
 
     if getattr(estimate, 'detach_reset_toilet', False):
         _add(line_items, 5, "Detach & Reset - Toilet",

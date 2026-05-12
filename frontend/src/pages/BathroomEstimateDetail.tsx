@@ -21,16 +21,20 @@ import {
   Timeline,
   Tooltip,
   Typography,
+  Modal,
 } from 'antd';
 import {
   ArrowLeftOutlined,
   CalculatorOutlined,
   CopyOutlined,
+  DeleteOutlined,
   FilePdfOutlined,
+  PlusOutlined,
   QuestionCircleOutlined,
   SaveOutlined,
   RobotOutlined,
   EditOutlined,
+  BookOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -88,6 +92,7 @@ const BathroomEstimateDetail: React.FC = () => {
   });
 
   const [companySearch, setCompanySearch] = useState('');
+  const [guideOpen, setGuideOpen] = useState(false);
   const { data: companyResults } = useQuery({
     queryKey: ['companies-search', companySearch],
     queryFn: () => companyService.getCompanies(companySearch),
@@ -160,6 +165,19 @@ const BathroomEstimateDetail: React.FC = () => {
   // ── Form sync ──
   useEffect(() => {
     if (estimate) {
+      // Preset default accessories if not yet set
+      const acc = estimate.accessories_spec;
+      if (!acc || (!acc.towel_bars && !acc.tp_holders && !acc.hand_towel_rings)) {
+        estimate.accessories_spec = {
+          ...acc,
+          towel_bars: acc?.towel_bars ?? 1,
+          tp_holders: acc?.tp_holders ?? 1,
+          hand_towel_rings: acc?.hand_towel_rings ?? 1,
+          robe_hooks: acc?.robe_hooks ?? 1,
+          finish: acc?.finish ?? 'chrome',
+          grade: acc?.grade ?? 'mid',
+        };
+      }
       form.setFieldsValue(estimate);
     }
   }, [estimate, form]);
@@ -219,7 +237,14 @@ const BathroomEstimateDetail: React.FC = () => {
       };
     }
     if (sync.vanity_spec) {
-      updates.vanity_spec = { ...(current.vanity_spec || {}), ...sync.vanity_spec };
+      // Merge vanity items: sketch provides dimensions, keep user's other settings
+      const curItems: any[] = current.vanity_spec?.items || [];
+      const syncItems: any[] = sync.vanity_spec.items || [];
+      const mergedItems = syncItems.map((si: any, i: number) => ({
+        ...(curItems[i] || { sinks: 1 }),
+        ...si,
+      }));
+      updates.vanity_spec = { items: mergedItems };
     }
 
     // Auto-calculate substrate_spec from shower/tub dimensions
@@ -335,8 +360,75 @@ const BathroomEstimateDetail: React.FC = () => {
             <Button icon={<CopyOutlined />} onClick={() => cloneMutation.mutate()}>
               Clone
             </Button>
+            <Button icon={<BookOutlined />} onClick={() => setGuideOpen(true)}>
+              Guide
+            </Button>
         </Space>
       </div>
+
+      <Modal
+        title="Plumbing & Electrical Guide"
+        open={guideOpen}
+        onCancel={() => setGuideOpen(false)}
+        footer={null}
+        width={720}
+      >
+        <div style={{ maxHeight: 500, overflowY: 'auto' }}>
+          <Title level={5}>Plumbing (Phase 2)</Title>
+          <Table
+            size="small"
+            pagination={false}
+            dataSource={[
+              { key: '1', item: 'Shutoff Valve', when: '15yr+ homes nearly always. Toilet×1 + Vanity×2 = 3', cost: '$135/EA' },
+              { key: '2', item: 'Supply Line', when: 'Replace with valve. Same count as valves', cost: '$65/EA' },
+              { key: '3', item: 'Drain Modification', when: 'Tub→Shower conversion, vanity relocation', cost: '$350/EA' },
+              { key: '4', item: 'Pressure Balance Valve', when: 'All shower remodels (code required)', cost: '$425/EA' },
+              { key: '5', item: 'Rough Inspection', when: 'Any plumbing work (county inspection)', cost: '$150/EA' },
+            ]}
+            columns={[
+              { title: 'Item', dataIndex: 'item', width: 170 },
+              { title: 'When Needed', dataIndex: 'when' },
+              { title: 'Cost', dataIndex: 'cost', width: 90, align: 'right' as const },
+            ]}
+          />
+          <Divider style={{ margin: '12px 0' }} />
+          <Title level={5}>Electrical (Phase 2)</Title>
+          <Table
+            size="small"
+            pagination={false}
+            dataSource={[
+              { key: '1', item: 'GFCI Outlet', when: 'Min 1 per bath (code). Dual sink = 2', cost: '$210/EA' },
+              { key: '2', item: 'Vanity Light', when: 'Vanity replacement typically includes lighting', cost: '$185/EA' },
+              { key: '3', item: 'Ceiling Fixture', when: 'Existing light replacement or addition', cost: '$195/EA' },
+              { key: '4', item: 'Exhaust Fan', when: 'No window = code required. Recommend 80CFM', cost: '$325-695' },
+              { key: '5', item: 'Fan Switch', when: 'Upgrade: standard / timer / humidity sensor', cost: '$35-125' },
+              { key: '6', item: 'Heated Floor', when: 'Optional (client request)', cost: '$12/SF+$525' },
+              { key: '7', item: 'Elec. Inspection', when: 'Any electrical work (county inspection)', cost: '$125/EA' },
+            ]}
+            columns={[
+              { title: 'Item', dataIndex: 'item', width: 140 },
+              { title: 'When Needed', dataIndex: 'when' },
+              { title: 'Cost', dataIndex: 'cost', width: 100, align: 'right' as const },
+            ]}
+          />
+          <Divider style={{ margin: '12px 0' }} />
+          <Title level={5}>Common Scenarios</Title>
+          <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+            <p style={{ margin: '4px 0' }}><Tag color="blue">Basic</Tag> Toilet + Vanity only: Valve×3 + Supply×3 + GFCI + Fan 80CFM = <strong>~$1,420</strong></p>
+            <p style={{ margin: '4px 0' }}><Tag color="green">Standard</Tag> + Shower: + Pressure Balance + Vanity Light = <strong>~$2,030</strong></p>
+            <p style={{ margin: '4px 0' }}><Tag color="orange">Full</Tag> + Heated Floor 50SF: + GFCI×2 + Heated + Inspections = <strong>~$3,680</strong></p>
+          </div>
+          <Divider style={{ margin: '12px 0' }} />
+          <Title level={5}>Auto-Set Rules</Title>
+          <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+            <p style={{ margin: '4px 0' }}>Shower Replace → <Tag>pressure_balance_valve</Tag> <Tag>valve×1</Tag></p>
+            <p style={{ margin: '4px 0' }}>Toilet Replace → <Tag>valve×1</Tag> <Tag>supply×1</Tag></p>
+            <p style={{ margin: '4px 0' }}>Vanity Replace → <Tag>valve×2</Tag> <Tag>supply×2</Tag></p>
+            <p style={{ margin: '4px 0' }}>All Remodels → <Tag color="red">GFCI ≥ 1</Tag> <Tag color="red">exhaust fan</Tag></p>
+            <p style={{ margin: '4px 0' }}>Custom Tile Shower → <Tag>rough_inspection</Tag></p>
+          </div>
+        </div>
+      </Modal>
 
       <Form form={form} layout="vertical" size="small">
         <Tabs activeKey={activeTab} onChange={setActiveTab} destroyInactiveTabPane={false} items={[
@@ -914,45 +1006,66 @@ const BathroomEstimateDetail: React.FC = () => {
               <Card>
                 <Collapse defaultActiveKey={['vanity', 'toilet']}>
                   <Panel header="Vanity" key="vanity">
-                    <Row gutter={16}>
-                      <Col xs={12} sm={8} md={4}>
-                        <Form.Item label="Width" name={['vanity_spec', 'width']}>
-                          <Select options={numOpts(pricingInfo?.vanity_widths)} allowClear />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={8} md={4}>
-                        <Form.Item label="Sinks" name={['vanity_spec', 'sinks']}>
-                          <Select options={[{ label: '1', value: 1 }, { label: '2', value: 2 }]} />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Source" name={['vanity_spec', 'source']}>
-                          <Select options={selectOpts(pricingInfo?.vanity_sources)} allowClear />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Countertop" name={['vanity_spec', 'top_material']}>
-                          <Select options={selectOpts(pricingInfo?.vanity_top_materials)} allowClear />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                    <Row gutter={16}>
-                      <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Mounting" name={['vanity_spec', 'mounting']}>
-                          <Select options={selectOpts(pricingInfo?.vanity_mountings)} allowClear />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Faucet Type" name={['vanity_spec', 'faucet_type']}>
-                          <Select options={selectOpts(pricingInfo?.faucet_types)} allowClear />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Mirror" name={['vanity_spec', 'mirror_type']}>
-                          <Select options={selectOpts(pricingInfo?.mirror_types)} allowClear />
-                        </Form.Item>
-                      </Col>
-                    </Row>
+                    <Form.List name={['vanity_spec', 'items']}>
+                      {(fields, { add, remove }) => (
+                        <>
+                          {fields.map(({ key, name, ...restField }, idx) => (
+                            <Card
+                              key={key}
+                              size="small"
+                              title={`Vanity ${idx + 1}`}
+                              style={{ marginBottom: 12 }}
+                              extra={fields.length > 1 && (
+                                <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => remove(name)} />
+                              )}
+                            >
+                              <Row gutter={16}>
+                                <Col xs={12} sm={8} md={4}>
+                                  <Form.Item label="Width" {...restField} name={[name, 'width']}>
+                                    <Select options={numOpts(pricingInfo?.vanity_widths)} allowClear />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={8} md={4}>
+                                  <Form.Item label="Sinks" {...restField} name={[name, 'sinks']}>
+                                    <Select options={[{ label: '1', value: 1 }, { label: '2', value: 2 }]} />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={12} md={6}>
+                                  <Form.Item label="Source" {...restField} name={[name, 'source']}>
+                                    <Select options={selectOpts(pricingInfo?.vanity_sources)} allowClear />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={12} md={6}>
+                                  <Form.Item label="Countertop" {...restField} name={[name, 'top_material']}>
+                                    <Select options={selectOpts(pricingInfo?.vanity_top_materials)} allowClear />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                              <Row gutter={16}>
+                                <Col xs={12} sm={12} md={6}>
+                                  <Form.Item label="Mounting" {...restField} name={[name, 'mounting']}>
+                                    <Select options={selectOpts(pricingInfo?.vanity_mountings)} allowClear />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={12} md={6}>
+                                  <Form.Item label="Faucet Type" {...restField} name={[name, 'faucet_type']}>
+                                    <Select options={selectOpts(pricingInfo?.faucet_types)} allowClear />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={12} md={6}>
+                                  <Form.Item label="Mirror" {...restField} name={[name, 'mirror_type']}>
+                                    <Select options={selectOpts(pricingInfo?.mirror_types)} allowClear />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            </Card>
+                          ))}
+                          <Button type="dashed" onClick={() => add({ sinks: 1 })} block icon={<PlusOutlined />}>
+                            Add Vanity
+                          </Button>
+                        </>
+                      )}
+                    </Form.List>
                   </Panel>
                   <Panel header="Toilet" key="toilet">
                     <Row gutter={16}>

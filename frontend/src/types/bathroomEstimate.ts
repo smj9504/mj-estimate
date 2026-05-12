@@ -34,12 +34,24 @@ export interface BathtubSpec {
   surround_tile_pattern?: string;  // straight, diagonal, herringbone
 }
 
-export interface VanitySpec {
+export interface VanityItemSpec {
   width?: number;
   sinks?: number;
   source?: string;        // stock_rta, semi_custom, custom
   top_material?: string;
   mounting?: string;      // freestanding, wall_mount
+  faucet_type?: string;
+  mirror_type?: string;
+}
+
+export interface VanitySpec {
+  items?: VanityItemSpec[];
+  // Legacy single-vanity fields (backward compat)
+  width?: number;
+  sinks?: number;
+  source?: string;
+  top_material?: string;
+  mounting?: string;
   faucet_type?: string;
   mirror_type?: string;
 }

@@ -102,15 +102,15 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
   // ── Fixture flags & specs ──
   const bathtub = fixtures.find(f => f.type === 'bathtub');
   const shower = fixtures.find(f => f.type === 'shower');
-  const vanity = fixtures.find(f => f.type === 'vanity');
+  const vanities = fixtures.filter(f => f.type === 'vanity');
   const toilet = fixtures.find(f => f.type === 'toilet');
 
   sync.replace_tub = !!bathtub;
   sync.replace_shower = !!shower;
-  sync.replace_vanity = !!vanity;
+  sync.replace_vanity = vanities.length > 0;
   sync.replace_toilet = !!toilet;
   // If there are fixtures, floor is being replaced
-  sync.replace_floor = !!(bathtub || shower || vanity || toilet);
+  sync.replace_floor = !!(bathtub || shower || vanities.length || toilet);
   sync.demo_floor = sync.replace_floor;
   sync.demo_walls = !!(shower || bathtub);
 
@@ -143,10 +143,12 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
     };
   }
 
-  if (vanity) {
+  if (vanities.length > 0) {
     sync.vanity_spec = {
-      width: vanity.dimensions.width,
-      sinks: vanity.properties.sinkCount ?? 1,
+      items: vanities.map(v => ({
+        width: v.dimensions.width,
+        sinks: v.properties.sinkCount ?? 1,
+      })),
     };
   }
 
