@@ -36,6 +36,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
 import { clientService } from '../services/clientService';
+import { companyService } from '../services/companyService';
 import type {
   BathroomEstimate,
   BathroomEstimateUpdate,
@@ -84,6 +85,13 @@ const BathroomEstimateDetail: React.FC = () => {
     queryKey: ['clients-search', clientSearch],
     queryFn: () => clientService.list({ search: clientSearch, limit: 10 }),
     enabled: clientSearch.length >= 2,
+  });
+
+  const [companySearch, setCompanySearch] = useState('');
+  const { data: companyResults } = useQuery({
+    queryKey: ['companies-search', companySearch],
+    queryFn: () => companyService.getCompanies(companySearch),
+    enabled: companySearch.length >= 1,
   });
 
   // Auto-fill address when client/claim is selected
@@ -214,6 +222,45 @@ const BathroomEstimateDetail: React.FC = () => {
       updates.vanity_spec = { ...(current.vanity_spec || {}), ...sync.vanity_spec };
     }
 
+    // Auto-calculate substrate_spec from shower/tub dimensions
+    const mergedShower = updates.shower_spec || current.shower_spec || {};
+    const mergedTub = updates.bathtub_spec || current.bathtub_spec || {};
+    const replaceShower = updates.replace_shower ?? current.replace_shower;
+    let wetSF = 0;
+
+    // Shower tile walls (custom_tile or curbless need backer board)
+    const sType = mergedShower.type || '';
+    if (replaceShower && (sType === 'custom_tile' || sType === 'curbless')) {
+      const sw = mergedShower.width_in || 0;
+      const sd = mergedShower.depth_in || 0;
+      const sh = mergedShower.tile_height_in || 0;
+      if (sw && sd && sh) {
+        wetSF += (sw + 2 * sd) * sh / 144;
+      }
+    }
+
+    // Tub surround tile
+    if (mergedTub.surround_tile) {
+      const tl = mergedTub.tub_length_in || 0;
+      const td = mergedTub.tub_depth_in || 30;
+      const tsh = mergedTub.surround_height_in || 0;
+      if (tl && tsh) {
+        wetSF += (tl + 2 * td) * tsh / 144;
+      }
+    }
+
+    wetSF = Math.round(wetSF * 10) / 10;
+
+    if (wetSF > 0) {
+      const curSub = current.substrate_spec || {};
+      updates.substrate_spec = {
+        ...curSub,
+        durock_sf: wetSF,
+        waterproof_type: curSub.waterproof_type || 'redgard',
+        waterproof_sf: wetSF,
+      };
+    }
+
     form.setFieldsValue(updates);
   }, [form]);
 
@@ -276,8 +323,13 @@ const BathroomEstimateDetail: React.FC = () => {
               loading={calculateMutation.isPending}>
               Calculate
             </Button>
-            <Button icon={<FilePdfOutlined />} onClick={() => bathroomEstimateService.exportPdf(id!)}
-              disabled={estimate?.status === 'draft'}>
+            <Button icon={<FilePdfOutlined />} disabled={estimate?.status === 'draft'}
+              onClick={() => {
+                // Try capturing from Konva Stage (all layers merged)
+                const capture = (window as any).__beSketchCapture;
+                const sketchImage = typeof capture === 'function' ? capture() : undefined;
+                bathroomEstimateService.exportPdf(id!, { sketch_image: sketchImage });
+              }}>
               PDF
             </Button>
             <Button icon={<CopyOutlined />} onClick={() => cloneMutation.mutate()}>
@@ -287,13 +339,31 @@ const BathroomEstimateDetail: React.FC = () => {
       </div>
 
       <Form form={form} layout="vertical" size="small">
-        <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
+        <Tabs activeKey={activeTab} onChange={setActiveTab} destroyInactiveTabPane={false} items={[
           // ════════ TAB 1: Project Info ════════
           {
             key: 'project',
             label: 'Project Info',
             children: (
               <Card>
+                <Divider orientation="left">Company</Divider>
+                <Row gutter={16}>
+                  <Col xs={24} sm={12} md={8}>
+                    <Form.Item label="Company" name="company_id">
+                      <Select
+                        showSearch
+                        filterOption={false}
+                        onSearch={(v) => setCompanySearch(v)}
+                        placeholder="Select company..."
+                        allowClear
+                        options={(companyResults || []).map((c: any) => ({
+                          label: c.name,
+                          value: c.id,
+                        }))}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
                 <Divider orientation="left">Client / Claim</Divider>
                 <Row gutter={16}>
                   <Col xs={24} sm={12} md={8}>
@@ -594,6 +664,7 @@ const BathroomEstimateDetail: React.FC = () => {
           // ════════ TAB 3: Sketch ════════
           {
             key: 'sketch',
+            forceRender: true,
             label: (
               <span>
                 <EditOutlined style={{ marginRight: 4 }} />
@@ -952,7 +1023,21 @@ const BathroomEstimateDetail: React.FC = () => {
                       </Col>
                     </Row>
                   </Panel>
-                  <Panel header="Substrate" key="substrate">
+                  <Panel header={
+                    <Space size={6}>
+                      Substrate
+                      <Tooltip title={
+                        <div>
+                          <div>• Prefab Surround (One Piece / Kit) → Durock, Waterproofing 불필요</div>
+                          <div>• Custom Tile / Curbless → Durock + Waterproofing 필수</div>
+                          <div>• 바닥 타일 교체 → Floor Cement Board 필수 (자동 계산)</div>
+                          <div>• Vanity / Toilet만 교체 → Substrate 불필요</div>
+                        </div>
+                      }>
+                        <QuestionCircleOutlined style={{ color: '#999', fontSize: 14 }} />
+                      </Tooltip>
+                    </Space>
+                  } key="substrate">
                     <Form.Item noStyle shouldUpdate={(prev, cur) =>
                       prev?.shower_spec?.type !== cur?.shower_spec?.type ||
                       prev?.shower_spec?.tile_spec?.sf !== cur?.shower_spec?.tile_spec?.sf ||

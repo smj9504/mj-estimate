@@ -86,22 +86,41 @@ export const bathroomEstimateService = {
 
   // ── Export ──
 
-  async exportPdf(id: string, options?: { show_signature?: boolean }) {
-    const params: Record<string, any> = {};
-    if (options?.show_signature === false) {
-      params.show_signature = false;
+  async exportPdf(id: string, options?: { show_signature?: boolean; sketch_image?: string }) {
+    if (options?.sketch_image) {
+      // POST with sketch image in body
+      const response = await api.post(`${BASE_URL}/${id}/export/pdf`, {
+        sketch_image: options.sketch_image,
+        show_signature: options?.show_signature ?? true,
+      }, {
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `bathroom_estimate_${id.substring(0, 8)}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } else {
+      // GET without sketch
+      const params: Record<string, any> = {};
+      if (options?.show_signature === false) {
+        params.show_signature = false;
+      }
+      const response = await api.get(`${BASE_URL}/${id}/export/pdf`, {
+        responseType: 'blob',
+        params,
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `bathroom_estimate_${id.substring(0, 8)}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
     }
-    const response = await api.get(`${BASE_URL}/${id}/export/pdf`, {
-      responseType: 'blob',
-      params,
-    });
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `bathroom_estimate_${id.substring(0, 8)}.pdf`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
   },
 };

@@ -3,9 +3,9 @@ Bathroom Estimate API endpoints
 """
 
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.core.database_factory import get_db_session
@@ -256,7 +256,7 @@ def export_pdf(
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
-    """Export estimate as PDF for customer."""
+    """Export estimate as PDF for customer (no sketch image)."""
     from .export_service import BathroomExportService
 
     service = BathroomEstimateService(session)
@@ -267,6 +267,40 @@ def export_pdf(
     export_svc = BathroomExportService()
     pdf_bytes = export_svc.generate_pdf(
         estimate, show_signature=show_signature,
+    )
+
+    return StreamingResponse(
+        pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}.pdf"'
+        },
+    )
+
+
+@router.post("/{estimate_id}/export/pdf")
+def export_pdf_with_sketch(
+    estimate_id: str,
+    body: Dict[str, Any] = Body(default={}),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Export estimate as PDF with optional sketch image."""
+    from .export_service import BathroomExportService
+
+    service = BathroomEstimateService(session)
+    estimate = service.get_estimate(estimate_id)
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    sketch_image = body.get("sketch_image")
+    show_signature = body.get("show_signature", True)
+
+    export_svc = BathroomExportService()
+    pdf_bytes = export_svc.generate_pdf(
+        estimate,
+        show_signature=show_signature,
+        sketch_image_base64=sketch_image,
     )
 
     return StreamingResponse(

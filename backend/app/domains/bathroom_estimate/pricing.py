@@ -274,6 +274,8 @@ SHOWER_INSERT_PRICES = {
     "multi_piece_kit": 950,           # multi-piece kit ($600-$1,500)
 }
 
+SHOWER_INSERT_INSTALL = 425           # prefab shower unit installation labor
+
 SHOWER_CUSTOM_EXTRAS = {
     "niche_each": 185,                # recessed niche (material + labor)
     "bench": 450,                     # tiled bench (material + labor)
@@ -312,9 +314,9 @@ VANITY_PRICES = {
 VANITY_TOP_PRICES = {
     # Per linear inch of width
     "cultured_marble": 8,             # integrated bowl, cheapest
-    "quartz": 18,                     # most popular
-    "granite": 16,
-    "marble": 25,                     # premium, sealing required
+    "quartz": 14,                     # most popular (36"=$504)
+    "granite": 13,                    # (36"=$468)
+    "marble": 22,                     # premium, sealing required
     "laminate": 5,
 }
 
@@ -361,7 +363,7 @@ TOILET_EXTRAS = {
 # ──────────────────────────────────────────────
 # Sources: Fixr painter $2-$7/SF, HomeGuide baseboard $1-$3.50/LF
 PAINT_RATES = {
-    "wall_per_sf": 3.25,              # paint walls (prep + 2 coats, $2-$6/SF)
+    "wall_per_sf": 3.25,              # paint walls (prep + 2 coats, sub-contractor rate on remodel)
     "ceiling_per_sf": 3.50,           # ceiling paint (overhead premium)
     "trim_per_lf": 3.75,              # baseboard/trim paint ($2.30-$4.88/LF, HomeWyse)
 }
@@ -377,7 +379,7 @@ BASEBOARD_PRICES = {
     "pvc": 6.50,                      # PVC (recommended for bath)
     "mdf": 5.00,
     "wood": 8.50,
-    "tile": 12.00,                    # Tile baseboard avg ($8-$15/LF, see TILE_BASEBOARD_PRICES)
+    "tile": 12.00,
 }
 
 # Tile baseboard pricing by tile material (material + labor per LF)

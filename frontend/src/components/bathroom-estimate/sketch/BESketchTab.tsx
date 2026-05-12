@@ -197,6 +197,71 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
     stage.batchDraw();
   }, [canvasSize]);
 
+  // ── Expose sketch capture for PDF export ──
+  useEffect(() => {
+    (window as any).__beSketchCapture = () => {
+      const stage = stageRef.current;
+      if (!stage) return undefined;
+      const d = api.data;
+      if (!d.rooms.length && !d.fixtures.length && !d.walls.length) return undefined;
+      try {
+        // Compute content bounding box from data
+        const allX: number[] = [];
+        const allY: number[] = [];
+        const ppf = d.settings.pixelsPerFoot;
+        d.rooms.forEach(r => r.boundary.forEach(p => { allX.push(p.x); allY.push(p.y); }));
+        d.walls.forEach(w => { allX.push(w.start.x, w.end.x); allY.push(w.start.y, w.end.y); });
+        d.fixtures.forEach(f => {
+          const hw = (f.dimensions.width / 12) * ppf / 2;
+          const hh = (f.dimensions.height / 12) * ppf / 2;
+          allX.push(f.position.x - hw, f.position.x + hw);
+          allY.push(f.position.y - hh, f.position.y + hh);
+        });
+        if (!allX.length) return undefined;
+        const pad = 20;
+        const minX = Math.max(0, Math.min(...allX) - pad);
+        const minY = Math.max(0, Math.min(...allY) - pad);
+        const maxX = Math.max(...allX) + pad;
+        const maxY = Math.max(...allY) + pad;
+        const cropW = maxX - minX;
+        const cropH = maxY - minY;
+
+        // Hide grid layer (first) and dimension labels layer (last)
+        const layers = stage.getLayers();
+        const hiddenLayers: any[] = [];
+        layers.forEach((layer: any, idx: number) => {
+          if (idx === 0 || idx === layers.length - 1) {
+            if (layer.visible()) {
+              layer.visible(false);
+              hiddenLayers.push(layer);
+            }
+          }
+        });
+        const overlays = document.querySelectorAll<HTMLElement>('[data-sketch-overlay]');
+        overlays.forEach(el => { el.style.display = 'none'; });
+        stage.batchDraw();
+
+        // Capture only the content region
+        const dataUrl = stage.toDataURL({
+          pixelRatio: 2,
+          x: minX,
+          y: minY,
+          width: cropW,
+          height: cropH,
+        });
+
+        // Restore
+        hiddenLayers.forEach(l => l.visible(true));
+        overlays.forEach(el => { el.style.display = ''; });
+        stage.batchDraw();
+        return dataUrl.replace(/^data:image\/png;base64,/, '');
+      } catch (e) {
+        return undefined;
+      }
+    };
+    return () => { delete (window as any).__beSketchCapture; };
+  }, [api.data]);
+
   // ── Resize observer ──
   useEffect(() => {
     if (!containerRef.current || !isActive) return;
