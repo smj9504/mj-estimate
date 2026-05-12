@@ -31,6 +31,114 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _build_summary_from_items(items, merged_pages) -> tuple:
+    """Build section summaries from insurance_extraction parsed items.
+
+    Groups items by room, computes subtotals, and extracts O&P / tax
+    from the merged page text (summary page).
+    """
+    import re
+    from collections import OrderedDict
+
+    # Group items by room → compute room subtotals
+    rooms: OrderedDict = OrderedDict()
+    for item in items:
+        room = item.room or "General"
+        if room not in rooms:
+            rooms[room] = {"total": 0.0, "count": 0}
+        rcv = float(item.rcv or 0) if item.rcv else (
+            float(item.unit_price or 0) * float(item.quantity or 1)
+        )
+        rooms[room]["total"] += rcv
+        rooms[room]["count"] += 1
+
+    line_item_total = sum(r["total"] for r in rooms.values())
+
+    # Extract O&P, tax, deductible from merged page text
+    all_text = "\n".join(merged_pages)
+    overhead_amount = 0.0
+    profit_amount = 0.0
+    sales_tax = 0.0
+    deductible = 0.0
+    estimate_subtotal = 0.0
+    estimate_total = 0.0
+
+    oh_m = re.search(
+        r"(?:Add\s+)?[\d.]+%?\s*overhead.*?\$?([\d,]+\.\d+)",
+        all_text, re.IGNORECASE,
+    )
+    if oh_m:
+        overhead_amount = float(oh_m.group(1).replace(",", ""))
+
+    pr_m = re.search(
+        r"(?:Add\s+)?[\d.]+%?\s*profit.*?\$?([\d,]+\.\d+)",
+        all_text, re.IGNORECASE,
+    )
+    if pr_m:
+        profit_amount = float(pr_m.group(1).replace(",", ""))
+
+    tax_m = re.search(
+        r"Sales\s+Tax.*?\$?([\d,]+\.\d+)",
+        all_text, re.IGNORECASE,
+    )
+    if tax_m:
+        sales_tax = float(tax_m.group(1).replace(",", ""))
+
+    ded_m = re.search(
+        r"Deductible.*?\$?\(?([\d,]+\.\d+)\)?",
+        all_text, re.IGNORECASE,
+    )
+    if ded_m:
+        deductible = float(ded_m.group(1).replace(",", ""))
+
+    est_sub_m = re.search(
+        r"Estimate\s+Subtotal:\s+\$?([\d,]+\.\d+)",
+        all_text, re.IGNORECASE,
+    )
+    if est_sub_m:
+        estimate_subtotal = float(est_sub_m.group(1).replace(",", ""))
+
+    est_total_m = re.search(
+        r"Estimate\s+Total:\s+\$?([\d,]+\.\d+)",
+        all_text, re.IGNORECASE,
+    )
+    if est_total_m:
+        estimate_total = float(est_total_m.group(1).replace(",", ""))
+
+    # Compute RCV
+    rcv = estimate_subtotal or (
+        line_item_total + sales_tax + overhead_amount + profit_amount
+    )
+    net_acv = estimate_total or (rcv - deductible)
+    depreciation = rcv - net_acv - deductible if rcv > net_acv else 0.0
+
+    # Build single section
+    section = {
+        "section_name": "Structure",
+        "line_item_total": round(line_item_total, 2),
+        "material_sales_tax": round(sales_tax, 2),
+        "subtotal": round(line_item_total + sales_tax, 2),
+        "overhead_amount": round(overhead_amount, 2),
+        "profit_amount": round(profit_amount, 2),
+        "rcv": round(rcv, 2),
+        "depreciation": round(max(depreciation, 0), 2),
+        "deductible": round(deductible, 2),
+        "net_acv": round(net_acv, 2),
+        "recoverable_depreciation": 0,
+        "non_recoverable_depreciation": 0,
+        "total_if_incurred": 0,
+    }
+
+    totals = {
+        "rcv_amount": section["rcv"],
+        "acv_amount": section["net_acv"],
+        "depreciation_amount": section["depreciation"],
+        "deductible": section["deductible"],
+    }
+
+    return [section], totals
+
+
 def _get_service():
     from app.domains.claim_followup.service import ClaimFollowUpService
     return ClaimFollowUpService()
@@ -181,11 +289,12 @@ async def resolve_task(
                     context="insurance_estimate",
                     context_id=task_id,
                 )
-                session.commit()
+                file_service.repository.db_session.commit()
                 file_id = str(file_record.get("id", ""))
                 file_name = upload_filename
             finally:
                 session.close()
+                file_service.repository.db_session.close()
         except Exception as e:
             logger.error(f"File upload failed during resolve: {e}")
 
@@ -251,10 +360,53 @@ async def parse_estimate_pdf(file: UploadFile = File(...)):
         from app.domains.client.negotiation_pdf_service import extract_summary_from_pdf
         result = extract_summary_from_pdf(tmp_path)
 
+        # Check if summary extraction found meaningful data
+        has_sections = bool(result.get("sections"))
+        if has_sections:
+            return {
+                "sections": result["sections"],
+                "totals": result["totals"],
+                "validation": result.get("validation", {}),
+            }
+
+        # Fallback: use insurance_extraction pipeline for non-Xactimate formats
+        logger.info("Summary parser found no sections, trying insurance_extraction pipeline")
+        try:
+            from app.domains.insurance_extraction.extractors.ocr_fallback_extractor import OcrFallbackExtractor
+            from app.domains.insurance_extraction.extractors.pdf_text_extractor import PdfTextExtractor
+            from app.domains.insurance_extraction.orchestrator.pipeline import InsuranceExtractionOrchestrator
+            from app.domains.insurance_extraction.parsers.resolver import InsuranceParserResolver
+
+            orchestrator = InsuranceExtractionOrchestrator(
+                text_extractor=PdfTextExtractor(),
+                ocr_extractor=OcrFallbackExtractor(),
+                parser_resolver=InsuranceParserResolver(),
+            )
+            pipeline_result = orchestrator.run(tmp_path)
+
+            if pipeline_result.items:
+                sections, totals = _build_summary_from_items(
+                    pipeline_result.items,
+                    pipeline_result.merged_pages,
+                )
+                return {
+                    "sections": sections,
+                    "totals": totals,
+                    "validation": {"is_valid": True, "warnings": []},
+                    "metadata": {
+                        "strategy": f"insurance_extraction_{pipeline_result.metadata.get('strategy', '')}",
+                        "carrier": pipeline_result.carrier,
+                        "item_count": len(pipeline_result.items),
+                    },
+                }
+        except Exception as fallback_err:
+            logger.warning(f"Insurance extraction fallback failed: {fallback_err}")
+
+        # Return empty result if all strategies failed
         return {
-            "sections": result["sections"],
-            "totals": result["totals"],
-            "validation": result.get("validation", {}),
+            "sections": [],
+            "totals": {"rcv_amount": 0, "acv_amount": 0, "depreciation_amount": 0, "deductible": 0},
+            "validation": {"is_valid": False, "warnings": ["No data could be extracted from this PDF format"]},
         }
     except HTTPException:
         raise

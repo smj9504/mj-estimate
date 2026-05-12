@@ -8,6 +8,9 @@ from app.domains.insurance_extraction.interfaces import (
     ParserResolver,
     TextExtractor,
 )
+from app.domains.insurance_extraction.parsers.ai_fallback_parser import (
+    parse_with_ai,
+)
 from app.domains.insurance_extraction.parsers.xactimate_layout_parser import (
     _parse_text_layout_items,
     _xactimate_parse_trustworthy,
@@ -88,13 +91,48 @@ class InsuranceExtractionOrchestrator:
                         "strategy": "xactimate_text_layout_ocr",
                     },
                 )
+
+        if items:
+            return ExtractionPipelineResult(
+                carrier=resolved_carrier,
+                merged_pages=merged_pages,
+                items=items,
+                metadata={
+                    "ocr_attempted": bool(ocr_pages),
+                    "strategy": "text_then_ocr_fallback",
+                },
+            )
+
+        # Strategy 5: AI/LLM fallback for unknown formats
+        try:
+            ai_items, ai_meta = parse_with_ai(merged_pages)
+            if ai_items:
+                if ai_meta.get("ai_carrier"):
+                    resolved_carrier = (
+                        ai_meta["ai_carrier"]
+                        .lower()
+                        .replace(" ", "_")
+                    )
+                return ExtractionPipelineResult(
+                    carrier=resolved_carrier,
+                    merged_pages=merged_pages,
+                    items=ai_items,
+                    metadata={
+                        "ocr_attempted": bool(ocr_pages),
+                        "strategy": "ai_fallback",
+                        **ai_meta,
+                    },
+                )
+        except Exception as e:
+            logger.warning("AI fallback parser failed: %s", e)
+
         return ExtractionPipelineResult(
             carrier=resolved_carrier,
             merged_pages=merged_pages,
-            items=items,
+            items=[],
             metadata={
                 "ocr_attempted": bool(ocr_pages),
-                "strategy": "text_then_ocr_fallback",
+                "strategy": "all_strategies_exhausted",
             },
         )
 
@@ -134,6 +172,7 @@ class InsuranceExtractionOrchestrator:
             "farmers": "farmers",
             "liberty mutual": "liberty_mutual",
             "travelers": "travelers",
+            "erie insurance": "erie",
         }
         for token, carrier_name in carriers.items():
             if token in joined:

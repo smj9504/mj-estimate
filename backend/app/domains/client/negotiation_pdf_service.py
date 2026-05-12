@@ -92,6 +92,13 @@ SUMMARY_KEYWORDS = [
     "less depreciation",
     "total amount of claim",
     "maximum additional amounts",
+    # Erie Insurance / non-Xactimate summary keywords
+    "estimate subtotal",
+    "estimate total",
+    "total materials",
+    "total labor",
+    "overhead",
+    "profit",
 ]
 
 
@@ -136,6 +143,7 @@ _FIELD_MAP = {
     "less depreciation": "depreciation",
     # Deductible
     "less deductible": "deductible",
+    "deductible": "deductible",
     # Net ACV (various carrier terms)
     "net actual cash value payment": "net_acv",
     "net actual cash value": "net_acv",
@@ -153,6 +161,13 @@ _FIELD_MAP = {
     # Total if incurred
     "total amount of claim if incurred": "total_if_incurred",
     "net claim if depreciation is recovered": "total_if_incurred",
+    # Erie Insurance / non-Xactimate format
+    "estimate subtotal": "rcv",
+    "estimate total on coverage dwelling": "rcv",
+    "estimate total": "net_acv",
+    "total materials": "line_item_total",
+    "total labor": "labor_total",
+    "total equipment": "equipment_total",
 }
 
 # Summary section header pattern
@@ -188,7 +203,13 @@ def _extract_sections_from_text(page_text: str) -> List[Dict[str, Any]]:
     # parts[1] = first section name, parts[2] = first section body, etc.
     if len(parts) < 3:
         # No "Summary for" header found — try parsing the whole page as one section
-        section = _parse_section_body(page_text, "Unknown")
+        # Detect section name from ESTIMATE header if present
+        est_m = re.search(
+            r"ESTIMATE:\s*(\w[\w\s]*?)(?:\s*\(|$)",
+            page_text, re.IGNORECASE,
+        )
+        section_name = est_m.group(1).strip() if est_m else "Dwelling"
+        section = _parse_section_body(page_text, section_name)
         if section and (section.get("rcv", 0) > 0 or section.get("net_acv", 0) > 0):
             sections.append(section)
         return sections
@@ -272,20 +293,22 @@ def _parse_section_body(body: str, section_name: str) -> Optional[Dict[str, Any]
     if not found_any:
         return None
 
-    # Require RCV > 0 — a summary section without RCV is invalid
-    if not section.get("rcv") or section["rcv"] <= 0:
+    # Require RCV or net_acv > 0 — a summary section without either is invalid
+    if (not section.get("rcv") or section["rcv"] <= 0) and \
+       (not section.get("net_acv") or section["net_acv"] <= 0):
         return None
 
-    # Require at least 3 meaningful fields
-    # (prevents garbage from sample/guide pages)
+    # Require at least 2 meaningful fields
+    # (Erie has fewer summary fields than Xactimate)
     meaningful = sum(
         1 for k in [
             "line_item_total", "subtotal", "rcv",
             "net_acv", "depreciation", "overhead_amount",
+            "labor_total", "equipment_total",
         ]
         if section.get(k, 0) and section[k] > 0
     )
-    if meaningful < 3:
+    if meaningful < 2:
         return None
 
     # Auto-compute net_acv if missing but rcv is present

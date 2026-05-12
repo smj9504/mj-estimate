@@ -3,6 +3,7 @@ from typing import Dict, Optional
 from app.domains.insurance_extraction.interfaces import InsuranceParser
 from app.domains.insurance_extraction.parsers.carriers import (
     AllstateInsuranceParser,
+    ErieInsuranceParser,
     FarmersInsuranceParser,
     LibertyMutualInsuranceParser,
     StateFarmInsuranceParser,
@@ -23,6 +24,7 @@ class InsuranceParserResolver:
             "farmers": FarmersInsuranceParser(),
             "liberty_mutual": LibertyMutualInsuranceParser(),
             "travelers": TravelersInsuranceParser(),
+            "erie": ErieInsuranceParser(),
         }
 
     def resolve(self, carrier: Optional[str]) -> InsuranceParser:
