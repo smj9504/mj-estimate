@@ -93,6 +93,21 @@ class BathroomEstimateService:
         if update_dict:
             self.estimate_repo.update(estimate_id, update_dict)
 
+            # Force SQLAlchemy to detect JSONB field changes
+            from sqlalchemy.orm.attributes import flag_modified
+            jsonb_fields = [
+                'sketch_data', 'shower_spec', 'bathtub_spec',
+                'vanity_spec', 'toilet_spec', 'floor_spec',
+                'walls_spec', 'accessories_spec', 'plumbing_spec',
+                'electrical_spec', 'substrate_spec', 'hidden_costs',
+            ]
+            for field in jsonb_fields:
+                if field in update_dict:
+                    try:
+                        flag_modified(estimate, field)
+                    except Exception:
+                        pass
+
         self.session.flush()
         if skip_full_read:
             return {"id": estimate_id}

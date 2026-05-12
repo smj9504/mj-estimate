@@ -164,6 +164,16 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
   isActive = false,
 }) => {
   const api = useBESketchState(initialSketchData);
+  const initialLoaded = useRef(false);
+
+  // Load sketch_data when estimate loads from API (initialSketchData arrives async)
+  useEffect(() => {
+    if (initialSketchData && !initialLoaded.current) {
+      initialLoaded.current = true;
+      api.loadSketch(initialSketchData);
+    }
+  }, [initialSketchData, api]);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });

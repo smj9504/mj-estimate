@@ -38,6 +38,7 @@ import {
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
 import { clientService } from '../services/clientService';
 import { companyService } from '../services/companyService';
@@ -91,12 +92,10 @@ const BathroomEstimateDetail: React.FC = () => {
     enabled: clientSearch.length >= 2,
   });
 
-  const [companySearch, setCompanySearch] = useState('');
   const [guideOpen, setGuideOpen] = useState(false);
   const { data: companyResults } = useQuery({
-    queryKey: ['companies-search', companySearch],
-    queryFn: () => companyService.getCompanies(companySearch),
-    enabled: companySearch.length >= 1,
+    queryKey: ['companies-list'],
+    queryFn: () => companyService.getCompanies(),
   });
 
   // Auto-fill address when client/claim is selected
@@ -444,8 +443,9 @@ const BathroomEstimateDetail: React.FC = () => {
                     <Form.Item label="Company" name="company_id">
                       <Select
                         showSearch
-                        filterOption={false}
-                        onSearch={(v) => setCompanySearch(v)}
+                        filterOption={(input, option) =>
+                          (option?.label as string ?? '').toLowerCase().includes(input.toLowerCase())
+                        }
                         placeholder="Select company..."
                         allowClear
                         options={(companyResults || []).map((c: any) => ({
@@ -491,7 +491,13 @@ const BathroomEstimateDetail: React.FC = () => {
                 <Row gutter={16}>
                   <Col xs={24} md={12}>
                     <Form.Item label="Property Address" name="property_address">
-                      <Input />
+                      <AddressAutocomplete
+                        onSelect={(addr) => form.setFieldsValue({
+                          city: addr.city,
+                          state: addr.state,
+                          zip_code: addr.zip,
+                        })}
+                      />
                     </Form.Item>
                   </Col>
                   <Col xs={12} sm={8} md={4}>
