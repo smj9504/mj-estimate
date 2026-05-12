@@ -3,6 +3,7 @@ Pack Calculation domain models
 """
 
 from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, Boolean, Float, Enum as SQLEnum, Index
+from sqlalchemy.sql.elements import quoted_name
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -99,7 +100,7 @@ class PackCalculation(Base, BaseModel):
     claim_id = Column(UUIDType(), ForeignKey("claims.id"), nullable=True)
 
     # Estimate mode & status
-    mode = Column(SQLEnum(PackEstimateMode), default=PackEstimateMode.PHOTO_AI)
+    mode = Column(quoted_name("mode", True), SQLEnum(PackEstimateMode), default=PackEstimateMode.PHOTO_AI)
     status = Column(SQLEnum(PackEstimateStatus), default=PackEstimateStatus.DRAFT)
 
     # Building information
