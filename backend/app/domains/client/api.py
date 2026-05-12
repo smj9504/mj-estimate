@@ -368,9 +368,8 @@ async def extract_pdf_summary(
         from app.domains.file.service import FileService
 
         db = get_database()
-        session = db.get_session()
+        file_service = FileService(db)
         try:
-            file_service = FileService(db)
             file_data = io.BytesIO(file_content)
 
             file_record = await file_service.upload_file(
@@ -380,10 +379,10 @@ async def extract_pdf_summary(
                 context="negotiation",
                 context_id=claim_id,
             )
-            session.commit()
+            file_service.repository.db_session.commit()
             file_id = str(file_record.get("id", ""))
         finally:
-            session.close()
+            file_service.repository.db_session.close()
 
         # Write to temp file for PDF parsing
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")

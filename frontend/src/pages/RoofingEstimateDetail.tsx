@@ -36,6 +36,7 @@ import {
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { roofingEstimateService } from '../services/roofingEstimateService';
 import { companyService } from '../services/companyService';
 import type {
@@ -671,7 +672,7 @@ const RoofingEstimateDetail: React.FC = () => {
 
                 <Divider orientation="left">Property</Divider>
                 <Row gutter={16}>
-                  <Col xs={24} md={12}><Form.Item label="Property Address" name="property_address"><Input /></Form.Item></Col>
+                  <Col xs={24} md={12}><Form.Item label="Property Address" name="property_address"><AddressAutocomplete onSelect={(addr) => form.setFieldsValue({ city: addr.city, state: addr.state, zip_code: addr.zip })} /></Form.Item></Col>
                   <Col xs={12} sm={8} md={4}><Form.Item label="City" name="city"><Input /></Form.Item></Col>
                   <Col xs={12} sm={8} md={4}>
                     <Form.Item label="State" name="state">

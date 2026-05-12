@@ -40,6 +40,7 @@ import {
   DeleteOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { materialOrderService } from '../services/materialOrderService';
 import type {
   ScopeType,
@@ -624,7 +625,7 @@ const MaterialOrderPage: React.FC = () => {
           <Row gutter={[16, 8]}>
             <Col span={8}>
               <Form.Item label="Property Address" name="property_address">
-                <Input placeholder="123 Main St, City, State" />
+                <AddressAutocomplete placeholder="123 Main St, City, State" />
               </Form.Item>
             </Col>
             <Col span={4}>

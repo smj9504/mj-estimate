@@ -27,6 +27,7 @@ import {
   MinusCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { clientService } from '../services/clientService';
 import type { Client, ClientCreate, ClientListItem, OwnerInfo } from '../types/client';
 import type { ColumnsType } from 'antd/es/table';
@@ -248,7 +249,14 @@ const ClientFormModal: React.FC<ClientFormModalProps> = ({
           Address
         </Divider>
         <Form.Item name="address" label="Street Address">
-          <Input placeholder="123 Main St" />
+          <AddressAutocomplete
+            placeholder="123 Main St"
+            onSelect={(addr) => form.setFieldsValue({
+              city: addr.city,
+              state: addr.state,
+              zipcode: addr.zip,
+            })}
+          />
         </Form.Item>
         <Row gutter={12}>
           <Col xs={24} sm={10}>

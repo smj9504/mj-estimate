@@ -25,6 +25,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { companyService } from '../services/companyService';
 import { workOrderService } from '../services/workOrderService';
 import documentTypeService from '../services/documentTypeService';
@@ -516,7 +517,15 @@ const WorkOrderCreation: React.FC = () => {
                 {/* Right Column - Address Information */}
                 <Col xs={24} md={12}>
                   <Form.Item name="client_address" label="Address">
-                    <Input placeholder="Enter street address" size="large" />
+                    <AddressAutocomplete
+                      placeholder="Enter street address"
+                      size="large"
+                      onSelect={(addr) => form.setFieldsValue({
+                        client_city: addr.city,
+                        client_state: addr.state,
+                        client_zipcode: addr.zip,
+                      })}
+                    />
                   </Form.Item>
                   <Form.Item name="client_city" label="City">
                     <Input placeholder="Enter city" size="large" />

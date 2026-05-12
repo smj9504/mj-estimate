@@ -5,6 +5,7 @@
 import React, { useEffect } from 'react';
 import { Modal, Form, Input, DatePicker, Switch, Select, message } from 'antd';
 import dayjs from 'dayjs';
+import AddressAutocomplete from '../common/AddressAutocomplete';
 import type { WaterMitigationJob, JobCreateRequest } from '../../types/waterMitigation';
 import { JOB_STATUS_OPTIONS } from '../../types/waterMitigation';
 import waterMitigationService from '../../services/waterMitigationService';
@@ -163,7 +164,7 @@ const JobFormModal: React.FC<JobFormModalProps> = ({
           name="property_address"
           rules={[{ required: true, message: 'Please enter property address' }]}
         >
-          <TextArea rows={2} placeholder="123 Main St, City, State ZIP" />
+          <AddressAutocomplete placeholder="123 Main St, City, State ZIP" />
         </Form.Item>
 
         {/* Company Assignment */}

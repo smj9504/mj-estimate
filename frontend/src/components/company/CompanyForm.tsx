@@ -10,6 +10,7 @@ import {
   Select,
 } from 'antd';
 import { SaveOutlined, CloseOutlined } from '@ant-design/icons';
+import AddressAutocomplete from '../common/AddressAutocomplete';
 import { Company, CompanyFormData, PaymentMethod, PaymentFrequency } from '../../types';
 import LogoUpload from './LogoUpload';
 import LicenseManager from './LicenseManager';
@@ -193,9 +194,14 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
                 label="Address"
                 rules={[{ required: true }]}
               >
-                <Input
+                <AddressAutocomplete
                   placeholder="Enter address"
                   disabled={loading}
+                  onSelect={(addr) => form.setFieldsValue({
+                    city: addr.city,
+                    state: addr.state,
+                    zipcode: addr.zip,
+                  })}
                 />
               </Form.Item>
             </Col>

@@ -27,6 +27,7 @@ import {
   EditOutlined,
   HolderOutlined,
 } from '@ant-design/icons';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import SortableSection from '../components/common/SortableSection';
 import SectionItemsTable from '../components/estimate/SectionItemsTable';
 import MultiSelectActionBar from '../components/common/MultiSelectActionBar';
@@ -1467,7 +1468,14 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
                 {/* Address, City, State, Zip in one row */}
                 <Col xs={24} md={12}>
                   <Form.Item name="client_address" label="Street Address">
-                    <Input placeholder="Enter street address" />
+                    <AddressAutocomplete
+                      placeholder="Enter street address"
+                      onSelect={(addr) => form.setFieldsValue({
+                        client_city: addr.city,
+                        client_state: addr.state,
+                        client_zipcode: addr.zip,
+                      })}
+                    />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={6}>

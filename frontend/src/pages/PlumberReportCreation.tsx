@@ -43,6 +43,7 @@ import {
   PaymentRecord,
   PhotoRecord
 } from '../services/plumberReportService';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { companyService } from '../services/companyService';
 import { clientService } from '../services/clientService';
 import { Company } from '../types';
@@ -817,7 +818,14 @@ const PlumberReportCreation: React.FC = () => {
                 {/* Address, City, State, Zip in one row */}
                 <Col xs={24} md={12}>
                   <Form.Item name="address" label="Address">
-                    <Input placeholder="Enter street address" />
+                    <AddressAutocomplete
+                      placeholder="Enter street address"
+                      onSelect={(addr) => form.setFieldsValue({
+                        city: addr.city,
+                        state: addr.state,
+                        zipcode: addr.zip,
+                      })}
+                    />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={6}>
@@ -864,7 +872,14 @@ const PlumberReportCreation: React.FC = () => {
                 <Row gutter={16}>
                   <Col xs={24} md={12}>
                     <Form.Item name="property_address" label="Property Address" style={{ marginBottom: 8 }}>
-                      <Input placeholder="Enter property address" />
+                      <AddressAutocomplete
+                        placeholder="Enter property address"
+                        onSelect={(addr) => form.setFieldsValue({
+                          property_city: addr.city,
+                          property_state: addr.state,
+                          property_zipcode: addr.zip,
+                        })}
+                      />
                     </Form.Item>
                   </Col>
                   <Col xs={24} md={5}>

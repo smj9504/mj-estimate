@@ -209,7 +209,10 @@ export interface ClaimExpenseCreate {
 
 export interface ProfitabilitySummary {
   total_insurance_paid: number;
+  current_rcv: number;
+  deductible: number;
   pa_fee_percentage: number;
+  pa_fee_base: number;
   pa_fee_amount: number;
   total_material: number;
   total_labor: number;

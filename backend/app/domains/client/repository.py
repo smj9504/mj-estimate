@@ -5,7 +5,7 @@ Client, Claim, and ClaimNegotiation repository implementations.
 import logging
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 
 from app.common.base_repository import SQLAlchemyRepository, SupabaseRepository
 from app.core.interfaces import DatabaseSession
@@ -181,16 +181,57 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
             raise
 
     def get_all_with_counts(self, filters=None, order_by=None, limit=None, offset=None) -> List[Dict[str, Any]]:
-        """Get all clients with claim counts"""
+        """Get all clients with claim counts, ordered by latest claim activity"""
         try:
-            clients = self.get_all(filters=filters, order_by=order_by or '-created_at', limit=limit, offset=offset)
+            # Subquery: latest claim activity per client
+            latest_claim_activity = (
+                self.db_session.query(
+                    Claim.client_id,
+                    func.max(
+                        func.coalesce(Claim.updated_at, Claim.created_at)
+                    ).label('latest_activity')
+                )
+                .group_by(Claim.client_id)
+                .subquery()
+            )
 
-            for client in clients:
-                client_id = client.get('id')
-                claim_count = self.db_session.query(Claim).filter(
-                    Claim.client_id == client_id
-                ).count()
-                client['claim_count'] = claim_count
+            query = (
+                self.db_session.query(Client, func.count(Claim.id).label('claim_count'))
+                .outerjoin(Claim, Client.id == Claim.client_id)
+                .outerjoin(
+                    latest_claim_activity,
+                    Client.id == latest_claim_activity.c.client_id
+                )
+            )
+
+            # Apply filters
+            if filters:
+                for key, value in filters.items():
+                    if hasattr(Client, key):
+                        query = query.filter(getattr(Client, key) == value)
+
+            query = query.group_by(Client.id)
+
+            # Order by latest claim activity (desc), fallback to client created_at
+            query = query.order_by(
+                func.coalesce(
+                    latest_claim_activity.c.latest_activity,
+                    Client.created_at
+                ).desc()
+            )
+
+            if offset:
+                query = query.offset(offset)
+            if limit:
+                query = query.limit(limit)
+
+            results = query.all()
+
+            clients = []
+            for client_obj, claim_count in results:
+                client_dict = self._convert_to_dict(client_obj)
+                client_dict['claim_count'] = claim_count
+                clients.append(client_dict)
 
             return clients
         except Exception as e:

@@ -62,6 +62,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import DraggableTable from '../components/common/DraggableTable';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -3201,7 +3202,13 @@ const InvoiceCreation: React.FC = () => {
                   {/* Address, City, State, Zip in one row */}
                   <Col xs={24} md={12}>
                     <Form.Item name="client_address" label="Address">
-                      <Input />
+                      <AddressAutocomplete
+                        onSelect={(addr) => form.setFieldsValue({
+                          client_city: addr.city,
+                          client_state: addr.state,
+                          client_zipcode: addr.zip,
+                        })}
+                      />
                     </Form.Item>
                   </Col>
                   <Col xs={24} md={6}>

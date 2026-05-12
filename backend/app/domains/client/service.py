@@ -517,9 +517,12 @@ class ClaimExpenseService:
             # Revenue = total insurance paid
             total_paid = float(claim.total_insurance_paid or 0)
 
-            # PA fee calculation
+            # PA fee calculation: (RCV - deductible) * pa_pct%
             pa_pct = float(claim.pa_fee_percentage or 0)
-            pa_fee = total_paid * (pa_pct / 100) if claim.has_public_adjuster and pa_pct > 0 else 0
+            deductible = float(claim.insurance_deductible or 0)
+            current_rcv = float(claim.current_rcv or 0)
+            pa_fee_base = max(0, current_rcv - deductible)
+            pa_fee = pa_fee_base * (pa_pct / 100) if claim.has_public_adjuster and pa_pct > 0 else 0
 
             # Expense breakdown by category
             cat_totals = {}
@@ -543,7 +546,10 @@ class ClaimExpenseService:
 
             return {
                 "total_insurance_paid": total_paid,
+                "current_rcv": current_rcv,
+                "deductible": deductible,
                 "pa_fee_percentage": pa_pct,
+                "pa_fee_base": round(pa_fee_base, 2),
                 "pa_fee_amount": round(pa_fee, 2),
                 "total_material": round(total_material, 2),
                 "total_labor": round(total_labor, 2),

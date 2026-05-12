@@ -110,14 +110,25 @@ const ProfitabilityTracker: React.FC<ProfitabilityTrackerProps> = ({
       {/* Profitability Summary */}
       <Row gutter={[8, 8]} style={{ marginBottom: 12 }}>
         <Col xs={12} sm={6}>
-          <Statistic title="Revenue" value={p?.total_insurance_paid || 0}
+          <Statistic title="Revenue (Paid)" value={p?.total_insurance_paid || 0}
             prefix="$" precision={2} loading={isLoading} valueStyle={{ fontSize: 15 }} />
         </Col>
         <Col xs={12} sm={6}>
-          <Statistic title="PA Fee" value={p?.pa_fee_amount || 0}
-            prefix="-$" precision={2} loading={isLoading}
-            suffix={p?.pa_fee_percentage ? `(${p.pa_fee_percentage}%)` : ''}
-            valueStyle={{ fontSize: 15, color: (p?.pa_fee_amount || 0) > 0 ? '#cf1322' : undefined }} />
+          {(p?.pa_fee_percentage || 0) > 0 ? (
+            <div>
+              <Statistic title="PA Fee" value={p?.pa_fee_amount || 0}
+                prefix="-$" precision={2} loading={isLoading}
+                suffix={`(${p?.pa_fee_percentage}%)`}
+                valueStyle={{ fontSize: 15, color: '#cf1322' }} />
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                ({formatCurrency(p?.current_rcv)} − {formatCurrency(p?.deductible)} ded.) × {p?.pa_fee_percentage}%
+              </Text>
+            </div>
+          ) : (
+            <Statistic title="PA Fee" value={0}
+              prefix="$" precision={2} loading={isLoading}
+              valueStyle={{ fontSize: 15 }} />
+          )}
         </Col>
         <Col xs={12} sm={6}>
           <Statistic title="Total Expenses" value={p?.total_expenses || 0}

@@ -337,8 +337,11 @@ class ProfitabilitySummary(BaseModel):
     """Full profitability breakdown for a claim"""
     # Revenue
     total_insurance_paid: float = 0
-    # Costs
+    current_rcv: float = 0
+    deductible: float = 0
+    # PA Fee: (RCV - deductible) * pa_pct%
     pa_fee_percentage: float = 0
+    pa_fee_base: float = 0
     pa_fee_amount: float = 0
     total_material: float = 0
     total_labor: float = 0

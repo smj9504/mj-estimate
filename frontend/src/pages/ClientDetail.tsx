@@ -53,6 +53,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { clientService, claimService, negotiationService, claimActivityService } from '../services/clientService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
 import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory } from '../components/claim-followup';
@@ -306,7 +307,13 @@ const EditClientModal: React.FC<EditClientModalProps> = ({
 
         <Divider orientation="left" plain style={{ marginBottom: 8 }}>Address</Divider>
         <Form.Item name="address" label="Street Address">
-          <Input />
+          <AddressAutocomplete
+            onSelect={(addr) => form.setFieldsValue({
+              city: addr.city,
+              state: addr.state,
+              zipcode: addr.zip,
+            })}
+          />
         </Form.Item>
         <Row gutter={12}>
           <Col xs={24} sm={10}><Form.Item name="city" label="City"><Input /></Form.Item></Col>

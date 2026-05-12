@@ -28,6 +28,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { clientService, claimService } from '../services/clientService';
 import { companyService } from '../services/companyService';
@@ -465,7 +466,12 @@ const CabinetEstimateDetail: React.FC = () => {
                   <Row gutter={16}>
                     <Col xs={24} md={12}>
                       <Form.Item name="property_address" label="Property Address">
-                        <Input placeholder="123 Main St, Bethesda, MD 20815" />
+                        <AddressAutocomplete
+                          placeholder="123 Main St, Bethesda, MD 20815"
+                          onSelect={(addr) => form.setFieldsValue({
+                            zip_code: addr.zip,
+                          })}
+                        />
                       </Form.Item>
                     </Col>
                     <Col xs={12} md={6}>

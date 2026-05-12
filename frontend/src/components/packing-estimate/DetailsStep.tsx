@@ -11,6 +11,7 @@ import {
   UserOutlined, BankOutlined, SettingOutlined,
   DollarOutlined,
 } from '@ant-design/icons';
+import AddressAutocomplete from '../common/AddressAutocomplete';
 import { companyService } from '../../services/companyService';
 import { clientService } from '../../services/clientService';
 import type { Company } from '../../types';
@@ -175,9 +176,9 @@ const DetailsStep: React.FC<DetailsStepProps> = ({
             <Col span={12}>
               <Form layout="vertical">
                 <Form.Item label="Property Address">
-                  <Input
+                  <AddressAutocomplete
                     value={projectAddress}
-                    onChange={e => setProjectAddress(e.target.value)}
+                    onChange={(val) => setProjectAddress(val)}
                   />
                 </Form.Item>
               </Form>

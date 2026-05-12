@@ -35,6 +35,7 @@ import { estimateService, EstimateLineItem, EstimateResponse } from '../services
 import { companyService } from '../services/companyService';
 import { fileService } from '../services/fileService';
 import { insuranceExtractionService } from '../services/insuranceExtractionService';
+import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import GroupableLineItemsWithSidebar from '../components/estimate/GroupableLineItemsWithSidebar';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import {
@@ -826,7 +827,14 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
                 label="Address"
                 rules={[{ required: true, message: 'Address is required' }]}
               >
-                <Input placeholder="Street address" />
+                <AddressAutocomplete
+                  placeholder="Street address"
+                  onSelect={(addr) => form.setFieldsValue({
+                    client_city: addr.city,
+                    client_state: addr.state,
+                    client_zipcode: addr.zip,
+                  })}
+                />
               </Form.Item>
             </Col>
             <Col xs={24} md={6}>
