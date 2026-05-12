@@ -674,9 +674,12 @@ def _select_diverse_images(
             if raw.startswith("data:"):
                 raw = raw.split(",", 1)[1]
             img_bytes = base64.b64decode(raw)
-            img = _Image.open(io.BytesIO(img_bytes))
-            thumb = img.resize((THUMB, THUMB), _Image.LANCZOS).convert("L")
-            return list(thumb.getdata())
+            with io.BytesIO(img_bytes) as buf:
+                img = _Image.open(buf)
+                img.load()  # Force full decode so buf can be closed
+                thumb = img.resize((THUMB, THUMB), _Image.LANCZOS).convert("L")
+                pixels = list(thumb.getdata())
+            return pixels
         except Exception:
             return None
 
@@ -729,10 +732,11 @@ def _compress_image_base64(
         from PIL import Image
 
         img_bytes = base64.b64decode(raw_b64)
-        img = Image.open(io.BytesIO(img_bytes))
-
-        if img.mode in ("RGBA", "P", "LA"):
-            img = img.convert("RGB")
+        with io.BytesIO(img_bytes) as input_buf:
+            img = Image.open(input_buf)
+            img.load()  # Force full decode so input_buf can be closed
+            if img.mode in ("RGBA", "P", "LA"):
+                img = img.convert("RGB")
 
         quality = 85
         max_dim = MAX_IMAGE_DIM
@@ -741,9 +745,9 @@ def _compress_image_base64(
             if max(img.size) > max_dim:
                 img.thumbnail((max_dim, max_dim), Image.LANCZOS)
 
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=quality, optimize=True)
-            encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+            with io.BytesIO() as buf:
+                img.save(buf, format="JPEG", quality=quality, optimize=True)
+                encoded = base64.b64encode(buf.getvalue()).decode("ascii")
 
             if len(encoded) <= max_bytes or quality <= 30:
                 return "image/jpeg", encoded
@@ -811,59 +815,66 @@ async def _analyze_room_with_claude(
 
     Returns the merged result dict, or None on failure.
     """
-    client = _anthropic_module.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    async with _anthropic_module.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY) as client:
 
-    # ── Pass 1: Vision + Tool Use ──────────────────────────────────────────
-    per_image_limit = MAX_IMAGE_BYTES // max(len(images), 1)
-    per_image_limit = max(per_image_limit, 1_000_000)
+        # ── Pass 1: Vision + Tool Use ──────────────────────────────────────
+        per_image_limit = MAX_IMAGE_BYTES // max(len(images), 1)
+        per_image_limit = max(per_image_limit, 1_000_000)
 
-    content = []
-    for img in images:
-        media_type, img_data = _compress_image_base64(img, max_bytes=per_image_limit)
-        content.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": media_type,
-                "data": img_data,
-            },
-        })
+        content = []
+        for img in images:
+            media_type, img_data = _compress_image_base64(img, max_bytes=per_image_limit)
+            content.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": img_data,
+                },
+            })
 
-    pass1_prompt = _build_pass1_tool_prompt(room_name, len(images), existing_items)
-    content.append({"type": "text", "text": pass1_prompt})
+        pass1_prompt = _build_pass1_tool_prompt(room_name, len(images), existing_items)
+        content.append({"type": "text", "text": pass1_prompt})
 
-    pass1_msg = await client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=4096,
-        temperature=0,
-        tools=[PASS1_TOOL],
-        tool_choice={"type": "tool", "name": "report_room_contents"},
-        messages=[{"role": "user", "content": content}],
-    )
+        pass1_msg = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4096,
+            temperature=0,
+            tools=[PASS1_TOOL],
+            tool_choice={"type": "tool", "name": "report_room_contents"},
+            messages=[{"role": "user", "content": content}],
+        )
 
-    pass1_result = _extract_tool_result(pass1_msg)
-    if not pass1_result or not pass1_result.get("items"):
-        return pass1_result
+        # Release large base64 image data immediately after the API call
+        del content
 
-    # ── Taxonomy Normalization (deterministic, no API cost) ────────────────
-    if _TAXONOMY_AVAILABLE and normalize_items_list is not None:
-        normalize_items_list(pass1_result["items"])
+        pass1_result = _extract_tool_result(pass1_msg)
+        del pass1_msg
 
-    # ── Pass 2: Text-only + Tool Use ───────────────────────────────────────
-    # Compact JSON (no indent) saves ~15 % input tokens vs indent=2.
-    items_json = json.dumps(pass1_result["items"])
-    pass2_prompt = _build_pass2_tool_prompt(items_json)
+        if not pass1_result or not pass1_result.get("items"):
+            return pass1_result
 
-    pass2_msg = await client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=4096,
-        temperature=0,
-        tools=[PASS2_TOOL],
-        tool_choice={"type": "tool", "name": "enrich_packing_details"},
-        messages=[{"role": "user", "content": pass2_prompt}],
-    )
+        # ── Taxonomy Normalization (deterministic, no API cost) ────────────
+        if _TAXONOMY_AVAILABLE and normalize_items_list is not None:
+            normalize_items_list(pass1_result["items"])
 
-    pass2_result = _extract_tool_result(pass2_msg)
+        # ── Pass 2: Text-only + Tool Use ───────────────────────────────────
+        # Compact JSON (no indent) saves ~15 % input tokens vs indent=2.
+        items_json = json.dumps(pass1_result["items"])
+        pass2_prompt = _build_pass2_tool_prompt(items_json)
+        del items_json
+
+        pass2_msg = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4096,
+            temperature=0,
+            tools=[PASS2_TOOL],
+            tool_choice={"type": "tool", "name": "enrich_packing_details"},
+            messages=[{"role": "user", "content": pass2_prompt}],
+        )
+
+        pass2_result = _extract_tool_result(pass2_msg)
+        del pass2_msg
 
     # ── Merge: Pass 1 metadata + Pass 2 enriched items ────────────────────
     if pass2_result and pass2_result.get("items"):

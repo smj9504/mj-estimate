@@ -20,7 +20,7 @@
  * 4. Repeat for additional rooms
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Card,
   Upload,
@@ -108,8 +108,25 @@ export const PhotoUploadManager: React.FC<PhotoUploadManagerProps> = ({
   const [uploadingRoomId, setUploadingRoomId] = useState<string | null>(null);
   const [analyzingAll, setAnalyzingAll] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<UploadFile[]>([]);
-  const [analysisProvider] = useState<AnalysisProvider>('openai'); // Use OpenAI GPT-4 Vision for real analysis
+  const [analysisProvider] = useState<AnalysisProvider>('openai');
   const [appliedRoomIds, setAppliedRoomIds] = useState<Set<string>>(new Set());
+
+  // Keep a ref to rooms so the unmount cleanup can access the latest state
+  const roomsRef = useRef<PhotoGroup[]>([]);
+  useEffect(() => {
+    roomsRef.current = rooms;
+  }, [rooms]);
+
+  // Revoke all Object URLs when the component unmounts to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      roomsRef.current.forEach((room) => {
+        room.photos.forEach((photo) => {
+          revokePhotoPreview(photo.preview);
+        });
+      });
+    };
+  }, []);
 
   // ============================================================================
   // Derived State
@@ -293,10 +310,14 @@ export const PhotoUploadManager: React.FC<PhotoUploadManagerProps> = ({
       return;
     }
 
-    // Process all selected files at once
     handlePhotosSelected(pendingFiles);
 
-    // Clear the pending files after successful processing
+    // Revoke Ant Design's auto-generated thumbUrl Object URLs before clearing
+    pendingFiles.forEach((f) => {
+      if (f.thumbUrl && f.thumbUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(f.thumbUrl);
+      }
+    });
     setPendingFiles([]);
   };
 
