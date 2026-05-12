@@ -70,19 +70,22 @@ const { Title, Text, Paragraph } = Typography;
 // Component Props
 // ============================================================================
 
+interface PhotoAnalyzedItem {
+  item_name: string;
+  item_category: string;
+  quantity: number;
+  size_category: string;
+  floor_level: string;
+  pack_size?: number;
+  source: string;
+  room_name: string;
+}
+
 interface PhotoUploadManagerProps {
   /** Callback when photos are analyzed and ready to apply */
   onPhotosAnalyzed: (
-    items: Array<{
-      item_name: string;
-      item_category: string;
-      quantity: number;
-      size_category: string;
-      floor_level: string;
-      pack_size?: number;
-      source: string;
-      room_name: string; // Room name from photo analysis (e.g., "Living Room")
-    }>
+    items: PhotoAnalyzedItem[],
+    options?: { replaceRoom?: string }
   ) => void;
   /** Optional callback when rooms change (for parent state sync) */
   onRoomsChange?: (rooms: PhotoGroup[]) => void;
@@ -106,6 +109,7 @@ export const PhotoUploadManager: React.FC<PhotoUploadManagerProps> = ({
   const [analyzingAll, setAnalyzingAll] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<UploadFile[]>([]);
   const [analysisProvider] = useState<AnalysisProvider>('openai'); // Use OpenAI GPT-4 Vision for real analysis
+  const [appliedRoomIds, setAppliedRoomIds] = useState<Set<string>>(new Set());
 
   // ============================================================================
   // Derived State
@@ -443,9 +447,7 @@ export const PhotoUploadManager: React.FC<PhotoUploadManagerProps> = ({
 
     // Aggregate all items from all analyzed rooms with room_name preserved
     const allItems = analyzedRooms.flatMap((room) => {
-      // Get room label from roomType (e.g., LIVING_ROOM -> "Living Room")
       const roomLabel = getRoomTypeLabel(room.roomType);
-
       return room.result!.estimated_items.map((item) => ({
         item_name: item.subcategory || item.category,
         item_category: item.category,
@@ -454,15 +456,44 @@ export const PhotoUploadManager: React.FC<PhotoUploadManagerProps> = ({
         floor_level: 'MAIN_LEVEL',
         pack_size: item.pack_size,
         source: 'photo' as const,
-        room_name: roomLabel, // Preserve room name from photo analysis
+        room_name: roomLabel,
       }));
     });
 
-    // Call parent callback
-    onPhotosAnalyzed(allItems);
+    // Track which rooms have been applied
+    setAppliedRoomIds((prev) => {
+      const next = new Set(prev);
+      analyzedRooms.forEach((r) => next.add(r.id));
+      return next;
+    });
 
+    onPhotosAnalyzed(allItems);
     message.success(`Applied ${allItems.length} items from ${analyzedRooms.length} room(s)`);
   };
+
+  /** Replace only the items for a single re-analyzed room in the parent estimate */
+  const handleReapplyRoom = useCallback(
+    (roomId: string) => {
+      const room = rooms.find((r) => r.id === roomId);
+      if (!room?.result) return;
+
+      const roomLabel = getRoomTypeLabel(room.roomType);
+      const newItems: PhotoAnalyzedItem[] = room.result.estimated_items.map((item) => ({
+        item_name: item.subcategory || item.category,
+        item_category: item.category,
+        quantity: item.quantity,
+        size_category: 'medium',
+        floor_level: 'MAIN_LEVEL',
+        pack_size: item.pack_size,
+        source: 'photo' as const,
+        room_name: roomLabel,
+      }));
+
+      onPhotosAnalyzed(newItems, { replaceRoom: roomLabel });
+      message.success(`Updated ${newItems.length} items for ${roomLabel}`);
+    },
+    [rooms, onPhotosAnalyzed]
+  );
 
   // ============================================================================
   // Room Actions
@@ -725,6 +756,8 @@ export const PhotoUploadManager: React.FC<PhotoUploadManagerProps> = ({
             onEditDensity={handleEditDensity}
             onDelete={handleDeleteRoom}
             onRemovePhoto={handleRemovePhoto}
+            wasApplied={appliedRoomIds.has(room.id)}
+            onReapply={handleReapplyRoom}
           />
         ))}
       </div>

@@ -130,7 +130,7 @@ PASS1_TOOL = {
                 ),
                 "items": {
                     "type": "object",
-                    "required": ["name", "category", "quantity", "is_high_value", "is_fragile"],
+                    "required": ["name", "category", "quantity", "is_high_value", "is_fragile", "item_confidence"],
                     "properties": {
                         "name": {
                             "type": "string",
@@ -167,6 +167,18 @@ PASS1_TOOL = {
                         "is_fragile": {
                             "type": "boolean",
                             "description": "True if breakable or requires delicate handling",
+                        },
+                        "item_confidence": {
+                            "type": "number",
+                            "minimum": 0.0,
+                            "maximum": 1.0,
+                            "description": (
+                                "Your confidence (0.0-1.0) that this item is ACTUALLY present and visible "
+                                "in the photo. 1.0 = clearly visible, unambiguous. "
+                                "0.8 = fairly certain but slightly obscured. "
+                                "0.5 = partially visible or uncertain. "
+                                "Only include items you are at least 0.8 confident about."
+                            ),
                         },
                     },
                 },
@@ -320,6 +332,148 @@ PASS2_TOOL = {
 
 
 # ============================================
+# ROOM CONTEXT HELPERS
+# ============================================
+
+# Maps normalized room keywords to (typical_items, unlikely_items)
+_ROOM_CONTEXT: dict[str, dict] = {
+    "kitchen": {
+        "typical": [
+            "refrigerator", "microwave", "toaster", "coffee maker", "blender",
+            "stand mixer", "dish rack", "small appliances", "kitchenware",
+            "pots and pans", "cutting board", "knife block", "kitchen island",
+            "bar stool", "dining table", "dining chair",
+        ],
+        "unlikely": [
+            "bed frame", "mattress", "bedding", "dresser", "nightstand",
+            "wardrobe", "clothing", "sofa", "coffee table", "TV stand",
+            "toilet", "bathtub", "shower", "bathroom vanity",
+        ],
+    },
+    "bedroom": {
+        "typical": [
+            "bed frame", "mattress", "bedding", "dresser", "nightstand",
+            "wardrobe", "armoire", "clothing", "mirror", "desk", "desk chair",
+            "lamp", "bookcase", "TV", "fan",
+        ],
+        "unlikely": [
+            "refrigerator", "stove", "toilet", "bathtub", "shower",
+            "washer", "dryer", "kitchen island", "dining table",
+        ],
+    },
+    "bathroom": {
+        "typical": [
+            "freestanding mirror", "bathroom cabinet", "toilet paper holder",
+            "towel rack", "scale", "hamper", "trash can", "shower caddy",
+            "freestanding shelving",
+        ],
+        "unlikely": [
+            "bed frame", "mattress", "sofa", "dining table", "refrigerator",
+            "stove", "dresser", "wardrobe", "TV",
+        ],
+    },
+    "living room": {
+        "typical": [
+            "sofa", "sectional", "loveseat", "armchair", "coffee table",
+            "TV", "TV stand", "entertainment center", "bookcase", "lamp",
+            "rug", "side table", "accent table", "decorative items",
+        ],
+        "unlikely": [
+            "bed frame", "mattress", "toilet", "bathtub", "stove",
+            "refrigerator", "washer", "dryer",
+        ],
+    },
+    "dining room": {
+        "typical": [
+            "dining table", "dining chair", "buffet", "sideboard",
+            "china cabinet", "bar cart", "rug", "lamp",
+        ],
+        "unlikely": [
+            "bed frame", "mattress", "toilet", "bathtub", "washer", "dryer",
+        ],
+    },
+    "office": {
+        "typical": [
+            "desk", "office chair", "bookcase", "filing cabinet", "printer",
+            "monitor", "computer tower", "laptop", "desk lamp", "shelving",
+        ],
+        "unlikely": [
+            "bed frame", "mattress", "toilet", "bathtub", "stove",
+            "refrigerator", "washer", "dryer",
+        ],
+    },
+    "garage": {
+        "typical": [
+            "workbench", "tool chest", "shelving unit", "storage cabinet",
+            "bicycle", "lawn mower", "power tools", "sports equipment",
+            "storage bins", "ladder",
+        ],
+        "unlikely": [
+            "bed frame", "mattress", "toilet", "bathtub", "shower",
+        ],
+    },
+    "laundry": {
+        "typical": [
+            "washer", "dryer", "laundry basket", "drying rack",
+            "storage cabinet", "shelving unit",
+        ],
+        "unlikely": [
+            "bed frame", "mattress", "sofa", "dining table", "toilet", "bathtub",
+        ],
+    },
+    "basement": {
+        "typical": [
+            "shelving unit", "storage cabinet", "washer", "dryer",
+            "exercise equipment", "workbench", "storage bins", "furniture",
+        ],
+        "unlikely": [],
+    },
+    "attic": {
+        "typical": [
+            "storage boxes", "shelving unit", "furniture (stored)",
+            "seasonal items", "luggage",
+        ],
+        "unlikely": [],
+    },
+}
+
+
+def _get_room_context_note(room_name: str) -> str:
+    """Return a room-context guidance note based on the room name."""
+    normalized = room_name.lower()
+    matched_key = None
+    for key in _ROOM_CONTEXT:
+        if key in normalized:
+            matched_key = key
+            break
+
+    if not matched_key:
+        return (
+            f'The room is labeled "{room_name}". '
+            "Use this as helpful context, but only report items you can VISUALLY CONFIRM in the photo(s)."
+        )
+
+    ctx = _ROOM_CONTEXT[matched_key]
+    typical_str = ", ".join(ctx["typical"][:10])
+    unlikely_str = ", ".join(ctx["unlikely"][:8])
+
+    note = (
+        f'The room is labeled "{room_name}" (a {matched_key}). '
+        f"Use this as CONTEXT to guide your analysis:\n"
+        f"- TYPICAL items for this room: {typical_str}, etc.\n"
+    )
+    if unlikely_str:
+        note += (
+            f"- UNLIKELY items for this room: {unlikely_str}, etc.\n"
+            f"  → If you think you see one of these unlikely items, apply EXTRA SCRUTINY "
+            f"before listing it. Ask yourself: is this DEFINITELY visible in the photo, "
+            f"or am I inferring it based on context? Only include it if 100% visually confirmed.\n"
+        )
+    note += "Only report items you can VISUALLY CONFIRM in the photo(s)."
+    return note
+
+
+# ============================================
 # PROMPT BUILDERS
 # ============================================
 
@@ -346,9 +500,11 @@ def _build_pass1_tool_prompt(
             "Only report items NOT on this list.\n"
         )
 
+    room_context_note = _get_room_context_note(room_name)
+
     return f"""You are a professional Content Pack-Out Estimator. Analyze the photo(s) and list every packable item.
 {multi_note}{existing_note}
-NOTE: The user labeled this room "{room_name}" but IGNORE that label when deciding what items exist. Only report what you ACTUALLY SEE in the image.
+ROOM CONTEXT: {room_context_note}
 
 RULES:
 1. Identify every MOVABLE, packable item — furniture, electronics, boxes, decor, rugs, lamps, books, artwork, bedding, clothing, freestanding appliances, etc.
@@ -379,7 +535,7 @@ RULES:
    - Cabinet: if it looks built into the wall (flush, no gap, no legs) → EXCLUDE. If it's freestanding with visible sides/legs → INCLUDE.
    - Shelving: if brackets are screwed into wall with no way to remove shelf as a unit → EXCLUDE. If it's a standalone unit → INCLUDE.
 
-3. ONLY list items you can visually confirm. If an item is partially covered, list what you can SEE (e.g., a quilt covering something bed-shaped = list the quilt AND the bed). Do NOT guess or infer items based on room type or label.
+3. ONLY list items you can visually confirm with at least 80% confidence (item_confidence ≥ 0.8). If you are unsure whether something is truly present — it is blurry, barely visible, or you are inferring it — DO NOT include it. For each item, assign an honest item_confidence score (0.0–1.0) and OMIT any item where your confidence is below 0.8.
 4. NAME items for PACKING: type + material + size. NO colors, patterns, brands, characters, or location info.
    - INCLUDE size/configuration info that AFFECTS PACKING: "3-Section Sectional Sofa", "6-Shelf Tall Bookcase", "4-Drawer Dresser", "King Bed Frame"
    - GOOD: "3-Section L-Shaped Sofa", "Tall 5-Shelf Wooden Bookcase", "Queen Bed Frame", "Large 3-Door Wardrobe"
@@ -734,7 +890,13 @@ def _build_room_analysis_response(
     high_value_count = 0
     field_notes: List[str] = []
 
+    MIN_ITEM_CONFIDENCE = 0.8
+
     for item_data in result.get("items", []):
+        item_conf = item_data.get("item_confidence")
+        if item_conf is not None and item_conf < MIN_ITEM_CONFIDENCE:
+            continue
+
         qty = item_data.get("quantity", 1)
 
         # New split model: base + per_unit * qty

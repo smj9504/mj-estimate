@@ -112,11 +112,7 @@ async def analyze_room(
     result = await analyze_room_photos(
         room_name=request.room_name,
         images=request.images,
-        existing_items=(
-            [{"name": e.name, "quantity": e.quantity}
-             for e in request.existing_items]
-            if request.existing_items else None
-        ),
+        existing_items=request.existing_items or None,
     )
     return result
 

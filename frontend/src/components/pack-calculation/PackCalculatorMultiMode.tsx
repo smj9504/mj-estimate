@@ -183,26 +183,29 @@ const PackCalculatorMultiMode: React.FC = () => {
   }, [selectedMode]);
 
   // Handle photo analysis items
-  const handlePhotoItems = useCallback((items: any[]) => {
-    console.log('🔍 [DEBUG] Photo items received:', items.map(i => ({ name: i.item_name, room: i.room_name })));
-
+  const handlePhotoItems = useCallback((items: any[], options?: { replaceRoom?: string }) => {
     const newItems: ExtendedPackItem[] = items.map(item => ({
       ...item,
       id: `photo-${Date.now()}-${Math.random()}`,
       source: 'photo' as const,
       category_display: item.item_category,
-      room_name: item.room_name, // Explicitly preserve room_name from photo analysis
+      room_name: item.room_name,
     }));
 
-    console.log('✅ [DEBUG] Photo items with room_name:', newItems.map(i => ({ name: i.item_name, room: i.room_name })));
-
-    if (selectedMode === PackInputMode.IMAGE) { // Photo mode
+    if (options?.replaceRoom) {
+      // Replace items for this specific room (used when re-analyzing)
+      setPhotoItems(prev => [
+        ...prev.filter(i => i.room_name !== options.replaceRoom),
+        ...newItems,
+      ]);
+      message.success(`Updated ${items.length} items for ${options.replaceRoom}`);
+    } else if (selectedMode === PackInputMode.IMAGE) {
       setPhotoItems(prev => [...prev, ...newItems]);
+      message.success(`Added ${items.length} items from photo analysis`);
     } else {
       setPhotoItems(newItems);
+      message.success(`Added ${items.length} items from photo analysis`);
     }
-
-    message.success(`Added ${items.length} items from photo analysis`);
   }, [selectedMode]);
 
   // Handle manual item addition

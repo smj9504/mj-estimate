@@ -38,6 +38,7 @@ import {
   WarningOutlined,
   InboxOutlined,
   SafetyCertificateOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import { PhotoGroup, AnalysisStatus } from '../../../types/photoAnalysis';
 import { RoomType } from '../../../types/pack-calculation';
@@ -88,6 +89,10 @@ interface RoomPhotoGroupProps {
   onDelete: (groupId: string) => void;
   /** Callback to remove a single photo */
   onRemovePhoto: (groupId: string, photoId: string) => void;
+  /** Whether this room's items have already been applied to the estimate */
+  wasApplied?: boolean;
+  /** Callback to replace estimate items for this room with new analysis results */
+  onReapply?: (groupId: string) => void;
 }
 
 // ============================================================================
@@ -100,6 +105,8 @@ export const RoomPhotoGroup: React.FC<RoomPhotoGroupProps> = ({
   onEditDensity,
   onDelete,
   onRemovePhoto,
+  wasApplied,
+  onReapply,
 }) => {
   // ============================================================================
   // Render Helpers
@@ -178,6 +185,20 @@ export const RoomPhotoGroup: React.FC<RoomPhotoGroupProps> = ({
           >
             {group.analysisStatus === AnalysisStatus.COMPLETED ? 'Re-analyze' : 'Analyze'}
           </Button>
+        )}
+
+        {/* Update Estimate: shown when room was previously applied and has fresh analysis results */}
+        {wasApplied && group.result && group.analysisStatus === AnalysisStatus.COMPLETED && (
+          <Tooltip title="Replace this room's items in the estimate with the latest analysis">
+            <Button
+              size="small"
+              type="primary"
+              icon={<SyncOutlined />}
+              onClick={() => onReapply?.(group.id)}
+            >
+              Update Estimate
+            </Button>
+          </Tooltip>
         )}
 
         {/* Edit Density (if analyzed) */}

@@ -12,7 +12,7 @@ import {
   PlusOutlined, DeleteOutlined, CameraOutlined, ScanOutlined,
   StarOutlined, WarningOutlined, LoadingOutlined, EditOutlined,
   CheckOutlined, CloseOutlined, ThunderboltOutlined, InboxOutlined,
-  EyeOutlined, FolderOpenOutlined,
+  EyeOutlined, FolderOpenOutlined, StopOutlined,
 } from '@ant-design/icons';
 import * as packingService from '../../services/packingEstimateService';
 import type {
@@ -67,6 +67,9 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
   // Keep a ref to latest rooms for batch analysis callbacks
   const roomsRef = useRef(rooms);
   roomsRef.current = rooms;
+
+  // Cancel flag for batch analysis
+  const cancelBatchRef = useRef(false);
 
   React.useEffect(() => {
     packingService.getPresets().then(setPresets).catch(() => {});
@@ -163,12 +166,18 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
 
   const unanalyzedRooms = rooms.filter(r => !r.analyzed && r.photos.length > 0 && !r.analyzing);
 
+  const handleStopBatch = useCallback(() => {
+    cancelBatchRef.current = true;
+    message.info('Stopping after current room completes...');
+  }, []);
+
   const handleBatchAnalyze = useCallback(async () => {
     if (unanalyzedRooms.length === 0) {
       message.warning('No unanalyzed rooms with photos');
       return;
     }
 
+    cancelBatchRef.current = false;
     setBatchAnalyzing(true);
     // Mark all as analyzing
     setRooms(rooms.map(r =>
@@ -176,13 +185,20 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
     ));
 
     for (const room of unanalyzedRooms) {
+      if (cancelBatchRef.current) {
+        // Reset all remaining rooms still in analyzing state
+        setRooms(roomsRef.current.map(r =>
+          r.analyzing && !r.analyzed ? { ...r, analyzing: false } : r
+        ));
+        break;
+      }
+
       try {
         const result = await packingService.analyzeRoom(
           room.room_name,
           room.photos,
         );
-        const current = roomsRef.current;
-        setRooms(current.map(r => r.id === room.id ? {
+        setRooms(roomsRef.current.map(r => r.id === room.id ? {
           ...r,
           items: result.items,
           density: (result.density as PhotoRoom['density']) ?? r.density,
@@ -193,14 +209,18 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
           analyzing: false,
         } : r));
       } catch {
-        const current = roomsRef.current;
-        setRooms(current.map(r => r.id === room.id ? {
+        setRooms(roomsRef.current.map(r => r.id === room.id ? {
           ...r, analyzing: false,
         } : r));
       }
     }
+
     setBatchAnalyzing(false);
-    message.success('Batch analysis complete');
+    if (cancelBatchRef.current) {
+      message.warning('Analysis stopped');
+    } else {
+      message.success('Batch analysis complete');
+    }
   }, [unanalyzedRooms, rooms, setRooms]);
 
   // ── Add more photos to existing room ───────
@@ -262,17 +282,24 @@ const PhotoAIRooms: React.FC<PhotoAIRoomsProps> = ({ rooms, setRooms }) => {
                 Import Folder
               </Button>
             </Tooltip>
-            {unanalyzedRooms.length > 0 && (
+            {batchAnalyzing ? (
+              <Button
+                icon={<StopOutlined />}
+                onClick={handleStopBatch}
+                danger
+              >
+                Stop Analysis
+              </Button>
+            ) : unanalyzedRooms.length > 0 ? (
               <Button
                 icon={<ThunderboltOutlined />}
                 onClick={handleBatchAnalyze}
-                loading={batchAnalyzing}
                 type="primary"
                 ghost
               >
                 Analyze All ({unanalyzedRooms.length})
               </Button>
-            )}
+            ) : null}
           </Space>
         </Col>
       </Row>
