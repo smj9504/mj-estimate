@@ -239,26 +239,67 @@ class GoogleSheetsClient:
         return result
 
 
-# Default column mapping for Water Mitigation sheet
-# Based on actual Google Sheets structure:
-# Property Address | Insured | Phone | Email | Insurance | Policy # | Claim # | DOL | WM |
-# Ins. Adjuster | Phone | Email | Inspection Date | Inspection Time | Plumber's Report | Mitigation
-WM_HEADER_MAPPING = {
+# =============================================================================
+# Sheet-specific column mappings for Water Mitigation
+# Angel and Vanessa sheets have different column layouts
+# =============================================================================
+
+# Angel sheet mapping (Status/Stage columns inserted at B/C, Claim# moved before Insured)
+# A: Property Address | B: Status | C: Stage | D: Claim # | E: Insured | F: Phone |
+# G: Email | H: Insurance | I: Policy # | J: DOL | K: WM | L: Ins. Adjuster |
+# M: Phone | N: Email | O: Inspection Date | P: Inspection Time | Q: Plumber's Report
+ANGEL_HEADER_MAPPING = {
     0: "property_address",          # A: Property Address
-    1: "homeowner_name",             # B: Insured (Homeowner Name)
-    2: "homeowner_phone",            # C: Phone
-    3: "homeowner_email",            # D: Email
-    4: "insurance_company",          # E: Insurance
-    5: "insurance_policy_number",    # F: Policy #
-    6: "claim_number",               # G: Claim #
-    7: "date_of_loss",               # H: DOL (Date of Loss)
-    8: "mitigation_period",          # I: WM (Mitigation Period)
-    9: "adjuster_name",              # J: Ins. Adjuster
-    10: "adjuster_phone",            # K: Phone (Adjuster)
-    11: "adjuster_email",            # L: Email (Adjuster)
-    12: "inspection_date",           # M: Inspection Date
-    13: "inspection_time",           # N: Inspection Time
-    14: "plumbers_report",           # O: Plumber's Report
-    15: "mitigation_flag",           # P: Mitigation
-    # Q, R: Empty columns (reserved for future use)
+    # B: Status (not mapped)
+    # C: Stage (not mapped)
+    3: "claim_number",              # D: Claim #
+    4: "homeowner_name",            # E: Insured
+    5: "homeowner_phone",           # F: Phone
+    6: "homeowner_email",           # G: Email
+    7: "insurance_company",         # H: Insurance
+    8: "insurance_policy_number",   # I: Policy #
+    9: "date_of_loss",              # J: DOL
+    10: "mitigation_period",        # K: WM
+    11: "adjuster_name",            # L: Ins. Adjuster
+    12: "adjuster_phone",           # M: Phone (Adjuster)
+    13: "adjuster_email",           # N: Email (Adjuster)
+    14: "inspection_date",          # O: Inspection Date
+    15: "inspection_time",          # P: Inspection Time
+    16: "plumbers_report",          # Q: Plumber's Report
 }
+
+# Vanessa sheet mapping (original layout, mitigation_flag removed)
+# A: Property Address | B: Insured | C: Phone | D: Email | E: Insurance |
+# F: Policy # | G: Claim # | H: DOL | I: WM | J: Ins. Adjuster |
+# K: Phone | L: Email | M: Inspection Date | N: Inspection Time | O: Plumber's Report
+VANESSA_HEADER_MAPPING = {
+    0: "property_address",          # A: Property Address
+    1: "homeowner_name",            # B: Insured
+    2: "homeowner_phone",           # C: Phone
+    3: "homeowner_email",           # D: Email
+    4: "insurance_company",         # E: Insurance
+    5: "insurance_policy_number",   # F: Policy #
+    6: "claim_number",              # G: Claim #
+    7: "date_of_loss",              # H: DOL
+    8: "mitigation_period",         # I: WM
+    9: "adjuster_name",             # J: Ins. Adjuster
+    10: "adjuster_phone",           # K: Phone (Adjuster)
+    11: "adjuster_email",           # L: Email (Adjuster)
+    12: "inspection_date",          # M: Inspection Date
+    13: "inspection_time",          # N: Inspection Time
+    14: "plumbers_report",          # O: Plumber's Report
+}
+
+# Default mapping (uses Vanessa layout for backward compatibility)
+WM_HEADER_MAPPING = VANESSA_HEADER_MAPPING
+
+# Sheet name → mapping lookup
+SHEET_HEADER_MAPPINGS = {
+    "Angel": ANGEL_HEADER_MAPPING,
+    "Vanessa": VANESSA_HEADER_MAPPING,
+}
+
+
+def get_header_mapping(sheet_name: str) -> dict:
+    """Get the appropriate header mapping for a given sheet name."""
+    return SHEET_HEADER_MAPPINGS.get(sheet_name, WM_HEADER_MAPPING)

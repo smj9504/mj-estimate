@@ -11,8 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domains.integrations.google_sheets.client import (
-    WM_HEADER_MAPPING,
     GoogleSheetsClient,
+    get_header_mapping,
 )
 from app.domains.integrations.google_sheets.utils import (
     addresses_match,
@@ -276,8 +276,9 @@ class GoogleSheetsSyncService:
         Returns:
             Dict with 'job', 'created', 'updated', and 'cleared' keys, or None if row is truly empty
         """
-        # Parse row data
-        row_data = self.client.parse_row_to_dict(row, WM_HEADER_MAPPING)
+        # Parse row data using sheet-specific column mapping
+        header_mapping = get_header_mapping(sheet_name)
+        row_data = self.client.parse_row_to_dict(row, header_mapping)
 
         # Check if row has address (required field)
         address = row_data.get("property_address")
