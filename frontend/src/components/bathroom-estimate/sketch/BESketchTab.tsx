@@ -163,13 +163,21 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
   initialSketchData,
   isActive = false,
 }) => {
-  const api = useBESketchState(initialSketchData);
-  const initialLoaded = useRef(false);
+  const api = useBESketchState();
+  const lastLoadedRef = useRef<string | null>(null);
 
-  // Load sketch_data when estimate loads from API (initialSketchData arrives async)
+  // Load sketch_data when estimate data arrives or changes
   useEffect(() => {
-    if (initialSketchData && !initialLoaded.current) {
-      initialLoaded.current = true;
+    if (!initialSketchData) return;
+    // Compare by a stable signature to avoid re-loading our own saves
+    const sig = JSON.stringify({
+      r: initialSketchData.rooms?.length ?? 0,
+      f: initialSketchData.fixtures?.length ?? 0,
+      w: initialSketchData.walls?.length ?? 0,
+      v: initialSketchData.version,
+    });
+    if (sig !== lastLoadedRef.current) {
+      lastLoadedRef.current = sig;
       api.loadSketch(initialSketchData);
     }
   }, [initialSketchData, api]);

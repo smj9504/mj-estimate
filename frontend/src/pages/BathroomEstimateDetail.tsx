@@ -183,11 +183,14 @@ const BathroomEstimateDetail: React.FC = () => {
 
   const handleSave = useCallback(() => {
     const values = form.getFieldsValue(true);
+    // sketch_data is saved separately by the sketch tab — don't overwrite
+    delete values.sketch_data;
     saveMutation.mutate(values);
   }, [form, saveMutation]);
 
   const handleCalculate = useCallback(() => {
     const values = form.getFieldsValue(true);
+    delete values.sketch_data;
     calculateMutation.mutate(values);
   }, [form, calculateMutation]);
 
