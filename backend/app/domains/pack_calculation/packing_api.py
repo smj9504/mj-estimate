@@ -323,7 +323,6 @@ def list_estimates(
     query = db.query(PackCalculation).options(
         joinedload(PackCalculation.client),
         joinedload(PackCalculation.company),
-        joinedload(PackCalculation.rooms),
     ).order_by(
         PackCalculation.created_at.desc()
     )
@@ -375,7 +374,6 @@ def get_estimate(
     calc = db.query(PackCalculation).options(
         joinedload(PackCalculation.client),
         joinedload(PackCalculation.company),
-        joinedload(PackCalculation.rooms),
     ).filter(
         PackCalculation.id == calc_id
     ).first()
@@ -529,7 +527,7 @@ def _save_calculation(
         client_id=getattr(request, 'client_id', None),
         company_id=getattr(request, 'company_id', None),
         claim_id=getattr(request, 'claim_id', None),
-        mode=mode,
+        estimate_mode=mode,
         status=PackEstimateStatus.DRAFT,
         crew_size=request.crew_size,
         region=(
@@ -615,14 +613,14 @@ def _calc_to_summary(calc: PackCalculation) -> dict:
         ),
         "company_name": company_name,
         "mode": (
-            calc.mode.value
-            if calc.mode else None
+            calc.estimate_mode.value
+            if calc.estimate_mode else None
         ),
         "status": (
             calc.status.value
             if calc.status else None
         ),
-        "total_rooms": len(calc.rooms) if calc.rooms else 0,
+        "total_rooms": len(calc.room_summaries) if calc.room_summaries else 0,
         "total_items": calc.total_items,
         "total_hours": calc.total_hours,
         "grand_total": calc.grand_total,

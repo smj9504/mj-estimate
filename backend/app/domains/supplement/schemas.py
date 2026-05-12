@@ -185,3 +185,7 @@ class SupplementDashboardStats(BaseModel):
     denied: int = 0
     total_supplement_amount: float = 0
     total_difference: float = 0
+
+
+# Resolve forward references
+SupplementRequestResponse.model_rebuild()

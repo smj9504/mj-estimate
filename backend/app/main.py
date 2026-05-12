@@ -292,6 +292,34 @@ _NEEDED_COLUMNS = [
     ("sent_emails", "reply_received", "BOOLEAN"),
     ("sent_emails", "reply_received_at", "TIMESTAMPTZ"),
     ("sent_emails", "reply_summary", "TEXT"),
+    # pack_calculations missing columns
+    ("pack_calculations", "estimate_mode", "VARCHAR(50)"),
+    ("pack_calculations", "status", "VARCHAR(50)"),
+    ("pack_calculations", "crew_size", "INTEGER"),
+    ("pack_calculations", "region", "VARCHAR(50)"),
+    ("pack_calculations", "staging_type", "VARCHAR(20)"),
+    ("pack_calculations", "include_packback", "BOOLEAN"),
+    ("pack_calculations", "storage_months", "INTEGER"),
+    ("pack_calculations", "include_op", "BOOLEAN"),
+    ("pack_calculations", "op_rate", "INTEGER"),
+    ("pack_calculations", "include_contingency", "BOOLEAN"),
+    ("pack_calculations", "contingency_rate", "INTEGER"),
+    ("pack_calculations", "sections", "JSONB"),
+    ("pack_calculations", "section_details", "JSONB"),
+    ("pack_calculations", "materials_summary", "JSONB"),
+    ("pack_calculations", "material_details", "JSONB"),
+    ("pack_calculations", "supplements", "JSONB"),
+    ("pack_calculations", "subtotal", "DOUBLE PRECISION"),
+    ("pack_calculations", "op_amount", "DOUBLE PRECISION"),
+    ("pack_calculations", "contingency_amount", "DOUBLE PRECISION"),
+    ("pack_calculations", "supplements_total", "DOUBLE PRECISION"),
+    ("pack_calculations", "grand_total", "DOUBLE PRECISION"),
+    ("pack_calculations", "storage_sf", "INTEGER"),
+    ("pack_calculations", "total_hours", "DOUBLE PRECISION"),
+    ("pack_calculations", "total_items", "INTEGER"),
+    ("pack_calculations", "special_items", "JSONB"),
+    ("pack_calculations", "custom_special_items", "JSONB"),
+    ("pack_calculations", "room_summaries", "JSONB"),
 ]
 
 
@@ -317,6 +345,15 @@ def _auto_add_columns_with_conn(conn):
                 f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
             ))
             print(f"[MIGRATION] Added {table}.{col}")
+
+    # Rename 'mode' → 'estimate_mode' (conflicts with PG aggregate)
+    pc_cols = existing.get("pack_calculations", set())
+    if "mode" in pc_cols and "estimate_mode" not in pc_cols:
+        conn.execute(text(
+            'ALTER TABLE pack_calculations '
+            'RENAME COLUMN "mode" TO estimate_mode'
+        ))
+        print("[MIGRATION] Renamed pack_calculations.mode → estimate_mode")
 
 
 @asynccontextmanager
