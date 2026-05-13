@@ -1,7 +1,8 @@
 /**
  * Pack Calculator New - Detail View Page
- * Shows detailed breakdown of pack-out/pack-in estimates
- * Supports inline editing of name, status, and notes
+ * Shows detailed breakdown of packing estimates
+ * Uses packing-estimate API (EstimateResponse structure)
+ * Supports inline editing and re-analysis
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -9,31 +10,49 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   Card, Row, Col, Typography, Space, Button, Descriptions, Table,
   Tag, Statistic, message, Spin, Divider, Tabs, Alert, Empty,
-  Input, Select,
+  Input, Select, Modal, Tooltip,
 } from 'antd';
 import {
   ArrowLeftOutlined, EditOutlined, DownloadOutlined,
   ThunderboltOutlined, BoxPlotOutlined, TeamOutlined,
-  WarningOutlined, CheckCircleOutlined, RobotOutlined,
   SaveOutlined, CloseOutlined, LoadingOutlined,
+  ReloadOutlined, FileTextOutlined, DollarOutlined,
+  CameraOutlined, AppstoreOutlined, InfoCircleOutlined,
 } from '@ant-design/icons';
-import {
-  packCalculationAPI,
-  PackCalculationDetail,
-  RoomBreakdown,
-  XactimateLineItem,
-} from '../services/packCalculationService';
 import * as packingService from '../services/packingEstimateService';
+import type {
+  EstimateResponse, SectionDetailLine, MaterialItem,
+  RoomItemSummary, SupplementItem, PackEstimateStatus,
+} from '../types/packing-estimate';
 import { formatDate } from '../utils/formatters';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
 
+/** Extended detail response from GET /api/packing-estimate/{id} */
+interface EstimateDetail extends EstimateResponse {
+  calculation_name: string | null;
+  project_address: string | null;
+  client_id: string | null;
+  client_name: string | null;
+  company_id: string | null;
+  company_name: string | null;
+  mode: string | null;
+  status: string | null;
+  notes: string | null;
+  region: string | null;
+  include_packback: boolean;
+  storage_months: number;
+  special_items: string[];
+  custom_special_items: any[];
+  claim_id: string | null;
+}
+
 const PackCalculatorNewDetail: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const [loading, setLoading] = useState(true);
-  const [calculation, setCalculation] = useState<PackCalculationDetail | null>(null);
+  const [estimate, setEstimate] = useState<EstimateDetail | null>(null);
 
   // Edit mode state
   const [editing, setEditing] = useState(false);
@@ -46,16 +65,16 @@ const PackCalculatorNewDetail: React.FC = () => {
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
-    if (id) loadCalculation(id);
+    if (id) loadEstimate(id);
   }, [id]);
 
-  const loadCalculation = async (calculationId: string) => {
+  const loadEstimate = async (estimateId: string) => {
     setLoading(true);
     try {
-      const data = await packCalculationAPI.getById(calculationId);
-      setCalculation(data);
+      const data = await packingService.getEstimate(estimateId);
+      setEstimate(data);
     } catch {
-      message.error('Failed to load calculation details');
+      message.error('Failed to load estimate details');
     } finally {
       setLoading(false);
     }
@@ -68,12 +87,12 @@ const PackCalculatorNewDetail: React.FC = () => {
   // ── Edit ────────────────────────────────────
 
   const startEdit = useCallback(() => {
-    if (!calculation) return;
-    setEditName(calculation.calculation_name || '');
-    setEditStatus((calculation as any).status || 'draft');
-    setEditNotes(calculation.notes || '');
+    if (!estimate) return;
+    setEditName(estimate.calculation_name || '');
+    setEditStatus(estimate.status || 'draft');
+    setEditNotes(estimate.notes || '');
     setEditing(true);
-  }, [calculation]);
+  }, [estimate]);
 
   const cancelEdit = useCallback(() => {
     setEditing(false);
@@ -90,7 +109,7 @@ const PackCalculatorNewDetail: React.FC = () => {
       });
       message.success('Saved successfully');
       setEditing(false);
-      await loadCalculation(id);
+      await loadEstimate(id);
     } catch {
       message.error('Failed to save changes');
     } finally {
@@ -113,55 +132,62 @@ const PackCalculatorNewDetail: React.FC = () => {
     }
   }, [id]);
 
+  // ── Recalculate ─────────────────────────────
+
+  const handleRecalculate = useCallback(() => {
+    if (!id || !estimate) return;
+    // Navigate to the create page with the estimate data loaded for re-analysis
+    navigate('/reconstruction-estimate/pack-calculator-new', {
+      state: {
+        recalculateFrom: id,
+        mode: estimate.mode,
+        settings: {
+          crew_size: estimate.crew_size,
+          storage_months: estimate.storage_months,
+          staging_type: estimate.staging_type,
+          include_packback: estimate.include_packback,
+          include_op: estimate.include_op,
+          op_rate: estimate.op_rate,
+          include_contingency: estimate.include_contingency,
+          contingency_rate: estimate.contingency_rate,
+          region: estimate.region,
+          special_items: estimate.special_items || [],
+          custom_special_items: estimate.custom_special_items || [],
+        },
+        calculationName: estimate.calculation_name,
+        projectAddress: estimate.project_address,
+        clientId: estimate.client_id,
+        companyId: estimate.company_id,
+        claimId: estimate.claim_id,
+      },
+    });
+  }, [id, estimate, navigate]);
+
   // ── Loading / Empty ─────────────────────────
 
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: 48 }}>
-        <Spin size="large" tip="Loading calculation details..." />
+        <Spin size="large" tip="Loading estimate details..." />
       </div>
     );
   }
 
-  if (!calculation) {
+  if (!estimate) {
     return (
-      <Empty description="Calculation not found" image={Empty.PRESENTED_IMAGE_SIMPLE}>
+      <Empty description="Estimate not found" image={Empty.PRESENTED_IMAGE_SIMPLE}>
         <Button type="primary" onClick={handleBack}>Back to List</Button>
       </Empty>
     );
   }
 
-  // ── Table Columns ───────────────────────────
+  // ── Helpers ─────────────────────────────────
 
-  const materialColumns = [
-    { title: 'Xactimate Code', dataIndex: 'code', key: 'code', width: '20%',
-      render: (text: string) => <Tag color="blue">{text}</Tag> },
-    { title: 'Description', dataIndex: 'description', key: 'description', width: '50%' },
-    { title: 'Quantity', dataIndex: 'quantity', key: 'quantity', width: '15%',
-      align: 'right' as const, render: (v: number) => v.toFixed(2) },
-    { title: 'Unit', dataIndex: 'unit', key: 'unit', width: '15%', align: 'center' as const },
-  ];
-
-  const laborColumns = [
-    { title: 'Xactimate Code', dataIndex: 'code', key: 'code', width: '20%',
-      render: (text: string) => <Tag color="orange">{text}</Tag> },
-    { title: 'Description', dataIndex: 'description', key: 'description', width: '50%' },
-    { title: 'Hours', dataIndex: 'quantity', key: 'quantity', width: '15%',
-      align: 'right' as const, render: (v: number) => v.toFixed(2) },
-    { title: 'Unit', dataIndex: 'unit', key: 'unit', width: '15%', align: 'center' as const },
-  ];
-
-  const roomColumns = [
-    { title: 'Room Name', dataIndex: 'room_name', key: 'room_name', width: '25%' },
-    { title: 'Floor', dataIndex: 'floor_level', key: 'floor_level', width: '15%', align: 'center' as const },
-    { title: 'Items', dataIndex: 'item_count', key: 'item_count', width: '15%', align: 'center' as const },
-    { title: 'Pack-Out Hours', dataIndex: 'pack_out_labor_hours', key: 'pack_out_labor_hours',
-      width: '15%', align: 'right' as const, render: (v: number) => v?.toFixed(2) || '0.00' },
-    { title: 'Pack-In Hours', dataIndex: 'pack_in_labor_hours', key: 'pack_in_labor_hours',
-      width: '15%', align: 'right' as const, render: (v: number) => v?.toFixed(2) || '0.00' },
-    { title: 'Materials', dataIndex: 'materials', key: 'materials', width: '15%',
-      align: 'center' as const, render: (m: XactimateLineItem[]) => <Tag>{m?.length || 0} items</Tag> },
-  ];
+  const modeLabel = estimate.mode === 'photo_ai' ? 'Photo AI' : 'Quick Estimate';
+  const modeColor = estimate.mode === 'photo_ai' ? 'purple' : 'blue';
+  const statusColorMap: Record<string, string> = {
+    draft: 'default', completed: 'success', approved: 'blue',
+  };
 
   return (
     <div>
@@ -181,7 +207,7 @@ const PackCalculatorNewDetail: React.FC = () => {
                   />
                 ) : (
                   <Title level={2} style={{ margin: 0 }}>
-                    <ThunderboltOutlined /> {calculation.calculation_name || 'Untitled'}
+                    <ThunderboltOutlined /> {estimate.calculation_name || 'Untitled'}
                   </Title>
                 )}
               </Space>
@@ -209,6 +235,11 @@ const PackCalculatorNewDetail: React.FC = () => {
                 ) : (
                   <>
                     <Button icon={<EditOutlined />} onClick={startEdit}>Edit</Button>
+                    <Tooltip title="Re-estimate with current settings">
+                      <Button icon={<ReloadOutlined />} onClick={handleRecalculate}>
+                        Recalculate
+                      </Button>
+                    </Tooltip>
                     <Button
                       type="primary"
                       icon={exporting ? <LoadingOutlined /> : <DownloadOutlined />}
@@ -255,16 +286,26 @@ const PackCalculatorNewDetail: React.FC = () => {
               ) : (
                 <Descriptions column={1} size="small">
                   <Descriptions.Item label="Created">
-                    {formatDate(calculation.created_at)}
+                    {formatDate(estimate.created_at || '')}
                   </Descriptions.Item>
-                  {calculation.project_address && (
+                  {estimate.project_address && (
                     <Descriptions.Item label="Project Address">
-                      {calculation.project_address}
+                      {estimate.project_address}
                     </Descriptions.Item>
                   )}
-                  {calculation.notes && (
+                  {estimate.client_name && (
+                    <Descriptions.Item label="Client">
+                      {estimate.client_name}
+                    </Descriptions.Item>
+                  )}
+                  {estimate.company_name && (
+                    <Descriptions.Item label="Company">
+                      {estimate.company_name}
+                    </Descriptions.Item>
+                  )}
+                  {estimate.notes && (
                     <Descriptions.Item label="Notes">
-                      {calculation.notes}
+                      {estimate.notes}
                     </Descriptions.Item>
                   )}
                 </Descriptions>
@@ -272,76 +313,69 @@ const PackCalculatorNewDetail: React.FC = () => {
             </Col>
             <Col span={12}>
               <Space direction="vertical" style={{ width: '100%' }}>
-                <Space>
-                  <Text strong>Status:</Text>
-                  {calculation.needs_review ? (
-                    <Tag color="warning" icon={<WarningOutlined />}>Needs Review</Tag>
-                  ) : (
-                    <Tag color="success" icon={<CheckCircleOutlined />}>Ready</Tag>
-                  )}
-                  {(calculation as any).status && (
-                    <Tag color={({ draft: 'default', completed: 'success', approved: 'blue' } as Record<string, string>)[(calculation as any).status] || 'default'}>
-                      {(calculation as any).status}
-                    </Tag>
-                  )}
+                <Space wrap>
+                  <Tag color={modeColor} icon={estimate.mode === 'photo_ai' ? <CameraOutlined /> : <AppstoreOutlined />}>
+                    {modeLabel}
+                  </Tag>
+                  <Tag color={statusColorMap[estimate.status || 'draft'] || 'default'}>
+                    {estimate.status || 'draft'}
+                  </Tag>
                 </Space>
-                {calculation.ml_confidence != null && (
-                  <Space>
-                    <Text strong>AI Confidence:</Text>
-                    <Tag color="purple" icon={<RobotOutlined />}>
-                      {(calculation.ml_confidence * 100).toFixed(0)}%
-                    </Tag>
-                  </Space>
-                )}
-                {calculation.auto_selected && (
-                  <Tag color="blue">Auto-Selected Strategies</Tag>
-                )}
+                <Descriptions column={1} size="small">
+                  <Descriptions.Item label="Crew Size">{estimate.crew_size}</Descriptions.Item>
+                  {estimate.region && (
+                    <Descriptions.Item label="Region">
+                      {estimate.region.replace('_', ' ')}
+                    </Descriptions.Item>
+                  )}
+                  <Descriptions.Item label="Staging">
+                    {estimate.staging_type === 'off_site' ? 'Off-site' : 'On-site'}
+                  </Descriptions.Item>
+                  {estimate.storage_months > 0 && (
+                    <Descriptions.Item label="Storage">
+                      {estimate.storage_months} months
+                    </Descriptions.Item>
+                  )}
+                </Descriptions>
               </Space>
             </Col>
           </Row>
         </Card>
 
         {/* Summary Statistics */}
-        <Card title="Summary">
+        <Card>
           <Row gutter={16}>
             <Col span={6}>
               <Statistic
                 title="Total Rooms"
-                value={calculation.rooms?.length || 0}
+                value={estimate.total_rooms || 0}
                 prefix={<BoxPlotOutlined />}
                 valueStyle={{ color: '#1890ff' }}
               />
             </Col>
             <Col span={6}>
               <Statistic
-                title="Total Boxes"
-                value={calculation.pack_out_materials?.reduce(
-                  (sum, mat) => {
-                    const isBox = mat.code?.startsWith('CPS BX') ||
-                                  mat.code?.startsWith('TMC BX') ||
-                                  mat.code?.startsWith('CPS BXWDR');
-                    return sum + (isBox ? (mat.quantity || 0) : 0);
-                  },
-                  0
-                ).toFixed(0)}
-                prefix={<BoxPlotOutlined />}
+                title="Total Items"
+                value={estimate.total_items || 0}
+                prefix={<FileTextOutlined />}
                 valueStyle={{ color: '#52c41a' }}
               />
             </Col>
             <Col span={6}>
               <Statistic
-                title="Pack-Out Hours"
-                value={calculation.total_pack_out_hours?.toFixed(2) || '0.00'}
+                title="Total Hours"
+                value={(estimate.total_hours || 0).toFixed(1)}
                 prefix={<TeamOutlined />}
                 valueStyle={{ color: '#faad14' }}
               />
             </Col>
             <Col span={6}>
               <Statistic
-                title="Pack-In Hours"
-                value={calculation.total_pack_in_hours?.toFixed(2) || '0.00'}
-                prefix={<TeamOutlined />}
-                valueStyle={{ color: '#f5222d' }}
+                title="Grand Total"
+                value={estimate.grand_total || 0}
+                prefix={<DollarOutlined />}
+                precision={2}
+                valueStyle={{ color: '#1890ff' }}
               />
             </Col>
           </Row>
@@ -349,174 +383,332 @@ const PackCalculatorNewDetail: React.FC = () => {
 
         {/* Main Content Tabs */}
         <Card>
-          <Tabs defaultActiveKey="materials">
+          <Tabs defaultActiveKey="sections">
+            {/* Section Breakdown */}
+            <Tabs.TabPane tab="Estimate Breakdown" key="sections">
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                {estimate.section_details && Object.keys(estimate.section_details).length > 0 ? (
+                  Object.entries(estimate.section_details).map(([section, detail]) => (
+                    <Card
+                      key={section}
+                      size="small"
+                      title={
+                        <Space>
+                          <Text strong>{section}</Text>
+                          <Tag color="blue">
+                            ${(estimate.sections?.[section] || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </Tag>
+                        </Space>
+                      }
+                    >
+                      <Table
+                        dataSource={detail.lines || []}
+                        rowKey={(_, i) => `${section}-${i}`}
+                        pagination={false}
+                        size="small"
+                        columns={[
+                          {
+                            title: 'Item',
+                            dataIndex: 'name',
+                            key: 'name',
+                            width: '30%',
+                          },
+                          {
+                            title: 'Detail',
+                            dataIndex: 'detail',
+                            key: 'detail',
+                            width: '25%',
+                            render: (v: string) => (
+                              <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text>
+                            ),
+                          },
+                          {
+                            title: 'Qty',
+                            dataIndex: 'qty',
+                            key: 'qty',
+                            align: 'right' as const,
+                            width: '10%',
+                            render: (v: number, record: SectionDetailLine) => `${v} ${record.unit}`,
+                          },
+                          {
+                            title: 'Rate',
+                            dataIndex: 'rate',
+                            key: 'rate',
+                            align: 'right' as const,
+                            width: '15%',
+                            render: (v: number) => `$${(v || 0).toFixed(2)}`,
+                          },
+                          {
+                            title: 'Amount',
+                            dataIndex: 'amount',
+                            key: 'amount',
+                            align: 'right' as const,
+                            width: '15%',
+                            render: (v: number) => (
+                              <Text strong>${(v || 0).toFixed(2)}</Text>
+                            ),
+                          },
+                        ]}
+                        summary={() => (
+                          <Table.Summary.Row>
+                            <Table.Summary.Cell index={0} colSpan={4}>
+                              <Text strong>Section Total</Text>
+                            </Table.Summary.Cell>
+                            <Table.Summary.Cell index={4} align="right">
+                              <Text strong>
+                                ${(estimate.sections?.[section] || 0).toFixed(2)}
+                              </Text>
+                            </Table.Summary.Cell>
+                          </Table.Summary.Row>
+                        )}
+                      />
+                    </Card>
+                  ))
+                ) : estimate.sections && Object.keys(estimate.sections).length > 0 ? (
+                  <Descriptions bordered column={1}>
+                    {Object.entries(estimate.sections).map(([section, amount]) => (
+                      <Descriptions.Item key={section} label={section}>
+                        <Text strong>${(amount as number).toFixed(2)}</Text>
+                      </Descriptions.Item>
+                    ))}
+                  </Descriptions>
+                ) : (
+                  <Empty description="No section data available" />
+                )}
+              </Space>
+            </Tabs.TabPane>
+
+            {/* Materials */}
             <Tabs.TabPane tab="Materials" key="materials">
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Alert
-                  message="Pack-Out Materials"
-                  description={`Total of ${calculation.pack_out_materials?.length || 0} material items required for packing`}
-                  type="info" showIcon
-                />
-                <Table
-                  columns={materialColumns}
-                  dataSource={calculation.pack_out_materials || []}
-                  rowKey={(record, index) => `${record.code}-${index}`}
-                  pagination={false} size="small"
-                />
-              </Space>
-            </Tabs.TabPane>
-
-            <Tabs.TabPane tab="Labor" key="labor">
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                    <Alert
-                      message="Pack-Out Labor"
-                      description={`Total: ${calculation.total_pack_out_hours?.toFixed(2)} hours`}
-                      type="warning" showIcon
-                    />
-                    <Table
-                      columns={laborColumns}
-                      dataSource={calculation.pack_out_labor || []}
-                      rowKey={(record, index) => `packout-${record.code}-${index}`}
-                      pagination={false} size="small"
-                    />
-                  </Space>
-                </Col>
-                <Col span={12}>
-                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                    <Alert
-                      message="Pack-In Labor"
-                      description={`Total: ${calculation.total_pack_in_hours?.toFixed(2)} hours`}
-                      type="success" showIcon
-                    />
-                    <Table
-                      columns={laborColumns}
-                      dataSource={calculation.pack_in_labor || []}
-                      rowKey={(record, index) => `packin-${record.code}-${index}`}
-                      pagination={false} size="small"
-                    />
-                  </Space>
-                </Col>
-              </Row>
-            </Tabs.TabPane>
-
-            <Tabs.TabPane tab="Protection" key="protection">
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Alert
-                  message="Floor Protection"
-                  description={`Total: ${calculation.total_protection_sf?.toFixed(2) || 0} sq ft`}
-                  type="info" showIcon
-                />
-                {calculation.explanation_protection && (
-                  <Alert message="Protection Strategy" description={calculation.explanation_protection} type="info" />
+                {estimate.material_details && estimate.material_details.length > 0 ? (
+                  <Table
+                    dataSource={estimate.material_details}
+                    rowKey={(record, i) => `mat-${record.code}-${i}`}
+                    pagination={false}
+                    size="small"
+                    columns={[
+                      {
+                        title: 'Code',
+                        dataIndex: 'code',
+                        key: 'code',
+                        width: '15%',
+                        render: (v: string) => <Tag color="blue">{v}</Tag>,
+                      },
+                      {
+                        title: 'Name',
+                        dataIndex: 'name',
+                        key: 'name',
+                        width: '30%',
+                      },
+                      {
+                        title: 'Quantity',
+                        dataIndex: 'quantity',
+                        key: 'quantity',
+                        align: 'right' as const,
+                        width: '10%',
+                      },
+                      {
+                        title: 'Unit',
+                        dataIndex: 'unit',
+                        key: 'unit',
+                        align: 'center' as const,
+                        width: '10%',
+                      },
+                      {
+                        title: 'Unit Price',
+                        dataIndex: 'unit_price',
+                        key: 'unit_price',
+                        align: 'right' as const,
+                        width: '15%',
+                        render: (v: number) => `$${(v || 0).toFixed(2)}`,
+                      },
+                      {
+                        title: 'Total',
+                        dataIndex: 'total',
+                        key: 'total',
+                        align: 'right' as const,
+                        width: '15%',
+                        render: (v: number) => <Text strong>${(v || 0).toFixed(2)}</Text>,
+                      },
+                    ]}
+                  />
+                ) : estimate.materials && Object.keys(estimate.materials).length > 0 ? (
+                  <Descriptions bordered column={2}>
+                    {Object.entries(estimate.materials).map(([code, qty]) => (
+                      <Descriptions.Item key={code} label={<Tag color="blue">{code}</Tag>}>
+                        {qty as number}
+                      </Descriptions.Item>
+                    ))}
+                  </Descriptions>
+                ) : (
+                  <Empty description="No material data available" />
                 )}
-                <Table
-                  columns={materialColumns}
-                  dataSource={calculation.protection || []}
-                  rowKey={(record, index) => `protection-${record.code}-${index}`}
-                  pagination={false} size="small"
-                />
               </Space>
             </Tabs.TabPane>
 
-            <Tabs.TabPane tab="Room Breakdown" key="rooms">
+            {/* Room Summaries */}
+            <Tabs.TabPane tab="Rooms" key="rooms">
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Alert
-                  message={`${calculation.rooms?.length || 0} Rooms`}
-                  description="Detailed breakdown by room"
-                  type="info" showIcon
-                />
-                <Table
-                  columns={roomColumns}
-                  dataSource={calculation.rooms || []}
-                  rowKey={(record, index) => `room-${index}`}
-                  pagination={false}
-                  expandable={{
-                    expandedRowRender: (record: RoomBreakdown) => (
-                      <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                        {record.explanation_pack_out && (
-                          <Alert message="Pack-Out Explanation" description={record.explanation_pack_out} type="info" showIcon />
+                {estimate.room_summaries && estimate.room_summaries.length > 0 ? (
+                  estimate.room_summaries.map((room, i) => (
+                    <Card
+                      key={`room-${i}`}
+                      size="small"
+                      title={
+                        <Space>
+                          <BoxPlotOutlined />
+                          <Text strong>{room.room_name}</Text>
+                          <Tag>{room.item_count} items</Tag>
+                        </Space>
+                      }
+                    >
+                      <Row gutter={16}>
+                        {room.notable_items.length > 0 && (
+                          <Col span={12}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>Notable Items</Text>
+                            <div style={{ marginTop: 4 }}>
+                              {room.notable_items.map((item, j) => (
+                                <Tag key={j} style={{ marginBottom: 4 }}>{item}</Tag>
+                              ))}
+                            </div>
+                          </Col>
                         )}
-                        {record.materials && record.materials.length > 0 && (
-                          <div>
-                            <Text strong>Materials:</Text>
-                            <Table
-                              columns={materialColumns}
-                              dataSource={record.materials}
-                              rowKey={(mat, idx) => `${record.room_id}-${mat.code}-${idx}`}
-                              pagination={false} size="small" style={{ marginTop: 8 }}
-                            />
-                          </div>
+                        {room.high_value_items.length > 0 && (
+                          <Col span={12}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>High Value Items</Text>
+                            <div style={{ marginTop: 4 }}>
+                              {room.high_value_items.map((item, j) => (
+                                <Tag key={j} color="gold">{item}</Tag>
+                              ))}
+                            </div>
+                          </Col>
                         )}
-                      </Space>
-                    ),
-                  }}
-                />
-              </Space>
-            </Tabs.TabPane>
-
-            <Tabs.TabPane tab="Debris" key="debris">
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Alert message="Debris Calculation" description="Estimated debris from packing materials" type="warning" showIcon />
-                <Row gutter={16}>
-                  <Col span={8}>
-                    <Card>
-                      <Statistic title="Cardboard (Recyclable)" value={calculation.debris?.cardboard_recyclable_lb?.toFixed(2) || '0.00'} suffix="lb" />
-                      <Text type="secondary">{calculation.debris?.cardboard_recyclable_ton?.toFixed(3) || '0.000'} tons</Text>
-                    </Card>
-                  </Col>
-                  <Col span={8}>
-                    <Card>
-                      <Statistic title="Plastic Waste" value={calculation.debris?.plastic_waste_lb?.toFixed(2) || '0.00'} suffix="lb" />
-                    </Card>
-                  </Col>
-                  <Col span={8}>
-                    <Card>
-                      <Statistic title="Paper Waste" value={calculation.debris?.paper_waste_lb?.toFixed(2) || '0.00'} suffix="lb" />
-                    </Card>
-                  </Col>
-                </Row>
-                <Card>
-                  <Row gutter={16}>
-                    <Col span={12}>
-                      <Statistic title="Total Debris" value={calculation.debris?.total_debris_lb?.toFixed(2) || '0.00'} suffix="lb" valueStyle={{ color: '#f5222d' }} />
-                    </Col>
-                    <Col span={12}>
-                      <Statistic title="Total Debris" value={calculation.debris?.total_debris_ton?.toFixed(3) || '0.000'} suffix="tons" valueStyle={{ color: '#f5222d' }} />
-                    </Col>
-                  </Row>
-                </Card>
-              </Space>
-            </Tabs.TabPane>
-
-            {calculation.strategies_used && (
-              <Tabs.TabPane tab="Strategies Used" key="strategies">
-                <Descriptions bordered column={1}>
-                  {calculation.strategies_used.material_estimation && (
-                    <Descriptions.Item label="Material Estimation">{calculation.strategies_used.material_estimation}</Descriptions.Item>
-                  )}
-                  {calculation.strategies_used.labor_calculation && (
-                    <Descriptions.Item label="Labor Calculation">{calculation.strategies_used.labor_calculation}</Descriptions.Item>
-                  )}
-                  {calculation.strategies_used.protection_estimate && (
-                    <Descriptions.Item label="Protection Estimate">{calculation.strategies_used.protection_estimate}</Descriptions.Item>
-                  )}
-                  {calculation.strategies_used.debris_calculation && (
-                    <Descriptions.Item label="Debris Calculation">{calculation.strategies_used.debris_calculation}</Descriptions.Item>
-                  )}
-                  {calculation.strategies_used.fuzzy_matching_used && (
-                    <Descriptions.Item label="Fuzzy Matching">
-                      <Tag color="blue">Used</Tag>
-                      {calculation.strategies_used.fuzzy_matches && (
-                        <Text type="secondary">{` (${calculation.strategies_used.fuzzy_matches.length} matches)`}</Text>
+                      </Row>
+                      {room.categories_present.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>Categories: </Text>
+                          {room.categories_present.map((cat, j) => (
+                            <Tag key={j} color="geekblue" style={{ marginBottom: 4 }}>{cat}</Tag>
+                          ))}
+                        </div>
                       )}
-                    </Descriptions.Item>
+                      {room.packing_notes.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          {room.packing_notes.map((note, j) => (
+                            <Alert key={j} message={note} type="info" showIcon style={{ marginBottom: 4 }} />
+                          ))}
+                        </div>
+                      )}
+                    </Card>
+                  ))
+                ) : (
+                  <Empty description="No room data available" />
+                )}
+              </Space>
+            </Tabs.TabPane>
+
+            {/* Supplements & Special Items */}
+            {((estimate.supplements && estimate.supplements.length > 0) ||
+              (estimate.special_items && estimate.special_items.length > 0)) && (
+              <Tabs.TabPane tab="Supplements" key="supplements">
+                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                  {estimate.supplements && estimate.supplements.length > 0 && (
+                    <Table
+                      dataSource={estimate.supplements}
+                      rowKey={(record) => record.key}
+                      pagination={false}
+                      size="small"
+                      columns={[
+                        {
+                          title: 'Supplement',
+                          dataIndex: 'name',
+                          key: 'name',
+                          width: '25%',
+                        },
+                        {
+                          title: 'Description',
+                          dataIndex: 'description',
+                          key: 'description',
+                          width: '35%',
+                          render: (v: string) => <Text type="secondary">{v}</Text>,
+                        },
+                        {
+                          title: 'Status',
+                          key: 'status',
+                          width: '15%',
+                          align: 'center' as const,
+                          render: (_: any, record: SupplementItem) => (
+                            record.enabled
+                              ? <Tag color="success">Enabled</Tag>
+                              : <Tag color="default">Disabled</Tag>
+                          ),
+                        },
+                        {
+                          title: 'Amount',
+                          dataIndex: 'amount',
+                          key: 'amount',
+                          align: 'right' as const,
+                          width: '15%',
+                          render: (v: number, record: SupplementItem) => (
+                            record.enabled
+                              ? <Text strong>${(v || 0).toFixed(2)}</Text>
+                              : <Text type="secondary">-</Text>
+                          ),
+                        },
+                      ]}
+                    />
                   )}
-                </Descriptions>
+                  {estimate.special_items && estimate.special_items.length > 0 && (
+                    <Card size="small" title="Special Items">
+                      <Space wrap>
+                        {estimate.special_items.map((item, i) => (
+                          <Tag key={i} color="orange">{item}</Tag>
+                        ))}
+                      </Space>
+                    </Card>
+                  )}
+                </Space>
               </Tabs.TabPane>
             )}
           </Tabs>
+        </Card>
+
+        {/* Totals Card */}
+        <Card title="Totals">
+          <div style={{ maxWidth: 500, marginLeft: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
+              <Text>Subtotal</Text>
+              <Text strong>${(estimate.subtotal || 0).toFixed(2)}</Text>
+            </div>
+            {estimate.include_op && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
+                <Text>O&P ({estimate.op_rate}%)</Text>
+                <Text>${(estimate.op_amount || 0).toFixed(2)}</Text>
+              </div>
+            )}
+            {estimate.supplements?.filter(s => s.enabled).map(s => (
+              <div key={s.key} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
+                <Text>{s.name}</Text>
+                <Text>${(s.amount || 0).toFixed(2)}</Text>
+              </div>
+            ))}
+            {estimate.include_contingency && (estimate.contingency_amount || 0) > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
+                <Text>Contingency ({estimate.contingency_rate}%)</Text>
+                <Text>${(estimate.contingency_amount || 0).toFixed(2)}</Text>
+              </div>
+            )}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between',
+              padding: '10px 0', borderTop: '2px solid #1890ff', marginTop: 8,
+            }}>
+              <Title level={4} style={{ margin: 0 }}>Grand Total</Title>
+              <Title level={4} style={{ margin: 0, color: '#1890ff' }}>
+                ${(estimate.grand_total || 0).toFixed(2)}
+              </Title>
+            </div>
+          </div>
         </Card>
       </Space>
     </div>

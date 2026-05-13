@@ -1,17 +1,19 @@
 /**
  * Packing Estimate List Page
  * Shows all packing estimates with client/company info
+ * Includes mode selection modal for new estimates
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Table, Button, Space, Card, message, Popconfirm, Tag,
-  Typography, Row, Col, Statistic, Tooltip, Empty,
+  Typography, Row, Col, Statistic, Tooltip, Empty, Modal,
 } from 'antd';
 import {
   PlusOutlined, EyeOutlined, DeleteOutlined,
   ReloadOutlined, ThunderboltOutlined, TeamOutlined,
   FileTextOutlined, DollarOutlined, UserOutlined,
+  CameraOutlined, AppstoreOutlined, CloseOutlined,
 } from '@ant-design/icons';
 import * as packingService from '../services/packingEstimateService';
 import type { PackEstimateSummary } from '../types/packing-estimate';
@@ -24,6 +26,7 @@ const PackCalculatorNewList: React.FC = () => {
   const [estimates, setEstimates] = useState<PackEstimateSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
+  const [modeModalOpen, setModeModalOpen] = useState(false);
 
   useEffect(() => { fetchEstimates(); }, []);
 
@@ -49,6 +52,17 @@ const PackCalculatorNewList: React.FC = () => {
       message.error('Failed to delete');
     }
   };
+
+  const handleNewEstimate = useCallback(() => {
+    setModeModalOpen(true);
+  }, []);
+
+  const handleSelectMode = useCallback((mode: 'quick' | 'photo_ai') => {
+    setModeModalOpen(false);
+    navigate('/reconstruction-estimate/pack-calculator-new', {
+      state: { initialMode: mode },
+    });
+  }, [navigate]);
 
   const columns = [
     {
@@ -189,7 +203,7 @@ const PackCalculatorNewList: React.FC = () => {
                 <Button
                   type="primary" size="large"
                   icon={<PlusOutlined />}
-                  onClick={() => navigate('/reconstruction-estimate/pack-calculator-new')}
+                  onClick={handleNewEstimate}
                 >
                   New Estimate
                 </Button>
@@ -241,7 +255,7 @@ const PackCalculatorNewList: React.FC = () => {
                     <Text>No packing estimates yet</Text>
                     <Button
                       type="primary" icon={<PlusOutlined />}
-                      onClick={() => navigate('/reconstruction-estimate/pack-calculator-new')}
+                      onClick={handleNewEstimate}
                     >
                       Create First Estimate
                     </Button>
@@ -252,6 +266,108 @@ const PackCalculatorNewList: React.FC = () => {
           />
         </Card>
       </Space>
+
+      {/* Mode Selection Modal */}
+      <Modal
+        open={modeModalOpen}
+        onCancel={() => setModeModalOpen(false)}
+        footer={null}
+        closable
+        closeIcon={<CloseOutlined />}
+        width={480}
+        centered
+      >
+        <div style={{ padding: '8px 0' }}>
+          <Title level={4} style={{ margin: 0 }}>New Estimate</Title>
+          <Text type="secondary">Choose an estimation method to get started.</Text>
+
+          <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Quick Estimate Option */}
+            <div
+              onClick={() => handleSelectMode('quick')}
+              style={{
+                border: '1px solid #e8e8e8',
+                borderRadius: 12,
+                padding: '20px 24px',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = '#52c41a';
+                (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(82,196,26,0.15)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = '#e8e8e8';
+                (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
+              }}
+            >
+              <div style={{
+                width: 48, height: 48, borderRadius: 12,
+                background: '#f6ffed', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+              }}>
+                <ThunderboltOutlined style={{ fontSize: 24, color: '#52c41a' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <Space>
+                  <Text strong style={{ fontSize: 16 }}>Quick Estimate</Text>
+                  <Tag color="success" style={{ borderRadius: 10, fontSize: 11 }}>Free</Tag>
+                </Space>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 13 }}>
+                    Room presets with content hints. Fast and reliable.
+                  </Text>
+                </div>
+              </div>
+            </div>
+
+            {/* Photo AI Option */}
+            <div
+              onClick={() => handleSelectMode('photo_ai')}
+              style={{
+                border: '1px solid #e8e8e8',
+                borderRadius: 12,
+                padding: '20px 24px',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = '#1890ff';
+                (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(24,144,255,0.15)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = '#e8e8e8';
+                (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
+              }}
+            >
+              <div style={{
+                width: 48, height: 48, borderRadius: 12,
+                background: '#e6f7ff', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+              }}>
+                <CameraOutlined style={{ fontSize: 24, color: '#1890ff' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <Space>
+                  <Text strong style={{ fontSize: 16 }}>Photo AI</Text>
+                  <Tag color="blue" style={{ borderRadius: 10, fontSize: 11 }}>Beta</Tag>
+                </Space>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 13 }}>
+                    Upload room photos. AI detects items automatically.
+                  </Text>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

@@ -1,9 +1,11 @@
 /**
  * Packing Estimate - Main Page
- * 3-step wizard: Details → Rooms → Review
+ * 3-step wizard: Details -> Rooms -> Review
  * Supports Quick Estimate and Photo AI modes
+ * Supports recalculation from existing estimate via navigation state
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Card, Steps, Button, Space, Typography, Radio, message, Result,
 } from 'antd';
@@ -24,20 +26,42 @@ import type {
 const { Title, Text, Paragraph } = Typography;
 
 const PackCalculatorNew: React.FC = () => {
+  const location = useLocation();
+  const recalcState = (location.state as any) || null;
+
   const [currentStep, setCurrentStep] = useState(0);
-  const [mode, setMode] = useState<PackingMode>('photo_ai');
+  const [mode, setMode] = useState<PackingMode>(() => {
+    if (recalcState?.mode === 'quick' || recalcState?.initialMode === 'quick') return 'quick';
+    if (recalcState?.mode === 'photo_ai' || recalcState?.initialMode === 'photo_ai') return 'photo_ai';
+    return 'photo_ai';
+  });
 
   // Details state
-  const [settings, setSettings] = useState<PackingSettings>({
-    ...DEFAULT_SETTINGS,
-    include_contingency: false,
-    contingency_rate: 0,
+  const [settings, setSettings] = useState<PackingSettings>(() => {
+    if (recalcState?.settings) {
+      return { ...DEFAULT_SETTINGS, ...recalcState.settings };
+    }
+    return {
+      ...DEFAULT_SETTINGS,
+      include_contingency: false,
+      contingency_rate: 0,
+    };
   });
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [selectedClaimId, setSelectedClaimId] = useState<string | null>(null);
-  const [projectAddress, setProjectAddress] = useState('');
-  const [calculationName, setCalculationName] = useState('');
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(
+    recalcState?.companyId || null
+  );
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(
+    recalcState?.clientId || null
+  );
+  const [selectedClaimId, setSelectedClaimId] = useState<string | null>(
+    recalcState?.claimId || null
+  );
+  const [projectAddress, setProjectAddress] = useState(
+    recalcState?.projectAddress || ''
+  );
+  const [calculationName, setCalculationName] = useState(
+    recalcState?.calculationName || ''
+  );
 
   // Room state
   const [rooms, setRooms] = useState<PackingRoom[]>([]);
@@ -46,6 +70,13 @@ const PackCalculatorNew: React.FC = () => {
   // Result state
   const [result, setResult] = useState<EstimateResponse | null>(null);
   const [calculating, setCalculating] = useState(false);
+
+  // Show recalculation notice
+  useEffect(() => {
+    if (recalcState?.recalculateFrom) {
+      message.info('Settings loaded from previous estimate. Add rooms and recalculate.');
+    }
+  }, []);
 
   const handleCalculate = useCallback(async () => {
     setCalculating(true);

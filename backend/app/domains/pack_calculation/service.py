@@ -939,9 +939,9 @@ class PackCalculationService:
                 bt_str = bt_raw
             else:
                 bt_str = str(bt_raw)
-            total_floors = building_info.get("total_floors", 1)
-            has_elevator = building_info.get("has_elevator", False)
-            
+            total_floors = building_info.get("total_floors") or 1
+            has_elevator = building_info.get("has_elevator") or False
+
             factors = PROTECTION_FACTORS.get(bt_str.lower(), PROTECTION_FACTORS["house"])
             base_sf = factors["base_sf"]
             per_floor_sf = factors["per_floor_sf"]
@@ -1735,8 +1735,8 @@ class PackCalculationService:
                     bt_str = bt_raw
                 else:
                     bt_str = str(bt_raw)
-                total_floors = building_info.get("total_floors", 1)
-                has_elevator = building_info.get("has_elevator", False)
+                total_floors = building_info.get("total_floors") or 1
+                has_elevator = building_info.get("has_elevator") or False
                 
                 factors = PROTECTION_FACTORS.get(bt_str.lower(), PROTECTION_FACTORS["house"])
                 base_sf = factors["base_sf"]
@@ -1786,8 +1786,8 @@ class PackCalculationService:
                 bt_str = bt_raw
             else:
                 bt_str = str(bt_raw)
-            total_floors = building_info.get("total_floors", 1)
-            has_elevator = building_info.get("has_elevator", False)
+            total_floors = building_info.get("total_floors") or 1
+            has_elevator = building_info.get("has_elevator") or False
             
             factors = PROTECTION_FACTORS.get(bt_str.lower(), PROTECTION_FACTORS["house"])
             base_sf = factors["base_sf"]
