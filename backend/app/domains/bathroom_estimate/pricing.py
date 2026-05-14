@@ -15,24 +15,24 @@ Includes material + labor unless otherwise noted.
 # ──────────────────────────────────────────────
 # Sources: Angi avg $1,445, Modernize $8-$20/SF, This Old House $658-$2,469
 DEMO_RATES = {
-    # Per-SF demo rates (labor only)
-    "floor_tile_per_sf": 4.50,        # tile removal + haul ($3-$7/SF, Modernize)
-    "wall_tile_per_sf": 5.50,         # wall tile removal ($4-$7/SF)
-    "ceiling_per_sf": 3.00,           # ceiling demo
+    # Per-SF demo rates (labor only — unskilled labor, straightforward removal)
+    "floor_tile_per_sf": 3.00,        # tile removal + haul ($2-$4/SF avg)
+    "wall_tile_per_sf": 3.75,         # wall tile removal ($3-$5/SF)
+    "ceiling_per_sf": 2.00,           # ceiling demo
 
-    # Per-fixture demo (labor, avg $50-$150 per fixture, Angi)
-    "bathtub_standard": 175,          # standard acrylic/fiberglass
-    "bathtub_cast_iron": 450,         # cast iron (heavy, needs crew + surcharge)
-    "shower_surround": 200,           # prefab surround removal
-    "shower_custom_tile": 350,        # custom tile shower tear-out
-    "vanity": 125,                    # vanity + top removal
-    "toilet": 85,                     # toilet R&R
-    "mirror": 45,                     # mirror removal
+    # Per-fixture demo (labor, disconnect + remove + haul)
+    "bathtub_standard": 125,          # standard acrylic/fiberglass
+    "bathtub_cast_iron": 325,         # cast iron (heavy, needs crew)
+    "shower_surround": 150,           # prefab surround removal
+    "shower_custom_tile": 250,        # custom tile shower tear-out
+    "vanity": 85,                     # vanity + top removal
+    "toilet": 60,                     # toilet disconnect + remove
+    "mirror": 35,                     # mirror removal
 
     # Substrate demo
-    "durock_per_sf": 3.00,            # cement board tear-out
-    "drywall_per_sf": 2.50,           # drywall tear-out
-    "subfloor_per_sf": 5.00,          # subfloor removal/repair
+    "durock_per_sf": 2.00,            # cement board tear-out
+    "drywall_per_sf": 1.75,           # drywall tear-out
+    "subfloor_per_sf": 4.00,          # subfloor removal/repair
 
     # Dumpster (DMV area, Angi DC avg $442, range $370-$900)
     "dumpster_10yard": 395,
@@ -55,11 +55,11 @@ PLUMBING_RATES = {
     "pressure_balance_valve": 425,    # code-required shower valve ($300-$550)
     "rough_inspection_fee": 150,      # county inspection fee
 
-    # Fixture connection labor (per fixture)
-    "toilet_set": 375,                # toilet install complete ($275-$480, Angi avg $375)
-    "vanity_faucet_install": 285,     # faucet install ($225-$475, Angi)
-    "tub_faucet_install": 325,        # tub faucet/valve install
-    "shower_valve_trim": 275,         # shower trim kit install (existing valve)
+    # Fixture connection labor (licensed plumber, per fixture)
+    "toilet_set": 450,                # toilet install complete (set, wax ring, bolt, connect, test)
+    "vanity_faucet_install": 350,     # faucet install (connect supply, drain, test for leaks)
+    "tub_faucet_install": 400,        # tub faucet/valve install (access panel, connect, test)
+    "shower_valve_trim": 325,         # shower trim kit install (existing valve)
 }
 
 # ──────────────────────────────────────────────
@@ -124,6 +124,7 @@ TILE_LABOR_RATES = {
     "floor_per_sf": 10.00,            # $8-$14/SF (Fixr tile installer)
     "wall_per_sf": 12.00,             # $10-$15/SF (vertical work premium)
     "shower_wall_per_sf": 14.00,      # $10-$18/SF (wet area, precision)
+    "shower_floor_per_sf": 12.00,     # $10-$15/SF (slope to drain, wet area, small area = more cuts)
 }
 
 TILE_PATTERN_MULTIPLIER = {
@@ -192,10 +193,10 @@ BATHTUB_PRICES = {
 }
 
 BATHTUB_INSTALL = {
-    "alcove": 425,                    # standard install
-    "drop_in": 650,                   # deck mount, more plumber time
-    "freestanding": 750,              # floor mount + filler
-    "walk_in": 1200,                  # complex install + electrical
+    "alcove": 575,                    # standard install (set, level, seal, connect)
+    "drop_in": 850,                   # deck mount, more plumber time + framing
+    "freestanding": 975,              # floor mount, filler, drain alignment
+    "walk_in": 1500,                  # complex install + electrical + ADA compliance
 }
 
 BATHTUB_EXTRAS = {
@@ -240,16 +241,16 @@ SHOWER_DOOR_PRICES = {
     },
 }
 
-# Installation labor by door category
+# Installation labor by door category (precision leveling, drilling, sealing)
 SHOWER_DOOR_INSTALL = {
     "curtain": 0,
-    "framed_sliding": 200,
-    "semi_frameless_sliding": 275,
-    "frameless_sliding": 350,
-    "framed_pivot": 200,
-    "semi_frameless_pivot": 275,
-    "frameless_pivot": 350,
-    "fixed_panel": 250,
+    "framed_sliding": 275,
+    "semi_frameless_sliding": 375,
+    "frameless_sliding": 475,
+    "framed_pivot": 275,
+    "semi_frameless_pivot": 375,
+    "frameless_pivot": 475,
+    "fixed_panel": 350,
 }
 
 SHOWER_DOOR_TYPES = [
@@ -274,7 +275,7 @@ SHOWER_INSERT_PRICES = {
     "multi_piece_kit": 950,           # multi-piece kit ($600-$1,500)
 }
 
-SHOWER_INSERT_INSTALL = 425           # prefab shower unit installation labor
+SHOWER_INSERT_INSTALL = 575           # prefab shower unit install (set, level, seal, connect)
 
 SHOWER_CUSTOM_EXTRAS = {
     "niche_each": 185,                # recessed niche (material + labor)
@@ -320,14 +321,14 @@ VANITY_TOP_PRICES = {
     "laminate": 5,
 }
 
-VANITY_INSTALL = 225                  # labor to install vanity ($100-$350)
+VANITY_INSTALL = 350                  # labor to install vanity (set, level, secure, cutouts)
 
 VANITY_EXTRAS = {
-    "wall_mount_blocking": 185,       # wood blocking for floating vanity
-    "faucet_single_hole": 195,        # faucet supply + install
-    "faucet_centerset": 225,
-    "faucet_widespread": 295,
-    "faucet_wall_mount": 425,         # wall-mount requires rough valve
+    "wall_mount_blocking": 225,       # wood blocking for floating vanity (framing work)
+    "faucet_single_hole": 245,        # faucet supply + install
+    "faucet_centerset": 275,
+    "faucet_widespread": 350,
+    "faucet_wall_mount": 525,         # wall-mount requires rough valve + access
 }
 
 # Mirror / Medicine Cabinet
@@ -339,7 +340,7 @@ MIRROR_PRICES = {
     "led_backlit": 425,               # + electrical
 }
 
-MIRROR_INSTALL = 85                   # labor to hang
+MIRROR_INSTALL = 125                  # labor to hang (anchoring, leveling)
 
 # Toilet
 TOILET_PRICES = {
