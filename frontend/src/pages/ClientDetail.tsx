@@ -55,6 +55,7 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { clientService, claimService, negotiationService, claimActivityService } from '../services/clientService';
+import { fileService } from '../services/fileService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
 import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory } from '../components/claim-followup';
 import type {
@@ -1054,7 +1055,7 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       render: (_: any, record) =>
         record.document_url ? (
           <Tooltip title={record.document_name || 'View PDF'}>
-            <a href={`/api/files/download/${record.document_url}?inline=true`} target="_blank" rel="noopener noreferrer">
+            <a href={`${fileService.getDownloadUrl(record.document_url)}?inline=true`} target="_blank" rel="noopener noreferrer">
               <FilePdfOutlined style={{ color: '#ff4d4f' }} />
             </a>
           </Tooltip>

@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { supplementService } from '../services/supplementService';
+import { fileService } from '../services/fileService';
 import type {
   SupplementRequest, SupplementRequestCreate, BidItemEstimate,
   BidItemEstimateCreate, SupplementFollowUp, SupplementStatus,
@@ -255,7 +256,7 @@ const SupplementManagement: React.FC = () => {
         if (!fileId) return <Text type="secondary">-</Text>;
         return (
           <Tooltip title="View Insurance Estimate PDF">
-            <a href={`/api/files/download/${fileId}?inline=true`} target="_blank" rel="noopener noreferrer">
+            <a href={`${fileService.getDownloadUrl(fileId)}?inline=true`} target="_blank" rel="noopener noreferrer">
               <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 16 }} />
             </a>
           </Tooltip>
@@ -492,7 +493,7 @@ const SupplementManagement: React.FC = () => {
                       )}
                       {insuranceEstimate.file_download_id && (
                         <Descriptions.Item label="Document" span={2}>
-                          <a href={`/api/files/download/${insuranceEstimate.file_download_id}?inline=true`} target="_blank" rel="noopener noreferrer">
+                          <a href={`${fileService.getDownloadUrl(insuranceEstimate.file_download_id)}?inline=true`} target="_blank" rel="noopener noreferrer">
                             <Space size={4}>
                               <FilePdfOutlined style={{ color: '#ff4d4f' }} />
                               <span>{insuranceEstimate.document_name || 'View PDF'}</span>
