@@ -138,7 +138,7 @@ const BathroomEstimateList: React.FC = () => {
           <Button
             size="small"
             icon={<FilePdfOutlined />}
-            onClick={() => bathroomEstimateService.exportPdf(record.id)}
+            onClick={() => bathroomEstimateService.exportPdf(record.id, { address: record.property_address })}
             disabled={record.status === 'draft'}
           />
           <Button

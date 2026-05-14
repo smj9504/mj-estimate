@@ -35,7 +35,7 @@ class _NumberedCanvas:
 
             def showPage(self):
                 self._saved_pages.append(dict(self.__dict__))
-                Canvas.showPage(self)
+                self._startPage()  # reset for next page without committing current
 
             def save(self):
                 total = len(self._saved_pages)
@@ -86,6 +86,25 @@ def _group_line_items_by_phase(line_items: List[Dict]) -> List[Dict]:
     return sections
 
 
+def _filter_notes_prices(notes: Optional[str], show_prices: bool) -> Optional[str]:
+    """Filter dollar amounts from notes if show_prices is False.
+
+    Keeps area/dimension info (SF, LF, IN, %, waste) but removes $xxx.xx amounts.
+    """
+    import re
+    if not notes or show_prices:
+        return notes
+    # Remove standalone dollar amounts like "$700.00" or "$1,234.56"
+    filtered = re.sub(r'\s*\$[\d,]+\.?\d*', '', notes)
+    # Clean up leftover artifacts: empty labels like "Cabinet: " or double separators
+    filtered = re.sub(r':\s*(?=\||$)', '', filtered)
+    filtered = re.sub(r'\|\s*\|', '|', filtered)
+    filtered = re.sub(r'^\s*\|\s*', '', filtered)
+    filtered = re.sub(r'\s*\|\s*$', '', filtered)
+    filtered = re.sub(r'\s{2,}', ' ', filtered)
+    return filtered.strip() or None
+
+
 class BathroomExportService:
     """Generates PDF estimates for bathroom remodels."""
 
@@ -94,6 +113,7 @@ class BathroomExportService:
         estimate: Dict[str, Any],
         show_signature: bool = True,
         sketch_image_base64: Optional[str] = None,
+        show_breakdown_prices: bool = True,
     ) -> io.BytesIO:
         """Generate a professional PDF estimate."""
         from reportlab.lib import colors
@@ -421,7 +441,8 @@ class BathroomExportService:
             detail_data = [["Description", "Qty", "Unit", "Rate", "Total"]]
             for li in sec["items"]:
                 desc_text = li.get("description", "")
-                notes_text = li.get("notes", "")
+                notes_text = _filter_notes_prices(
+                    li.get("notes", ""), show_breakdown_prices)
                 if notes_text:
                     desc_text += (
                         f'<br/><font size="6" color="#666666">'

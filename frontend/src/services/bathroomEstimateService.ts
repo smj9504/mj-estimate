@@ -86,41 +86,53 @@ export const bathroomEstimateService = {
 
   // ── Export ──
 
-  async exportPdf(id: string, options?: { show_signature?: boolean; sketch_image?: string }) {
-    if (options?.sketch_image) {
-      // POST with sketch image in body
-      const response = await api.post(`${BASE_URL}/${id}/export/pdf`, {
-        sketch_image: options.sketch_image,
-        show_signature: options?.show_signature ?? true,
-      }, {
-        responseType: 'blob',
-      });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+  async exportPdf(id: string, options?: {
+    show_signature?: boolean;
+    sketch_image?: string;
+    show_breakdown_prices?: boolean;
+    address?: string;
+  }) {
+    const sanitized = (options?.address || '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '_');
+    const filename = sanitized
+      ? `bathroom_estimate_${sanitized}.pdf`
+      : `bathroom_estimate_${id.substring(0, 8)}.pdf`;
+
+    const downloadBlob = (data: any) => {
+      const url = window.URL.createObjectURL(new Blob([data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `bathroom_estimate_${id.substring(0, 8)}.pdf`);
+      link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
+    };
+
+    if (options?.sketch_image) {
+      const response = await api.post(`${BASE_URL}/${id}/export/pdf`, {
+        sketch_image: options.sketch_image,
+        show_signature: options?.show_signature ?? true,
+        show_breakdown_prices: options?.show_breakdown_prices ?? true,
+      }, {
+        responseType: 'blob',
+      });
+      downloadBlob(response.data);
     } else {
-      // GET without sketch
       const params: Record<string, any> = {};
       if (options?.show_signature === false) {
         params.show_signature = false;
+      }
+      if (options?.show_breakdown_prices === false) {
+        params.show_breakdown_prices = false;
       }
       const response = await api.get(`${BASE_URL}/${id}/export/pdf`, {
         responseType: 'blob',
         params,
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `bathroom_estimate_${id.substring(0, 8)}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
+      downloadBlob(response.data);
     }
   },
 };

@@ -253,6 +253,7 @@ def generate_overview(
 def export_pdf(
     estimate_id: str,
     show_signature: bool = Query(True),
+    show_breakdown_prices: bool = Query(True),
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
@@ -267,6 +268,7 @@ def export_pdf(
     export_svc = BathroomExportService()
     pdf_bytes = export_svc.generate_pdf(
         estimate, show_signature=show_signature,
+        show_breakdown_prices=show_breakdown_prices,
     )
 
     return StreamingResponse(
@@ -295,12 +297,14 @@ def export_pdf_with_sketch(
 
     sketch_image = body.get("sketch_image")
     show_signature = body.get("show_signature", True)
+    show_breakdown_prices = body.get("show_breakdown_prices", True)
 
     export_svc = BathroomExportService()
     pdf_bytes = export_svc.generate_pdf(
         estimate,
         show_signature=show_signature,
         sketch_image_base64=sketch_image,
+        show_breakdown_prices=show_breakdown_prices,
     )
 
     return StreamingResponse(

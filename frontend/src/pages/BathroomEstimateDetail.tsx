@@ -24,12 +24,14 @@ import {
   Tooltip,
   Typography,
   Modal,
+  Dropdown,
 } from 'antd';
 import {
   ArrowLeftOutlined,
   CalculatorOutlined,
   CopyOutlined,
   DeleteOutlined,
+  DownOutlined,
   FilePdfOutlined,
   PlusOutlined,
   QuestionCircleOutlined,
@@ -353,15 +355,45 @@ const BathroomEstimateDetail: React.FC = () => {
               loading={calculateMutation.isPending}>
               Calculate
             </Button>
-            <Button icon={<FilePdfOutlined />} disabled={estimate?.status === 'draft'}
-              onClick={() => {
-                // Try capturing from Konva Stage (all layers merged)
-                const capture = (window as any).__beSketchCapture;
-                const sketchImage = typeof capture === 'function' ? capture() : undefined;
-                bathroomEstimateService.exportPdf(id!, { sketch_image: sketchImage });
-              }}>
-              PDF
-            </Button>
+            <Dropdown
+              disabled={estimate?.status === 'draft'}
+              menu={{
+                items: [
+                  {
+                    key: 'pdf-detailed',
+                    label: 'PDF - With Breakdown Prices',
+                    icon: <FilePdfOutlined />,
+                    onClick: () => {
+                      const capture = (window as any).__beSketchCapture;
+                      const sketchImage = typeof capture === 'function' ? capture() : undefined;
+                      bathroomEstimateService.exportPdf(id!, {
+                        sketch_image: sketchImage,
+                        show_breakdown_prices: true,
+                        address: estimate?.property_address,
+                      });
+                    },
+                  },
+                  {
+                    key: 'pdf-clean',
+                    label: 'PDF - Without Breakdown Prices',
+                    icon: <FilePdfOutlined />,
+                    onClick: () => {
+                      const capture = (window as any).__beSketchCapture;
+                      const sketchImage = typeof capture === 'function' ? capture() : undefined;
+                      bathroomEstimateService.exportPdf(id!, {
+                        sketch_image: sketchImage,
+                        show_breakdown_prices: false,
+                        address: estimate?.property_address,
+                      });
+                    },
+                  },
+                ],
+              }}
+            >
+              <Button icon={<FilePdfOutlined />}>
+                PDF <DownOutlined />
+              </Button>
+            </Dropdown>
             <Button icon={<CopyOutlined />} onClick={() => cloneMutation.mutate()}>
               Clone
             </Button>
@@ -1136,7 +1168,17 @@ const BathroomEstimateDetail: React.FC = () => {
                   </Panel>
                   <Panel header="Walls & Paint" key="walls">
                     <Row gutter={16}>
-                      <Col xs={12} sm={12} md={6}>
+                      <Col xs={12} sm={8} md={4}>
+                        <Form.Item name={['walls_spec', 'paint_walls']} valuePropName="checked">
+                          <Checkbox>Paint Walls</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={4}>
+                        <Form.Item name={['walls_spec', 'paint_ceiling']} valuePropName="checked">
+                          <Checkbox>Paint Ceiling</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={4}>
                         <Form.Item label="Paint Grade" name={['walls_spec', 'paint_grade']}>
                           <Select options={selectOpts(pricingInfo?.paint_grades)} allowClear />
                         </Form.Item>
