@@ -88,8 +88,8 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
     const ys = bathroom.boundary.map(p => p.y);
     const widthPx = Math.max(...xs) - Math.min(...xs);
     const depthPx = Math.max(...ys) - Math.min(...ys);
-    const widthFt = Math.round((widthPx / ppf) * 10) / 10;
-    const depthFt = Math.round((depthPx / ppf) * 10) / 10;
+    const widthFt = Math.round((widthPx / ppf) * 4) / 4;
+    const depthFt = Math.round((depthPx / ppf) * 4) / 4;
     sync.length_ft = widthFt;
     sync.width_ft = depthFt;
     sync.floor_sf = Math.round(widthFt * depthFt * 10) / 10;

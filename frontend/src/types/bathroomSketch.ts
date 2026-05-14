@@ -291,8 +291,8 @@ export interface BESketchSettings {
 // =====================
 
 export const DEFAULT_BE_SKETCH_SETTINGS: BESketchSettings = {
-  pixelsPerFoot: 30,
-  gridSizeFt: 1,
+  pixelsPerFoot: 96,
+  gridSizeFt: 0.25,
   showGrid: true,
   showDimensions: true,
   showAreaLabels: true,

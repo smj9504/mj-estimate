@@ -36,47 +36,111 @@ interface BESketchCanvasProps {
 
 function fmtInches(totalInches: number): string {
   const ft = Math.floor(totalInches / 12);
-  const inches = Math.round(totalInches % 12);
-  if (ft === 0) return `${inches}"`;
-  if (inches === 0) return `${ft}'`;
-  return `${ft}' ${inches}"`;
+  const remainInches = totalInches % 12;
+  const wholeInches = Math.floor(remainInches);
+  const frac = remainInches - wholeInches;
+
+  // Snap to nearest 1/4"
+  let fracStr = '';
+  if (frac >= 0.875) {
+    // rounds up to next inch
+    return fmtInches(ft * 12 + wholeInches + 1);
+  } else if (frac >= 0.625) {
+    fracStr = ' 3/4';
+  } else if (frac >= 0.375) {
+    fracStr = ' 1/2';
+  } else if (frac >= 0.125) {
+    fracStr = ' 1/4';
+  }
+
+  const inchPart = wholeInches > 0 || fracStr ? `${wholeInches > 0 ? wholeInches : ''}${fracStr}"` : '';
+  if (ft === 0) return inchPart || '0"';
+  if (!inchPart) return `${ft}'`;
+  return `${ft}' ${inchPart}`;
 }
 
 /**
- * Parse dimension input string to total inches.
- * Supports: "7' 2\"", "7'2", "7.5'", "86\"", "86", "7 2"
+ * Parse fraction string (e.g. "1/4", "1/2", "3/4") to decimal.
+ */
+function parseFraction(frac: string): number {
+  const parts = frac.split('/');
+  if (parts.length === 2) {
+    const num = parseFloat(parts[0]);
+    const den = parseFloat(parts[1]);
+    if (den !== 0) return num / den;
+  }
+  return 0;
+}
+
+/**
+ * Snap a value to the nearest 1/4 inch.
+ */
+function snapToQuarterInch(inches: number): number {
+  return Math.round(inches * 4) / 4;
+}
+
+/**
+ * Parse dimension input string to total inches (with 1/4" precision).
+ * Supports: "7' 2\"", "7'2", "7.5'", "86\"", "86", "7 2",
+ *           "7' 3 1/4\"", "5' 6 1/2", "3 3/4\"" (fractional inches)
  */
 function parseDimension(input: string): number | null {
   const s = input.trim();
   if (!s) return null;
 
+  // "7' 3 1/4\"" or "7' 3 1/2" (feet + inches + fraction)
+  const ftInFracMatch = s.match(/^(\d+)\s*['′]\s*(\d+)\s+(\d+\/\d+)\s*["″]?\s*$/);
+  if (ftInFracMatch) {
+    return snapToQuarterInch(
+      parseInt(ftInFracMatch[1], 10) * 12 + parseInt(ftInFracMatch[2], 10) + parseFraction(ftInFracMatch[3])
+    );
+  }
+
+  // "7' 1/2\"" or "7' 3/4" (feet + fraction only, no whole inches)
+  const ftFracMatch = s.match(/^(\d+)\s*['′]\s*(\d+\/\d+)\s*["″]?\s*$/);
+  if (ftFracMatch) {
+    return snapToQuarterInch(parseInt(ftFracMatch[1], 10) * 12 + parseFraction(ftFracMatch[2]));
+  }
+
   // "7' 2\"" or "7'2\"" or "7' 2" or "7'2"
   const ftInMatch = s.match(/^(\d+(?:\.\d+)?)\s*['′]\s*(\d+(?:\.\d+)?)\s*["″]?\s*$/);
   if (ftInMatch) {
-    return Math.round(parseFloat(ftInMatch[1]) * 12 + parseFloat(ftInMatch[2]));
+    return snapToQuarterInch(parseFloat(ftInMatch[1]) * 12 + parseFloat(ftInMatch[2]));
   }
 
   // "7'" or "7.5'"
   const ftOnly = s.match(/^(\d+(?:\.\d+)?)\s*['′]\s*$/);
   if (ftOnly) {
-    return Math.round(parseFloat(ftOnly[1]) * 12);
+    return snapToQuarterInch(parseFloat(ftOnly[1]) * 12);
+  }
+
+  // "3 1/4\"" or "3 1/2" (inches + fraction)
+  const inFracMatch = s.match(/^(\d+)\s+(\d+\/\d+)\s*["″]?\s*$/);
+  if (inFracMatch) {
+    return snapToQuarterInch(parseInt(inFracMatch[1], 10) + parseFraction(inFracMatch[2]));
+  }
+
+  // "1/4\"" or "1/2" (fraction only)
+  const fracOnly = s.match(/^(\d+\/\d+)\s*["″]?\s*$/);
+  if (fracOnly) {
+    return snapToQuarterInch(parseFraction(fracOnly[1]));
   }
 
   // "86\"" or "86""
   const inOnly = s.match(/^(\d+(?:\.\d+)?)\s*["″]\s*$/);
   if (inOnly) {
-    return Math.round(parseFloat(inOnly[1]));
+    return snapToQuarterInch(parseFloat(inOnly[1]));
   }
 
   // "7 2" (feet space inches, no symbols)
   const spaceMatch = s.match(/^(\d+)\s+(\d+(?:\.\d+)?)\s*$/);
   if (spaceMatch) {
-    return Math.round(parseInt(spaceMatch[1], 10) * 12 + parseFloat(spaceMatch[2]));
+    return snapToQuarterInch(parseInt(spaceMatch[1], 10) * 12 + parseFloat(spaceMatch[2]));
   }
 
   // Plain number → inches
   const num = parseFloat(s);
-  if (!isNaN(num) && num > 0) return Math.round(num);
+  if (!isNaN(num) && num > 0) return snapToQuarterInch(num);
 
   return null;
 }
@@ -382,9 +446,10 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     if (!drawingRoom) return '';
     const dx = Math.abs(drawingRoom.current.x - drawingRoom.start.x);
     const dy = Math.abs(drawingRoom.current.y - drawingRoom.start.y);
-    const wFt = dx / ppf;
-    const hFt = dy / ppf;
-    return `${wFt.toFixed(1)}' x ${hFt.toFixed(1)}' = ${(wFt * hFt).toFixed(1)} SF`;
+    const wIn = (dx / ppf) * 12;
+    const hIn = (dy / ppf) * 12;
+    const sf = (wIn * hIn) / 144;
+    return `${fmtInches(wIn)} x ${fmtInches(hIn)} = ${sf.toFixed(1)} SF`;
   }, [drawingRoom, ppf]);
 
   // ── Polygon room: close-snap detection ──
@@ -475,7 +540,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     const room = rooms.find(r => r.id === editingRoomEdge.roomId);
     if (!room) { setEditingRoomEdge(null); return; }
     const newInches = parseDimension(editingRoomValue);
-    if (!newInches || newInches < 12) { setEditingRoomEdge(null); return; }
+    if (!newInches || newInches < 3) { setEditingRoomEdge(null); return; }
     const newPx = (newInches / 12) * ppf;
 
     const idx = editingRoomEdge.edgeIdx;
@@ -643,23 +708,52 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         onDblClick={handleDblClick}
       >
         {/* ── Grid Layer ── */}
-        {settings.showGrid && (
+        {settings.showGrid && (() => {
+          // Multi-level grid: minor = gridPx (1/4 ft = 3"), major = 1 ft
+          const majorPx = ppf; // 1 foot intervals
+          const minorPx = gridPx; // 1/4 foot (3") intervals
+          return (
           <Layer listening={false}>
-            {/* Minor grid */}
-            {Array.from({ length: Math.ceil(width / gridPx) + 1 }, (_, i) => (
+            {/* Minor grid lines (every 1/4 ft = 3") */}
+            {Array.from({ length: Math.ceil(width / minorPx) + 1 }, (_, i) => {
+              const isMajor = Math.abs(i * minorPx - Math.round(i * minorPx / majorPx) * majorPx) < 1;
+              if (isMajor) return null; // drawn separately
+              return (
+                <Line
+                  key={`gv${i}`}
+                  points={[i * minorPx, 0, i * minorPx, height]}
+                  stroke="#f0f0f0"
+                  strokeWidth={0.4}
+                />
+              );
+            })}
+            {Array.from({ length: Math.ceil(height / minorPx) + 1 }, (_, i) => {
+              const isMajor = Math.abs(i * minorPx - Math.round(i * minorPx / majorPx) * majorPx) < 1;
+              if (isMajor) return null;
+              return (
+                <Line
+                  key={`gh${i}`}
+                  points={[0, i * minorPx, width, i * minorPx]}
+                  stroke="#f0f0f0"
+                  strokeWidth={0.4}
+                />
+              );
+            })}
+            {/* Major grid lines (every 1 ft) */}
+            {Array.from({ length: Math.ceil(width / majorPx) + 1 }, (_, i) => (
               <Line
-                key={`gv${i}`}
-                points={[i * gridPx, 0, i * gridPx, height]}
-                stroke={i % 5 === 0 ? '#ddd' : '#f0f0f0'}
-                strokeWidth={i % 5 === 0 ? 0.8 : 0.4}
+                key={`gvM${i}`}
+                points={[i * majorPx, 0, i * majorPx, height]}
+                stroke="#ddd"
+                strokeWidth={0.8}
               />
             ))}
-            {Array.from({ length: Math.ceil(height / gridPx) + 1 }, (_, i) => (
+            {Array.from({ length: Math.ceil(height / majorPx) + 1 }, (_, i) => (
               <Line
-                key={`gh${i}`}
-                points={[0, i * gridPx, width, i * gridPx]}
-                stroke={i % 5 === 0 ? '#ddd' : '#f0f0f0'}
-                strokeWidth={i % 5 === 0 ? 0.8 : 0.4}
+                key={`ghM${i}`}
+                points={[0, i * majorPx, width, i * majorPx]}
+                stroke="#ddd"
+                strokeWidth={0.8}
               />
             ))}
             {/* Scale indicator */}
@@ -667,8 +761,16 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             <Line points={[10, height - 24, 10, height - 16]} stroke="#999" strokeWidth={1} />
             <Line points={[10 + ppf, height - 24, 10 + ppf, height - 16]} stroke="#999" strokeWidth={1} />
             <Text x={10} y={height - 36} text="1 ft" fontSize={10} fill="#999" />
+            {/* 1/4 ft tick marks on scale */}
+            {[0.25, 0.5, 0.75].map((frac) => (
+              <Line key={`st${frac}`} points={[10 + ppf * frac, height - 22, 10 + ppf * frac, height - 18]} stroke="#bbb" strokeWidth={0.8} />
+            ))}
+            <Text x={10 + ppf * 0.25 - 4} y={height - 36} text='3"' fontSize={8} fill="#bbb" />
+            <Text x={10 + ppf * 0.5 - 4} y={height - 36} text='6"' fontSize={8} fill="#bbb" />
+            <Text x={10 + ppf * 0.75 - 4} y={height - 36} text='9"' fontSize={8} fill="#bbb" />
           </Layer>
-        )}
+          );
+        })()}
 
         {/* ── Rooms Layer ── */}
         <Layer>
