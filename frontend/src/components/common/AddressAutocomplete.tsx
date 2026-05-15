@@ -118,7 +118,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       const results: NominatimResult[] = await res.json();
 
       setOptions(
-        results.map((r) => {
+        results.map((r, idx) => {
           const addr = r.address;
           const streetAddr = [addr.house_number, addr.road].filter(Boolean).join(' ');
           const city = addr.city || addr.town || addr.village || addr.hamlet || '';
@@ -132,7 +132,8 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
             county: addr.county,
           };
           return {
-            value: parsed.streetAddress,
+            key: `addr-${idx}`,
+            value: [streetAddr, city, stateCode, parsed.zip].filter(Boolean).join(', '),
             label: (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <EnvironmentOutlined style={{ color: '#1890ff', flexShrink: 0 }} />
@@ -173,6 +174,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       const parsed: ParsedAddress = option.data;
       onChange?.(parsed.streetAddress);
       onSelect?.(parsed);
+      setOptions([]);
     },
     [onChange, onSelect]
   );
