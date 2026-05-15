@@ -135,4 +135,11 @@ export const bathroomEstimateService = {
       downloadBlob(response.data);
     }
   },
+
+  // ── Export Validation ──
+
+  async validateForExport(id: string) {
+    const { data } = await api.get(`${BASE_URL}/${id}/export/validate`);
+    return data as { valid: boolean; warnings: string[] };
+  },
 };

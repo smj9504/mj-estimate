@@ -127,6 +127,20 @@ export interface HiddenCostFlags {
   drywall_patch_sf?: number;
   trim_paint?: boolean;
   trim_paint_lf?: number;
+  permit?: boolean;
+  // Auto-include toggles (default true — set false to disable)
+  drywall_skim_coat?: boolean;
+  subfloor_allowance?: boolean;
+  auto_gfci?: boolean;
+  auto_exhaust_fan?: boolean;
+  auto_vanity_light?: boolean;
+  auto_ceiling_paint?: boolean;
+  mold_resistant_drywall?: boolean;
+  // Permit triggers (check if scope includes these)
+  valve_body_replace?: boolean;
+  fixture_relocation?: boolean;
+  new_plumbing_line?: boolean;
+  new_electrical_circuit?: boolean;
 }
 
 // ── Line Item ──

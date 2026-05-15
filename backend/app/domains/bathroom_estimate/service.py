@@ -137,6 +137,9 @@ class BathroomEstimateService:
         if save_history:
             self._save_history(estimate_id, changed_by_id, "Calculation executed")
 
+        # Auto-detect water damage from claim if not explicitly set
+        self._auto_detect_water_damage(estimate)
+
         result = calculate_estimate(estimate)
 
         # Clear existing line items and create new ones
@@ -251,6 +254,39 @@ class BathroomEstimateService:
         self.estimate_repo.update(estimate_id, {"overview_text": overview})
         self.session.flush()
         return overview
+
+    # ── Auto-detection ──
+
+    def _auto_detect_water_damage(self, estimate: BathroomEstimate):
+        """Auto-set water_damage flag from claim data if not manually set.
+
+        If the estimate is linked to a claim that has water/mold category
+        or loss type, auto-enable water_damage and related flags.
+        """
+        if estimate.water_damage:
+            return  # Already explicitly set
+
+        if not estimate.claim_ref:
+            return
+
+        claim = estimate.claim_ref
+        # Check claim type/category for water-related keywords
+        water_keywords = {
+            "water", "flood", "leak", "pipe", "burst",
+            "overflow", "moisture", "mold", "mildew",
+        }
+        claim_text = " ".join(filter(None, [
+            getattr(claim, "loss_type", None),
+            getattr(claim, "category", None),
+            getattr(claim, "description", None),
+        ])).lower()
+
+        if any(kw in claim_text for kw in water_keywords):
+            estimate.water_damage = True
+            logger.info(
+                f"Auto-detected water damage for estimate "
+                f"{estimate.id} from claim {claim.id}"
+            )
 
     # ── Helpers ──
 

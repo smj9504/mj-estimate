@@ -8,6 +8,7 @@ import math
 from typing import Any, Dict, List, Optional
 
 from .pricing import (
+    get_permit_info,
     ACCESSORY_FINISH_MULTIPLIER,
     ACCESSORY_GRADE_MULTIPLIER,
     ACCESSORY_PRICES,
@@ -30,6 +31,7 @@ from .pricing import (
     SHOWER_ENCLOSURE_PRICES,
     SHOWER_INSERT_INSTALL,
     SHOWER_INSERT_PRICES,
+    SHOWER_PAN_COSTS,
     SHOWER_VALVE_PRICES,
     SHOWERHEAD_PRICES,
     SUBSTRATE_RATES,
@@ -170,6 +172,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         or estimate.replace_vanity or estimate.replace_toilet
     )
     if hc.get("dumpster", True) and has_demo:
+        # Single bathroom: 10yd is almost always sufficient.
+        # 15yd only if full gut (floor+walls+ceiling) of a large bath (>80 SF).
+        # 20yd is reserved for multi-room or extreme scope.
         demo_sf = 0
         if estimate.demo_floor:
             demo_sf += demo_floor_sf
@@ -177,19 +182,13 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             demo_sf += demo_wall_sf
         if estimate.demo_ceiling:
             demo_sf += demo_ceiling_sf
-        fixture_count = sum([
-            bool(estimate.replace_tub),
-            bool(estimate.replace_shower),
-            bool(estimate.replace_vanity),
-            bool(estimate.replace_toilet),
-        ])
-        demo_sf += fixture_count * 15
+
+        full_gut = (estimate.demo_floor and estimate.demo_walls
+                    and estimate.demo_ceiling)
 
         dumpster_size = "dumpster_10yard"
-        if demo_sf > 100:
+        if full_gut and demo_sf > 250:
             dumpster_size = "dumpster_15yard"
-        if demo_sf > 200:
-            dumpster_size = "dumpster_20yard"
 
         size_label = dumpster_size.replace("dumpster_", "")
         _add(line_items, 1,
@@ -337,7 +336,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         ft_total = ft_mat_cost + ft_labor_cost + ft_supply_cost + ft_sealer_cost
 
         ft_parts = [
-            f"Material: {tile_mat} {floor_sf*(1+waste):.0f}SF ${ft_mat_cost:,.2f} (incl {int(waste*100)}% waste)",
+            f"Material: {tile_mat} ${mat_rate:.2f}/SF allowance, {floor_sf*(1+waste):.0f}SF ${ft_mat_cost:,.2f} (incl {int(waste*100)}% waste)",
             f"Install: {pattern} ${ft_labor_cost:,.2f}",
             f"Supplies: ${ft_supply_cost:,.2f}",
         ]
@@ -381,7 +380,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             st_total = st_mat_cost + st_labor_cost + st_supply_cost + st_sealer_cost
 
             st_parts = [
-                f"Material: {stile_mat} {shower_wall_sf*(1+swaste):.0f}SF ${st_mat_cost:,.2f} (incl {int(swaste*100)}% waste)",
+                f"Material: {stile_mat} ${smat_rate:.2f}/SF allowance, {shower_wall_sf*(1+swaste):.0f}SF ${st_mat_cost:,.2f} (incl {int(swaste*100)}% waste)",
                 f"Install: {spattern} ${st_labor_cost:,.2f}",
                 f"Supplies: ${st_supply_cost:,.2f}",
             ]
@@ -420,7 +419,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             sf_total = sf_mat_cost + sf_labor_cost + sf_supply_cost + sf_sealer_cost
 
             sf_parts = [
-                f"Material: {sf_tile_mat} {shower_floor_sf*(1+sf_waste):.0f}SF ${sf_mat_cost:,.2f} (incl {int(sf_waste*100)}% waste)",
+                f"Material: {sf_tile_mat} ${sf_mat_rate:.2f}/SF allowance, {shower_floor_sf*(1+sf_waste):.0f}SF ${sf_mat_cost:,.2f} (incl {int(sf_waste*100)}% waste)",
                 f"Install: {sf_pattern} ${sf_labor_cost:,.2f} (slope to drain)",
                 f"Supplies: ${sf_supply_cost:,.2f}",
             ]
@@ -431,6 +430,28 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  f"Shower floor tile complete - {sf_tile_mat} ({sf_tile_size}, {sf_pattern})",
                  shower_floor_sf, "SF", round(sf_total / shower_floor_sf, 2), "tile",
                  notes=" | ".join(sf_parts))
+
+        # Shower pan liner + pre-slope (required for custom tile / curbless)
+        shower_floor_w = shower_spec.get("width_in", 0) or 0
+        shower_floor_d = shower_spec.get("depth_in", 0) or 0
+        pan_sf = (shower_floor_w * shower_floor_d / 144) if (shower_floor_w and shower_floor_d) else 0
+        if pan_sf > 0:
+            pan_preslope = round(pan_sf * SHOWER_PAN_COSTS["mortar_preslope_per_sf"] * labor_mult, 2)
+            pan_liner = round(SHOWER_PAN_COSTS["pan_liner"] * labor_mult, 2)
+            pan_curb_wp = round(SHOWER_PAN_COSTS["curb_waterproof"] * labor_mult, 2) if stype != "curbless" else 0
+            pan_total = pan_preslope + pan_liner + pan_curb_wp
+
+            pan_parts = [
+                f"Mortar pre-slope {pan_sf:.1f}SF ${pan_preslope:,.2f}",
+                f"PVC liner + drain ${pan_liner:,.2f}",
+            ]
+            if pan_curb_wp:
+                pan_parts.append(f"Curb waterproof ${pan_curb_wp:,.2f}")
+
+            _add(line_items, 3,
+                 "Shower pan (pre-slope + liner + drain)",
+                 1, "LS", pan_total, "substrate",
+                 notes=" | ".join(pan_parts))
 
     # Bathtub surround tile (consolidated: material + labor + supplies → 1 item)
     tub_spec = estimate.bathtub_spec or {}
@@ -462,7 +483,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             bt_total = bt_mat_cost + bt_labor_cost + bt_supply_cost + bt_sealer_cost
 
             bt_parts = [
-                f"Material: {sur_mat} {surround_sf*(1+sur_waste):.0f}SF ${bt_mat_cost:,.2f} (incl {int(sur_waste*100)}% waste)",
+                f"Material: {sur_mat} ${sur_mat_rate:.2f}/SF allowance, {surround_sf*(1+sur_waste):.0f}SF ${bt_mat_cost:,.2f} (incl {int(sur_waste*100)}% waste)",
                 f"Install: {sur_pattern} ${bt_labor_cost:,.2f}",
                 f"Supplies: ${bt_supply_cost:,.2f}",
             ]
@@ -506,7 +527,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         tub_combined = tub_price + tub_install + tub_faucet + tub_jetted
 
         tub_parts = [
-            f"Unit: {tub_mat_label} ${tub_price:,.2f}",
+            f"Unit: {tub_mat_label} ${tub_price:,.2f} allowance",
             f"Install: ${tub_install:,.2f}",
             f"Faucet install: ${tub_faucet:,.2f}",
         ]
@@ -561,17 +582,39 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
         # --- Valve ---
         if shower_spec.get("valve_replace"):
-            valve_type = "thermostatic" if shower_spec.get("trim_grade") == "premium" else "pressure_balance"
-            valve_cost = round(SHOWER_VALVE_PRICES.get(valve_type, 275) * labor_mult, 2)
+            valve_type = (
+                "thermostatic"
+                if shower_spec.get("trim_grade") == "premium"
+                else "pressure_balance"
+            )
+            valve_cost = round(
+                SHOWER_VALVE_PRICES.get(valve_type, 275) * labor_mult, 2
+            )
             shower_total += valve_cost
-            shower_parts.append(f"Valve: {valve_type.replace('_', ' ')} ${valve_cost:,.2f}")
-
-        # --- Trim install ---
-        if (shower_spec.get("valve_replace")
-                or stype in ("custom_tile", "curbless")):
-            trim_cost = round(PLUMBING_RATES["shower_valve_trim"] * labor_mult, 2)
+            vt_label = valve_type.replace('_', ' ')
+            shower_parts.append(
+                f"Valve body + trim: {vt_label} ${valve_cost:,.2f}"
+            )
+        elif stype in ("custom_tile", "curbless"):
+            # Trim-only (retain existing valve body)
+            trim_cost = round(
+                PLUMBING_RATES["shower_valve_trim"] * labor_mult, 2
+            )
             shower_total += trim_cost
-            shower_parts.append(f"Trim install: ${trim_cost:,.2f}")
+            shower_parts.append(
+                f"Trim only (valve body retained): "
+                f"${trim_cost:,.2f}"
+            )
+
+        # --- Trim install (when valve replaced) ---
+        if shower_spec.get("valve_replace"):
+            trim_cost = round(
+                PLUMBING_RATES["shower_valve_trim"] * labor_mult, 2
+            )
+            shower_total += trim_cost
+            shower_parts.append(
+                f"Trim install labor: ${trim_cost:,.2f}"
+            )
 
         stype_label = stype.replace("_", " ")
         _add(line_items, 5,
@@ -614,6 +657,22 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             elif enclosure == "curtain":
                 _add(line_items, 5, "Shower curtain rod + curtain", 1, "EA",
                      SHOWER_ENCLOSURE_PRICES["curtain"], "fixture")
+
+    # Tile edge trim (Schluter/metal) for custom tile showers
+    if (estimate.replace_shower
+            and shower_spec.get("type") in ("custom_tile", "curbless")):
+        # Estimate trim LF: perimeter of shower opening + niche edges
+        s_w = shower_spec.get("width_in", 36) or 36
+        s_d = shower_spec.get("depth_in", 36) or 36
+        trim_lf = (s_w + 2 * s_d) / 12  # interior perimeter
+        niches = shower_spec.get("niches", 0)
+        trim_lf += niches * 3  # ~3 LF per niche
+        if trim_lf > 0:
+            _add(line_items, 4,
+                 "Tile edge trim (Schluter Jolly/Rondec)",
+                 round(trim_lf, 1), "LF",
+                 round(8.50 * labor_mult, 2), "tile",
+                 notes="Metal edge trim at exposed tile edges")
 
     # Vanity (supports multiple vanities via items array)
     # Each vanity is consolidated into a single line item
@@ -672,16 +731,27 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 + wall_mount_price + faucet_total + mirror_total
             )
 
-            # Build breakdown note
+            # Build breakdown note with allowance info
             parts = [
-                f"Cabinet: {src_label} ({v_width}\") ${v_price:,.2f}",
-                f"Top: {top_label} ${top_total:,.2f}",
+                f"Cabinet: {src_label} ({v_width}\") "
+                f"${v_price:,.2f} allowance",
+                f"Top: {top_label} ${top_rate}/in "
+                f"${top_total:,.2f}",
                 f"Install: ${install_price:,.2f}",
             ]
             if wall_mount_price:
-                parts.append(f"Wall-mount blocking: ${wall_mount_price:,.2f}")
-            parts.append(f"Faucet: {faucet_label} ${faucet_total:,.2f}")
-            parts.append(f"Mirror: {mirror_label} ${mirror_total:,.2f}")
+                parts.append(
+                    f"Wall-mount blocking: "
+                    f"${wall_mount_price:,.2f}"
+                )
+            parts.append(
+                f"Faucet: {faucet_label} "
+                f"${faucet_price:,.2f} allowance"
+            )
+            parts.append(
+                f"Mirror: {mirror_label} "
+                f"${mirror_price:,.2f} allowance"
+            )
 
             _add(line_items, 5,
                  f"Vanity{label} complete"
@@ -705,7 +775,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         t_type_label = t_type.replace('_', ' ')
 
         t_parts = [
-            f"Unit: {t_type_label} ${t_price:,.2f}",
+            f"Unit: {t_type_label} ${t_price:,.2f} allowance",
             f"Install: ${t_install:,.2f}",
             f"Wax ring + supply: ${t_supplies:,.2f}",
         ]
@@ -984,10 +1054,129 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     # Mold warning
     if estimate.mold_suspected:
-        warnings.append("Mold suspected - separate mold remediation estimate required before work begins.")
+        warnings.append(
+            "Mold suspected during initial assessment. A separate mold remediation "
+            "estimate is required before remodel work can commence. Remediation must be "
+            "completed and cleared by a certified inspector prior to substrate installation."
+        )
 
     if estimate.water_damage:
-        warnings.append("Water damage reported - scope may expand once demo reveals full extent.")
+        warnings.append(
+            "Pre-existing water damage noted during scope assessment. Demolition may reveal "
+            "additional conditions (subfloor deterioration, framing damage, or hidden moisture) "
+            "not visible during initial inspection. Any required additional work will be "
+            "documented with photos and presented as a written change order for approval "
+            "prior to proceeding."
+        )
+
+    # ────────────────────────────────────────
+    # Auto-include: commonly missing items
+    # ────────────────────────────────────────
+    # These fire automatically based on scope to prevent change orders.
+    # Can be disabled via hidden_costs flags (set to false).
+
+    # 1) Drywall skim coat after wall tile removal
+    if (estimate.demo_walls and demo_wall_sf > 0
+            and hc.get("drywall_skim_coat", True)):
+        _add(line_items, 6, "Drywall prep/skim coat (post tile removal)",
+             demo_wall_sf, "SF",
+             HIDDEN_COSTS["drywall_skim_coat_per_sf"] * labor_mult, "finish",
+             notes="Skim coat + primer on substrate exposed after tile demo")
+
+    # 2) Subfloor allowance when water damage is reported
+    sub_spec = estimate.substrate_spec or {}
+    if (estimate.water_damage
+            and not sub_spec.get("subfloor_repair")
+            and hc.get("subfloor_allowance", True)):
+        allowance_sf = min(floor_sf, 20)  # conservative 20 SF allowance
+        if allowance_sf > 0:
+            _add(line_items, 3, "Subfloor repair allowance (water damage)",
+                 allowance_sf, "SF",
+                 SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
+                 notes="Allowance for water-damaged subfloor discovered during demo")
+
+    # 3) Auto-include GFCI if not explicitly specified (code requirement)
+    elec_spec = estimate.electrical_spec or {}
+    if (gfci_count == 0 and hc.get("auto_gfci", True)
+            and (estimate.replace_vanity or estimate.replace_toilet)):
+        _add(line_items, 2, "GFCI outlet (code required)", 1, "EA",
+             ELECTRICAL_RATES["gfci_outlet_each"] * labor_mult, "electrical",
+             notes="NEC code requires GFCI within 6ft of water source")
+
+    # 4) Auto-include exhaust fan if not specified (code requirement for windowless bath)
+    if (not elec_spec.get("exhaust_fan_cfm") and hc.get("auto_exhaust_fan", True)
+            and has_demo):
+        _add(line_items, 2, "Exhaust fan inspection/replacement (80 CFM)",
+             1, "EA",
+             ELECTRICAL_RATES["exhaust_fan"][80] * labor_mult, "electrical",
+             notes="IRC code requires ventilation; inspect existing, replace if needed")
+
+    # 5) Auto-include vanity light if replacing vanity and not specified
+    if (estimate.replace_vanity
+            and not elec_spec.get("vanity_lights")
+            and hc.get("auto_vanity_light", True)):
+        _add(line_items, 2, "Vanity light fixture", 1, "EA",
+             ELECTRICAL_RATES["vanity_light_install"] * labor_mult, "electrical",
+             notes="Light fixture above vanity mirror")
+
+    # 6) Permit fee — county-specific matrix logic
+    plumb_spec = estimate.plumbing_spec or {}
+    has_rough_change = (
+        plumb_spec.get("drain_modification")
+        or plumb_spec.get("pressure_balance_valve")
+        or hc.get("fixture_relocation")
+        or hc.get("new_plumbing_line")
+        or hc.get("new_electrical_circuit")
+        or hc.get("valve_body_replace")
+    )
+    est_state = estimate.state or ""
+    permit_info = get_permit_info(est_state, has_rough_change)
+
+    if hc.get("permit", False):
+        if permit_info["required"]:
+            _add(line_items, 7,
+                 "Building permit (required)",
+                 1, "EA", HIDDEN_COSTS["permit_fee"], "misc",
+                 notes=permit_info["note"])
+        elif permit_info["group"] in ("B", "C"):
+            # Stricter jurisdictions: include as allowance
+            _add(line_items, 7,
+                 "Permit allowance (verify required)",
+                 1, "EA", HIDDEN_COSTS["permit_fee"], "misc",
+                 notes=permit_info["note"])
+        else:
+            # Group A like-for-like exempt: no cost, just note
+            warnings.append(permit_info["note"])
+
+    # 7) Auto-include ceiling paint for bathroom remodels
+    #    Bathrooms almost always need ceiling paint (moisture/mold prevention).
+    #    Use mold-resistant if water_damage or mold_suspected.
+    walls_spec = estimate.walls_spec or {}
+    paint_ceiling_explicit = walls_spec.get("paint_ceiling", False)
+    if (not paint_ceiling_explicit and has_demo
+            and floor_sf > 0 and hc.get("auto_ceiling_paint", True)):
+        if estimate.water_damage or estimate.mold_suspected:
+            ceil_rate = PAINT_RATES["ceiling_per_sf"] * 1.20  # mold-resistant premium
+            _add(line_items, 6,
+                 "Ceiling painting (mold-resistant)",
+                 floor_sf, "SF", ceil_rate * labor_mult, "finish",
+                 notes="Mold-resistant paint (e.g., Zinsser Perma-White)")
+        else:
+            _add(line_items, 6,
+                 "Ceiling painting (bathroom grade)",
+                 floor_sf, "SF",
+                 PAINT_RATES["ceiling_per_sf"] * labor_mult, "finish",
+                 notes="Moisture-resistant ceiling paint")
+
+    # 8) Mold-resistant drywall for ceiling if water_damage + demo_ceiling
+    if (estimate.water_damage and estimate.demo_ceiling
+            and floor_sf > 0 and hc.get("mold_resistant_drywall", True)):
+        _add(line_items, 3,
+             "Mold-resistant drywall - ceiling",
+             floor_sf, "SF",
+             SUBSTRATE_RATES["mold_resistant_drywall_per_sf"] * labor_mult,
+             "substrate",
+             notes="Purple board / mold-resistant drywall for ceiling replacement")
 
     # ────────────────────────────────────────
     # Totals
@@ -1040,11 +1229,6 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         # Round to nearest $10 for clean presentation
         total = round(raw_total / 10) * 10
 
-        warnings.append(
-            f"Target total applied: ${target_total:,.2f} "
-            f"(adjustment factor: {adjustment_factor:.4f})"
-        )
-
     # Methodology notes
     method_parts = [
         f"DMV region pricing ({state}), labor multiplier: {labor_mult:.2f}",
@@ -1055,7 +1239,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     else:
         method_parts.append("O&P: Not included (contractor direct pricing)")
     if adjustment_factor:
-        method_parts.append(f"Target total: ${target_total:,.2f} (factor: {adjustment_factor:.4f}x)")
+        method_parts.append(f"Target total: ${target_total:,.2f} (adjusted)")
+        # Factor stored in DB for internal reference, not exposed on PDF
 
     return {
         "line_items": line_items,

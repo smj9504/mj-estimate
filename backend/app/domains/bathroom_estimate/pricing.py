@@ -56,7 +56,7 @@ PLUMBING_RATES = {
     "rough_inspection_fee": 150,      # county inspection fee
 
     # Fixture connection labor (licensed plumber, per fixture)
-    "toilet_set": 450,                # toilet install complete (set, wax ring, bolt, connect, test)
+    "toilet_set": 295,                # toilet install (set, wax ring, bolt, connect, test; $225-$375 Angi 2026)
     "vanity_faucet_install": 350,     # faucet install (connect supply, drain, test for leaks)
     "tub_faucet_install": 400,        # tub faucet/valve install (access panel, connect, test)
     "shower_valve_trim": 325,         # shower trim kit install (existing valve)
@@ -450,16 +450,30 @@ HIDDEN_COSTS = {
     "punch_list": 200,                # 1-2 follow-up visits
     "caulk_day": 275,                 # silicone/latex caulking (1 day labor)
     "drywall_patch_per_sf": 5.50,     # patching around tile edges
+    "drywall_skim_coat_per_sf": 4.25, # skim coat after tile removal ($3-$6/SF)
     "trim_paint_per_lf": 4.50,        # post-install trim paint
     "lead_rrp": 375,                  # EPA RRP surcharge (pre-1978)
     "cast_iron_disposal": 175,        # weight surcharge for CI tub
+    "permit_fee": 250,                # building permit (varies by county, $150-$400)
 }
 
 # ──────────────────────────────────────────────
-# DMV Region: Zip-based labor multipliers
+# Shower Pan / Pre-slope (custom tile showers)
 # ──────────────────────────────────────────────
-DMV_ZIP3_MULTIPLIERS = {
-    # DC
+# Sources: HomeGuide 2025, Angi 2026, Fixr
+SHOWER_PAN_COSTS = {
+    "mortar_preslope_per_sf": 8.50,   # mud bed pre-slope ($6-$12/SF)
+    "pan_liner": 185,                 # PVC liner + drain assembly
+    "curb_waterproof": 75,            # curb membrane wrap
+}
+
+# ──────────────────────────────────────────────
+# Regional: Zip-based labor multipliers
+# ──────────────────────────────────────────────
+# Base pricing is calibrated to national mid-range.
+# Multipliers adjust for regional labor cost differences.
+ZIP3_LABOR_MULTIPLIERS = {
+    # DC Metro (DMV)
     "200": 1.05,
     "202": 1.00,
     # Maryland
@@ -476,12 +490,42 @@ DMV_ZIP3_MULTIPLIERS = {
     "221": 1.05,  # Fairfax, Arlington
     "222": 1.00,
     "223": 1.00,
+    # Florida — Central/East Coast
+    "320": 0.90,  # Jacksonville area
+    "321": 0.88,  # Daytona Beach / New Smyrna Beach / Volusia County
+    "322": 0.88,  # Gainesville area
+    "323": 0.90,  # Tallahassee area
+    "324": 0.88,  # Panama City area
+    "325": 0.88,  # Pensacola area
+    "326": 0.88,  # Ocala / Gainesville
+    "327": 0.92,  # Orlando area
+    "328": 0.92,  # Orlando metro
+    "329": 0.90,  # Melbourne / Space Coast
+    "330": 0.95,  # Miami
+    "331": 0.95,  # Miami / Coral Gables
+    "332": 0.95,  # Ft. Lauderdale
+    "333": 0.95,  # Ft. Lauderdale / Hollywood
+    "334": 0.92,  # West Palm Beach
+    "335": 0.92,  # Tampa area
+    "336": 0.92,  # Tampa / St. Petersburg
+    "337": 0.90,  # St. Petersburg
+    "338": 0.90,  # Lakeland
+    "339": 0.92,  # Fort Myers
+    "340": 0.90,  # Naples (seasonal premium)
+    "341": 0.90,  # Naples / Marco Island
+    "342": 0.88,  # Sarasota / Bradenton
+    "344": 0.88,  # Sarasota
+    "346": 0.92,  # Tampa metro
 }
 
 PREMIUM_ZIP_OVERRIDES = {
+    # DMV premium zips
     "20815", "20816", "20817", "20854",  # Bethesda/Potomac
     "22101", "22102", "22066",           # McLean/Great Falls
     "20007", "20008", "20015",           # Georgetown/NW DC
+    # Florida premium zips
+    "33139", "33140", "33141",           # Miami Beach
+    "34102", "34103", "34108",           # Naples
 }
 
 # ──────────────────────────────────────────────
@@ -491,9 +535,131 @@ SALES_TAX_RATES = {
     "MD": 0.06,
     "VA": 0.053,     # NOVA can be 0.06
     "DC": 0.06,
+    "FL": 0.06,      # FL base 6%, some counties add 0.5-1.5% discretionary
 }
 
 NOVA_ZIP3 = {"220", "221", "222", "223"}  # NOVA region → 6%
+# Florida counties with surtax (6% + 1% = 7%)
+FL_SURTAX_ZIP3 = {
+    "321",           # Volusia County (New Smyrna Beach) +0.5%
+    "327", "328",    # Orange County (Orlando) +0.5%
+    "330", "331",    # Miami-Dade +1%
+    "332", "333",    # Broward +1%
+}
+
+# ──────────────────────────────────────────────
+# County / State Permit Matrix
+# ──────────────────────────────────────────────
+# Group A: Like-for-like exempt (VA USBC)
+# Group B: Stricter — trade permits for fixture replacement (MD)
+# Group C: Always recommend permit (DC, FL varies by county)
+PERMIT_MATRIX = {
+    # Virginia — Group A (VA USBC, like-for-like cosmetic exempt)
+    "VA": {
+        "group": "A",
+        "like_for_like_exempt": True,
+        "label": "VA USBC",
+        "note_exempt": (
+            "Like-for-like fixture replacement — cosmetic remodel "
+            "exempt from building permit per VA Uniform Statewide "
+            "Building Code (VA USBC). No structural or rough-in "
+            "changes."
+        ),
+        "note_required": (
+            "Permit required: scope includes plumbing/electrical "
+            "rough-in changes per VA USBC. Contact local Building "
+            "Official for application."
+        ),
+    },
+    # Maryland — Group B (more strict, trade permits common)
+    "MD": {
+        "group": "B",
+        "like_for_like_exempt": False,
+        "label": "MD Code",
+        "note_exempt": (
+            "Cosmetic remodel — plumbing/electrical trade permits "
+            "may still be required per county code. Verify with "
+            "local Department of Permitting Services."
+        ),
+        "note_required": (
+            "Permit required: plumbing/electrical rough-in changes "
+            "in scope. Montgomery/PG County requires trade permits "
+            "for fixture replacement in some cases."
+        ),
+    },
+    # DC — Group C (always recommend)
+    "DC": {
+        "group": "C",
+        "like_for_like_exempt": False,
+        "label": "DCRA",
+        "note_exempt": (
+            "DC recommends permits for most bathroom work. "
+            "Contact DCRA (Department of Consumer and Regulatory "
+            "Affairs) to confirm requirements."
+        ),
+        "note_required": (
+            "Permit required per DCRA. Plumbing/electrical work "
+            "requires licensed trade contractors with active DC "
+            "permits."
+        ),
+    },
+    # Florida — varies by county, generally stricter
+    "FL": {
+        "group": "C",
+        "like_for_like_exempt": False,
+        "label": "FL Statute",
+        "note_exempt": (
+            "Florida counties vary on permit requirements for "
+            "cosmetic remodels. Verify with local Building "
+            "Department."
+        ),
+        "note_required": (
+            "Permit required: plumbing/electrical changes in scope. "
+            "Florida requires licensed contractors for permitted "
+            "work (FL Statute 489)."
+        ),
+    },
+}
+
+
+def get_permit_info(state: str, has_rough_change: bool) -> dict:
+    """Return permit note and whether permit is required.
+
+    Returns dict with keys: required (bool), note (str), group (str).
+    """
+    matrix = PERMIT_MATRIX.get(state)
+    if not matrix:
+        # Default: conservative — recommend permit
+        return {
+            "required": has_rough_change,
+            "note": (
+                "Verify local permit requirements with county/city "
+                "building department."
+            ),
+            "group": "?",
+        }
+
+    if has_rough_change:
+        return {
+            "required": True,
+            "note": matrix["note_required"],
+            "group": matrix["group"],
+        }
+
+    if matrix["like_for_like_exempt"]:
+        return {
+            "required": False,
+            "note": matrix["note_exempt"],
+            "group": matrix["group"],
+        }
+
+    # Group B/C: even like-for-like may need permit
+    return {
+        "required": False,
+        "note": matrix["note_exempt"],
+        "group": matrix["group"],
+    }
+
 
 # ──────────────────────────────────────────────
 # O&P (optional)
@@ -546,11 +712,14 @@ def get_labor_multiplier(zip_code: str) -> float:
         return 1.00
     if zip_code in PREMIUM_ZIP_OVERRIDES:
         return 1.10
-    return DMV_ZIP3_MULTIPLIERS.get(zip_code[:3], 1.00)
+    return ZIP3_LABOR_MULTIPLIERS.get(zip_code[:3], 1.00)
 
 
 def get_sales_tax_rate(state: str, zip_code: str = "") -> float:
-    """Get sales tax rate. NOVA region gets VA 6% instead of 5.3%."""
+    """Get sales tax rate with regional surtax support."""
     if state == "VA" and zip_code and zip_code[:3] in NOVA_ZIP3:
         return 0.06
+    if state == "FL" and zip_code and zip_code[:3] in FL_SURTAX_ZIP3:
+        surtax = 0.01 if zip_code[:3] in {"330", "331", "332", "333"} else 0.005
+        return 0.06 + surtax
     return SALES_TAX_RATES.get(state, 0.06)

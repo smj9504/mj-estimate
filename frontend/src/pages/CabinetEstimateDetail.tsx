@@ -208,6 +208,9 @@ const CabinetEstimateDetail: React.FC = () => {
         include_appliance_rr: estimate.include_appliance_rr,
         appliance_list: estimate.appliance_list || [],
         include_dumpster: estimate.include_dumpster ?? true,
+        include_electrical: estimate.include_electrical ?? false,
+        include_permit: estimate.include_permit ?? false,
+        outlet_relocation_count: estimate.outlet_relocation_count ?? 0,
         delivery_floor: estimate.delivery_floor || 1,
         island_end_panel_sqft: estimate.island_end_panel_sqft || 0,
         island_back_panel_sqft: estimate.island_back_panel_sqft || 0,
@@ -216,8 +219,8 @@ const CabinetEstimateDetail: React.FC = () => {
         island_countertop_material: estimate.island_countertop_material,
         island_countertop_sqft: estimate.island_countertop_sqft,
         overview_text: estimate.overview_text,
-        overhead_pct: (estimate.overhead_pct ?? 0.10) * 100,
-        profit_pct: (estimate.profit_pct ?? 0.10) * 100,
+        overhead_pct: (estimate.overhead_pct ?? 0.15) * 100,
+        profit_pct: (estimate.profit_pct ?? 0.15) * 100,
         notes: estimate.notes,
       });
       const allBoxes = estimate.boxes.map((b) => ({
@@ -804,6 +807,21 @@ const CabinetEstimateDetail: React.FC = () => {
                     <Col xs={12} md={8}>
                       <Form.Item name="include_dumpster" valuePropName="checked">
                         <Checkbox>Dumpster / Trash Disposal</Checkbox>
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item name="include_electrical" valuePropName="checked">
+                        <Checkbox>Electrical Disconnect/Reconnect</Checkbox>
+                      </Form.Item>
+                    </Col>
+                    <Col xs={12} md={8}>
+                      <Form.Item name="include_permit" valuePropName="checked">
+                        <Checkbox>Permit Allowance</Checkbox>
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item label="Outlet Relocations" name="outlet_relocation_count" style={{ marginBottom: 8 }}>
+                        <InputNumber min={0} max={10} size="small" style={{ width: '100%' }} />
                       </Form.Item>
                     </Col>
                   </Row>

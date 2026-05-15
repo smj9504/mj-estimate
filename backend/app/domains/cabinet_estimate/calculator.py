@@ -468,6 +468,9 @@ def calculate_estimate(
     include_appliance_rr: bool = False,
     appliance_list: Optional[List[dict]] = None,
     include_dumpster: bool = True,
+    include_electrical: bool = False,
+    include_permit: bool = False,
+    outlet_relocation_count: int = 0,
     delivery_floor: int = 1,
     island_end_panel_sqft: float = 0,
     island_back_panel_sqft: float = 0,
@@ -679,20 +682,27 @@ def calculate_estimate(
     if include_plumbing:
         plumbing_items = [
             (
-                "Plumbing Disconnect",
+                "Plumbing Disconnect "
+                "(sink, disposal, DW supply/drain)",
                 SCOPE_ITEMS["plumbing_disconnect"],
+                None,
             ),
             (
-                "Plumbing Reconnect",
+                "Plumbing Reconnect "
+                "(sink drain, P-trap, disposal, "
+                "DW drain/supply, faucet lines)",
                 SCOPE_ITEMS["plumbing_reconnect"],
+                None,
             ),
             (
                 (
                     "Undermount SS Double Bowl "
-                    "Sink (33\") - supply + install"
+                    "Sink 33\" (Kraus KHU102-33) "
+                    "- supply + install"
                     if sink_type == "double"
                     else "Undermount SS Single Bowl "
-                    "Sink (30\") - supply + install"
+                    "Sink 30\" (Kraus KHU100-30) "
+                    "- supply + install"
                 ),
                 SCOPE_ITEMS.get(
                     "sink_double_supply_install"
@@ -700,19 +710,27 @@ def calculate_estimate(
                     else "sink_single_supply_install",
                     445,
                 ),
+                (
+                    "16-gauge stainless steel, "
+                    "sound-dampened"
+                ),
             ),
             (
                 "Pull-Down Kitchen Faucet "
+                "(Moen/Delta mid-range) "
                 "- supply + install",
                 SCOPE_ITEMS["faucet_supply_install"],
+                None,
             ),
             (
                 "Garbage Disposal 3/4 HP "
+                "(InSinkErator Badger 5XP) "
                 "- supply + install",
                 SCOPE_ITEMS["disposal_supply_install"],
+                None,
             ),
         ]
-        for desc, cost in plumbing_items:
+        for desc, cost, notes in plumbing_items:
             line_items.append(LineItem(
                 description=desc,
                 quantity=1,
@@ -721,6 +739,7 @@ def calculate_estimate(
                 total=cost,
                 category="plumbing",
                 location="shared",
+                notes=notes,
             ))
 
     # Countertop reset
@@ -929,6 +948,68 @@ def calculate_estimate(
                 category="misc",
                 location="shared",
             ))
+
+    # ── 11b. Electrical Disconnect/Reconnect ──
+    if include_electrical:
+        elec_cost = SCOPE_ITEMS[
+            "electrical_disconnect_reconnect"
+        ]
+        line_items.append(LineItem(
+            description=(
+                "Electrical Disconnect & Reconnect "
+                "(disposal, DW, under-cabinet "
+                "lighting, range)"
+            ),
+            quantity=1,
+            unit="EA",
+            unit_price=elec_cost,
+            total=elec_cost,
+            category="misc",
+            location="shared",
+            notes="Licensed electrician",
+        ))
+
+    # ── 11c. Outlet Relocation ──
+    if outlet_relocation_count and outlet_relocation_count > 0:
+        outlet_unit = SCOPE_ITEMS[
+            "outlet_relocation_each"
+        ]
+        outlet_total = round(
+            outlet_relocation_count * outlet_unit, 2,
+        )
+        line_items.append(LineItem(
+            description="Outlet Relocation",
+            quantity=outlet_relocation_count,
+            unit="EA",
+            unit_price=outlet_unit,
+            total=outlet_total,
+            category="misc",
+            location="shared",
+            notes=(
+                "Relocate to match new cabinet "
+                "layout; licensed electrician"
+            ),
+        ))
+
+    # ── 11d. Permit Allowance ──
+    if include_permit:
+        permit_cost = SCOPE_ITEMS["permit_allowance"]
+        line_items.append(LineItem(
+            description=(
+                "Permit Allowance "
+                "(plumbing/electrical)"
+            ),
+            quantity=1,
+            unit="EA",
+            unit_price=permit_cost,
+            total=permit_cost,
+            category="misc",
+            location="shared",
+            notes=(
+                "Fairfax/DMV jurisdiction; "
+                "actual cost may vary"
+            ),
+        ))
 
     # ── 12. Dumpster ──
     if include_dumpster:

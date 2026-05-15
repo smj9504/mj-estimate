@@ -169,6 +169,9 @@ class CabinetEstimateBase(BaseModel):
     include_appliance_rr: bool = False
     appliance_list: Optional[List[dict]] = None
     include_dumpster: bool = True
+    include_electrical: bool = False
+    include_permit: bool = False
+    outlet_relocation_count: int = 0
     delivery_floor: int = 1
     island_end_panel_sqft: float = 0
     island_back_panel_sqft: float = 0
@@ -177,8 +180,8 @@ class CabinetEstimateBase(BaseModel):
     island_countertop_material: Optional[str] = None
     island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
-    overhead_pct: float = 0.10
-    profit_pct: float = 0.10
+    overhead_pct: float = 0.15
+    profit_pct: float = 0.15
     notes: Optional[str] = None
 
 
@@ -218,6 +221,9 @@ class CabinetEstimateUpdate(BaseModel):
     include_appliance_rr: Optional[bool] = None
     appliance_list: Optional[List[dict]] = None
     include_dumpster: Optional[bool] = None
+    include_electrical: Optional[bool] = None
+    include_permit: Optional[bool] = None
+    outlet_relocation_count: Optional[int] = None
     delivery_floor: Optional[int] = None
     island_end_panel_sqft: Optional[float] = None
     island_back_panel_sqft: Optional[float] = None
@@ -268,6 +274,9 @@ class CabinetEstimateResponse(BaseModel):
     include_appliance_rr: bool = False
     appliance_list: Optional[List[dict]] = None
     include_dumpster: bool = True
+    include_electrical: bool = False
+    include_permit: bool = False
+    outlet_relocation_count: int = 0
     delivery_floor: int = 1
     island_end_panel_sqft: float = 0
     island_back_panel_sqft: float = 0
@@ -277,9 +286,9 @@ class CabinetEstimateResponse(BaseModel):
     island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
     subtotal: float = 0
-    overhead_pct: float = 0.10
+    overhead_pct: float = 0.15
     overhead_amount: float = 0
-    profit_pct: float = 0.10
+    profit_pct: float = 0.15
     profit_amount: float = 0
     total: float = 0
     methodology_notes: Optional[str] = None

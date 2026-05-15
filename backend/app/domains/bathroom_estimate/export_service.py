@@ -487,11 +487,16 @@ class BathroomExportService:
         elements.append(Spacer(1, 16))
 
         # ══════ WARNINGS ══════
-        warnings = estimate.get("warning_flags") or []
+        # Filter out internal-only fields from client-facing PDF
+        _internal_keywords = {"adjustment factor", "target total", "factor:", "multiplier:"}
+        warnings = [
+            w for w in (estimate.get("warning_flags") or [])
+            if not any(kw in w.lower() for kw in _internal_keywords)
+        ]
         if warnings:
             elements.append(Paragraph("Important Notes", section_title_style))
             for w in warnings:
-                elements.append(Paragraph(f"• {w}", terms_style))
+                elements.append(Paragraph(f"\u2022 {w}", terms_style))
             elements.append(Spacer(1, 8))
 
         # ══════ EXCLUSIONS ══════
@@ -502,13 +507,113 @@ class BathroomExportService:
             "Window or door replacement",
             "Mold remediation (if suspected, separate estimate required)",
             "Asbestos testing or abatement",
-            "Customer-supplied materials (unless noted)",
-            "Any unforeseen conditions discovered during demolition (change order)",
+            "Customer-supplied materials (unless pre-approved in writing)",
         ]
         for ex in exclusions:
             elements.append(Paragraph(f"• {ex}", terms_style))
         elements.append(Spacer(1, 8))
 
+
+        # ══════ WARRANTY ══════
+        elements.append(Paragraph("Warranty", section_title_style))
+        warranty_items = [
+            "Workmanship warranty: 1 year from completion date",
+            "Waterproofing (shower pan, membrane): 5 years",
+            "Manufacturer warranties on fixtures and materials apply per product",
+            "Warranty does not cover damage from misuse, neglect, or acts of nature",
+        ]
+        for w in warranty_items:
+            elements.append(Paragraph(f"\u2022 {w}", terms_style))
+        elements.append(Spacer(1, 8))
+
+        # ══════ PAYMENT SCHEDULE ══════
+        elements.append(Paragraph("Payment Schedule", section_title_style))
+        payment_items = [
+            "10% \u2014 Upon contract signing",
+            "20% \u2014 Demo complete & rough trades inspected",
+            "25% \u2014 Substrate & waterproofing complete",
+            "25% \u2014 Tile installation complete",
+            "20% \u2014 Final walkthrough & punch list complete",
+        ]
+        for p in payment_items:
+            elements.append(Paragraph(f"\u2022 {p}", terms_style))
+        elements.append(Paragraph(
+            "Partial lien waiver required with each progress payment. "
+            "Final lien waiver issued upon final payment.",
+            ParagraphStyle("LienNote", fontSize=8, fontName="Helvetica-Oblique",
+                           textColor=text_grey, leading=11, spaceBefore=4)
+        ))
+        elements.append(Spacer(1, 8))
+
+        # ══════ TERMS ══════
+        elements.append(Paragraph("Terms & Conditions", section_title_style))
+        general_terms = [
+            "This estimate is valid for 30 days from the date issued.",
+            "Any changes to the scope of work after contract signing "
+            "will require a written change order.",
+            "Unforeseen conditions discovered during demolition "
+            "(e.g., mold, structural damage, plumbing/electrical "
+            "code violations) will be documented with photos, "
+            "presented as a written change order with itemized cost, "
+            "and require Owner's written approval before work "
+            "proceeds. Verbal approvals will not be honored.",
+            "Work schedule is weather-permitting and subject to "
+            "material availability.",
+            "Customer-supplied materials must be on-site before "
+            "scheduled installation date.",
+            "Owner-selected materials exceeding allowances specified "
+            "in this estimate will be billed at cost difference "
+            "plus 15% handling.",
+        ]
+        for t in general_terms:
+            elements.append(Paragraph(f"\u2022 {t}", terms_style))
+        elements.append(Spacer(1, 8))
+
+        # ══════ LIEN RIGHTS DISCLOSURE ══════
+        est_state = estimate.get("state", "")
+        if est_state in ("VA", "FL"):
+            elements.append(Paragraph(
+                "Lien Rights Disclosure", section_title_style))
+            if est_state == "VA":
+                elements.append(Paragraph(
+                    "Virginia law (VA Code \u00a7 43-3 et seq.) permits "
+                    "contractors and subcontractors to file a mechanic's "
+                    "lien on your property for unpaid work. To protect "
+                    "your property, obtain a partial lien waiver with "
+                    "each progress payment and a final unconditional "
+                    "lien waiver upon final payment.",
+                    terms_style))
+            elif est_state == "FL":
+                elements.append(Paragraph(
+                    "Under Florida law (FL Statute \u00a7 713), "
+                    "contractors and subcontractors may claim a "
+                    "construction lien on your property for unpaid work "
+                    "or materials. You are entitled to receive a "
+                    "Contractor's Final Payment Affidavit before making "
+                    "final payment. Obtain partial lien waivers with "
+                    "each progress payment and a final waiver upon "
+                    "completion.",
+                    terms_style))
+            elements.append(Spacer(1, 8))
+
+        elements.append(Spacer(1, 8))
+
+        # ══════ SIGNATURE ══════
+        if show_signature:
+            sig_data = [
+                [Paragraph("<b>Accepted By:</b>", normal), "", Paragraph("<b>Date:</b>", normal), ""],
+                ["_" * 40, "", "_" * 25, ""],
+                [Paragraph("Customer Signature", small_grey), "",
+                 Paragraph("Date", small_grey), ""],
+            ]
+            sig_table = Table(sig_data, colWidths=[usable_w * 0.45, usable_w * 0.05,
+                                                    usable_w * 0.30, usable_w * 0.20])
+            sig_table.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]))
+            elements.append(sig_table)
 
         # ══════ BUILD ══════
         numbered_canvas = _NumberedCanvas.make(

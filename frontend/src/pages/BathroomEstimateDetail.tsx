@@ -188,18 +188,19 @@ const BathroomEstimateDetail: React.FC = () => {
 
   const handleSave = useCallback(() => {
     const values = form.getFieldsValue(true);
-    // sketch_data is saved separately by the sketch tab — don't overwrite
-    delete values.sketch_data;
     saveMutation.mutate(values);
   }, [form, saveMutation]);
 
   const handleCalculate = useCallback(() => {
     const values = form.getFieldsValue(true);
-    delete values.sketch_data;
     calculateMutation.mutate(values);
   }, [form, calculateMutation]);
 
   // ── Sketch → Form sync ──
+  const handleSketchChange = useCallback((sketchData: any) => {
+    form.setFieldValue('sketch_data', sketchData);
+  }, [form]);
+
   const handleFixtureSync = useCallback((sync: SketchFixtureSync) => {
     const current = form.getFieldsValue(true);
     const updates: Record<string, any> = {};
@@ -363,28 +364,68 @@ const BathroomEstimateDetail: React.FC = () => {
                     key: 'pdf-detailed',
                     label: 'PDF - With Breakdown Prices',
                     icon: <FilePdfOutlined />,
-                    onClick: () => {
-                      const capture = (window as any).__beSketchCapture;
-                      const sketchImage = typeof capture === 'function' ? capture() : undefined;
-                      bathroomEstimateService.exportPdf(id!, {
-                        sketch_image: sketchImage,
-                        show_breakdown_prices: true,
-                        address: estimate?.property_address,
-                      });
+                    onClick: async () => {
+                      const doExport = () => {
+                        const capture = (window as any).__beSketchCapture;
+                        const sketchImage = typeof capture === 'function' ? capture() : undefined;
+                        bathroomEstimateService.exportPdf(id!, {
+                          sketch_image: sketchImage,
+                          show_breakdown_prices: true,
+                          address: estimate?.property_address,
+                        });
+                      };
+                      try {
+                        const result = await bathroomEstimateService.validateForExport(id!);
+                        if (result.warnings.length > 0) {
+                          Modal.confirm({
+                            title: 'Material Allowance Warnings',
+                            content: (
+                              <ul style={{ paddingLeft: 16, margin: '8px 0' }}>
+                                {result.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                              </ul>
+                            ),
+                            okText: 'Export Anyway',
+                            cancelText: 'Cancel',
+                            onOk: doExport,
+                          });
+                        } else {
+                          doExport();
+                        }
+                      } catch { doExport(); }
                     },
                   },
                   {
                     key: 'pdf-clean',
                     label: 'PDF - Without Breakdown Prices',
                     icon: <FilePdfOutlined />,
-                    onClick: () => {
-                      const capture = (window as any).__beSketchCapture;
-                      const sketchImage = typeof capture === 'function' ? capture() : undefined;
-                      bathroomEstimateService.exportPdf(id!, {
-                        sketch_image: sketchImage,
-                        show_breakdown_prices: false,
-                        address: estimate?.property_address,
-                      });
+                    onClick: async () => {
+                      const doExport = () => {
+                        const capture = (window as any).__beSketchCapture;
+                        const sketchImage = typeof capture === 'function' ? capture() : undefined;
+                        bathroomEstimateService.exportPdf(id!, {
+                          sketch_image: sketchImage,
+                          show_breakdown_prices: false,
+                          address: estimate?.property_address,
+                        });
+                      };
+                      try {
+                        const result = await bathroomEstimateService.validateForExport(id!);
+                        if (result.warnings.length > 0) {
+                          Modal.confirm({
+                            title: 'Material Allowance Warnings',
+                            content: (
+                              <ul style={{ paddingLeft: 16, margin: '8px 0' }}>
+                                {result.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                              </ul>
+                            ),
+                            okText: 'Export Anyway',
+                            cancelText: 'Cancel',
+                            onOk: doExport,
+                          });
+                        } else {
+                          doExport();
+                        }
+                      } catch { doExport(); }
                     },
                   },
                 ],
@@ -823,6 +864,7 @@ const BathroomEstimateDetail: React.FC = () => {
                     estimateData={form.getFieldsValue()}
                     initialSketchData={estimate?.sketch_data as any}
                     isActive={activeTab === 'sketch'}
+                    onSketchChange={handleSketchChange}
                     onFixtureSync={handleFixtureSync}
                   />
                 </div>
@@ -1418,6 +1460,7 @@ const BathroomEstimateDetail: React.FC = () => {
                         ['mobilization', 'Mobilization'],
                         ['drywall_patch', 'Drywall Patch'],
                         ['trim_paint', 'Trim Paint'],
+                        ['permit', 'Permit Fee'],
                       ].map(([key, label]) => (
                         <Col xs={12} sm={12} md={6} key={key}>
                           <Form.Item name={['hidden_costs', key]} valuePropName="checked" style={{ marginBottom: 4 }}>
@@ -1438,6 +1481,49 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Form.Item>
                       </Col>
                     </Row>
+
+                    <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
+                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                        Permit Triggers (check if applicable)
+                      </Text>
+                      <Row gutter={[16, 4]}>
+                        {[
+                          ['valve_body_replace', 'Shower valve body replacement'],
+                          ['fixture_relocation', 'Fixture location change'],
+                          ['new_plumbing_line', 'New plumbing line'],
+                          ['new_electrical_circuit', 'New electrical circuit'],
+                        ].map(([key, label]) => (
+                          <Col xs={12} sm={12} key={key}>
+                            <Form.Item name={['hidden_costs', key]} valuePropName="checked" style={{ marginBottom: 2 }}>
+                              <Checkbox><Text style={{ fontSize: 12 }}>{label}</Text></Checkbox>
+                            </Form.Item>
+                          </Col>
+                        ))}
+                      </Row>
+                    </div>
+
+                    <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
+                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                        Auto-include Items (uncheck to disable)
+                      </Text>
+                      <Row gutter={[16, 4]}>
+                        {[
+                          ['drywall_skim_coat', 'Drywall skim coat'],
+                          ['subfloor_allowance', 'Subfloor allowance'],
+                          ['auto_gfci', 'GFCI outlet'],
+                          ['auto_exhaust_fan', 'Exhaust fan'],
+                          ['auto_vanity_light', 'Vanity light'],
+                          ['auto_ceiling_paint', 'Ceiling paint'],
+                          ['mold_resistant_drywall', 'Mold-resistant drywall'],
+                        ].map(([key, label]) => (
+                          <Col xs={12} sm={12} md={8} key={key}>
+                            <Form.Item name={['hidden_costs', key]} valuePropName="checked" style={{ marginBottom: 2 }}>
+                              <Checkbox><Text style={{ fontSize: 12 }}>{label}</Text></Checkbox>
+                            </Form.Item>
+                          </Col>
+                        ))}
+                      </Row>
+                    </div>
                   </Panel>
                   <Panel header="Overview & O&P" key="overview">
                     <Row gutter={16}>

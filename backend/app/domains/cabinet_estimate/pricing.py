@@ -7,19 +7,19 @@ All rates are baseline values that get adjusted by material, finish, and labor m
 # Validated against real DMV contractor quotes (2025-2026)
 BASE_RATES = {
     "Stock": {
-        "base_lf": 120,      # $/LF for base cabinets
-        "wall_lf": 95,       # $/LF for wall cabinets
-        "tall_each": 350,    # $/EA for pantry cabinet
+        "base_lf": 180,      # $/LF for base cabinets (market $180-$280)
+        "wall_lf": 150,      # $/LF for wall cabinets (market $140-$220)
+        "tall_each": 480,    # $/EA for pantry cabinet (market $450-$650)
     },
     "Semi-Custom": {
-        "base_lf": 260,
-        "wall_lf": 240,
-        "tall_each": 650,
+        "base_lf": 310,      # market $280-$400
+        "wall_lf": 275,      # market $240-$350
+        "tall_each": 750,    # market $650-$900
     },
     "Custom": {
-        "base_lf": 525,
-        "wall_lf": 450,
-        "tall_each": 1200,
+        "base_lf": 575,      # market $500-$700
+        "wall_lf": 500,      # market $450-$600
+        "tall_each": 1350,   # market $1200-$1600
     },
 }
 
@@ -152,9 +152,9 @@ PREMIUM_ZIP_OVERRIDES = {
 SCOPE_ITEMS = {
     "demo_per_lf": 28,
     "demo_min": 400,
-    "install_base_per_lf": 75,
-    "install_wall_per_lf": 60,
-    "install_tall_per_each": 145,
+    "install_base_per_lf": 95,       # market $90-$150/LF
+    "install_wall_per_lf": 80,       # market $75-$120/LF
+    "install_tall_per_each": 175,    # market $145-$225/EA
     # Delivery: base fee + per-LF surcharge for larger kitchens
     "delivery_base": 150,
     "delivery_per_lf": 3,           # additional per total LF
@@ -206,6 +206,12 @@ SCOPE_ITEMS = {
     # Cabinet hardware (knobs/pulls) — supply + install per opening
     "hardware_per_opening": 15,     # mid-grade knob/pull supply
     "hardware_install_per_opening": 8,
+    # Electrical disconnect/reconnect (disposal, DW, under-cab light, range)
+    "electrical_disconnect_reconnect": 325,  # market $200-$400
+    # Permit allowance (Fairfax/DMV — plumbing+electrical work)
+    "permit_allowance": 250,                 # market $150-$400
+    # Outlet relocation (cabinet layout change often misaligns outlets)
+    "outlet_relocation_each": 225,           # market $150-$300 per outlet
 }
 
 # Appliance detach & reset pricing (per unit)
@@ -221,9 +227,9 @@ APPLIANCE_RR_PRICING = {
     "hood_vent": {"label": "Hood / Vent", "cost": 75},
 }
 
-# Default O&P percentages
-DEFAULT_OVERHEAD_PCT = 0.10
-DEFAULT_PROFIT_PCT = 0.10
+# Default O&P percentages (mixed material+labor project standard: 25-35%)
+DEFAULT_OVERHEAD_PCT = 0.15
+DEFAULT_PROFIT_PCT = 0.15
 
 # Layout type options
 LAYOUT_TYPES = [
@@ -251,7 +257,7 @@ BACKSPLASH_TYPE_OPTIONS = list(BACKSPLASH_TYPES.keys())
 # Sources: TruVine Renovations, GraniteASAP, Angi (2025-2026)
 COUNTERTOP_MATERIALS = {
     "Laminate": {"rate": 35, "label": "Laminate"},
-    "Solid Surface": {"rate": 75, "label": "Solid Surface (Corian)"},
+    "Solid Surface": {"rate": 95, "label": "Solid Surface (Corian)"},
     "Butcher Block": {"rate": 70, "label": "Butcher Block"},
     "Granite": {"rate": 95, "label": "Granite"},
     "Quartz": {"rate": 110, "label": "Quartz"},

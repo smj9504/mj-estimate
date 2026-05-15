@@ -243,6 +243,18 @@ class CabinetEstimateService:
                 if getattr(estimate, 'include_dumpster', None)
                 is not None else True
             ),
+            include_electrical=(
+                getattr(estimate, 'include_electrical', False)
+                or False
+            ),
+            include_permit=(
+                getattr(estimate, 'include_permit', False)
+                or False
+            ),
+            outlet_relocation_count=(
+                getattr(estimate, 'outlet_relocation_count', 0)
+                or 0
+            ),
             delivery_floor=getattr(
                 estimate, 'delivery_floor', 1,
             ) or 1,
@@ -255,12 +267,12 @@ class CabinetEstimateService:
             overhead_pct=(
                 estimate.overhead_pct
                 if estimate.overhead_pct is not None
-                else 0.10
+                else 0.15
             ),
             profit_pct=(
                 estimate.profit_pct
                 if estimate.profit_pct is not None
-                else 0.10
+                else 0.15
             ),
         )
 
@@ -351,6 +363,15 @@ class CabinetEstimateService:
             ),
             "island_back_panel_sqft": getattr(
                 source, 'island_back_panel_sqft', 0
+            ),
+            "include_electrical": getattr(
+                source, 'include_electrical', False
+            ),
+            "include_permit": getattr(
+                source, 'include_permit', False
+            ),
+            "outlet_relocation_count": getattr(
+                source, 'outlet_relocation_count', 0
             ),
             "countertop_material": source.countertop_material,
             "countertop_sqft": source.countertop_sqft,

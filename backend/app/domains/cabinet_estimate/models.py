@@ -91,6 +91,9 @@ class CabinetEstimate(Base, BaseModel):
     include_appliance_rr = Column(Boolean, default=False)
     appliance_list = Column(JSON, nullable=True)  # [{type, qty}]
     include_dumpster = Column(Boolean, default=True)
+    include_electrical = Column(Boolean, default=False)
+    include_permit = Column(Boolean, default=False)
+    outlet_relocation_count = Column(Integer, default=0)
     delivery_floor = Column(
         Integer, default=1,
     )  # 1, 2, 3+

@@ -247,6 +247,87 @@ def generate_overview(
     return {"overview_text": overview}
 
 
+# ── Export Validation ──
+
+def _validate_allowances(estimate: Dict[str, Any]) -> list:
+    """Check for missing brand/model or allowance specs.
+
+    Returns list of warning strings for items that should have
+    material allowance or brand/model specified before export.
+    """
+    warnings = []
+
+    # Tile — check if material specified
+    floor_spec = estimate.get("floor_spec") or {}
+    if estimate.get("replace_floor") and not floor_spec.get("material"):
+        warnings.append(
+            "Floor tile: material not specified. "
+            "Add tile material and $/SF allowance."
+        )
+
+    # Vanity — check for brand/model or source
+    vanity_spec = estimate.get("vanity_spec") or {}
+    if estimate.get("replace_vanity"):
+        items = vanity_spec.get("items") or [vanity_spec]
+        for i, v in enumerate(items):
+            if not v:
+                continue
+            if not v.get("brand") and not v.get("model"):
+                label = f" #{i+1}" if len(items) > 1 else ""
+                warnings.append(
+                    f"Vanity{label}: no brand/model specified. "
+                    f"Specify brand or confirm allowance."
+                )
+            if not v.get("faucet_brand") and not v.get("faucet_model"):
+                label = f" #{i+1}" if len(items) > 1 else ""
+                warnings.append(
+                    f"Faucet{label}: no brand/model specified."
+                )
+
+    # Toilet
+    toilet_spec = estimate.get("toilet_spec") or {}
+    if (estimate.get("replace_toilet")
+            and not toilet_spec.get("brand")
+            and not toilet_spec.get("model")):
+        warnings.append(
+            "Toilet: no brand/model specified. "
+            "Specify model or confirm allowance."
+        )
+
+    # Shower fixtures
+    shower_spec = estimate.get("shower_spec") or {}
+    if (estimate.get("replace_shower")
+            and not shower_spec.get("fixture_brand")
+            and not shower_spec.get("fixture_model")):
+        warnings.append(
+            "Shower fixture: no brand/model specified."
+        )
+
+    return warnings
+
+
+@router.get("/{estimate_id}/export/validate")
+def validate_for_export(
+    estimate_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Validate estimate before PDF export.
+
+    Returns warnings for missing allowance/brand/model specs.
+    """
+    service = BathroomEstimateService(session)
+    estimate = service.get_estimate(estimate_id)
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    warnings = _validate_allowances(estimate)
+    return {
+        "valid": len(warnings) == 0,
+        "warnings": warnings,
+    }
+
+
 # ── Export (PDF) ──
 
 @router.get("/{estimate_id}/export/pdf")

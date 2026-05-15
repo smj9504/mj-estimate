@@ -246,6 +246,14 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         const cropW = maxX - minX;
         const cropH = maxY - minY;
 
+        // Save current zoom/pan transform
+        const oldScale = { x: stage.scaleX(), y: stage.scaleY() };
+        const oldPos = { x: stage.x(), y: stage.y() };
+
+        // Reset to identity so content coords match capture coords
+        stage.scale({ x: 1, y: 1 });
+        stage.position({ x: 0, y: 0 });
+
         // Hide grid layer (first) and dimension labels layer (last)
         const layers = stage.getLayers();
         const hiddenLayers: any[] = [];
@@ -270,7 +278,9 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
           height: cropH,
         });
 
-        // Restore
+        // Restore zoom/pan and visibility
+        stage.scale(oldScale);
+        stage.position(oldPos);
         hiddenLayers.forEach(l => l.visible(true));
         overlays.forEach(el => { el.style.display = ''; });
         stage.batchDraw();

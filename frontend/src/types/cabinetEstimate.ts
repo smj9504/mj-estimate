@@ -99,6 +99,9 @@ export interface CabinetEstimate {
   include_appliance_rr: boolean;
   appliance_list?: { type: string; qty: number }[];
   include_dumpster: boolean;
+  include_electrical: boolean;
+  include_permit: boolean;
+  outlet_relocation_count: number;
   delivery_floor?: number;
   island_end_panel_sqft: number;
   island_back_panel_sqft: number;
@@ -158,6 +161,9 @@ export interface CabinetEstimateCreate {
   include_appliance_rr?: boolean;
   appliance_list?: { type: string; qty: number }[];
   include_dumpster?: boolean;
+  include_electrical?: boolean;
+  include_permit?: boolean;
+  outlet_relocation_count?: number;
   delivery_floor?: number;
   island_end_panel_sqft?: number;
   island_back_panel_sqft?: number;
@@ -205,6 +211,9 @@ export interface CabinetEstimateUpdate {
   include_appliance_rr?: boolean;
   appliance_list?: { type: string; qty: number }[];
   include_dumpster?: boolean;
+  include_electrical?: boolean;
+  include_permit?: boolean;
+  outlet_relocation_count?: number;
   delivery_floor?: number;
   island_end_panel_sqft?: number;
   island_back_panel_sqft?: number;
