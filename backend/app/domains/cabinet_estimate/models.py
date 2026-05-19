@@ -85,6 +85,9 @@ class CabinetEstimate(Base, BaseModel):
     include_toe_kick = Column(Boolean, default=True)
     include_countertop = Column(Boolean, default=False)
     include_drywall_repair = Column(Boolean, default=False)
+    drywall_repair_type = Column(
+        String(20), default="patch", nullable=True,
+    )  # patch / rr
     drywall_repair_sqft = Column(Float, nullable=True)
     include_painting = Column(Boolean, default=False)
     painting_sqft = Column(Float, nullable=True)
@@ -117,12 +120,16 @@ class CabinetEstimate(Base, BaseModel):
     # Overview text for PDF
     overview_text = Column(Text, nullable=True)
 
+    # Target total (reverse pricing)
+    target_total = Column(Float, nullable=True)
+
     # Calculated totals
     subtotal = Column(Float, default=0)
     overhead_pct = Column(Float, default=0.10)
     overhead_amount = Column(Float, default=0)
     profit_pct = Column(Float, default=0.10)
     profit_amount = Column(Float, default=0)
+    adjustment_factor = Column(Float, nullable=True)
     total = Column(Float, default=0)
 
     # Documentation

@@ -87,7 +87,7 @@ export const cabinetEstimateService = {
 
   // ── Export ──
 
-  async exportPdf(id: string, options?: { show_signature?: boolean }) {
+  async exportPdf(id: string, options?: { show_signature?: boolean; address?: string }) {
     const params: Record<string, any> = {};
     if (options?.show_signature === false) {
       params.show_signature = false;
@@ -96,10 +96,20 @@ export const cabinetEstimateService = {
       responseType: 'blob',
       params,
     });
+    // Extract filename from Content-Disposition header, fallback to address or id
+    let filename = `cabinet_estimate_${id.substring(0, 8)}.pdf`;
+    const disposition = response.headers?.['content-disposition'];
+    if (disposition) {
+      const match = disposition.match(/filename="?([^";\n]+)"?/);
+      if (match?.[1]) filename = match[1];
+    } else if (options?.address) {
+      const slug = options.address.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '').substring(0, 60);
+      if (slug) filename = `cabinet_estimate_${slug}.pdf`;
+    }
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `cabinet_estimate_${id.substring(0, 8)}.pdf`);
+    link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
     link.remove();

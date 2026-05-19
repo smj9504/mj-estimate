@@ -249,11 +249,16 @@ def export_pdf(
         estimate, show_signature=show_signature,
     )
 
+    import re
+    addr = estimate.get("property_address") or ""
+    addr_slug = re.sub(r'[^a-zA-Z0-9]+', '_', addr).strip('_')[:60]
+    filename = f"cabinet_estimate_{addr_slug}.pdf" if addr_slug else f"cabinet_estimate_{estimate_id[:8]}.pdf"
+
     return StreamingResponse(
         pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="cabinet_estimate_{estimate_id[:8]}.pdf"'
+            "Content-Disposition": f'attachment; filename="{filename}"'
         },
     )
 

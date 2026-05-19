@@ -343,8 +343,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     return ['/dashboard'];
   };
 
-  // Auto-expand parent menus based on current location
+  // Auto-expand parent menus based on current location (only when expanded)
   useEffect(() => {
+    if (collapsed) {
+      setOpenKeys([]);
+      return;
+    }
     const { pathname } = location;
     const newOpenKeys: string[] = [];
 
@@ -361,7 +365,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
 
     setOpenKeys(newOpenKeys);
-  }, [location, menuItems]);
+  }, [location, menuItems, collapsed]);
 
   const userMenuItems = [
     {

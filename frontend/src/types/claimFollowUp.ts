@@ -2,7 +2,7 @@
  * Claim Follow-up types
  */
 
-export type TaskType = 'wm_docs_sent' | 'supplement_sent' | 'depreciation_recovery' | 'estimate_request' | 'payment_check' | 'docs_sent' | 'general';
+export type TaskType = 'wm_docs_sent' | 'supplement_sent' | 'depreciation_recovery' | 'estimate_request' | 'payment_check' | 'wm_payment_check' | 'docs_sent' | 'general';
 export type TaskStatus = 'pending' | 'awaiting_response' | 'responded' | 'resolved' | 'overdue' | 'cancelled';
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type AssignedRole = 'adjuster' | 'public_adjuster' | 'contractor';
@@ -221,6 +221,7 @@ export const TASK_TYPE_LABELS: Record<TaskType, string> = {
   depreciation_recovery: 'Depreciation Recovery',
   estimate_request: 'Estimate Request',
   payment_check: 'Payment Check',
+  wm_payment_check: 'WM Payment Check',
   docs_sent: 'Documents Sent',
   general: 'General',
 };

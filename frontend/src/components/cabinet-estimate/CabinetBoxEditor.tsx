@@ -2,7 +2,9 @@ import React from 'react';
 import {
   Button,
   Checkbox,
+  Col,
   InputNumber,
+  Row,
   Select,
   Space,
   Table,
@@ -33,18 +35,30 @@ const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height
   'DB24': { cab_type: 'base', width: 24, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 24"' },
   'DB30': { cab_type: 'base', width: 30, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 30"' },
   'LS36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 36"' },
-  // Wall
-  'W1230': { cab_type: 'wall', width: 12, height: 30, label: 'Wall 12"x30"' },
-  'W1530': { cab_type: 'wall', width: 15, height: 30, label: 'Wall 15"x30"' },
-  'W1830': { cab_type: 'wall', width: 18, height: 30, label: 'Wall 18"x30"' },
-  'W2130': { cab_type: 'wall', width: 21, height: 30, label: 'Wall 21"x30"' },
-  'W2430': { cab_type: 'wall', width: 24, height: 30, label: 'Wall 24"x30"' },
-  'W3030': { cab_type: 'wall', width: 30, height: 30, label: 'Wall 30"x30"' },
-  'W3630': { cab_type: 'wall', width: 36, height: 30, label: 'Wall 36"x30"' },
-  'W3036': { cab_type: 'wall', width: 30, height: 36, label: 'Wall 30"x36"' },
-  'W3636': { cab_type: 'wall', width: 36, height: 36, label: 'Wall 36"x36"' },
-  'W3042': { cab_type: 'wall', width: 30, height: 42, label: 'Wall 30"x42"' },
-  'WDC': { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Wall Diag Corner' },
+  // Wall - Standard (30"H)
+  'W1230': { cab_type: 'wall', width: 12, height: 30, label: '12"W x 30"H' },
+  'W1530': { cab_type: 'wall', width: 15, height: 30, label: '15"W x 30"H' },
+  'W1830': { cab_type: 'wall', width: 18, height: 30, label: '18"W x 30"H' },
+  'W2130': { cab_type: 'wall', width: 21, height: 30, label: '21"W x 30"H' },
+  'W2430': { cab_type: 'wall', width: 24, height: 30, label: '24"W x 30"H' },
+  'W3030': { cab_type: 'wall', width: 30, height: 30, label: '30"W x 30"H' },
+  'W3630': { cab_type: 'wall', width: 36, height: 30, label: '36"W x 30"H' },
+  // Wall - Tall (36"H, 42"H)
+  'W3036': { cab_type: 'wall', width: 30, height: 36, label: '30"W x 36"H' },
+  'W3636': { cab_type: 'wall', width: 36, height: 36, label: '36"W x 36"H' },
+  'W3042': { cab_type: 'wall', width: 30, height: 42, label: '30"W x 42"H' },
+  'W3642': { cab_type: 'wall', width: 36, height: 42, label: '36"W x 42"H' },
+  // Wall - Short (above microwave / fridge: 12"~24"H)
+  'W3012': { cab_type: 'wall', width: 30, height: 12, label: '30"W x 12"H' },
+  'W3612': { cab_type: 'wall', width: 36, height: 12, label: '36"W x 12"H' },
+  'W3015': { cab_type: 'wall', width: 30, height: 15, label: '30"W x 15"H' },
+  'W3615': { cab_type: 'wall', width: 36, height: 15, label: '36"W x 15"H' },
+  'W3018': { cab_type: 'wall', width: 30, height: 18, label: '30"W x 18"H' },
+  'W3618': { cab_type: 'wall', width: 36, height: 18, label: '36"W x 18"H' },
+  'W3024': { cab_type: 'wall', width: 30, height: 24, label: '30"W x 24"H' },
+  'W3624': { cab_type: 'wall', width: 36, height: 24, label: '36"W x 24"H' },
+  // Wall - Specialty
+  'WDC': { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"' },
   // Tall - Pantry
   'T1884': { cab_type: 'tall', width: 18, height: 84, label: 'Tall 18"x84"' },
   'T2484': { cab_type: 'tall', width: 24, height: 84, label: 'Tall 24"x84"' },
@@ -63,55 +77,88 @@ const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height
 
 const CUSTOM_VALUE = '__custom__';
 
-// Group options for the select dropdown
-const groupedOptions = [
-  {
-    label: 'Base Cabinets',
-    options: Object.entries(CABINET_PRESETS)
-      .filter(([, v]) => v.cab_type === 'base' && !v.specialty)
-      .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
-  },
-  {
-    label: 'Base - Specialty',
-    options: Object.entries(CABINET_PRESETS)
-      .filter(([, v]) => v.cab_type === 'base' && v.specialty)
-      .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
-  },
-  {
-    label: 'Wall Cabinets',
-    options: Object.entries(CABINET_PRESETS)
-      .filter(([, v]) => v.cab_type === 'wall')
-      .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
-  },
-  {
-    label: 'Tall Cabinets',
-    options: Object.entries(CABINET_PRESETS)
-      .filter(([, v]) => v.cab_type === 'tall' && !v.specialty)
-      .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
-  },
-  {
-    label: 'Tall - Oven',
-    options: Object.entries(CABINET_PRESETS)
-      .filter(([, v]) => v.cab_type === 'tall' && v.specialty === 'oven_cabinet')
-      .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
-  },
-  {
-    label: 'Tall - Refrigerator',
-    options: Object.entries(CABINET_PRESETS)
-      .filter(([, v]) => v.cab_type === 'tall' && v.specialty === 'refrigerator_cabinet')
-      .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
-  },
-  {
-    label: 'Other',
-    options: [{ label: '+ Custom Size...', value: CUSTOM_VALUE }],
-  },
+type SectionType = 'base' | 'wall' | 'tall';
+
+const SECTION_CONFIG: { type: SectionType; label: string; color: string; unit: string }[] = [
+  { type: 'base', label: 'Base Cabinets', color: 'blue', unit: 'LF' },
+  { type: 'wall', label: 'Wall Cabinets', color: 'green', unit: 'LF' },
+  { type: 'tall', label: 'Tall Cabinets', color: 'orange', unit: 'EA' },
 ];
 
-const TYPE_COLORS: Record<string, string> = {
-  base: 'blue',
-  wall: 'green',
-  tall: 'orange',
-};
+function getOptionsForType(cabType: SectionType) {
+  const entries = Object.entries(CABINET_PRESETS).filter(([, v]) => v.cab_type === cabType);
+
+  if (cabType === 'base') {
+    return [
+      {
+        label: 'Base',
+        options: entries
+          .filter(([, v]) => !v.specialty)
+          .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+      },
+      {
+        label: 'Specialty',
+        options: entries
+          .filter(([, v]) => v.specialty)
+          .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+      },
+      { label: 'Other', options: [{ label: '+ Custom Size...', value: CUSTOM_VALUE }] },
+    ];
+  }
+
+  if (cabType === 'tall') {
+    return [
+      {
+        label: 'Pantry',
+        options: entries
+          .filter(([, v]) => !v.specialty)
+          .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+      },
+      {
+        label: 'Oven',
+        options: entries
+          .filter(([, v]) => v.specialty === 'oven_cabinet')
+          .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+      },
+      {
+        label: 'Refrigerator',
+        options: entries
+          .filter(([, v]) => v.specialty === 'refrigerator_cabinet')
+          .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+      },
+      { label: 'Other', options: [{ label: '+ Custom Size...', value: CUSTOM_VALUE }] },
+    ];
+  }
+
+  // wall
+  return [
+    {
+      label: 'Standard (30"H)',
+      options: entries
+        .filter(([, v]) => v.height === 30 && !v.specialty)
+        .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+    },
+    {
+      label: 'Tall (36"-42"H)',
+      options: entries
+        .filter(([, v]) => v.height > 30 && !v.specialty)
+        .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+    },
+    {
+      label: 'Short — Above Microwave/Fridge (12"-24"H)',
+      options: entries
+        .filter(([, v]) => v.height < 30 && !v.specialty)
+        .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+    },
+    {
+      label: 'Specialty',
+      options: entries
+        .filter(([, v]) => v.specialty)
+        .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
+    },
+    { label: 'Other', options: [{ label: '+ Custom Size...', value: CUSTOM_VALUE }] },
+  ];
+}
 
 interface CabinetBoxEditorProps {
   boxes: CabinetBoxCreate[];
@@ -120,14 +167,19 @@ interface CabinetBoxEditorProps {
 }
 
 const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, location }) => {
-  const addBox = (codeOrCustom: string) => {
+  const addBox = (cabType: SectionType, codeOrCustom: string) => {
     if (codeOrCustom === CUSTOM_VALUE) {
+      const defaults: Record<SectionType, { width: number; height: number }> = {
+        base: { width: 24, height: 34.5 },
+        wall: { width: 24, height: 30 },
+        tall: { width: 24, height: 84 },
+      };
       const newBox: CabinetBoxCreate = {
         code: 'CUSTOM',
-        cab_type: 'base',
+        cab_type: cabType,
         location,
-        width_inches: 24,
-        height_inches: 34.5,
+        width_inches: defaults[cabType].width,
+        height_inches: defaults[cabType].height,
         is_specialty: false,
         specialty_type: null,
         has_glass_door: false,
@@ -154,19 +206,36 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
     onChange([...boxes, newBox]);
   };
 
-  const updateBox = (index: number, updates: Partial<CabinetBoxCreate>) => {
+  // Get the global index in boxes array for a given type-filtered item
+  const getGlobalIndex = (cabType: SectionType, localIndex: number): number => {
+    let count = 0;
+    for (let i = 0; i < boxes.length; i++) {
+      if (boxes[i].cab_type === cabType) {
+        if (count === localIndex) return i;
+        count++;
+      }
+    }
+    return -1;
+  };
+
+  const updateBox = (globalIndex: number, updates: Partial<CabinetBoxCreate>) => {
     const updated = [...boxes];
-    updated[index] = { ...updated[index], ...updates };
+    updated[globalIndex] = { ...updated[globalIndex], ...updates };
     onChange(updated);
   };
 
-  const handleCodeChange = (index: number, value: string) => {
+  const handleCodeChange = (globalIndex: number, value: string, cabType: SectionType) => {
     if (value === CUSTOM_VALUE) {
-      updateBox(index, {
+      const defaults: Record<SectionType, { width: number; height: number }> = {
+        base: { width: 24, height: 34.5 },
+        wall: { width: 24, height: 30 },
+        tall: { width: 24, height: 84 },
+      };
+      updateBox(globalIndex, {
         code: 'CUSTOM',
-        cab_type: 'base',
-        width_inches: 24,
-        height_inches: 34.5,
+        cab_type: cabType,
+        width_inches: defaults[cabType].width,
+        height_inches: defaults[cabType].height,
         is_specialty: false,
         specialty_type: null,
         has_glass_door: false,
@@ -175,7 +244,7 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
     }
     const preset = CABINET_PRESETS[value];
     if (preset) {
-      updateBox(index, {
+      updateBox(globalIndex, {
         code: value,
         cab_type: preset.cab_type,
         width_inches: preset.width,
@@ -186,98 +255,79 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
     }
   };
 
-  const removeBox = (index: number) => {
-    onChange(boxes.filter((_, i) => i !== index));
+  const removeBox = (globalIndex: number) => {
+    onChange(boxes.filter((_, i) => i !== globalIndex));
   };
 
-  // Calculate live LF summary
+  const isCustom = (record: CabinetBoxCreate) => !CABINET_PRESETS[record.code];
+
+  // Summary
   const baseLF = boxes.filter(b => b.cab_type === 'base').reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
   const wallLF = boxes.filter(b => b.cab_type === 'wall').reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
   const tallCount = boxes.filter(b => b.cab_type === 'tall').reduce((sum, b) => sum + b.qty, 0);
   const totalBoxes = boxes.reduce((sum, b) => sum + b.qty, 0);
 
-  const isCustom = (record: CabinetBoxCreate) => !CABINET_PRESETS[record.code];
-
-  const columns = [
+  const makeColumns = (cabType: SectionType, options: any[]) => [
     {
       title: 'Cabinet',
       dataIndex: 'code',
       width: 220,
-      render: (_: string, record: CabinetBoxCreate, index: number) => (
-        <Select
-          showSearch
-          value={CABINET_PRESETS[record.code] ? record.code : CUSTOM_VALUE}
-          style={{ width: 200 }}
-          onChange={(val) => handleCodeChange(index, val)}
-          options={groupedOptions}
-          filterOption={(input, option) =>
-            (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
-          }
-          popupMatchSelectWidth={280}
-        />
-      ),
-    },
-    {
-      title: 'Type',
-      dataIndex: 'cab_type',
-      width: 90,
-      render: (_: string, record: CabinetBoxCreate, index: number) => (
-        isCustom(record) ? (
+      render: (_: string, record: CabinetBoxCreate & { _localIdx: number }) => {
+        const gi = getGlobalIndex(cabType, record._localIdx);
+        return (
           <Select
-            value={record.cab_type}
-            style={{ width: 80 }}
-            size="small"
-            onChange={(val) => updateBox(index, { cab_type: val })}
-            options={[
-              { label: 'Base', value: 'base' },
-              { label: 'Wall', value: 'wall' },
-              { label: 'Tall', value: 'tall' },
-            ]}
+            showSearch
+            value={CABINET_PRESETS[record.code] ? record.code : CUSTOM_VALUE}
+            style={{ width: 200 }}
+            onChange={(val) => handleCodeChange(gi, val, cabType)}
+            options={options}
+            filterOption={(input, option) =>
+              (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+            }
+            popupMatchSelectWidth={280}
           />
-        ) : (
-          <Tag color={TYPE_COLORS[record.cab_type] || 'default'}>
-            {record.cab_type}
-          </Tag>
-        )
-      ),
+        );
+      },
     },
     {
       title: 'W"',
       dataIndex: 'width_inches',
       width: 70,
-      render: (_: number, record: CabinetBoxCreate, index: number) => (
-        isCustom(record) ? (
+      render: (_: number, record: CabinetBoxCreate & { _localIdx: number }) => {
+        const gi = getGlobalIndex(cabType, record._localIdx);
+        return isCustom(record) ? (
           <InputNumber
             value={record.width_inches}
             min={6} max={60}
             size="small"
             style={{ width: 60 }}
-            onChange={(val) => val && updateBox(index, { width_inches: val })}
+            onChange={(val) => val && updateBox(gi, { width_inches: val })}
           />
         ) : (
           <Text>{record.width_inches}"</Text>
-        )
-      ),
+        );
+      },
     },
     {
       title: 'H"',
       dataIndex: 'height_inches',
       width: 70,
-      render: (_: number, record: CabinetBoxCreate, index: number) => (
-        isCustom(record) ? (
+      render: (_: number, record: CabinetBoxCreate & { _localIdx: number }) => {
+        const gi = getGlobalIndex(cabType, record._localIdx);
+        return isCustom(record) ? (
           <InputNumber
             value={record.height_inches}
             min={6} max={120} step={0.5}
             size="small"
             style={{ width: 60 }}
-            onChange={(val) => val && updateBox(index, { height_inches: val })}
+            onChange={(val) => val && updateBox(gi, { height_inches: val })}
           />
         ) : (
           <Text>{record.height_inches}"</Text>
-        )
-      ),
+        );
+      },
     },
-    {
+    ...(cabType !== 'wall' ? [{
       title: 'Specialty',
       dataIndex: 'specialty_type',
       width: 130,
@@ -286,83 +336,112 @@ const CabinetBoxEditor: React.FC<CabinetBoxEditorProps> = ({ boxes, onChange, lo
           <Tag color="orange">{record.specialty_type.replace(/_/g, ' ')}</Tag>
         ) : <Text type="secondary">—</Text>
       ),
-    },
-    {
+    }] : []),
+    ...((cabType === 'wall' || cabType === 'base') ? [{
       title: 'Glass',
       dataIndex: 'has_glass_door',
       width: 60,
-      render: (_: boolean, record: CabinetBoxCreate, index: number) => (
-        record.cab_type === 'wall' || record.cab_type === 'base' ? (
+      render: (_: boolean, record: CabinetBoxCreate & { _localIdx: number }) => {
+        const gi = getGlobalIndex(cabType, record._localIdx);
+        return (
           <Tooltip title="Glass door insert">
             <Checkbox
               checked={record.has_glass_door}
-              onChange={(e) => updateBox(index, { has_glass_door: e.target.checked })}
+              onChange={(e) => updateBox(gi, { has_glass_door: e.target.checked })}
             />
           </Tooltip>
-        ) : <Text type="secondary">—</Text>
-      ),
-    },
+        );
+      },
+    }] : []),
     {
       title: 'Qty',
       dataIndex: 'qty',
       width: 80,
-      render: (_: number, record: CabinetBoxCreate, index: number) => (
-        <InputNumber
-          value={record.qty}
-          min={1} max={50}
-          size="small"
-          style={{ width: 65 }}
-          onChange={(val) => val && updateBox(index, { qty: val })}
-        />
-      ),
+      render: (_: number, record: CabinetBoxCreate & { _localIdx: number }) => {
+        const gi = getGlobalIndex(cabType, record._localIdx);
+        return (
+          <InputNumber
+            value={record.qty}
+            min={1} max={50}
+            size="small"
+            style={{ width: 65 }}
+            onChange={(val) => val && updateBox(gi, { qty: val })}
+          />
+        );
+      },
     },
     {
       title: '',
       key: 'action',
       width: 45,
-      render: (_: any, __: any, index: number) => (
-        <Button
-          size="small"
-          danger
-          icon={<DeleteOutlined />}
-          onClick={() => removeBox(index)}
-        />
-      ),
+      render: (_: any, record: CabinetBoxCreate & { _localIdx: number }) => {
+        const gi = getGlobalIndex(cabType, record._localIdx);
+        return (
+          <Button
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => removeBox(gi)}
+          />
+        );
+      },
     },
   ];
+
+  const renderSection = (config: typeof SECTION_CONFIG[number]) => {
+    const { type, label, color, unit } = config;
+    const sectionBoxes = boxes
+      .filter(b => b.cab_type === type)
+      .map((b, i) => ({ ...b, _localIdx: i, key: i }));
+    const options = getOptionsForType(type);
+
+    const summary = type === 'tall'
+      ? `${sectionBoxes.reduce((s, b) => s + b.qty, 0)} EA`
+      : `${sectionBoxes.reduce((s, b) => s + (b.width_inches * b.qty) / 12, 0).toFixed(1)} LF`;
+
+    return (
+      <div key={type} style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <Tag color={color} style={{ fontSize: 12, margin: 0 }}>{label}</Tag>
+          <Text type="secondary" style={{ fontSize: 12 }}>{summary}</Text>
+        </div>
+
+        {sectionBoxes.length > 0 && (
+          <Table
+            dataSource={sectionBoxes}
+            columns={makeColumns(type, options)}
+            pagination={false}
+            size="small"
+            scroll={{ x: 500 }}
+          />
+        )}
+
+        <Select
+          placeholder={`+ Add ${label.replace(' Cabinets', '')}...`}
+          style={{ width: 260, marginTop: sectionBoxes.length > 0 ? 8 : 0 }}
+          showSearch
+          value={undefined}
+          onChange={(val: string) => addBox(type, val)}
+          options={options}
+          filterOption={(input, option) =>
+            (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+          }
+          popupMatchSelectWidth={300}
+        />
+      </div>
+    );
+  };
 
   return (
     <div>
       <Space style={{ marginBottom: 12 }} wrap>
-        <Text strong>LF Summary:</Text>
         <Tag color="blue">Base: {baseLF.toFixed(1)} LF</Tag>
         <Tag color="green">Wall: {wallLF.toFixed(1)} LF</Tag>
         <Tag color="orange">Tall: {tallCount} EA</Tag>
         <Tag>Total: {totalBoxes} boxes</Tag>
       </Space>
 
-      <Table
-        dataSource={boxes.map((b, i) => ({ ...b, key: i }))}
-        columns={columns}
-        pagination={false}
-        size="small"
-        scroll={{ x: 700 }}
-      />
-
-      <div style={{ marginTop: 12 }}>
-        <Select
-          placeholder="+ Add Cabinet..."
-          style={{ width: 280 }}
-          showSearch
-          value={undefined}
-          onChange={(val: string) => addBox(val)}
-          options={groupedOptions}
-          filterOption={(input, option) =>
-            (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
-          }
-          popupMatchSelectWidth={320}
-        />
-      </div>
+      {SECTION_CONFIG.map(renderSection)}
     </div>
   );
 };

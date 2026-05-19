@@ -68,6 +68,7 @@ const TASK_TYPE_OPTIONS: { value: TaskType; label: string }[] = [
   { value: 'depreciation_recovery', label: 'Depreciation Recovery Docs' },
   { value: 'estimate_request', label: 'Estimate Request' },
   { value: 'payment_check', label: 'Payment Check' },
+  { value: 'wm_payment_check', label: 'WM Payment Check' },
   { value: 'docs_sent', label: 'Other Documents' },
   { value: 'general', label: 'General' },
 ];
@@ -78,6 +79,7 @@ const TASK_TYPE_ICONS: Record<TaskType, React.ReactNode> = {
   depreciation_recovery: <DollarOutlined />,
   estimate_request: <AuditOutlined />,
   payment_check: <DollarOutlined />,
+  wm_payment_check: <DollarOutlined />,
   docs_sent: <FileTextOutlined />,
   general: <ClockCircleOutlined />,
 };
@@ -88,6 +90,7 @@ const STAGE_ORDER: TaskType[] = [
   'estimate_request',
   'supplement_sent',
   'payment_check',
+  'wm_payment_check',
   'depreciation_recovery',
   'docs_sent',
   'general',
@@ -98,6 +101,7 @@ const STAGE_LABELS: Record<TaskType, string> = {
   estimate_request: 'Est. Request',
   supplement_sent: 'Supplement',
   payment_check: 'Payment',
+  wm_payment_check: 'WM Payment',
   depreciation_recovery: 'Depreciation',
   docs_sent: 'Other Docs',
   general: 'General',
@@ -141,6 +145,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const [resolveModalOpen, setResolveModalOpen] = useState(false);
   const [resolveOutcome, setResolveOutcome] = useState<string | undefined>();
   const [resolveFile, setResolveFile] = useState<File | undefined>();
+  const [resolveWmFile, setResolveWmFile] = useState<File | undefined>();
+  const [parsedWmAmount, setParsedWmAmount] = useState<number | undefined>();
+  const [isParsingWm, setIsParsingWm] = useState(false);
   const [parsedSections, setParsedSections] = useState<any[] | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [selectedTask, setSelectedTask] = useState<FollowUpTask | null>(null);
@@ -263,9 +270,22 @@ const ClaimFollowUpDashboard: React.FC = () => {
       setResolveModalOpen(false);
       setResolveOutcome(undefined);
       setResolveFile(undefined);
+      setResolveWmFile(undefined);
+      setParsedWmAmount(undefined);
       resolveForm.resetFields();
       queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['followup-stats'] });
+    },
+    onError: (err: any) => {
+      const detail = err?.response?.data?.detail || 'Failed to resolve task';
+      if (err?.response?.status === 404) {
+        message.error('Task not found. It may have been deleted. Refreshing list...');
+        queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
+        setResolveModalOpen(false);
+        resolveForm.resetFields();
+      } else {
+        message.error(detail);
+      }
     },
   });
 
@@ -858,9 +878,10 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   depreciation_amount: values.depreciation_amount,
                   deductible: values.deductible,
                   wm_cost_status: values.wm_cost_status,
-                  wm_estimate_amount: values.wm_estimate_amount,
+                  wm_estimate_amount: parsedWmAmount ?? values.wm_estimate_amount,
                   sections_data: parsedSections,
                   file: resolveFile,
+                  wm_estimate_file: resolveWmFile,
                 },
               });
             }
@@ -870,6 +891,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
           setResolveModalOpen(false);
           setResolveOutcome(undefined);
           setResolveFile(undefined);
+          setResolveWmFile(undefined);
+          setParsedWmAmount(undefined);
           setParsedSections(null);
           resolveForm.resetFields();
         }}
@@ -1060,16 +1083,53 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     const wmStatus = getFieldValue('wm_cost_status');
                     if (wmStatus === 'separate_estimate') {
                       return (
-                        <Form.Item name="wm_estimate_amount" label="WM Estimate Amount" style={{ marginTop: 8, marginBottom: 0 }}>
-                          <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} placeholder="0.00" />
-                        </Form.Item>
+                        <div style={{ marginTop: 8 }}>
+                          <Form.Item label="WM Estimate PDF (Optional)" style={{ marginBottom: 8 }}>
+                            <Upload
+                              maxCount={1}
+                              accept=".pdf"
+                              beforeUpload={async (file) => {
+                                setResolveWmFile(file);
+                                setParsedWmAmount(undefined);
+                                if (file.name.toLowerCase().endsWith('.pdf')) {
+                                  setIsParsingWm(true);
+                                  try {
+                                    const result = await claimFollowUpService.parseEstimatePdf(file);
+                                    const amt = result.totals?.rcv_amount || result.totals?.acv_amount;
+                                    if (amt) {
+                                      setParsedWmAmount(amt);
+                                      resolveForm.setFieldsValue({ wm_estimate_amount: amt });
+                                      message.success(`Auto-parsed WM amount: $${amt.toLocaleString('en-US', { minimumFractionDigits: 2 })}`);
+                                    } else {
+                                      message.warning('Could not auto-parse WM amount. Enter manually.');
+                                    }
+                                  } catch {
+                                    message.warning('WM PDF parsing failed. Enter amount manually.');
+                                  } finally {
+                                    setIsParsingWm(false);
+                                  }
+                                }
+                                return false;
+                              }}
+                              onRemove={() => { setResolveWmFile(undefined); setParsedWmAmount(undefined); }}
+                              fileList={resolveWmFile ? [{ uid: '-2', name: resolveWmFile.name, status: 'done' }] : []}
+                            >
+                              <Button icon={<UploadOutlined />} loading={isParsingWm} size="small">
+                                {isParsingWm ? 'Parsing...' : 'Upload WM Estimate PDF'}
+                              </Button>
+                            </Upload>
+                          </Form.Item>
+                          <Form.Item name="wm_estimate_amount" label="WM Estimate Amount" style={{ marginBottom: 0 }}>
+                            <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} placeholder="0.00" />
+                          </Form.Item>
+                        </div>
                       );
                     }
                     if (wmStatus === 'not_received') {
                       return (
                         <div style={{ marginTop: 8, padding: '6px 8px', background: '#fff7e6', borderRadius: 4, border: '1px solid #ffd591' }}>
                           <Text style={{ fontSize: 12, color: '#d48806' }}>
-                            A follow-up task will be auto-created to request WM cost coverage from the insurance company.
+                            A <strong>WM Payment Check</strong> follow-up task will be auto-created to request WM cost coverage from the insurance company.
                           </Text>
                         </div>
                       );

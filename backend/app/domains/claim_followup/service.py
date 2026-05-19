@@ -205,6 +205,11 @@ class ClaimFollowUpService:
                     claim.insurance_estimate_file_id = estimate_data['file_id']
                     claim.insurance_estimate_file_name = estimate_data.get('file_name', '')
 
+                # Store WM estimate file if uploaded separately
+                if estimate_data.get('wm_file_id'):
+                    claim.wm_estimate_file_id = estimate_data['wm_file_id']
+                    claim.wm_estimate_file_name = estimate_data.get('wm_file_name', '')
+
                 # Update claim amounts
                 acv = estimate_data.get('acv_amount', 0)
                 rcv = estimate_data.get('rcv_amount', 0)
@@ -239,8 +244,11 @@ class ClaimFollowUpService:
                 wm_info = ' | WM costs included in rebuild estimate.'
             elif wm_cost_status == 'separate_estimate':
                 wm_info = f' | WM estimate received separately.'
-                if estimate_data and estimate_data.get('wm_estimate_amount'):
-                    wm_info += f" WM Amount: ${estimate_data['wm_estimate_amount']:,.2f}"
+                wm_amt = estimate_data.get('wm_estimate_amount') if estimate_data else None
+                if wm_amt:
+                    wm_info += f" WM Amount: ${wm_amt:,.2f}"
+                if estimate_data and estimate_data.get('wm_file_name'):
+                    wm_info += f" (File: {estimate_data['wm_file_name']})"
             elif wm_cost_status == 'not_received':
                 wm_info = ' | WM costs NOT received - follow-up needed.'
 
@@ -302,7 +310,7 @@ class ClaimFollowUpService:
 
             wm_task = FollowUpTaskModel(
                 claim_id=claim_id,
-                task_type='payment_check',
+                task_type='wm_payment_check',
                 title=f'Follow up: WM costs not included in estimate',
                 description=(
                     'Insurance estimate was received but Water Mitigation costs were not included. '

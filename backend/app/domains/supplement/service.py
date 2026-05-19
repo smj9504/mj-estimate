@@ -5,6 +5,8 @@ Supplement domain service.
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from sqlalchemy.sql import func
+
 logger = logging.getLogger(__name__)
 
 
@@ -168,6 +170,7 @@ class SupplementService:
             from app.domains.supplement.repository import get_bid_item_estimate_repository
             repo = get_bid_item_estimate_repository(session)
             result = repo.create(data)
+            self._recalculate_supplement_amount(session, str(data['supplement_id']))
             session.commit()
             return result
         except Exception as e:
@@ -182,6 +185,8 @@ class SupplementService:
             from app.domains.supplement.repository import get_bid_item_estimate_repository
             repo = get_bid_item_estimate_repository(session)
             result = repo.update(item_id, data)
+            if result:
+                self._recalculate_supplement_amount(session, str(result['supplement_id']))
             session.commit()
             return result
         except Exception as e:
@@ -195,7 +200,10 @@ class SupplementService:
         try:
             from app.domains.supplement.repository import get_bid_item_estimate_repository
             repo = get_bid_item_estimate_repository(session)
+            existing = repo.get_by_id(item_id)
             result = repo.delete(item_id)
+            if result and existing:
+                self._recalculate_supplement_amount(session, str(existing['supplement_id']))
             session.commit()
             return result
         except Exception as e:
@@ -257,6 +265,21 @@ class SupplementService:
     # ============================================================
     # Helpers
     # ============================================================
+
+    def _recalculate_supplement_amount(self, session, supplement_id: str):
+        """Sum all bid item custom_amount values and update supplement_amount + difference."""
+        from app.domains.supplement.models import BidItemEstimate, SupplementRequest
+        total = session.query(
+            func.coalesce(func.sum(BidItemEstimate.custom_amount), 0)
+        ).filter(BidItemEstimate.supplement_id == supplement_id).scalar()
+        total = float(total or 0)
+
+        supplement = session.query(SupplementRequest).filter(
+            SupplementRequest.id == supplement_id
+        ).first()
+        if supplement:
+            supplement.supplement_amount = total
+            supplement.difference = total - float(supplement.original_amount or 0)
 
     def _enrich_with_claim_info(self, session, item: Dict[str, Any]):
         """Add claim info to supplement request"""

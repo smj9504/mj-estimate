@@ -1097,14 +1097,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     # 3) Auto-include GFCI if not explicitly specified (code requirement)
     elec_spec = estimate.electrical_spec or {}
-    if (gfci_count == 0 and hc.get("auto_gfci", True)
+    if (gfci_count == 0 and hc.get("auto_gfci", False)
             and (estimate.replace_vanity or estimate.replace_toilet)):
         _add(line_items, 2, "GFCI outlet (code required)", 1, "EA",
              ELECTRICAL_RATES["gfci_outlet_each"] * labor_mult, "electrical",
              notes="NEC code requires GFCI within 6ft of water source")
 
     # 4) Auto-include exhaust fan if not specified (code requirement for windowless bath)
-    if (not elec_spec.get("exhaust_fan_cfm") and hc.get("auto_exhaust_fan", True)
+    if (not elec_spec.get("exhaust_fan_cfm") and hc.get("auto_exhaust_fan", False)
             and has_demo):
         _add(line_items, 2, "Exhaust fan inspection/replacement (80 CFM)",
              1, "EA",

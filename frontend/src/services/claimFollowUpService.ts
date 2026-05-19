@@ -74,6 +74,7 @@ export const claimFollowUpService = {
       wm_estimate_amount?: number;
       sections_data?: any;
       file?: File;
+      wm_estimate_file?: File;
     }
   ): Promise<FollowUpTask> {
     const formData = new FormData();
@@ -87,6 +88,7 @@ export const claimFollowUpService = {
     if (body?.wm_estimate_amount != null) formData.append('wm_estimate_amount', String(body.wm_estimate_amount));
     if (body?.sections_data) formData.append('sections_data', JSON.stringify(body.sections_data));
     if (body?.file) formData.append('file', body.file);
+    if (body?.wm_estimate_file) formData.append('wm_estimate_file', body.wm_estimate_file);
 
     const { data } = await api.post(`${BASE_URL}/tasks/${taskId}/resolve`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

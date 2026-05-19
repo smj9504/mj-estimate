@@ -60,7 +60,7 @@ class FollowUpTask(Base, BaseModel):
     task_type = Column(
         String(50),
         nullable=False,
-        comment="wm_docs_sent | supplement_sent | depreciation_recovery | estimate_request | payment_check | general"
+        comment="wm_docs_sent | supplement_sent | depreciation_recovery | estimate_request | payment_check | wm_payment_check | docs_sent | general"
     )
     title = Column(String(500), nullable=False)
     description = Column(Text)

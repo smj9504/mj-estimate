@@ -81,6 +81,8 @@ export interface BidItemEstimateCreate {
   pack_calculation_id?: string;
   roofing_estimate_id?: string;
   custom_amount?: number;
+  custom_document_file_id?: string;
+  custom_document_file_name?: string;
 }
 
 export interface SupplementFollowUp {

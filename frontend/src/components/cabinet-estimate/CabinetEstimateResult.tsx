@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Divider, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Card, Divider, Space, Table, Tag, Typography } from 'antd';
 import type { CabinetEstimate, EstimateLineItem } from '../../types/cabinetEstimate';
 
 const { Title, Text } = Typography;
@@ -144,22 +144,26 @@ const CabinetEstimateResult: React.FC<CabinetEstimateResultProps> = ({ estimate 
 
         <div style={{ textAlign: 'right', padding: '4px 16px' }}>
           <Space direction="vertical" size={2} style={{ width: '100%' }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 32 }}>
-              <Text>Subtotal</Text>
-              <Text strong>{fmtMoney(estimate.subtotal)}</Text>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 32 }}>
-              <Text type="secondary">Overhead ({(estimate.overhead_pct * 100).toFixed(0)}%)</Text>
-              <Text>{fmtMoney(estimate.overhead_amount)}</Text>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 32 }}>
-              <Text type="secondary">Profit ({(estimate.profit_pct * 100).toFixed(0)}%)</Text>
-              <Text>{fmtMoney(estimate.profit_amount)}</Text>
-            </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 32, background: '#f0f5ff', padding: '8px 0', borderRadius: 4 }}>
               <Title level={5} style={{ margin: 0 }}>TOTAL</Title>
               <Title level={5} style={{ margin: 0 }}>{fmtMoney(estimate.total)}</Title>
             </div>
+            {(estimate.overhead_pct > 0 || estimate.profit_pct > 0) && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, fontSize: 12 }}>
+                <Text type="secondary">
+                  O&P included: Overhead {(estimate.overhead_pct * 100).toFixed(0)}% ({fmtMoney(estimate.overhead_amount)})
+                  {' + '}Profit {(estimate.profit_pct * 100).toFixed(0)}% ({fmtMoney(estimate.profit_amount)})
+                </Text>
+              </div>
+            )}
+            {estimate.adjustment_factor && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, fontSize: 12 }}>
+                <Text type="secondary">
+                  Target adjustment: {estimate.adjustment_factor.toFixed(4)}x
+                  {estimate.target_total && ` (target: ${fmtMoney(estimate.target_total)})`}
+                </Text>
+              </div>
+            )}
           </Space>
         </div>
       </Card>
@@ -177,30 +181,6 @@ const CabinetEstimateResult: React.FC<CabinetEstimateResultProps> = ({ estimate 
         size="small"
         summary={() => (
           <>
-            <Table.Summary.Row>
-              <Table.Summary.Cell index={0} colSpan={columns.length - 1} align="right">
-                <Text strong>Subtotal</Text>
-              </Table.Summary.Cell>
-              <Table.Summary.Cell index={1} align="right">
-                <Text strong>{fmtMoney(estimate.subtotal)}</Text>
-              </Table.Summary.Cell>
-            </Table.Summary.Row>
-            <Table.Summary.Row>
-              <Table.Summary.Cell index={0} colSpan={columns.length - 1} align="right">
-                Overhead ({(estimate.overhead_pct * 100).toFixed(0)}%)
-              </Table.Summary.Cell>
-              <Table.Summary.Cell index={1} align="right">
-                {fmtMoney(estimate.overhead_amount)}
-              </Table.Summary.Cell>
-            </Table.Summary.Row>
-            <Table.Summary.Row>
-              <Table.Summary.Cell index={0} colSpan={columns.length - 1} align="right">
-                Profit ({(estimate.profit_pct * 100).toFixed(0)}%)
-              </Table.Summary.Cell>
-              <Table.Summary.Cell index={1} align="right">
-                {fmtMoney(estimate.profit_amount)}
-              </Table.Summary.Cell>
-            </Table.Summary.Row>
             <Table.Summary.Row style={{ background: '#f0f5ff' }}>
               <Table.Summary.Cell index={0} colSpan={columns.length - 1} align="right">
                 <Title level={5} style={{ margin: 0 }}>TOTAL</Title>
@@ -212,6 +192,22 @@ const CabinetEstimateResult: React.FC<CabinetEstimateResultProps> = ({ estimate 
           </>
         )}
       />
+      <div style={{ textAlign: 'right', padding: '8px 16px 0' }}>
+        {(estimate.overhead_pct > 0 || estimate.profit_pct > 0) && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            O&P included: Overhead {(estimate.overhead_pct * 100).toFixed(0)}% ({fmtMoney(estimate.overhead_amount)})
+            {' + '}Profit {(estimate.profit_pct * 100).toFixed(0)}% ({fmtMoney(estimate.profit_amount)})
+          </Text>
+        )}
+        {estimate.adjustment_factor && (
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Target adjustment: {estimate.adjustment_factor.toFixed(4)}x
+              {estimate.target_total && ` (target: ${fmtMoney(estimate.target_total)})`}
+            </Text>
+          </div>
+        )}
+      </div>
     </Card>
   );
 

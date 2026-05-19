@@ -40,6 +40,7 @@ import {
   EditOutlined,
   BookOutlined,
   AimOutlined,
+  AuditOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -58,6 +59,8 @@ import { PHASE_LABELS } from '../types/bathroomEstimate';
 import BESketchTab from '../components/bathroom-estimate/sketch/BESketchTab';
 import type { SketchFixtureSync } from '../components/bathroom-estimate/sketch/BESketchTab';
 
+const RegisterBidItemModal = React.lazy(() => import('../components/supplement/RegisterBidItemModal'));
+
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 const { Panel } = Collapse;
@@ -70,6 +73,7 @@ const BathroomEstimateDetail: React.FC = () => {
   const queryClient = useQueryClient();
   const [form] = Form.useForm();
   const [activeTab, setActiveTab] = useState('project');
+  const [registerBidItemOpen, setRegisterBidItemOpen] = useState(false);
 
   // ── Queries ──
   const { data: estimate, isLoading } = useQuery({
@@ -349,6 +353,14 @@ const BathroomEstimateDetail: React.FC = () => {
           </Title>
         </Space>
         <Space wrap>
+            <Button
+              icon={<AuditOutlined />}
+              onClick={() => setRegisterBidItemOpen(true)}
+              disabled={!estimate || estimate.status === 'draft'}
+              title="Register as Bid Item in Supplement"
+            >
+              Add to Supplement
+            </Button>
             <Button icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>
               Save
             </Button>
@@ -1778,6 +1790,24 @@ const BathroomEstimateDetail: React.FC = () => {
           },
         ]} />
       </Form>
+
+      {estimate && registerBidItemOpen && (
+        <React.Suspense fallback={null}>
+          <RegisterBidItemModal
+            open={registerBidItemOpen}
+            onClose={() => setRegisterBidItemOpen(false)}
+            estimateType="bathroom"
+            estimateId={estimate.id}
+            claimId={estimate.claim_id}
+            defaultTitle={
+              estimate.designation
+                ? `${estimate.designation} Bathroom${estimate.property_address ? ` — ${estimate.property_address}` : ''}`
+                : estimate.property_address || 'Bathroom Estimate'
+            }
+            defaultAmount={estimate.total}
+          />
+        </React.Suspense>
+      )}
     </div>
   );
 };

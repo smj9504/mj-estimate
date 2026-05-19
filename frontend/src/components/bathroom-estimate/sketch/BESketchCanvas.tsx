@@ -218,6 +218,9 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   const ppf = settings.pixelsPerFoot;
   const gridPx = ppf * settings.gridSizeFt;
 
+  // ── Wall body drag ref (move entire wall) ──
+  const wallDragRef = useRef<{ wallId: string; rawStart: BEPoint; rawEnd: BEPoint } | null>(null);
+
   // ── Wall inline edit state ──
   const [editingWallId, setEditingWallId] = useState<string | null>(null);
   const [editingWallValue, setEditingWallValue] = useState('');
@@ -1037,6 +1040,61 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     <Circle x={wall.end.x} y={wall.end.y} radius={3} fill="#666" />
                   </>
                 )}
+                {/* Draggable wall body (move entire wall when selected) */}
+                {isWallSelected && (
+                  <Line
+                    points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
+                    stroke="transparent"
+                    strokeWidth={20}
+                    draggable
+                    onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'move'; }}
+                    onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                    onClick={(e) => { e.cancelBubble = true; }}
+                    onDragStart={() => {
+                      wallDragRef.current = {
+                        wallId: wall.id,
+                        rawStart: { ...wall.start },
+                        rawEnd: { ...wall.end },
+                      };
+                    }}
+                    onDragMove={(e) => {
+                      if (!wallDragRef.current || wallDragRef.current.wallId !== wall.id) return;
+                      const dx = e.target.x();
+                      const dy = e.target.y();
+                      const ref = wallDragRef.current;
+                      const rawNewStart = { x: ref.rawStart.x + dx, y: ref.rawStart.y + dy };
+                      const rawNewEnd = { x: ref.rawEnd.x + dx, y: ref.rawEnd.y + dy };
+                      const newStart = settings.snapToGrid ? snapToGrid(rawNewStart, gridPx) : rawNewStart;
+                      const newEnd = settings.snapToGrid ? snapToGrid(rawNewEnd, gridPx) : rawNewEnd;
+                      // Capture pre-update positions for room vertex lookup
+                      const prevStart = wall.start;
+                      const prevEnd = wall.end;
+                      // Reset node position so next frame delta is from (0,0)
+                      e.target.position({ x: 0, y: 0 });
+                      // Advance ref by raw delta
+                      wallDragRef.current = { wallId: wall.id, rawStart: rawNewStart, rawEnd: rawNewEnd };
+                      api.updateWall(wall.id, { start: newStart, end: newEnd });
+                      // Sync room boundary vertices
+                      for (const rm of rooms) {
+                        const boundary = [...rm.boundary];
+                        let changed = false;
+                        for (let i = 0; i < boundary.length; i++) {
+                          if (Math.abs(boundary[i].x - prevStart.x) < 2 && Math.abs(boundary[i].y - prevStart.y) < 2) {
+                            boundary[i] = newStart; changed = true;
+                          } else if (Math.abs(boundary[i].x - prevEnd.x) < 2 && Math.abs(boundary[i].y - prevEnd.y) < 2) {
+                            boundary[i] = newEnd; changed = true;
+                          }
+                        }
+                        if (changed) updateRoom(rm.id, boundary);
+                      }
+                    }}
+                    onDragEnd={(e) => {
+                      e.target.position({ x: 0, y: 0 });
+                      wallDragRef.current = null;
+                    }}
+                  />
+                )}
+
                 {/* Draggable endpoint handles (when selected) */}
                 {isWallSelected && (
                   <>

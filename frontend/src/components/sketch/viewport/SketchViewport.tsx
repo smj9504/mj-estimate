@@ -489,6 +489,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     setEditingWallId(wallId);
     setWallLengthInput({ feet, inches });
 
+
     // Calculate position for edit input (convert wall midpoint to screen coordinates)
     const midpoint = getWallMidpoint(wall);
     const stage = stageRef.current;
@@ -738,6 +739,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
     setEditingWallId(null);
     setWallEditPosition(null);
   }, []);
+
 
   // Convex Hull algorithm to find the outer boundary
   const getConvexHull = (points: Point[]): Point[] => {
@@ -4720,7 +4722,7 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
         <div
           style={{
             position: 'absolute',
-            left: wallEditPosition.x - 60, // Center the input
+            left: wallEditPosition.x - 60,
             top: wallEditPosition.y,
             zIndex: 1000,
             background: 'white',
@@ -4740,68 +4742,46 @@ const SketchViewport: React.FC<SketchViewportProps> = ({
             max={99}
             value={wallLengthInput.feet}
             onChange={(value) => {
-              // Only update if value is valid, otherwise keep current value
               if (value !== null && value !== undefined && value >= 0) {
                 setWallLengthInput(prev => ({ ...prev, feet: value }));
               }
             }}
-            onPressEnter={(e) => {
-              updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
-            }}
+            onPressEnter={() => updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
-              }
-              if (e.key === 'Escape') {
-                cancelWallEdit();
-              }
+              if (e.key === 'Enter') updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
+              if (e.key === 'Escape') cancelWallEdit();
             }}
             style={{ width: '50px' }}
             autoFocus
           />
           <span style={{ fontSize: '12px', color: '#666' }}>′</span>
-
           <InputNumber
             size="small"
             min={0}
             max={11}
             value={wallLengthInput.inches}
             onChange={(value) => {
-              // Only update if value is valid, otherwise keep current value
               if (value !== null && value !== undefined && value >= 0 && value < 12) {
                 setWallLengthInput(prev => ({ ...prev, inches: value }));
               }
             }}
-            onPressEnter={(e) => {
-              updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
-            }}
+            onPressEnter={() => updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
-              }
-              if (e.key === 'Escape') {
-                cancelWallEdit();
-              }
+              if (e.key === 'Enter') updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
+              if (e.key === 'Escape') cancelWallEdit();
             }}
             style={{ width: '50px' }}
           />
           <span style={{ fontSize: '12px', color: '#666' }}>″</span>
-
           <Button
             type="primary"
             size="small"
-            onClick={() => {
-              updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches);
-            }}
+            onClick={() => updateWallLength(editingWallId, wallLengthInput.feet, wallLengthInput.inches)}
             style={{ marginLeft: '4px' }}
           >
             ✓
           </Button>
-          <Button
-            size="small"
-            onClick={cancelWallEdit}
-            style={{ marginLeft: '2px' }}
-          >
+          <Button size="small" onClick={cancelWallEdit} style={{ marginLeft: '2px' }}>
             ✕
           </Button>
         </div>

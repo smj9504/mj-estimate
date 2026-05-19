@@ -148,7 +148,7 @@ const CabinetEstimateList: React.FC = () => {
           <Button
             size="small"
             icon={<FilePdfOutlined />}
-            onClick={() => cabinetEstimateService.exportPdf(record.id)}
+            onClick={() => cabinetEstimateService.exportPdf(record.id, { address: record.property_address })}
             title="Export PDF"
             disabled={record.status === 'draft'}
           />

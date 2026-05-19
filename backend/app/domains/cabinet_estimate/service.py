@@ -221,6 +221,9 @@ class CabinetEstimateService:
                 getattr(estimate, 'include_drywall_repair', False)
                 or False
             ),
+            drywall_repair_type=getattr(
+                estimate, 'drywall_repair_type', 'patch',
+            ) or 'patch',
             drywall_repair_sqft=getattr(
                 estimate, 'drywall_repair_sqft', None
             ),
@@ -274,6 +277,9 @@ class CabinetEstimateService:
                 if estimate.profit_pct is not None
                 else 0.15
             ),
+            target_total=(
+                getattr(estimate, 'target_total', None)
+            ),
         )
 
         # Save history before updating
@@ -305,6 +311,7 @@ class CabinetEstimateService:
             "overhead_amount": result.overhead_amount,
             "profit_pct": result.profit_pct,
             "profit_amount": result.profit_amount,
+            "adjustment_factor": result.adjustment_factor,
             "total": result.total,
             "methodology_notes": result.methodology_notes,
             "warning_flags": result.warning_flags,

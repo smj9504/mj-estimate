@@ -224,6 +224,96 @@ async def update_task(task_id: str, data: FollowUpTaskUpdate):
     return result
 
 
+async def _upload_pdf_file(
+    db,
+    file: UploadFile,
+    context: str,
+    context_id: str,
+    address_part: str,
+    version: int,
+    label: str,
+) -> tuple:
+    """Upload a PDF file and return (file_id, filename)."""
+    import io
+    import os as _os
+    from app.domains.file.service import FileService
+
+    ext = _os.path.splitext(file.filename)[1] or '.pdf'
+    if address_part:
+        safe_address = address_part.replace('/', '-').replace('\\', '-').replace(':', '').replace('"', '')
+        upload_filename = f"{safe_address}-{label}-v{version}{ext}"
+    else:
+        upload_filename = f"{label}-v{version}{ext}"
+
+    file_service = FileService(db)
+    file_content = await file.read()
+    file_record = await file_service.upload_file(
+        file_data=io.BytesIO(file_content),
+        original_filename=upload_filename,
+        content_type=file.content_type or "application/pdf",
+        context=context,
+        context_id=context_id,
+    )
+    file_service.repository.db_session.commit()
+    file_service.repository.db_session.close()
+    return str(file_record.get("id", "")), upload_filename
+
+
+def _parse_pdf_amount(file_content: bytes) -> Optional[float]:
+    """Parse a PDF and return total RCV/amount. Returns None if parsing fails."""
+    import os
+    import tempfile
+    tmp_path = None
+    try:
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        try:
+            with os.fdopen(tmp_fd, "wb") as f:
+                f.write(file_content)
+        except Exception:
+            try:
+                os.close(tmp_fd)
+            except OSError:
+                pass
+            raise
+
+        from app.domains.client.negotiation_pdf_service import extract_summary_from_pdf
+        result = extract_summary_from_pdf(tmp_path)
+        totals = result.get("totals", {})
+        rcv = totals.get("rcv_amount") or totals.get("acv_amount")
+        if rcv:
+            return float(rcv)
+
+        # Fallback: insurance_extraction pipeline
+        try:
+            from app.domains.insurance_extraction.extractors.ocr_fallback_extractor import OcrFallbackExtractor
+            from app.domains.insurance_extraction.extractors.pdf_text_extractor import PdfTextExtractor
+            from app.domains.insurance_extraction.orchestrator.pipeline import InsuranceExtractionOrchestrator
+            from app.domains.insurance_extraction.parsers.resolver import InsuranceParserResolver
+
+            orchestrator = InsuranceExtractionOrchestrator(
+                text_extractor=PdfTextExtractor(),
+                ocr_extractor=OcrFallbackExtractor(),
+                parser_resolver=InsuranceParserResolver(),
+            )
+            pipeline_result = orchestrator.run(tmp_path)
+            if pipeline_result.items:
+                total = sum(float(item.rcv or item.unit_price or 0) * float(item.quantity or 1)
+                            for item in pipeline_result.items)
+                if total > 0:
+                    return total
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning(f"PDF parsing failed: {e}")
+    finally:
+        if tmp_path and os.path.isfile(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    return None
+
+
 @router.post("/tasks/{task_id}/resolve")
 async def resolve_task(
     task_id: str,
@@ -237,66 +327,103 @@ async def resolve_task(
     wm_estimate_amount: Optional[float] = Form(None),
     sections_data: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
+    wm_estimate_file: Optional[UploadFile] = File(None),
 ):
-    """Mark a follow-up task as resolved with optional outcome, amounts, and file"""
+    """Mark a follow-up task as resolved with optional outcome, amounts, and files.
+
+    - file: Insurance estimate PDF (rebuild)
+    - wm_estimate_file: Separate WM estimate PDF (when wm_cost_status='separate_estimate')
+    """
     service = _get_service()
 
-    # Handle file upload if provided
+    # Verify task exists before doing any work (e.g. file upload)
+    existing_task = service.get_task(task_id)
+    if not existing_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Resolve address and version info once (shared by both uploads)
+    address_part = ''
+    version = 1
+    try:
+        from app.core.database_factory import get_database
+        from app.domains.claim_followup.models import FollowUpTask as FUTask
+        from app.domains.client.models import Claim, ClaimNegotiation, Client
+        from sqlalchemy import func as sqlfunc
+
+        db = get_database()
+        session = db.get_session()
+        try:
+            task_obj = session.query(FUTask).filter(FUTask.id == task_id).first()
+            if task_obj and task_obj.claim_id:
+                claim_obj = session.query(Claim).filter(Claim.id == task_obj.claim_id).first()
+                if claim_obj:
+                    client_obj = session.query(Client).filter(Client.id == claim_obj.client_id).first()
+                    if client_obj and client_obj.address:
+                        address_part = client_obj.address.strip()
+                    max_rev = session.query(sqlfunc.max(ClaimNegotiation.revision_number)).filter(
+                        ClaimNegotiation.claim_id == str(claim_obj.id)
+                    ).scalar() or 0
+                    version = max_rev + 1
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"Failed to fetch address info for file naming: {e}")
+
+    # Handle insurance estimate file upload
     file_id = None
     file_name = None
     if file and file.filename:
         try:
-            import io
-            import os as _os
-            from app.core.database_factory import get_database
-            from app.domains.file.service import FileService
-            from app.domains.claim_followup.models import FollowUpTask as FUTask
-            from app.domains.client.models import Claim, ClaimNegotiation, Client
-            from sqlalchemy import func as sqlfunc
-
             db = get_database()
-            session = db.get_session()
-            try:
-                # Build filename: [address]-[version].pdf
-                ext = _os.path.splitext(file.filename)[1] or '.pdf'
-                address_part = ''
-                version = 1
-                task_obj = session.query(FUTask).filter(FUTask.id == task_id).first()
-                if task_obj and task_obj.claim_id:
-                    claim_obj = session.query(Claim).filter(Claim.id == task_obj.claim_id).first()
-                    if claim_obj:
-                        client_obj = session.query(Client).filter(Client.id == claim_obj.client_id).first()
-                        if client_obj and client_obj.address:
-                            address_part = client_obj.address.strip()
-                        max_rev = session.query(sqlfunc.max(ClaimNegotiation.revision_number)).filter(
-                            ClaimNegotiation.claim_id == str(claim_obj.id)
-                        ).scalar() or 0
-                        version = max_rev + 1
-
-                if address_part:
-                    # Sanitize address for filename
-                    safe_address = address_part.replace('/', '-').replace('\\', '-').replace(':', '').replace('"', '')
-                    upload_filename = f"{safe_address}-v{version}{ext}"
-                else:
-                    upload_filename = f"Insurance-Estimate-v{version}{ext}"
-
-                file_service = FileService(db)
-                file_content = await file.read()
-                file_record = await file_service.upload_file(
-                    file_data=io.BytesIO(file_content),
-                    original_filename=upload_filename,
-                    content_type=file.content_type or "application/pdf",
-                    context="insurance_estimate",
-                    context_id=task_id,
-                )
-                file_service.repository.db_session.commit()
-                file_id = str(file_record.get("id", ""))
-                file_name = upload_filename
-            finally:
-                session.close()
-                file_service.repository.db_session.close()
+            file_id, file_name = await _upload_pdf_file(
+                db, file, "insurance_estimate", task_id,
+                address_part, version, "Insurance-Estimate",
+            )
         except Exception as e:
-            logger.error(f"File upload failed during resolve: {e}")
+            logger.error(f"Insurance estimate file upload failed: {e}")
+
+    # Handle WM estimate file upload + auto-parse amount
+    wm_file_id = None
+    wm_file_name = None
+    parsed_wm_amount = wm_estimate_amount  # keep manually entered amount as fallback
+    if wm_estimate_file and wm_estimate_file.filename:
+        try:
+            db = get_database()
+            wm_file_content = await wm_estimate_file.read()
+            # Auto-parse amount from PDF
+            auto_amount = _parse_pdf_amount(wm_file_content)
+            if auto_amount and not wm_estimate_amount:
+                parsed_wm_amount = auto_amount
+                logger.info(f"Auto-parsed WM estimate amount from PDF: ${auto_amount:,.2f}")
+
+            # Re-read for upload (already consumed above)
+            import io
+            wm_estimate_file.file.seek(0) if hasattr(wm_estimate_file.file, 'seek') else None
+            # Use the already-read bytes for upload
+            from app.domains.file.service import FileService
+            import os as _os
+            ext = _os.path.splitext(wm_estimate_file.filename)[1] or '.pdf'
+            if address_part:
+                safe_address = address_part.replace('/', '-').replace('\\', '-').replace(':', '').replace('"', '')
+                wm_upload_filename = f"{safe_address}-WM-Estimate-v{version}{ext}"
+            else:
+                wm_upload_filename = f"WM-Estimate-v{version}{ext}"
+
+            db2 = get_database()
+            fs = FileService(db2)
+            wm_record = await fs.upload_file(
+                file_data=io.BytesIO(wm_file_content),
+                original_filename=wm_upload_filename,
+                content_type=wm_estimate_file.content_type or "application/pdf",
+                context="wm_estimate",
+                context_id=task_id,
+            )
+            fs.repository.db_session.commit()
+            fs.repository.db_session.close()
+            wm_file_id = str(wm_record.get("id", ""))
+            wm_file_name = wm_upload_filename
+        except Exception as e:
+            logger.error(f"WM estimate file upload failed: {e}")
 
     # Parse sections_data JSON string
     parsed_sections = None
@@ -308,7 +435,7 @@ async def resolve_task(
             pass
 
     estimate_data = None
-    if acv_amount is not None or rcv_amount is not None or file_id:
+    if acv_amount is not None or rcv_amount is not None or file_id or wm_file_id:
         estimate_data = {
             'acv_amount': acv_amount or 0,
             'rcv_amount': rcv_amount or 0,
@@ -318,7 +445,9 @@ async def resolve_task(
             'file_name': file_name,
             'sections_data': parsed_sections,
             'wm_cost_status': wm_cost_status,
-            'wm_estimate_amount': wm_estimate_amount,
+            'wm_estimate_amount': parsed_wm_amount,
+            'wm_file_id': wm_file_id,
+            'wm_file_name': wm_file_name,
         }
 
     result = service.resolve_task(

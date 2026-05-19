@@ -163,6 +163,7 @@ class CabinetEstimateBase(BaseModel):
     include_toe_kick: bool = True
     include_countertop: bool = False
     include_drywall_repair: bool = False
+    drywall_repair_type: Optional[str] = "patch"
     drywall_repair_sqft: Optional[float] = None
     include_painting: bool = False
     painting_sqft: Optional[float] = None
@@ -180,6 +181,7 @@ class CabinetEstimateBase(BaseModel):
     island_countertop_material: Optional[str] = None
     island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
+    target_total: Optional[float] = None
     overhead_pct: float = 0.15
     profit_pct: float = 0.15
     notes: Optional[str] = None
@@ -206,6 +208,7 @@ class CabinetEstimateUpdate(BaseModel):
     include_install: Optional[bool] = None
     include_delivery: Optional[bool] = None
     include_plumbing: Optional[bool] = None
+    sink_type: Optional[str] = None
     include_countertop_reset: Optional[bool] = None
     include_hardware: Optional[bool] = None
     include_crown_molding: Optional[bool] = None
@@ -215,6 +218,7 @@ class CabinetEstimateUpdate(BaseModel):
     include_toe_kick: Optional[bool] = None
     include_countertop: Optional[bool] = None
     include_drywall_repair: Optional[bool] = None
+    drywall_repair_type: Optional[str] = None
     drywall_repair_sqft: Optional[float] = None
     include_painting: Optional[bool] = None
     painting_sqft: Optional[float] = None
@@ -232,6 +236,7 @@ class CabinetEstimateUpdate(BaseModel):
     island_countertop_material: Optional[str] = None
     island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
+    target_total: Optional[float] = None
     overhead_pct: Optional[float] = None
     profit_pct: Optional[float] = None
     notes: Optional[str] = None
@@ -268,6 +273,7 @@ class CabinetEstimateResponse(BaseModel):
     include_toe_kick: bool = True
     include_countertop: bool = False
     include_drywall_repair: bool = False
+    drywall_repair_type: Optional[str] = "patch"
     drywall_repair_sqft: Optional[float] = None
     include_painting: bool = False
     painting_sqft: Optional[float] = None
@@ -285,11 +291,13 @@ class CabinetEstimateResponse(BaseModel):
     island_countertop_material: Optional[str] = None
     island_countertop_sqft: Optional[float] = None
     overview_text: Optional[str] = None
+    target_total: Optional[float] = None
     subtotal: float = 0
     overhead_pct: float = 0.15
     overhead_amount: float = 0
     profit_pct: float = 0.15
     profit_amount: float = 0
+    adjustment_factor: Optional[float] = None
     total: float = 0
     methodology_notes: Optional[str] = None
     warning_flags: Optional[List[str]] = None

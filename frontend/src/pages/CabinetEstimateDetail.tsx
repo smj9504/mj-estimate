@@ -14,12 +14,14 @@ import {
   Select,
   Space,
   Spin,
+  Statistic,
   Tabs,
   Tag,
   Typography,
 } from 'antd';
 import {
   ArrowLeftOutlined,
+  AuditOutlined,
   CalculatorOutlined,
   CopyOutlined,
   FileExcelOutlined,
@@ -38,6 +40,8 @@ import CabinetPurchaseOrder from '../components/cabinet-estimate/CabinetPurchase
 import CabinetEstimateHistory from '../components/cabinet-estimate/CabinetEstimateHistory';
 import type { CabinetBoxCreate, CabinetEstimate, CabinetEstimateUpdate } from '../types/cabinetEstimate';
 import type { Claim } from '../types/client';
+
+const RegisterBidItemModal = React.lazy(() => import('../components/supplement/RegisterBidItemModal'));
 
 const { Title, Text } = Typography;
 
@@ -101,9 +105,16 @@ const CabinetEstimateDetail: React.FC = () => {
   const [perimeterBoxes, setPerimeterBoxes] = useState<CabinetBoxCreate[]>([]);
   const [islandBoxes, setIslandBoxes] = useState<CabinetBoxCreate[]>([]);
   const [activeTab, setActiveTab] = useState('edit');
+  const [registerBidItemOpen, setRegisterBidItemOpen] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
+
+  // Watch island panel SF values for reactive LF display
+  const endPanelSf = Form.useWatch('island_end_panel_sqft', form) || 0;
+  const backPanelSf = Form.useWatch('island_back_panel_sqft', form) || 0;
+  const [endPanelHeight, setEndPanelHeight] = useState<'base' | 'tall'>('base');
+  const [backPanelHeight, setBackPanelHeight] = useState<'base' | 'tall'>('base');
 
   // ── Fetch pricing options ──
   const { data: pricingInfo } = useQuery({
@@ -202,6 +213,7 @@ const CabinetEstimateDetail: React.FC = () => {
         include_toe_kick: estimate.include_toe_kick ?? true,
         include_countertop: estimate.include_countertop,
         include_drywall_repair: estimate.include_drywall_repair,
+        drywall_repair_type: estimate.drywall_repair_type || 'patch',
         drywall_repair_sqft: estimate.drywall_repair_sqft,
         include_painting: estimate.include_painting,
         painting_sqft: estimate.painting_sqft,
@@ -219,6 +231,7 @@ const CabinetEstimateDetail: React.FC = () => {
         island_countertop_material: estimate.island_countertop_material,
         island_countertop_sqft: estimate.island_countertop_sqft,
         overview_text: estimate.overview_text,
+        target_total: estimate.target_total || null,
         overhead_pct: (estimate.overhead_pct ?? 0.15) * 100,
         profit_pct: (estimate.profit_pct ?? 0.15) * 100,
         notes: estimate.notes,
@@ -342,6 +355,14 @@ const CabinetEstimateDetail: React.FC = () => {
         </Col>
         <Col xs={24} md="auto">
           <Space wrap size="small">
+            <Button
+              icon={<AuditOutlined />}
+              onClick={() => setRegisterBidItemOpen(true)}
+              disabled={estimate.status === 'draft'}
+              title="Register as Bid Item in Supplement"
+            >
+              Add to Supplement
+            </Button>
             <Button icon={<SaveOutlined />} onClick={handleSave} loading={saveMutation.isPending}>
               Save
             </Button>
@@ -366,6 +387,7 @@ const CabinetEstimateDetail: React.FC = () => {
                 onClick: ({ key }) => {
                   cabinetEstimateService.exportPdf(id!, {
                     show_signature: key === 'with-sig',
+                    address: estimate.property_address,
                   });
                 },
               }}
@@ -548,13 +570,11 @@ const CabinetEstimateDetail: React.FC = () => {
                                 min={0} max={30} step={0.5}
                                 style={{ width: '100%' }}
                                 placeholder="0"
-                                value={(() => {
-                                  const sf = form.getFieldValue('island_end_panel_sqft') || 0;
-                                  return sf > 0 ? Math.round(sf / 2.875 * 10) / 10 : undefined;
-                                })()}
+                                value={endPanelSf > 0 ? Math.round(endPanelSf / (endPanelHeight === 'tall' ? 7 : 2.875) * 10) / 10 : undefined}
                                 onChange={(lf) => {
+                                  const h = endPanelHeight === 'tall' ? 7 : 2.875;
                                   form.setFieldsValue({
-                                    island_end_panel_sqft: lf ? Math.round(lf * 2.875 * 10) / 10 : 0,
+                                    island_end_panel_sqft: lf ? Math.round(lf * h * 10) / 10 : 0,
                                   });
                                 }}
                               />
@@ -563,17 +583,18 @@ const CabinetEstimateDetail: React.FC = () => {
                           <Col xs={7} sm={7}>
                             <Form.Item label="Height" style={{ marginBottom: 4 }}>
                               <Select
-                                defaultValue="base"
+                                value={endPanelHeight}
                                 size="middle"
                                 onChange={(h) => {
-                                  const sf = form.getFieldValue('island_end_panel_sqft') || 0;
-                                  if (sf <= 0) return;
-                                  const oldH = h === 'base' ? 7 : 2.875;
-                                  const newH = h === 'base' ? 2.875 : 7;
-                                  const lf = sf / oldH;
-                                  form.setFieldsValue({
-                                    island_end_panel_sqft: Math.round(lf * newH * 10) / 10,
-                                  });
+                                  const oldH = endPanelHeight === 'tall' ? 7 : 2.875;
+                                  const newH = h === 'tall' ? 7 : 2.875;
+                                  setEndPanelHeight(h);
+                                  if (endPanelSf > 0) {
+                                    const lf = endPanelSf / oldH;
+                                    form.setFieldsValue({
+                                      island_end_panel_sqft: Math.round(lf * newH * 10) / 10,
+                                    });
+                                  }
                                 }}
                                 options={[
                                   { label: 'Base (34.5")', value: 'base' },
@@ -599,13 +620,11 @@ const CabinetEstimateDetail: React.FC = () => {
                                 min={0} max={30} step={0.5}
                                 style={{ width: '100%' }}
                                 placeholder="0"
-                                value={(() => {
-                                  const sf = form.getFieldValue('island_back_panel_sqft') || 0;
-                                  return sf > 0 ? Math.round(sf / 2.875 * 10) / 10 : undefined;
-                                })()}
+                                value={backPanelSf > 0 ? Math.round(backPanelSf / (backPanelHeight === 'tall' ? 7 : 2.875) * 10) / 10 : undefined}
                                 onChange={(lf) => {
+                                  const h = backPanelHeight === 'tall' ? 7 : 2.875;
                                   form.setFieldsValue({
-                                    island_back_panel_sqft: lf ? Math.round(lf * 2.875 * 10) / 10 : 0,
+                                    island_back_panel_sqft: lf ? Math.round(lf * h * 10) / 10 : 0,
                                   });
                                 }}
                               />
@@ -614,17 +633,18 @@ const CabinetEstimateDetail: React.FC = () => {
                           <Col xs={7} sm={7}>
                             <Form.Item label="Height" style={{ marginBottom: 4 }}>
                               <Select
-                                defaultValue="base"
+                                value={backPanelHeight}
                                 size="middle"
                                 onChange={(h) => {
-                                  const sf = form.getFieldValue('island_back_panel_sqft') || 0;
-                                  if (sf <= 0) return;
-                                  const oldH = h === 'base' ? 7 : 2.875;
-                                  const newH = h === 'base' ? 2.875 : 7;
-                                  const lf = sf / oldH;
-                                  form.setFieldsValue({
-                                    island_back_panel_sqft: Math.round(lf * newH * 10) / 10,
-                                  });
+                                  const oldH = backPanelHeight === 'tall' ? 7 : 2.875;
+                                  const newH = h === 'tall' ? 7 : 2.875;
+                                  setBackPanelHeight(h);
+                                  if (backPanelSf > 0) {
+                                    const lf = backPanelSf / oldH;
+                                    form.setFieldsValue({
+                                      island_back_panel_sqft: Math.round(lf * newH * 10) / 10,
+                                    });
+                                  }
                                 }}
                                 options={[
                                   { label: 'Base (34.5")', value: 'base' },
@@ -667,7 +687,7 @@ const CabinetEstimateDetail: React.FC = () => {
                           <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Island Countertop</Text>
                           <Row gutter={16}>
                             <Col xs={12}>
-                              <Form.Item name="island_countertop_material" label="Material">
+                              <Form.Item name="island_countertop_material" label="Material" preserve>
                                 <Select
                                   placeholder="Same as perimeter"
                                   allowClear
@@ -684,7 +704,7 @@ const CabinetEstimateDetail: React.FC = () => {
                               </Form.Item>
                             </Col>
                             <Col xs={12}>
-                              <Form.Item name="island_countertop_sqft" label="Area (SF)">
+                              <Form.Item name="island_countertop_sqft" label="Area (SF)" preserve>
                                 <InputNumber min={0} max={500} step={0.5} style={{ width: '100%' }} addonAfter="SF" />
                               </Form.Item>
                               {suggestedSf > 0 && (
@@ -730,7 +750,7 @@ const CabinetEstimateDetail: React.FC = () => {
                       <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_delivery !== cur.include_delivery}>
                         {({ getFieldValue }) =>
                           getFieldValue('include_delivery') ? (
-                            <Form.Item name="delivery_floor" label="Floor" style={{ marginBottom: 0, marginLeft: 24 }}>
+                            <Form.Item name="delivery_floor" label="Floor" preserve style={{ marginBottom: 0, marginLeft: 24 }}>
                               <Select
                                 size="small"
                                 style={{ width: 120 }}
@@ -752,7 +772,7 @@ const CabinetEstimateDetail: React.FC = () => {
                       <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_plumbing !== cur.include_plumbing}>
                         {({ getFieldValue }) =>
                           getFieldValue('include_plumbing') ? (
-                            <Form.Item name="sink_type" label="Sink Type" style={{ marginBottom: 0, marginLeft: 24 }}>
+                            <Form.Item name="sink_type" label="Sink Type" preserve style={{ marginBottom: 0, marginLeft: 24 }}>
                               <Select size="small" style={{ width: 180 }} options={[
                                 { label: 'Single Bowl ($445)', value: 'single' },
                                 { label: 'Double Bowl ($585)', value: 'double' },
@@ -831,22 +851,27 @@ const CabinetEstimateDetail: React.FC = () => {
                     {({ getFieldValue }) => {
                       if (!getFieldValue('include_appliance_rr')) return null;
                       const APPLIANCE_OPTIONS = [
+                        { type: 'dishwasher', label: 'Dishwasher', cost: 412 },
                         { type: 'refrigerator', label: 'Refrigerator', cost: 150 },
-                        { type: 'range_gas', label: 'Range (Gas)', cost: 175 },
-                        { type: 'range_electric', label: 'Range (Electric)', cost: 125 },
+                        { type: 'range_gas', label: 'Range (Gas) - Freestanding', cost: 282 },
+                        { type: 'range_electric', label: 'Range (Electric) - Freestanding', cost: 125 },
+                        { type: 'range_gas_slide', label: 'Range (Gas) - Slide-in', cost: 282 },
+                        { type: 'range_electric_slide', label: 'Range (Electric) - Slide-in', cost: 125 },
+                        { type: 'range_dropin', label: 'Range - Drop-in', cost: 275 },
                         { type: 'cooktop_gas', label: 'Cooktop (Gas)', cost: 150 },
                         { type: 'cooktop_electric', label: 'Cooktop (Electric)', cost: 125 },
                         { type: 'wall_oven', label: 'Wall Oven', cost: 150 },
-                        { type: 'dishwasher', label: 'Dishwasher', cost: 100 },
                         { type: 'microwave_otr', label: 'Microwave (OTR)', cost: 85 },
-                        { type: 'hood_vent', label: 'Hood / Vent', cost: 75 },
+                        { type: 'hood_vent', label: 'Range Hood', cost: 185 },
+                        { type: 'hood_wood_42', label: 'Wood Range Hood (42"+)', cost: 478 },
+                        { type: 'garbage_disposal', label: 'Garbage Disposal', cost: 282 },
                       ];
                       return (
                         <div style={{ borderTop: '1px solid #f0f0f0', margin: '8px 0 12px', paddingTop: 8 }}>
                           <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
                             Select appliances to detach & reset:
                           </Text>
-                          <Form.Item name="appliance_list" noStyle>
+                          <Form.Item name="appliance_list" noStyle preserve>
                             <ApplianceSelector options={APPLIANCE_OPTIONS} />
                           </Form.Item>
                         </div>
@@ -875,7 +900,7 @@ const CabinetEstimateDetail: React.FC = () => {
                             </Text>
                           </Col>
                           <Col xs={12}>
-                            <Form.Item name="countertop_material" label="Material">
+                            <Form.Item name="countertop_material" label="Material" preserve>
                               <Select
                                 placeholder="Select material"
                                 options={[
@@ -891,7 +916,7 @@ const CabinetEstimateDetail: React.FC = () => {
                             </Form.Item>
                           </Col>
                           <Col xs={12}>
-                            <Form.Item name="countertop_sqft" label="Area (SF)">
+                            <Form.Item name="countertop_sqft" label="Area (SF)" preserve>
                               <InputNumber min={0} max={500} step={0.5} style={{ width: '100%' }} addonAfter="SF" />
                             </Form.Item>
                             {suggestedSf > 0 && (
@@ -924,12 +949,11 @@ const CabinetEstimateDetail: React.FC = () => {
                   <Row gutter={16}>
                     <Col xs={24} md={12}>
                       <Form.Item name="include_drywall_repair" valuePropName="checked">
-                        <Checkbox>R&R Sheetrock (behind cabinets)</Checkbox>
+                        <Checkbox>Drywall Repair</Checkbox>
                       </Form.Item>
                       <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_drywall_repair !== cur.include_drywall_repair}>
                         {({ getFieldValue }) => {
                           if (!getFieldValue('include_drywall_repair')) return null;
-                          // Wall area behind cabinets: (base LF + wall LF) * avg height ~4ft
                           const totalLf = allBoxes.reduce((sum, b) => {
                             if (b.cab_type === 'base' || b.cab_type === 'wall')
                               return sum + (b.width_inches * b.qty) / 12;
@@ -937,8 +961,18 @@ const CabinetEstimateDetail: React.FC = () => {
                           }, 0);
                           const suggestedDwSf = Math.round(totalLf * 4 * 10) / 10;
                           return (
-                            <div>
-                              <Form.Item name="drywall_repair_sqft" label="Drywall Area (SF)">
+                            <div style={{ marginLeft: 24 }}>
+                              <Form.Item name="drywall_repair_type" label="Type" preserve style={{ marginBottom: 8 }}>
+                                <Select
+                                  size="small"
+                                  style={{ width: 280 }}
+                                  options={[
+                                    { label: 'Patch & Repair ($2.50/SF) — nail holes, minor damage', value: 'patch' },
+                                    { label: 'R&R Sheetrock ($4.50/SF) — full replace', value: 'rr' },
+                                  ]}
+                                />
+                              </Form.Item>
+                              <Form.Item name="drywall_repair_sqft" label="Area (SF)" preserve>
                                 <InputNumber min={0} max={1000} step={0.5} style={{ width: '100%' }} addonAfter="SF" />
                               </Form.Item>
                               {suggestedDwSf > 0 && (
@@ -969,7 +1003,7 @@ const CabinetEstimateDetail: React.FC = () => {
                           const dwSf = getFieldValue('drywall_repair_sqft');
                           return (
                             <div>
-                              <Form.Item name="painting_sqft" label="Paint Area (SF)">
+                              <Form.Item name="painting_sqft" label="Paint Area (SF)" preserve>
                                 <InputNumber min={0} max={1000} step={0.5} style={{ width: '100%' }} addonAfter="SF" />
                               </Form.Item>
                               {dwSf > 0 && (
@@ -1008,7 +1042,7 @@ const CabinetEstimateDetail: React.FC = () => {
                         <div>
                           <Row gutter={16}>
                             <Col xs={12}>
-                              <Form.Item name="backsplash_type" label="Backsplash Type">
+                              <Form.Item name="backsplash_type" label="Backsplash Type" preserve>
                                 <Select
                                   placeholder="Select type"
                                   options={pricingInfo?.backsplash_types?.map((bt) => ({
@@ -1019,7 +1053,7 @@ const CabinetEstimateDetail: React.FC = () => {
                               </Form.Item>
                             </Col>
                             <Col xs={12}>
-                              <Form.Item name="backsplash_sqft" label="Area (sqft)">
+                              <Form.Item name="backsplash_sqft" label="Area (sqft)" preserve>
                                 <InputNumber
                                   min={0}
                                   max={500}
@@ -1062,6 +1096,54 @@ const CabinetEstimateDetail: React.FC = () => {
                   <Form.Item name="profit_pct" label="Profit (%)">
                     <InputNumber min={0} max={50} style={{ width: '100%' }} addonAfter="%" />
                   </Form.Item>
+                </Card>
+
+                <Card size="small" title="Target Price" style={{ marginBottom: 16 }}>
+                  <Alert
+                    message="Set a desired total and all line items will scale proportionally when you Calculate."
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 12, fontSize: 11 }}
+                  />
+                  <Row gutter={8} align="middle">
+                    <Col flex="auto">
+                      <Form.Item label="Target Total ($)" name="target_total" style={{ marginBottom: 4 }}>
+                        <InputNumber
+                          style={{ width: '100%' }}
+                          min={0}
+                          step={1000}
+                          formatter={(v) => v ? `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
+                          parser={(v) => (v ? Number(v.replace(/,/g, '')) : 0) as any}
+                          placeholder="e.g. 25000"
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col>
+                      <Button
+                        type="dashed"
+                        size="small"
+                        style={{ marginTop: 4 }}
+                        onClick={() => {
+                          form.setFieldsValue({ target_total: null });
+                          message.info('Target cleared. Click Calculate to restore original pricing.');
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    </Col>
+                  </Row>
+                  {estimate.adjustment_factor && (
+                    <Statistic
+                      title="Adjustment Factor"
+                      value={estimate.adjustment_factor}
+                      precision={4}
+                      suffix="x"
+                      valueStyle={{
+                        color: estimate.adjustment_factor > 1 ? '#cf1322' : '#3f8600',
+                        fontSize: 16,
+                      }}
+                    />
+                  )}
                 </Card>
 
                 <Card size="small" title="PDF Overview" style={{ marginBottom: 16 }}>
@@ -1110,6 +1192,20 @@ const CabinetEstimateDetail: React.FC = () => {
           <CabinetPurchaseOrder estimateId={id!} />
         </Tabs.TabPane>
       </Tabs>
+
+      {registerBidItemOpen && (
+        <React.Suspense fallback={null}>
+          <RegisterBidItemModal
+            open={registerBidItemOpen}
+            onClose={() => setRegisterBidItemOpen(false)}
+            estimateType="cabinet"
+            estimateId={estimate.id}
+            claimId={estimate.claim_id}
+            defaultTitle={estimate.property_address || 'Cabinet Estimate'}
+            defaultAmount={estimate.total}
+          />
+        </React.Suspense>
+      )}
     </div>
   );
 };

@@ -60,6 +60,7 @@ class CalculationResult:
     overhead_amount: float
     profit_pct: float
     profit_amount: float
+    adjustment_factor: Optional[float]
     total: float
     methodology_notes: str
     warning_flags: List[str]
@@ -306,42 +307,54 @@ def _calc_location_cabinets(
             ))
 
     # ── Hardware ──
-    # Each opening (door/drawer front) gets 1 pull
+    # Each door and drawer front gets 1 pull/knob
     if include_hardware:
         total_openings = 0
         for b in boxes:
             if b.specialty_type == "drawer_base":
-                # Drawer banks: ~1 per 6", typically 3-5
-                openings = max(3, b.width_inches // 6)
-            elif b.specialty_type == "lazy_susan":
-                openings = 1  # single door or bi-fold
-            elif b.specialty_type == "blind_corner":
-                openings = 1  # single door
-            elif b.specialty_type == "sink_base":
-                # False front + door(s)
+                # All-drawer cabinet: typically 4 drawers
+                # (24"=4, 30"=4, 36"=5)
                 openings = (
-                    2 if b.width_inches <= 30 else 3
+                    5 if b.width_inches >= 36 else 4
                 )
+            elif b.specialty_type == "lazy_susan":
+                # Single door
+                openings = 1
+            elif b.specialty_type == "blind_corner":
+                # 1 door + 1 drawer
+                openings = 2
+            elif b.specialty_type == "sink_base":
+                # False front drawer (1) + doors
+                # ≤33": 1 false front + 2 doors = 3
+                # 36"+: 1 false front + 2 doors = 3
+                openings = 3
             elif b.cab_type == "base":
-                # Single door ≤21", double door >21"
-                # +1 drawer for standard base
+                # Standard base: 1 drawer + door(s)
+                # ≤21": 1 drawer + 1 door = 2
+                # >21": 1 drawer + 2 doors = 3
                 openings = (
-                    1 if b.width_inches <= 21 else 2
+                    2 if b.width_inches <= 21 else 3
                 )
             elif b.cab_type == "wall":
+                # Wall: door(s) only, no drawers
+                # ≤21": 1 door
+                # >21": 2 doors
                 openings = (
                     1 if b.width_inches <= 21 else 2
                 )
             elif b.cab_type == "tall":
-                # Pantry: typically 2 doors (upper+lower)
-                # Oven/fridge cabinet: 1-2 doors
-                if b.specialty_type in (
-                    "oven_cabinet",
-                    "refrigerator_cabinet",
+                if b.specialty_type == "oven_cabinet":
+                    # 1-2 doors + 1 drawer
+                    openings = 3
+                elif b.specialty_type == (
+                    "refrigerator_cabinet"
                 ):
-                    openings = 1
-                else:
+                    # Above-fridge panel, 1-2 doors
                     openings = 2
+                else:
+                    # Pantry: 2 doors (upper) + 2 doors
+                    # (lower) = 4 for tall pantry
+                    openings = 4
             else:
                 openings = 1
             total_openings += openings * b.qty
@@ -462,6 +475,7 @@ def calculate_estimate(
     island_countertop_material: Optional[str] = None,
     island_countertop_sqft: Optional[float] = None,
     include_drywall_repair: bool = False,
+    drywall_repair_type: Optional[str] = "patch",
     drywall_repair_sqft: Optional[float] = None,
     include_painting: bool = False,
     painting_sqft: Optional[float] = None,
@@ -476,6 +490,7 @@ def calculate_estimate(
     island_back_panel_sqft: float = 0,
     overhead_pct: float = DEFAULT_OVERHEAD_PCT,
     profit_pct: float = DEFAULT_PROFIT_PCT,
+    target_total: Optional[float] = None,
 ) -> CalculationResult:
     """
     Main calculation: Box inputs -> LF-based estimate.
@@ -873,12 +888,24 @@ def calculate_estimate(
     # ── 9. Drywall repair ──
     if include_drywall_repair and drywall_repair_sqft:
         dw_sqft = round(drywall_repair_sqft, 2)
-        dw_rate = SCOPE_ITEMS["drywall_rr_per_sf"]
+        dw_type = drywall_repair_type or "patch"
+        if dw_type == "rr":
+            dw_rate = SCOPE_ITEMS["drywall_rr_per_sf"]
+            dw_desc = (
+                "R&R Sheetrock "
+                "(behind cabinets)"
+            )
+        else:
+            dw_rate = SCOPE_ITEMS[
+                "drywall_patch_per_sf"
+            ]
+            dw_desc = (
+                "Drywall Patch & Repair "
+                "(nail holes, minor damage)"
+            )
         dw_total = round(dw_sqft * dw_rate, 2)
         line_items.append(LineItem(
-            description=(
-                "R&R Sheetrock (behind cabinets)"
-            ),
+            description=dw_desc,
             quantity=dw_sqft,
             unit="SF",
             unit_price=dw_rate,
@@ -1058,14 +1085,57 @@ def calculate_estimate(
         ))
 
     # ── 13. Calculate totals ──
+    # Raw subtotal before O&P
+    raw_subtotal = round(
+        sum(item.total for item in line_items), 2,
+    )
+    overhead_amount = round(
+        raw_subtotal * overhead_pct, 2,
+    )
+    profit_amount = round(
+        raw_subtotal * profit_pct, 2,
+    )
+
+    # Bake O&P into line item unit prices
+    # so PDF shows all-inclusive pricing
+    op_mult = 1 + overhead_pct + profit_pct
+    for item in line_items:
+        item.unit_price = round(
+            item.unit_price * op_mult, 2,
+        )
+        item.total = round(
+            item.quantity * item.unit_price, 2,
+        )
+
+    # Subtotal now includes O&P (= total)
     subtotal = round(
         sum(item.total for item in line_items), 2,
     )
-    overhead_amount = round(subtotal * overhead_pct, 2)
-    profit_amount = round(subtotal * profit_pct, 2)
-    total = round(
-        subtotal + overhead_amount + profit_amount, 2,
-    )
+    total = subtotal
+
+    # ── 13b. Target total adjustment (reverse pricing) ──
+    adjustment_factor = None
+    if (
+        target_total
+        and target_total > 0
+        and subtotal > 0
+        and total > 0
+    ):
+        adjustment_factor = target_total / total
+
+        for item in line_items:
+            item.unit_price = round(
+                item.unit_price * adjustment_factor, 2,
+            )
+            item.total = round(
+                item.quantity * item.unit_price, 2,
+            )
+
+        subtotal = round(
+            sum(item.total for item in line_items), 2,
+        )
+        # Round to nearest $10 for clean presentation
+        total = round(subtotal / 10) * 10
 
     # ── 14. Methodology notes ──
     methodology_lines = [
@@ -1105,6 +1175,11 @@ def calculate_estimate(
             f"Backsplash: {backsplash_type} "
             f"({backsplash_sqft or 0} SF)"
         )
+    if adjustment_factor:
+        methodology_lines.append(
+            f"Target total: ${target_total:,.2f} "
+            f"(adjusted)"
+        )
     methodology = "\n".join(methodology_lines)
 
     return CalculationResult(
@@ -1114,6 +1189,10 @@ def calculate_estimate(
         overhead_amount=overhead_amount,
         profit_pct=profit_pct,
         profit_amount=profit_amount,
+        adjustment_factor=(
+            round(adjustment_factor, 6)
+            if adjustment_factor else None
+        ),
         total=total,
         methodology_notes=methodology,
         warning_flags=warnings,

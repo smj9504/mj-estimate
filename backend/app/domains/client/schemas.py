@@ -168,6 +168,8 @@ class ClaimUpdate(BaseModel):
     pa_phone: Optional[str] = None
     wm_cost_status: Optional[str] = None
     wm_estimate_amount: Optional[float] = None
+    wm_estimate_file_id: Optional[str] = None
+    wm_estimate_file_name: Optional[str] = None
     needs_supplement: Optional[bool] = None
     supplement_status: Optional[str] = None
     supplement_notes: Optional[str] = None
@@ -264,6 +266,8 @@ class ClaimDetailResponse(ClaimBase):
     pa_phone: Optional[str] = None
     wm_cost_status: Optional[str] = None
     wm_estimate_amount: Optional[float] = None
+    wm_estimate_file_id: Optional[str] = None
+    wm_estimate_file_name: Optional[str] = None
     needs_supplement: bool = False
     supplement_status: Optional[str] = None
     supplement_notes: Optional[str] = None

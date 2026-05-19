@@ -583,31 +583,11 @@ class CabinetExportService:
 
         elements.append(Spacer(1, 16))
 
-        subtotal = estimate.get("subtotal", 0)
-        overhead = estimate.get("overhead_amount", 0)
-        profit = estimate.get("profit_amount", 0)
         total = estimate.get("total", 0)
-        oh_pct = estimate.get("overhead_pct", 0.10)
-        pr_pct = estimate.get("profit_pct", 0.10)
 
-        totals_data = []
-        if oh_pct or pr_pct:
-            totals_data.append(
-                ["Subtotal", f"${subtotal:,.2f}"]
-            )
-        if oh_pct:
-            totals_data.append([
-                f"Overhead ({oh_pct*100:.0f}%)",
-                f"${overhead:,.2f}",
-            ])
-        if pr_pct:
-            totals_data.append([
-                f"Profit ({pr_pct*100:.0f}%)",
-                f"${profit:,.2f}",
-            ])
-        totals_data.append(
-            ["TOTAL", f"${total:,.2f}"]
-        )
+        totals_data = [
+            ["TOTAL", f"${total:,.2f}"],
+        ]
 
         tw_label = usable_w * 0.65
         tw_amount = usable_w * 0.35
@@ -616,34 +596,25 @@ class CabinetExportService:
             colWidths=[tw_label, tw_amount],
         )
         totals_table.setStyle(TableStyle([
-            ("ALIGN", (0, 0), (0, -1), "RIGHT"),
-            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-            ("FONTSIZE", (0, 0), (-1, -2), 9),
+            ("ALIGN", (0, 0), (0, 0), "RIGHT"),
+            ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 4),
+            ("TOPPADDING", (0, 0), (-1, 0), 4),
             (
-                "FONTNAME", (0, 0), (0, -2),
-                "Helvetica",
-            ),
-            ("TEXTCOLOR", (0, 0), (-1, -2), text_grey),
-            (
-                "BOTTOMPADDING", (0, 0), (-1, -1), 4,
-            ),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            # Total row
-            (
-                "FONTNAME", (0, -1), (-1, -1),
+                "FONTNAME", (0, 0), (-1, 0),
                 "Helvetica-Bold",
             ),
-            ("FONTSIZE", (0, -1), (-1, -1), 14),
+            ("FONTSIZE", (0, 0), (-1, 0), 14),
             (
-                "TEXTCOLOR", (0, -1), (-1, -1),
+                "TEXTCOLOR", (0, 0), (-1, 0),
                 brand_dark,
             ),
             (
-                "LINEABOVE", (0, -1), (-1, -1),
+                "LINEABOVE", (0, 0), (-1, 0),
                 1.5, brand_accent,
             ),
             (
-                "BACKGROUND", (0, -1), (-1, -1),
+                "BACKGROUND", (0, 0), (-1, 0),
                 brand_light_bg,
             ),
         ]))
@@ -1009,31 +980,10 @@ class CabinetExportService:
 
         sr = 4 + len(line_items) + 1
         ws2.cell(
-            row=sr, column=4, value="Subtotal:",
-        ).font = Font(bold=True)
-        ws2.cell(
-            row=sr, column=5,
-            value=estimate.get("subtotal", 0),
-        )
-        ws2.cell(
-            row=sr + 1, column=4, value="Overhead:",
-        ).font = Font(bold=True)
-        ws2.cell(
-            row=sr + 1, column=5,
-            value=estimate.get("overhead_amount", 0),
-        )
-        ws2.cell(
-            row=sr + 2, column=4, value="Profit:",
-        ).font = Font(bold=True)
-        ws2.cell(
-            row=sr + 2, column=5,
-            value=estimate.get("profit_amount", 0),
-        )
-        ws2.cell(
-            row=sr + 3, column=4, value="TOTAL:",
+            row=sr, column=4, value="TOTAL:",
         ).font = Font(bold=True, size=12)
         ws2.cell(
-            row=sr + 3, column=5,
+            row=sr, column=5,
             value=estimate.get("total", 0),
         ).font = Font(bold=True, size=12)
 

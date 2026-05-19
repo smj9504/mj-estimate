@@ -3,17 +3,22 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber,
   Select, message, Typography, Row, Col, Statistic, Tooltip, Badge,
-  Dropdown, Collapse, Descriptions, DatePicker, Divider, Empty, Checkbox, Alert,
+  Dropdown, Collapse, Descriptions, DatePicker, Divider, Empty, Checkbox, Alert, Upload,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
   EditOutlined, DeleteOutlined, EllipsisOutlined, FileTextOutlined,
   DollarOutlined, SendOutlined, PhoneOutlined, ClockCircleOutlined,
-  AuditOutlined, FilePdfOutlined, SaveOutlined,
+  AuditOutlined, FilePdfOutlined, SaveOutlined, UploadOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import api from '../services/api';
 import { supplementService } from '../services/supplementService';
 import { fileService } from '../services/fileService';
+import { bathroomEstimateService } from '../services/bathroomEstimateService';
+import { cabinetEstimateService } from '../services/cabinetEstimateService';
+import { listEstimates as listPackingEstimates } from '../services/packingEstimateService';
 import type {
   SupplementRequest, SupplementRequestCreate, BidItemEstimate,
   BidItemEstimateCreate, SupplementFollowUp, SupplementStatus,
@@ -67,6 +72,11 @@ const SupplementManagement: React.FC = () => {
   const [insuranceEstimateLoading, setInsuranceEstimateLoading] = useState(false);
   const [editedRequiredEstimates, setEditedRequiredEstimates] = useState<string[]>([]);
   const [requiredEstimatesDirty, setRequiredEstimatesDirty] = useState(false);
+  const [bidItemFile, setBidItemFile] = useState<{ id: string; name: string } | null>(null);
+  const [bidItemFileUploading, setBidItemFileUploading] = useState(false);
+  const [bidItemType, setBidItemType] = useState<string>('');
+  const [linkedEstimateId, setLinkedEstimateId] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [createForm] = Form.useForm();
   const [bidItemForm] = Form.useForm();
   const [followupForm] = Form.useForm();
@@ -85,6 +95,23 @@ const SupplementManagement: React.FC = () => {
   const { data: pendingReview = [] } = useQuery({
     queryKey: ['supplements-pending-review'],
     queryFn: () => supplementService.getPendingReview(),
+  });
+
+  // Estimate pickers for bid item form
+  const { data: bathroomEstimatesForBid = [] } = useQuery({
+    queryKey: ['bathroom-estimates-for-bid'],
+    queryFn: () => bathroomEstimateService.list({ page_size: 50 }).then(r => r.items),
+    enabled: bidItemModalOpen && bidItemType === 'bathroom',
+  });
+  const { data: cabinetEstimatesForBid = [] } = useQuery({
+    queryKey: ['cabinet-estimates-for-bid'],
+    queryFn: () => cabinetEstimateService.list({ page_size: 50 }).then(r => r.items),
+    enabled: bidItemModalOpen && bidItemType === 'cabinet',
+  });
+  const { data: packingEstimatesForBid = [] } = useQuery({
+    queryKey: ['packing-estimates-for-bid'],
+    queryFn: () => listPackingEstimates({ limit: 50 }).then(r => r.items),
+    enabled: bidItemModalOpen && bidItemType === 'packing',
   });
 
   // Pre-load insurance estimate file IDs for all supplements in the list
@@ -144,13 +171,27 @@ const SupplementManagement: React.FC = () => {
     },
   });
 
+  const ESTIMATE_ID_FIELD_MAP: Record<string, string> = {
+    bathroom: 'bathroom_estimate_id',
+    cabinet: 'cabinet_estimate_id',
+    packing: 'pack_calculation_id',
+    roofing: 'roofing_estimate_id',
+  };
+
+  const closeBidItemModal = () => {
+    setBidItemModalOpen(false);
+    bidItemForm.resetFields();
+    setBidItemFile(null);
+    setBidItemType('');
+    setLinkedEstimateId(null);
+  };
+
   const createBidItemMutation = useMutation({
     mutationFn: ({ supplementId, data }: { supplementId: string; data: BidItemEstimateCreate }) =>
       supplementService.createBidItem(supplementId, data),
     onSuccess: () => {
       message.success('Bid item added');
-      setBidItemModalOpen(false);
-      bidItemForm.resetFields();
+      closeBidItemModal();
       if (selectedSupplement) {
         supplementService.get(selectedSupplement.id).then(setSelectedSupplement);
       }
@@ -188,6 +229,28 @@ const SupplementManagement: React.FC = () => {
           .finally(() => setInsuranceEstimateLoading(false));
       }
     });
+  };
+
+  const PDF_URL_MAP: Record<string, string> = {
+    bathroom: '/api/bathroom-estimates',
+    cabinet: '/api/cabinet-estimates',
+    packing: '/api/packing-estimates',
+  };
+
+  const openEstimatePdf = async (type: string, id: string) => {
+    const base = PDF_URL_MAP[type];
+    if (!base) return;
+    try {
+      setPdfLoading(true);
+      const response = await api.get(`${base}/${id}/export/pdf`, { responseType: 'blob' });
+      const blobUrl = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      window.open(blobUrl, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 30000);
+    } catch {
+      message.error('Failed to load PDF');
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
   const columns: ColumnsType<SupplementRequest> = [
@@ -602,6 +665,15 @@ const SupplementManagement: React.FC = () => {
                       <Tag color={BID_STATUS_COLORS[s] || 'default'}>{s.replace('_',' ').toUpperCase()}</Tag>
                     ),
                   },
+                  { title: 'PDF', key: 'pdf', width: 50, align: 'center' as const,
+                    render: (_: any, item: BidItemEstimate) => item.custom_document_file_id ? (
+                      <Tooltip title={item.custom_document_file_name || 'View PDF'}>
+                        <a href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
+                          target="_blank" rel="noopener noreferrer">
+                          <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />
+                        </a>
+                      </Tooltip>
+                    ) : <Text type="secondary">-</Text> },
                   { title: 'PA Sent', dataIndex: 'sent_to_pa_date', width: 100,
                     render: (d?: string) => d ? dayjs(d).format('MM/DD') : '-' },
                 ]}
@@ -622,29 +694,165 @@ const SupplementManagement: React.FC = () => {
       </Modal>
 
       {/* Add Bid Item Modal */}
-      <Modal title="Add Bid Item Estimate" open={bidItemModalOpen} width={450}
+      <Modal title="Add Bid Item Estimate" open={bidItemModalOpen} width={500}
         onOk={() => bidItemForm.validateFields().then(v => {
           if (selectedSupplement) {
+            const idField = ESTIMATE_ID_FIELD_MAP[bidItemType];
             createBidItemMutation.mutate({
               supplementId: selectedSupplement.id,
-              data: { ...v, supplement_id: selectedSupplement.id },
+              data: {
+                ...v,
+                supplement_id: selectedSupplement.id,
+                custom_document_file_id: bidItemFile?.id,
+                custom_document_file_name: bidItemFile?.name,
+                ...(linkedEstimateId && idField ? { [idField]: linkedEstimateId } : {}),
+              },
             });
           }
         })}
-        onCancel={() => { setBidItemModalOpen(false); bidItemForm.resetFields(); }}
+        onCancel={closeBidItemModal}
         confirmLoading={createBidItemMutation.isPending}>
         <Form form={bidItemForm} layout="vertical" size="small">
           <Form.Item name="estimate_type" label="Type" rules={[{ required: true }]}>
-            <Select options={Object.entries(BID_TYPE_LABELS).map(([k, v]) => ({ value: k, label: v }))} />
+            <Select
+              options={Object.entries(BID_TYPE_LABELS).map(([k, v]) => ({ value: k, label: v }))}
+              onChange={v => { setBidItemType(v as string); setLinkedEstimateId(null); }}
+            />
           </Form.Item>
+          {/* Estimate picker for bathroom / cabinet / packing */}
+          {['bathroom', 'cabinet', 'packing'].includes(bidItemType) && (
+            <Form.Item label="Link to Existing Estimate (optional)">
+              <Select
+                allowClear
+                showSearch
+                placeholder="Select estimate to auto-fill title & amount..."
+                optionFilterProp="label"
+                value={linkedEstimateId ?? undefined}
+                onChange={(val) => {
+                  setLinkedEstimateId(val ?? null);
+                  if (!val) return;
+                  if (bidItemType === 'bathroom') {
+                    const est = bathroomEstimatesForBid.find(e => e.id === val);
+                    if (est) {
+                      bidItemForm.setFieldsValue({
+                        title: est.designation
+                          ? `${est.designation} Bathroom${est.property_address ? ` — ${est.property_address}` : ''}`
+                          : est.property_address || 'Bathroom Estimate',
+                        custom_amount: est.total ?? undefined,
+                      });
+                    }
+                  } else if (bidItemType === 'cabinet') {
+                    const est = cabinetEstimatesForBid.find(e => e.id === val);
+                    if (est) {
+                      bidItemForm.setFieldsValue({
+                        title: est.property_address || 'Cabinet Estimate',
+                        custom_amount: est.total ?? undefined,
+                      });
+                    }
+                  } else if (bidItemType === 'packing') {
+                    const est = packingEstimatesForBid.find(e => e.id === val);
+                    if (est) {
+                      bidItemForm.setFieldsValue({
+                        title: est.calculation_name || est.project_address || 'Packing Estimate',
+                        custom_amount: est.grand_total ?? undefined,
+                      });
+                    }
+                  }
+                }}
+                options={
+                  bidItemType === 'bathroom'
+                    ? bathroomEstimatesForBid.map(e => ({
+                        value: e.id,
+                        label: `${e.designation ? e.designation + ' — ' : ''}${e.property_address || e.id.slice(0, 8)} ($${(e.total ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })})`,
+                      }))
+                    : bidItemType === 'cabinet'
+                    ? cabinetEstimatesForBid.map(e => ({
+                        value: e.id,
+                        label: `${e.property_address || e.id.slice(0, 8)} ($${(e.total ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })})`,
+                      }))
+                    : packingEstimatesForBid.map(e => ({
+                        value: e.id,
+                        label: `${e.calculation_name || e.project_address || e.id.slice(0, 8)} ($${((e.grand_total ?? 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })})`,
+                      }))
+                }
+              />
+              {linkedEstimateId && (
+                <Button
+                  size="small"
+                  type="link"
+                  icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}
+                  loading={pdfLoading}
+                  style={{ padding: '2px 0', marginTop: 4 }}
+                  onClick={() => openEstimatePdf(bidItemType, linkedEstimateId)}
+                >
+                  View PDF
+                </Button>
+              )}
+            </Form.Item>
+          )}
           <Form.Item name="title" label="Title" rules={[{ required: true }]}>
             <Input placeholder="e.g., Master Bathroom Rebuild" />
           </Form.Item>
           <Form.Item name="custom_amount" label="Amount">
-            <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+            <InputNumber
+              min={0}
+              step={0.01}
+              prefix="$"
+              style={{ width: '100%' }}
+              formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              parser={v => v?.replace(/[,$]/g, '') as any}
+            />
           </Form.Item>
           <Form.Item name="description" label="Description">
             <TextArea rows={2} />
+          </Form.Item>
+          <Form.Item label="Estimate PDF">
+            {bidItemFile ? (
+              <Space>
+                <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                <Text ellipsis style={{ maxWidth: 250 }}>{bidItemFile.name}</Text>
+                <Button type="link" size="small" danger onClick={() => setBidItemFile(null)}>Remove</Button>
+              </Space>
+            ) : (
+              <Upload
+                accept=".pdf"
+                maxCount={1}
+                showUploadList={false}
+                beforeUpload={async (file) => {
+                  if (file.type !== 'application/pdf') {
+                    message.error('Only PDF files are allowed');
+                    return Upload.LIST_IGNORE;
+                  }
+                  if (file.size > 20 * 1024 * 1024) {
+                    message.error('File must be smaller than 20MB');
+                    return Upload.LIST_IGNORE;
+                  }
+                  try {
+                    setBidItemFileUploading(true);
+                    const uploaded = await fileService.uploadFiles(
+                      [file],
+                      'supplement_bid_item',
+                      selectedSupplement?.id || 'temp',
+                      'estimate_pdf',
+                    );
+                    if (uploaded.length > 0) {
+                      setBidItemFile({ id: uploaded[0].id, name: file.name });
+                      message.success('PDF uploaded');
+                    }
+                  } catch {
+                    message.error('Failed to upload PDF');
+                  } finally {
+                    setBidItemFileUploading(false);
+                  }
+                  return false;
+                }}
+              >
+                <Button icon={bidItemFileUploading ? <LoadingOutlined /> : <UploadOutlined />}
+                  disabled={bidItemFileUploading}>
+                  {bidItemFileUploading ? 'Uploading...' : 'Upload PDF'}
+                </Button>
+              </Upload>
+            )}
           </Form.Item>
         </Form>
       </Modal>

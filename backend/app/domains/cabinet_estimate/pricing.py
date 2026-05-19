@@ -183,7 +183,9 @@ SCOPE_ITEMS = {
     "countertop_quartz_per_sf": 95,
     "countertop_marble_per_sf": 120,
     "countertop_butcher_block_per_sf": 55,
-    # Drywall repair (behind cabinets)
+    # Drywall - Patch & Repair (nail holes, screw holes, minor damage)
+    "drywall_patch_per_sf": 2.50,
+    # Drywall - R&R (remove & replace sheetrock behind cabinets)
     "drywall_rr_per_sf": 4.50,
     # Painting (prep + prime + paint)
     "paint_prep_per_sf": 2.50,
@@ -215,16 +217,22 @@ SCOPE_ITEMS = {
 }
 
 # Appliance detach & reset pricing (per unit)
+# Reference: Xactimate RCV pricing (2025-2026)
 APPLIANCE_RR_PRICING = {
+    "dishwasher": {"label": "Dishwasher", "cost": 412},
     "refrigerator": {"label": "Refrigerator", "cost": 150},
-    "range_gas": {"label": "Range (Gas)", "cost": 175},
-    "range_electric": {"label": "Range (Electric)", "cost": 125},
+    "range_gas": {"label": "Range (Gas) - Freestanding", "cost": 282},
+    "range_electric": {"label": "Range (Electric) - Freestanding", "cost": 125},
+    "range_gas_slide": {"label": "Range (Gas) - Slide-in", "cost": 282},
+    "range_electric_slide": {"label": "Range (Electric) - Slide-in", "cost": 125},
+    "range_dropin": {"label": "Range - Drop-in", "cost": 275},
     "cooktop_gas": {"label": "Cooktop (Gas)", "cost": 150},
     "cooktop_electric": {"label": "Cooktop (Electric)", "cost": 125},
     "wall_oven": {"label": "Wall Oven", "cost": 150},
-    "dishwasher": {"label": "Dishwasher", "cost": 100},
     "microwave_otr": {"label": "Microwave (Over-the-Range)", "cost": 85},
-    "hood_vent": {"label": "Hood / Vent", "cost": 75},
+    "hood_vent": {"label": "Range Hood", "cost": 185},
+    "hood_wood_42": {"label": "Wood Range Hood (42\"+)", "cost": 478},
+    "garbage_disposal": {"label": "Garbage Disposal", "cost": 282},
 }
 
 # Default O&P percentages (mixed material+labor project standard: 25-35%)

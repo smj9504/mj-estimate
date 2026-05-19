@@ -143,6 +143,8 @@ class Claim(Base, BaseModel):
         comment="included_in_rebuild | separate_estimate | not_received | not_applicable"
     )
     wm_estimate_amount = Column(DECIMAL(15, 2), comment="WM amount if received separately")
+    wm_estimate_file_id = Column(String(255), comment="Stored WM estimate PDF file ID")
+    wm_estimate_file_name = Column(String(500))
 
     # Supplement tracking
     needs_supplement = Column(Boolean, default=False)

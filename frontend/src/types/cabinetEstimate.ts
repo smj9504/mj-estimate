@@ -93,6 +93,7 @@ export interface CabinetEstimate {
   include_toe_kick: boolean;
   include_countertop: boolean;
   include_drywall_repair: boolean;
+  drywall_repair_type?: 'patch' | 'rr';
   drywall_repair_sqft?: number;
   include_painting: boolean;
   painting_sqft?: number;
@@ -110,11 +111,13 @@ export interface CabinetEstimate {
   island_countertop_material?: string;
   island_countertop_sqft?: number;
   overview_text?: string;
+  target_total?: number | null;
   subtotal: number;
   overhead_pct: number;
   overhead_amount: number;
   profit_pct: number;
   profit_amount: number;
+  adjustment_factor?: number | null;
   total: number;
   methodology_notes?: string;
   warning_flags?: string[];
@@ -155,6 +158,7 @@ export interface CabinetEstimateCreate {
   include_toe_kick?: boolean;
   include_countertop?: boolean;
   include_drywall_repair?: boolean;
+  drywall_repair_type?: 'patch' | 'rr';
   drywall_repair_sqft?: number;
   include_painting?: boolean;
   painting_sqft?: number;
@@ -172,6 +176,7 @@ export interface CabinetEstimateCreate {
   island_countertop_material?: string;
   island_countertop_sqft?: number;
   overview_text?: string;
+  target_total?: number | null;
   overhead_pct?: number;
   profit_pct?: number;
   notes?: string;
@@ -205,6 +210,7 @@ export interface CabinetEstimateUpdate {
   include_toe_kick?: boolean;
   include_countertop?: boolean;
   include_drywall_repair?: boolean;
+  drywall_repair_type?: 'patch' | 'rr';
   drywall_repair_sqft?: number;
   include_painting?: boolean;
   painting_sqft?: number;
@@ -222,6 +228,7 @@ export interface CabinetEstimateUpdate {
   island_countertop_material?: string;
   island_countertop_sqft?: number;
   overview_text?: string;
+  target_total?: number | null;
   overhead_pct?: number;
   profit_pct?: number;
   notes?: string;
