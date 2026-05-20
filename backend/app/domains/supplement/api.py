@@ -145,6 +145,134 @@ async def get_latest_insurance_estimate(claim_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/supplements/insurance-estimates/{claim_id}")
+async def list_insurance_estimates(claim_id: str):
+    """Get ALL insurance estimate versions (ClaimNegotiation) for a claim, ordered by revision_number desc."""
+    try:
+        from app.domains.client.models import ClaimNegotiation
+        from app.domains.file.models import File
+        from decimal import Decimal
+        database = get_database()
+        session = database.get_session()
+        try:
+            negotiations = (
+                session.query(ClaimNegotiation)
+                .filter(ClaimNegotiation.claim_id == claim_id)
+                .order_by(ClaimNegotiation.revision_number.desc())
+                .all()
+            )
+
+            results = []
+            for neg in negotiations:
+                item = {}
+                for col in ClaimNegotiation.__table__.columns:
+                    val = getattr(neg, col.name)
+                    if hasattr(val, 'hex'):
+                        val = str(val)
+                    elif isinstance(val, Decimal):
+                        val = float(val)
+                    elif hasattr(val, 'isoformat'):
+                        val = val.isoformat()
+                    elif isinstance(val, (int, float, str, bool, list, dict)) or val is None:
+                        pass
+                    else:
+                        val = str(val)
+                    item[col.name] = val
+
+                # Resolve file download ID
+                item['file_download_id'] = None
+                doc_url = neg.document_url
+                if doc_url:
+                    file_rec = session.query(File).filter(
+                        File.id == doc_url, File.is_active == True
+                    ).first()
+                    if file_rec:
+                        item['file_download_id'] = str(file_rec.id)
+
+                results.append(item)
+
+            return results
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"Error listing insurance estimates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/supplements/insurance-estimates/{claim_id}")
+async def upload_insurance_estimate(claim_id: str, data: dict):
+    """Upload a new insurance estimate version for a claim.
+
+    Request body:
+    - revision_type: str (initial | supplement | re_inspection | appraisal | final)
+    - acv_amount: float (optional)
+    - rcv_amount: float (optional)
+    - depreciation_amount: float (optional)
+    - deductible: float (optional)
+    - date_received: str (optional, ISO date)
+    - received_from: str (optional)
+    - notes: str (optional)
+    - file_id: str (optional, pre-uploaded file ID)
+    """
+    try:
+        from app.domains.client.service import ClaimNegotiationService
+        service = ClaimNegotiationService()
+
+        neg_data = {
+            'claim_id': claim_id,
+            'revision_type': data.get('revision_type', 'supplement'),
+            'acv_amount': data.get('acv_amount', 0),
+            'rcv_amount': data.get('rcv_amount', 0),
+            'depreciation_amount': data.get('depreciation_amount', 0),
+            'deductible': data.get('deductible', 0),
+            'date_received': data.get('date_received'),
+            'received_from': data.get('received_from'),
+            'notes': data.get('notes'),
+        }
+
+        # Pass file_id if provided
+        if data.get('file_id'):
+            neg_data['file_id'] = data['file_id']
+
+        result = service.add_negotiation(neg_data)
+
+        # Update claim's supplement-related info
+        try:
+            database = get_database()
+            session = database.get_session()
+            try:
+                from app.domains.client.models import Claim, ClaimActivity
+                claim = session.query(Claim).filter(Claim.id == claim_id).first()
+                if claim:
+                    claim.insurance_estimate_received = True
+                    if not claim.insurance_estimate_received_date:
+                        from datetime import datetime, timezone
+                        claim.insurance_estimate_received_date = datetime.now(timezone.utc)
+
+                    # Log activity
+                    session.add(ClaimActivity(
+                        claim_id=claim_id,
+                        activity_type="estimate_uploaded",
+                        title=f"Insurance estimate uploaded (Rev #{result.get('revision_number', '?')} - {neg_data['revision_type']})",
+                        description=(
+                            f"RCV: ${float(neg_data.get('rcv_amount', 0)):,.2f}, "
+                            f"ACV: ${float(neg_data.get('acv_amount', 0)):,.2f}"
+                        ),
+                        related_entity_type="negotiation",
+                        related_entity_id=result.get('id'),
+                    ))
+                    session.commit()
+            finally:
+                session.close()
+        except Exception as e:
+            logger.warning(f"Error updating claim after estimate upload: {e}")
+
+        return result
+    except Exception as e:
+        logger.error(f"Error uploading insurance estimate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/supplements/{supplement_id}", response_model=SupplementRequestResponse)
 async def get_supplement(supplement_id: str):
     service = _get_service()

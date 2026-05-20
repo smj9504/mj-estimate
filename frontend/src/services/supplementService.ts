@@ -88,6 +88,27 @@ export const supplementService = {
     return data;
   },
 
+  // Insurance Estimate Versions (all negotiations for claim)
+  async listInsuranceEstimates(claimId: string): Promise<(ClaimNegotiation & { file_download_id?: string | null })[]> {
+    const { data } = await api.get(`${BASE_URL}/insurance-estimates/${claimId}`);
+    return data;
+  },
+
+  async uploadInsuranceEstimate(claimId: string, payload: {
+    revision_type: string;
+    acv_amount?: number;
+    rcv_amount?: number;
+    depreciation_amount?: number;
+    deductible?: number;
+    date_received?: string;
+    received_from?: string;
+    notes?: string;
+    file_id?: string;
+  }): Promise<ClaimNegotiation> {
+    const { data } = await api.post(`${BASE_URL}/insurance-estimates/${claimId}`, payload);
+    return data;
+  },
+
   // Follow-ups
   async listFollowups(supplementId: string): Promise<SupplementFollowUp[]> {
     const { data } = await api.get(`${BASE_URL}/${supplementId}/followups`);

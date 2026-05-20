@@ -72,6 +72,13 @@ const SupplementManagement: React.FC = () => {
   const [followupModalOpen, setFollowupModalOpen] = useState(false);
   const [insuranceEstimate, setInsuranceEstimate] = useState<(ClaimNegotiation & { file_download_id?: string | null }) | null>(null);
   const [insuranceEstimateLoading, setInsuranceEstimateLoading] = useState(false);
+  const [estimateVersions, setEstimateVersions] = useState<(ClaimNegotiation & { file_download_id?: string | null })[]>([]);
+  const [estimateVersionsLoading, setEstimateVersionsLoading] = useState(false);
+  const [uploadEstimateModalOpen, setUploadEstimateModalOpen] = useState(false);
+  const [uploadEstimateLoading, setUploadEstimateLoading] = useState(false);
+  const [uploadEstimateFileId, setUploadEstimateFileId] = useState<string | null>(null);
+  const [uploadEstimateFileName, setUploadEstimateFileName] = useState<string | null>(null);
+  const [uploadEstimateForm] = Form.useForm();
   const [editedRequiredEstimates, setEditedRequiredEstimates] = useState<string[]>([]);
   const [requiredEstimatesDirty, setRequiredEstimatesDirty] = useState(false);
   const [bidItemFile, setBidItemFile] = useState<{ id: string; name: string } | null>(null);
@@ -248,13 +255,17 @@ const SupplementManagement: React.FC = () => {
       const re = data.required_estimates || {};
       setEditedRequiredEstimates(Object.entries(re).filter(([, v]) => v).map(([k]) => k));
       setRequiredEstimatesDirty(false);
-      // Fetch latest insurance estimate for this claim
+      // Fetch all insurance estimate versions for this claim
       if (data.claim_id) {
         setInsuranceEstimateLoading(true);
-        supplementService.getInsuranceEstimate(data.claim_id)
-          .then(est => setInsuranceEstimate(est))
-          .catch(() => setInsuranceEstimate(null))
-          .finally(() => setInsuranceEstimateLoading(false));
+        setEstimateVersionsLoading(true);
+        supplementService.listInsuranceEstimates(data.claim_id)
+          .then(versions => {
+            setEstimateVersions(versions);
+            setInsuranceEstimate(versions.length > 0 ? versions[0] : null);
+          })
+          .catch(() => { setEstimateVersions([]); setInsuranceEstimate(null); })
+          .finally(() => { setInsuranceEstimateLoading(false); setEstimateVersionsLoading(false); });
       }
     });
   };
@@ -590,7 +601,7 @@ const SupplementManagement: React.FC = () => {
 
       {/* Detail Modal */}
       <Modal title={selectedSupplement?.title} open={detailModalOpen} width={700} footer={null}
-        onCancel={() => { setDetailModalOpen(false); setSelectedSupplement(null); setInsuranceEstimate(null); }}>
+        onCancel={() => { setDetailModalOpen(false); setSelectedSupplement(null); setInsuranceEstimate(null); setEstimateVersions([]); }}>
         {selectedSupplement && (
           <div>
             <Descriptions size="small" column={2} style={{ marginBottom: 16 }}>
@@ -620,79 +631,151 @@ const SupplementManagement: React.FC = () => {
               </div>
             )}
 
-            {/* Insurance Company Estimate */}
+            {/* Insurance Company Estimates - Version Management */}
             <Collapse
               size="small"
               style={{ marginBottom: 16 }}
               items={[{
-                key: 'insurance-estimate',
+                key: 'insurance-estimates',
                 label: (
                   <Space>
                     <FileTextOutlined />
-                    <Text strong>Insurance Company Estimate</Text>
-                    {insuranceEstimate && (
-                      <Tag color="blue">Rev #{insuranceEstimate.revision_number} — {insuranceEstimate.revision_type}</Tag>
+                    <Text strong>Insurance Company Estimates</Text>
+                    {estimateVersions.length > 0 && (
+                      <Tag color="blue">{estimateVersions.length} version{estimateVersions.length > 1 ? 's' : ''}</Tag>
                     )}
                   </Space>
                 ),
-                children: insuranceEstimateLoading ? (
+                children: estimateVersionsLoading ? (
                   <div style={{ textAlign: 'center', padding: 16 }}>
+                    <LoadingOutlined style={{ marginRight: 8 }} />
                     <Text type="secondary">Loading...</Text>
                   </div>
-                ) : !insuranceEstimate ? (
-                  <Empty description="No insurance estimate found for this claim" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 ) : (
                   <div>
-                    <Descriptions size="small" column={2} style={{ marginBottom: 12 }}>
-                      <Descriptions.Item label="RCV">{formatCurrency(insuranceEstimate.rcv_amount)}</Descriptions.Item>
-                      <Descriptions.Item label="ACV">{formatCurrency(insuranceEstimate.acv_amount)}</Descriptions.Item>
-                      <Descriptions.Item label="Depreciation">{formatCurrency(insuranceEstimate.depreciation_amount)}</Descriptions.Item>
-                      <Descriptions.Item label="Deductible">{formatCurrency(insuranceEstimate.deductible)}</Descriptions.Item>
-                      {insuranceEstimate.received_from && (
-                        <Descriptions.Item label="Received From">{insuranceEstimate.received_from}</Descriptions.Item>
-                      )}
-                      {insuranceEstimate.date_received && (
-                        <Descriptions.Item label="Date Received">
-                          {dayjs(insuranceEstimate.date_received).format('MM/DD/YYYY')}
-                        </Descriptions.Item>
-                      )}
-                      {insuranceEstimate.file_download_id && (
-                        <Descriptions.Item label="Document" span={2}>
-                          <a href={`${fileService.getDownloadUrl(insuranceEstimate.file_download_id)}?inline=true`} target="_blank" rel="noopener noreferrer">
-                            <Space size={4}>
-                              <FilePdfOutlined style={{ color: '#ff4d4f' }} />
-                              <span>{insuranceEstimate.document_name || 'View PDF'}</span>
-                            </Space>
-                          </a>
-                        </Descriptions.Item>
-                      )}
-                    </Descriptions>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                      <Button
+                        type="primary"
+                        size="small"
+                        icon={<UploadOutlined />}
+                        onClick={() => {
+                          uploadEstimateForm.resetFields();
+                          setUploadEstimateFileId(null);
+                          setUploadEstimateFileName(null);
+                          setUploadEstimateModalOpen(true);
+                        }}
+                      >
+                        Upload New Estimate
+                      </Button>
+                    </div>
 
-                    {insuranceEstimate.sections_data && insuranceEstimate.sections_data.length > 0 && (
-                      <>
-                        <Text strong style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>Section Breakdown</Text>
-                        <Table
-                          size="small"
-                          dataSource={insuranceEstimate.sections_data}
-                          rowKey={(r: NegotiationSection, i?: number) => `${r.section_name}-${i}`}
-                          pagination={false}
-                          scroll={{ x: 500 }}
-                          columns={[
-                            { title: 'Section', dataIndex: 'section_name', key: 'section', width: 180, ellipsis: true },
-                            { title: 'RCV', dataIndex: 'rcv', key: 'rcv', width: 100, align: 'right' as const,
-                              render: (v?: number) => v != null ? formatCurrency(v) : '-' },
-                            { title: 'Depreciation', dataIndex: 'depreciation', key: 'dep', width: 100, align: 'right' as const,
-                              render: (v?: number) => v != null ? formatCurrency(v) : '-' },
-                            { title: 'Net ACV', dataIndex: 'net_acv', key: 'acv', width: 100, align: 'right' as const,
-                              render: (v?: number) => v != null ? formatCurrency(v) : '-' },
-                          ]}
-                        />
-                      </>
-                    )}
+                    {estimateVersions.length === 0 ? (
+                      <Empty description="No insurance estimates uploaded yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    ) : (
+                      <div>
+                        {estimateVersions.map((ver, idx) => (
+                          <Card
+                            key={ver.id}
+                            size="small"
+                            style={{
+                              marginBottom: 8,
+                              border: idx === 0 ? '1px solid #1890ff' : '1px solid #f0f0f0',
+                              background: idx === 0 ? '#f6fbff' : '#fff',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <div style={{ flex: 1 }}>
+                                <Space size={8} style={{ marginBottom: 6 }}>
+                                  <Tag color={idx === 0 ? 'blue' : 'default'}>
+                                    Rev #{ver.revision_number}
+                                  </Tag>
+                                  <Tag color={
+                                    ver.revision_type === 'initial' ? 'green' :
+                                    ver.revision_type === 'supplement' ? 'orange' :
+                                    ver.revision_type === 're_inspection' ? 'purple' :
+                                    ver.revision_type === 'appraisal' ? 'cyan' :
+                                    ver.revision_type === 'final' ? 'gold' : 'default'
+                                  }>
+                                    {ver.revision_type?.replace('_', ' ').toUpperCase()}
+                                  </Tag>
+                                  {idx === 0 && <Tag color="processing">LATEST</Tag>}
+                                </Space>
 
-                    {insuranceEstimate.notes && (
-                      <div style={{ marginTop: 8 }}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>Notes: {insuranceEstimate.notes}</Text>
+                                <Row gutter={16} style={{ fontSize: 12 }}>
+                                  <Col span={6}>
+                                    <Text type="secondary">RCV:</Text>{' '}
+                                    <Text strong>{formatCurrency(ver.rcv_amount)}</Text>
+                                  </Col>
+                                  <Col span={6}>
+                                    <Text type="secondary">ACV:</Text>{' '}
+                                    <Text strong>{formatCurrency(ver.acv_amount)}</Text>
+                                  </Col>
+                                  <Col span={6}>
+                                    <Text type="secondary">Depreciation:</Text>{' '}
+                                    <Text>{formatCurrency(ver.depreciation_amount)}</Text>
+                                  </Col>
+                                  <Col span={6}>
+                                    <Text type="secondary">Deductible:</Text>{' '}
+                                    <Text>{formatCurrency(ver.deductible)}</Text>
+                                  </Col>
+                                </Row>
+
+                                <div style={{ fontSize: 11, marginTop: 4, color: '#888' }}>
+                                  {ver.date_received && (
+                                    <span>Received: {dayjs(ver.date_received).format('MM/DD/YYYY')}</span>
+                                  )}
+                                  {ver.received_from && (
+                                    <span>{ver.date_received ? ' · ' : ''}From: {ver.received_from}</span>
+                                  )}
+                                  {ver.notes && (
+                                    <span>{(ver.date_received || ver.received_from) ? ' · ' : ''}{ver.notes}</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div style={{ marginLeft: 12 }}>
+                                {ver.file_download_id ? (
+                                  <a
+                                    href={`${fileService.getDownloadUrl(ver.file_download_id)}?inline=true`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    <Button size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}>
+                                      {ver.document_name || 'View PDF'}
+                                    </Button>
+                                  </a>
+                                ) : (
+                                  <Text type="secondary" style={{ fontSize: 11 }}>No PDF</Text>
+                                )}
+                              </div>
+                            </div>
+
+                            {ver.sections_data && ver.sections_data.length > 0 && (
+                              <Collapse size="small" style={{ marginTop: 8 }} items={[{
+                                key: 'sections',
+                                label: <Text style={{ fontSize: 11 }}>Section Breakdown ({ver.sections_data.length} sections)</Text>,
+                                children: (
+                                  <Table
+                                    size="small"
+                                    dataSource={ver.sections_data}
+                                    rowKey={(r: NegotiationSection, i?: number) => `${r.section_name}-${i}`}
+                                    pagination={false}
+                                    scroll={{ x: 500 }}
+                                    columns={[
+                                      { title: 'Section', dataIndex: 'section_name', key: 'section', width: 180, ellipsis: true },
+                                      { title: 'RCV', dataIndex: 'rcv', key: 'rcv', width: 100, align: 'right' as const,
+                                        render: (v?: number) => v != null ? formatCurrency(v) : '-' },
+                                      { title: 'Depreciation', dataIndex: 'depreciation', key: 'dep', width: 100, align: 'right' as const,
+                                        render: (v?: number) => v != null ? formatCurrency(v) : '-' },
+                                      { title: 'Net ACV', dataIndex: 'net_acv', key: 'acv', width: 100, align: 'right' as const,
+                                        render: (v?: number) => v != null ? formatCurrency(v) : '-' },
+                                    ]}
+                                  />
+                                ),
+                              }]} />
+                            )}
+                          </Card>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1377,6 +1460,189 @@ const SupplementManagement: React.FC = () => {
           </Form.Item>
           <Form.Item name="summary" label="Summary">
             <TextArea rows={3} placeholder="What was discussed?" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Upload Insurance Estimate Modal */}
+      <Modal
+        title="Upload Insurance Estimate"
+        open={uploadEstimateModalOpen}
+        width={500}
+        confirmLoading={uploadEstimateLoading}
+        onOk={() => {
+          uploadEstimateForm.validateFields().then(async (values) => {
+            if (!selectedSupplement) return;
+            setUploadEstimateLoading(true);
+            try {
+              const payload: any = {
+                revision_type: values.revision_type,
+                acv_amount: values.acv_amount || 0,
+                rcv_amount: values.rcv_amount || 0,
+                depreciation_amount: values.depreciation_amount || 0,
+                deductible: values.deductible || 0,
+                received_from: values.received_from || undefined,
+                notes: values.notes || undefined,
+              };
+              if (values.date_received) {
+                payload.date_received = values.date_received.toISOString();
+              }
+              if (uploadEstimateFileId) {
+                payload.file_id = uploadEstimateFileId;
+              }
+              await supplementService.uploadInsuranceEstimate(selectedSupplement.claim_id, payload);
+              message.success('Insurance estimate uploaded');
+              setUploadEstimateModalOpen(false);
+              uploadEstimateForm.resetFields();
+              setUploadEstimateFileId(null);
+              setUploadEstimateFileName(null);
+              // Reload versions
+              supplementService.listInsuranceEstimates(selectedSupplement.claim_id)
+                .then(versions => {
+                  setEstimateVersions(versions);
+                  setInsuranceEstimate(versions.length > 0 ? versions[0] : null);
+                });
+              queryClient.invalidateQueries({ queryKey: ['supplements'] });
+            } catch (err: any) {
+              message.error(err?.response?.data?.detail || 'Failed to upload estimate');
+            } finally {
+              setUploadEstimateLoading(false);
+            }
+          });
+        }}
+        onCancel={() => {
+          setUploadEstimateModalOpen(false);
+          uploadEstimateForm.resetFields();
+          setUploadEstimateFileId(null);
+          setUploadEstimateFileName(null);
+        }}
+      >
+        <Form form={uploadEstimateForm} layout="vertical" size="small">
+          <Form.Item name="revision_type" label="Estimate Type" rules={[{ required: true }]} initialValue="supplement">
+            <Select options={[
+              { value: 'initial', label: 'Initial Estimate' },
+              { value: 'supplement', label: 'Supplement / Updated Estimate' },
+              { value: 're_inspection', label: 'Re-inspection' },
+              { value: 'appraisal', label: 'Appraisal' },
+              { value: 'final', label: 'Final Estimate' },
+            ]} />
+          </Form.Item>
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="rcv_amount" label="RCV Amount">
+                <InputNumber
+                  style={{ width: '100%' }}
+                  prefix="$"
+                  precision={2}
+                  min={0}
+                  formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={v => Number(v!.replace(/\$\s?|(,*)/g, '')) || 0}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="acv_amount" label="ACV Amount">
+                <InputNumber
+                  style={{ width: '100%' }}
+                  prefix="$"
+                  precision={2}
+                  min={0}
+                  formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={v => Number(v!.replace(/\$\s?|(,*)/g, '')) || 0}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="depreciation_amount" label="Depreciation">
+                <InputNumber
+                  style={{ width: '100%' }}
+                  prefix="$"
+                  precision={2}
+                  min={0}
+                  formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={v => Number(v!.replace(/\$\s?|(,*)/g, '')) || 0}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="deductible" label="Deductible">
+                <InputNumber
+                  style={{ width: '100%' }}
+                  prefix="$"
+                  precision={2}
+                  min={0}
+                  formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={v => Number(v!.replace(/\$\s?|(,*)/g, '')) || 0}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="date_received" label="Date Received">
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="received_from" label="Received From">
+                <Input placeholder="Adjuster name or source" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="notes" label="Notes">
+            <TextArea rows={2} placeholder="Optional notes about this estimate version" />
+          </Form.Item>
+
+          <Form.Item label="Estimate PDF">
+            {uploadEstimateFileId ? (
+              <Space>
+                <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                <Text>{uploadEstimateFileName}</Text>
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  onClick={() => { setUploadEstimateFileId(null); setUploadEstimateFileName(null); }}
+                >
+                  Remove
+                </Button>
+              </Space>
+            ) : (
+              <Upload
+                accept=".pdf"
+                maxCount={1}
+                showUploadList={false}
+                beforeUpload={async (file) => {
+                  if (file.type !== 'application/pdf') {
+                    message.error('PDF files only');
+                    return Upload.LIST_IGNORE;
+                  }
+                  try {
+                    const uploaded = await fileService.uploadFiles(
+                      [file],
+                      'negotiation',
+                      selectedSupplement?.claim_id || 'unknown',
+                      'insurance_estimate'
+                    );
+                    if (uploaded.length > 0) {
+                      setUploadEstimateFileId(uploaded[0].id);
+                      setUploadEstimateFileName(file.name);
+                      message.success('PDF uploaded');
+                    }
+                  } catch {
+                    message.error('Upload failed');
+                  }
+                  return false;
+                }}
+              >
+                <Button icon={<UploadOutlined />}>Select PDF File</Button>
+              </Upload>
+            )}
           </Form.Item>
         </Form>
       </Modal>
