@@ -25,6 +25,7 @@ import {
   Typography,
   Modal,
   Dropdown,
+  Popconfirm,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -64,6 +65,7 @@ const RegisterBidItemModal = React.lazy(() => import('../components/supplement/R
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 const { Panel } = Collapse;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const formatLabel = (s: string) => s?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) || '';
 
@@ -316,6 +318,26 @@ const BathroomEstimateDetail: React.FC = () => {
     form.setFieldsValue(updates);
   }, [form]);
 
+  // ── Line Item mutations (must be before early return) ──
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [addingPhase, setAddingPhase] = useState<number | null>(null);
+
+  const lineItemMutation = useMutation({
+    mutationFn: async (args: { action: string; itemId?: string; phase?: number; data?: any }) => {
+      if (args.action === 'update') return bathroomEstimateService.updateLineItem(id!, args.itemId!, args.data);
+      if (args.action === 'delete') return bathroomEstimateService.deleteLineItem(id!, args.itemId!);
+      if (args.action === 'add') return bathroomEstimateService.addLineItem(id!, args.data);
+      if (args.action === 'deletePhase') return bathroomEstimateService.deletePhase(id!, args.phase!);
+      throw new Error('Unknown action');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bathroom-estimate', id] });
+      setEditingItem(null);
+      setAddingPhase(null);
+    },
+    onError: () => message.error('Operation failed'),
+  });
+
   const selectOpts = (items: string[] | undefined) =>
     (items || []).map(v => ({ label: formatLabel(v), value: v }));
 
@@ -326,7 +348,7 @@ const BathroomEstimateDetail: React.FC = () => {
     return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>;
   }
 
-  // ── Line items table columns (per-phase, no Phase column needed) ──
+  // ── Line items table columns (per-phase, editable) ──
   const lineItemColumns = [
     { title: 'Description', dataIndex: 'description', key: 'description' },
     { title: 'Qty', dataIndex: 'quantity', key: 'qty', width: 70, align: 'right' as const,
@@ -336,8 +358,16 @@ const BathroomEstimateDetail: React.FC = () => {
       render: (v: number) => `$${v?.toFixed(2)}` },
     { title: 'Total', dataIndex: 'total', key: 'total', width: 100, align: 'right' as const,
       render: (v: number) => `$${v?.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
-    { title: 'Notes', dataIndex: 'notes', key: 'notes', width: 140, ellipsis: true,
-      render: (n: string) => n ? <Text type="secondary" style={{ fontSize: 12 }}>{n}</Text> : null },
+    { title: '', key: 'actions', width: 70, render: (_: any, record: any) => (
+      <Space size={4}>
+        <Button type="text" size="small" icon={<EditOutlined />}
+          onClick={(e) => { e.stopPropagation(); setEditingItem({ ...record }); }} />
+        <Popconfirm title="Delete this item?" onConfirm={() => lineItemMutation.mutate({ action: 'delete', itemId: record.id })}
+          okButtonProps={{ loading: lineItemMutation.isPending }}>
+          <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+        </Popconfirm>
+      </Space>
+    )},
   ];
 
   // Group line items by phase for summary
@@ -1387,6 +1417,21 @@ const BathroomEstimateDetail: React.FC = () => {
                           <Select options={selectOpts(pricingInfo?.baseboard_materials)} allowClear />
                         </Form.Item>
                       </Col>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                        prev?.walls_spec?.baseboard_material !== cur?.walls_spec?.baseboard_material
+                      }>
+                        {({ getFieldValue }) => {
+                          const bbMat = getFieldValue(['walls_spec', 'baseboard_material']);
+                          if (!bbMat || bbMat === 'tile') return null;
+                          return (
+                            <Col xs={12} sm={8} md={4}>
+                              <Form.Item name={['walls_spec', 'quarter_round']} valuePropName="checked">
+                                <Checkbox>+ Quarter Round</Checkbox>
+                              </Form.Item>
+                            </Col>
+                          );
+                        }}
+                      </Form.Item>
                     </Row>
                   </Panel>
                   <Panel header={
@@ -1871,9 +1916,23 @@ const BathroomEstimateDetail: React.FC = () => {
                         return (
                           <Panel
                             header={
-                              <Row justify="space-between" style={{ width: '100%', paddingRight: 8 }}>
+                              <Row justify="space-between" align="middle" style={{ width: '100%', paddingRight: 8 }}>
                                 <Col><Text strong>Phase {p.phase}: {p.label}</Text> <Tag>{p.count} items</Tag></Col>
-                                <Col><Text strong>${p.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text></Col>
+                                <Col>
+                                  <Space>
+                                    <Text strong>${p.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                                    <Popconfirm
+                                      title={`Delete Phase ${p.phase}: ${p.label}?`}
+                                      description="All items in this phase will be removed and remaining phases will be renumbered."
+                                      onConfirm={(e) => { e?.stopPropagation(); lineItemMutation.mutate({ action: 'deletePhase', phase: p.phase }); }}
+                                      onCancel={(e) => e?.stopPropagation()}
+                                      okButtonProps={{ danger: true, loading: lineItemMutation.isPending }}
+                                    >
+                                      <Button type="text" size="small" danger icon={<DeleteOutlined />}
+                                        onClick={(e) => e.stopPropagation()} />
+                                    </Popconfirm>
+                                  </Space>
+                                </Col>
                               </Row>
                             }
                             key={String(p.phase)}
@@ -1897,10 +1956,133 @@ const BathroomEstimateDetail: React.FC = () => {
                                 </Table.Summary.Row>
                               )}
                             />
+                            <Button type="dashed" size="small" icon={<PlusOutlined />}
+                              style={{ marginTop: 8 }}
+                              onClick={() => setAddingPhase(p.phase)}>
+                              Add Item
+                            </Button>
                           </Panel>
                         );
                       })}
                     </Collapse>
+
+                    {/* Edit Line Item Modal */}
+                    <Modal
+                      title="Edit Line Item"
+                      open={!!editingItem}
+                      onCancel={() => setEditingItem(null)}
+                      onOk={() => {
+                        if (!editingItem) return;
+                        const { id: itemId, estimate_id: _eid, created_at: _ca, display_order: _do, ...updates } = editingItem;
+                        updates.total = round2(updates.quantity * updates.unit_price);
+                        lineItemMutation.mutate({ action: 'update', itemId, data: updates });
+                      }}
+                      confirmLoading={lineItemMutation.isPending}
+                      destroyOnClose
+                    >
+                      {editingItem && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
+                          <div>
+                            <Text type="secondary" style={{ fontSize: 12 }}>Description</Text>
+                            <Input value={editingItem.description}
+                              onChange={(e) => setEditingItem({ ...editingItem, description: e.target.value })} />
+                          </div>
+                          <Row gutter={12}>
+                            <Col span={6}>
+                              <Text type="secondary" style={{ fontSize: 12 }}>Phase</Text>
+                              <InputNumber style={{ width: '100%' }} min={1} max={10}
+                                value={editingItem.phase}
+                                onChange={(v) => setEditingItem({ ...editingItem, phase: v })} />
+                            </Col>
+                            <Col span={6}>
+                              <Text type="secondary" style={{ fontSize: 12 }}>Qty</Text>
+                              <InputNumber style={{ width: '100%' }} min={0} step={0.1}
+                                value={editingItem.quantity}
+                                onChange={(v) => setEditingItem({ ...editingItem, quantity: v })} />
+                            </Col>
+                            <Col span={6}>
+                              <Text type="secondary" style={{ fontSize: 12 }}>Unit</Text>
+                              <Select style={{ width: '100%' }} value={editingItem.unit}
+                                onChange={(v) => setEditingItem({ ...editingItem, unit: v })}
+                                options={['EA', 'SF', 'LF', 'HR', 'LS'].map(u => ({ label: u, value: u }))} />
+                            </Col>
+                            <Col span={6}>
+                              <Text type="secondary" style={{ fontSize: 12 }}>Rate</Text>
+                              <InputNumber style={{ width: '100%' }} min={0} step={1} prefix="$"
+                                value={editingItem.unit_price}
+                                onChange={(v) => setEditingItem({ ...editingItem, unit_price: v })} />
+                            </Col>
+                          </Row>
+                          <div>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              Total: <Text strong>${round2((editingItem.quantity || 0) * (editingItem.unit_price || 0)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                            </Text>
+                          </div>
+                          <div>
+                            <Text type="secondary" style={{ fontSize: 12 }}>Notes</Text>
+                            <Input value={editingItem.notes || ''}
+                              onChange={(e) => setEditingItem({ ...editingItem, notes: e.target.value })} />
+                          </div>
+                        </div>
+                      )}
+                    </Modal>
+
+                    {/* Add Line Item Modal */}
+                    <Modal
+                      title={`Add Item to Phase ${addingPhase}`}
+                      open={addingPhase !== null}
+                      onCancel={() => setAddingPhase(null)}
+                      onOk={() => {
+                        if (addingPhase === null) return;
+                        const descEl = document.getElementById('add-li-desc') as HTMLInputElement;
+                        const qtyEl = document.getElementById('add-li-qty') as HTMLInputElement;
+                        const rateEl = document.getElementById('add-li-rate') as HTMLInputElement;
+                        const unitEl = document.getElementById('add-li-unit') as HTMLInputElement;
+                        const notesEl = document.getElementById('add-li-notes') as HTMLInputElement;
+                        const desc = descEl?.value?.trim();
+                        if (!desc) { message.warning('Description is required'); return; }
+                        const qty = parseFloat(qtyEl?.value) || 1;
+                        const rate = parseFloat(rateEl?.value) || 0;
+                        lineItemMutation.mutate({
+                          action: 'add',
+                          data: {
+                            phase: addingPhase,
+                            description: desc,
+                            quantity: qty,
+                            unit: unitEl?.value || 'EA',
+                            unit_price: rate,
+                            notes: notesEl?.value || undefined,
+                          },
+                        });
+                      }}
+                      confirmLoading={lineItemMutation.isPending}
+                      destroyOnClose
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
+                        <div>
+                          <Text type="secondary" style={{ fontSize: 12 }}>Description *</Text>
+                          <Input id="add-li-desc" placeholder="Line item description" />
+                        </div>
+                        <Row gutter={12}>
+                          <Col span={8}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>Qty</Text>
+                            <Input id="add-li-qty" defaultValue="1" type="number" />
+                          </Col>
+                          <Col span={8}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>Unit</Text>
+                            <Input id="add-li-unit" defaultValue="EA" />
+                          </Col>
+                          <Col span={8}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>Rate ($)</Text>
+                            <Input id="add-li-rate" defaultValue="0" type="number" />
+                          </Col>
+                        </Row>
+                        <div>
+                          <Text type="secondary" style={{ fontSize: 12 }}>Notes</Text>
+                          <Input id="add-li-notes" placeholder="Optional notes" />
+                        </div>
+                      </div>
+                    </Modal>
                   </>
                 )}
               </Card>
