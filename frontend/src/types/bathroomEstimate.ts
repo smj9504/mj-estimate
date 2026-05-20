@@ -71,8 +71,11 @@ export interface FloorSpec {
 }
 
 export interface WallsSpec {
+  paint_walls?: boolean;
+  paint_ceiling?: boolean;
   paint_grade?: string;
   baseboard_material?: string;
+  quarter_round?: boolean;
   colors?: number;
 }
 
