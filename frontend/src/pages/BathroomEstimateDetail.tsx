@@ -186,6 +186,21 @@ const BathroomEstimateDetail: React.FC = () => {
           grade: acc?.grade ?? 'mid',
         };
       }
+      // Ensure auto-include flags have explicit boolean values
+      // so unchecking properly sends false (not undefined) to backend.
+      // Fixture auto-includes (GFCI, fan, vanity light) default OFF — user opts in.
+      // Finish/substrate auto-includes default ON — commonly needed.
+      const hc = estimate.hidden_costs || {};
+      estimate.hidden_costs = {
+        ...hc,
+        drywall_skim_coat: hc.drywall_skim_coat ?? true,
+        subfloor_allowance: hc.subfloor_allowance ?? true,
+        auto_gfci: hc.auto_gfci ?? false,
+        auto_exhaust_fan: hc.auto_exhaust_fan ?? false,
+        auto_vanity_light: hc.auto_vanity_light ?? false,
+        auto_ceiling_paint: hc.auto_ceiling_paint ?? true,
+        mold_resistant_drywall: hc.mold_resistant_drywall ?? true,
+      };
       form.setFieldsValue(estimate);
     }
   }, [estimate, form]);
@@ -374,7 +389,7 @@ const BathroomEstimateDetail: React.FC = () => {
                 items: [
                   {
                     key: 'pdf-detailed',
-                    label: 'PDF - With Breakdown Prices',
+                    label: 'PDF - Detailed (with signature)',
                     icon: <FilePdfOutlined />,
                     onClick: async () => {
                       const doExport = () => {
@@ -383,6 +398,7 @@ const BathroomEstimateDetail: React.FC = () => {
                         bathroomEstimateService.exportPdf(id!, {
                           sketch_image: sketchImage,
                           show_breakdown_prices: true,
+                          show_signature: true,
                           address: estimate?.property_address,
                         });
                       };
@@ -407,8 +423,44 @@ const BathroomEstimateDetail: React.FC = () => {
                     },
                   },
                   {
+                    key: 'pdf-detailed-nosig',
+                    label: 'PDF - Detailed (no signature)',
+                    icon: <FilePdfOutlined />,
+                    onClick: async () => {
+                      const doExport = () => {
+                        const capture = (window as any).__beSketchCapture;
+                        const sketchImage = typeof capture === 'function' ? capture() : undefined;
+                        bathroomEstimateService.exportPdf(id!, {
+                          sketch_image: sketchImage,
+                          show_breakdown_prices: true,
+                          show_signature: false,
+                          address: estimate?.property_address,
+                        });
+                      };
+                      try {
+                        const result = await bathroomEstimateService.validateForExport(id!);
+                        if (result.warnings.length > 0) {
+                          Modal.confirm({
+                            title: 'Material Allowance Warnings',
+                            content: (
+                              <ul style={{ paddingLeft: 16, margin: '8px 0' }}>
+                                {result.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                              </ul>
+                            ),
+                            okText: 'Export Anyway',
+                            cancelText: 'Cancel',
+                            onOk: doExport,
+                          });
+                        } else {
+                          doExport();
+                        }
+                      } catch { doExport(); }
+                    },
+                  },
+                  { type: 'divider' as const },
+                  {
                     key: 'pdf-clean',
-                    label: 'PDF - Without Breakdown Prices',
+                    label: 'PDF - Clean (with signature)',
                     icon: <FilePdfOutlined />,
                     onClick: async () => {
                       const doExport = () => {
@@ -417,6 +469,42 @@ const BathroomEstimateDetail: React.FC = () => {
                         bathroomEstimateService.exportPdf(id!, {
                           sketch_image: sketchImage,
                           show_breakdown_prices: false,
+                          show_signature: true,
+                          address: estimate?.property_address,
+                        });
+                      };
+                      try {
+                        const result = await bathroomEstimateService.validateForExport(id!);
+                        if (result.warnings.length > 0) {
+                          Modal.confirm({
+                            title: 'Material Allowance Warnings',
+                            content: (
+                              <ul style={{ paddingLeft: 16, margin: '8px 0' }}>
+                                {result.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                              </ul>
+                            ),
+                            okText: 'Export Anyway',
+                            cancelText: 'Cancel',
+                            onOk: doExport,
+                          });
+                        } else {
+                          doExport();
+                        }
+                      } catch { doExport(); }
+                    },
+                  },
+                  {
+                    key: 'pdf-clean-nosig',
+                    label: 'PDF - Clean (no signature)',
+                    icon: <FilePdfOutlined />,
+                    onClick: async () => {
+                      const doExport = () => {
+                        const capture = (window as any).__beSketchCapture;
+                        const sketchImage = typeof capture === 'function' ? capture() : undefined;
+                        bathroomEstimateService.exportPdf(id!, {
+                          sketch_image: sketchImage,
+                          show_breakdown_prices: false,
+                          show_signature: false,
                           address: estimate?.property_address,
                         });
                       };
@@ -525,6 +613,7 @@ const BathroomEstimateDetail: React.FC = () => {
           // ════════ TAB 1: Project Info ════════
           {
             key: 'project',
+            forceRender: true,
             label: 'Project Info',
             children: (
               <Card>
@@ -664,6 +753,7 @@ const BathroomEstimateDetail: React.FC = () => {
           // ════════ TAB 2: Demo Scope ════════
           {
             key: 'demo',
+            forceRender: true,
             label: 'Demo Scope',
             children: (
               <Card>
@@ -740,7 +830,8 @@ const BathroomEstimateDetail: React.FC = () => {
                   prev.detach_reset_shower !== cur.detach_reset_shower ||
                   prev.detach_reset_tub !== cur.detach_reset_tub ||
                   prev.detach_reset_vanity !== cur.detach_reset_vanity ||
-                  prev.detach_reset_toilet !== cur.detach_reset_toilet
+                  prev.detach_reset_toilet !== cur.detach_reset_toilet ||
+                  prev.detach_reset_mirror !== cur.detach_reset_mirror
                 }>
                   {() => {
                     const getAction = (fixture: string) => {
@@ -777,6 +868,25 @@ const BathroomEstimateDetail: React.FC = () => {
                             </div>
                           </Col>
                         ))}
+                        {form.getFieldValue('replace_vanity') && (
+                          <Col xs={24} sm={12} md={6}>
+                            <div style={{ marginBottom: 8 }}>
+                              <Text strong style={{ display: 'block', marginBottom: 4 }}>Mirror</Text>
+                              <Radio.Group
+                                value={form.getFieldValue('detach_reset_mirror') ? 'detach_reset' : 'new'}
+                                onChange={(e) => {
+                                  form.setFieldsValue({
+                                    detach_reset_mirror: e.target.value === 'detach_reset',
+                                  });
+                                }}
+                                size="small"
+                              >
+                                <Radio.Button value="new">New</Radio.Button>
+                                <Radio.Button value="detach_reset">D&R</Radio.Button>
+                              </Radio.Group>
+                            </div>
+                          </Col>
+                        )}
                         <Col xs={24} sm={12} md={6}>
                           <div style={{ marginBottom: 8 }}>
                             <Text strong style={{ display: 'block', marginBottom: 4 }}>Floor</Text>
@@ -887,6 +997,7 @@ const BathroomEstimateDetail: React.FC = () => {
           // ════════ TAB 4: Shower & Tub ════════
           {
             key: 'shower_tub',
+            forceRender: true,
             label: 'Shower & Tub',
             children: (
               <Card>
@@ -1099,6 +1210,7 @@ const BathroomEstimateDetail: React.FC = () => {
           // ════════ TAB 4: Vanity & Toilet ════════
           {
             key: 'vanity_toilet',
+            forceRender: true,
             label: 'Vanity & Toilet',
             children: (
               <Card>
@@ -1192,6 +1304,7 @@ const BathroomEstimateDetail: React.FC = () => {
           // ════════ TAB 5: Floor & Walls ════════
           {
             key: 'floor_walls',
+            forceRender: true,
             label: 'Floor & Walls',
             children: (
               <Card>
@@ -1352,6 +1465,7 @@ const BathroomEstimateDetail: React.FC = () => {
           // ════════ TAB 6: Plumbing & Electrical ════════
           {
             key: 'trades',
+            forceRender: true,
             label: 'Plumbing & Electrical',
             children: (
               <Card>
@@ -1427,6 +1541,7 @@ const BathroomEstimateDetail: React.FC = () => {
           // ════════ TAB 7: Accessories & Hidden Costs ════════
           {
             key: 'accessories',
+            forceRender: true,
             label: 'Accessories',
             children: (
               <Card>
@@ -1641,6 +1756,7 @@ const BathroomEstimateDetail: React.FC = () => {
           // ════════ TAB 8: Result ════════
           {
             key: 'result',
+            forceRender: true,
             label: `Result${estimate?.total ? ` ($${estimate.total.toLocaleString()})` : ''}`,
             children: (
               <Card>
