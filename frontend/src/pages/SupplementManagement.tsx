@@ -1537,7 +1537,7 @@ const SupplementManagement: React.FC = () => {
                   precision={2}
                   min={0}
                   formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={v => Number(v!.replace(/\$\s?|(,*)/g, '')) || 0}
+                  parser={v => v!.replace(/\$\s?|(,*)/g, '') as any}
                 />
               </Form.Item>
             </Col>
@@ -1549,7 +1549,7 @@ const SupplementManagement: React.FC = () => {
                   precision={2}
                   min={0}
                   formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={v => Number(v!.replace(/\$\s?|(,*)/g, '')) || 0}
+                  parser={v => v!.replace(/\$\s?|(,*)/g, '') as any}
                 />
               </Form.Item>
             </Col>
@@ -1563,7 +1563,7 @@ const SupplementManagement: React.FC = () => {
                   precision={2}
                   min={0}
                   formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={v => Number(v!.replace(/\$\s?|(,*)/g, '')) || 0}
+                  parser={v => v!.replace(/\$\s?|(,*)/g, '') as any}
                 />
               </Form.Item>
             </Col>
@@ -1575,7 +1575,7 @@ const SupplementManagement: React.FC = () => {
                   precision={2}
                   min={0}
                   formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={v => Number(v!.replace(/\$\s?|(,*)/g, '')) || 0}
+                  parser={v => v!.replace(/\$\s?|(,*)/g, '') as any}
                 />
               </Form.Item>
             </Col>
