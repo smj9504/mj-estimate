@@ -62,6 +62,7 @@ class EmailAccountResponse(BaseModel):
     use_ssl: bool
     username: str
     company_id: Optional[UUID] = None
+    company_name: Optional[str] = None
     is_active: bool
     auto_schedule: Optional[str] = None
     last_synced_at: Optional[datetime] = None

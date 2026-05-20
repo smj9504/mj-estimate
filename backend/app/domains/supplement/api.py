@@ -252,3 +252,56 @@ async def update_followup(supplement_id: str, followup_id: str, data: Supplement
     if not result:
         raise HTTPException(status_code=404, detail="Follow-up not found")
     return result
+
+
+# ============================================================
+# Send to PA
+# ============================================================
+
+@router.get("/supplements/{supplement_id}/pa-info")
+async def get_pa_info(supplement_id: str):
+    """Get PA contact info + CC candidates for a supplement."""
+    service = _get_service()
+    result = service.get_pa_info(supplement_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Supplement not found")
+    return result
+
+
+@router.post("/supplements/{supplement_id}/generate-pa-email")
+async def generate_pa_email(
+    supplement_id: str,
+    custom_notes: str = Query("", description="Additional notes to include"),
+):
+    """Generate preset email content for sending supplement to PA."""
+    service = _get_service()
+    result = service.generate_pa_email_content(supplement_id, custom_notes)
+    if not result.get("subject"):
+        raise HTTPException(status_code=404, detail="Supplement not found")
+    return result
+
+
+@router.post("/supplements/{supplement_id}/send-to-pa")
+async def send_to_pa(supplement_id: str, data: dict):
+    """Send supplement bid items to PA via email with PDF attachments.
+
+    Request body:
+    - to_addresses: list of PA email addresses
+    - cc_addresses: list of CC email addresses
+    - subject: email subject
+    - body_html: email body HTML
+    - pa_name: PA name (for tracking)
+    - email_account_id: optional sending account
+    """
+    service = _get_service()
+    try:
+        result = service.send_to_pa(supplement_id, data)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error sending to PA: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send: {str(e)}",
+        )

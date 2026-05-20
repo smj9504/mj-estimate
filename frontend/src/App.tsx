@@ -232,7 +232,7 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <Layout>
-          <Navigate to="/dashboard" replace />
+          <Navigate to="/claims-lifecycle" replace />
         </Layout>
       </ProtectedRoute>
     )

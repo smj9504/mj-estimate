@@ -136,14 +136,33 @@ class EmailIngestionService:
             session.close()
 
     def get_all_accounts(self) -> List[Dict[str, Any]]:
-        """Get all email accounts (active and inactive)"""
+        """Get all email accounts (active and inactive), enriched with company_name"""
         session = self._get_readonly_session()
         try:
             from app.domains.email_ingestion.repository import get_email_account_repository
             repo = get_email_account_repository(session)
-            return repo.get_all(order_by="-created_at")
+            accounts = repo.get_all(order_by="-created_at")
+            self._enrich_with_company_name(session, accounts)
+            return accounts
         finally:
             session.close()
+
+    def _enrich_with_company_name(self, session, accounts: List[Dict[str, Any]]):
+        """Add company_name to each account dict"""
+        company_ids = [
+            str(a['company_id']) for a in accounts
+            if a.get('company_id')
+        ]
+        if not company_ids:
+            return
+        from app.domains.company.models import Company
+        companies = session.query(
+            Company.id, Company.name
+        ).filter(Company.id.in_(company_ids)).all()
+        name_map = {str(c.id): c.name for c in companies}
+        for a in accounts:
+            cid = str(a['company_id']) if a.get('company_id') else None
+            a['company_name'] = name_map.get(cid) if cid else None
 
     def test_account(self, account_id: str) -> Dict[str, Any]:
         """Test IMAP connection for an account"""

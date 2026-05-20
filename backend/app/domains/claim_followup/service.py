@@ -716,18 +716,69 @@ class ClaimFollowUpService:
             session.close()
 
     def mark_reply(self, email_id: str, reply_summary: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Mark a sent email as having received a reply"""
+        """Mark a sent email as having received a reply.
+
+        Also updates the linked FollowUpTask status to 'responded',
+        creates an inbound CommunicationLog entry, and logs a ClaimActivity.
+        """
         session = self._get_session()
         try:
-            from app.domains.claim_followup.models import SentEmail
+            from app.domains.claim_followup.models import (
+                CommunicationLog,
+                FollowUpTask as FollowUpTaskModel,
+                SentEmail,
+            )
+
             email = session.query(SentEmail).filter(SentEmail.id == email_id).first()
             if not email:
                 return None
 
+            now = datetime.now(timezone.utc)
             email.reply_received = True
-            email.reply_received_at = datetime.now(timezone.utc)
+            email.reply_received_at = now
             if reply_summary:
                 email.reply_summary = reply_summary
+
+            # Update linked FollowUpTask status to 'responded'
+            if email.followup_task_id:
+                task = session.query(FollowUpTaskModel).filter(
+                    FollowUpTaskModel.id == email.followup_task_id
+                ).first()
+                if task and task.status in ('pending', 'awaiting_response'):
+                    task.status = 'responded'
+
+            # Create inbound CommunicationLog entry
+            to_addresses = email.to_addresses or []
+            comm_log = CommunicationLog(
+                followup_task_id=email.followup_task_id,
+                claim_id=email.claim_id,
+                communication_type='email',
+                direction='inbound',
+                contact_name=None,
+                contact_email=to_addresses[0] if to_addresses else None,
+                subject=f"Re: {email.subject}" if email.subject else "Reply received",
+                summary=reply_summary or "Reply received to follow-up email.",
+                response_received=True,
+                response_date=now,
+                response_summary=reply_summary,
+                sent_email_id=email.id,
+            )
+            session.add(comm_log)
+
+            # Log ClaimActivity
+            try:
+                from app.domains.client.models import ClaimActivity
+                responder = to_addresses[0] if to_addresses else "recipient"
+                session.add(ClaimActivity(
+                    claim_id=email.claim_id,
+                    activity_type='reply_received',
+                    title=f'Reply received from {responder}',
+                    description=reply_summary or f'Reply received for: {email.subject}',
+                    related_entity_type='sent_email',
+                    related_entity_id=email.id,
+                ))
+            except Exception as activity_err:
+                logger.warning(f"Failed to log ClaimActivity for reply: {activity_err}")
 
             session.flush()
 

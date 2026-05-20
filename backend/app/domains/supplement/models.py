@@ -150,6 +150,15 @@ class BidItemEstimate(Base, BaseModel):
     custom_document_file_id = Column(String(255))
     custom_document_file_name = Column(String(500))
 
+    # When Xactimate already includes this bid item's amount, exclude from supplement total
+    included_in_xactimate = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default='false',
+        comment="If true, this item's amount is already included in Xactimate and excluded from supplement total"
+    )
+
     # Status
     status = Column(
         String(50),

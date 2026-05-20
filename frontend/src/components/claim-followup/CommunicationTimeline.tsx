@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Timeline, Card, Tag, Typography, Space, Empty, Spin } from 'antd';
+import { Timeline, Tag, Typography, Space, Empty, Spin } from 'antd';
 import {
   MailOutlined,
   PhoneOutlined,
@@ -9,8 +9,9 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   SendOutlined,
-  DownloadOutlined,
   PaperClipOutlined,
+  DownOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
@@ -29,6 +30,42 @@ const COMM_ICONS: Record<string, React.ReactNode> = {
   text: <MessageOutlined />,
   in_person: <UserOutlined />,
   other: <ClockCircleOutlined />,
+};
+
+const ToggleContent: React.FC<{ html?: string; text?: string; label?: string }> = ({ html, text, label = 'View content' }) => {
+  const [open, setOpen] = useState(false);
+  const content = html || text;
+  if (!content) return null;
+  return (
+    <div style={{ marginTop: 4 }}>
+      <Text
+        type="secondary"
+        style={{ fontSize: 12, cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => setOpen(!open)}
+      >
+        {open ? <DownOutlined style={{ fontSize: 10 }} /> : <RightOutlined style={{ fontSize: 10 }} />}
+        {' '}{label}
+      </Text>
+      {open && (
+        <div
+          style={{
+            marginTop: 6,
+            padding: '8px 10px',
+            background: '#fafafa',
+            borderRadius: 6,
+            border: '1px solid #f0f0f0',
+            fontSize: 13,
+            maxHeight: 300,
+            overflow: 'auto',
+            wordBreak: 'break-word',
+          }}
+          dangerouslySetInnerHTML={html ? { __html: html } : undefined}
+        >
+          {!html ? text : undefined}
+        </div>
+      )}
+    </div>
+  );
 };
 
 const CommunicationTimeline: React.FC<CommunicationTimelineProps> = ({ claimId, taskId }) => {
@@ -100,7 +137,7 @@ const CommunicationTimeline: React.FC<CommunicationTimelineProps> = ({ claimId, 
                   {comm.subject && <Text>- {comm.subject}</Text>}
                 </div>
                 {comm.summary && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>{comm.summary}</Text>
+                  <ToggleContent text={comm.summary} label="View details" />
                 )}
                 {comm.response_received && (
                   <div style={{ marginTop: 4 }}>
@@ -108,9 +145,7 @@ const CommunicationTimeline: React.FC<CommunicationTimelineProps> = ({ claimId, 
                       Response received {comm.response_date ? dayjs(comm.response_date).format('MM/DD') : ''}
                     </Tag>
                     {comm.response_summary && (
-                      <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                        {comm.response_summary}
-                      </Text>
+                      <ToggleContent text={comm.response_summary} label="View reply" />
                     )}
                   </div>
                 )}
@@ -139,6 +174,7 @@ const CommunicationTimeline: React.FC<CommunicationTimelineProps> = ({ claimId, 
                 <div>
                   <Text>Subject: {email.subject}</Text>
                 </div>
+                <ToggleContent html={email.body_html} label="View email" />
                 {email.attachments?.length > 0 && (
                   <Space size={4} style={{ marginTop: 2 }}>
                     <PaperClipOutlined />
@@ -146,6 +182,16 @@ const CommunicationTimeline: React.FC<CommunicationTimelineProps> = ({ claimId, 
                       {email.attachments.length} attachment(s)
                     </Text>
                   </Space>
+                )}
+                {email.reply_received && (
+                  <div style={{ marginTop: 4 }}>
+                    <Tag icon={<CheckCircleOutlined />} color="success">
+                      Reply received {email.reply_received_at ? dayjs(email.reply_received_at).format('MM/DD') : ''}
+                    </Tag>
+                    {email.reply_summary && (
+                      <ToggleContent text={email.reply_summary} label="View reply" />
+                    )}
+                  </div>
                 )}
                 {email.error_message && (
                   <Text type="danger" style={{ fontSize: 12, display: 'block' }}>

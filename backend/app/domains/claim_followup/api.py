@@ -749,3 +749,90 @@ async def test_smtp(account_id: Optional[str] = None):
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     return result
+
+
+# ============================================================
+# Automatic Reply Tracking
+# ============================================================
+
+@router.post("/emails/check-replies")
+async def check_replies(account_id: Optional[str] = Query(None)):
+    """Check IMAP inboxes for replies to sent follow-up emails.
+
+    Automatically updates SentEmail, FollowUpTask status,
+    CommunicationLog, and ClaimActivity when replies are detected.
+    Can be called manually or scheduled via cron/scheduler.
+    """
+    from app.domains.claim_followup.reply_tracker import ReplyTracker
+    try:
+        tracker = ReplyTracker()
+        result = tracker.check_replies(account_id)
+        return result
+    except Exception as e:
+        logger.error(f"Reply check failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Reply check failed: {str(e)}",
+        )
+
+
+# ============================================================
+# Claim Company Info (for email account auto-selection)
+# ============================================================
+
+@router.get("/claim-companies/{claim_id}")
+async def get_claim_companies(claim_id: str):
+    """Get company assignments for a claim.
+    Returns WM company and rebuild company IDs so the frontend
+    can auto-select the correct email account.
+    """
+    from app.core.database_factory import get_database
+    database = get_database()
+    session = database.get_readonly_session()
+    try:
+        from app.domains.client.models import Claim
+        from app.domains.water_mitigation.models import WaterMitigationJob
+        from app.domains.company.models import Company
+
+        claim = session.query(Claim).filter(
+            Claim.id == claim_id
+        ).first()
+        if not claim:
+            raise HTTPException(status_code=404, detail="Claim not found")
+
+        result: Dict[str, Any] = {
+            "rebuild_company_id": (
+                str(claim.company_id) if claim.company_id else None
+            ),
+            "rebuild_company_name": None,
+            "wm_company_id": None,
+            "wm_company_name": None,
+        }
+
+        # Get rebuild company name
+        if claim.company_id:
+            co = session.query(Company.name).filter(
+                Company.id == claim.company_id
+            ).first()
+            if co:
+                result["rebuild_company_name"] = co.name
+
+        # Get WM job company
+        wm_job = session.query(
+            WaterMitigationJob.company_id
+        ).filter(
+            WaterMitigationJob.claim_id == claim_id
+        ).order_by(
+            WaterMitigationJob.created_at.desc()
+        ).first()
+        if wm_job and wm_job.company_id:
+            result["wm_company_id"] = str(wm_job.company_id)
+            co = session.query(Company.name).filter(
+                Company.id == wm_job.company_id
+            ).first()
+            if co:
+                result["wm_company_name"] = co.name
+
+        return result
+    finally:
+        session.close()

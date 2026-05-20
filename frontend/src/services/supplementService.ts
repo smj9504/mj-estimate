@@ -103,4 +103,45 @@ export const supplementService = {
     const { data } = await api.patch(`${BASE_URL}/${supplementId}/followups/${followupId}`, payload);
     return data;
   },
+
+  // Send to PA
+  async getPaInfo(supplementId: string): Promise<{
+    pa_name: string;
+    pa_email: string;
+    pa_phone: string;
+    pa_company: string;
+    has_public_adjuster: boolean;
+    claim_number: string;
+    insurance_company: string;
+    property_address: string;
+    homeowner_name: string;
+    cc_emails: Array<{ name: string; email: string }>;
+  }> {
+    const { data } = await api.get(`${BASE_URL}/${supplementId}/pa-info`);
+    return data;
+  },
+
+  async generatePaEmail(supplementId: string, customNotes?: string): Promise<{
+    subject: string;
+    body_html: string;
+  }> {
+    const { data } = await api.post(
+      `${BASE_URL}/${supplementId}/generate-pa-email`,
+      null,
+      { params: { custom_notes: customNotes || '' } },
+    );
+    return data;
+  },
+
+  async sendToPa(supplementId: string, payload: {
+    to_addresses: string[];
+    cc_addresses?: string[];
+    subject: string;
+    body_html: string;
+    pa_name?: string;
+    email_account_id?: string;
+  }): Promise<{ success: boolean; email_id: string; attachments_count: number; status: string }> {
+    const { data } = await api.post(`${BASE_URL}/${supplementId}/send-to-pa`, payload);
+    return data;
+  },
 };

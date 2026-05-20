@@ -32,6 +32,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { emailIngestionService } from '../services/emailIngestionService';
+import { companyService } from '../services/companyService';
 import type { EmailAccount, EmailAccountCreate, EmailAccountUpdate, PROVIDER_PRESETS } from '../types/emailIngestion';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -56,6 +57,11 @@ const EmailAccountSettings: React.FC = () => {
   const { data: accounts = [], isLoading } = useQuery({
     queryKey: ['email-accounts-all'],
     queryFn: () => emailIngestionService.listAccounts(),
+  });
+
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies-for-email'],
+    queryFn: () => companyService.getCompanies(),
   });
 
   const createMutation = useMutation({
@@ -131,6 +137,7 @@ const EmailAccountSettings: React.FC = () => {
       imap_port: account.imap_port,
       use_ssl: account.use_ssl,
       username: account.username,
+      company_id: account.company_id || undefined,
       is_active: account.is_active,
       auto_schedule: account.auto_schedule,
     });
@@ -156,6 +163,13 @@ const EmailAccountSettings: React.FC = () => {
       dataIndex: 'email_address',
       key: 'email_address',
       render: (v: string) => <><MailOutlined style={{ marginRight: 4 }} />{v}</>,
+    },
+    {
+      title: 'Company',
+      dataIndex: 'company_name',
+      key: 'company_name',
+      width: 150,
+      render: (v?: string) => v ? <Tag color="blue">{v}</Tag> : <Text type="secondary">-</Text>,
     },
     {
       title: 'Provider',
@@ -280,6 +294,14 @@ const EmailAccountSettings: React.FC = () => {
               <Select.Option value="outlook">Outlook / Office 365</Select.Option>
               <Select.Option value="yahoo">Yahoo</Select.Option>
               <Select.Option value="custom">Custom IMAP</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="company_id" label="Company">
+            <Select allowClear placeholder="Select company (optional)">
+              {companies.map((c: any) => (
+                <Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>
+              ))}
             </Select>
           </Form.Item>
 

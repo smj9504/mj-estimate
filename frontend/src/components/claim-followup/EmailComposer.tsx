@@ -24,6 +24,7 @@ import {
 } from '@ant-design/icons';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
 import { emailIngestionService } from '../../services/emailIngestionService';
+import RichTextEditor from '../editor/RichTextEditor';
 import type {
   EmailTemplate,
   SendEmailRequest,
@@ -31,11 +32,30 @@ import type {
 } from '../../types/claimFollowUp';
 
 const { Text } = Typography;
-const { TextArea } = Input;
+
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 576);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 575px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isMobile;
+};
+
+// WM task types → use WM company email
+const WM_TASK_TYPES = ['wm_docs_sent', 'wm_payment_check'];
+// Rebuild task types → use rebuild company email
+const REBUILD_TASK_TYPES = [
+  'depreciation_recovery', 'estimate_request',
+  'payment_check', 'supplement_sent',
+];
 
 interface EmailComposerProps {
   claimId: string;
   followupTaskId?: string;
+  taskType?: string;
   defaultTo?: string;
   defaultSubject?: string;
   onSent?: () => void;
@@ -45,12 +65,14 @@ interface EmailComposerProps {
 const EmailComposer: React.FC<EmailComposerProps> = ({
   claimId,
   followupTaskId,
+  taskType,
   defaultTo,
   defaultSubject,
   onSent,
   onCancel,
 }) => {
   const [form] = Form.useForm();
+  const isMobile = useIsMobile();
   const [selectedTemplate, setSelectedTemplate] = useState<string | undefined>();
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>();
   const [previewMode, setPreviewMode] = useState(false);
@@ -59,6 +81,13 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
   const { data: accounts = [] } = useQuery({
     queryKey: ['email-accounts'],
     queryFn: () => emailIngestionService.listAccounts(),
+  });
+
+  // Load claim company assignments for auto-selection
+  const { data: claimCompanies } = useQuery({
+    queryKey: ['claim-companies', claimId],
+    queryFn: () => claimFollowUpService.getClaimCompanies(claimId),
+    enabled: !!claimId,
   });
 
   // Load templates
@@ -73,12 +102,35 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
     if (defaultSubject) form.setFieldValue('subject', defaultSubject);
   }, [defaultTo, defaultSubject, form]);
 
-  // Auto-select first account
+  // Auto-select account based on task type and company assignment
   useEffect(() => {
-    if (accounts.length > 0 && !selectedAccountId) {
-      setSelectedAccountId(accounts[0].id);
+    if (accounts.length === 0) return;
+
+    let targetCompanyId: string | undefined;
+    if (taskType && claimCompanies) {
+      if (WM_TASK_TYPES.includes(taskType)) {
+        targetCompanyId = claimCompanies.wm_company_id;
+      } else if (REBUILD_TASK_TYPES.includes(taskType)) {
+        targetCompanyId = claimCompanies.rebuild_company_id;
+      }
     }
-  }, [accounts, selectedAccountId]);
+
+    if (targetCompanyId) {
+      const matched = accounts.find(
+        a => a.is_active && a.company_id === targetCompanyId
+      );
+      if (matched) {
+        setSelectedAccountId(matched.id);
+        return;
+      }
+    }
+
+    // Fallback: first active account
+    if (!selectedAccountId) {
+      const first = accounts.find(a => a.is_active);
+      if (first) setSelectedAccountId(first.id);
+    }
+  }, [accounts, claimCompanies, taskType, selectedAccountId]);
 
   // Send mutation
   const sendMutation = useMutation({
@@ -168,7 +220,7 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
         </Space>
       }
       extra={
-        <Space>
+        <Space size={4}>
           <Button size="small" onClick={onCancel}>Cancel</Button>
           <Button
             type="primary"
@@ -181,23 +233,27 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
           </Button>
         </Space>
       }
+      styles={{ body: { padding: isMobile ? '12px' : '24px' } }}
     >
       {/* From Account Selection */}
       <div style={{ marginBottom: 12 }}>
-        <Text type="secondary" style={{ marginRight: 8 }}>From:</Text>
+        <div style={{ marginBottom: 4 }}>
+          <Text type="secondary">From:</Text>
+        </div>
         {accounts.length > 0 ? (
           <Select
             value={selectedAccountId}
             onChange={setSelectedAccountId}
-            style={{ width: 350 }}
+            style={{ width: '100%' }}
             placeholder="Select sending account"
             options={accounts.filter(a => a.is_active).map(a => ({
               value: a.id,
               label: (
                 <Space>
                   <UserOutlined />
+                  {a.company_name && <Tag color="blue" style={{ margin: 0 }}>{a.company_name}</Tag>}
                   <span>{a.display_name}</span>
-                  <Text type="secondary">({a.email_address})</Text>
+                  {!isMobile && <Text type="secondary">({a.email_address})</Text>}
                 </Space>
               ),
             }))}
@@ -212,7 +268,9 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
 
       {/* AI Quick Actions */}
       <div style={{ marginBottom: 12 }}>
-        <Text type="secondary" style={{ marginRight: 8 }}>AI Generate:</Text>
+        <div style={{ marginBottom: 4 }}>
+          <Text type="secondary">AI Generate:</Text>
+        </div>
         <Space wrap size={4}>
           {['initial_send', 'followup', 'payment_inquiry', 'estimate_request', 'supplement'].map(type => (
             <Button
@@ -230,11 +288,13 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
 
       {/* Template Selection */}
       <div style={{ marginBottom: 12 }}>
-        <Text type="secondary" style={{ marginRight: 8 }}>Template:</Text>
+        <div style={{ marginBottom: 4 }}>
+          <Text type="secondary">Template:</Text>
+        </div>
         <Select
           placeholder="Select a template"
           allowClear
-          style={{ width: 300 }}
+          style={{ width: '100%' }}
           onChange={handleTemplateSelect}
           value={selectedTemplate}
           options={templates.map((t: EmailTemplate) => ({
@@ -254,17 +314,17 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
 
       {/* Email Form */}
       <Form form={form} layout="vertical" size="small">
-        <Row gutter={16}>
-          <Col span={16}>
+        <Row gutter={[16, 0]}>
+          <Col xs={24} sm={16}>
             <Form.Item
               name="to_addresses"
               label="To"
               rules={[{ required: true, message: 'Enter recipient email' }]}
             >
-              <Input placeholder="adjuster@insurance.com (comma-separated for multiple)" />
+              <Input placeholder="adjuster@insurance.com (comma-separated)" />
             </Form.Item>
           </Col>
-          <Col span={8}>
+          <Col xs={24} sm={8}>
             <Form.Item name="cc_addresses" label="CC">
               <Input placeholder="cc@example.com" />
             </Form.Item>
@@ -295,6 +355,9 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
             </Space>
           }
           rules={[{ required: true, message: 'Enter email body' }]}
+          getValueFromEvent={(val: string) => val}
+          trigger="onChange"
+          valuePropName="value"
         >
           {previewMode ? (
             <div
@@ -308,9 +371,10 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
               dangerouslySetInnerHTML={{ __html: form.getFieldValue('body_html') || '' }}
             />
           ) : (
-            <TextArea
-              rows={10}
-              placeholder="Write your email here... (HTML supported)"
+            <RichTextEditor
+              placeholder="Write your email here..."
+              minHeight={250}
+              maxHeight={500}
             />
           )}
         </Form.Item>

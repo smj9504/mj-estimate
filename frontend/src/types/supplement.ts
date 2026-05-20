@@ -4,7 +4,7 @@
 
 export type SupplementStatus = 'identified' | 'in_progress' | 'submitted' | 'under_review' | 'approved' | 'denied' | 'withdrawn';
 export type BidItemStatus = 'draft' | 'sent' | 'approved' | 'revision_needed' | 'denied';
-export type BidItemType = 'bathroom' | 'cabinet' | 'packing' | 'roofing' | 'kitchen' | 'flooring' | 'other';
+export type BidItemType = 'xactimate' | 'bathroom' | 'cabinet' | 'packing' | 'roofing' | 'kitchen' | 'flooring' | 'other';
 
 export interface SupplementRequest {
   id: string;
@@ -64,6 +64,7 @@ export interface BidItemEstimate {
   custom_amount?: number;
   custom_document_file_id?: string;
   custom_document_file_name?: string;
+  included_in_xactimate: boolean;
   status: BidItemStatus;
   sent_to_pa_date?: string;
   pa_response_date?: string;
@@ -83,6 +84,7 @@ export interface BidItemEstimateCreate {
   custom_amount?: number;
   custom_document_file_id?: string;
   custom_document_file_name?: string;
+  included_in_xactimate?: boolean;
 }
 
 export interface SupplementFollowUp {
@@ -121,6 +123,7 @@ export const SUPPLEMENT_STATUS_COLORS: Record<SupplementStatus, string> = {
 };
 
 export const BID_ITEM_TYPE_LABELS: Record<BidItemType, string> = {
+  xactimate: 'Xactimate',
   bathroom: 'Bathroom',
   cabinet: 'Cabinet',
   packing: 'Packing',

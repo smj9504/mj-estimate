@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
@@ -24,6 +24,10 @@ import {
   Collapse,
   Progress,
   Upload,
+  Drawer,
+  Descriptions,
+  Divider,
+  Tabs,
 } from 'antd';
 import {
   PlusOutlined,
@@ -47,6 +51,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { claimFollowUpService } from '../services/claimFollowUpService';
+import { EmailComposer, CommunicationTimeline } from '../components/claim-followup';
 import type {
   FollowUpTask,
   FollowUpTaskCreate,
@@ -61,6 +66,17 @@ dayjs.extend(relativeTime);
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 576);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 575px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isMobile;
+};
 
 const TASK_TYPE_OPTIONS: { value: TaskType; label: string }[] = [
   { value: 'wm_docs_sent', label: 'WM Docs (Invoice/COS/EWA/Photo)' },
@@ -139,6 +155,7 @@ interface ClaimGroup {
 const ClaimFollowUpDashboard: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -152,6 +169,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const [isParsing, setIsParsing] = useState(false);
   const [selectedTask, setSelectedTask] = useState<FollowUpTask | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [claimDrawerOpen, setClaimDrawerOpen] = useState(false);
+  const [selectedClaimGroup, setSelectedClaimGroup] = useState<ClaimGroup | null>(null);
+  const [drawerEmailTaskId, setDrawerEmailTaskId] = useState<string | undefined>();
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const [resolveForm] = Form.useForm();
@@ -576,13 +596,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
   return (
     <div style={{ padding: '0 4px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={3} style={{ margin: 0 }}>Claim Follow-up</Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <Title level={isMobile ? 4 : 3} style={{ margin: 0 }}>Claim Follow-up</Title>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => refetchTasks()}>
-            Refresh
+          <Button icon={<ReloadOutlined />} onClick={() => refetchTasks()} size={isMobile ? 'small' : 'middle'}>
+            {isMobile ? '' : 'Refresh'}
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)} size={isMobile ? 'small' : 'middle'}>
             New Task
           </Button>
         </Space>
@@ -635,33 +655,39 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
       {/* Filters */}
       <Card size="small" style={{ marginBottom: 16 }}>
-        <Space wrap>
-          <Select
-            placeholder="Status"
-            allowClear
-            style={{ width: 160 }}
-            value={statusFilter}
-            onChange={setStatusFilter}
-            options={[
-              { value: 'pending', label: 'Pending' },
-              { value: 'awaiting_response', label: 'Awaiting Response' },
-              { value: 'responded', label: 'Responded' },
-              { value: 'resolved', label: 'Resolved' },
-              { value: 'overdue', label: 'Overdue' },
-            ]}
-          />
-          <Select
-            placeholder="Type"
-            allowClear
-            style={{ width: 160 }}
-            value={typeFilter}
-            onChange={setTypeFilter}
-            options={TASK_TYPE_OPTIONS}
-          />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {claimGroups.length} claims, {tasks.length} tasks
-          </Text>
-        </Space>
+        <Row gutter={[8, 8]} align="middle">
+          <Col xs={12} sm={8} md={6}>
+            <Select
+              placeholder="Status"
+              allowClear
+              style={{ width: '100%' }}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { value: 'pending', label: 'Pending' },
+                { value: 'awaiting_response', label: 'Awaiting Response' },
+                { value: 'responded', label: 'Responded' },
+                { value: 'resolved', label: 'Resolved' },
+                { value: 'overdue', label: 'Overdue' },
+              ]}
+            />
+          </Col>
+          <Col xs={12} sm={8} md={6}>
+            <Select
+              placeholder="Type"
+              allowClear
+              style={{ width: '100%' }}
+              value={typeFilter}
+              onChange={setTypeFilter}
+              options={TASK_TYPE_OPTIONS}
+            />
+          </Col>
+          <Col xs={24} sm={8}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {claimGroups.length} claims, {tasks.length} tasks
+            </Text>
+          </Col>
+        </Row>
       </Card>
 
       {/* Claim Groups */}
@@ -683,23 +709,87 @@ const ClaimFollowUpDashboard: React.FC = () => {
               background: group.hasOverdue ? '#fff2f0' : '#fff',
             },
             label: (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', flexWrap: 'wrap' }}>
-                <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <EnvironmentOutlined style={{ color: group.hasOverdue ? '#ff4d4f' : '#1890ff', fontSize: 16 }} />
-                  <Text strong style={{ fontSize: 14, color: group.hasOverdue ? '#cf1322' : undefined }}>
-                    {group.property_address || 'No Address'}
-                  </Text>
+              <div style={{ width: '100%' }}>
+                {/* Row 1: Address + meta + badges */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 0', minWidth: 0 }}>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', minWidth: 0 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedClaimGroup(group);
+                        setDrawerEmailTaskId(
+                          group.tasks.find(t => !['resolved', 'cancelled'].includes(t.status))?.id
+                        );
+                        setClaimDrawerOpen(true);
+                      }}
+                    >
+                      <EnvironmentOutlined style={{ color: group.hasOverdue ? '#ff4d4f' : '#1890ff', fontSize: 14, flexShrink: 0 }} />
+                      <Text
+                        strong
+                        style={{
+                          fontSize: isMobile ? 13 : 14,
+                          color: group.hasOverdue ? '#cf1322' : '#1890ff',
+                          textDecoration: 'underline',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {group.property_address || 'No Address'}
+                      </Text>
+                    </div>
+                    {!isMobile && (
+                      <>
+                        <Tag style={{ fontSize: 11, margin: 0, flexShrink: 0 }}>
+                          {group.insurance_company || 'N/A'}
+                        </Tag>
+                        <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
+                          #{group.claim_number}
+                        </Text>
+                      </>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {group.nextFollowupDate && (
+                      <Tooltip title={`Next: ${dayjs(group.nextFollowupDate).format('YYYY-MM-DD')}`}>
+                        <Text
+                          type={group.hasOverdue ? 'danger' : 'secondary'}
+                          style={{ fontSize: 11 }}
+                        >
+                          {dayjs(group.nextFollowupDate).fromNow()}
+                        </Text>
+                      </Tooltip>
+                    )}
+                    <Tooltip title={`${resolvedTasks.length}/${totalTasks} resolved`}>
+                      <Progress
+                        percent={progressPct}
+                        size="small"
+                        style={{ width: 50, margin: 0 }}
+                        strokeColor={progressPct === 100 ? '#52c41a' : '#1890ff'}
+                        showInfo={false}
+                      />
+                    </Tooltip>
+                    <Badge
+                      count={activeTasks.length}
+                      style={{ backgroundColor: group.hasOverdue ? '#ff4d4f' : '#1890ff' }}
+                    />
+                  </div>
                 </div>
-                <div style={{ flex: '0 0 auto' }}>
-                  <Tag style={{ fontSize: 11, margin: 0 }}>
-                    {group.insurance_company || 'N/A'}
-                  </Tag>
-                  <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
-                    #{group.claim_number}
-                  </Text>
-                </div>
-                <div style={{ flex: 1, minWidth: 200 }}>
-                  <Space size={8} wrap>
+                {/* Row 2: Mobile meta info */}
+                {isMobile && (
+                  <div style={{ marginTop: 2, display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <Tag style={{ fontSize: 10, margin: 0 }}>
+                      {group.insurance_company || 'N/A'}
+                    </Tag>
+                    <Text type="secondary" style={{ fontSize: 10 }}>
+                      #{group.claim_number}
+                    </Text>
+                  </div>
+                )}
+                {/* Row 3: Stage pipeline */}
+                <div style={{ marginTop: 4, overflow: 'hidden' }}>
+                  <Space size={4} wrap>
                     {renderStagePipeline(group)}
                     {Object.keys(group.supplementStatuses).length > 0 && (
                       <Tooltip title={Object.entries(group.supplementStatuses).map(([s, c]) => `${s}: ${c}`).join(', ')}>
@@ -710,11 +800,11 @@ const ClaimFollowUpDashboard: React.FC = () => {
                             group.supplementStatuses['approved'] ? 'green' :
                             group.supplementStatuses['denied'] ? 'red' : 'default'
                           }
-                          style={{ fontSize: 11, margin: 0, cursor: 'pointer' }}
+                          style={{ fontSize: 10, margin: 0, cursor: 'pointer' }}
                           onClick={(e) => { e.stopPropagation(); navigate('/supplements'); }}
                         >
-                          Supplement: {
-                            group.supplementStatuses['identified'] ? 'Review Needed' :
+                          Suppl: {
+                            group.supplementStatuses['identified'] ? 'Review' :
                             group.supplementStatuses['in_progress'] ? 'In Progress' :
                             group.supplementStatuses['submitted'] ? 'Submitted' :
                             group.supplementStatuses['under_review'] ? 'Under Review' :
@@ -725,31 +815,6 @@ const ClaimFollowUpDashboard: React.FC = () => {
                       </Tooltip>
                     )}
                   </Space>
-                </div>
-                <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {group.nextFollowupDate && (
-                    <Tooltip title={`Next: ${dayjs(group.nextFollowupDate).format('YYYY-MM-DD')}`}>
-                      <Text
-                        type={group.hasOverdue ? 'danger' : 'secondary'}
-                        style={{ fontSize: 11 }}
-                      >
-                        {dayjs(group.nextFollowupDate).fromNow()}
-                      </Text>
-                    </Tooltip>
-                  )}
-                  <Tooltip title={`${resolvedTasks.length}/${totalTasks} resolved`}>
-                    <Progress
-                      percent={progressPct}
-                      size="small"
-                      style={{ width: 60, margin: 0 }}
-                      strokeColor={progressPct === 100 ? '#52c41a' : '#1890ff'}
-                      showInfo={false}
-                    />
-                  </Tooltip>
-                  <Badge
-                    count={activeTasks.length}
-                    style={{ backgroundColor: group.hasOverdue ? '#ff4d4f' : '#1890ff' }}
-                  />
                 </div>
               </div>
             ),
@@ -781,19 +846,20 @@ const ClaimFollowUpDashboard: React.FC = () => {
         onOk={handleCreateSubmit}
         onCancel={() => { setCreateModalOpen(false); createForm.resetFields(); }}
         confirmLoading={createMutation.isPending}
-        width={600}
+        width={isMobile ? '95vw' : 600}
+        style={isMobile ? { top: 10 } : undefined}
       >
         <Form form={createForm} layout="vertical">
           <Form.Item name="claim_id" label="Claim ID" rules={[{ required: true }]}>
             <Input placeholder="Enter claim ID" />
           </Form.Item>
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="task_type" label="Task Type" rules={[{ required: true }]}>
                 <Select options={TASK_TYPE_OPTIONS} placeholder="Select type" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="priority" label="Priority" initialValue="normal">
                 <Select options={[
                   { value: 'low', label: 'Low' },
@@ -811,12 +877,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
             <TextArea rows={3} placeholder="Optional details" />
           </Form.Item>
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="next_followup_date" label="First Follow-up Date">
                 <DatePicker showTime style={{ width: '100%' }} placeholder="Default: 3 days from now" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="assigned_to_role" label="Assigned To Role" initialValue="adjuster">
                 <Select options={[
                   { value: 'adjuster', label: 'Adjuster' },
@@ -827,12 +893,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
             </Col>
           </Row>
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="assigned_to_name" label="Assigned To Name">
                 <Input placeholder="Adjuster name" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="assigned_to_email" label="Assigned To Email">
                 <Input placeholder="adjuster@insurance.com" />
               </Form.Item>
@@ -844,12 +910,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
           <Form.Item noStyle shouldUpdate={(prev, cur) => prev.auto_followup_enabled !== cur.auto_followup_enabled}>
             {({ getFieldValue }) => getFieldValue('auto_followup_enabled') && (
               <Row gutter={16}>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="followup_interval_days" label="Follow-up Interval (days)" initialValue={3}>
                     <InputNumber min={1} max={30} style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} sm={12}>
                   <Form.Item name="max_followup_count" label="Max Follow-ups" initialValue={5}>
                     <InputNumber min={1} max={20} style={{ width: '100%' }} />
                   </Form.Item>
@@ -864,7 +930,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
       <Modal
         title={`Resolve: ${selectedTask?.title}`}
         open={resolveModalOpen}
-        width={650}
+        width={isMobile ? '95vw' : 650}
+        style={isMobile ? { top: 10 } : undefined}
         onOk={() => {
           resolveForm.validateFields().then(values => {
             if (selectedTask) {
@@ -1027,26 +1094,26 @@ const ClaimFollowUpDashboard: React.FC = () => {
               {/* Totals (auto-calculated) */}
               <div style={{ background: '#e6f7ff', borderRadius: 6, padding: '10px 12px', marginBottom: 12 }}>
                 <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Totals</Text>
-                <Row gutter={12}>
-                  <Col span={6}>
+                <Row gutter={[8, 8]}>
+                  <Col xs={12} sm={6}>
                     <Text type="secondary" style={{ fontSize: 11 }}>Total RCV</Text>
                     <Form.Item name="rcv_amount" style={{ marginBottom: 0 }}>
                       <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                     </Form.Item>
                   </Col>
-                  <Col span={6}>
+                  <Col xs={12} sm={6}>
                     <Text type="secondary" style={{ fontSize: 11 }}>Total ACV</Text>
                     <Form.Item name="acv_amount" style={{ marginBottom: 0 }}>
                       <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                     </Form.Item>
                   </Col>
-                  <Col span={6}>
+                  <Col xs={12} sm={6}>
                     <Text type="secondary" style={{ fontSize: 11 }}>Depreciation</Text>
                     <Form.Item name="depreciation_amount" style={{ marginBottom: 0 }}>
                       <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
                     </Form.Item>
                   </Col>
-                  <Col span={6}>
+                  <Col xs={12} sm={6}>
                     <Text type="secondary" style={{ fontSize: 11 }}>Deductible</Text>
                     <Form.Item name="deductible" style={{ marginBottom: 0 }}>
                       <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
@@ -1151,7 +1218,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
       <Modal
         title={`Edit: ${selectedTask?.title}`}
         open={editModalOpen}
-        width={550}
+        width={isMobile ? '95vw' : 550}
+        style={isMobile ? { top: 10 } : undefined}
         onOk={() => {
           editForm.validateFields().then(values => {
             if (selectedTask) {
@@ -1167,12 +1235,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
             <Input />
           </Form.Item>
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="task_type" label="Type" rules={[{ required: true }]}>
                 <Select options={TASK_TYPE_OPTIONS} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="status" label="Status">
                 <Select options={[
                   { value: 'pending', label: 'Pending' },
@@ -1185,7 +1253,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
             </Col>
           </Row>
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="priority" label="Priority">
                 <Select options={[
                   { value: 'low', label: 'Low' }, { value: 'normal', label: 'Normal' },
@@ -1193,7 +1261,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 ]} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="assigned_to_role" label="Assigned Role">
                 <Select options={[
                   { value: 'adjuster', label: 'Adjuster' },
@@ -1204,12 +1272,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
             </Col>
           </Row>
           <Row gutter={12}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="assigned_to_name" label="Assigned Name">
                 <Input />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="assigned_to_email" label="Assigned Email">
                 <Input />
               </Form.Item>
@@ -1219,17 +1287,17 @@ const ClaimFollowUpDashboard: React.FC = () => {
             <Input />
           </Form.Item>
           <Row gutter={12}>
-            <Col span={8}>
+            <Col xs={8} sm={8}>
               <Form.Item name="auto_followup_enabled" label="Auto Follow-up" valuePropName="checked">
                 <Switch />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col xs={8} sm={8}>
               <Form.Item name="followup_interval_days" label="Interval (days)">
                 <InputNumber min={1} max={30} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col xs={8} sm={8}>
               <Form.Item name="max_followup_count" label="Max Count">
                 <InputNumber min={1} max={20} style={{ width: '100%' }} />
               </Form.Item>
@@ -1237,6 +1305,148 @@ const ClaimFollowUpDashboard: React.FC = () => {
           </Row>
         </Form>
       </Modal>
+
+      {/* Claim Detail Drawer */}
+      <Drawer
+        title={
+          <Space direction="vertical" size={0}>
+            <Text strong style={{ fontSize: isMobile ? 14 : 16 }}>{selectedClaimGroup?.property_address || 'Claim Detail'}</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              #{selectedClaimGroup?.claim_number} — {selectedClaimGroup?.insurance_company}
+            </Text>
+          </Space>
+        }
+        open={claimDrawerOpen}
+        onClose={() => { setClaimDrawerOpen(false); setSelectedClaimGroup(null); }}
+        width={isMobile ? '100%' : 680}
+        destroyOnClose
+      >
+        {selectedClaimGroup && (() => {
+          const group = selectedClaimGroup;
+          const activeTasks = group.tasks.filter(t => !['resolved', 'cancelled'].includes(t.status));
+          const resolvedTasks = group.tasks.filter(t => t.status === 'resolved');
+
+          return (
+            <>
+              {/* Claim Status Overview */}
+              <Card size="small" style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 12 }}>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Stage Pipeline</Text>
+                  {renderStagePipeline(group)}
+                </div>
+                <Row gutter={[8, 8]}>
+                  <Col span={8}>
+                    <Statistic title="Active Tasks" value={activeTasks.length} valueStyle={{ fontSize: 18, color: '#1890ff' }} />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic title="Resolved" value={resolvedTasks.length} valueStyle={{ fontSize: 18, color: '#52c41a' }} />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
+                      title="Next Follow-up"
+                      value={group.nextFollowupDate ? dayjs(group.nextFollowupDate).format('MM/DD') : '-'}
+                      valueStyle={{
+                        fontSize: 18,
+                        color: group.hasOverdue ? '#cf1322' : undefined,
+                      }}
+                    />
+                  </Col>
+                </Row>
+              </Card>
+
+              {/* Tasks Summary */}
+              <Card size="small" title="Tasks" style={{ marginBottom: 16 }}>
+                <Table
+                  size="small"
+                  dataSource={group.tasks}
+                  rowKey="id"
+                  pagination={false}
+                  columns={[
+                    {
+                      title: 'Stage', dataIndex: 'task_type', width: 140,
+                      render: (t: TaskType) => STAGE_LABELS[t] || t,
+                    },
+                    {
+                      title: 'Status', dataIndex: 'status', width: 130,
+                      render: (s: string, record: FollowUpTask) => {
+                        const display = isOverdue(record) ? 'overdue' : s;
+                        return <Tag color={STATUS_COLORS[display] || 'default'}>{display.replace('_', ' ').toUpperCase()}</Tag>;
+                      },
+                    },
+                    {
+                      title: 'Assigned', dataIndex: 'assigned_to_name', width: 120, ellipsis: true,
+                      render: (n?: string) => n || <Text type="secondary">-</Text>,
+                    },
+                    {
+                      title: '', key: 'actions', width: 80, align: 'center' as const,
+                      render: (_: any, record: FollowUpTask) => (
+                        <Space size={4}>
+                          <Tooltip title="Send Email">
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<MailOutlined />}
+                              onClick={() => setDrawerEmailTaskId(record.id)}
+                            />
+                          </Tooltip>
+                          <Tooltip title="Open full page">
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<RightOutlined />}
+                              onClick={() => navigate(`/claim-followup/${record.id}/email`)}
+                            />
+                          </Tooltip>
+                        </Space>
+                      ),
+                    },
+                  ]}
+                  rowClassName={(record) => record.id === drawerEmailTaskId ? 'ant-table-row-selected' : ''}
+                />
+              </Card>
+
+              <Divider style={{ margin: '12px 0' }} />
+
+              {/* Email + Communication */}
+              <Tabs
+                defaultActiveKey="email"
+                size="small"
+                items={[
+                  {
+                    key: 'email',
+                    label: <span><MailOutlined /> Send Email</span>,
+                    children: (
+                      <EmailComposer
+                        claimId={group.claim_id}
+                        followupTaskId={drawerEmailTaskId}
+                        taskType={group.tasks.find(t => t.id === drawerEmailTaskId)?.task_type}
+                        defaultTo={
+                          (() => {
+                            const task = group.tasks.find(t => t.id === drawerEmailTaskId);
+                            return task?.assigned_to_email || group.tasks[0]?.assigned_to_email || '';
+                          })()
+                        }
+                        onSent={() => {
+                          message.success('Email sent');
+                          queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
+                        }}
+                        onCancel={() => setClaimDrawerOpen(false)}
+                      />
+                    ),
+                  },
+                  {
+                    key: 'history',
+                    label: <span><ClockCircleOutlined /> Communication History</span>,
+                    children: (
+                      <CommunicationTimeline claimId={group.claim_id} taskId={drawerEmailTaskId} />
+                    ),
+                  },
+                ]}
+              />
+            </>
+          );
+        })()}
+      </Drawer>
 
       <style>{`
         .ant-table-row-overdue {
@@ -1246,11 +1456,28 @@ const ClaimFollowUpDashboard: React.FC = () => {
           background-color: #ffece8 !important;
         }
         .ant-collapse > .ant-collapse-item > .ant-collapse-header {
-          padding: 10px 16px !important;
-          align-items: center !important;
+          padding: 8px 12px !important;
+          align-items: flex-start !important;
         }
         .ant-collapse-content-box {
           padding: 0 !important;
+        }
+        @media (max-width: 576px) {
+          .ant-collapse > .ant-collapse-item > .ant-collapse-header {
+            padding: 6px 8px !important;
+          }
+          .ant-modal {
+            margin: 8px !important;
+          }
+          .ant-drawer-content-wrapper {
+            width: 100% !important;
+          }
+          .ant-statistic-title {
+            font-size: 11px !important;
+          }
+          .ant-statistic-content {
+            font-size: 16px !important;
+          }
         }
       `}</style>
     </div>

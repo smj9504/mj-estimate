@@ -12,6 +12,7 @@ export interface EmailAccount {
   use_ssl: boolean;
   username: string;
   company_id?: string;
+  company_name?: string;
   is_active: boolean;
   auto_schedule?: string;
   last_synced_at?: string;

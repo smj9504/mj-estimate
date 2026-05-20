@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, Typography, Spin, Button, Space, Descriptions, Tag, Row, Col } from 'antd';
@@ -9,9 +9,21 @@ import { EmailComposer, CommunicationTimeline } from '../components/claim-follow
 
 const { Title, Text } = Typography;
 
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 576);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 575px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isMobile;
+};
+
 const ClaimFollowUpEmail: React.FC = () => {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   const { data: task, isLoading } = useQuery({
     queryKey: ['followup-task', taskId],
@@ -29,18 +41,18 @@ const ClaimFollowUpEmail: React.FC = () => {
 
   return (
     <div style={{ padding: '0 4px' }}>
-      <Space style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12, gap: 8 }}>
         <Button
           icon={<ArrowLeftOutlined />}
           onClick={() => navigate('/claim-followup')}
+          size={isMobile ? 'small' : 'middle'}
         >
-          Back to Dashboard
+          {isMobile ? 'Back' : 'Back to Dashboard'}
         </Button>
-      </Space>
-
-      <Title level={3} style={{ marginBottom: 16 }}>
-        {task.title}
-      </Title>
+        <Title level={isMobile ? 5 : 3} style={{ margin: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {task.title}
+        </Title>
+      </div>
 
       {/* Task Summary */}
       <Card size="small" style={{ marginBottom: 16 }}>
@@ -65,19 +77,24 @@ const ClaimFollowUpEmail: React.FC = () => {
           <Descriptions.Item label="Due">
             {task.due_date ? dayjs(task.due_date).format('MM/DD/YYYY') : '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="Contacts Made">{task.contact_count}</Descriptions.Item>
-          <Descriptions.Item label="Last Contacted">
-            {task.last_contacted_at ? dayjs(task.last_contacted_at).format('MM/DD/YYYY h:mm A') : 'Never'}
-          </Descriptions.Item>
+          {!isMobile && (
+            <>
+              <Descriptions.Item label="Contacts Made">{task.contact_count}</Descriptions.Item>
+              <Descriptions.Item label="Last Contacted">
+                {task.last_contacted_at ? dayjs(task.last_contacted_at).format('MM/DD/YYYY h:mm A') : 'Never'}
+              </Descriptions.Item>
+            </>
+          )}
         </Descriptions>
       </Card>
 
-      <Row gutter={16}>
+      <Row gutter={[16, 16]}>
         {/* Email Composer */}
         <Col xs={24} lg={14}>
           <EmailComposer
             claimId={task.claim_id}
             followupTaskId={task.id}
+            taskType={task.task_type}
             defaultTo={task.assigned_to_email || ''}
             onSent={() => navigate('/claim-followup')}
             onCancel={() => navigate('/claim-followup')}

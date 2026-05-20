@@ -19,6 +19,7 @@ const ESTIMATE_ID_FIELD: Partial<Record<BidItemType, string>> = {
 };
 
 const TYPE_LABELS: Record<BidItemType, string> = {
+  xactimate: 'Xactimate',
   bathroom: 'Bathroom Estimate',
   cabinet: 'Cabinet Estimate',
   packing: 'Packing Estimate',

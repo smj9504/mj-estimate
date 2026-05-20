@@ -103,6 +103,7 @@ class BidItemEstimateCreate(BidItemEstimateBase):
     custom_amount: Optional[float] = None
     custom_document_file_id: Optional[str] = None
     custom_document_file_name: Optional[str] = None
+    included_in_xactimate: bool = False
 
 
 class BidItemEstimateUpdate(BaseModel):
@@ -112,6 +113,7 @@ class BidItemEstimateUpdate(BaseModel):
     custom_amount: Optional[float] = None
     custom_document_file_id: Optional[str] = None
     custom_document_file_name: Optional[str] = None
+    included_in_xactimate: Optional[bool] = None
     sent_to_pa_date: Optional[datetime] = None
     pa_response_date: Optional[datetime] = None
     pa_response_notes: Optional[str] = None
@@ -127,6 +129,7 @@ class BidItemEstimateResponse(BidItemEstimateBase):
     custom_amount: Optional[float] = None
     custom_document_file_id: Optional[str] = None
     custom_document_file_name: Optional[str] = None
+    included_in_xactimate: bool = False
     status: str
     sent_to_pa_date: Optional[datetime] = None
     pa_response_date: Optional[datetime] = None

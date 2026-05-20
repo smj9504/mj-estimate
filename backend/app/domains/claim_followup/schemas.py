@@ -250,7 +250,7 @@ class GenerateAIEmailResponse(BaseModel):
     subject: str
     body_html: str
     body_text: str
-    variables_used: Dict[str, str] = Field(default_factory=dict)
+    variables_used: Dict[str, Any] = Field(default_factory=dict)
 
 
 class MarkReplyRequest(BaseModel):

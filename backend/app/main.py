@@ -181,6 +181,10 @@ from app.domains.water_mitigation.trash_scheduler import (
     start_trash_scheduler,
     stop_trash_scheduler,
 )
+from app.domains.claim_followup.reply_scheduler import (
+    start_reply_scheduler,
+    stop_reply_scheduler,
+)
 from app.domains.crew_upload.models import UploadLink, UploadSession
 from app.domains.insurance_extraction.models import (
     InsurancePdfExtraction,
@@ -394,6 +398,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[STARTUP] Trash scheduler skipped: {e}")
 
+        # Start reply check scheduler (auto-detect email replies)
+        try:
+            start_reply_scheduler()
+            print("[STARTUP] Reply check scheduler started (every 10 min)")
+        except Exception as e:
+            print(f"[STARTUP] Reply scheduler skipped: {e}")
+
         # Create missing tables + auto-migrate columns in a single DB connection
         try:
             from app.core.database_factory import get_database
@@ -453,6 +464,9 @@ async def lifespan(app: FastAPI):
 
             # Stop trash cleanup scheduler
             stop_trash_scheduler()
+
+            # Stop reply check scheduler
+            stop_reply_scheduler()
 
             db_factory.reset()
             # Services cleanup handled individually

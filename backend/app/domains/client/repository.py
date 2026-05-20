@@ -210,7 +210,10 @@ class ClientSQLAlchemyRepository(SQLAlchemyRepository):
                     if hasattr(Client, key):
                         query = query.filter(getattr(Client, key) == value)
 
-            query = query.group_by(Client.id)
+            query = query.group_by(
+                Client.id,
+                latest_claim_activity.c.latest_activity,
+            )
 
             # Order by latest claim activity (desc), fallback to client created_at
             query = query.order_by(

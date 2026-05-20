@@ -39,6 +39,8 @@ class FetchedEmail:
     body_text: str
     body_html: str
     attachments: List[EmailAttachment] = field(default_factory=list)
+    in_reply_to: str = ""
+    references: str = ""
 
     @property
     def pdf_attachments(self) -> List[EmailAttachment]:
@@ -268,6 +270,9 @@ class IMAPClient:
             except Exception:
                 pass
 
+        in_reply_to = msg.get("In-Reply-To", "").strip()
+        references = msg.get("References", "").strip()
+
         text_body, html_body = _extract_body(msg)
         attachments = _extract_attachments(msg)
 
@@ -279,7 +284,189 @@ class IMAPClient:
             body_text=text_body,
             body_html=html_body,
             attachments=attachments,
+            in_reply_to=in_reply_to,
+            references=references,
         )
+
+    def fetch_replies(
+        self,
+        original_message_ids: List[str],
+        since_date: Optional[datetime] = None,
+        limit: int = 200,
+    ) -> List[FetchedEmail]:
+        """
+        Search IMAP INBOX for replies to the given Message-IDs.
+
+        Uses server-side IMAP HEADER search per message-id for efficiency,
+        then falls back to a broad scan if no results are found.
+        Returns FetchedEmail objects for each detected reply.
+        """
+        if not original_message_ids:
+            return []
+
+        results: List[FetchedEmail] = []
+        seen_msg_ids: set = set()
+
+        try:
+            self.connect()
+            self._connection.select("INBOX", readonly=True)
+
+            # Strategy 1: Server-side HEADER search (fast, exact)
+            for orig_id in original_message_ids:
+                try:
+                    # Search for In-Reply-To header matching our Message-ID
+                    status, data = self._connection.search(
+                        None, f'(HEADER "In-Reply-To" "{orig_id}")'
+                    )
+                    if status == "OK" and data[0]:
+                        for msg_num in data[0].split():
+                            if msg_num in seen_msg_ids:
+                                continue
+                            seen_msg_ids.add(msg_num)
+                            fetched = self._fetch_single(msg_num)
+                            if fetched:
+                                results.append(fetched)
+
+                    # Also search References header
+                    status, data = self._connection.search(
+                        None, f'(HEADER "References" "{orig_id}")'
+                    )
+                    if status == "OK" and data[0]:
+                        for msg_num in data[0].split():
+                            if msg_num in seen_msg_ids:
+                                continue
+                            seen_msg_ids.add(msg_num)
+                            fetched = self._fetch_single(msg_num)
+                            if fetched:
+                                results.append(fetched)
+                except Exception as e:
+                    logger.debug(
+                        f"HEADER search failed for {orig_id}: {e}"
+                    )
+                    continue
+
+            # Strategy 2: If server-side search found nothing,
+            # do a limited scan of recent emails (fallback)
+            if not results:
+                results = self._fallback_scan(
+                    original_message_ids, since_date, limit
+                )
+
+        except Exception as e:
+            logger.error(f"Error fetching replies: {e}")
+            raise
+        finally:
+            self.disconnect()
+
+        return results
+
+    def _fallback_scan(
+        self,
+        original_message_ids: List[str],
+        since_date: Optional[datetime],
+        limit: int,
+    ) -> List[FetchedEmail]:
+        """Scan recent INBOX emails and check headers locally."""
+        results: List[FetchedEmail] = []
+        message_id_set = set(original_message_ids)
+
+        criteria = []
+        if since_date:
+            date_str = since_date.strftime("%d-%b-%Y")
+            criteria.append(f"SINCE {date_str}")
+        # Only look at emails that are likely replies
+        criteria.append('SUBJECT "Re:"')
+
+        search_query = f'({" ".join(criteria)})'
+        status, message_nums = self._connection.search(None, search_query)
+
+        if status != "OK" or not message_nums[0]:
+            return results
+
+        ids = message_nums[0].split()
+        ids = ids[-limit:]  # most recent first
+
+        for msg_id in ids:
+            try:
+                fetched = self._fetch_single(msg_id)
+                if not fetched:
+                    continue
+
+                # Check if this reply references any of our sent emails
+                matched = False
+                if fetched.in_reply_to:
+                    matched = fetched.in_reply_to in message_id_set
+                if not matched and fetched.references:
+                    matched = any(
+                        mid in fetched.references for mid in message_id_set
+                    )
+
+                if matched:
+                    results.append(fetched)
+            except Exception as e:
+                logger.warning(
+                    f"Error in fallback scan for msg {msg_id}: {e}"
+                )
+                continue
+
+        return results
+
+    def fetch_replies_by_subject(
+        self,
+        subjects: List[str],
+        since_date: Optional[datetime] = None,
+        limit: int = 200,
+    ) -> List[FetchedEmail]:
+        """Search INBOX for reply emails matching subjects.
+
+        Looks for emails with 'Re:' prefix matching the original subjects.
+        Used as a fallback when smtp_message_id is not available.
+        """
+        if not subjects:
+            return []
+
+        results: List[FetchedEmail] = []
+        seen_msg_nums: set = set()
+
+        try:
+            self.connect()
+            self._connection.select("INBOX", readonly=True)
+
+            date_criteria = ""
+            if since_date:
+                date_str = since_date.strftime("%d-%b-%Y")
+                date_criteria = f' SINCE {date_str}'
+
+            # Search for "Re: <subject>" for each original subject
+            for subj in subjects[:50]:  # Limit to avoid too many searches
+                try:
+                    # IMAP SUBJECT search is case-insensitive substring
+                    search_subj = subj[:100]  # Truncate long subjects
+                    criteria = f'(SUBJECT "Re: {search_subj}"{date_criteria})'
+                    status, data = self._connection.search(
+                        None, criteria
+                    )
+                    if status == "OK" and data[0]:
+                        for msg_num in data[0].split()[-limit:]:
+                            if msg_num in seen_msg_nums:
+                                continue
+                            seen_msg_nums.add(msg_num)
+                            fetched = self._fetch_single(msg_num)
+                            if fetched:
+                                results.append(fetched)
+                except Exception as e:
+                    logger.debug(
+                        f"Subject search failed for '{subj[:50]}': {e}"
+                    )
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error in subject-based reply search: {e}")
+            raise
+        finally:
+            self.disconnect()
+
+        return results
 
     def __enter__(self):
         self.connect()

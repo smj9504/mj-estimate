@@ -15,7 +15,9 @@ import {
 import dayjs from 'dayjs';
 import api from '../services/api';
 import { supplementService } from '../services/supplementService';
+import { emailIngestionService } from '../services/emailIngestionService';
 import { fileService } from '../services/fileService';
+import RichTextEditor from '../components/editor/RichTextEditor';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { listEstimates as listPackingEstimates } from '../services/packingEstimateService';
@@ -37,7 +39,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const BID_TYPE_LABELS: Record<string, string> = {
-  bathroom: 'Bathroom', cabinet: 'Cabinet', packing: 'Packing',
+  xactimate: 'Xactimate', bathroom: 'Bathroom', cabinet: 'Cabinet', packing: 'Packing',
   roofing: 'Roofing', kitchen: 'Kitchen', flooring: 'Flooring', other: 'Other',
 };
 
@@ -77,6 +79,13 @@ const SupplementManagement: React.FC = () => {
   const [bidItemType, setBidItemType] = useState<string>('');
   const [linkedEstimateId, setLinkedEstimateId] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [sendPaModalOpen, setSendPaModalOpen] = useState(false);
+  const [sendPaLoading, setSendPaLoading] = useState(false);
+  const [paInfo, setPaInfo] = useState<any>(null);
+  const [paEmailContent, setPaEmailContent] = useState<{ subject: string; body_html: string }>({ subject: '', body_html: '' });
+  const [paCustomNotes, setPaCustomNotes] = useState('');
+  const [paCcEmails, setPaCcEmails] = useState<string[]>([]);
+  const [paSelectedAccountId, setPaSelectedAccountId] = useState<string | undefined>();
   const [createForm] = Form.useForm();
   const [bidItemForm] = Form.useForm();
   const [followupForm] = Form.useForm();
@@ -90,6 +99,11 @@ const SupplementManagement: React.FC = () => {
   const { data: supplements = [], isLoading, refetch } = useQuery({
     queryKey: ['supplements', statusFilter],
     queryFn: () => supplementService.list({ status: statusFilter, page_size: 100 }),
+  });
+
+  const { data: emailAccounts = [] } = useQuery({
+    queryKey: ['email-accounts-for-supplement'],
+    queryFn: () => emailIngestionService.listAccounts(),
   });
 
   const { data: pendingReview = [] } = useQuery({
@@ -196,6 +210,20 @@ const SupplementManagement: React.FC = () => {
         supplementService.get(selectedSupplement.id).then(setSelectedSupplement);
       }
       queryClient.invalidateQueries({ queryKey: ['supplements'] });
+      queryClient.invalidateQueries({ queryKey: ['supplement-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['supplements-pending-review'] });
+    },
+  });
+
+  const updateBidItemMutation = useMutation({
+    mutationFn: ({ supplementId, itemId, data }: { supplementId: string; itemId: string; data: Partial<BidItemEstimate> }) =>
+      supplementService.updateBidItem(supplementId, itemId, data),
+    onSuccess: () => {
+      if (selectedSupplement) {
+        supplementService.get(selectedSupplement.id).then(setSelectedSupplement);
+      }
+      queryClient.invalidateQueries({ queryKey: ['supplements'] });
+      queryClient.invalidateQueries({ queryKey: ['supplement-stats'] });
     },
   });
 
@@ -231,6 +259,73 @@ const SupplementManagement: React.FC = () => {
     });
   };
 
+  const openSendPaModal = async () => {
+    if (!selectedSupplement) return;
+    try {
+      const [info, content] = await Promise.all([
+        supplementService.getPaInfo(selectedSupplement.id),
+        supplementService.generatePaEmail(selectedSupplement.id),
+      ]);
+      setPaInfo(info);
+      setPaEmailContent(content);
+      setPaCustomNotes('');
+      // Pre-select CC emails from same company
+      setPaCcEmails((info.cc_emails || []).map((c: any) => c.email));
+      // Auto-select first email account
+      if (emailAccounts.length > 0 && !paSelectedAccountId) {
+        setPaSelectedAccountId(emailAccounts[0].id);
+      }
+      setSendPaModalOpen(true);
+    } catch {
+      message.error('Failed to load PA info');
+    }
+  };
+
+  const handleRegenerateEmail = async () => {
+    if (!selectedSupplement) return;
+    try {
+      const content = await supplementService.generatePaEmail(
+        selectedSupplement.id,
+        paCustomNotes,
+      );
+      setPaEmailContent(content);
+      message.success('Email regenerated with notes');
+    } catch {
+      message.error('Failed to regenerate');
+    }
+  };
+
+  const handleSendToPa = async () => {
+    if (!selectedSupplement || !paInfo?.pa_email) {
+      message.error('No PA email address');
+      return;
+    }
+    setSendPaLoading(true);
+    try {
+      const result = await supplementService.sendToPa(selectedSupplement.id, {
+        to_addresses: [paInfo.pa_email],
+        cc_addresses: paCcEmails,
+        subject: paEmailContent.subject,
+        body_html: paEmailContent.body_html,
+        pa_name: paInfo.pa_name,
+        email_account_id: paSelectedAccountId,
+      });
+      message.success(
+        `Sent to PA with ${result.attachments_count} PDF attachment(s)`,
+      );
+      setSendPaModalOpen(false);
+      // Refresh supplement data
+      supplementService.get(selectedSupplement.id).then(setSelectedSupplement);
+      queryClient.invalidateQueries({ queryKey: ['supplements'] });
+    } catch (err: any) {
+      message.error(
+        err?.response?.data?.detail || 'Failed to send email',
+      );
+    } finally {
+      setSendPaLoading(false);
+    }
+  };
+
   const PDF_URL_MAP: Record<string, string> = {
     bathroom: '/api/bathroom-estimates',
     cabinet: '/api/cabinet-estimates',
@@ -257,16 +352,36 @@ const SupplementManagement: React.FC = () => {
     {
       title: 'Claim #',
       key: 'claim',
-      width: 140,
-      render: (_, r) => (
-        <Space direction="vertical" size={0} style={{ cursor: 'pointer' }} onClick={() => openDetail(r)}>
-          <Text strong style={{ color: '#1890ff' }}>{r.claim_number || '-'}</Text>
-          <Text type="secondary" style={{ fontSize: 11 }}>{r.insurance_company}</Text>
-        </Space>
-      ),
+      width: 160,
+      render: (_, r) => {
+        const fileId = estimateFileMap[r.claim_id];
+        return (
+          <div style={{ cursor: 'pointer' }} onClick={() => openDetail(r)}>
+            <div>
+              <Text strong style={{ color: '#1890ff' }}>{r.claim_number || '-'}</Text>
+              {fileId && (
+                <a
+                  href={`${fileService.getDownloadUrl(fileId)}?inline=true`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  style={{ marginLeft: 6 }}
+                >
+                  <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 13 }} />
+                </a>
+              )}
+            </div>
+            <Text type="secondary" style={{ fontSize: 11 }}>{r.insurance_company}</Text>
+            {r.property_address && (
+              <div><Text type="secondary" style={{ fontSize: 11 }}>{r.property_address}</Text></div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: 'Title', dataIndex: 'title', key: 'title', ellipsis: true,
+      responsive: ['lg'],
       render: (title: string, r) => (
         <Text style={{ cursor: 'pointer', color: '#1890ff' }} onClick={() => openDetail(r)}>
           {title}
@@ -274,25 +389,26 @@ const SupplementManagement: React.FC = () => {
       ),
     },
     {
-      title: 'Original', dataIndex: 'original_amount', key: 'original', width: 110,
+      title: 'Original', dataIndex: 'original_amount', key: 'original', width: 100,
       align: 'right', render: formatCurrency,
     },
     {
-      title: 'Supplement', dataIndex: 'supplement_amount', key: 'supplement', width: 110,
+      title: 'Supplement', dataIndex: 'supplement_amount', key: 'supplement', width: 100,
       align: 'right', render: (v: number) => <Text strong>{formatCurrency(v)}</Text>,
     },
     {
-      title: 'Diff', dataIndex: 'difference', key: 'diff', width: 100, align: 'right',
+      title: 'Diff', dataIndex: 'difference', key: 'diff', width: 95, align: 'right',
       render: (v: number) => (
         <Text type={v > 0 ? 'success' : v < 0 ? 'danger' : undefined}>{formatCurrency(v)}</Text>
       ),
     },
     {
-      title: 'Status', dataIndex: 'status', key: 'status', width: 120,
+      title: 'Status', dataIndex: 'status', key: 'status', width: 110,
       render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s.replace('_', ' ').toUpperCase()}</Tag>,
     },
     {
       title: 'Required', key: 'required_estimates', width: 200,
+      responsive: ['xl'],
       render: (_, r) => {
         const re = r.required_estimates || {};
         const active = Object.entries(re).filter(([, v]) => v);
@@ -308,26 +424,12 @@ const SupplementManagement: React.FC = () => {
       },
     },
     {
-      title: 'Bid Items', dataIndex: 'bid_item_count', key: 'bid_items', width: 80, align: 'center',
+      title: 'Bids', dataIndex: 'bid_item_count', key: 'bid_items', width: 55, align: 'center',
+      responsive: ['lg'],
       render: (c: number) => <Badge count={c} showZero style={{ backgroundColor: c > 0 ? '#1890ff' : '#d9d9d9' }} />,
     },
     {
-      title: 'Estimate', key: 'estimate_pdf', width: 70, align: 'center',
-      render: (_, r) => {
-        const fileId = estimateFileMap[r.claim_id];
-        if (fileId === undefined) return <Text type="secondary" style={{ fontSize: 11 }}>...</Text>;
-        if (!fileId) return <Text type="secondary">-</Text>;
-        return (
-          <Tooltip title="View Insurance Estimate PDF">
-            <a href={`${fileService.getDownloadUrl(fileId)}?inline=true`} target="_blank" rel="noopener noreferrer">
-              <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 16 }} />
-            </a>
-          </Tooltip>
-        );
-      },
-    },
-    {
-      title: '', key: 'actions', width: 50, align: 'center',
+      title: '', key: 'actions', width: 44, align: 'center',
       render: (_, r) => (
         <Dropdown menu={{
           items: [
@@ -372,7 +474,7 @@ const SupplementManagement: React.FC = () => {
                   key={s.id}
                   type="link"
                   size="small"
-                  style={{ padding: 0, height: 'auto' }}
+                  style={{ padding: 0, height: 'auto', whiteSpace: 'normal', textAlign: 'left', wordBreak: 'break-word' }}
                   onClick={() => {
                     supplementService.get(s.id).then(data => {
                       setSelectedSupplement(data);
@@ -416,7 +518,7 @@ const SupplementManagement: React.FC = () => {
 
       <Card>
         <Table dataSource={supplements} columns={columns} rowKey="id" loading={isLoading}
-          size="small" scroll={{ x: 900 }}
+          size="small" scroll={{ x: 700 }}
           pagination={{ pageSize: 20, showTotal: t => `${t} supplements` }} />
       </Card>
 
@@ -613,9 +715,20 @@ const SupplementManagement: React.FC = () => {
                       REQUIRED_ESTIMATE_OPTIONS.forEach(opt => {
                         required_estimates[opt.key] = editedRequiredEstimates.includes(opt.key);
                       });
+                      const hasAnyChecked = editedRequiredEstimates.length > 0;
+                      const updateData: Partial<SupplementRequest> = { required_estimates };
+                      // Auto-advance from 'identified' to 'in_progress' when review is done
+                      if (hasAnyChecked && selectedSupplement.status === 'identified') {
+                        updateData.status = 'in_progress';
+                      }
                       updateMutation.mutate(
-                        { id: selectedSupplement.id, data: { required_estimates } },
-                        { onSuccess: () => { setRequiredEstimatesDirty(false); } },
+                        { id: selectedSupplement.id, data: updateData },
+                        {
+                          onSuccess: () => {
+                            setRequiredEstimatesDirty(false);
+                            queryClient.invalidateQueries({ queryKey: ['supplements-pending-review'] });
+                          },
+                        },
                       );
                     }}
                   >
@@ -652,32 +765,268 @@ const SupplementManagement: React.FC = () => {
 
             {(selectedSupplement.bid_items || []).length === 0 ? (
               <Empty description="No bid items yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            ) : (
-              <Table size="small" dataSource={selectedSupplement.bid_items} rowKey="id" pagination={false}
-                columns={[
-                  { title: 'Type', dataIndex: 'estimate_type', width: 100,
-                    render: (t: string) => <Tag>{BID_TYPE_LABELS[t] || t}</Tag> },
-                  { title: 'Title', dataIndex: 'title', ellipsis: true },
-                  { title: 'Amount', dataIndex: 'custom_amount', width: 100, align: 'right' as const,
-                    render: (v?: number) => v ? formatCurrency(v) : '-' },
-                  { title: 'Status', dataIndex: 'status', width: 120,
-                    render: (s: string) => (
-                      <Tag color={BID_STATUS_COLORS[s] || 'default'}>{s.replace('_',' ').toUpperCase()}</Tag>
-                    ),
-                  },
-                  { title: 'PDF', key: 'pdf', width: 50, align: 'center' as const,
-                    render: (_: any, item: BidItemEstimate) => item.custom_document_file_id ? (
-                      <Tooltip title={item.custom_document_file_name || 'View PDF'}>
-                        <a href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
-                          target="_blank" rel="noopener noreferrer">
-                          <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />
-                        </a>
-                      </Tooltip>
-                    ) : <Text type="secondary">-</Text> },
-                  { title: 'PA Sent', dataIndex: 'sent_to_pa_date', width: 100,
-                    render: (d?: string) => d ? dayjs(d).format('MM/DD') : '-' },
-                ]}
-              />
+            ) : (() => {
+              const hasXactimate = selectedSupplement.bid_items.some(i => i.estimate_type === 'xactimate');
+              const inXactItems = selectedSupplement.bid_items.filter(i => i.included_in_xactimate && i.estimate_type !== 'xactimate');
+              const inXactTotal = inXactItems.reduce((s, i) => s + (i.custom_amount || 0), 0);
+              const xactItem = selectedSupplement.bid_items.find(i => i.estimate_type === 'xactimate');
+              const xactOriginal = xactItem?.custom_amount || 0;
+              const xactNet = xactOriginal - inXactTotal;
+              const separateItems = selectedSupplement.bid_items.filter(i => i.estimate_type !== 'xactimate' && !i.included_in_xactimate);
+              const separateTotal = separateItems.reduce((s, i) => s + (i.custom_amount || 0), 0);
+              // Total = Xact net + in-xact items (standalone) + separate items
+              const supplementTotal = (hasXactimate ? xactNet : 0) + inXactTotal + separateTotal;
+
+              return (
+                <>
+                  {hasXactimate && (
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 8 }}
+                      message="Xactimate가 다른 bid item 금액을 포함하고 있으면 'In Xact' 체크하세요. 체크된 항목은 Xactimate 금액에서 차감됩니다."
+                    />
+                  )}
+                  <Table size="small" dataSource={selectedSupplement.bid_items} rowKey="id" pagination={false}
+                    columns={[
+                      { title: 'Type', dataIndex: 'estimate_type', width: 100,
+                        render: (t: string) => <Tag>{BID_TYPE_LABELS[t] || t}</Tag> },
+                      { title: 'Title', dataIndex: 'title', ellipsis: true,
+                        render: (v: string, item: BidItemEstimate) => (
+                          <Text
+                            editable={{
+                              onChange: (val) => {
+                                if (val && val !== v) {
+                                  updateBidItemMutation.mutate({
+                                    supplementId: selectedSupplement.id,
+                                    itemId: item.id,
+                                    data: { title: val },
+                                  });
+                                }
+                              },
+                            }}
+                          >
+                            {v}
+                          </Text>
+                        ),
+                      },
+                      { title: 'Amount', dataIndex: 'custom_amount', width: 140, align: 'right' as const,
+                        render: (v: number | undefined, item: BidItemEstimate) => (
+                          <div>
+                            <InputNumber
+                              size="small"
+                              min={0}
+                              step={0.01}
+                              prefix="$"
+                              value={v || 0}
+                              style={{
+                                width: '100%',
+                                ...(item.included_in_xactimate ? { textDecoration: 'line-through', color: '#999' } : {}),
+                              }}
+                              formatter={val => `${val}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                              parser={val => val?.replace(/[,$]/g, '') as any}
+                              onBlur={(e) => {
+                                const raw = e.target.value?.replace(/[,$]/g, '');
+                                const num = parseFloat(raw || '0');
+                                if (num !== (v || 0)) {
+                                  updateBidItemMutation.mutate({
+                                    supplementId: selectedSupplement.id,
+                                    itemId: item.id,
+                                    data: { custom_amount: num },
+                                  });
+                                }
+                              }}
+                              onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
+                            />
+                            {item.estimate_type === 'xactimate' && inXactTotal > 0 && (
+                              <div style={{ marginTop: 2 }}>
+                                <Text type="secondary" style={{ fontSize: 11 }}>
+                                  − {formatCurrency(inXactTotal)}
+                                </Text>
+                                <br />
+                                <Text strong style={{ fontSize: 12, color: '#1890ff' }}>
+                                  = {formatCurrency(xactNet)}
+                                </Text>
+                              </div>
+                            )}
+                          </div>
+                        ) },
+                      ...(hasXactimate ? [{
+                        title: 'In Xact', key: 'in_xact', width: 70, align: 'center' as const,
+                        render: (_: any, item: BidItemEstimate) => item.estimate_type === 'xactimate' ? (
+                          <Text type="secondary">-</Text>
+                        ) : (
+                          <Tooltip title="Xactimate에 이 항목 금액이 포함되어 있으면 체크">
+                            <Checkbox
+                              checked={item.included_in_xactimate}
+                              onChange={e => {
+                                updateBidItemMutation.mutate({
+                                  supplementId: selectedSupplement.id,
+                                  itemId: item.id,
+                                  data: { included_in_xactimate: e.target.checked },
+                                });
+                              }}
+                            />
+                          </Tooltip>
+                        ),
+                      }] : []),
+                      { title: 'PDF', key: 'pdf', width: 80, align: 'center' as const,
+                        render: (_: any, item: BidItemEstimate) => item.custom_document_file_id ? (
+                          <Space size={4}>
+                            <Tooltip title={item.custom_document_file_name || 'View PDF'}>
+                              <a href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
+                                target="_blank" rel="noopener noreferrer">
+                                <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />
+                              </a>
+                            </Tooltip>
+                            <Upload
+                              accept=".pdf"
+                              maxCount={1}
+                              showUploadList={false}
+                              beforeUpload={async (file) => {
+                                if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
+                                try {
+                                  const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
+                                  if (uploaded.length > 0) {
+                                    updateBidItemMutation.mutate({
+                                      supplementId: selectedSupplement.id,
+                                      itemId: item.id,
+                                      data: { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name },
+                                    });
+                                  }
+                                } catch { message.error('Upload failed'); }
+                                return false;
+                              }}
+                            >
+                              <Tooltip title="Replace PDF">
+                                <Button type="text" size="small" icon={<UploadOutlined />} style={{ padding: 0, width: 22, height: 22 }} />
+                              </Tooltip>
+                            </Upload>
+                          </Space>
+                        ) : (
+                          <Upload
+                            accept=".pdf"
+                            maxCount={1}
+                            showUploadList={false}
+                            beforeUpload={async (file) => {
+                              if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
+                              try {
+                                const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
+                                if (uploaded.length > 0) {
+                                  updateBidItemMutation.mutate({
+                                    supplementId: selectedSupplement.id,
+                                    itemId: item.id,
+                                    data: { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name },
+                                  });
+                                }
+                              } catch { message.error('Upload failed'); }
+                              return false;
+                            }}
+                          >
+                            <Tooltip title="Upload PDF">
+                              <Button type="text" size="small" icon={<UploadOutlined />} style={{ color: '#1890ff' }} />
+                            </Tooltip>
+                          </Upload>
+                        ) },
+                      { title: '', key: 'actions', width: 40, align: 'center' as const,
+                        render: (_: any, item: BidItemEstimate) => (
+                          <Tooltip title="Delete">
+                            <Button
+                              type="text"
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                              onClick={() => Modal.confirm({
+                                title: 'Delete this bid item?',
+                                onOk: () => {
+                                  supplementService.deleteBidItem(selectedSupplement.id, item.id).then(() => {
+                                    message.success('Deleted');
+                                    supplementService.get(selectedSupplement.id).then(setSelectedSupplement);
+                                    queryClient.invalidateQueries({ queryKey: ['supplements'] });
+                                  });
+                                },
+                              })}
+                            />
+                          </Tooltip>
+                        ) },
+                    ]}
+                  />
+
+                  {/* Summary */}
+                  <div style={{
+                    marginTop: 8, padding: '8px 12px',
+                    background: '#fafafa', borderRadius: 6, fontSize: 13,
+                  }}>
+                    {hasXactimate && inXactTotal > 0 && (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Text type="secondary">Xactimate</Text>
+                          <Text>{formatCurrency(xactOriginal)}</Text>
+                        </div>
+                        {inXactItems.map(i => (
+                          <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', color: '#999' }}>
+                            <Text type="secondary" style={{ fontSize: 12, paddingLeft: 12 }}>
+                              − {BID_TYPE_LABELS[i.estimate_type] || i.estimate_type}: {i.title}
+                            </Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>−{formatCurrency(i.custom_amount)}</Text>
+                          </div>
+                        ))}
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Text type="secondary">Xactimate (net)</Text>
+                          <Text strong>{formatCurrency(xactNet)}</Text>
+                        </div>
+                        {inXactItems.map(i => (
+                          <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Text type="secondary">{BID_TYPE_LABELS[i.estimate_type] || i.estimate_type}: {i.title}</Text>
+                            <Text>{formatCurrency(i.custom_amount)}</Text>
+                          </div>
+                        ))}
+                        {separateItems.map(i => (
+                          <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Text type="secondary">{BID_TYPE_LABELS[i.estimate_type] || i.estimate_type}: {i.title}</Text>
+                            <Text>{formatCurrency(i.custom_amount)}</Text>
+                          </div>
+                        ))}
+                        <Divider style={{ margin: '4px 0' }} />
+                      </>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Text strong>Supplement Total</Text>
+                      <Text strong style={{ color: '#1890ff', fontSize: 14 }}>
+                        {formatCurrency(hasXactimate && inXactTotal > 0 ? supplementTotal : selectedSupplement.supplement_amount)}
+                      </Text>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+
+            {/* Send to PA */}
+            {(selectedSupplement.bid_items || []).length > 0 && (
+              <div style={{ margin: '16px 0', textAlign: 'center' }}>
+                <Button
+                  type="primary"
+                  size="large"
+                  icon={<SendOutlined />}
+                  onClick={openSendPaModal}
+                  disabled={!selectedSupplement.bid_items?.some(i => i.custom_document_file_id)}
+                >
+                  Send to PA
+                </Button>
+                {!selectedSupplement.bid_items?.some(i => i.custom_document_file_id) && (
+                  <div style={{ marginTop: 4 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>Upload bid item PDFs first</Text>
+                  </div>
+                )}
+                {selectedSupplement.submitted_date && (
+                  <div style={{ marginTop: 4 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Last sent: {dayjs(selectedSupplement.submitted_date).format('MM/DD/YYYY')}
+                      {selectedSupplement.submitted_to && ` to ${selectedSupplement.submitted_to}`}
+                    </Text>
+                  </div>
+                )}
+              </div>
             )}
 
             <Divider style={{ margin: '12px 0' }} />
@@ -688,6 +1037,153 @@ const SupplementManagement: React.FC = () => {
               <Button size="small" icon={<PhoneOutlined />} onClick={() => setFollowupModalOpen(true)}>
                 Log Follow-up
               </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Send to PA Modal */}
+      <Modal
+        title={
+          <Space>
+            <SendOutlined />
+            <span>Send Supplement to PA</span>
+          </Space>
+        }
+        open={sendPaModalOpen}
+        width={700}
+        onCancel={() => setSendPaModalOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setSendPaModalOpen(false)}>
+            Cancel
+          </Button>,
+          <Button
+            key="send"
+            type="primary"
+            icon={<SendOutlined />}
+            loading={sendPaLoading}
+            onClick={handleSendToPa}
+            disabled={!paInfo?.pa_email}
+          >
+            Send Email
+          </Button>,
+        ]}
+      >
+        {paInfo && (
+          <div>
+            {/* From Account */}
+            <div style={{ marginBottom: 12 }}>
+              <Text type="secondary" style={{ marginRight: 8 }}>From:</Text>
+              {emailAccounts.length > 0 ? (
+                <Select
+                  value={paSelectedAccountId}
+                  onChange={setPaSelectedAccountId}
+                  style={{ width: 320 }}
+                  options={emailAccounts.filter((a: any) => a.is_active).map((a: any) => ({
+                    value: a.id,
+                    label: `${a.display_name} (${a.email_address})`,
+                  }))}
+                />
+              ) : (
+                <Text type="warning">No email accounts configured</Text>
+              )}
+            </div>
+
+            {/* To */}
+            <div style={{ marginBottom: 12 }}>
+              <Text type="secondary" style={{ marginRight: 8 }}>To:</Text>
+              <Text strong>{paInfo.pa_name}</Text>
+              <Text> ({paInfo.pa_email})</Text>
+              {paInfo.pa_company && (
+                <Tag style={{ marginLeft: 8 }}>{paInfo.pa_company}</Tag>
+              )}
+              {!paInfo.pa_email && (
+                <Alert type="warning" message="No PA email on file for this claim. Update Claim PA info first." showIcon style={{ marginTop: 8 }} />
+              )}
+            </div>
+
+            {/* CC */}
+            {paInfo.cc_emails?.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <Text type="secondary" style={{ marginRight: 8 }}>CC (same company):</Text>
+                <Checkbox.Group
+                  value={paCcEmails}
+                  onChange={(vals) => setPaCcEmails(vals as string[])}
+                >
+                  <Space direction="vertical" size={2}>
+                    {paInfo.cc_emails.map((cc: any) => (
+                      <Checkbox key={cc.email} value={cc.email}>
+                        {cc.name ? `${cc.name} (${cc.email})` : cc.email}
+                      </Checkbox>
+                    ))}
+                  </Space>
+                </Checkbox.Group>
+              </div>
+            )}
+
+            <Divider style={{ margin: '12px 0' }} />
+
+            {/* Custom Notes */}
+            <div style={{ marginBottom: 12 }}>
+              <Text strong style={{ display: 'block', marginBottom: 4 }}>
+                Additional Notes (added to email)
+              </Text>
+              <Input.TextArea
+                rows={3}
+                placeholder="e.g., Added bathroom rebuild scope that was missing from original estimate..."
+                value={paCustomNotes}
+                onChange={e => setPaCustomNotes(e.target.value)}
+              />
+              <Button
+                size="small"
+                type="link"
+                style={{ padding: '4px 0' }}
+                onClick={handleRegenerateEmail}
+              >
+                Apply notes to email
+              </Button>
+            </div>
+
+            {/* Subject */}
+            <div style={{ marginBottom: 12 }}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>Subject:</Text>
+              <Input
+                value={paEmailContent.subject}
+                onChange={e => setPaEmailContent(prev => ({ ...prev, subject: e.target.value }))}
+              />
+            </div>
+
+            {/* Body */}
+            <div style={{ marginBottom: 12 }}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>Email Body:</Text>
+              <RichTextEditor
+                value={paEmailContent.body_html}
+                onChange={val => setPaEmailContent(prev => ({ ...prev, body_html: val }))}
+                placeholder="Email content..."
+                minHeight={300}
+                maxHeight={500}
+              />
+            </div>
+
+            {/* Attachments preview */}
+            <div>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                Attachments (bid item PDFs):
+              </Text>
+              <Space direction="vertical" size={2}>
+                {(selectedSupplement?.bid_items || [])
+                  .filter(i => i.custom_document_file_id)
+                  .map(i => (
+                    <Space key={i.id} size={4}>
+                      <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                      <Text style={{ fontSize: 12 }}>{i.custom_document_file_name || i.title}</Text>
+                      <Tag style={{ fontSize: 11 }}>{formatCurrency(i.custom_amount)}</Tag>
+                    </Space>
+                  ))}
+                {!(selectedSupplement?.bid_items || []).some(i => i.custom_document_file_id) && (
+                  <Text type="secondary">No PDFs attached</Text>
+                )}
+              </Space>
             </div>
           </div>
         )}
