@@ -142,9 +142,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         demo_total += cost
         demo_parts.append(f"Vanity x{van_count} ${cost:,.2f}")
 
-        mirror_cost = round(van_count * DEMO_RATES["mirror"] * labor_mult, 2)
+    # Mirror demo only if replacing with new mirror (not D&R, not None)
+    if getattr(estimate, 'replace_mirror', False):
+        mirror_van_count = len(
+            (estimate.vanity_spec or {}).get("items", [])
+        ) or 1
+        mirror_cost = round(mirror_van_count * DEMO_RATES["mirror"] * labor_mult, 2)
         demo_total += mirror_cost
-        demo_parts.append(f"Mirror x{van_count} ${mirror_cost:,.2f}")
+        demo_parts.append(f"Mirror x{mirror_van_count} ${mirror_cost:,.2f}")
 
     if estimate.replace_toilet:
         cost = round(DEMO_RATES["toilet"] * labor_mult, 2)
@@ -718,12 +723,16 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             sink_count = van.get("sinks", 1)
             faucet_total = round(faucet_price * sink_count, 2)
 
-            # --- Mirror ---
-            mirror = van.get("mirror_type", "framed")
-            mirror_price = MIRROR_PRICES.get(mirror, 175)
-            mirror_label = mirror.replace('_', ' ')
-            mirror_total = round(
-                mirror_price + MIRROR_INSTALL * labor_mult, 2)
+            # --- Mirror (only if replace_mirror is set) ---
+            mirror_total = 0
+            mirror_label = ""
+            mirror_price = 0
+            if getattr(estimate, 'replace_mirror', False):
+                mirror = van.get("mirror_type", "framed")
+                mirror_price = MIRROR_PRICES.get(mirror, 175)
+                mirror_label = mirror.replace('_', ' ')
+                mirror_total = round(
+                    mirror_price + MIRROR_INSTALL * labor_mult, 2)
 
             # --- Combined total ---
             combined = (
@@ -748,10 +757,15 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 f"Faucet: {faucet_label} "
                 f"${faucet_price:,.2f} allowance"
             )
-            parts.append(
-                f"Mirror: {mirror_label} "
-                f"${mirror_price:,.2f} allowance"
-            )
+            if getattr(estimate, 'replace_mirror', False):
+                parts.append(
+                    f"Mirror: {mirror_label} "
+                    f"${mirror_price:,.2f} allowance"
+                )
+            elif getattr(estimate, 'detach_reset_mirror', False):
+                parts.append("Mirror: D&R (separate line)")
+            else:
+                parts.append("Mirror: not included")
 
             _add(line_items, 5,
                  f"Vanity{label} complete"
@@ -831,6 +845,15 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              1, "EA", DETACH_RESET_COSTS["toilet"] * labor_mult, "fixture",
              notes="Labor only: remove, store, reinstall w/ new wax ring")
 
+    if getattr(estimate, 'detach_reset_mirror', False):
+        dr_mirror_count = len(
+            (estimate.vanity_spec or {}).get("items", [])
+        ) or 1
+        _add(line_items, 5, "Detach & Reset - Mirror",
+             dr_mirror_count, "EA",
+             DETACH_RESET_COSTS["mirror"] * labor_mult, "fixture",
+             notes="Labor only: careful removal, store, reinstall")
+
     # ────────────────────────────────────────
     # Phase 3 (Electrical - grouped with trades)
     # ────────────────────────────────────────
@@ -841,7 +864,17 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         _add(line_items, 2, "GFCI outlet installation", gfci_count, "EA",
              ELECTRICAL_RATES["gfci_outlet_each"] * labor_mult, "electrical")
 
-    if (elec.get("vanity_lights") or 0) > 0:
+    # Vanity light — explicit replace or D&R takes priority over electrical_spec count
+    if getattr(estimate, 'replace_vanity_light', False):
+        vl_count = (elec.get("vanity_lights") or 0) or 1
+        _add(line_items, 2, "Vanity light fixture installation", vl_count, "EA",
+             ELECTRICAL_RATES["vanity_light_install"] * labor_mult, "electrical")
+    elif getattr(estimate, 'detach_reset_vanity_light', False):
+        vl_count = (elec.get("vanity_lights") or 0) or 1
+        _add(line_items, 2, "Detach & Reset - Vanity light fixture", vl_count, "EA",
+             DETACH_RESET_COSTS.get("vanity_light", 85) * labor_mult, "electrical",
+             notes="Labor only: careful removal, store, reinstall")
+    elif (elec.get("vanity_lights") or 0) > 0:
         _add(line_items, 2, "Vanity light fixture installation", elec["vanity_lights"], "EA",
              ELECTRICAL_RATES["vanity_light_install"] * labor_mult, "electrical")
 
@@ -1077,7 +1110,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     # 1) Drywall skim coat after wall tile removal
     if (estimate.demo_walls and demo_wall_sf > 0
-            and hc.get("drywall_skim_coat", True)):
+            and hc.get("drywall_skim_coat") is True):
         _add(line_items, 6, "Drywall prep/skim coat (post tile removal)",
              demo_wall_sf, "SF",
              HIDDEN_COSTS["drywall_skim_coat_per_sf"] * labor_mult, "finish",
@@ -1087,7 +1120,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     sub_spec = estimate.substrate_spec or {}
     if (estimate.water_damage
             and not sub_spec.get("subfloor_repair")
-            and hc.get("subfloor_allowance", True)):
+            and hc.get("subfloor_allowance") is True):
         allowance_sf = min(floor_sf, 20)  # conservative 20 SF allowance
         if allowance_sf > 0:
             _add(line_items, 3, "Subfloor repair allowance (water damage)",
@@ -1097,27 +1130,22 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     # 3) Auto-include GFCI if not explicitly specified (code requirement)
     elec_spec = estimate.electrical_spec or {}
-    if (gfci_count == 0 and hc.get("auto_gfci", False)
+    if (gfci_count == 0 and hc.get("auto_gfci") is True
             and (estimate.replace_vanity or estimate.replace_toilet)):
         _add(line_items, 2, "GFCI outlet (code required)", 1, "EA",
              ELECTRICAL_RATES["gfci_outlet_each"] * labor_mult, "electrical",
              notes="NEC code requires GFCI within 6ft of water source")
 
     # 4) Auto-include exhaust fan if not specified (code requirement for windowless bath)
-    if (not elec_spec.get("exhaust_fan_cfm") and hc.get("auto_exhaust_fan", False)
+    if (not elec_spec.get("exhaust_fan_cfm") and hc.get("auto_exhaust_fan") is True
             and has_demo):
         _add(line_items, 2, "Exhaust fan inspection/replacement (80 CFM)",
              1, "EA",
              ELECTRICAL_RATES["exhaust_fan"][80] * labor_mult, "electrical",
              notes="IRC code requires ventilation; inspect existing, replace if needed")
 
-    # 5) Auto-include vanity light if replacing vanity and not specified
-    if (estimate.replace_vanity
-            and not elec_spec.get("vanity_lights")
-            and hc.get("auto_vanity_light", True)):
-        _add(line_items, 2, "Vanity light fixture", 1, "EA",
-             ELECTRICAL_RATES["vanity_light_install"] * labor_mult, "electrical",
-             notes="Light fixture above vanity mirror")
+    # 5) Vanity light auto-include is now handled by replace_vanity_light flag
+    # in the electrical section above (no longer needs hidden_costs.auto_vanity_light)
 
     # 6) Permit fee — county-specific matrix logic
     plumb_spec = estimate.plumbing_spec or {}
@@ -1154,7 +1182,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     walls_spec = estimate.walls_spec or {}
     paint_ceiling_explicit = walls_spec.get("paint_ceiling", False)
     if (not paint_ceiling_explicit and has_demo
-            and floor_sf > 0 and hc.get("auto_ceiling_paint", True)):
+            and floor_sf > 0 and hc.get("auto_ceiling_paint") is True):
         if estimate.water_damage or estimate.mold_suspected:
             ceil_rate = PAINT_RATES["ceiling_per_sf"] * 1.20  # mold-resistant premium
             _add(line_items, 6,
@@ -1170,7 +1198,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     # 8) Mold-resistant drywall for ceiling if water_damage + demo_ceiling
     if (estimate.water_damage and estimate.demo_ceiling
-            and floor_sf > 0 and hc.get("mold_resistant_drywall", True)):
+            and floor_sf > 0 and hc.get("mold_resistant_drywall") is True):
         _add(line_items, 3,
              "Mold-resistant drywall - ceiling",
              floor_sf, "SF",

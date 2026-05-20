@@ -194,6 +194,8 @@ class BathroomEstimateService:
             "replace_toilet", "replace_floor",
             "detach_reset_shower", "detach_reset_tub",
             "detach_reset_vanity", "detach_reset_toilet",
+            "replace_mirror", "detach_reset_mirror",
+            "replace_vanity_light", "detach_reset_vanity_light",
             "water_damage", "mold_suspected",
             "existing_tub_material", "shower_spec", "bathtub_spec",
             "vanity_spec", "toilet_spec", "floor_spec", "walls_spec",

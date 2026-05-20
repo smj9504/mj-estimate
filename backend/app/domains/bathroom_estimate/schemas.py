@@ -47,6 +47,10 @@ class BathroomEstimateBase(BaseModel):
     detach_reset_tub: bool = False
     detach_reset_vanity: bool = False
     detach_reset_toilet: bool = False
+    replace_mirror: bool = False
+    detach_reset_mirror: bool = False
+    replace_vanity_light: bool = False
+    detach_reset_vanity_light: bool = False
     water_damage: bool = False
     mold_suspected: bool = False
     existing_tub_material: Optional[str] = None
@@ -117,6 +121,10 @@ class BathroomEstimateUpdate(BaseModel):
     detach_reset_tub: Optional[bool] = None
     detach_reset_vanity: Optional[bool] = None
     detach_reset_toilet: Optional[bool] = None
+    replace_mirror: Optional[bool] = None
+    detach_reset_mirror: Optional[bool] = None
+    replace_vanity_light: Optional[bool] = None
+    detach_reset_vanity_light: Optional[bool] = None
     water_damage: Optional[bool] = None
     mold_suspected: Optional[bool] = None
     existing_tub_material: Optional[str] = None
@@ -206,6 +214,10 @@ class BathroomEstimateResponse(BaseModel):
     detach_reset_tub: bool = False
     detach_reset_vanity: bool = False
     detach_reset_toilet: bool = False
+    replace_mirror: bool = False
+    detach_reset_mirror: bool = False
+    replace_vanity_light: bool = False
+    detach_reset_vanity_light: bool = False
     water_damage: bool = False
     mold_suspected: bool = False
     existing_tub_material: Optional[str] = None

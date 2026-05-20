@@ -202,6 +202,10 @@ export interface BathroomEstimate {
   detach_reset_tub?: boolean;
   detach_reset_vanity?: boolean;
   detach_reset_toilet?: boolean;
+  replace_mirror?: boolean;
+  detach_reset_mirror?: boolean;
+  replace_vanity_light?: boolean;
+  detach_reset_vanity_light?: boolean;
   water_damage?: boolean;
   mold_suspected?: boolean;
   existing_tub_material?: string;

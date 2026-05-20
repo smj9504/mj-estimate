@@ -831,7 +831,10 @@ const BathroomEstimateDetail: React.FC = () => {
                   prev.detach_reset_tub !== cur.detach_reset_tub ||
                   prev.detach_reset_vanity !== cur.detach_reset_vanity ||
                   prev.detach_reset_toilet !== cur.detach_reset_toilet ||
-                  prev.detach_reset_mirror !== cur.detach_reset_mirror
+                  prev.replace_mirror !== cur.replace_mirror ||
+                  prev.detach_reset_mirror !== cur.detach_reset_mirror ||
+                  prev.replace_vanity_light !== cur.replace_vanity_light ||
+                  prev.detach_reset_vanity_light !== cur.detach_reset_vanity_light
                 }>
                   {() => {
                     const getAction = (fixture: string) => {
@@ -869,23 +872,52 @@ const BathroomEstimateDetail: React.FC = () => {
                           </Col>
                         ))}
                         {form.getFieldValue('replace_vanity') && (
-                          <Col xs={24} sm={12} md={6}>
-                            <div style={{ marginBottom: 8 }}>
-                              <Text strong style={{ display: 'block', marginBottom: 4 }}>Mirror</Text>
-                              <Radio.Group
-                                value={form.getFieldValue('detach_reset_mirror') ? 'detach_reset' : 'new'}
-                                onChange={(e) => {
-                                  form.setFieldsValue({
-                                    detach_reset_mirror: e.target.value === 'detach_reset',
-                                  });
-                                }}
-                                size="small"
-                              >
-                                <Radio.Button value="new">New</Radio.Button>
-                                <Radio.Button value="detach_reset">D&R</Radio.Button>
-                              </Radio.Group>
-                            </div>
-                          </Col>
+                          <>
+                            <Col xs={24} sm={12} md={6}>
+                              <div style={{ marginBottom: 8 }}>
+                                <Text strong style={{ display: 'block', marginBottom: 4 }}>Mirror</Text>
+                                <Radio.Group
+                                  value={
+                                    form.getFieldValue('replace_mirror') ? 'replace' :
+                                    form.getFieldValue('detach_reset_mirror') ? 'detach_reset' : 'none'
+                                  }
+                                  onChange={(e) => {
+                                    form.setFieldsValue({
+                                      replace_mirror: e.target.value === 'replace',
+                                      detach_reset_mirror: e.target.value === 'detach_reset',
+                                    });
+                                  }}
+                                  size="small"
+                                >
+                                  <Radio.Button value="none">None</Radio.Button>
+                                  <Radio.Button value="replace">New</Radio.Button>
+                                  <Radio.Button value="detach_reset">D&R</Radio.Button>
+                                </Radio.Group>
+                              </div>
+                            </Col>
+                            <Col xs={24} sm={12} md={6}>
+                              <div style={{ marginBottom: 8 }}>
+                                <Text strong style={{ display: 'block', marginBottom: 4 }}>Vanity Light</Text>
+                                <Radio.Group
+                                  value={
+                                    form.getFieldValue('replace_vanity_light') ? 'replace' :
+                                    form.getFieldValue('detach_reset_vanity_light') ? 'detach_reset' : 'none'
+                                  }
+                                  onChange={(e) => {
+                                    form.setFieldsValue({
+                                      replace_vanity_light: e.target.value === 'replace',
+                                      detach_reset_vanity_light: e.target.value === 'detach_reset',
+                                    });
+                                  }}
+                                  size="small"
+                                >
+                                  <Radio.Button value="none">None</Radio.Button>
+                                  <Radio.Button value="replace">New</Radio.Button>
+                                  <Radio.Button value="detach_reset">D&R</Radio.Button>
+                                </Radio.Group>
+                              </div>
+                            </Col>
+                          </>
                         )}
                         <Col xs={24} sm={12} md={6}>
                           <div style={{ marginBottom: 8 }}>

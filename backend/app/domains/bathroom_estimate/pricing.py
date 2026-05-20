@@ -438,6 +438,10 @@ DETACH_RESET_COSTS = {
     "shower_door": 275,               # ~2.5 hrs ($200-$350)
     # Shower surround (prefab): remove panels, store, reinstall
     "shower_surround": 350,           # ~3 hrs ($275-$425)
+    # Mirror: careful removal, store, reinstall
+    "mirror": 95,                     # ~0.75 hrs ($65-$125)
+    # Vanity light: disconnect, remove, store, reinstall
+    "vanity_light": 85,              # ~0.5-0.75 hrs ($65-$110)
 }
 
 # ──────────────────────────────────────────────
