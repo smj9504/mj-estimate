@@ -175,17 +175,17 @@ const BathroomEstimateDetail: React.FC = () => {
   // ── Form sync ──
   useEffect(() => {
     if (estimate) {
-      // Preset default accessories if not yet set
+      // Preset default accessories only if spec is completely empty (never saved)
       const acc = estimate.accessories_spec;
-      if (!acc || (!acc.towel_bars && !acc.tp_holders && !acc.hand_towel_rings)) {
+      if (!acc || (acc.towel_bars == null && acc.tp_holders == null && acc.hand_towel_rings == null && acc.finish == null)) {
         estimate.accessories_spec = {
           ...acc,
-          towel_bars: acc?.towel_bars ?? 1,
-          tp_holders: acc?.tp_holders ?? 1,
-          hand_towel_rings: acc?.hand_towel_rings ?? 1,
-          robe_hooks: acc?.robe_hooks ?? 1,
-          finish: acc?.finish ?? 'chrome',
-          grade: acc?.grade ?? 'mid',
+          towel_bars: 1,
+          tp_holders: 1,
+          hand_towel_rings: 1,
+          robe_hooks: 1,
+          finish: 'chrome',
+          grade: 'mid',
         };
       }
       // Ensure auto-include flags have explicit boolean values
