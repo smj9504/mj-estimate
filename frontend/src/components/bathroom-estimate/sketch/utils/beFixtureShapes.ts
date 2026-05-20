@@ -137,23 +137,23 @@ const toilet: FixtureShape = {
   ],
 };
 
-// ── Door (plan view: thin panel line + 90° swing arc) ──
-// Standard architectural symbol: a thin line (door panel) perpendicular to wall,
+// ── Door (plan view: horizontal panel line + 90° swing arc) ──
+// Standard architectural floor-plan symbol: horizontal line from hinge to door edge,
 // plus a quarter-circle arc showing the swing direction.
-// Oriented: hinge at top-left (0,0), swings from closed (vertical) to open (horizontal).
-// Panel is along the left edge, arc sweeps from bottom of panel to the right.
+// Oriented: hinge at bottom-left (0,1), panel along bottom edge to (1,1),
+// arc sweeps clockwise from door edge (1,1) up to open position (0,0).
 
 const door: FixtureShape = {
   label: 'Door',
   paths: [
-    // Door panel (thin vertical line from hinge to door edge)
-    // Hinge at (0, 0), panel extends down to (0, 1)
-    { d: 'M0,0 L0,1', fill: N, stroke: S, strokeWidth: 2.5 },
-    // 90° swing arc from door-edge (0,1) sweeping to open position (1,0)
-    // Quarter circle: center at hinge (0,0), radius = 1 (normalized)
-    { d: 'M0,1 A1,1 0 0,1 1,0', fill: N, stroke: SL, strokeWidth: 0.6 },
+    // Door panel (horizontal line from hinge to door edge)
+    // Hinge at (0,1), panel extends right to (1,1)
+    { d: 'M0,1 L1,1', fill: N, stroke: S, strokeWidth: 2.5 },
+    // 90° swing arc from door-edge (1,1) to open position (0,0)
+    // Quarter circle: center at hinge (0,1), radius = 1 (normalized)
+    { d: 'M1,1 A1,1 0 0,0 0,0', fill: N, stroke: SL, strokeWidth: 0.8 },
     // Hinge dot
-    { d: 'M0,0 m-0.04,0 a0.04,0.04 0 1,0 0.08,0 a0.04,0.04 0 1,0 -0.08,0', fill: S, stroke: S, strokeWidth: 0.3 },
+    { d: 'M0,1 m-0.04,0 a0.04,0.04 0 1,0 0.08,0 a0.04,0.04 0 1,0 -0.08,0', fill: S, stroke: S, strokeWidth: 0.5 },
   ],
 };
 
