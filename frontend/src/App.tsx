@@ -82,6 +82,10 @@ const CabinetEstimateDetail = lazy(() => import('./pages/CabinetEstimateDetail')
 const BathroomEstimateList = lazy(() => import('./pages/BathroomEstimateList'));
 const BathroomEstimateDetail = lazy(() => import('./pages/BathroomEstimateDetail'));
 
+// Siding Estimate Pages
+const SidingEstimateList = lazy(() => import('./pages/SidingEstimateList'));
+const SidingEstimateDetail = lazy(() => import('./pages/SidingEstimateDetail'));
+
 // Roofing Estimate Pages
 const RoofingEstimateList = lazy(() => import('./pages/RoofingEstimateList'));
 const RoofingEstimateDetail = lazy(() => import('./pages/RoofingEstimateDetail'));
@@ -694,6 +698,31 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <BathroomEstimateDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  // Siding Estimate routes
+  {
+    path: "/siding-estimates",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <SidingEstimateList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/siding-estimates/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <SidingEstimateDetail />
           </Suspense>
         </Layout>
       </ProtectedRoute>

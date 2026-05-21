@@ -140,6 +140,10 @@ from app.domains.bathroom_estimate.api import router as bathroom_estimate_router
 from app.domains.bathroom_estimate.models import (
     BathroomEstimate, BathroomEstimateLineItem, BathroomEstimateHistory
 )
+from app.domains.siding_estimate.api import router as siding_estimate_router
+from app.domains.siding_estimate.models import (
+    SidingEstimate, SidingEstimateLineItem
+)
 from app.domains.roofing_estimate.api import router as roofing_estimate_router
 from app.domains.roofing_estimate.models import (
     RoofingEstimate, RoofingEstimateLineItem, RoofingEstimateHistory
@@ -737,6 +741,7 @@ app.include_router(
 # Cabinet Estimate System endpoints
 app.include_router(cabinet_estimate_router, prefix="/api", tags=["Cabinet Estimates"])
 app.include_router(bathroom_estimate_router, prefix="/api", tags=["Bathroom Estimates"])
+app.include_router(siding_estimate_router, prefix="/api", tags=["Siding Estimates"])
 app.include_router(roofing_estimate_router, prefix="/api", tags=["Roofing Estimates"])
 
 # Material Order System endpoints
