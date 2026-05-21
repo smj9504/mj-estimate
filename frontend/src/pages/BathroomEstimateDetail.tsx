@@ -639,7 +639,7 @@ const BathroomEstimateDetail: React.FC = () => {
       </Modal>
 
       <Form form={form} layout="vertical" size="small">
-        <Tabs activeKey={activeTab} onChange={setActiveTab} destroyInactiveTabPane={false} items={[
+        <Tabs activeKey={activeTab} onChange={setActiveTab} destroyOnHidden={false} items={[
           // ════════ TAB 1: Project Info ════════
           {
             key: 'project',
@@ -1030,7 +1030,7 @@ const BathroomEstimateDetail: React.FC = () => {
                     Draw walls, place fixtures (tub, shower, vanity, toilet), then use the Tile tool to estimate tile quantities
                   </Text>
                 }
-                bodyStyle={{ padding: 0 }}
+                styles={{ body: { padding: 0 } }}
               >
                 <div style={{ height: 700 }}>
                   <BESketchTab
@@ -1966,7 +1966,7 @@ const BathroomEstimateDetail: React.FC = () => {
                         lineItemMutation.mutate({ action: 'update', itemId, data: updates });
                       }}
                       confirmLoading={lineItemMutation.isPending}
-                      destroyOnClose
+                      destroyOnHidden
                     >
                       {editingItem && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
@@ -2044,7 +2044,7 @@ const BathroomEstimateDetail: React.FC = () => {
                         });
                       }}
                       confirmLoading={lineItemMutation.isPending}
-                      destroyOnClose
+                      destroyOnHidden
                     >
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
                         <div>

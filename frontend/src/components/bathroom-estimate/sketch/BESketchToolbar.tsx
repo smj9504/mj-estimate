@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { Button, Space, Divider, Tooltip, Switch, Typography } from 'antd';
+import { Button, Space, Divider, Tooltip, Switch, Typography, Grid } from 'antd';
 import {
   SelectOutlined,
   LineOutlined,
@@ -27,6 +27,7 @@ import type { BESketchTool } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 
 const { Text } = Typography;
+const { useBreakpoint } = Grid;
 
 interface BESketchToolbarProps {
   api: BESketchStateAPI;
@@ -48,6 +49,8 @@ const TOOLS: { key: BESketchTool; icon: React.ReactNode; label: string; tooltip:
 
 const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoomOut, onZoomFit, zoomLevel }) => {
   const { activeTool, setActiveTool, undo, redo, canUndo, canRedo, data, updateSettings } = api;
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   return (
     <div
@@ -58,14 +61,17 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoom
         display: 'flex',
         alignItems: 'center',
         gap: 4,
-        overflow: 'hidden',
         flexShrink: 0,
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        WebkitOverflowScrolling: 'touch',
+        minWidth: 0,
       }}
     >
       {/* Tools */}
       <Space size={2} style={{ flexShrink: 0 }}>
         {TOOLS.map((t) => (
-          <Tooltip key={t.key} title={t.tooltip}>
+          <Tooltip key={t.key} title={isMobile ? undefined : t.tooltip}>
             <Button
               type={activeTool === t.key ? 'primary' : 'default'}
               icon={t.icon}
@@ -81,19 +87,17 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoom
 
       {/* Actions */}
       <Space size={2} style={{ flexShrink: 0 }}>
-        <Divider type="vertical" style={{ display: 'none' }} />
-
         {/* Undo / Redo */}
-        <Tooltip title="Undo (Ctrl+Z)">
+        <Tooltip title={isMobile ? undefined : 'Undo (Ctrl+Z)'}>
           <Button size="small" icon={<UndoOutlined />} disabled={!canUndo} onClick={undo} />
         </Tooltip>
-        <Tooltip title="Redo (Ctrl+Y)">
+        <Tooltip title={isMobile ? undefined : 'Redo (Ctrl+Y)'}>
           <Button size="small" icon={<RedoOutlined />} disabled={!canRedo} onClick={redo} />
         </Tooltip>
 
         <Divider type="vertical" style={{ margin: '0 2px' }} />
 
-        <Tooltip title="Toggle grid">
+        <Tooltip title={isMobile ? undefined : 'Toggle grid'}>
           <Button
             size="small"
             icon={<TableOutlined />}
@@ -102,7 +106,7 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoom
             onClick={() => updateSettings({ showGrid: !data.settings.showGrid })}
           />
         </Tooltip>
-        <Tooltip title="Toggle dimensions">
+        <Tooltip title={isMobile ? undefined : 'Toggle dimensions'}>
           <Button
             size="small"
             icon={<EyeOutlined />}
@@ -114,7 +118,7 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoom
 
         <Divider type="vertical" style={{ margin: '0 2px' }} />
 
-        <Tooltip title="Zoom in (Ctrl+Scroll up)">
+        <Tooltip title={isMobile ? undefined : 'Zoom in'}>
           <Button size="small" icon={<ZoomInOutlined />} onClick={onZoomIn} />
         </Tooltip>
         {zoomLevel != null && (
@@ -122,10 +126,10 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoom
             {Math.round(zoomLevel * 100)}%
           </span>
         )}
-        <Tooltip title="Zoom out (Ctrl+Scroll down)">
+        <Tooltip title={isMobile ? undefined : 'Zoom out'}>
           <Button size="small" icon={<ZoomOutOutlined />} onClick={onZoomOut} />
         </Tooltip>
-        <Tooltip title="Fit to view">
+        <Tooltip title={isMobile ? undefined : 'Fit to view'}>
           <Button size="small" icon={<CompressOutlined />} onClick={onZoomFit} />
         </Tooltip>
       </Space>

@@ -8,21 +8,26 @@ import { useNavigate } from 'react-router-dom';
 import {
   Table, Button, Space, Card, message, Popconfirm, Tag,
   Typography, Row, Col, Statistic, Tooltip, Empty, Modal,
+  Grid, List, Dropdown,
 } from 'antd';
 import {
   PlusOutlined, EyeOutlined, DeleteOutlined,
   ReloadOutlined, ThunderboltOutlined, TeamOutlined,
   FileTextOutlined, DollarOutlined, UserOutlined,
   CameraOutlined, AppstoreOutlined, CloseOutlined,
+  MoreOutlined,
 } from '@ant-design/icons';
 import * as packingService from '../services/packingEstimateService';
 import type { PackEstimateSummary } from '../types/packing-estimate';
 import { formatDate } from '../utils/formatters';
 
 const { Title, Text } = Typography;
+const { useBreakpoint } = Grid;
 
 const PackCalculatorNewList: React.FC = () => {
   const navigate = useNavigate();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [estimates, setEstimates] = useState<PackEstimateSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -185,27 +190,119 @@ const PackCalculatorNewList: React.FC = () => {
 
   const totalGrand = estimates.reduce((s, e) => s + (e.grand_total || 0), 0);
 
+  const renderMobileItem = (record: PackEstimateSummary) => (
+    <List.Item
+      style={{ padding: '12px 0' }}
+      actions={[
+        <Dropdown
+          key="actions"
+          menu={{
+            items: [
+              {
+                key: 'view',
+                icon: <EyeOutlined />,
+                label: 'View',
+                onClick: () => navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`),
+              },
+              { type: 'divider' as const },
+              {
+                key: 'delete',
+                icon: <DeleteOutlined />,
+                label: 'Delete',
+                danger: true,
+                onClick: () => {
+                  if (window.confirm('Delete this estimate?')) {
+                    handleDelete(record.id);
+                  }
+                },
+              },
+            ],
+          }}
+          trigger={['click']}
+        >
+          <Button type="text" icon={<MoreOutlined />} />
+        </Dropdown>,
+      ]}
+    >
+      <div
+        style={{ flex: 1, cursor: 'pointer', minWidth: 0 }}
+        onClick={() => navigate(`/reconstruction-estimate/pack-calculator-new/${record.id}`)}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+          <Tag color={record.mode === 'photo_ai' ? 'purple' : 'blue'}>
+            {record.mode === 'photo_ai' ? 'Photo AI' : 'Quick'}
+          </Tag>
+          <Tag color={
+            record.status === 'completed' ? 'success'
+              : record.status === 'approved' ? 'blue'
+              : 'default'
+          }>
+            {record.status || 'draft'}
+          </Tag>
+        </div>
+        <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 2 }}>
+          {record.calculation_name || 'Untitled'}
+        </Text>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          {record.project_address && (
+            <Text type="secondary" style={{ fontSize: 12 }}>{record.project_address}</Text>
+          )}
+          {record.client_name && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              <UserOutlined style={{ marginRight: 2 }} />{record.client_name}
+            </Text>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 12, marginTop: 2, flexWrap: 'wrap' }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {record.total_rooms} rooms
+          </Text>
+          {record.total_hours != null && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {record.total_hours.toFixed(1)} hrs
+            </Text>
+          )}
+          {record.grand_total ? (
+            <Text style={{ fontSize: 12, fontWeight: 600, color: '#1890ff' }}>
+              ${record.grand_total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+            </Text>
+          ) : null}
+          {record.created_at && (
+            <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(record.created_at)}</Text>
+          )}
+        </div>
+      </div>
+    </List.Item>
+  );
+
   return (
-    <div>
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Card>
-          <Row justify="space-between" align="middle">
+    <div style={{ padding: isMobile ? 0 : undefined }}>
+      <Space direction="vertical" size={isMobile ? 'middle' : 'large'} style={{ width: '100%' }}>
+        <Card
+          styles={{
+            header: isMobile ? { padding: '0 12px' } : undefined,
+            body: { padding: isMobile ? '12px' : '24px' },
+          }}
+        >
+          <Row justify="space-between" align="middle" wrap>
             <Col>
-              <Title level={3} style={{ margin: 0 }}>
+              <Title level={isMobile ? 4 : 3} style={{ margin: 0 }}>
                 <ThunderboltOutlined /> Packing Estimates
               </Title>
             </Col>
             <Col>
-              <Space>
-                <Button icon={<ReloadOutlined />} onClick={fetchEstimates} loading={loading}>
-                  Refresh
-                </Button>
+              <Space size="small">
+                {!isMobile && (
+                  <Button icon={<ReloadOutlined />} onClick={fetchEstimates} loading={loading}>
+                    Refresh
+                  </Button>
+                )}
                 <Button
-                  type="primary" size="large"
+                  type="primary" size={isMobile ? 'middle' : 'large'}
                   icon={<PlusOutlined />}
                   onClick={handleNewEstimate}
                 >
-                  New Estimate
+                  {isMobile ? 'New' : 'New Estimate'}
                 </Button>
               </Space>
             </Col>
@@ -213,24 +310,24 @@ const PackCalculatorNewList: React.FC = () => {
         </Card>
 
         {estimates.length > 0 && (
-          <Card>
-            <Row gutter={16}>
-              <Col span={6}>
-                <Statistic title="Total Estimates" value={total} prefix={<FileTextOutlined />} />
+          <Card styles={{ body: { padding: isMobile ? '12px' : '24px' } }}>
+            <Row gutter={[16, isMobile ? 12 : 16]}>
+              <Col span={isMobile ? 12 : 6}>
+                <Statistic title="Estimates" value={total} prefix={<FileTextOutlined />} />
               </Col>
-              <Col span={6}>
-                <Statistic title="Total Rooms" value={estimates.reduce((s, e) => s + e.total_rooms, 0)} />
+              <Col span={isMobile ? 12 : 6}>
+                <Statistic title="Rooms" value={estimates.reduce((s, e) => s + e.total_rooms, 0)} />
               </Col>
-              <Col span={6}>
+              <Col span={isMobile ? 12 : 6}>
                 <Statistic
-                  title="Total Hours"
+                  title="Hours"
                   value={estimates.reduce((s, e) => s + (e.total_hours || 0), 0).toFixed(1)}
                   prefix={<TeamOutlined />}
                 />
               </Col>
-              <Col span={6}>
+              <Col span={isMobile ? 12 : 6}>
                 <Statistic
-                  title="Total Value"
+                  title="Value"
                   value={totalGrand}
                   prefix={<DollarOutlined />}
                   precision={2}
@@ -241,29 +338,47 @@ const PackCalculatorNewList: React.FC = () => {
           </Card>
         )}
 
-        <Card>
-          <Table
-            columns={columns}
-            dataSource={estimates}
-            rowKey="id"
-            loading={loading}
-            pagination={{ pageSize: 10, showTotal: t => `${t} estimates` }}
-            locale={{
-              emptyText: (
-                <Empty description={
-                  <Space direction="vertical">
-                    <Text>No packing estimates yet</Text>
-                    <Button
-                      type="primary" icon={<PlusOutlined />}
-                      onClick={handleNewEstimate}
-                    >
-                      Create First Estimate
-                    </Button>
-                  </Space>
-                } />
-              ),
-            }}
-          />
+        <Card styles={{ body: { padding: isMobile ? '12px' : '24px' } }}>
+          {isMobile ? (
+            <List
+              dataSource={estimates}
+              loading={loading}
+              renderItem={renderMobileItem}
+              pagination={{ pageSize: 10, size: 'small', showTotal: t => `${t} estimates` }}
+              locale={{
+                emptyText: (
+                  <Empty description={
+                    <Space direction="vertical">
+                      <Text>No packing estimates yet</Text>
+                      <Button type="primary" icon={<PlusOutlined />} onClick={handleNewEstimate}>
+                        Create First Estimate
+                      </Button>
+                    </Space>
+                  } />
+                ),
+              }}
+            />
+          ) : (
+            <Table
+              columns={columns}
+              dataSource={estimates}
+              rowKey="id"
+              loading={loading}
+              pagination={{ pageSize: 10, showTotal: t => `${t} estimates` }}
+              locale={{
+                emptyText: (
+                  <Empty description={
+                    <Space direction="vertical">
+                      <Text>No packing estimates yet</Text>
+                      <Button type="primary" icon={<PlusOutlined />} onClick={handleNewEstimate}>
+                        Create First Estimate
+                      </Button>
+                    </Space>
+                  } />
+                ),
+              }}
+            />
+          )}
         </Card>
       </Space>
 

@@ -44,12 +44,11 @@ import { BATHROOM_PRESETS, type BathroomPreset } from './utils/bePresets';
 import BETileCalculationPanel from './BETileCalculationPanel';
 
 const { Title, Text } = Typography;
-const { Panel } = Collapse;
 const { Option } = Select;
 
 interface BESketchSidebarProps {
   api: BESketchStateAPI;
-  width?: number;
+  width?: number | string;
 }
 
 // ── Fixture palette ──
@@ -164,172 +163,177 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
         defaultActiveKey={['fixtures', 'rooms', 'properties']}
         size="small"
         bordered={false}
-      >
-        {/* ── Quick Start Presets ── */}
-        <Panel header={<Text strong>Quick Start</Text>} key="presets">
-          <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            {BATHROOM_PRESETS.map((preset) => (
-              <Button
-                key={preset.id}
-                size="small"
-                block
-                onClick={() => handleApplyPreset(preset)}
-                style={{ textAlign: 'left', height: 'auto', padding: '4px 8px', whiteSpace: 'normal' }}
-              >
-                <div>
-                  <Text strong style={{ fontSize: 11 }}>{preset.name}</Text>
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 10 }}>{preset.description}</Text>
-                </div>
-              </Button>
-            ))}
-          </Space>
-        </Panel>
-
-        {/* ── Fixture Palette ── */}
-        <Panel header={<Text strong>Fixtures</Text>} key="fixtures">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            {FIXTURE_PALETTE.map((fp) => (
-              <Button
-                key={fp.type}
-                size="small"
-                block
-                onClick={() => handlePlaceFixture(fp.type)}
-                style={{ textAlign: 'left', fontSize: 12 }}
-              >
-                {fp.icon} {fp.label}
-              </Button>
-            ))}
-          </div>
-        </Panel>
-
-        {/* ── Rooms ── */}
-        <Panel header={<Text strong>Rooms ({data.rooms.length})</Text>} key="rooms">
-          {data.rooms.length === 0 ? (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Draw walls to create a room, or use the Room tool.
-            </Text>
-          ) : (
-            <Space direction="vertical" size={4} style={{ width: '100%' }}>
-              {data.rooms.map((room) => (
-                <Card
-                  key={room.id}
-                  size="small"
-                  style={{
-                    cursor: 'pointer',
-                    border: selectedId === room.id ? '1px solid #1890ff' : undefined,
-                  }}
-                  onClick={() => setSelectedId(room.id)}
-                >
-                  <Text strong style={{ fontSize: 12 }}>{room.name}</Text>
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    Floor: {room.floorAreaSF} SF | Walls: {room.wallAreaSF} SF | Perimeter: {room.perimeterLF} LF
+        items={[
+          {
+            key: 'presets',
+            label: <Text strong>Quick Start</Text>,
+            children: (
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                {BATHROOM_PRESETS.map((preset) => (
+                  <Button
+                    key={preset.id}
+                    size="small"
+                    block
+                    onClick={() => handleApplyPreset(preset)}
+                    style={{ textAlign: 'left', height: 'auto', padding: '4px 8px', whiteSpace: 'normal' }}
+                  >
+                    <div>
+                      <Text strong style={{ fontSize: 11 }}>{preset.name}</Text>
+                      <br />
+                      <Text type="secondary" style={{ fontSize: 10 }}>{preset.description}</Text>
+                    </div>
+                  </Button>
+                ))}
+              </Space>
+            ),
+          },
+          {
+            key: 'fixtures',
+            label: <Text strong>Fixtures</Text>,
+            children: (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                {FIXTURE_PALETTE.map((fp) => (
+                  <Button
+                    key={fp.type}
+                    size="small"
+                    block
+                    onClick={() => handlePlaceFixture(fp.type)}
+                    style={{ textAlign: 'left', fontSize: 12 }}
+                  >
+                    {fp.icon} {fp.label}
+                  </Button>
+                ))}
+              </div>
+            ),
+          },
+          {
+            key: 'rooms',
+            label: <Text strong>Rooms ({data.rooms.length})</Text>,
+            children: data.rooms.length === 0 ? (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Draw walls to create a room, or use the Room tool.
+              </Text>
+            ) : (
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                {data.rooms.map((room) => (
+                  <Card
+                    key={room.id}
+                    size="small"
+                    style={{
+                      cursor: 'pointer',
+                      border: selectedId === room.id ? '1px solid #1890ff' : undefined,
+                    }}
+                    onClick={() => setSelectedId(room.id)}
+                  >
+                    <Text strong style={{ fontSize: 12 }}>{room.name}</Text>
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      Floor: {room.floorAreaSF} SF | Walls: {room.wallAreaSF} SF | Perimeter: {room.perimeterLF} LF
+                    </Text>
+                  </Card>
+                ))}
+              </Space>
+            ),
+          },
+          {
+            key: 'properties',
+            label: <Text strong>Properties</Text>,
+            children: (
+              <>
+                {!selectedId ? (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Select an element to view its properties.
                   </Text>
-                </Card>
-              ))}
-            </Space>
-          )}
-        </Panel>
+                ) : selectedFixture ? (
+                  <FixturePropertiesPanel fixture={selectedFixture} api={api} />
+                ) : selectedRoom ? (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text strong>{selectedRoom.name}</Text>
+                      <Select
+                        size="small"
+                        value={selectedRoom.roomType ?? 'bathroom'}
+                        onChange={(v) => {
+                          const nameMap: Record<string, string> = {
+                            bathroom: 'Bathroom', closet: 'Closet',
+                            toilet_room: 'Toilet Room', linen_closet: 'Linen Closet', other: 'Room',
+                          };
+                          api.updateRoomMeta(selectedRoom.id, { roomType: v, name: nameMap[v] ?? v });
+                        }}
+                        style={{ width: 120 }}
+                        options={[
+                          { label: 'Bathroom', value: 'bathroom' },
+                          { label: 'Closet', value: 'closet' },
+                          { label: 'Toilet Room', value: 'toilet_room' },
+                          { label: 'Linen Closet', value: 'linen_closet' },
+                          { label: 'Other', value: 'other' },
+                        ]}
+                      />
+                    </div>
+                    {selectedRoom.parentRoomId && (
+                      <Tag color="orange" style={{ marginTop: 4 }}>Sub-room</Tag>
+                    )}
+                    <Divider style={{ margin: '8px 0' }} />
+                    <div style={{ fontSize: 12 }}>
+                      <div>Floor Area: <strong>{selectedRoom.floorAreaSF} SF</strong>
+                        {selectedRoom.netFloorAreaSF !== selectedRoom.floorAreaSF && (
+                          <span style={{ color: '#1890ff' }}> (Net: {selectedRoom.netFloorAreaSF} SF)</span>
+                        )}
+                      </div>
+                      <div>Wall Area: <strong>{selectedRoom.wallAreaSF} SF</strong></div>
+                      <div>Perimeter: <strong>{selectedRoom.perimeterLF} LF</strong></div>
+                      <div>Height: <strong>{selectedRoom.heightInches}"</strong> ({(selectedRoom.heightInches / 12).toFixed(1)} ft)</div>
+                    </div>
+                  </div>
+                ) : data.walls.find((w) => w.id === selectedId) ? (
+                  <WallPropertiesPanel
+                    wall={data.walls.find((w) => w.id === selectedId)!}
+                    ppf={data.settings.pixelsPerFoot}
+                    api={api}
+                  />
+                ) : (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Damage zone selected.
+                  </Text>
+                )}
 
-        {/* ── Selected Element Properties ── */}
-        <Panel header={<Text strong>Properties</Text>} key="properties">
-          {!selectedId ? (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Select an element to view its properties.
-            </Text>
-          ) : selectedFixture ? (
-            <FixturePropertiesPanel fixture={selectedFixture} api={api} />
-          ) : selectedRoom ? (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text strong>{selectedRoom.name}</Text>
-                <Select
-                  size="small"
-                  value={selectedRoom.roomType ?? 'bathroom'}
-                  onChange={(v) => {
-                    const nameMap: Record<string, string> = {
-                      bathroom: 'Bathroom', closet: 'Closet',
-                      toilet_room: 'Toilet Room', linen_closet: 'Linen Closet', other: 'Room',
-                    };
-                    api.updateRoomMeta(selectedRoom.id, { roomType: v, name: nameMap[v] ?? v });
-                  }}
-                  style={{ width: 120 }}
-                  options={[
-                    { label: 'Bathroom', value: 'bathroom' },
-                    { label: 'Closet', value: 'closet' },
-                    { label: 'Toilet Room', value: 'toilet_room' },
-                    { label: 'Linen Closet', value: 'linen_closet' },
-                    { label: 'Other', value: 'other' },
-                  ]}
-                />
-              </div>
-              {selectedRoom.parentRoomId && (
-                <Tag color="orange" style={{ marginTop: 4 }}>Sub-room</Tag>
-              )}
-              <Divider style={{ margin: '8px 0' }} />
+                {selectedId && (
+                  <>
+                    <Divider style={{ margin: '8px 0' }} />
+                    <Button
+                      danger
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      onClick={handleDeleteSelected}
+                      block
+                    >
+                      Delete Selected
+                    </Button>
+                  </>
+                )}
+              </>
+            ),
+          },
+          {
+            key: 'tile_calc',
+            label: <Text strong>Tile Estimate ({data.tileZones.length} zones)</Text>,
+            children: <BETileCalculationPanel api={api} />,
+          },
+          {
+            key: 'summary',
+            label: <Text strong>Summary</Text>,
+            children: (
               <div style={{ fontSize: 12 }}>
-                <div>Floor Area: <strong>{selectedRoom.floorAreaSF} SF</strong>
-                  {selectedRoom.netFloorAreaSF !== selectedRoom.floorAreaSF && (
-                    <span style={{ color: '#1890ff' }}> (Net: {selectedRoom.netFloorAreaSF} SF)</span>
-                  )}
-                </div>
-                <div>Wall Area: <strong>{selectedRoom.wallAreaSF} SF</strong></div>
-                <div>Perimeter: <strong>{selectedRoom.perimeterLF} LF</strong></div>
-                <div>Height: <strong>{selectedRoom.heightInches}"</strong> ({(selectedRoom.heightInches / 12).toFixed(1)} ft)</div>
+                <div>Walls: <Tag>{data.walls.length}</Tag></div>
+                <div>Rooms: <Tag>{data.rooms.length}</Tag></div>
+                <div>Fixtures: <Tag>{data.fixtures.length}</Tag></div>
+                <div>Tile Zones: <Tag>{data.tileZones.length}</Tag></div>
+                <div>Damage Zones: <Tag>{data.damageZones.length}</Tag></div>
               </div>
-            </div>
-          ) : data.walls.find((w) => w.id === selectedId) ? (
-            <WallPropertiesPanel
-              wall={data.walls.find((w) => w.id === selectedId)!}
-              ppf={data.settings.pixelsPerFoot}
-              api={api}
-            />
-          ) : (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Damage zone selected.
-            </Text>
-          )}
-
-          {selectedId && (
-            <>
-              <Divider style={{ margin: '8px 0' }} />
-              <Button
-                danger
-                size="small"
-                icon={<DeleteOutlined />}
-                onClick={handleDeleteSelected}
-                block
-              >
-                Delete Selected
-              </Button>
-            </>
-          )}
-        </Panel>
-
-        {/* ── Tile Calculation ── */}
-        <Panel
-          header={
-            <Text strong>
-              Tile Estimate ({data.tileZones.length} zones)
-            </Text>
-          }
-          key="tile_calc"
-        >
-          <BETileCalculationPanel api={api} />
-        </Panel>
-
-        {/* ── Summary ── */}
-        <Panel header={<Text strong>Summary</Text>} key="summary">
-          <div style={{ fontSize: 12 }}>
-            <div>Walls: <Tag>{data.walls.length}</Tag></div>
-            <div>Rooms: <Tag>{data.rooms.length}</Tag></div>
-            <div>Fixtures: <Tag>{data.fixtures.length}</Tag></div>
-            <div>Tile Zones: <Tag>{data.tileZones.length}</Tag></div>
-            <div>Damage Zones: <Tag>{data.damageZones.length}</Tag></div>
-          </div>
-        </Panel>
-      </Collapse>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 };
@@ -575,7 +579,7 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
       <InputNumber
         size="small"
         addonBefore="Rotation"
-        addonAfter="°"
+        suffix="°"
         value={fixture.rotation}
         min={0}
         max={360}
@@ -628,7 +632,7 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
           <InputNumber
             size="small"
-            addonAfter="in"
+            suffix="in"
             value={lengthInches}
             min={1}
             max={600}
@@ -646,7 +650,7 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
           <InputNumber
             size="small"
-            addonAfter="in"
+            suffix="in"
             value={wall.heightInches}
             min={12}
             max={240}

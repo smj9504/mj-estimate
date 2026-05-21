@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Layout, Button, Space, Typography, message, Spin, Tooltip } from 'antd';
+import { Layout, Button, Space, Typography, message, Spin, Tooltip, Grid, Drawer } from 'antd';
 import {
   SaveOutlined,
   MenuFoldOutlined,
@@ -30,6 +30,7 @@ import { bathroomEstimateService } from '../../../services/bathroomEstimateServi
 
 const { Sider, Content } = Layout;
 const { Text } = Typography;
+const { useBreakpoint } = Grid;
 
 // ── Props ──
 
@@ -182,8 +183,11 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
     }
   }, [initialSketchData, api]);
 
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const containerRef = useRef<HTMLDivElement>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
   const [zoomLevel, setZoomLevel] = useState(1);
   const stageRef = useRef<any>(null); // Konva.Stage ref passed to canvas
@@ -299,7 +303,7 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
     const updateSize = () => {
       if (!containerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
-      const sidebarW = sidebarCollapsed ? 0 : 260;
+      const sidebarW = isMobile ? 0 : (sidebarCollapsed ? 0 : 260);
       setCanvasSize({
         width: Math.max(200, rect.width - sidebarW - 2),
         height: Math.max(200, rect.height - 2),
@@ -310,7 +314,7 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
     const observer = new ResizeObserver(updateSize);
     observer.observe(containerRef.current);
     return () => observer.disconnect();
-  }, [isActive, sidebarCollapsed]);
+  }, [isActive, sidebarCollapsed, isMobile]);
 
   // ── Notify parent on changes ──
   useEffect(() => {
@@ -343,18 +347,21 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 300 }}>
-      {/* Top bar: Toolbar + Save (single row, no wrap) */}
+      {/* Top bar: Toolbar + Save */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         flexShrink: 0, borderBottom: '1px solid #e8e8e8',
+        minWidth: 0,
       }}>
-        <BESketchToolbar
-          api={api}
-          onZoomIn={() => handleZoom('in')}
-          onZoomOut={() => handleZoom('out')}
-          onZoomFit={() => handleZoom('fit')}
-          zoomLevel={zoomLevel}
-        />
+        <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+          <BESketchToolbar
+            api={api}
+            onZoomIn={() => handleZoom('in')}
+            onZoomOut={() => handleZoom('out')}
+            onZoomFit={() => handleZoom('fit')}
+            zoomLevel={zoomLevel}
+          />
+        </div>
         <Space size={4} style={{ padding: '4px 8px', flexShrink: 0 }}>
           {api.isDirty && <Text type="warning" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>*</Text>}
           <Tooltip title="Save sketch (Ctrl+S)">
@@ -365,17 +372,27 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
               onClick={handleSave}
             />
           </Tooltip>
-          <Tooltip title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>
-            <Button
-              size="small"
-              icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            />
-          </Tooltip>
+          {isMobile ? (
+            <Tooltip title="Show panels">
+              <Button
+                size="small"
+                icon={<MenuUnfoldOutlined />}
+                onClick={() => setDrawerOpen(true)}
+              />
+            </Tooltip>
+          ) : (
+            <Tooltip title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>
+              <Button
+                size="small"
+                icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              />
+            </Tooltip>
+          )}
         </Space>
       </div>
 
-      {/* Main area: Canvas + Sidebar (fills remaining height) */}
+      {/* Main area: Canvas + Sidebar */}
       <div
         ref={containerRef}
         style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}
@@ -384,10 +401,25 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
           <BESketchCanvas api={api} width={canvasSize.width} height={canvasSize.height} stageRef={stageRef} onZoomChange={setZoomLevel} />
         </div>
 
-        {!sidebarCollapsed && (
+        {/* Desktop: inline sidebar */}
+        {!isMobile && !sidebarCollapsed && (
           <BESketchSidebar api={api} width={260} />
         )}
       </div>
+
+      {/* Mobile: Drawer sidebar */}
+      {isMobile && (
+        <Drawer
+          title="Sketch Panels"
+          placement="bottom"
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          height="70vh"
+          styles={{ body: { padding: 0 } }}
+        >
+          <BESketchSidebar api={api} width="100%" />
+        </Drawer>
+      )}
 
       {/* Status bar (compact) */}
       <div
@@ -406,8 +438,8 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         <span>W:{api.data.walls.length}</span>
         <span>R:{api.data.rooms.length}</span>
         <span>F:{api.data.fixtures.length}</span>
-        <span>Scale: {api.data.settings.pixelsPerFoot} px/ft</span>
-        {api.selectedId && <span>Selected: {api.selectedId.slice(0, 15)}</span>}
+        {!isMobile && <span>Scale: {api.data.settings.pixelsPerFoot} px/ft</span>}
+        {api.selectedId && !isMobile && <span>Selected: {api.selectedId.slice(0, 15)}</span>}
       </div>
     </div>
   );
