@@ -370,13 +370,15 @@ export function useBESketchState(initialData?: BESketchData) {
         properties: properties ?? {},
       };
 
-      // Apply bathtub subtype defaults (surround OFF unless explicitly enabled)
-      if (type === 'bathtub' && properties?.bathtubSubType) {
-        const sd = BATHTUB_SURROUND_DEFAULTS[properties.bathtubSubType];
+      // Apply bathtub subtype defaults (surround ON for wall-mounted types)
+      if (type === 'bathtub') {
+        const subType = properties?.bathtubSubType ?? 'standard_alcove';
+        const sd = BATHTUB_SURROUND_DEFAULTS[subType];
         fixture.properties = {
           ...fixture.properties,
-          // Only set hasSurround if explicitly passed; default to false
-          hasSurround: properties.hasSurround ?? false,
+          bathtubSubType: subType,
+          // Default hasSurround based on wall count (ON for alcove/drop_in/corner)
+          hasSurround: properties?.hasSurround ?? (sd.surroundWallCount > 0),
           surroundWallCount: sd.surroundWallCount,
           surroundHeight: sd.surroundHeight,
           deckWidth: sd.deckWidth,

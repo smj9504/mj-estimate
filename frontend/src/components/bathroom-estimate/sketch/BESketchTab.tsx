@@ -126,9 +126,10 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
       type: typeMap[subType] ?? 'alcove',
       material: 'acrylic',
       surround_tile: !!p.hasSurround,
-      tub_length_in: bathtub.dimensions.width,
-      tub_depth_in: bathtub.dimensions.height,
-      surround_height_in: p.surroundHeight ?? 72,
+      tub_length_in: Math.max(bathtub.dimensions.width, bathtub.dimensions.height),
+      tub_depth_in: Math.min(bathtub.dimensions.width, bathtub.dimensions.height),
+      surround_height_in: p.surroundHeight ?? 60,
+      surround_wall_count: p.surroundWallCount ?? 3,
     };
   }
 

@@ -210,6 +210,8 @@ export interface BathroomEstimate {
   replace_vanity_light?: boolean;
   detach_reset_vanity_light?: boolean;
   water_damage?: boolean;
+  /** Where the water damage originated — plumber already fixed this source */
+  water_damage_source?: 'shower' | 'bathtub' | 'vanity' | 'toilet' | 'supply_line' | 'other' | null;
   mold_suspected?: boolean;
   existing_tub_material?: string;
   demo_cement_board?: boolean;

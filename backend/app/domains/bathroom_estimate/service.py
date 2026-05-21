@@ -221,7 +221,10 @@ class BathroomEstimateService:
     ) -> Optional[Dict[str, Any]]:
         """Update a single line item and recalculate totals."""
         item = self.line_item_repo.get_by_id(item_id)
-        if not item or str(getattr(item, 'estimate_id', '')) != estimate_id:
+        if not item:
+            return None
+        item_est_id = item.get('estimate_id', '') if isinstance(item, dict) else getattr(item, 'estimate_id', '')
+        if str(item_est_id) != estimate_id:
             return None
 
         # Auto-calculate total if qty or rate changed
@@ -241,7 +244,10 @@ class BathroomEstimateService:
     ) -> Optional[Dict[str, Any]]:
         """Delete a single line item and recalculate totals."""
         item = self.line_item_repo.get_by_id(item_id)
-        if not item or str(getattr(item, 'estimate_id', '')) != estimate_id:
+        if not item:
+            return None
+        item_est_id = item.get('estimate_id', '') if isinstance(item, dict) else getattr(item, 'estimate_id', '')
+        if str(item_est_id) != estimate_id:
             return None
         self.line_item_repo.delete(item_id)
         self.session.flush()

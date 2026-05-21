@@ -21,6 +21,26 @@ function zoneId(): string {
   return `tz_${Date.now()}_${_zoneCounter}`;
 }
 
+/** Rotate a point around a center by the given angle in degrees */
+function rotatePoint(p: BEPoint, center: BEPoint, angleDeg: number): BEPoint {
+  if (angleDeg === 0) return p;
+  const rad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const dx = p.x - center.x;
+  const dy = p.y - center.y;
+  return {
+    x: center.x + dx * cos - dy * sin,
+    y: center.y + dx * sin + dy * cos,
+  };
+}
+
+/** Rotate all boundary points around the fixture center */
+function rotateBoundary(boundary: BEPoint[], center: BEPoint, angleDeg: number): BEPoint[] {
+  if (angleDeg === 0) return boundary;
+  return boundary.map((p) => rotatePoint(p, center, angleDeg));
+}
+
 /**
  * Generate all tile zones from current fixtures and rooms.
  * Called whenever fixtures or rooms change.
@@ -114,16 +134,17 @@ function generateBathtubSurroundZone(fix: BEFixture, ppf: number): BETileZone | 
 
   const areaSF = (perimeterInches * surroundHeight) / 144;
 
-  // Visual boundary (slightly larger than fixture)
+  // Visual boundary (slightly larger than fixture), then rotate to match fixture
   const wPx = (tubWidth / 12) * ppf;
   const hPx = (tubDepth / 12) * ppf;
   const expand = 8;
-  const boundary: BEPoint[] = [
+  const rawBoundary: BEPoint[] = [
     { x: fix.position.x - wPx / 2 - expand, y: fix.position.y - hPx / 2 - expand },
     { x: fix.position.x + wPx / 2 + expand, y: fix.position.y - hPx / 2 - expand },
     { x: fix.position.x + wPx / 2 + expand, y: fix.position.y + hPx / 2 + expand },
     { x: fix.position.x - wPx / 2 - expand, y: fix.position.y + hPx / 2 + expand },
   ];
+  const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
 
   return {
     id: zoneId(),
@@ -151,12 +172,13 @@ function generateBathtubDeckZone(fix: BEFixture, ppf: number): BETileZone | null
   const wPx = (tubWidth / 12) * ppf;
   const hPx = (tubDepth / 12) * ppf;
   const deckPx = (deckWidth / 12) * ppf;
-  const boundary: BEPoint[] = [
+  const rawBoundary: BEPoint[] = [
     { x: fix.position.x - wPx / 2 - deckPx, y: fix.position.y - hPx / 2 - deckPx },
     { x: fix.position.x + wPx / 2 + deckPx, y: fix.position.y - hPx / 2 - deckPx },
     { x: fix.position.x + wPx / 2 + deckPx, y: fix.position.y + hPx / 2 + deckPx },
     { x: fix.position.x - wPx / 2 - deckPx, y: fix.position.y + hPx / 2 + deckPx },
   ];
+  const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
 
   return {
     id: zoneId(),
@@ -186,12 +208,13 @@ function generateShowerWallZone(fix: BEFixture, ppf: number): BETileZone | null 
   const wPx = (showerWidth / 12) * ppf;
   const hPx = (showerDepth / 12) * ppf;
   const expand = 5;
-  const boundary: BEPoint[] = [
+  const rawBoundary: BEPoint[] = [
     { x: fix.position.x - wPx / 2 - expand, y: fix.position.y - hPx / 2 - expand },
     { x: fix.position.x + wPx / 2 + expand, y: fix.position.y - hPx / 2 - expand },
     { x: fix.position.x + wPx / 2 + expand, y: fix.position.y + hPx / 2 + expand },
     { x: fix.position.x - wPx / 2 - expand, y: fix.position.y + hPx / 2 + expand },
   ];
+  const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
 
   return {
     id: zoneId(),
@@ -212,12 +235,13 @@ function generateShowerFloorZone(fix: BEFixture, ppf: number): BETileZone | null
 
   const wPx = (showerWidth / 12) * ppf;
   const hPx = (showerDepth / 12) * ppf;
-  const boundary: BEPoint[] = [
+  const rawBoundary: BEPoint[] = [
     { x: fix.position.x - wPx / 2, y: fix.position.y - hPx / 2 },
     { x: fix.position.x + wPx / 2, y: fix.position.y - hPx / 2 },
     { x: fix.position.x + wPx / 2, y: fix.position.y + hPx / 2 },
     { x: fix.position.x - wPx / 2, y: fix.position.y + hPx / 2 },
   ];
+  const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
 
   return {
     id: zoneId(),
@@ -242,12 +266,13 @@ function generateShowerNicheZone(fix: BEFixture, ppf: number): BETileZone | null
   const hPx = (fix.dimensions.height / 12) * ppf;
   const nicheW = 20;
   const nicheH = 15;
-  const boundary: BEPoint[] = [
+  const rawBoundary: BEPoint[] = [
     { x: fix.position.x - nicheW / 2, y: fix.position.y - hPx / 2 - 15 },
     { x: fix.position.x + nicheW / 2, y: fix.position.y - hPx / 2 - 15 },
     { x: fix.position.x + nicheW / 2, y: fix.position.y - hPx / 2 - 15 + nicheH },
     { x: fix.position.x - nicheW / 2, y: fix.position.y - hPx / 2 - 15 + nicheH },
   ];
+  const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
 
   return {
     id: zoneId(),
@@ -272,12 +297,13 @@ function generateShowerBenchZone(fix: BEFixture, ppf: number): BETileZone | null
   const hPx = (fix.dimensions.height / 12) * ppf;
   const bW = (benchWidth / 12) * ppf;
   const bD = (benchDepth / 12) * ppf;
-  const boundary: BEPoint[] = [
+  const rawBoundary: BEPoint[] = [
     { x: fix.position.x - wPx / 2 + 3, y: fix.position.y + hPx / 2 - bD },
     { x: fix.position.x - wPx / 2 + 3 + bW, y: fix.position.y + hPx / 2 - bD },
     { x: fix.position.x - wPx / 2 + 3 + bW, y: fix.position.y + hPx / 2 },
     { x: fix.position.x - wPx / 2 + 3, y: fix.position.y + hPx / 2 },
   ];
+  const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
 
   return {
     id: zoneId(),
@@ -299,12 +325,13 @@ function generateVanityBacksplashZone(fix: BEFixture, ppf: number): BETileZone |
   const wPx = (vanityWidth / 12) * ppf;
   const hPx = (fix.dimensions.height / 12) * ppf;
   const bH = (backsplashHeight / 12) * ppf;
-  const boundary: BEPoint[] = [
+  const rawBoundary: BEPoint[] = [
     { x: fix.position.x - wPx / 2, y: fix.position.y - hPx / 2 - bH },
     { x: fix.position.x + wPx / 2, y: fix.position.y - hPx / 2 - bH },
     { x: fix.position.x + wPx / 2, y: fix.position.y - hPx / 2 },
     { x: fix.position.x - wPx / 2, y: fix.position.y - hPx / 2 },
   ];
+  const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
 
   return {
     id: zoneId(),

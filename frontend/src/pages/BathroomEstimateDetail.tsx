@@ -973,6 +973,30 @@ const BathroomEstimateDetail: React.FC = () => {
                   </Col>
                 </Row>
 
+                <Form.Item noStyle shouldUpdate={(prev, cur) => prev.water_damage !== cur.water_damage}>
+                  {() => form.getFieldValue('water_damage') ? (
+                    <Row gutter={[16, 8]} style={{ marginBottom: 8 }}>
+                      <Col xs={24} sm={16} md={12}>
+                        <Form.Item
+                          name="water_damage_source"
+                          label="Damage Source (plumber already repaired)"
+                          style={{ marginBottom: 8 }}
+                          tooltip="Plumbing for this fixture is excluded from the estimate"
+                        >
+                          <Select allowClear placeholder="Select damage source">
+                            <Select.Option value="shower">Shower</Select.Option>
+                            <Select.Option value="bathtub">Bathtub</Select.Option>
+                            <Select.Option value="vanity">Vanity / Sink</Select.Option>
+                            <Select.Option value="toilet">Toilet</Select.Option>
+                            <Select.Option value="supply_line">Supply Line</Select.Option>
+                            <Select.Option value="other">Other</Select.Option>
+                          </Select>
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  ) : null}
+                </Form.Item>
+
                 <Form.Item noStyle shouldUpdate={(prev, cur) =>
                   prev.demo_cement_board !== cur.demo_cement_board ||
                   prev.replace_cement_board !== cur.replace_cement_board

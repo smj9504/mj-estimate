@@ -84,6 +84,13 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         # Subtract ~20 SF for door opening
         wall_sf = max(wall_sf - 20, 0)
 
+    # Water damage source — plumber already repaired this fixture's plumbing
+    wd_source = getattr(estimate, 'water_damage_source', None) or ""
+    plumber_fixed_shower = wd_source in ("shower", "bathtub")
+    plumber_fixed_tub = wd_source in ("bathtub",)
+    plumber_fixed_vanity = wd_source in ("vanity",)
+    plumber_fixed_toilet = wd_source in ("toilet",)
+
     # Demo-specific SF (override or fallback to bathroom SF)
     demo_floor_sf = getattr(estimate, 'demo_floor_sf', None) or floor_sf
     demo_wall_sf = getattr(estimate, 'demo_wall_sf', None) or wall_sf
@@ -363,9 +370,34 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         _add(line_items, 3, f"Waterproofing membrane - {wp_label}", wp_sf, "SF",
              wp_rate * labor_mult, "substrate")
 
-    if sub.get("subfloor_repair") and (sub.get("subfloor_repair_sf") or 0) > 0:
-        _add(line_items, 3, "Subfloor repair/replacement", sub["subfloor_repair_sf"], "SF",
-             SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate")
+    # Subfloor repair — manual SF if specified, else auto-include when demo floor
+    subfloor_repair_sf = sub.get("subfloor_repair_sf") or 0
+    subfloor_explicit = sub.get("subfloor_repair", None)
+    if subfloor_explicit is True and subfloor_repair_sf > 0:
+        # Explicit: user specified repair area
+        _add(line_items, 3, "Subfloor repair/replacement (plywood)", subfloor_repair_sf, "SF",
+             SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
+             notes="Damaged/rotted plywood replacement + fasteners")
+    elif subfloor_explicit is not False and estimate.demo_floor and floor_sf > 0:
+        # Auto-include: demo floor → high probability of subfloor damage
+        # Budget 30% of floor area as likely repair zone
+        auto_repair_sf = round(floor_sf * 0.3, 1)
+        _add(line_items, 3, "Subfloor repair allowance (plywood)", auto_repair_sf, "SF",
+             SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
+             notes=f"Allowance ~30% of {floor_sf:.0f}SF floor — "
+                   f"common rot/damage after tile demo; adjust after inspection")
+
+    # Self-leveling compound — auto-include when demo floor + tile install
+    leveling_explicit = sub.get("self_leveling", None)
+    leveling_sf = sub.get("self_leveling_sf") or 0
+    if leveling_explicit is True and leveling_sf > 0:
+        _add(line_items, 3, "Self-leveling compound", leveling_sf, "SF",
+             SUBSTRATE_RATES["self_leveling_per_sf"] * labor_mult, "substrate")
+    elif leveling_explicit is not False and estimate.demo_floor and estimate.replace_floor and floor_sf > 0:
+        _add(line_items, 3, "Self-leveling compound", floor_sf, "SF",
+             SUBSTRATE_RATES["self_leveling_per_sf"] * labor_mult, "substrate",
+             notes="Level subfloor after old tile removal — "
+                   "required for proper tile adhesion + prevent lippage")
 
     # Cement board replacement (water damage repair)
     if getattr(estimate, 'replace_cement_board', False):
@@ -518,15 +550,48 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  notes=" | ".join(pan_parts))
 
     # Bathtub surround tile (consolidated: material + labor + supplies → 1 item)
+    # Uses sketch fixture dimensions when available for accurate wall tile calc
     tub_spec = estimate.bathtub_spec or {}
-    if tub_spec.get("surround_tile") and tub_spec.get("type") == "drop_in":
+    sketch = estimate.sketch_data or {}
+    sk_fixtures = sketch.get("fixtures", [])
+    sk_tub = next((f for f in sk_fixtures if f.get("type") == "bathtub"), None)
+
+    # Determine if surround tile is needed:
+    # 1) sketch hasSurround property, or 2) legacy surround_tile flag in spec
+    has_surround = False
+    if sk_tub:
+        has_surround = sk_tub.get("properties", {}).get("hasSurround", False)
+    if not has_surround:
+        has_surround = tub_spec.get("surround_tile", False)
+
+    if has_surround and tub_spec.get("type") not in (None, "none", "freestanding"):
         surround_sf = tub_spec.get("surround_tile_sf", 0)
-        if not surround_sf:
-            tl = tub_spec.get("tub_length_in", 0) or 0
-            sh = tub_spec.get("surround_height_in", 0) or 0
-            td = tub_spec.get("tub_depth_in", 30) or 30
-            if tl and sh:
+        # Always resolve dimensions for notes (even if surround_sf is manual)
+        if sk_tub:
+            sk_dims = sk_tub.get("dimensions", {})
+            sk_props = sk_tub.get("properties", {})
+            dim_a = sk_dims.get("width", 60)
+            dim_b = sk_dims.get("height", 32)
+            # Tub length is always the longer side, depth the shorter
+            tl = max(dim_a, dim_b)
+            td = min(dim_a, dim_b)
+            sh = sk_props.get("surroundHeight", 60)
+            wall_count = sk_props.get("surroundWallCount", 3)
+        else:
+            raw_l = tub_spec.get("tub_length_in", 0) or 60
+            raw_d = tub_spec.get("tub_depth_in", 0) or 32
+            tl = max(raw_l, raw_d)
+            td = min(raw_l, raw_d)
+            sh = tub_spec.get("surround_height_in", 0) or 60
+            wall_count = tub_spec.get("surround_wall_count", 3) or 3
+        # Auto-calculate SF from dimensions if not manually provided
+        if not surround_sf and tl and sh:
+            if wall_count >= 3:
                 surround_sf = (tl + 2 * td) * sh / 144
+            elif wall_count == 2:
+                surround_sf = (tl + td) * sh / 144
+            else:
+                surround_sf = tl * sh / 144
         if surround_sf > 0:
             sur_mat = tub_spec.get("surround_tile_material", "porcelain")
             sur_pattern = tub_spec.get("surround_tile_pattern", "straight")
@@ -546,7 +611,11 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 bt_sealer_cost = round(surround_sf * TILE_EXTRAS["sealer_per_sf"], 2)
             bt_total = bt_mat_cost + bt_labor_cost + bt_supply_cost + bt_sealer_cost
 
+            # Build wall dimension note
+            wall_dim_note = f"{wall_count} walls: {tl:.0f}\"L × {td:.0f}\"D × {sh:.0f}\"H = {surround_sf:.1f}SF"
+
             bt_parts = [
+                wall_dim_note,
                 f"Material: {sur_mat} ${sur_mat_rate:.2f}/SF allowance, {surround_sf*(1+sur_waste):.0f}SF ${bt_mat_cost:,.2f} (incl {int(sur_waste*100)}% waste)",
                 f"Install: {sur_pattern} ${bt_labor_cost:,.2f}",
                 f"Supplies: ${bt_supply_cost:,.2f}",
@@ -586,15 +655,21 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         if tub_spec.get("jetted"):
             tub_jetted = BATHTUB_EXTRAS["whirlpool_upgrade"]
 
-        tub_faucet = round(PLUMBING_RATES["tub_faucet_install"] * labor_mult, 2)
+        # Tub spout/faucet — skip if plumber already fixed bathtub plumbing
+        tub_faucet = 0
+        if not plumber_fixed_tub:
+            tub_faucet = round(PLUMBING_RATES["tub_faucet_install"] * labor_mult, 2)
 
         tub_combined = tub_price + tub_install + tub_faucet + tub_jetted
 
         tub_parts = [
             f"Unit: {tub_mat_label} ${tub_price:,.2f} allowance",
             f"Install: ${tub_install:,.2f}",
-            f"Faucet install: ${tub_faucet:,.2f}",
         ]
+        if tub_faucet:
+            tub_parts.append(f"Tub spout + faucet install: ${tub_faucet:,.2f}")
+        else:
+            tub_parts.append("Tub spout/faucet: plumber completed (excluded)")
         if tub_jetted:
             tub_parts.append(f"Whirlpool upgrade: ${tub_jetted:,.2f}")
 
@@ -602,6 +677,29 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              f"Bathtub complete - {tub_type_label} ({tub_mat_label})",
              1, "EA", tub_combined, "fixture",
              notes=" | ".join(tub_parts))
+
+        # Shower valve & trim — auto-include when tub has surround tile
+        # Skip if plumber already fixed shower/tub valve (water damage source)
+        _has_tub_surround = tub_spec.get("surround_tile", False)
+        if not _has_tub_surround and sk_tub:
+            _has_tub_surround = sk_tub.get("properties", {}).get("hasSurround", False)
+
+        if _has_tub_surround and tub_type not in ("freestanding",):
+            if not plumber_fixed_shower:
+                valve_cost = round(BATHTUB_EXTRAS["shower_valve_body_trim"] * labor_mult, 2)
+                sh_head_cost = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
+                valve_total = valve_cost + sh_head_cost
+                _add(line_items, 5,
+                     "Shower valve + trim kit replacement (tub/shower combo)",
+                     1, "EA", valve_total, "plumbing",
+                     notes=f"Pressure-balance valve body + trim ${valve_cost:,.2f} | "
+                           f"Shower head + arm ${sh_head_cost:,.2f} | "
+                           f"Replace while wall is open to prevent future leak")
+            else:
+                warnings.append(
+                    f"Shower valve excluded — plumber already repaired "
+                    f"(water damage source: {wd_source})"
+                )
 
     # Shower (consolidated: body → 1 item, door → 1 item, max 2 items)
     if estimate.replace_shower:
@@ -644,8 +742,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         shower_total += sh_cost
         shower_parts.append(f"Showerhead: {sh_type} ${sh_cost:,.2f}")
 
-        # --- Valve ---
-        if shower_spec.get("valve_replace"):
+        # --- Valve (skip if plumber already repaired shower plumbing) ---
+        if plumber_fixed_shower:
+            shower_parts.append("Valve/trim: plumber completed (excluded)")
+        elif shower_spec.get("valve_replace"):
             valve_type = (
                 "thermostatic"
                 if shower_spec.get("trim_grade") == "premium"
@@ -774,13 +874,20 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 wall_mount_price = round(
                     VANITY_EXTRAS["wall_mount_blocking"] * labor_mult, 2)
 
-            # --- Faucet ---
+            # --- Faucet (allowance) + plumbing connection ---
             faucet = van.get("faucet_type", "single_hole")
             faucet_key = f"faucet_{faucet}"
             faucet_price = VANITY_EXTRAS.get(faucet_key, 195)
             faucet_label = faucet.replace('_', ' ')
             sink_count = van.get("sinks", 1)
             faucet_total = round(faucet_price * sink_count, 2)
+
+            # Plumbing connection labor (unless plumber already fixed vanity)
+            faucet_connect = 0
+            if not plumber_fixed_vanity:
+                faucet_connect = round(
+                    PLUMBING_RATES["vanity_faucet_install"] * labor_mult, 2)
+            faucet_total += faucet_connect
 
             # --- Mirror (only if replace_mirror is set) ---
             mirror_total = 0
@@ -812,10 +919,18 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                     f"Wall-mount blocking: "
                     f"${wall_mount_price:,.2f}"
                 )
-            parts.append(
-                f"Faucet: {faucet_label} "
-                f"${faucet_price:,.2f} allowance"
-            )
+            if faucet_connect:
+                parts.append(
+                    f"Faucet: {faucet_label} "
+                    f"${faucet_price:,.2f} allowance + "
+                    f"plumbing connect ${faucet_connect:,.2f}"
+                )
+            else:
+                parts.append(
+                    f"Faucet: {faucet_label} "
+                    f"${faucet_price:,.2f} allowance "
+                    f"(plumbing: plumber completed)"
+                )
             if getattr(estimate, 'replace_mirror', False):
                 parts.append(
                     f"Mirror: {mirror_label} "
@@ -838,8 +953,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         t_type = tlt.get("type", "two_piece_standard")
         t_price = TOILET_PRICES.get(t_type, 225)
         t_install = round(PLUMBING_RATES["toilet_set"] * labor_mult, 2)
-        t_supplies = round(
-            TOILET_EXTRAS["wax_ring"] + PLUMBING_RATES["supply_line_each"], 2)
+
+        # Plumbing supplies — skip supply line if plumber already fixed toilet
+        if plumber_fixed_toilet:
+            t_supplies = round(TOILET_EXTRAS["wax_ring"], 2)
+        else:
+            t_supplies = round(
+                TOILET_EXTRAS["wax_ring"] + PLUMBING_RATES["supply_line_each"], 2)
+
         t_flange = 0
         if tlt.get("flange_repair"):
             t_flange = round(TOILET_EXTRAS["flange_repair"] * labor_mult, 2)
@@ -850,8 +971,11 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         t_parts = [
             f"Unit: {t_type_label} ${t_price:,.2f} allowance",
             f"Install: ${t_install:,.2f}",
-            f"Wax ring + supply: ${t_supplies:,.2f}",
         ]
+        if plumber_fixed_toilet:
+            t_parts.append(f"Wax ring: ${t_supplies:,.2f} (supply line: plumber completed)")
+        else:
+            t_parts.append(f"Wax ring + supply: ${t_supplies:,.2f}")
         if t_flange:
             t_parts.append(f"Flange repair: ${t_flange:,.2f}")
 
@@ -1042,7 +1166,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              "finish")
 
     # Baseboard — perimeter minus fixture wall-contact widths from sketch
+    # Auto-default to PVC when replacing floor (baseboard must be removed/replaced)
     bb_mat = walls.get("baseboard_material")
+    if not bb_mat and estimate.replace_floor:
+        bb_mat = "pvc"
     add_quarter_round = walls.get("quarter_round", False)
     if bb_mat:
         # Compute perimeter from dimensions, or estimate from floor_sf
@@ -1069,11 +1196,12 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         else:
             deductions.append(("door", 3.0))
 
-        # Bathtub: sketch width (long side) or spec or default 60"
+        # Bathtub: long side (wall contact) or spec or default 60"
         if estimate.replace_tub or getattr(estimate, 'detach_reset_tub', False):
             sk_tub = next((f for f in sketch_fixtures if f.get("type") == "bathtub"), None)
             if sk_tub:
-                tub_w = round(sk_tub.get("dimensions", {}).get("width", 60) / 12, 1)
+                sk_d = sk_tub.get("dimensions", {})
+                tub_w = round(max(sk_d.get("width", 60), sk_d.get("height", 32)) / 12, 1)
             else:
                 tub_w = round(((estimate.bathtub_spec or {}).get("tub_length_in") or 60) / 12, 1)
             deductions.append(("bathtub", tub_w))

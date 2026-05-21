@@ -105,6 +105,7 @@ SUBSTRATE_RATES = {
 
     # Subfloor repair
     "subfloor_repair_per_sf": 8.50,   # plywood + install ($6-$12/SF)
+    "self_leveling_per_sf": 4.75,     # self-leveling compound + pour ($3-$7/SF, Angi 2026)
 }
 
 # ──────────────────────────────────────────────
@@ -204,6 +205,11 @@ BATHTUB_EXTRAS = {
     "whirlpool_upgrade": 800,         # jets + pump + dedicated circuit
     "air_jet_upgrade": 600,
     "surround_tile_labor_per_sf": 13.00,  # surround tile install ($10-$16/SF)
+    # Tub/shower valve replacement (when tub has surround tile / combo unit)
+    # Valve body + trim kit, Moen/Delta mid-grade ($250-$450 parts + $150-$250 labor)
+    "shower_valve_body_trim": 475,    # pressure-balance valve body + trim kit installed
+    "shower_valve_trim_only": 225,    # trim kit only (retain existing valve body)
+    "showerhead_install": 85,         # shower head + arm install labor
 }
 
 # Shower door / enclosure

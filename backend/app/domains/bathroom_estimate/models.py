@@ -90,6 +90,9 @@ class BathroomEstimate(Base, BaseModel):
     replace_vanity_light = Column(Boolean, default=False)
     detach_reset_vanity_light = Column(Boolean, default=False)
     water_damage = Column(Boolean, default=False)
+    # Where the water damage originated — plumber already fixed this source
+    # Values: shower, bathtub, vanity, toilet, supply_line, other, null
+    water_damage_source = Column(String(30), nullable=True)
     mold_suspected = Column(Boolean, default=False)
     existing_tub_material = Column(String(50))  # for cast iron surcharge
     demo_cement_board = Column(Boolean, default=False)
