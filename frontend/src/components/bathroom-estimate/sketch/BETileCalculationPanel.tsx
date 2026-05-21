@@ -290,7 +290,7 @@ const BETileCalculationPanel: React.FC<BETileCalculationPanelProps> = ({ api }) 
                     max={30}
                     onChange={(v) => v && handleSpecChange(zone.id, 'wastePct', v)}
                     style={{ width: '100%' }}
-                    addonAfter="%"
+                    suffix="%"
                   />
                 </div>
                 <div style={{ flex: 1 }}>

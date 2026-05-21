@@ -47,6 +47,8 @@ from .schemas import (
     BathroomEstimateResponse,
     BathroomEstimateUpdate,
     HistoryResponse,
+    LineItemCreate,
+    LineItemUpdate,
     PricingInfoResponse,
 )
 from .service import BathroomEstimateService
@@ -356,7 +358,7 @@ def export_pdf(
         pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}.pdf"'
+            "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}_get.pdf"'
         },
     )
 
@@ -395,3 +397,66 @@ def export_pdf_with_sketch(
             "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}.pdf"'
         },
     )
+
+
+# ── Line Item CRUD ──
+
+@router.post("/{estimate_id}/line-items", response_model=BathroomEstimateResponse)
+def add_line_item(
+    estimate_id: str,
+    data: LineItemCreate,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Add a new line item to an estimate."""
+    service = BathroomEstimateService(session)
+    result = service.add_line_item(estimate_id, data.dict())
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result
+
+
+@router.put("/{estimate_id}/line-items/{item_id}", response_model=BathroomEstimateResponse)
+def update_line_item(
+    estimate_id: str,
+    item_id: str,
+    data: LineItemUpdate,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Update a line item."""
+    service = BathroomEstimateService(session)
+    result = service.update_line_item(estimate_id, item_id, data.dict(exclude_unset=True))
+    if not result:
+        raise HTTPException(status_code=404, detail="Line item not found")
+    return result
+
+
+@router.delete("/{estimate_id}/line-items/{item_id}", response_model=BathroomEstimateResponse)
+def delete_line_item(
+    estimate_id: str,
+    item_id: str,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete a line item."""
+    service = BathroomEstimateService(session)
+    result = service.delete_line_item(estimate_id, item_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Line item not found")
+    return result
+
+
+@router.delete("/{estimate_id}/phases/{phase}", response_model=BathroomEstimateResponse)
+def delete_phase(
+    estimate_id: str,
+    phase: int,
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete all items in a phase and renumber remaining phases."""
+    service = BathroomEstimateService(session)
+    result = service.delete_phase(estimate_id, phase)
+    if not result:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    return result

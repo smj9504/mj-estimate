@@ -63,6 +63,28 @@ export const bathroomEstimateService = {
     return data as BathroomEstimate;
   },
 
+  // ── Line Item CRUD ──
+
+  async addLineItem(estimateId: string, item: { phase: number; description: string; quantity?: number; unit?: string; unit_price?: number; category?: string; notes?: string }) {
+    const { data } = await api.post(`${BASE_URL}/${estimateId}/line-items`, item);
+    return data as BathroomEstimate;
+  },
+
+  async updateLineItem(estimateId: string, itemId: string, updates: Partial<{ phase: number; description: string; quantity: number; unit: string; unit_price: number; total: number; category: string; notes: string }>) {
+    const { data } = await api.put(`${BASE_URL}/${estimateId}/line-items/${itemId}`, updates);
+    return data as BathroomEstimate;
+  },
+
+  async deleteLineItem(estimateId: string, itemId: string) {
+    const { data } = await api.delete(`${BASE_URL}/${estimateId}/line-items/${itemId}`);
+    return data as BathroomEstimate;
+  },
+
+  async deletePhase(estimateId: string, phase: number) {
+    const { data } = await api.delete(`${BASE_URL}/${estimateId}/phases/${phase}`);
+    return data as BathroomEstimate;
+  },
+
   // ── Clone ──
 
   async clone(id: string) {

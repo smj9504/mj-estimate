@@ -152,6 +152,8 @@ const door: FixtureShape = {
     // 90° swing arc from door-edge (1,1) to open position (0,0)
     // Quarter circle: center at hinge (0,1), radius = 1 (normalized)
     { d: 'M1,1 A1,1 0 0,0 0,0', fill: N, stroke: SL, strokeWidth: 0.8 },
+    // Wall line (hinge to open position)
+    { d: 'M0,1 L0,0', fill: N, stroke: S, strokeWidth: 1.5 },
     // Hinge dot
     { d: 'M0,1 m-0.04,0 a0.04,0.04 0 1,0 0.08,0 a0.04,0.04 0 1,0 -0.08,0', fill: S, stroke: S, strokeWidth: 0.5 },
   ],

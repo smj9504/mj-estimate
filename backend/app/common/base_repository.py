@@ -390,16 +390,13 @@ class SQLAlchemyRepository(BaseRepository[T, ID]):
                 return None
             
             # Update fields
+            from sqlalchemy.orm.attributes import flag_modified
             for key, value in sqlalchemy_data.items():
                 if hasattr(entity, key):
                     setattr(entity, key, value)
-
-            # Force SQLAlchemy to detect changes by marking the entity as dirty
-            from sqlalchemy.orm.attributes import flag_modified
-            critical_fields = ['tax_method', 'tax_rate', 'op_percent']
-            for field in critical_fields:
-                if field in sqlalchemy_data:
-                    flag_modified(entity, field)
+                    # Force SQLAlchemy to detect JSONB/JSON field changes
+                    if isinstance(value, (dict, list)):
+                        flag_modified(entity, key)
             
             # Update timestamp if available
             if hasattr(entity, 'updated_at'):

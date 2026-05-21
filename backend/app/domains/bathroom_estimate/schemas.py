@@ -154,6 +154,26 @@ class BathroomEstimateUpdate(BaseModel):
 
 # ── Line item schemas ──
 
+class LineItemCreate(BaseModel):
+    phase: int
+    description: str
+    quantity: float = 1.0
+    unit: str = "EA"
+    unit_price: float = 0.0
+    total: Optional[float] = None
+    category: Optional[str] = None
+    notes: Optional[str] = None
+
+class LineItemUpdate(BaseModel):
+    phase: Optional[int] = None
+    description: Optional[str] = None
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    unit_price: Optional[float] = None
+    total: Optional[float] = None
+    category: Optional[str] = None
+    notes: Optional[str] = None
+
 class LineItemResponse(BaseModel):
     id: str
     estimate_id: str

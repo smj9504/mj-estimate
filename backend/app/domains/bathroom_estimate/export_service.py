@@ -445,12 +445,12 @@ class BathroomExportService:
                     li.get("notes", ""), show_breakdown_prices)
                 if notes_text:
                     desc_text += (
-                        f'<br/><font size="6" color="#666666">'
+                        f'<br/><font size="7" color="#666666">'
                         f'{notes_text}</font>'
                     )
                 detail_data.append([
                     Paragraph(desc_text, ParagraphStyle(
-                        "LiDesc", fontSize=9,
+                        "LiDesc", fontSize=10,
                         fontName="Helvetica",
                         textColor=brand_dark)),
                     f"{li.get('quantity', 0):.1f}",

@@ -214,6 +214,119 @@ class BathroomEstimateService:
         self.session.flush()
         return self._get_full_estimate(new_id)
 
+    # ── Line Item CRUD ──
+
+    def update_line_item(
+        self, estimate_id: str, item_id: str, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Update a single line item and recalculate totals."""
+        item = self.line_item_repo.get_by_id(item_id)
+        if not item or str(getattr(item, 'estimate_id', '')) != estimate_id:
+            return None
+
+        # Auto-calculate total if qty or rate changed
+        update = {k: v for k, v in data.items() if v is not None}
+        qty = update.get('quantity', item.quantity)
+        rate = update.get('unit_price', item.unit_price)
+        if 'total' not in update:
+            update['total'] = round(qty * rate, 2)
+
+        self.line_item_repo.update(item_id, update)
+        self.session.flush()
+        self._recalc_estimate_totals(estimate_id)
+        return self._get_full_estimate(estimate_id)
+
+    def delete_line_item(
+        self, estimate_id: str, item_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Delete a single line item and recalculate totals."""
+        item = self.line_item_repo.get_by_id(item_id)
+        if not item or str(getattr(item, 'estimate_id', '')) != estimate_id:
+            return None
+        self.line_item_repo.delete(item_id)
+        self.session.flush()
+        self._recalc_estimate_totals(estimate_id)
+        return self._get_full_estimate(estimate_id)
+
+    def add_line_item(
+        self, estimate_id: str, data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Add a new line item to the estimate."""
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+
+        # Determine display_order (append to end of phase)
+        max_order = max(
+            (li.display_order for li in estimate.line_items), default=-1
+        )
+        qty = data.get('quantity', 1.0)
+        rate = data.get('unit_price', 0.0)
+        self.line_item_repo.create({
+            "estimate_id": estimate_id,
+            "phase": data['phase'],
+            "description": data['description'],
+            "quantity": qty,
+            "unit": data.get('unit', 'EA'),
+            "unit_price": rate,
+            "total": data.get('total') or round(qty * rate, 2),
+            "category": data.get('category', 'misc'),
+            "notes": data.get('notes'),
+            "display_order": max_order + 1,
+        })
+        self.session.flush()
+        self._recalc_estimate_totals(estimate_id)
+        return self._get_full_estimate(estimate_id)
+
+    def delete_phase(
+        self, estimate_id: str, phase: int
+    ) -> Optional[Dict[str, Any]]:
+        """Delete all items in a phase and renumber remaining phases."""
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return None
+
+        # Delete items in the target phase
+        for li in list(estimate.line_items):
+            if li.phase == phase:
+                self.line_item_repo.delete(str(li.id))
+
+        # Renumber: shift phases above the deleted one down by 1
+        for li in estimate.line_items:
+            if li.phase > phase:
+                self.line_item_repo.update(str(li.id), {"phase": li.phase - 1})
+
+        self.session.flush()
+        self._recalc_estimate_totals(estimate_id)
+        return self._get_full_estimate(estimate_id)
+
+    def _recalc_estimate_totals(self, estimate_id: str):
+        """Recalculate estimate subtotal/total from current line items."""
+        estimate = self.estimate_repo.find_by_id_with_relations(estimate_id)
+        if not estimate:
+            return
+
+        subtotal = sum(li.total for li in estimate.line_items)
+        include_op = getattr(estimate, 'include_overhead_profit', False) or False
+        overhead_pct = estimate.overhead_pct if estimate.overhead_pct is not None else 0.10
+        profit_pct = estimate.profit_pct if estimate.profit_pct is not None else 0.10
+
+        if include_op:
+            overhead = round(subtotal * overhead_pct, 2)
+            profit = round(subtotal * profit_pct, 2)
+        else:
+            overhead = 0
+            profit = 0
+
+        total = subtotal + overhead + profit
+        self.estimate_repo.update(estimate_id, {
+            "subtotal": subtotal,
+            "overhead": overhead,
+            "profit": profit,
+            "total": total,
+        })
+        self.session.flush()
+
     # ── History ──
 
     def get_history(self, estimate_id: str) -> List[Dict[str, Any]]:
