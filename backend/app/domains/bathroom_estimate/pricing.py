@@ -39,6 +39,7 @@ DEMO_RATES = {
     "dumpster_15yard": 475,
     "dumpster_20yard": 550,
     "dump_tip_fee": 75,               # tip/disposal fee
+    "debris_bag": 25,                 # per bag: heavy-duty bag + haul-away labor
 }
 
 # ──────────────────────────────────────────────
@@ -390,6 +391,16 @@ TILE_BASEBOARD_PRICES = {
     "porcelain": 12.00,               # $10-$15/LF installed
     "natural_stone": 18.00,           # $15-$25/LF installed
     "glass_mosaic": 20.00,            # $16-$25/LF installed
+}
+
+# Quarter round molding pricing (material + labor per LF)
+# Add-on to standard baseboard install; matches baseboard material
+# Sources: Angi 2026 ($3-$7/LF installed), HomeGuide 2026, CountBricks 2026
+# DMV mid-range: thin pin-nailer install, slightly faster than baseboard
+QUARTER_ROUND_PRICES = {
+    "pvc": 3.75,                      # PVC quarter round (moisture-resistant, bath)
+    "mdf": 3.25,                      # MDF quarter round (budget, paintable)
+    "wood": 4.50,                     # Paint-grade pine quarter round
 }
 
 # Accessories (material + install per piece)

@@ -169,40 +169,98 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              1, "LS", demo_total, "demo",
              notes=" | ".join(demo_parts))
 
-    # Dumpster (separate line - disposal is distinct from labor)
+    # Dumpster / disposal (separate line - disposal is distinct from labor)
+    # Size is estimated by cubic yard volume of debris:
+    #   - Tile/surface demo: ~0.5 CY per 100 SF (thin-set + tile ≈ 0.5" thick)
+    #   - Bathtub: ~2 CY (standard acrylic), ~2.5 CY (cast iron)
+    #   - Shower surround: ~1.5 CY, custom tile shower: ~2 CY
+    #   - Vanity: ~1 CY each (cabinet + countertop)
+    #   - Toilet: ~0.5 CY
+    #   - Cement board: ~0.3 CY per 100 SF
+    #   - D&R fixtures: ~0.2 CY each (packaging, old hardware, sealant)
     hc = estimate.hidden_costs or {}
-    has_demo = (
-        estimate.demo_floor or estimate.demo_walls
-        or estimate.demo_ceiling
-        or estimate.replace_tub or estimate.replace_shower
-        or estimate.replace_vanity or estimate.replace_toilet
-    )
+
+    has_tile_demo = estimate.demo_floor or estimate.demo_walls or estimate.demo_ceiling
+    has_fixture_replace = (estimate.replace_tub or estimate.replace_shower
+                           or estimate.replace_vanity or estimate.replace_toilet)
+    has_dr = (getattr(estimate, 'detach_reset_tub', False)
+              or getattr(estimate, 'detach_reset_shower', False)
+              or getattr(estimate, 'detach_reset_vanity', False)
+              or getattr(estimate, 'detach_reset_toilet', False))
+    has_demo = has_tile_demo or has_fixture_replace or has_dr
+
     if hc.get("dumpster", True) and has_demo:
-        # Single bathroom: 10yd is almost always sufficient.
-        # 15yd only if full gut (floor+walls+ceiling) of a large bath (>80 SF).
-        # 20yd is reserved for multi-room or extreme scope.
-        demo_sf = 0
+        debris_cy = 0.0
+
+        # Tile/surface demo volume
         if estimate.demo_floor:
-            demo_sf += demo_floor_sf
+            debris_cy += demo_floor_sf * 0.005  # 0.5 CY per 100 SF
         if estimate.demo_walls:
-            demo_sf += demo_wall_sf
+            debris_cy += demo_wall_sf * 0.005
         if estimate.demo_ceiling:
-            demo_sf += demo_ceiling_sf
+            debris_cy += demo_ceiling_sf * 0.003  # thinner than tile
 
-        full_gut = (estimate.demo_floor and estimate.demo_walls
-                    and estimate.demo_ceiling)
+        # Fixture demo volume
+        if estimate.replace_tub:
+            tub_mat = estimate.existing_tub_material or "acrylic"
+            debris_cy += 2.5 if tub_mat == "cast_iron" else 2.0
+        if estimate.replace_shower:
+            shower_spec_d = estimate.shower_spec or {}
+            stype_d = shower_spec_d.get("type", "one_piece")
+            debris_cy += 2.0 if stype_d in ("custom_tile", "curbless") else 1.5
+        if estimate.replace_vanity:
+            van_ct = len((estimate.vanity_spec or {}).get("items", [])) or 1
+            debris_cy += 1.0 * van_ct
+        if estimate.replace_toilet:
+            debris_cy += 0.5
+        if getattr(estimate, 'replace_mirror', False):
+            debris_cy += 0.2
 
-        dumpster_size = "dumpster_10yard"
-        if full_gut and demo_sf > 250:
-            dumpster_size = "dumpster_15yard"
+        # Cement board demo
+        if getattr(estimate, 'demo_cement_board', False):
+            cb_sf = getattr(estimate, 'demo_cement_board_sf', 0) or 0
+            debris_cy += cb_sf * 0.003
 
-        size_label = dumpster_size.replace("dumpster_", "")
-        _add(line_items, 1,
-             f"Dumpster rental ({size_label})",
-             1, "EA",
-             DEMO_RATES[dumpster_size]
-             + DEMO_RATES["dump_tip_fee"],
-             "demo")
+        # D&R fixtures (small debris: old hardware, sealant, packing)
+        dr_count = sum([
+            getattr(estimate, 'detach_reset_tub', False),
+            getattr(estimate, 'detach_reset_shower', False),
+            getattr(estimate, 'detach_reset_vanity', False),
+            getattr(estimate, 'detach_reset_toilet', False),
+        ])
+        debris_cy += 0.2 * dr_count
+
+        # Determine disposal method based on volume
+        if debris_cy <= 1.5:
+            # Small job: debris bags only (no dumpster needed)
+            bag_count = max(int(debris_cy / 0.15) + 1, 2)  # ~4 cu ft per bag
+            _add(line_items, 1,
+                 f"Debris disposal ({bag_count} bags, {debris_cy:.1f} CY est.)",
+                 bag_count, "EA",
+                 DEMO_RATES.get("debris_bag", 25) * labor_mult,
+                 "demo",
+                 notes="Heavy-duty contractor bags + haul-away")
+        elif debris_cy <= 5:
+            _add(line_items, 1,
+                 f"Dumpster rental (10yard, {debris_cy:.1f} CY est.)",
+                 1, "EA",
+                 DEMO_RATES["dumpster_10yard"]
+                 + DEMO_RATES["dump_tip_fee"],
+                 "demo")
+        elif debris_cy <= 10:
+            _add(line_items, 1,
+                 f"Dumpster rental (15yard, {debris_cy:.1f} CY est.)",
+                 1, "EA",
+                 DEMO_RATES["dumpster_15yard"]
+                 + DEMO_RATES["dump_tip_fee"],
+                 "demo")
+        else:
+            _add(line_items, 1,
+                 f"Dumpster rental (20yard, {debris_cy:.1f} CY est.)",
+                 1, "EA",
+                 DEMO_RATES["dumpster_20yard"]
+                 + DEMO_RATES["dump_tip_fee"],
+                 "demo")
 
     # ────────────────────────────────────────
     # Phase 2: Plumbing Rough
