@@ -15,6 +15,7 @@ from .pricing import (
     BASEBOARD_PRICES,
     BATHTUB_EXTRAS,
     TILE_BASEBOARD_PRICES,
+    QUARTER_ROUND_PRICES,
     BATHTUB_INSTALL,
     BATHTUB_PRICES,
     DEMO_RATES,
@@ -984,30 +985,41 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     # Baseboard
     bb_mat = walls.get("baseboard_material")
+    add_quarter_round = walls.get("quarter_round", False)
     if bb_mat and estimate.length_ft and estimate.width_ft:
         perimeter = 2 * (estimate.length_ft + estimate.width_ft)
         # Subtract door opening ~3 LF
         bb_lf = max(perimeter - 3, 0)
 
         if bb_mat == "tile":
-            # Tile baseboard - price varies by tile material (match floor tile)
+            # Tile base - price varies by tile material (match floor tile)
             floor_tile_mat = (estimate.floor_spec or {}).get("material", "porcelain")
             tb_rate = TILE_BASEBOARD_PRICES.get(floor_tile_mat, 12.00)
             tile_label = floor_tile_mat.replace("_", " ").title()
-            _add(line_items, 6, f"Tile baseboard - {tile_label} (supply + install)", bb_lf, "LF",
+            _add(line_items, 6, f"Tile base - {tile_label} (supply + install)", bb_lf, "LF",
                  tb_rate * labor_mult, "finish",
                  notes="Matching floor tile material")
-            # Tile baseboard needs grout/thinset
-            _add(line_items, 6, "Tile baseboard supplies (thinset, grout)", bb_lf, "LF",
+            # Tile base needs grout/thinset
+            _add(line_items, 6, "Tile base supplies (thinset, grout)", bb_lf, "LF",
                  1.50 * labor_mult, "finish")
-            # No painting needed for tile baseboard
+            # No painting or quarter round for tile base
         else:
             bb_rate = BASEBOARD_PRICES.get(bb_mat, 6.50)
-            _add(line_items, 6, f"Baseboard - {bb_mat.upper()} (supply + install)", bb_lf, "LF",
+            bb_label = bb_mat.upper()
+            qr_note = " + quarter round" if add_quarter_round else ""
+            _add(line_items, 6, f"Baseboard - {bb_label} (supply + install){qr_note}", bb_lf, "LF",
                  bb_rate * labor_mult, "finish")
             bb_pg_mult = PAINT_GRADE_MULTIPLIER.get(paint_grade, 1.0) if paint_grade else 1.0
             _add(line_items, 6, "Baseboard painting", bb_lf, "LF",
                  PAINT_RATES["trim_per_lf"] * bb_pg_mult * labor_mult, "finish")
+            # Quarter round add-on (material + labor, pin-nailer install)
+            if add_quarter_round:
+                qr_rate = QUARTER_ROUND_PRICES.get(bb_mat, 3.75)
+                _add(line_items, 6, f"Quarter round - {bb_label} (supply + install)", bb_lf, "LF",
+                     qr_rate * labor_mult, "finish",
+                     notes="Covers floor-to-baseboard gap; moisture seal at floor transition")
+                _add(line_items, 6, "Quarter round painting", bb_lf, "LF",
+                     PAINT_RATES["trim_per_lf"] * bb_pg_mult * labor_mult, "finish")
 
     # ────────────────────────────────────────
     # Phase 7: Accessories + Punch/Cleanup
@@ -1269,6 +1281,12 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     if adjustment_factor:
         method_parts.append(f"Target total: ${target_total:,.2f} (adjusted)")
         # Factor stored in DB for internal reference, not exposed on PDF
+
+    # Renumber phases to eliminate gaps (e.g. if phase 2 is empty, 3→2, 4→3, ...)
+    used_phases = sorted(set(item["phase"] for item in line_items))
+    phase_map = {old: new for new, old in enumerate(used_phases, start=1)}
+    for item in line_items:
+        item["phase"] = phase_map[item["phase"]]
 
     return {
         "line_items": line_items,
