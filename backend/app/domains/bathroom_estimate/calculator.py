@@ -1041,36 +1041,65 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              PAINT_RATES["ceiling_per_sf"] * pg_mult * labor_mult,
              "finish")
 
-    # Baseboard
+    # Baseboard — perimeter minus fixture footprints along walls
     bb_mat = walls.get("baseboard_material")
     add_quarter_round = walls.get("quarter_round", False)
-    if bb_mat and estimate.length_ft and estimate.width_ft:
-        perimeter = 2 * (estimate.length_ft + estimate.width_ft)
-        # Subtract door opening ~3 LF
-        bb_lf = max(perimeter - 3, 0)
+    if bb_mat:
+        # Compute perimeter from dimensions, or estimate from floor_sf
+        if estimate.length_ft and estimate.width_ft:
+            perimeter = 2 * (estimate.length_ft + estimate.width_ft)
+        elif floor_sf > 0:
+            import math
+            side = math.sqrt(floor_sf)
+            perimeter = 4 * side
+        else:
+            perimeter = 0
 
-        if bb_mat == "tile":
-            # Tile base - price varies by tile material (match floor tile)
+        # Deduct wall-contact lengths for fixtures & openings
+        deductions = []
+        # Door opening (~3 LF typical)
+        deductions.append(("door", 3.0))
+        # Bathtub (long side against wall, typically 60")
+        if estimate.replace_tub or getattr(estimate, 'detach_reset_tub', False):
+            tub_spec = estimate.bathtub_spec or {}
+            tub_len = (tub_spec.get("tub_length_in") or 60) / 12
+            deductions.append(("bathtub", tub_len))
+        # Shower (back wall width)
+        if estimate.replace_shower or getattr(estimate, 'detach_reset_shower', False):
+            sh_spec = estimate.shower_spec or {}
+            sh_w = (sh_spec.get("width_in") or 36) / 12
+            deductions.append(("shower", sh_w))
+        # Vanity (each vanity width)
+        if estimate.replace_vanity or getattr(estimate, 'detach_reset_vanity', False):
+            van_items = (estimate.vanity_spec or {}).get("items", [])
+            for vi in (van_items or [{}]):
+                v_w = (vi.get("width") or 36) / 12
+                deductions.append(("vanity", v_w))
+
+        total_deduct = sum(d[1] for d in deductions)
+        bb_lf = round(max(perimeter - total_deduct, 0), 1)
+        deduct_parts = ", ".join(f"{n} {v:.1f}'" for n, v in deductions)
+        bb_notes = (f"Perimeter {perimeter:.1f}' - {deduct_parts} = {bb_lf}' net")
+
+        if bb_lf > 0 and bb_mat == "tile":
             floor_tile_mat = (estimate.floor_spec or {}).get("material", "porcelain")
             tb_rate = TILE_BASEBOARD_PRICES.get(floor_tile_mat, 12.00)
             tile_label = floor_tile_mat.replace("_", " ").title()
             _add(line_items, 6, f"Tile base - {tile_label} (supply + install)", bb_lf, "LF",
                  tb_rate * labor_mult, "finish",
-                 notes="Matching floor tile material")
-            # Tile base needs grout/thinset
+                 notes=bb_notes)
             _add(line_items, 6, "Tile base supplies (thinset, grout)", bb_lf, "LF",
                  1.50 * labor_mult, "finish")
-            # No painting or quarter round for tile base
-        else:
+        elif bb_lf > 0:
             bb_rate = BASEBOARD_PRICES.get(bb_mat, 6.50)
             bb_label = bb_mat.upper()
             qr_note = " + quarter round" if add_quarter_round else ""
             _add(line_items, 6, f"Baseboard - {bb_label} (supply + install){qr_note}", bb_lf, "LF",
-                 bb_rate * labor_mult, "finish")
+                 bb_rate * labor_mult, "finish",
+                 notes=bb_notes)
             bb_pg_mult = PAINT_GRADE_MULTIPLIER.get(paint_grade, 1.0) if paint_grade else 1.0
             _add(line_items, 6, "Baseboard painting", bb_lf, "LF",
                  PAINT_RATES["trim_per_lf"] * bb_pg_mult * labor_mult, "finish")
-            # Quarter round add-on (material + labor, pin-nailer install)
             if add_quarter_round:
                 qr_rate = QUARTER_ROUND_PRICES.get(bb_mat, 3.75)
                 _add(line_items, 6, f"Quarter round - {bb_label} (supply + install)", bb_lf, "LF",
