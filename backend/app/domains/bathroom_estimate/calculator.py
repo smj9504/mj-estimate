@@ -1041,7 +1041,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              PAINT_RATES["ceiling_per_sf"] * pg_mult * labor_mult,
              "finish")
 
-    # Baseboard — perimeter minus fixture footprints along walls
+    # Baseboard — perimeter minus fixture wall-contact widths from sketch
     bb_mat = walls.get("baseboard_material")
     add_quarter_round = walls.get("quarter_round", False)
     if bb_mat:
@@ -1055,26 +1055,50 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         else:
             perimeter = 0
 
-        # Deduct wall-contact lengths for fixtures & openings
+        # Extract fixture wall-contact widths from sketch_data (actual drawn sizes)
+        sketch = estimate.sketch_data or {}
+        sketch_fixtures = sketch.get("fixtures", [])
+
         deductions = []
-        # Door opening (~3 LF typical)
-        deductions.append(("door", 3.0))
-        # Bathtub (long side against wall, typically 60")
+        # Door: from sketch or default 3'
+        doors = [f for f in sketch_fixtures if f.get("type") == "door"]
+        if doors:
+            for d in doors:
+                d_w = round((d.get("dimensions", {}).get("width", 36)) / 12, 1)
+                deductions.append(("door", d_w))
+        else:
+            deductions.append(("door", 3.0))
+
+        # Bathtub: sketch width (long side) or spec or default 60"
         if estimate.replace_tub or getattr(estimate, 'detach_reset_tub', False):
-            tub_spec = estimate.bathtub_spec or {}
-            tub_len = (tub_spec.get("tub_length_in") or 60) / 12
-            deductions.append(("bathtub", tub_len))
-        # Shower (back wall width)
+            sk_tub = next((f for f in sketch_fixtures if f.get("type") == "bathtub"), None)
+            if sk_tub:
+                tub_w = round(sk_tub.get("dimensions", {}).get("width", 60) / 12, 1)
+            else:
+                tub_w = round(((estimate.bathtub_spec or {}).get("tub_length_in") or 60) / 12, 1)
+            deductions.append(("bathtub", tub_w))
+
+        # Shower: sketch width or spec or default 36"
         if estimate.replace_shower or getattr(estimate, 'detach_reset_shower', False):
-            sh_spec = estimate.shower_spec or {}
-            sh_w = (sh_spec.get("width_in") or 36) / 12
+            sk_shower = next((f for f in sketch_fixtures if f.get("type") == "shower"), None)
+            if sk_shower:
+                sh_w = round(sk_shower.get("dimensions", {}).get("width", 36) / 12, 1)
+            else:
+                sh_w = round(((estimate.shower_spec or {}).get("width_in") or 36) / 12, 1)
             deductions.append(("shower", sh_w))
-        # Vanity (each vanity width)
+
+        # Vanity: each from sketch or spec or default 36"
         if estimate.replace_vanity or getattr(estimate, 'detach_reset_vanity', False):
-            van_items = (estimate.vanity_spec or {}).get("items", [])
-            for vi in (van_items or [{}]):
-                v_w = (vi.get("width") or 36) / 12
-                deductions.append(("vanity", v_w))
+            sk_vanities = [f for f in sketch_fixtures if f.get("type") == "vanity"]
+            if sk_vanities:
+                for sv in sk_vanities:
+                    v_w = round(sv.get("dimensions", {}).get("width", 36) / 12, 1)
+                    deductions.append(("vanity", v_w))
+            else:
+                van_items = (estimate.vanity_spec or {}).get("items", [])
+                for vi in (van_items or [{}]):
+                    v_w = round((vi.get("width") or 36) / 12, 1)
+                    deductions.append(("vanity", v_w))
 
         total_deduct = sum(d[1] for d in deductions)
         bb_lf = round(max(perimeter - total_deduct, 0), 1)
