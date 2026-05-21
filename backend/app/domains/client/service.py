@@ -239,12 +239,40 @@ class ClaimNegotiationService(BaseService[Dict[str, Any], str]):
             raise
 
     def get_by_claim(self, claim_id: str) -> List[Dict[str, Any]]:
-        """Get all negotiations for a claim"""
+        """Get all negotiations for a claim, with resolved file_download_id"""
         try:
             session = self.database.get_readonly_session()
             try:
                 repo = self._get_repository_instance(session)
-                return repo.get_by_claim(claim_id)
+                negotiations = repo.get_by_claim(claim_id)
+
+                # Resolve file_download_id for each negotiation
+                from app.domains.file.models import File
+                for neg in negotiations:
+                    neg['file_download_id'] = None
+                    doc_url = neg.get('document_url')
+                    if doc_url:
+                        file_rec = session.query(File).filter(
+                            File.id == doc_url, File.is_active == True
+                        ).first()
+                        if file_rec:
+                            neg['file_download_id'] = str(file_rec.id)
+                        else:
+                            # Fallback: find by context=negotiation + context_id=claim_id
+                            file_rec = (
+                                session.query(File)
+                                .filter(
+                                    File.context == 'negotiation',
+                                    File.context_id == claim_id,
+                                    File.is_active == True,
+                                )
+                                .order_by(File.created_at.desc())
+                                .first()
+                            )
+                            if file_rec:
+                                neg['file_download_id'] = str(file_rec.id)
+
+                return negotiations
             finally:
                 session.close()
         except Exception as e:

@@ -93,6 +93,7 @@ class ClaimNegotiationUpdate(BaseModel):
     notes: Optional[str] = None
     document_url: Optional[str] = None
     document_name: Optional[str] = None
+    file_id: Optional[str] = None
     sections_data: Optional[List[NegotiationSectionData]] = None
 
 

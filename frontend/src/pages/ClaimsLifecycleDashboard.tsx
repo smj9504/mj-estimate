@@ -239,19 +239,23 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                     render: (t: string) => <Text strong>{t}</Text>,
                   },
                   {
+                    title: 'Address', dataIndex: 'property_address', ellipsis: true,
+                    render: (v: string) => v || '-',
+                  },
+                  {
                     title: 'Type', dataIndex: 'task_type', width: 100,
                     render: (t: string) => <Tag>{t.replace('_', ' ')}</Tag>,
                   },
                   {
-                    title: 'Due', dataIndex: 'due_date', width: 90,
+                    title: 'Due', dataIndex: 'due_date', width: 110,
                     render: (d: string) => (
                       <Tooltip title={dayjs(d).format('MM/DD/YYYY')}>
-                        <Text type="danger">{dayjs(d).fromNow()}</Text>
+                        <Text type="danger" style={{ whiteSpace: 'nowrap' }}>{dayjs(d).fromNow()}</Text>
                       </Tooltip>
                     ),
                   },
                   {
-                    title: '', width: 60,
+                    title: '', width: 40,
                     render: (_, r: any) => (
                       <Button type="link" size="small" onClick={() => navigate(`/claim-followup/${r.id}/email`)}>
                         <MailOutlined />

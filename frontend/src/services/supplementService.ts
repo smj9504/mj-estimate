@@ -109,6 +109,14 @@ export const supplementService = {
     return data;
   },
 
+  async replaceInsuranceEstimatePdf(claimId: string, negotiationId: string, fileId: string) {
+    const { data } = await api.patch(
+      `${BASE_URL}/insurance-estimates/${claimId}/${negotiationId}/replace-pdf`,
+      { file_id: fileId }
+    );
+    return data;
+  },
+
   // Follow-ups
   async listFollowups(supplementId: string): Promise<SupplementFollowUp[]> {
     const { data } = await api.get(`${BASE_URL}/${supplementId}/followups`);

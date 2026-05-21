@@ -252,26 +252,30 @@ const PaymentTracker: React.FC<PaymentTrackerProps> = ({
       )}
 
       {/* Insurance Estimate Status */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+      <Row gutter={[12, 8]} style={{ marginBottom: 12 }}>
         <Col xs={12}>
-          <Space>
-            <Text type="secondary">Insurance Estimate Received:</Text>
-            {summary?.insurance_estimate_received ? (
-              <Tag icon={<CheckCircleOutlined />} color="success">Received</Tag>
-            ) : (
-              <Tag icon={<WarningOutlined />} color="warning">Not Yet</Tag>
-            )}
-          </Space>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>Estimate</Text>
+            <div>
+              {summary?.insurance_estimate_received ? (
+                <Tag icon={<CheckCircleOutlined />} color="success" style={{ marginTop: 4 }}>Received</Tag>
+              ) : (
+                <Tag icon={<WarningOutlined />} color="warning" style={{ marginTop: 4 }}>Not Yet</Tag>
+              )}
+            </div>
+          </div>
         </Col>
         <Col xs={12}>
-          <Space>
-            <Text type="secondary">Supplement Needed:</Text>
-            {summary?.needs_supplement ? (
-              <Tag icon={<ExclamationCircleOutlined />} color="warning">Yes</Tag>
-            ) : (
-              <Tag color="default">No</Tag>
-            )}
-          </Space>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>Supplement</Text>
+            <div>
+              {summary?.needs_supplement ? (
+                <Tag icon={<ExclamationCircleOutlined />} color="warning" style={{ marginTop: 4 }}>Yes</Tag>
+              ) : (
+                <Tag color="default" style={{ marginTop: 4 }}>No</Tag>
+              )}
+            </div>
+          </div>
         </Col>
       </Row>
 

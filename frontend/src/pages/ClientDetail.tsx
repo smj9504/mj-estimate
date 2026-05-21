@@ -50,6 +50,7 @@ import {
   DownloadOutlined,
   MailOutlined,
   SendOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -958,11 +959,13 @@ interface NegotiationHistoryProps {
 
 const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim }) => {
   const [negModalOpen, setNegModalOpen] = useState(false);
+  const [uploadingNegId, setUploadingNegId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ['negotiations', clientId, claim.id],
     queryFn: () => negotiationService.listByClaim(clientId, claim.id),
+    refetchOnMount: 'always',
   });
 
   const negotiations = data?.negotiations ?? [];
@@ -986,54 +989,59 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
 
   const columns: ColumnsType<ClaimNegotiation> = [
     {
-      title: 'Rev #',
+      title: '#',
       dataIndex: 'revision_number',
       key: 'revision_number',
-      width: 60,
+      width: 40,
       align: 'center',
     },
     {
       title: 'Type',
       dataIndex: 'revision_type',
       key: 'revision_type',
-      width: 130,
+      width: 90,
       render: (type: ClaimNegotiation['revision_type']) => {
         const cfg = REVISION_TYPE_CONFIG[type];
-        return <Tag color={cfg.color}>{cfg.label}</Tag>;
+        return <Tag color={cfg.color} style={{ fontSize: 11 }}>{cfg.label}</Tag>;
       },
-    },
-    {
-      title: 'ACV',
-      dataIndex: 'acv_amount',
-      key: 'acv_amount',
-      align: 'right',
-      render: formatCurrency,
     },
     {
       title: 'RCV',
       dataIndex: 'rcv_amount',
       key: 'rcv_amount',
       align: 'right',
+      width: 100,
       render: formatCurrency,
     },
     {
-      title: 'Depreciation',
+      title: 'ACV',
+      dataIndex: 'acv_amount',
+      key: 'acv_amount',
+      align: 'right',
+      width: 100,
+      responsive: ['sm'] as any,
+      render: formatCurrency,
+    },
+    {
+      title: 'Dep.',
       dataIndex: 'depreciation_amount',
       key: 'depreciation_amount',
       align: 'right',
       render: formatCurrency,
-      responsive: ['lg'],
+      responsive: ['lg'] as any,
     },
     {
-      title: 'Delta RCV',
+      title: 'Delta',
       key: 'delta',
       align: 'right',
+      width: 90,
+      responsive: ['sm'] as any,
       render: (_: any, record) => {
         const idx = sorted.findIndex((n) => n.id === record.id);
         if (idx <= 0) return <Text type="secondary">—</Text>;
         const prev = sorted[idx - 1];
         const delta = record.rcv_amount - prev.rcv_amount;
-        if (delta === 0) return <Text type="secondary">$0.00</Text>;
+        if (delta === 0) return <Text type="secondary">$0</Text>;
         return (
           <Text type={delta > 0 ? 'success' : 'danger'}>
             {delta > 0 ? '+' : ''}{formatCurrency(delta)}
@@ -1046,20 +1054,59 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
       dataIndex: 'date_received',
       key: 'date_received',
       render: formatDate,
-      responsive: ['md'],
+      responsive: ['md'] as any,
     },
     {
       title: '',
       key: 'pdf',
-      width: 40,
-      render: (_: any, record) =>
-        record.document_url ? (
-          <Tooltip title={record.document_name || 'View PDF'}>
-            <a href={`${fileService.getDownloadUrl(record.document_url)}?inline=true`} target="_blank" rel="noopener noreferrer">
-              <FilePdfOutlined style={{ color: '#ff4d4f' }} />
-            </a>
-          </Tooltip>
-        ) : null,
+      width: 70,
+      render: (_: any, record) => {
+        const fileId = record.file_download_id;
+        return (
+          <Space size={4}>
+            {fileId ? (
+              <Tooltip title={record.document_name || 'View PDF'}>
+                <a href={`${fileService.getDownloadUrl(fileId)}?inline=true`} target="_blank" rel="noopener noreferrer">
+                  <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                </a>
+              </Tooltip>
+            ) : record.document_url ? (
+              <Tooltip title="PDF file not found">
+                <FilePdfOutlined style={{ color: '#d9d9d9' }} />
+              </Tooltip>
+            ) : null}
+            <Upload
+              accept=".pdf"
+              maxCount={1}
+              showUploadList={false}
+              disabled={uploadingNegId === record.id}
+              beforeUpload={async (file) => {
+                if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
+                setUploadingNegId(record.id);
+                try {
+                  const uploaded = await fileService.uploadFiles([file], 'negotiation', claim.id, 'insurance_estimate');
+                  if (uploaded.length > 0) {
+                    await negotiationService.update(clientId, claim.id, record.id, {
+                      file_id: uploaded[0].id,
+                    } as any);
+                    message.success('PDF replaced');
+                    queryClient.invalidateQueries({ queryKey: ['negotiations', clientId, claim.id] });
+                  }
+                } catch { message.error('Failed to replace PDF'); }
+                finally { setUploadingNegId(null); }
+                return false;
+              }}
+            >
+              <Tooltip title={fileId ? 'Replace PDF' : 'Upload PDF'}>
+                <Button type="text" size="small"
+                  icon={uploadingNegId === record.id ? <LoadingOutlined /> : <UploadOutlined />}
+                  disabled={uploadingNegId === record.id}
+                  style={{ padding: 0, width: 22, height: 22, color: fileId ? undefined : '#1890ff' }} />
+              </Tooltip>
+            </Upload>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -1192,6 +1239,7 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
   const { data, isLoading } = useQuery({
     queryKey: ['claims', client.id],
     queryFn: () => claimService.listByClient(client.id),
+    refetchOnMount: 'always',
   });
 
   const claims = data?.claims ?? [];
@@ -1367,91 +1415,102 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
               <Panel
                 key={claim.id}
                 header={
-                  <Row align="middle" gutter={16} style={{ width: '100%' }}>
-                    <Col flex="auto">
-                      <Space wrap>
-                        <Text strong>{claim.claim_number}</Text>
-                        {claim.insurance_company && (
-                          <Text type="secondary">{claim.insurance_company}</Text>
-                        )}
-                        <Tag color={statusCfg.color}>{statusCfg.label}</Tag>
-                      </Space>
-                    </Col>
-                    <Col>
-                      <Space size="large">
-                        <span>
-                          <Text type="secondary" style={{ fontSize: 12 }}>ACV </Text>
-                          <Text strong>{formatCurrency(claim.current_acv)}</Text>
-                        </span>
-                        <span>
-                          <Text type="secondary" style={{ fontSize: 12 }}>RCV </Text>
-                          <Text strong>{formatCurrency(claim.current_rcv)}</Text>
-                        </span>
-                        {claim.adjuster_email && (
-                          <Tooltip title={`Email ${claim.adjuster_name || 'Adjuster'}`}>
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<MailOutlined />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEmailDrawerClaim(claim);
-                              }}
-                            />
-                          </Tooltip>
-                        )}
-                      </Space>
-                    </Col>
-                  </Row>
+                  <div style={{ width: '100%' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                      <Text strong>{claim.claim_number}</Text>
+                      {claim.insurance_company && (
+                        <Text type="secondary" style={{ fontSize: 13 }}>{claim.insurance_company}</Text>
+                      )}
+                      <Tag color={statusCfg.color} style={{ margin: 0 }}>{statusCfg.label}</Tag>
+                      {claim.adjuster_email && (
+                        <Tooltip title={`Email ${claim.adjuster_name || 'Adjuster'}`}>
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<MailOutlined />}
+                            style={{ padding: 0, width: 22, height: 22 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEmailDrawerClaim(claim);
+                            }}
+                          />
+                        </Tooltip>
+                      )}
+                    </div>
+                    {(claim.current_acv > 0 || claim.current_rcv > 0) && (
+                      <div style={{ fontSize: 12, marginTop: 2 }}>
+                        <Text type="secondary">ACV </Text>
+                        <Text strong style={{ fontSize: 12 }}>{formatCurrency(claim.current_acv)}</Text>
+                        <Text type="secondary" style={{ marginLeft: 8 }}>RCV </Text>
+                        <Text strong style={{ fontSize: 12 }}>{formatCurrency(claim.current_rcv)}</Text>
+                      </div>
+                    )}
+                  </div>
                 }
               >
                 {/* Claim detail header */}
-                <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3 }} style={{ marginBottom: 16 }}>
-                  <Descriptions.Item label="Claim Number">{claim.claim_number}</Descriptions.Item>
-                  <Descriptions.Item label="Date of Loss">{formatDate(claim.date_of_loss)}</Descriptions.Item>
-                  <Descriptions.Item label="Deductible">
-                    {formatCurrency(claim.insurance_deductible)}
-                  </Descriptions.Item>
+                <div style={{ marginBottom: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px 16px', fontSize: 13 }}>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Claim #</Text>
+                    <div><Text strong>{claim.claim_number}</Text></div>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Date of Loss</Text>
+                    <div>{formatDate(claim.date_of_loss)}</div>
+                  </div>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Deductible</Text>
+                    <div>{formatCurrency(claim.insurance_deductible)}</div>
+                  </div>
                   {claim.adjuster_name && (
-                    <Descriptions.Item label="Adjuster">
-                      {claim.adjuster_name}
-                      {claim.adjuster_email && (
-                        <Button
-                          type="link"
-                          size="small"
-                          icon={<MailOutlined />}
-                          onClick={() => setEmailDrawerClaim(claim)}
-                          style={{ marginLeft: 4, padding: 0 }}
-                        >
-                          Email
-                        </Button>
-                      )}
-                    </Descriptions.Item>
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Adjuster</Text>
+                      <div>
+                        {claim.adjuster_name}
+                        {claim.adjuster_email && (
+                          <Button type="link" size="small" icon={<MailOutlined />}
+                            onClick={() => setEmailDrawerClaim(claim)}
+                            style={{ marginLeft: 4, padding: 0, fontSize: 12 }}>
+                            Email
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   )}
                   {claim.adjuster_phone && (
-                    <Descriptions.Item label="Adjuster Phone">{claim.adjuster_phone}</Descriptions.Item>
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Phone</Text>
+                      <div>{claim.adjuster_phone}</div>
+                    </div>
                   )}
                   {claim.adjuster_email && (
-                    <Descriptions.Item label="Adjuster Email">{claim.adjuster_email}</Descriptions.Item>
+                    <div style={{ gridColumn: 'span 1', overflow: 'hidden' }}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Email</Text>
+                      <div style={{ wordBreak: 'break-all', fontSize: 12 }}>{claim.adjuster_email}</div>
+                    </div>
                   )}
-                  <Descriptions.Item label="Insurance Estimate">
-                    {claim.insurance_estimate_received ? (
-                      <Tag color="green">Received{claim.insurance_estimate_file_name ? ` - ${claim.insurance_estimate_file_name}` : ''}</Tag>
-                    ) : (
-                      <Tag color="orange">Not Received</Tag>
-                    )}
-                  </Descriptions.Item>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Estimate</Text>
+                    <div>
+                      {claim.insurance_estimate_received
+                        ? <Tag color="green">Received</Tag>
+                        : <Tag color="orange">Not Received</Tag>
+                      }
+                    </div>
+                  </div>
                   {(claim.current_acv > 0 || claim.current_rcv > 0) && (
-                    <Descriptions.Item label="Insurance ACV / RCV">
-                      {formatCurrency(claim.current_acv)} / {formatCurrency(claim.current_rcv)}
-                    </Descriptions.Item>
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 11 }}>ACV / RCV</Text>
+                      <div>{formatCurrency(claim.current_acv)} / {formatCurrency(claim.current_rcv)}</div>
+                    </div>
                   )}
-                  {claim.loss_description && (
-                    <Descriptions.Item label="Loss Description" span={3}>
-                      {claim.loss_description}
-                    </Descriptions.Item>
-                  )}
-                </Descriptions>
+                </div>
+                {claim.loss_description && (
+                  <div style={{ marginBottom: 12, fontSize: 13 }}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Loss Description</Text>
+                    <div>{claim.loss_description}</div>
+                  </div>
+                )}
 
                 {/* Water Mitigation Jobs */}
                 {claim.wm_jobs && claim.wm_jobs.length > 0 && (

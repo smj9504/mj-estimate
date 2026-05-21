@@ -488,6 +488,24 @@ async def update_negotiation(
     """Update a negotiation revision"""
     try:
         update_dict = data.dict(exclude_unset=True)
+
+        # Resolve file_id to document_url/document_name
+        file_id = update_dict.pop('file_id', None)
+        if file_id:
+            from app.domains.file.models import File as FileModel
+            from app.core.database_factory import get_database
+            database = get_database()
+            file_session = database.get_readonly_session()
+            try:
+                file_rec = file_session.query(FileModel).filter(
+                    FileModel.id == file_id, FileModel.is_active == True
+                ).first()
+                if file_rec:
+                    update_dict['document_url'] = str(file_rec.id)
+                    update_dict['document_name'] = file_rec.original_name
+            finally:
+                file_session.close()
+
         result = service.update(negotiation_id, update_dict)
         if not result:
             raise HTTPException(status_code=404, detail="Negotiation not found")

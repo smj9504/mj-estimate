@@ -236,18 +236,24 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
 
         result = service.add_negotiation(neg_data)
 
-        # Update claim's supplement-related info
+        # Update claim's supplement-related info + auto-create follow-up
         try:
             database = get_database()
             session = database.get_session()
             try:
                 from app.domains.client.models import Claim, ClaimActivity
+                from datetime import datetime, timezone
                 claim = session.query(Claim).filter(Claim.id == claim_id).first()
                 if claim:
                     claim.insurance_estimate_received = True
                     if not claim.insurance_estimate_received_date:
-                        from datetime import datetime, timezone
                         claim.insurance_estimate_received_date = datetime.now(timezone.utc)
+
+                    # Amounts for activity log and follow-up summary
+                    # (claim.current_* already updated by ClaimNegotiationService.add_negotiation)
+                    rcv = float(neg_data.get('rcv_amount', 0))
+                    acv = float(neg_data.get('acv_amount', 0))
+                    depreciation = float(neg_data.get('depreciation_amount', 0))
 
                     # Log activity
                     session.add(ClaimActivity(
@@ -255,12 +261,44 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
                         activity_type="estimate_uploaded",
                         title=f"Insurance estimate uploaded (Rev #{result.get('revision_number', '?')} - {neg_data['revision_type']})",
                         description=(
-                            f"RCV: ${float(neg_data.get('rcv_amount', 0)):,.2f}, "
-                            f"ACV: ${float(neg_data.get('acv_amount', 0)):,.2f}"
+                            f"RCV: ${rcv:,.2f}, "
+                            f"ACV: ${acv:,.2f}"
                         ),
                         related_entity_type="negotiation",
                         related_entity_id=result.get('id'),
                     ))
+
+                    # Auto-create SupplementFollowUp for all supplements on this claim
+                    from app.domains.supplement.models import SupplementRequest, SupplementFollowUp
+                    supplements = (
+                        session.query(SupplementRequest)
+                        .filter(
+                            SupplementRequest.claim_id == claim_id,
+                            SupplementRequest.status.notin_(['approved', 'denied', 'withdrawn']),
+                        )
+                        .all()
+                    )
+                    rev_num = result.get('revision_number', '?')
+                    rev_type = neg_data['revision_type'].replace('_', ' ').title()
+                    for sup in supplements:
+                        followup = SupplementFollowUp(
+                            supplement_id=sup.id,
+                            contact_method="email",
+                            contact_name=neg_data.get('received_from', 'Insurance Company'),
+                            summary=(
+                                f"Updated insurance estimate received (Rev #{rev_num} - {rev_type}). "
+                                f"RCV: ${rcv:,.2f}, ACV: ${acv:,.2f}"
+                            ),
+                            response_received=True,
+                            response_date=datetime.now(timezone.utc),
+                            response_summary=(
+                                f"Insurance company issued updated estimate. "
+                                f"RCV: ${rcv:,.2f}, ACV: ${acv:,.2f}, "
+                                f"Depreciation: ${depreciation:,.2f}"
+                            ),
+                        )
+                        session.add(followup)
+
                     session.commit()
             finally:
                 session.close()
@@ -270,6 +308,52 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
         return result
     except Exception as e:
         logger.error(f"Error uploading insurance estimate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/supplements/insurance-estimates/{claim_id}/{negotiation_id}/replace-pdf")
+async def replace_insurance_estimate_pdf(claim_id: str, negotiation_id: str, data: dict):
+    """Replace PDF for an existing insurance estimate negotiation.
+
+    Request body:
+    - file_id: str (pre-uploaded file ID)
+    """
+    try:
+        file_id = data.get('file_id')
+        if not file_id:
+            raise HTTPException(status_code=400, detail="file_id is required")
+
+        from app.domains.file.models import File
+        from app.domains.client.models import ClaimNegotiation
+        database = get_database()
+        session = database.get_session()
+        try:
+            # Resolve file record
+            file_rec = session.query(File).filter(
+                File.id == file_id, File.is_active == True
+            ).first()
+            if not file_rec:
+                raise HTTPException(status_code=404, detail="File not found")
+
+            # Update negotiation
+            neg = session.query(ClaimNegotiation).filter(
+                ClaimNegotiation.id == negotiation_id,
+                ClaimNegotiation.claim_id == claim_id,
+            ).first()
+            if not neg:
+                raise HTTPException(status_code=404, detail="Negotiation not found")
+
+            neg.document_url = str(file_rec.id)
+            neg.document_name = file_rec.original_name
+            session.commit()
+
+            return {"success": True, "document_url": str(file_rec.id), "document_name": file_rec.original_name}
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error replacing estimate PDF: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

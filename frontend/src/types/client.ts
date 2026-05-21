@@ -63,6 +63,7 @@ export interface ClaimNegotiation {
   notes?: string;
   document_url?: string;
   document_name?: string;
+  file_download_id?: string;
   sections_data?: NegotiationSection[];
   extraction_status?: string;
   created_at?: string;

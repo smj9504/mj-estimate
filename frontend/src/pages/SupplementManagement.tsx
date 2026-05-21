@@ -86,6 +86,8 @@ const SupplementManagement: React.FC = () => {
   const [bidItemType, setBidItemType] = useState<string>('');
   const [linkedEstimateId, setLinkedEstimateId] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [followups, setFollowups] = useState<SupplementFollowUp[]>([]);
+  const [replacingEstimateId, setReplacingEstimateId] = useState<string | null>(null);
   const [sendPaModalOpen, setSendPaModalOpen] = useState(false);
   const [sendPaLoading, setSendPaLoading] = useState(false);
   const [paInfo, setPaInfo] = useState<any>(null);
@@ -234,6 +236,12 @@ const SupplementManagement: React.FC = () => {
     },
   });
 
+  const loadFollowups = useCallback((supplementId: string) => {
+    supplementService.listFollowups(supplementId)
+      .then(setFollowups)
+      .catch(() => setFollowups([]));
+  }, []);
+
   const createFollowupMutation = useMutation({
     mutationFn: ({ supplementId, data }: { supplementId: string; data: Partial<SupplementFollowUp> }) =>
       supplementService.createFollowup(supplementId, data),
@@ -243,6 +251,7 @@ const SupplementManagement: React.FC = () => {
       followupForm.resetFields();
       if (selectedSupplement) {
         supplementService.get(selectedSupplement.id).then(setSelectedSupplement);
+        loadFollowups(selectedSupplement.id);
       }
     },
   });
@@ -255,6 +264,8 @@ const SupplementManagement: React.FC = () => {
       const re = data.required_estimates || {};
       setEditedRequiredEstimates(Object.entries(re).filter(([, v]) => v).map(([k]) => k));
       setRequiredEstimatesDirty(false);
+      // Fetch follow-ups
+      loadFollowups(data.id);
       // Fetch all insurance estimate versions for this claim
       if (data.claim_id) {
         setInsuranceEstimateLoading(true);
@@ -325,8 +336,9 @@ const SupplementManagement: React.FC = () => {
         `Sent to PA with ${result.attachments_count} PDF attachment(s)`,
       );
       setSendPaModalOpen(false);
-      // Refresh supplement data
+      // Refresh supplement data + follow-ups
       supplementService.get(selectedSupplement.id).then(setSelectedSupplement);
+      loadFollowups(selectedSupplement.id);
       queryClient.invalidateQueries({ queryKey: ['supplements'] });
     } catch (err: any) {
       message.error(
@@ -601,7 +613,7 @@ const SupplementManagement: React.FC = () => {
 
       {/* Detail Modal */}
       <Modal title={selectedSupplement?.title} open={detailModalOpen} width={700} footer={null}
-        onCancel={() => { setDetailModalOpen(false); setSelectedSupplement(null); setInsuranceEstimate(null); setEstimateVersions([]); }}>
+        onCancel={() => { setDetailModalOpen(false); setSelectedSupplement(null); setInsuranceEstimate(null); setEstimateVersions([]); setFollowups([]); }}>
         {selectedSupplement && (
           <div>
             <Descriptions size="small" column={2} style={{ marginBottom: 16 }}>
@@ -734,19 +746,58 @@ const SupplementManagement: React.FC = () => {
                               </div>
 
                               <div style={{ marginLeft: 12 }}>
-                                {ver.file_download_id ? (
-                                  <a
-                                    href={`${fileService.getDownloadUrl(ver.file_download_id)}?inline=true`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
+                                <Space size={4} direction="vertical" align="end">
+                                  {ver.file_download_id ? (
+                                    <a
+                                      href={`${fileService.getDownloadUrl(ver.file_download_id)}?inline=true`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                    >
+                                      <Button size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}>
+                                        {ver.document_name || 'View PDF'}
+                                      </Button>
+                                    </a>
+                                  ) : (
+                                    <Text type="secondary" style={{ fontSize: 11 }}>No PDF</Text>
+                                  )}
+                                  <Upload
+                                    accept=".pdf"
+                                    maxCount={1}
+                                    showUploadList={false}
+                                    disabled={replacingEstimateId === ver.id}
+                                    beforeUpload={async (file) => {
+                                      if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
+                                      setReplacingEstimateId(ver.id);
+                                      try {
+                                        const uploaded = await fileService.uploadFiles(
+                                          [file], 'negotiation', selectedSupplement!.claim_id, 'insurance_estimate'
+                                        );
+                                        if (uploaded.length > 0) {
+                                          await supplementService.replaceInsuranceEstimatePdf(
+                                            selectedSupplement!.claim_id, ver.id, uploaded[0].id
+                                          );
+                                          message.success('PDF replaced');
+                                          supplementService.listInsuranceEstimates(selectedSupplement!.claim_id)
+                                            .then(versions => {
+                                              setEstimateVersions(versions);
+                                              setInsuranceEstimate(versions.length > 0 ? versions[0] : null);
+                                            });
+                                        }
+                                      } catch { message.error('Failed to replace PDF'); }
+                                      finally { setReplacingEstimateId(null); }
+                                      return false;
+                                    }}
                                   >
-                                    <Button size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}>
-                                      {ver.document_name || 'View PDF'}
+                                    <Button
+                                      type="text" size="small"
+                                      icon={replacingEstimateId === ver.id ? <LoadingOutlined /> : <UploadOutlined />}
+                                      disabled={replacingEstimateId === ver.id}
+                                      style={{ fontSize: 11, padding: '0 4px' }}
+                                    >
+                                      {replacingEstimateId === ver.id ? 'Uploading...' : ver.file_download_id ? 'Replace' : 'Upload'}
                                     </Button>
-                                  </a>
-                                ) : (
-                                  <Text type="secondary" style={{ fontSize: 11 }}>No PDF</Text>
-                                )}
+                                  </Upload>
+                                </Space>
                               </div>
                             </div>
 
@@ -1116,11 +1167,63 @@ const SupplementManagement: React.FC = () => {
 
             {/* Follow-ups */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <Text strong>Follow-ups</Text>
+              <Text strong>Follow-ups ({followups.length})</Text>
               <Button size="small" icon={<PhoneOutlined />} onClick={() => setFollowupModalOpen(true)}>
                 Log Follow-up
               </Button>
             </div>
+
+            {followups.length === 0 ? (
+              <Empty description="No follow-ups yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                {followups.map((fu) => (
+                  <Card
+                    key={fu.id}
+                    size="small"
+                    style={{
+                      marginBottom: 6,
+                      border: fu.response_received ? '1px solid #b7eb8f' : '1px solid #f0f0f0',
+                      background: fu.response_received ? '#f6ffed' : '#fff',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <Space size={6} style={{ marginBottom: 4 }}>
+                          <Tag color={
+                            fu.contact_method === 'email' ? 'blue' :
+                            fu.contact_method === 'phone' ? 'green' :
+                            fu.contact_method === 'text' ? 'purple' : 'default'
+                          }>
+                            {fu.contact_method?.toUpperCase()}
+                          </Tag>
+                          {fu.response_received && <Tag color="success">Response Received</Tag>}
+                        </Space>
+                        {fu.contact_name && (
+                          <div style={{ fontSize: 12 }}>
+                            <Text type="secondary">To: </Text>
+                            <Text>{fu.contact_name}</Text>
+                            {fu.contact_email && <Text type="secondary"> ({fu.contact_email})</Text>}
+                          </div>
+                        )}
+                        {fu.summary && (
+                          <div style={{ fontSize: 12, marginTop: 2 }}>{fu.summary}</div>
+                        )}
+                        {fu.response_summary && (
+                          <div style={{ fontSize: 12, marginTop: 4, padding: '4px 8px', background: '#e6fffb', borderRadius: 4 }}>
+                            <Text type="secondary" style={{ fontSize: 11 }}>Response: </Text>
+                            {fu.response_summary}
+                          </div>
+                        )}
+                      </div>
+                      <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap', marginLeft: 8 }}>
+                        {fu.created_at ? dayjs(fu.created_at).format('MM/DD/YY HH:mm') : ''}
+                      </Text>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Modal>
@@ -1496,12 +1599,13 @@ const SupplementManagement: React.FC = () => {
               uploadEstimateForm.resetFields();
               setUploadEstimateFileId(null);
               setUploadEstimateFileName(null);
-              // Reload versions
+              // Reload versions + follow-ups (backend auto-creates follow-up)
               supplementService.listInsuranceEstimates(selectedSupplement.claim_id)
                 .then(versions => {
                   setEstimateVersions(versions);
                   setInsuranceEstimate(versions.length > 0 ? versions[0] : null);
                 });
+              loadFollowups(selectedSupplement.id);
               queryClient.invalidateQueries({ queryKey: ['supplements'] });
             } catch (err: any) {
               message.error(err?.response?.data?.detail || 'Failed to upload estimate');

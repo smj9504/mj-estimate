@@ -453,6 +453,22 @@ class SupplementService:
                     item.status = "sent"
                     item.sent_to_pa_date = now
 
+            # Auto-create SupplementFollowUp record
+            from app.domains.supplement.models import SupplementFollowUp
+            followup = SupplementFollowUp(
+                supplement_id=sup.id,
+                contact_method="email",
+                contact_name=data.get("pa_name", to_addresses[0]),
+                contact_email=to_addresses[0],
+                summary=(
+                    f"Supplement estimate sent to PA with "
+                    f"{len(attachments)} PDF attachment(s). "
+                    f"Total: ${float(sup.supplement_amount or 0):,.2f}"
+                ),
+                response_received=False,
+            )
+            session.add(followup)
+
             # Log activity
             address = client.address if client else ""
             session.add(ClaimActivity(
