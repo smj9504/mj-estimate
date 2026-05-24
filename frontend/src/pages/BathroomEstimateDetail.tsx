@@ -1081,17 +1081,6 @@ const BathroomEstimateDetail: React.FC = () => {
                   ) : null}
                 </Form.Item>
 
-                <Divider orientation="left" plain>Auto-include Items</Divider>
-                <Row gutter={[16, 4]}>
-                  <Col xs={12} sm={12} md={8}>
-                    <Form.Item name={['hidden_costs', 'subfloor_allowance']} valuePropName="checked" style={{ marginBottom: 2 }}>
-                      <Checkbox><Text style={{ fontSize: 12 }}>Subfloor allowance</Text></Checkbox>
-                    </Form.Item>
-                  </Col>
-                </Row>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4, marginBottom: 12 }}>
-                  Auto-included when floor demo is scoped. Uncheck to disable.
-                </Text>
               </Card>
             ),
           },
@@ -1477,7 +1466,10 @@ const BathroomEstimateDetail: React.FC = () => {
                       </Col>
                       <Col xs={12} sm={12} md={6}>
                         <Form.Item label="Baseboard" name={['walls_spec', 'baseboard_material']}>
-                          <Select options={selectOpts(pricingInfo?.baseboard_materials)} allowClear />
+                          <Select allowClear options={[
+                            { label: 'Standard (PVC)', value: 'pvc' },
+                            { label: 'Tile Base', value: 'tile' },
+                          ]} />
                         </Form.Item>
                       </Col>
                       <Form.Item noStyle shouldUpdate={(prev, cur) =>
