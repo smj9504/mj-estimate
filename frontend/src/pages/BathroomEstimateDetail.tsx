@@ -207,6 +207,13 @@ const BathroomEstimateDetail: React.FC = () => {
       const hc = estimate.hidden_costs || {};
       estimate.hidden_costs = {
         ...hc,
+        // Project costs — default checked (standard for any remodel)
+        dumpster: hc.dumpster ?? true,
+        floor_protection: hc.floor_protection ?? true,
+        caulk: hc.caulk ?? true,
+        final_clean: hc.final_clean ?? true,
+        mobilization: hc.mobilization ?? true,
+        // Auto-include items
         drywall_skim_coat: hc.drywall_skim_coat ?? true,
         subfloor_allowance: hc.subfloor_allowance ?? true,
         auto_gfci: hc.auto_gfci ?? false,

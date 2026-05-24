@@ -284,7 +284,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
               or getattr(estimate, 'detach_reset_toilet', False))
     has_demo = has_tile_demo or has_fixture_replace or has_dr
 
-    if hc.get("dumpster", True) and has_demo:
+    if hc.get("dumpster") and has_demo:
         debris_cy = 0.0
 
         # Tile/surface demo volume
@@ -1511,7 +1511,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  "substrate")
 
     # Phase 6: Finish — caulk, trim paint
-    if hc.get("caulk", True):
+    if hc.get("caulk"):
         _add(line_items, 6, "Caulking - silicone & latex (all joints)",
              1, "LS", HIDDEN_COSTS["caulk_day"] * labor_mult, "finish")
 
@@ -1522,7 +1522,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              HIDDEN_COSTS["trim_paint_per_lf"] * labor_mult, "finish")
 
     # Phase 7: Accessories, cleanup, permit (stays here)
-    if hc.get("final_clean", True):
+    if hc.get("final_clean"):
         _add(line_items, 7, "Final cleaning (move-in ready)", 1, "LS",
              HIDDEN_COSTS["final_clean"], "misc")
 
