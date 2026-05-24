@@ -42,7 +42,6 @@ class BathroomEstimateBase(BaseModel):
     replace_tub: bool = False
     replace_vanity: bool = False
     replace_toilet: bool = False
-    replace_floor: bool = False
     detach_reset_shower: bool = False
     detach_reset_tub: bool = False
     detach_reset_vanity: bool = False
@@ -55,10 +54,16 @@ class BathroomEstimateBase(BaseModel):
     water_damage_source: Optional[str] = Field(None, max_length=30)
     mold_suspected: bool = False
     existing_tub_material: Optional[str] = None
+    demo_already_done: bool = False
+    repair_drywall_walls: bool = False
+    repair_drywall_walls_sf: Optional[float] = None
+    repair_drywall_ceiling: bool = False
+    repair_drywall_ceiling_sf: Optional[float] = None
+    repair_subfloor: bool = False
+    repair_subfloor_sf: Optional[float] = None
+
     demo_cement_board: bool = False
     demo_cement_board_sf: Optional[float] = None
-    replace_cement_board: bool = False
-    replace_cement_board_sf: Optional[float] = None
 
     # Component specs (JSONB)
     shower_spec: Optional[Dict[str, Any]] = None
@@ -117,7 +122,6 @@ class BathroomEstimateUpdate(BaseModel):
     replace_tub: Optional[bool] = None
     replace_vanity: Optional[bool] = None
     replace_toilet: Optional[bool] = None
-    replace_floor: Optional[bool] = None
     detach_reset_shower: Optional[bool] = None
     detach_reset_tub: Optional[bool] = None
     detach_reset_vanity: Optional[bool] = None
@@ -130,10 +134,15 @@ class BathroomEstimateUpdate(BaseModel):
     water_damage_source: Optional[str] = None
     mold_suspected: Optional[bool] = None
     existing_tub_material: Optional[str] = None
+    demo_already_done: Optional[bool] = None
+    repair_drywall_walls: Optional[bool] = None
+    repair_drywall_walls_sf: Optional[float] = None
+    repair_drywall_ceiling: Optional[bool] = None
+    repair_drywall_ceiling_sf: Optional[float] = None
+    repair_subfloor: Optional[bool] = None
+    repair_subfloor_sf: Optional[float] = None
     demo_cement_board: Optional[bool] = None
     demo_cement_board_sf: Optional[float] = None
-    replace_cement_board: Optional[bool] = None
-    replace_cement_board_sf: Optional[float] = None
     shower_spec: Optional[Dict[str, Any]] = None
     bathtub_spec: Optional[Dict[str, Any]] = None
     vanity_spec: Optional[Dict[str, Any]] = None
@@ -231,7 +240,6 @@ class BathroomEstimateResponse(BaseModel):
     replace_tub: bool = False
     replace_vanity: bool = False
     replace_toilet: bool = False
-    replace_floor: bool = False
     detach_reset_shower: bool = False
     detach_reset_tub: bool = False
     detach_reset_vanity: bool = False
@@ -244,10 +252,15 @@ class BathroomEstimateResponse(BaseModel):
     water_damage_source: Optional[str] = Field(None, max_length=30)
     mold_suspected: bool = False
     existing_tub_material: Optional[str] = None
+    demo_already_done: bool = False
+    repair_drywall_walls: bool = False
+    repair_drywall_walls_sf: Optional[float] = None
+    repair_drywall_ceiling: bool = False
+    repair_drywall_ceiling_sf: Optional[float] = None
+    repair_subfloor: bool = False
+    repair_subfloor_sf: Optional[float] = None
     demo_cement_board: bool = False
     demo_cement_board_sf: Optional[float] = None
-    replace_cement_board: bool = False
-    replace_cement_board_sf: Optional[float] = None
 
     # Component specs
     shower_spec: Optional[Dict[str, Any]] = None

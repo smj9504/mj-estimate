@@ -88,9 +88,9 @@ def _generate_template_note(estimate) -> str:
         scope_items.append(f'{v_width}" vanity' if v_width else "vanity")
     if estimate.replace_toilet:
         scope_items.append("toilet")
-    if estimate.replace_floor:
-        floor_spec = estimate.floor_spec or {}
-        f_mat = (floor_spec.get("material", "tile")).replace("_", " ")
+    floor_spec = estimate.floor_spec or {}
+    if floor_spec.get("material"):
+        f_mat = floor_spec["material"].replace("_", " ")
         scope_items.append(f"{f_mat} flooring")
 
     demo_areas = []
@@ -127,15 +127,40 @@ def _generate_template_note(estimate) -> str:
     # Special considerations
     specials = []
     if estimate.water_damage:
-        specials.append("existing water damage (scope may expand upon demo)")
-    if getattr(estimate, 'demo_cement_board', False) or getattr(estimate, 'replace_cement_board', False):
-        specials.append("water-damaged cement board requiring demo and replacement")
+        if getattr(estimate, 'demo_already_done', False):
+            specials.append(
+                "existing water damage with demolition completed "
+                "by mitigation team (repair/rebuild scope)"
+            )
+        else:
+            specials.append(
+                "existing water damage (scope may expand upon demo)"
+            )
+    repair_areas = []
+    if getattr(estimate, 'repair_drywall_walls', False):
+        repair_areas.append("wall drywall")
+    if getattr(estimate, 'repair_drywall_ceiling', False):
+        repair_areas.append("ceiling drywall")
+    if getattr(estimate, 'repair_subfloor', False):
+        repair_areas.append("subfloor")
+    if repair_areas:
+        specials.append(
+            f"repair/replacement of {', '.join(repair_areas)}"
+        )
+    if getattr(estimate, 'demo_cement_board', False):
+        cb_sf = getattr(estimate, 'demo_cement_board_sf', 0) or 0
+        specials.append(
+            f"water-damaged cement board ({cb_sf:.0f}SF) "
+            f"— partial removal and replacement of damaged section"
+            if cb_sf else
+            "water-damaged cement board requiring partial demo and replacement"
+        )
     if estimate.mold_suspected:
         specials.append("suspected mold presence (separate remediation required)")
     year = estimate.year_built or 2000
     if year < 1978:
         specials.append(f"lead paint compliance (built {year}, EPA RRP rule applies)")
-    if estimate.existing_tub_material == "cast_iron":
+    if (estimate.bathtub_spec or {}).get("material") == "cast_iron":
         specials.append("cast iron tub removal requiring specialized labor")
 
     if specials:
@@ -189,7 +214,7 @@ def _build_context(estimate) -> str:
     if estimate.replace_shower: replacements.append("shower")
     if estimate.replace_vanity: replacements.append("vanity")
     if estimate.replace_toilet: replacements.append("toilet")
-    if estimate.replace_floor: replacements.append("flooring")
+    if (estimate.floor_spec or {}).get("material"): replacements.append("flooring")
     lines.append(f"Replacing: {', '.join(replacements) or 'N/A'}")
 
     # Specs summary
@@ -214,14 +239,29 @@ def _build_context(estimate) -> str:
         lines.append(f"Floor: {floor.get('material')}, pattern={floor.get('pattern')}")
 
     # Special conditions
-    if estimate.water_damage: lines.append("CONDITION: Water damage present")
+    if estimate.water_damage:
+        if getattr(estimate, 'demo_already_done', False):
+            lines.append("CONDITION: Water damage - demo already completed by mitigation")
+        else:
+            lines.append("CONDITION: Water damage present")
+    repair_items = []
+    if getattr(estimate, 'repair_drywall_walls', False):
+        sf = getattr(estimate, 'repair_drywall_walls_sf', 0) or 0
+        repair_items.append(f"wall drywall{f' {sf}SF' if sf else ''}")
+    if getattr(estimate, 'repair_drywall_ceiling', False):
+        sf = getattr(estimate, 'repair_drywall_ceiling_sf', 0) or 0
+        repair_items.append(f"ceiling drywall{f' {sf}SF' if sf else ''}")
+    if getattr(estimate, 'repair_subfloor', False):
+        sf = getattr(estimate, 'repair_subfloor_sf', 0) or 0
+        repair_items.append(f"subfloor{f' {sf}SF' if sf else ''}")
+    if repair_items:
+        lines.append(f"REPAIR: {', '.join(repair_items)}")
     if getattr(estimate, 'demo_cement_board', False):
-        lines.append(f"CONDITION: Cement board demo {getattr(estimate, 'demo_cement_board_sf', 0) or 0}SF")
-    if getattr(estimate, 'replace_cement_board', False):
-        lines.append(f"CONDITION: Cement board replacement {getattr(estimate, 'replace_cement_board_sf', 0) or 0}SF")
+        cb_sf = getattr(estimate, 'demo_cement_board_sf', 0) or 0
+        lines.append(f"REPAIR: Cement board — demo & replace damaged section {cb_sf}SF")
     if estimate.mold_suspected: lines.append("CONDITION: Mold suspected")
     if (estimate.year_built or 2000) < 1978: lines.append("CONDITION: Pre-1978 (lead paint risk)")
-    if estimate.existing_tub_material == "cast_iron": lines.append("CONDITION: Cast iron tub")
+    if (estimate.bathtub_spec or {}).get("material") == "cast_iron": lines.append("CONDITION: Cast iron tub")
 
     acc = estimate.accessories_spec or {}
     if acc.get("finish"):

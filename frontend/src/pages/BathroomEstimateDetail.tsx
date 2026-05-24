@@ -192,6 +192,18 @@ const BathroomEstimateDetail: React.FC = () => {
       // so unchecking properly sends false (not undefined) to backend.
       // Fixture auto-includes (GFCI, fan, vanity light) default OFF — user opts in.
       // Finish/substrate auto-includes default ON — commonly needed.
+      // Ensure JSONB spec fields are objects (not null) for Ant Design nested form paths
+      estimate.floor_spec = estimate.floor_spec || {};
+      estimate.walls_spec = estimate.walls_spec || {};
+      estimate.shower_spec = estimate.shower_spec || {};
+      estimate.bathtub_spec = estimate.bathtub_spec || {};
+      estimate.vanity_spec = estimate.vanity_spec || {};
+      estimate.toilet_spec = estimate.toilet_spec || {};
+      estimate.accessories_spec = estimate.accessories_spec || {};
+      estimate.plumbing_spec = estimate.plumbing_spec || {};
+      estimate.electrical_spec = estimate.electrical_spec || {};
+      estimate.substrate_spec = estimate.substrate_spec || {};
+
       const hc = estimate.hidden_costs || {};
       estimate.hidden_costs = {
         ...hc,
@@ -199,7 +211,6 @@ const BathroomEstimateDetail: React.FC = () => {
         subfloor_allowance: hc.subfloor_allowance ?? true,
         auto_gfci: hc.auto_gfci ?? false,
         auto_exhaust_fan: hc.auto_exhaust_fan ?? false,
-        auto_vanity_light: hc.auto_vanity_light ?? false,
         auto_ceiling_paint: hc.auto_ceiling_paint ?? true,
         mold_resistant_drywall: hc.mold_resistant_drywall ?? true,
       };
@@ -250,8 +261,6 @@ const BathroomEstimateDetail: React.FC = () => {
     syncFixtureAction('shower', sync.replace_shower);
     syncFixtureAction('vanity', sync.replace_vanity);
     syncFixtureAction('toilet', sync.replace_toilet);
-    if (sync.replace_floor !== undefined) updates.replace_floor = sync.replace_floor;
-    if (sync.demo_floor !== undefined) updates.demo_floor = sync.demo_floor;
     if (sync.demo_walls !== undefined) updates.demo_walls = sync.demo_walls;
 
     // Merge specs (keep existing form values, override with sketch values)
@@ -787,61 +796,69 @@ const BathroomEstimateDetail: React.FC = () => {
             label: 'Demo Scope',
             children: (
               <Card>
-                <Row gutter={16}>
-                  <Col xs={24} sm={12} md={8}>
-                    <Form.Item label="Existing Tub Material" name="existing_tub_material">
-                      <Select options={selectOpts(pricingInfo?.bathtub_materials)} allowClear />
-                    </Form.Item>
-                  </Col>
-                </Row>
-
                 <Divider orientation="left" plain>Demolition Areas</Divider>
                 <Form.Item noStyle shouldUpdate={(prev, cur) =>
                   prev.demo_floor !== cur.demo_floor ||
                   prev.demo_walls !== cur.demo_walls ||
-                  prev.demo_ceiling !== cur.demo_ceiling
+                  prev.demo_ceiling !== cur.demo_ceiling ||
+                  prev.floor_spec?.material !== cur.floor_spec?.material ||
+                  prev.replace_shower !== cur.replace_shower ||
+                  prev.shower_spec?.type !== cur.shower_spec?.type ||
+                  prev.bathtub_spec?.surround_tile !== cur.bathtub_spec?.surround_tile
                 }>
-                  {() => (
-                    <>
-                      <Row gutter={16} align="middle">
-                        <Col xs={12} sm={8} md={4}>
-                          <Form.Item name="demo_floor" valuePropName="checked" style={{ marginBottom: 8 }}>
-                            <Checkbox>Demo Floor</Checkbox>
-                          </Form.Item>
-                        </Col>
-                        <Col xs={12} sm={8} md={4} style={{ display: form.getFieldValue('demo_floor') ? undefined : 'none' }}>
-                          <Form.Item label="Floor SF" name="demo_floor_sf" style={{ marginBottom: 8 }}>
-                            <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
-                          </Form.Item>
-                        </Col>
-                        <Col xs={12} sm={8} md={4}>
-                          <Form.Item name="demo_walls" valuePropName="checked" style={{ marginBottom: 8 }}>
-                            <Checkbox>Demo Walls</Checkbox>
-                          </Form.Item>
-                        </Col>
-                        <Col xs={12} sm={8} md={4} style={{ display: form.getFieldValue('demo_walls') ? undefined : 'none' }}>
-                          <Form.Item label="Wall SF" name="demo_wall_sf" style={{ marginBottom: 8 }}>
-                            <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
-                          </Form.Item>
-                        </Col>
-                        <Col xs={12} sm={8} md={4}>
-                          <Form.Item name="demo_ceiling" valuePropName="checked" style={{ marginBottom: 8 }}>
-                            <Checkbox>Demo Ceiling</Checkbox>
-                          </Form.Item>
-                        </Col>
-                        <Col xs={12} sm={8} md={4} style={{ display: form.getFieldValue('demo_ceiling') ? undefined : 'none' }}>
-                          <Form.Item label="Ceiling SF" name="demo_ceiling_sf" style={{ marginBottom: 8 }}>
-                            <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                      {(form.getFieldValue('demo_floor') || form.getFieldValue('demo_walls') || form.getFieldValue('demo_ceiling')) && (
+                  {() => {
+                    const hasFloorMaterial = !!form.getFieldValue(['floor_spec', 'material']);
+                    const showerType = form.getFieldValue(['shower_spec', 'type']);
+                    const hasCustomShower = form.getFieldValue('replace_shower') && (showerType === 'custom_tile' || showerType === 'curbless');
+                    const hasSurroundTile = !!form.getFieldValue(['bathtub_spec', 'surround_tile']);
+                    const autoFloor = hasFloorMaterial;
+                    const autoWalls = hasCustomShower || hasSurroundTile;
+                    return (
+                      <>
+                        <Row gutter={16} align="middle">
+                          <Col xs={12} sm={8} md={4}>
+                            <Form.Item name="demo_floor" valuePropName="checked" style={{ marginBottom: 8 }}>
+                              <Checkbox>Demo Floor</Checkbox>
+                            </Form.Item>
+                            {autoFloor && !form.getFieldValue('demo_floor') && (
+                              <Text type="warning" style={{ fontSize: 11 }}>Auto-included (floor material set)</Text>
+                            )}
+                          </Col>
+                          <Col xs={12} sm={8} md={4} style={{ display: (form.getFieldValue('demo_floor') || autoFloor) ? undefined : 'none' }}>
+                            <Form.Item label="Floor SF" name="demo_floor_sf" style={{ marginBottom: 8 }}>
+                              <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                            </Form.Item>
+                          </Col>
+                          <Col xs={12} sm={8} md={4}>
+                            <Form.Item name="demo_walls" valuePropName="checked" style={{ marginBottom: 8 }}>
+                              <Checkbox>Demo Walls</Checkbox>
+                            </Form.Item>
+                            {autoWalls && !form.getFieldValue('demo_walls') && (
+                              <Text type="warning" style={{ fontSize: 11 }}>Auto-included (tile shower/surround)</Text>
+                            )}
+                          </Col>
+                          <Col xs={12} sm={8} md={4} style={{ display: (form.getFieldValue('demo_walls') || autoWalls) ? undefined : 'none' }}>
+                            <Form.Item label="Wall SF" name="demo_wall_sf" style={{ marginBottom: 8 }}>
+                              <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                            </Form.Item>
+                          </Col>
+                          <Col xs={12} sm={8} md={4}>
+                            <Form.Item name="demo_ceiling" valuePropName="checked" style={{ marginBottom: 8 }}>
+                              <Checkbox>Demo Ceiling</Checkbox>
+                            </Form.Item>
+                          </Col>
+                          <Col xs={12} sm={8} md={4} style={{ display: form.getFieldValue('demo_ceiling') ? undefined : 'none' }}>
+                            <Form.Item label="Ceiling SF" name="demo_ceiling_sf" style={{ marginBottom: 8 }}>
+                              <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                            </Form.Item>
+                          </Col>
+                        </Row>
                         <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-                          Leave SF blank to use bathroom dimensions. Override only if demo area differs.
+                          Floor & Wall demo auto-determined from scope (floor material, tile shower/surround). Check manually for additional areas. SF blank = use room dimensions.
                         </Text>
-                      )}
-                    </>
-                  )}
+                      </>
+                    );
+                  }}
                 </Form.Item>
 
                 <Divider orientation="left" plain>Fixture Scope</Divider>
@@ -850,7 +867,6 @@ const BathroomEstimateDetail: React.FC = () => {
                   prev.replace_tub !== cur.replace_tub ||
                   prev.replace_vanity !== cur.replace_vanity ||
                   prev.replace_toilet !== cur.replace_toilet ||
-                  prev.replace_floor !== cur.replace_floor ||
                   prev.detach_reset_shower !== cur.detach_reset_shower ||
                   prev.detach_reset_tub !== cur.detach_reset_tub ||
                   prev.detach_reset_vanity !== cur.detach_reset_vanity ||
@@ -943,14 +959,6 @@ const BathroomEstimateDetail: React.FC = () => {
                             </Col>
                           </>
                         )}
-                        <Col xs={24} sm={12} md={6}>
-                          <div style={{ marginBottom: 8 }}>
-                            <Text strong style={{ display: 'block', marginBottom: 4 }}>Floor</Text>
-                            <Form.Item name="replace_floor" valuePropName="checked" style={{ marginBottom: 0 }}>
-                              <Checkbox>Replace</Checkbox>
-                            </Form.Item>
-                          </div>
-                        </Col>
                       </Row>
                     );
                   }}
@@ -973,65 +981,117 @@ const BathroomEstimateDetail: React.FC = () => {
                   </Col>
                 </Row>
 
-                <Form.Item noStyle shouldUpdate={(prev, cur) => prev.water_damage !== cur.water_damage}>
-                  {() => form.getFieldValue('water_damage') ? (
-                    <Row gutter={[16, 8]} style={{ marginBottom: 8 }}>
-                      <Col xs={24} sm={16} md={12}>
-                        <Form.Item
-                          name="water_damage_source"
-                          label="Damage Source (plumber already repaired)"
-                          style={{ marginBottom: 8 }}
-                          tooltip="Plumbing for this fixture is excluded from the estimate"
-                        >
-                          <Select allowClear placeholder="Select damage source">
-                            <Select.Option value="shower">Shower</Select.Option>
-                            <Select.Option value="bathtub">Bathtub</Select.Option>
-                            <Select.Option value="vanity">Vanity / Sink</Select.Option>
-                            <Select.Option value="toilet">Toilet</Select.Option>
-                            <Select.Option value="supply_line">Supply Line</Select.Option>
-                            <Select.Option value="other">Other</Select.Option>
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  ) : null}
-                </Form.Item>
-
                 <Form.Item noStyle shouldUpdate={(prev, cur) =>
-                  prev.demo_cement_board !== cur.demo_cement_board ||
-                  prev.replace_cement_board !== cur.replace_cement_board
+                  prev.water_damage !== cur.water_damage ||
+                  prev.demo_already_done !== cur.demo_already_done ||
+                  prev.repair_drywall_walls !== cur.repair_drywall_walls ||
+                  prev.repair_drywall_ceiling !== cur.repair_drywall_ceiling ||
+                  prev.repair_subfloor !== cur.repair_subfloor ||
+                  prev.demo_cement_board !== cur.demo_cement_board
                 }>
-                  {() => (
+                  {() => form.getFieldValue('water_damage') ? (
                     <>
-                      <Divider orientation="left" plain>Cement Board (Water Damage Repair)</Divider>
-                      <Row gutter={[16, 8]} align="middle">
+                      <Row gutter={[16, 8]} style={{ marginBottom: 8 }}>
+                        <Col xs={24} sm={16} md={12}>
+                          <Form.Item
+                            name="water_damage_source"
+                            label="Damage Source (plumber already repaired)"
+                            style={{ marginBottom: 8 }}
+                            tooltip="Plumbing for this fixture is excluded from the estimate"
+                          >
+                            <Select allowClear placeholder="Select damage source">
+                              <Select.Option value="shower">Shower</Select.Option>
+                              <Select.Option value="bathtub">Bathtub</Select.Option>
+                              <Select.Option value="vanity">Vanity / Sink</Select.Option>
+                              <Select.Option value="toilet">Toilet</Select.Option>
+                              <Select.Option value="supply_line">Supply Line</Select.Option>
+                              <Select.Option value="other">Other</Select.Option>
+                            </Select>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+
+                      <Divider orientation="left" plain>Water Damage Repair</Divider>
+                      <Row gutter={[16, 8]} style={{ marginBottom: 8 }}>
+                        <Col xs={24}>
+                          <Form.Item name="demo_already_done" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Demo Already Completed (by mitigation team)</Checkbox>
+                          </Form.Item>
+                          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+                            {form.getFieldValue('demo_already_done')
+                              ? 'Demo costs will be excluded. Check areas above that were already demolished, then select repairs needed below.'
+                              : 'Uncheck if demo has not been done yet — demo costs will be included in the estimate.'}
+                          </Text>
+                        </Col>
+                      </Row>
+                      <Row gutter={16} align="middle">
                         <Col xs={12} sm={8} md={5}>
-                          <Form.Item name="demo_cement_board" valuePropName="checked" style={{ marginBottom: 8 }}>
-                            <Checkbox>Demo Cement Board</Checkbox>
+                          <Form.Item name="repair_drywall_walls" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Repair Walls (Drywall)</Checkbox>
                           </Form.Item>
                         </Col>
-                        <Col xs={12} sm={8} md={4} style={{ display: form.getFieldValue('demo_cement_board') ? undefined : 'none' }}>
-                          <Form.Item label="Demo SF" name="demo_cement_board_sf" style={{ marginBottom: 8 }}>
-                            <InputNumber style={{ width: '100%' }} min={0} placeholder="SF" />
+                        <Col xs={12} sm={8} md={4} style={{ display: form.getFieldValue('repair_drywall_walls') ? undefined : 'none' }}>
+                          <Form.Item label="Wall SF" name="repair_drywall_walls_sf" style={{ marginBottom: 8 }}>
+                            <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
                           </Form.Item>
                         </Col>
                         <Col xs={12} sm={8} md={5}>
-                          <Form.Item name="replace_cement_board" valuePropName="checked" style={{ marginBottom: 8 }}>
-                            <Checkbox>Replace Cement Board</Checkbox>
+                          <Form.Item name="repair_drywall_ceiling" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Repair Ceiling (Drywall)</Checkbox>
                           </Form.Item>
                         </Col>
-                        <Col xs={12} sm={8} md={4} style={{ display: form.getFieldValue('replace_cement_board') ? undefined : 'none' }}>
-                          <Form.Item label="Replace SF" name="replace_cement_board_sf" style={{ marginBottom: 8 }}>
-                            <InputNumber style={{ width: '100%' }} min={0} placeholder="SF" />
+                        <Col xs={12} sm={8} md={4} style={{ display: form.getFieldValue('repair_drywall_ceiling') ? undefined : 'none' }}>
+                          <Form.Item label="Ceiling SF" name="repair_drywall_ceiling_sf" style={{ marginBottom: 8 }}>
+                            <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                          </Form.Item>
+                        </Col>
+                        <Col xs={12} sm={8} md={5}>
+                          <Form.Item name="repair_subfloor" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Repair Subfloor</Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={12} sm={8} md={4} style={{ display: form.getFieldValue('repair_subfloor') ? undefined : 'none' }}>
+                          <Form.Item label="Floor SF" name="repair_subfloor_sf" style={{ marginBottom: 8 }}>
+                            <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
                           </Form.Item>
                         </Col>
                       </Row>
                       <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-                        For water-damaged cement board behind tub/shower surround. Demo removes old board; Replace installs new Durock.
+                        Leave SF blank to use bathroom dimensions. Walls use moisture-resistant drywall; ceiling uses mold-resistant when water damage present.
                       </Text>
+
+                      <Row gutter={16} align="middle" style={{ marginTop: 4 }}>
+                        <Col xs={12} sm={8} md={5}>
+                          <Form.Item name="demo_cement_board" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Cement Board Repair</Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={12} sm={8} md={4} style={{ display: form.getFieldValue('demo_cement_board') ? undefined : 'none' }}>
+                          <Form.Item label="Damaged SF" name="demo_cement_board_sf" style={{ marginBottom: 8 }}>
+                            <InputNumber style={{ width: '100%' }} min={0} placeholder="SF" />
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={16} md={10} style={{ display: form.getFieldValue('demo_cement_board') ? undefined : 'none' }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            Damaged section will be removed and replaced with new Durock. Only the damaged area + overlap to nearest studs is replaced — undamaged board is reused.
+                          </Text>
+                        </Col>
+                      </Row>
                     </>
-                  )}
+                  ) : null}
                 </Form.Item>
+
+                <Divider orientation="left" plain>Auto-include Items</Divider>
+                <Row gutter={[16, 4]}>
+                  <Col xs={12} sm={12} md={8}>
+                    <Form.Item name={['hidden_costs', 'subfloor_allowance']} valuePropName="checked" style={{ marginBottom: 2 }}>
+                      <Checkbox><Text style={{ fontSize: 12 }}>Subfloor allowance</Text></Checkbox>
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4, marginBottom: 12 }}>
+                  Auto-included when floor demo is scoped. Uncheck to disable.
+                </Text>
               </Card>
             ),
           },
@@ -1173,15 +1233,6 @@ const BathroomEstimateDetail: React.FC = () => {
                       <Col xs={12} sm={12} md={6}>
                         <Form.Item label="Material" name={['bathtub_spec', 'material']}>
                           <Select options={selectOpts(pricingInfo?.bathtub_materials)} allowClear />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={8} md={4}>
-                        <Form.Item label="Drain" name={['bathtub_spec', 'drain_location']}>
-                          <Select options={[
-                            { label: 'Left', value: 'left' },
-                            { label: 'Right', value: 'right' },
-                            { label: 'Center', value: 'center' },
-                          ]} allowClear />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={8} md={4}>
@@ -1445,6 +1496,29 @@ const BathroomEstimateDetail: React.FC = () => {
                         }}
                       </Form.Item>
                     </Row>
+                    <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
+                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Auto-include (uncheck to disable)</Text>
+                      <Row gutter={[16, 4]}>
+                        <Col xs={12} sm={8} md={6}>
+                          <Form.Item name={['hidden_costs', 'auto_ceiling_paint']} valuePropName="checked"
+                            style={{ marginBottom: 2 }}
+                            tooltip="Auto-include ceiling paint when demo scope is set"
+                          >
+                            <Checkbox><Text style={{ fontSize: 12 }}>Ceiling paint</Text></Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={12} sm={8} md={6}>
+                          <Form.Item name={['hidden_costs', 'drywall_skim_coat']} valuePropName="checked" style={{ marginBottom: 2 }}>
+                            <Checkbox><Text style={{ fontSize: 12 }}>Drywall skim coat</Text></Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={12} sm={8} md={6}>
+                          <Form.Item name={['hidden_costs', 'mold_resistant_drywall']} valuePropName="checked" style={{ marginBottom: 2 }}>
+                            <Checkbox><Text style={{ fontSize: 12 }}>Mold-resistant drywall</Text></Checkbox>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    </div>
                   </Panel>
                   <Panel header={
                     <Space size={6}>
@@ -1470,7 +1544,7 @@ const BathroomEstimateDetail: React.FC = () => {
                       prev?.bathtub_spec?.surround_tile_sf !== cur?.bathtub_spec?.surround_tile_sf ||
                       prev?.bathtub_spec?.surround_tile !== cur?.bathtub_spec?.surround_tile ||
                       prev?.replace_shower !== cur?.replace_shower ||
-                      prev?.replace_floor !== cur?.replace_floor ||
+                      prev?.floor_spec?.material !== cur?.floor_spec?.material ||
                       prev?.floor_sf !== cur?.floor_sf ||
                       prev?.length_ft !== cur?.length_ft ||
                       prev?.width_ft !== cur?.width_ft
@@ -1621,17 +1695,51 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Form.Item>
                       </Col>
                     </Row>
+                    <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
+                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Auto-include (uncheck to disable)</Text>
+                      <Row gutter={[16, 4]}>
+                        <Col xs={12} sm={8} md={6}>
+                          <Form.Item name={['hidden_costs', 'auto_gfci']} valuePropName="checked" style={{ marginBottom: 2 }}>
+                            <Checkbox><Text style={{ fontSize: 12 }}>GFCI outlet</Text></Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={12} sm={8} md={6}>
+                          <Form.Item name={['hidden_costs', 'auto_exhaust_fan']} valuePropName="checked" style={{ marginBottom: 2 }}>
+                            <Checkbox><Text style={{ fontSize: 12 }}>Exhaust fan</Text></Checkbox>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    </div>
+                  </Panel>
+                  <Panel header="Permit Triggers" key="permits">
+                    <Row gutter={[16, 4]}>
+                      {[
+                        ['valve_body_replace', 'Shower valve body replacement'],
+                        ['fixture_relocation', 'Fixture location change'],
+                        ['new_plumbing_line', 'New plumbing line'],
+                        ['new_electrical_circuit', 'New electrical circuit'],
+                      ].map(([key, label]) => (
+                        <Col xs={12} sm={12} key={key}>
+                          <Form.Item name={['hidden_costs', key]} valuePropName="checked" style={{ marginBottom: 2 }}>
+                            <Checkbox><Text style={{ fontSize: 12 }}>{label}</Text></Checkbox>
+                          </Form.Item>
+                        </Col>
+                      ))}
+                    </Row>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+                      Check items that trigger permit requirements. Permit fee auto-included when any trigger is checked.
+                    </Text>
                   </Panel>
                 </Collapse>
               </Card>
             ),
           },
 
-          // ════════ TAB 7: Accessories & Hidden Costs ════════
+          // ════════ TAB 7: Accessories & Costs ════════
           {
             key: 'accessories',
             forceRender: true,
-            label: 'Accessories',
+            label: 'Accessories & Costs',
             children: (
               <Card>
                 <Collapse defaultActiveKey={['acc', 'hidden', 'overview']}>
@@ -1665,7 +1773,7 @@ const BathroomEstimateDetail: React.FC = () => {
                       ))}
                     </Row>
                   </Panel>
-                  <Panel header="Hidden Costs" key="hidden">
+                  <Panel header="Project Costs" key="project-costs">
                     <Row gutter={[16, 8]}>
                       {[
                         ['dumpster', 'Dumpster'],
@@ -1691,55 +1799,17 @@ const BathroomEstimateDetail: React.FC = () => {
                           <InputNumber style={{ width: '100%' }} min={0} />
                         </Form.Item>
                       </Col>
+                      <Col xs={12} sm={12} md={4}>
+                        <Form.Item name={['hidden_costs', 'drywall_patch_full']} valuePropName="checked" style={{ marginTop: 30 }}>
+                          <Checkbox>Full (hang, tape, mud, prime)</Checkbox>
+                        </Form.Item>
+                      </Col>
                       <Col xs={12} sm={12} md={6}>
                         <Form.Item label="Trim Paint LF" name={['hidden_costs', 'trim_paint_lf']}>
                           <InputNumber style={{ width: '100%' }} min={0} />
                         </Form.Item>
                       </Col>
                     </Row>
-
-                    <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
-                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-                        Permit Triggers (check if applicable)
-                      </Text>
-                      <Row gutter={[16, 4]}>
-                        {[
-                          ['valve_body_replace', 'Shower valve body replacement'],
-                          ['fixture_relocation', 'Fixture location change'],
-                          ['new_plumbing_line', 'New plumbing line'],
-                          ['new_electrical_circuit', 'New electrical circuit'],
-                        ].map(([key, label]) => (
-                          <Col xs={12} sm={12} key={key}>
-                            <Form.Item name={['hidden_costs', key]} valuePropName="checked" style={{ marginBottom: 2 }}>
-                              <Checkbox><Text style={{ fontSize: 12 }}>{label}</Text></Checkbox>
-                            </Form.Item>
-                          </Col>
-                        ))}
-                      </Row>
-                    </div>
-
-                    <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
-                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-                        Auto-include Items (uncheck to disable)
-                      </Text>
-                      <Row gutter={[16, 4]}>
-                        {[
-                          ['drywall_skim_coat', 'Drywall skim coat'],
-                          ['subfloor_allowance', 'Subfloor allowance'],
-                          ['auto_gfci', 'GFCI outlet'],
-                          ['auto_exhaust_fan', 'Exhaust fan'],
-                          ['auto_vanity_light', 'Vanity light'],
-                          ['auto_ceiling_paint', 'Ceiling paint'],
-                          ['mold_resistant_drywall', 'Mold-resistant drywall'],
-                        ].map(([key, label]) => (
-                          <Col xs={12} sm={12} md={8} key={key}>
-                            <Form.Item name={['hidden_costs', key]} valuePropName="checked" style={{ marginBottom: 2 }}>
-                              <Checkbox><Text style={{ fontSize: 12 }}>{label}</Text></Checkbox>
-                            </Form.Item>
-                          </Col>
-                        ))}
-                      </Row>
-                    </div>
                   </Panel>
                   <Panel header="Overview & O&P" key="overview">
                     <Row gutter={16}>

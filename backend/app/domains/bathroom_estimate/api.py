@@ -261,10 +261,10 @@ def _validate_allowances(estimate: Dict[str, Any]) -> list:
 
     # Tile — check if material specified
     floor_spec = estimate.get("floor_spec") or {}
-    if estimate.get("replace_floor") and not floor_spec.get("material"):
+    if estimate.get("demo_floor") and not floor_spec.get("material"):
         warnings.append(
-            "Floor tile: material not specified. "
-            "Add tile material and $/SF allowance."
+            "Floor demo is checked but no floor material specified. "
+            "Add floor material in Floor Spec if replacing, or ignore if demo only."
         )
 
     # Vanity — check for brand/model or source

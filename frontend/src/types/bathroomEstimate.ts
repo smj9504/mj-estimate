@@ -25,7 +25,6 @@ export interface BathtubSpec {
   type?: string;          // alcove, drop_in, freestanding, walk_in, none
   material?: string;      // acrylic, porcelain_steel, cast_iron, fiberglass
   size?: { length: number; width: number };
-  drain_location?: string;
   jetted?: boolean;
   spout_type?: string;
   surround_tile?: boolean;         // drop_in tub surround tile
@@ -200,7 +199,6 @@ export interface BathroomEstimate {
   replace_tub?: boolean;
   replace_vanity?: boolean;
   replace_toilet?: boolean;
-  replace_floor?: boolean;
   detach_reset_shower?: boolean;
   detach_reset_tub?: boolean;
   detach_reset_vanity?: boolean;
@@ -213,11 +211,16 @@ export interface BathroomEstimate {
   /** Where the water damage originated — plumber already fixed this source */
   water_damage_source?: 'shower' | 'bathtub' | 'vanity' | 'toilet' | 'supply_line' | 'other' | null;
   mold_suspected?: boolean;
+  demo_already_done?: boolean;
+  repair_drywall_walls?: boolean;
+  repair_drywall_walls_sf?: number;
+  repair_drywall_ceiling?: boolean;
+  repair_drywall_ceiling_sf?: number;
+  repair_subfloor?: boolean;
+  repair_subfloor_sf?: number;
   existing_tub_material?: string;
   demo_cement_board?: boolean;
   demo_cement_board_sf?: number;
-  replace_cement_board?: boolean;
-  replace_cement_board_sf?: number;
 
   // Component specs (JSONB)
   shower_spec?: ShowerSpec;

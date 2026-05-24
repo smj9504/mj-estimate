@@ -47,10 +47,8 @@ export interface SketchFixtureSync {
   replace_shower?: boolean;
   replace_vanity?: boolean;
   replace_toilet?: boolean;
-  replace_floor?: boolean;
 
   // Demo flags
-  demo_floor?: boolean;
   demo_walls?: boolean;
 
   // Specs
@@ -110,9 +108,7 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
   sync.replace_shower = !!shower;
   sync.replace_vanity = vanities.length > 0;
   sync.replace_toilet = !!toilet;
-  // If there are fixtures, floor is being replaced
-  sync.replace_floor = !!(bathtub || shower || vanities.length || toilet);
-  sync.demo_floor = sync.replace_floor;
+  // demo_floor is a user decision — don't auto-set from sketch
   sync.demo_walls = !!(shower || bathtub);
 
   if (bathtub) {
@@ -325,8 +321,16 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
   }, [api.data, api.isDirty, onSketchChange]);
 
   // ── Sync sketch (rooms + fixtures) → estimate form fields ──
+  const initialSyncDone = useRef(false);
   useEffect(() => {
-    if (onFixtureSync && api.isDirty) {
+    if (!onFixtureSync) return;
+    // On edit: sync when sketch is dirty (user changed something)
+    // On load: sync once when sketch has fixtures (e.g. saved from another env)
+    if (api.isDirty) {
+      const sync = buildSketchSync(api.data);
+      onFixtureSync(sync);
+    } else if (!initialSyncDone.current && api.data.fixtures.length > 0) {
+      initialSyncDone.current = true;
       const sync = buildSketchSync(api.data);
       onFixtureSync(sync);
     }

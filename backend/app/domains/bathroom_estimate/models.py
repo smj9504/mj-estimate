@@ -95,6 +95,15 @@ class BathroomEstimate(Base, BaseModel):
     water_damage_source = Column(String(30), nullable=True)
     mold_suspected = Column(Boolean, default=False)
     existing_tub_material = Column(String(50))  # for cast iron surcharge
+    demo_already_done = Column(Boolean, default=False)  # mitigation team already demo'd
+    # Repair flags (water damage restoration)
+    repair_drywall_walls = Column(Boolean, default=False)
+    repair_drywall_walls_sf = Column(Float, nullable=True)
+    repair_drywall_ceiling = Column(Boolean, default=False)
+    repair_drywall_ceiling_sf = Column(Float, nullable=True)
+    repair_subfloor = Column(Boolean, default=False)
+    repair_subfloor_sf = Column(Float, nullable=True)
+
     demo_cement_board = Column(Boolean, default=False)
     demo_cement_board_sf = Column(Float, nullable=True)
     replace_cement_board = Column(Boolean, default=False)
@@ -107,7 +116,7 @@ class BathroomEstimate(Base, BaseModel):
 
     # ── Bathtub Spec ──
     bathtub_spec = Column(JSONB, nullable=True)
-    # { type, material, size{l,w}, drain_location, jetted, spout_type }
+    # { type, material, size{l,w}, jetted, spout_type }
 
     # ── Vanity Spec ──
     vanity_spec = Column(JSONB, nullable=True)
