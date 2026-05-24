@@ -1409,8 +1409,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         elif bb_lf > 0:
             bb_rate = BASEBOARD_PRICES.get(bb_mat, 6.50)
             bb_label = {"pvc": "PVC", "mdf": "MDF"}.get(bb_mat, bb_mat.replace('_', ' ').title())
-            qr_note = " + quarter round" if add_quarter_round else ""
-            _add(line_items, 6, f"Baseboard - {bb_label} (supply + install){qr_note}", bb_lf, "LF",
+            _add(line_items, 6, f"Baseboard - {bb_label} (supply + install)", bb_lf, "LF",
                  bb_rate * labor_mult, "finish",
                  notes=bb_notes)
             bb_pg_mult = PAINT_GRADE_MULTIPLIER.get(paint_grade, 1.0) if paint_grade else 1.0
