@@ -207,12 +207,6 @@ const BathroomEstimateDetail: React.FC = () => {
       const hc = estimate.hidden_costs || {};
       estimate.hidden_costs = {
         ...hc,
-        // Project costs — default checked (standard for any remodel)
-        dumpster: hc.dumpster ?? true,
-        floor_protection: hc.floor_protection ?? true,
-        caulk: hc.caulk ?? true,
-        final_clean: hc.final_clean ?? true,
-        mobilization: hc.mobilization ?? true,
         // Auto-include items
         drywall_skim_coat: hc.drywall_skim_coat ?? true,
         subfloor_allowance: hc.subfloor_allowance ?? true,
@@ -1496,6 +1490,37 @@ const BathroomEstimateDetail: React.FC = () => {
                       </Form.Item>
                     </Row>
                     <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
+                      <Row gutter={16}>
+                        <Col xs={12} sm={8} md={5}>
+                          <Form.Item name={['hidden_costs', 'drywall_patch']} valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Drywall Patch</Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={8} sm={6} md={4}>
+                          <Form.Item label="SF" name={['hidden_costs', 'drywall_patch_sf']} style={{ marginBottom: 8 }}>
+                            <InputNumber style={{ width: '100%' }} min={0} />
+                          </Form.Item>
+                        </Col>
+                        <Col xs={12} sm={8} md={5}>
+                          <Form.Item name={['hidden_costs', 'drywall_patch_full']} valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Full (hang, tape, mud, prime)</Checkbox>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                      <Row gutter={16}>
+                        <Col xs={12} sm={8} md={5}>
+                          <Form.Item name={['hidden_costs', 'trim_paint']} valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Trim Paint</Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={8} sm={6} md={4}>
+                          <Form.Item label="LF" name={['hidden_costs', 'trim_paint_lf']} style={{ marginBottom: 8 }}>
+                            <InputNumber style={{ width: '100%' }} min={0} />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    </div>
+                    <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
                       <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Auto-include (uncheck to disable)</Text>
                       <Row gutter={[16, 4]}>
                         <Col xs={12} sm={8} md={6}>
@@ -1772,43 +1797,17 @@ const BathroomEstimateDetail: React.FC = () => {
                       ))}
                     </Row>
                   </Panel>
-                  <Panel header="Project Costs" key="project-costs">
+                  <Panel header="Optional Costs" key="optional-costs">
                     <Row gutter={[16, 8]}>
-                      {[
-                        ['dumpster', 'Dumpster'],
-                        ['floor_protection', 'Floor Protection'],
-                        ['caulk', 'Caulking'],
-                        ['final_clean', 'Final Clean'],
-                        ['punch_list', 'Punch List'],
-                        ['mobilization', 'Mobilization'],
-                        ['drywall_patch', 'Drywall Patch'],
-                        ['trim_paint', 'Trim Paint'],
-                        ['permit', 'Permit Fee'],
-                      ].map(([key, label]) => (
-                        <Col xs={12} sm={12} md={6} key={key}>
-                          <Form.Item name={['hidden_costs', key]} valuePropName="checked" style={{ marginBottom: 4 }}>
-                            <Checkbox>{label}</Checkbox>
-                          </Form.Item>
-                        </Col>
-                      ))}
-                    </Row>
-                    <Row gutter={16} style={{ marginTop: 8 }}>
                       <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Patch SF" name={['hidden_costs', 'drywall_patch_sf']}>
-                          <InputNumber style={{ width: '100%' }} min={0} />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={12} md={4}>
-                        <Form.Item name={['hidden_costs', 'drywall_patch_full']} valuePropName="checked" style={{ marginTop: 30 }}>
-                          <Checkbox>Full (hang, tape, mud, prime)</Checkbox>
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Trim Paint LF" name={['hidden_costs', 'trim_paint_lf']}>
-                          <InputNumber style={{ width: '100%' }} min={0} />
+                        <Form.Item name={['hidden_costs', 'mobilization']} valuePropName="checked" style={{ marginBottom: 4 }}>
+                          <Checkbox>Mobilization / Setup</Checkbox>
                         </Form.Item>
                       </Col>
                     </Row>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
+                      Dumpster, floor protection, caulking, and final clean are always included in the estimate.
+                    </Text>
                   </Panel>
                   <Panel header="Overview & O&P" key="overview">
                     <Row gutter={16}>
