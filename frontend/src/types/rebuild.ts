@@ -51,6 +51,8 @@ export interface RebuildProject {
   claim_number?: string;
   insurance_company?: string;
   contractor_name?: string;
+  rebuild_company_id?: string;
+  rebuild_company_name?: string;
   completion_doc_count: number;
   contractor?: RebuildContractor;
   completion_docs: RebuildCompletionDoc[];

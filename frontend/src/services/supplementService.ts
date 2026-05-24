@@ -133,6 +133,12 @@ export const supplementService = {
     return data;
   },
 
+  // Rebuild Company Assignment
+  async assignRebuildCompany(claimId: string, companyId: string): Promise<{ company_id: string; company_name: string }> {
+    const { data } = await api.put(`${BASE_URL}/claim/${claimId}/rebuild-company`, { company_id: companyId });
+    return data;
+  },
+
   // Send to PA
   async getPaInfo(supplementId: string): Promise<{
     pa_name: string;

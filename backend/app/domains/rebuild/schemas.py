@@ -124,6 +124,8 @@ class RebuildProjectResponse(RebuildProjectBase):
     claim_number: Optional[str] = None
     insurance_company: Optional[str] = None
     contractor_name: Optional[str] = None
+    rebuild_company_id: Optional[str] = None
+    rebuild_company_name: Optional[str] = None
     completion_doc_count: int = 0
 
     # Nested

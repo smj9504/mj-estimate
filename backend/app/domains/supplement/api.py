@@ -467,6 +467,30 @@ async def update_followup(supplement_id: str, followup_id: str, data: Supplement
 
 
 # ============================================================
+# Rebuild Company Assignment
+# ============================================================
+
+@router.put("/supplements/claim/{claim_id}/rebuild-company")
+async def assign_rebuild_company(claim_id: str, data: dict):
+    """Assign or update the reconstruction company for a claim.
+
+    Request body:
+    - company_id: str (UUID of the company)
+    """
+    service = _get_service()
+    company_id = data.get("company_id")
+    if not company_id:
+        raise HTTPException(status_code=400, detail="company_id is required")
+    try:
+        return service.assign_rebuild_company(claim_id, company_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error assigning rebuild company: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
 # Send to PA
 # ============================================================
 

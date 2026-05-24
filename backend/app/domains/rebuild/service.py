@@ -243,6 +243,25 @@ class RebuildService:
                 ).first()
                 if contractor:
                     item['contractor_name'] = contractor.company_name
+
+            # Enrich with assigned reconstruction company from ClaimCompany
+            try:
+                from app.domains.contract.models import ClaimCompany
+                from app.domains.company.models import Company
+                cc = (
+                    session.query(ClaimCompany, Company)
+                    .join(Company, ClaimCompany.company_id == Company.id)
+                    .filter(
+                        ClaimCompany.claim_id == item.get('claim_id'),
+                        ClaimCompany.role == 'reconstruction',
+                    )
+                    .first()
+                )
+                if cc:
+                    item['rebuild_company_id'] = str(cc[1].id)
+                    item['rebuild_company_name'] = cc[1].name
+            except Exception:
+                pass
         except Exception:
             pass
 

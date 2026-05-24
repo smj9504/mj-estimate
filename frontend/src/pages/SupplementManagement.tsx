@@ -21,6 +21,7 @@ import RichTextEditor from '../components/editor/RichTextEditor';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
 import { listEstimates as listPackingEstimates } from '../services/packingEstimateService';
+import { companyService } from '../services/companyService';
 import type {
   SupplementRequest, SupplementRequestCreate, BidItemEstimate,
   BidItemEstimateCreate, SupplementFollowUp, SupplementStatus,
@@ -120,6 +121,13 @@ const SupplementManagement: React.FC = () => {
     queryFn: () => supplementService.getPendingReview(),
   });
 
+  // Companies list for rebuild company assignment
+  const { data: allCompanies = [] } = useQuery({
+    queryKey: ['companies-for-supplement'],
+    queryFn: () => companyService.getCompanies(),
+    enabled: detailModalOpen,
+  });
+
   // Estimate pickers for bid item form
   const { data: bathroomEstimatesForBid = [] } = useQuery({
     queryKey: ['bathroom-estimates-for-bid'],
@@ -192,6 +200,19 @@ const SupplementManagement: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['supplements'] });
       queryClient.invalidateQueries({ queryKey: ['supplement-stats'] });
     },
+  });
+
+  const assignRebuildCompanyMutation = useMutation({
+    mutationFn: ({ claimId, companyId }: { claimId: string; companyId: string }) =>
+      supplementService.assignRebuildCompany(claimId, companyId),
+    onSuccess: (result) => {
+      message.success(`Rebuild company set: ${result.company_name}`);
+      if (selectedSupplement) {
+        supplementService.get(selectedSupplement.id).then(setSelectedSupplement);
+      }
+      queryClient.invalidateQueries({ queryKey: ['supplements'] });
+    },
+    onError: (err: any) => message.error(err?.response?.data?.detail || 'Failed to assign company'),
   });
 
   const ESTIMATE_ID_FIELD_MAP: Record<string, string> = {
@@ -375,7 +396,7 @@ const SupplementManagement: React.FC = () => {
     {
       title: 'Claim #',
       key: 'claim',
-      width: 160,
+      width: 140,
       render: (_, r) => {
         const fileId = estimateFileMap[r.claim_id];
         return (
@@ -395,19 +416,15 @@ const SupplementManagement: React.FC = () => {
               )}
             </div>
             <Text type="secondary" style={{ fontSize: 11 }}>{r.insurance_company}</Text>
-            {r.property_address && (
-              <div><Text type="secondary" style={{ fontSize: 11 }}>{r.property_address}</Text></div>
-            )}
           </div>
         );
       },
     },
     {
-      title: 'Title', dataIndex: 'title', key: 'title', ellipsis: true,
-      responsive: ['lg'],
-      render: (title: string, r) => (
+      title: 'Address', dataIndex: 'property_address', key: 'address', ellipsis: true,
+      render: (addr: string, r) => (
         <Text style={{ cursor: 'pointer', color: '#1890ff' }} onClick={() => openDetail(r)}>
-          {title}
+          {addr || '-'}
         </Text>
       ),
     },
@@ -635,6 +652,49 @@ const SupplementManagement: React.FC = () => {
               </Descriptions.Item>
               <Descriptions.Item label="Submitted To">{selectedSupplement.submitted_to || '-'}</Descriptions.Item>
             </Descriptions>
+
+            {/* Assigned Companies */}
+            <div style={{ marginBottom: 16, padding: '10px 12px', background: '#fafafa', borderRadius: 6 }}>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>Assigned Companies</Text>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Water Mitigation</Text>
+                  <div>
+                    {selectedSupplement.wm_company_name ? (
+                      <Tag color="cyan">{selectedSupplement.wm_company_name}</Tag>
+                    ) : (
+                      <Text type="secondary" style={{ fontSize: 12 }}>Not assigned</Text>
+                    )}
+                  </div>
+                </Col>
+                <Col span={12}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Rebuild (Supplement)</Text>
+                  <div>
+                    <Select
+                      size="small"
+                      style={{ width: '100%', marginTop: 2 }}
+                      placeholder="Select rebuild company..."
+                      value={selectedSupplement.rebuild_company_id || undefined}
+                      loading={assignRebuildCompanyMutation.isPending}
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                      onChange={(companyId) => {
+                        if (companyId) {
+                          assignRebuildCompanyMutation.mutate({
+                            claimId: selectedSupplement.claim_id,
+                            companyId,
+                          });
+                        }
+                      }}
+                      options={allCompanies
+                        .filter((c: any) => c.is_active && c.id !== selectedSupplement.wm_company_id)
+                        .map((c: any) => ({ value: c.id, label: c.name }))}
+                    />
+                  </div>
+                </Col>
+              </Row>
+            </div>
 
             {selectedSupplement.reason && (
               <div style={{ marginBottom: 16 }}>

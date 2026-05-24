@@ -32,6 +32,10 @@ export interface SupplementRequest {
   claim_number?: string;
   insurance_company?: string;
   property_address?: string;
+  wm_company_id?: string;
+  wm_company_name?: string;
+  rebuild_company_id?: string;
+  rebuild_company_name?: string;
   bid_item_count: number;
   followup_count: number;
   bid_items: BidItemEstimate[];

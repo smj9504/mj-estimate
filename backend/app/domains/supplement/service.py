@@ -625,9 +625,12 @@ class SupplementService:
             session.close()
 
     def _enrich_with_claim_info(self, session, item: Dict[str, Any]):
-        """Add claim info to supplement request"""
+        """Add claim info to supplement request including assigned companies"""
         try:
             from app.domains.client.models import Claim, Client
+            from app.domains.contract.models import ClaimCompany
+            from app.domains.company.models import Company
+
             claim = session.query(Claim).filter(Claim.id == item.get('claim_id')).first()
             if claim:
                 item['claim_number'] = claim.claim_number
@@ -635,8 +638,65 @@ class SupplementService:
                 client = session.query(Client).filter(Client.id == claim.client_id).first()
                 if client:
                     item['property_address'] = client.address
+
+                # Get assigned companies by role
+                claim_companies = (
+                    session.query(ClaimCompany, Company)
+                    .join(Company, ClaimCompany.company_id == Company.id)
+                    .filter(ClaimCompany.claim_id == claim.id)
+                    .all()
+                )
+                for cc, comp in claim_companies:
+                    if cc.role == 'water_mitigation':
+                        item['wm_company_id'] = str(comp.id)
+                        item['wm_company_name'] = comp.name
+                    elif cc.role == 'reconstruction':
+                        item['rebuild_company_id'] = str(comp.id)
+                        item['rebuild_company_name'] = comp.name
         except Exception:
             pass
+
+    def assign_rebuild_company(self, claim_id: str, company_id: str) -> Dict[str, Any]:
+        """Assign or update the reconstruction company for a claim via ClaimCompany."""
+        session = self._get_session()
+        try:
+            from app.domains.contract.models import ClaimCompany
+            from app.domains.company.models import Company
+
+            # Verify company exists
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise ValueError("Company not found")
+
+            # Find existing reconstruction assignment
+            existing = (
+                session.query(ClaimCompany)
+                .filter(
+                    ClaimCompany.claim_id == claim_id,
+                    ClaimCompany.role == 'reconstruction',
+                )
+                .first()
+            )
+
+            if existing:
+                existing.company_id = company_id
+            else:
+                cc = ClaimCompany(
+                    claim_id=claim_id,
+                    company_id=company_id,
+                    role='reconstruction',
+                    is_primary=True,
+                )
+                session.add(cc)
+
+            session.commit()
+            return {"company_id": str(company.id), "company_name": company.name}
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error assigning rebuild company: {e}")
+            raise
+        finally:
+            session.close()
 
     def _update_claim_supplement_flag(self, session, claim_id: str, needs_supplement: bool):
         from app.domains.client.models import Claim

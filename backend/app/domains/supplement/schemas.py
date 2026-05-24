@@ -74,6 +74,10 @@ class SupplementRequestResponse(SupplementRequestBase):
     claim_number: Optional[str] = None
     insurance_company: Optional[str] = None
     property_address: Optional[str] = None
+    wm_company_id: Optional[str] = None
+    wm_company_name: Optional[str] = None
+    rebuild_company_id: Optional[str] = None
+    rebuild_company_name: Optional[str] = None
     bid_item_count: int = 0
     followup_count: int = 0
 

@@ -413,6 +413,16 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
           else if (rooms.find((r) => r.id === selectedId)) api.removeRoom(selectedId);
           else if (damageZones.find((d) => d.id === selectedId)) api.removeDamageZone(selectedId);
         }
+      } else if (e.key === 'r' || e.key === 'R') {
+        // Rotate selected fixture by 90°
+        if (selectedId) {
+          const fix = fixtures.find((f) => f.id === selectedId);
+          if (fix) {
+            e.preventDefault();
+            const step = e.shiftKey ? -90 : 90;
+            api.updateFixture(fix.id, { rotation: ((fix.rotation || 0) + step + 360) % 360 });
+          }
+        }
       } else if (e.key === 'Escape') {
         setDrawingWall(null);
         setDrawingRoom(null);
@@ -1559,6 +1569,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
           ref={trRef}
           rotateEnabled={true}
           rotationSnaps={[0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180, 195, 210, 225, 240, 255, 270, 285, 300, 315, 330, 345]}
+          rotateAnchorOffset={(fix.type === 'window' || fix.type === 'mirror') ? 25 : 15}
           keepRatio={fix.type === 'toilet' || fix.type === 'light'}
           enabledAnchors={
             fix.type === 'toilet' || fix.type === 'light'

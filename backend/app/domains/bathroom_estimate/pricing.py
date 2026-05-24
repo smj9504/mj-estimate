@@ -106,6 +106,10 @@ SUBSTRATE_RATES = {
     # Subfloor repair
     "subfloor_repair_per_sf": 8.50,   # plywood + install ($6-$12/SF)
     "self_leveling_per_sf": 4.75,     # self-leveling compound + pour ($3-$7/SF, Angi 2026)
+
+    # Drywall repair (full replacement: hang + tape + mud + sand + prime)
+    "drywall_replace_per_sf": 5.75,   # standard 1/2" drywall ($4-$7/SF installed)
+    "drywall_replace_moisture_per_sf": 6.50,  # greenboard/moisture-resistant ($5-$8/SF)
 }
 
 # ──────────────────────────────────────────────

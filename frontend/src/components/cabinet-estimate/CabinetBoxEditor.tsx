@@ -20,6 +20,7 @@ const { Text } = Typography;
 // Common cabinet codes with default dimensions
 const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height: number; specialty?: SpecialtyType; label: string }> = {
   // Base
+  'B9':  { cab_type: 'base', width: 9,  height: 34.5, label: 'Base 9"' },
   'B12': { cab_type: 'base', width: 12, height: 34.5, label: 'Base 12"' },
   'B15': { cab_type: 'base', width: 15, height: 34.5, label: 'Base 15"' },
   'B18': { cab_type: 'base', width: 18, height: 34.5, label: 'Base 18"' },
@@ -36,19 +37,25 @@ const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height
   'DB30': { cab_type: 'base', width: 30, height: 34.5, specialty: 'drawer_base', label: 'Drawer Base 30"' },
   'LS36': { cab_type: 'base', width: 36, height: 34.5, specialty: 'lazy_susan', label: 'Lazy Susan 36"' },
   // Wall - Standard (30"H)
+  'W0930': { cab_type: 'wall', width: 9,  height: 30, label: '9"W x 30"H' },
   'W1230': { cab_type: 'wall', width: 12, height: 30, label: '12"W x 30"H' },
   'W1530': { cab_type: 'wall', width: 15, height: 30, label: '15"W x 30"H' },
+  'W1630': { cab_type: 'wall', width: 16, height: 30, label: '16"W x 30"H' },
   'W1830': { cab_type: 'wall', width: 18, height: 30, label: '18"W x 30"H' },
   'W2130': { cab_type: 'wall', width: 21, height: 30, label: '21"W x 30"H' },
   'W2430': { cab_type: 'wall', width: 24, height: 30, label: '24"W x 30"H' },
+  'W2730': { cab_type: 'wall', width: 27, height: 30, label: '27"W x 30"H' },
   'W3030': { cab_type: 'wall', width: 30, height: 30, label: '30"W x 30"H' },
+  'W3330': { cab_type: 'wall', width: 33, height: 30, label: '33"W x 30"H' },
   'W3630': { cab_type: 'wall', width: 36, height: 30, label: '36"W x 30"H' },
   // Wall - Tall (36"H, 42"H)
+  'W1842': { cab_type: 'wall', width: 18, height: 42, label: '18"W x 42"H' },
+  'W2742': { cab_type: 'wall', width: 27, height: 42, label: '27"W x 42"H' },
   'W3036': { cab_type: 'wall', width: 30, height: 36, label: '30"W x 36"H' },
   'W3636': { cab_type: 'wall', width: 36, height: 36, label: '36"W x 36"H' },
   'W3042': { cab_type: 'wall', width: 30, height: 42, label: '30"W x 42"H' },
   'W3642': { cab_type: 'wall', width: 36, height: 42, label: '36"W x 42"H' },
-  // Wall - Short (above microwave / fridge: 12"~24"H)
+  // Wall - Short (above microwave / fridge: 12"~27"H)
   'W3012': { cab_type: 'wall', width: 30, height: 12, label: '30"W x 12"H' },
   'W3612': { cab_type: 'wall', width: 36, height: 12, label: '36"W x 12"H' },
   'W3015': { cab_type: 'wall', width: 30, height: 15, label: '30"W x 15"H' },
@@ -57,14 +64,18 @@ const CABINET_PRESETS: Record<string, { cab_type: CabType; width: number; height
   'W3618': { cab_type: 'wall', width: 36, height: 18, label: '36"W x 18"H' },
   'W3024': { cab_type: 'wall', width: 30, height: 24, label: '30"W x 24"H' },
   'W3624': { cab_type: 'wall', width: 36, height: 24, label: '36"W x 24"H' },
+  'W3627': { cab_type: 'wall', width: 36, height: 27, label: '36"W x 27"H' },
   // Wall - Specialty
   'WDC': { cab_type: 'wall', width: 24, height: 30, specialty: 'diagonal_corner_wall', label: 'Diagonal Corner 24"' },
   // Tall - Pantry
   'T1884': { cab_type: 'tall', width: 18, height: 84, label: 'Tall 18"x84"' },
   'T2484': { cab_type: 'tall', width: 24, height: 84, label: 'Tall 24"x84"' },
   'T3084': { cab_type: 'tall', width: 30, height: 84, label: 'Tall 30"x84"' },
+  'T3684': { cab_type: 'tall', width: 36, height: 84, label: 'Tall 36"x84"' },
   'T1890': { cab_type: 'tall', width: 18, height: 90, label: 'Tall 18"x90"' },
   'T2490': { cab_type: 'tall', width: 24, height: 90, label: 'Tall 24"x90"' },
+  'T3096': { cab_type: 'tall', width: 30, height: 96, label: 'Tall 30"x96"' },
+  'T3696': { cab_type: 'tall', width: 36, height: 96, label: 'Tall 36"x96"' },
   // Tall - Oven
   'OC3384': { cab_type: 'tall', width: 33, height: 84, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x84"' },
   'OC3396': { cab_type: 'tall', width: 33, height: 96, specialty: 'oven_cabinet', label: 'Oven Cabinet 33"x96"' },
@@ -145,7 +156,7 @@ function getOptionsForType(cabType: SectionType) {
         .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
     },
     {
-      label: 'Short — Above Microwave/Fridge (12"-24"H)',
+      label: 'Short — Above Microwave/Fridge (12"-27"H)',
       options: entries
         .filter(([, v]) => v.height < 30 && !v.specialty)
         .map(([code, v]) => ({ label: `${code} — ${v.label}`, value: code })),
