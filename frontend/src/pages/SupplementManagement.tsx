@@ -1486,11 +1486,13 @@ const SupplementManagement: React.FC = () => {
               <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>To:</Text>
               <Select
                 mode="tags"
+                showSearch
+                optionFilterProp="label"
                 style={{ width: '100%' }}
                 placeholder="Enter recipient email addresses..."
                 value={paToEmails}
                 onChange={(vals) => setPaToEmails(vals)}
-                tokenSeparators={[',', ';', ' ']}
+                tokenSeparators={[',', ';']}
                 options={paInfo.pa_email ? [{
                   value: paInfo.pa_email,
                   label: paInfo.pa_name ? `${paInfo.pa_name} (${paInfo.pa_email})` : paInfo.pa_email,
@@ -1506,11 +1508,13 @@ const SupplementManagement: React.FC = () => {
               <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>CC:</Text>
               <Select
                 mode="tags"
+                showSearch
+                optionFilterProp="label"
                 style={{ width: '100%' }}
                 placeholder="Enter CC email addresses..."
                 value={paCcEmails}
                 onChange={(vals) => setPaCcEmails(vals)}
-                tokenSeparators={[',', ';', ' ']}
+                tokenSeparators={[',', ';']}
                 options={(paInfo.cc_emails || []).map((cc: any) => ({
                   value: cc.email,
                   label: cc.name ? `${cc.name} (${cc.email})` : cc.email,

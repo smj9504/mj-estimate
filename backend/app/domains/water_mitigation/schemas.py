@@ -184,6 +184,7 @@ class JobResponse(JobBase):
 
     companycam_project_id: Optional[str] = None
     google_sheet_row_number: Optional[int] = None
+    google_sheet_name: Optional[str] = None
 
     companycam_last_sync: Optional[datetime] = None
     sheets_last_sync: Optional[datetime] = None

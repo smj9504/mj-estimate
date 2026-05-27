@@ -723,7 +723,13 @@ class GoogleSheetsSyncService:
         If a Sheet→PA mapping exists for this job's sheet_name,
         update the linked Claim's pa_contact_id accordingly.
         """
-        if not job.google_sheet_name or not job.claim_id:
+        if not job.google_sheet_name:
+            return
+        if not job.claim_id:
+            logger.debug(
+                f"PA mapping skipped for job {job.id}: no claim linked yet "
+                f"(sheet: {job.google_sheet_name})"
+            )
             return
 
         from app.domains.water_mitigation.models import WMSheetPAMapping
