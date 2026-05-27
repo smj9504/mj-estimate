@@ -11,7 +11,7 @@ import {
 } from 'antd';
 import { SaveOutlined, CloseOutlined } from '@ant-design/icons';
 import AddressAutocomplete from '../common/AddressAutocomplete';
-import { Company, CompanyFormData, PaymentMethod, PaymentFrequency } from '../../types';
+import { Company, CompanyFormData, PaymentMethod, PaymentFrequency, CompanyType, COMPANY_TYPE_LABELS } from '../../types';
 import LogoUpload from './LogoUpload';
 import LicenseManager from './LicenseManager';
 import InsuranceManager from './InsuranceManager';
@@ -55,6 +55,7 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
     if (initialData) {
       form.setFieldsValue({
         name: initialData.name,
+        company_type: initialData.company_type,
         address: initialData.address,
         city: initialData.city,
         state: initialData.state,
@@ -148,6 +149,27 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
                 />
               </Form.Item>
             </Col>
+            <Col xs={24} md={12}>
+              <Form.Item
+                name="company_type"
+                label="Company Type"
+              >
+                <Select
+                  placeholder="Select company type"
+                  disabled={loading}
+                  allowClear
+                >
+                  {(Object.entries(COMPANY_TYPE_LABELS) as [CompanyType, string][]).map(([value, label]) => (
+                    <Select.Option key={value} value={value}>
+                      {label}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={[16, 0]}>
             <Col xs={24} md={12}>
               <Form.Item
                 name="phone"

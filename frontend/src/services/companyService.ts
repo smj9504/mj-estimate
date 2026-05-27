@@ -1,5 +1,5 @@
 import { apiClient } from '../api/config';
-import { Company, CompanyFormData } from '../types';
+import { Company, CompanyFormData, CompanyContact } from '../types';
 
 export const companyService = {
   // Get all companies with optional filters
@@ -98,5 +98,51 @@ export const companyService = {
   }> => {
     const response = await apiClient.get('/api/companies/stats/summary');
     return response.data;
+  },
+
+  // ── Contacts ────────────────────────────────────────────────────────────────
+
+  listContacts: async (companyId: string): Promise<CompanyContact[]> => {
+    const response = await apiClient.get(`/api/companies/${companyId}/contacts`);
+    return response.data;
+  },
+
+  listAllContacts: async (companyType?: string): Promise<CompanyContact[]> => {
+    const params = new URLSearchParams();
+    if (companyType) params.append('company_type', companyType);
+    const response = await apiClient.get(`/api/companies/contacts/all?${params.toString()}`);
+    return response.data;
+  },
+
+  createContact: async (
+    companyId: string,
+    data: Omit<CompanyContact, 'id' | 'company_id' | 'created_at' | 'updated_at'>,
+  ): Promise<CompanyContact> => {
+    const response = await apiClient.post(`/api/companies/${companyId}/contacts`, data);
+    return response.data;
+  },
+
+  updateContact: async (
+    companyId: string,
+    contactId: string,
+    data: Partial<CompanyContact>,
+  ): Promise<CompanyContact> => {
+    const response = await apiClient.put(
+      `/api/companies/${companyId}/contacts/${contactId}`,
+      data,
+    );
+    return response.data;
+  },
+
+  deleteContact: async (companyId: string, contactId: string): Promise<void> => {
+    await apiClient.delete(`/api/companies/${companyId}/contacts/${contactId}`);
+  },
+
+  // Link a PA contact to a claim (updates pa_* freetext fields too)
+  linkPaContactToClaim: async (
+    claimId: string,
+    contactId: string,
+  ): Promise<void> => {
+    await apiClient.patch(`/api/claims/${claimId}`, { pa_contact_id: contactId });
   },
 };

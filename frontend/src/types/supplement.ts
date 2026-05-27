@@ -79,7 +79,7 @@ export interface BidItemEstimate {
 export interface BidItemEstimateCreate {
   supplement_id: string;
   estimate_type: BidItemType;
-  title: string;
+  title?: string;
   description?: string;
   bathroom_estimate_id?: string;
   cabinet_estimate_id?: string;

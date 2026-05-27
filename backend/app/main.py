@@ -55,11 +55,11 @@ from app.domains.water_mitigation.models import (
     WaterMitigationJob, PhotoCategory, WMPhoto, WMDocument,
     WMPhotoCategory, WMJobStatusHistory, WMSyncLog, WMReportConfig,
     WMDemolitionType, WMScopeLocation, WMScopeItem, WMDebrisCalculation,
-    WMScopeItemCategory, WMStandardScopeItem
+    WMScopeItemCategory, WMStandardScopeItem, WMSheetPAMapping
 )
 
 # Company model (imported after its dependencies)
-from app.domains.company.models import Company
+from app.domains.company.models import Company, CompanyContact
 
 # Client management system models
 from app.domains.client.models import Client, Claim, ClaimNegotiation, ClaimPayment, ClaimExpense
@@ -297,6 +297,8 @@ _NEEDED_COLUMNS = [
     ("claims", "pa_company", "VARCHAR(255)"),
     ("claims", "pa_email", "VARCHAR(255)"),
     ("claims", "pa_phone", "VARCHAR(50)"),
+    ("claims", "pa_contact_id", "UUID"),
+    ("companies", "company_type", "VARCHAR(50)"),
     ("sent_emails", "reply_received", "BOOLEAN"),
     ("sent_emails", "reply_received_at", "TIMESTAMPTZ"),
     ("sent_emails", "reply_summary", "TEXT"),

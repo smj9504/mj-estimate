@@ -94,7 +94,7 @@ class SupplementRequestResponse(SupplementRequestBase):
 
 class BidItemEstimateBase(BaseModel):
     estimate_type: str = Field(..., description="bathroom | cabinet | packing | roofing | kitchen | flooring | other")
-    title: str
+    title: Optional[str] = ""
     description: Optional[str] = None
 
 

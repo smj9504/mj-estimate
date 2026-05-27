@@ -14,9 +14,11 @@ class Company(Base, BaseModel):
     """Company entity model"""
     __tablename__ = "companies"
     __table_args__ = {'extend_existing': True}
-    
+
     # Basic information
     name = Column(String(255), nullable=False)
+    # Company type: contractor, public_adjuster, water_mitigation, insurance, moving, roofing, other
+    company_type = Column(String(50), default='contractor')
     address = Column(Text)
     city = Column(String(100))
     state = Column(String(50))
@@ -60,6 +62,32 @@ class Company(Base, BaseModel):
     # payment_method_ref = relationship("PaymentMethod", foreign_keys=[payment_method_id], lazy="joined")
     # payment_frequency_ref = relationship("PaymentFrequency", foreign_keys=[payment_frequency_id], lazy="joined")
     
-    # FUTURE: License and insurance management relationships
-    # licenses = relationship("CompanyLicense", back_populates="company", cascade="all, delete-orphan")
-    # insurance_policies = relationship("CompanyInsurance", back_populates="company", cascade="all, delete-orphan")
+    # Contacts
+    contacts = relationship(
+        "CompanyContact",
+        back_populates="company",
+        cascade="all, delete-orphan",
+        lazy="select",
+    )
+
+
+class CompanyContact(Base, BaseModel):
+    """Individual contact person within a company"""
+    __tablename__ = "company_contacts"
+    __table_args__ = {'extend_existing': True}
+
+    company_id = Column(
+        UUIDType(),
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(String(255), nullable=False)
+    title = Column(String(100))       # e.g., "Senior Adjuster", "Project Manager"
+    email = Column(String(255))
+    phone = Column(String(50))
+    is_primary = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
+    notes = Column(Text)
+
+    company = relationship("Company", back_populates="contacts", lazy="select")

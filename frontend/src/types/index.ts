@@ -1,7 +1,42 @@
 // Company Types
+export type CompanyType =
+  | 'contractor'
+  | 'public_adjuster'
+  | 'water_mitigation'
+  | 'insurance'
+  | 'moving'
+  | 'roofing'
+  | 'other';
+
+export const COMPANY_TYPE_LABELS: Record<CompanyType, string> = {
+  contractor: 'Contractor',
+  public_adjuster: 'Public Adjuster',
+  water_mitigation: 'Water Mitigation',
+  insurance: 'Insurance',
+  moving: 'Moving / Packing',
+  roofing: 'Roofing',
+  other: 'Other',
+};
+
+export interface CompanyContact {
+  id: string;
+  company_id: string;
+  company_name?: string;
+  name: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+  is_primary: boolean;
+  is_active: boolean;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Company {
   id: string;
   name: string;
+  company_type?: CompanyType;
   address: string;
   city: string;
   state: string;
@@ -10,8 +45,8 @@ export interface Company {
   email?: string;
   logo?: string; // Base64 encoded logo or URL
   company_code?: string; // 4-character unique code
-  is_active?: boolean; // ✅ Added missing field
-  is_default?: boolean; // ✅ Added missing field
+  is_active?: boolean;
+  is_default?: boolean;
   payment_method?: string; // Legacy field
   payment_frequency?: string; // Legacy field
   payment_method_id?: string; // Reference to payment_methods table
@@ -24,6 +59,7 @@ export interface Company {
 
 export interface CompanyFormData {
   name: string;
+  company_type?: CompanyType;
   address: string;
   city: string;
   state: string;

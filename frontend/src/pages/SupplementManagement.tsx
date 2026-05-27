@@ -10,13 +10,14 @@ import {
   EditOutlined, DeleteOutlined, EllipsisOutlined, FileTextOutlined,
   DollarOutlined, SendOutlined, PhoneOutlined, ClockCircleOutlined,
   AuditOutlined, FilePdfOutlined, SaveOutlined, UploadOutlined,
-  LoadingOutlined,
+  LoadingOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../services/api';
 import { supplementService } from '../services/supplementService';
 import { emailIngestionService } from '../services/emailIngestionService';
 import { fileService } from '../services/fileService';
+import { claimFollowUpService } from '../services/claimFollowUpService';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
 import { cabinetEstimateService } from '../services/cabinetEstimateService';
@@ -85,20 +86,27 @@ const SupplementManagement: React.FC = () => {
   const [bidItemFile, setBidItemFile] = useState<{ id: string; name: string } | null>(null);
   const [bidItemFileUploading, setBidItemFileUploading] = useState(false);
   const [bidItemType, setBidItemType] = useState<string>('');
+  const [bidItemParsedAmounts, setBidItemParsedAmounts] = useState<{
+    rcv_amount?: number; acv_amount?: number; depreciation_amount?: number; deductible?: number;
+  } | null>(null);
   const [linkedEstimateId, setLinkedEstimateId] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [followups, setFollowups] = useState<SupplementFollowUp[]>([]);
   const [replacingEstimateId, setReplacingEstimateId] = useState<string | null>(null);
+  const [polishingItemId, setPolishingItemId] = useState<string | null>(null);
   const [sendPaModalOpen, setSendPaModalOpen] = useState(false);
   const [sendPaLoading, setSendPaLoading] = useState(false);
   const [paInfo, setPaInfo] = useState<any>(null);
   const [paEmailContent, setPaEmailContent] = useState<{ subject: string; body_html: string }>({ subject: '', body_html: '' });
   const [paCustomNotes, setPaCustomNotes] = useState('');
+  const [paToEmails, setPaToEmails] = useState<string[]>([]);
   const [paCcEmails, setPaCcEmails] = useState<string[]>([]);
   const [paSelectedAccountId, setPaSelectedAccountId] = useState<string | undefined>();
   const [createForm] = Form.useForm();
   const [bidItemForm] = Form.useForm();
   const [followupForm] = Form.useForm();
+  const [claimPaInfo, setClaimPaInfo] = useState<{ pa_name: string; pa_email: string } | null>(null);
+  const [claimPaLoading, setClaimPaLoading] = useState(false);
 
   // Queries
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -167,6 +175,32 @@ const SupplementManagement: React.FC = () => {
     });
   }, [supplements]);
 
+  // Auto-fetch PA info when claim_id is entered in create form
+  const handleClaimIdChange = useCallback(async (claimId: string) => {
+    const trimmed = claimId.trim();
+    if (trimmed.length < 36) {
+      setClaimPaInfo(null);
+      return;
+    }
+    setClaimPaLoading(true);
+    try {
+      const info = await supplementService.getClaimPaInfo(trimmed);
+      if (info.pa_name || info.pa_email) {
+        setClaimPaInfo(info);
+        createForm.setFieldsValue({
+          submitted_to: info.pa_name || undefined,
+          submitted_to_email: info.pa_email || undefined,
+        });
+      } else {
+        setClaimPaInfo(null);
+      }
+    } catch {
+      setClaimPaInfo(null);
+    } finally {
+      setClaimPaLoading(false);
+    }
+  }, [createForm]);
+
   // Mutations
   const createMutation = useMutation({
     mutationFn: (data: SupplementRequestCreate) => supplementService.create(data),
@@ -228,6 +262,7 @@ const SupplementManagement: React.FC = () => {
     setBidItemFile(null);
     setBidItemType('');
     setLinkedEstimateId(null);
+    setBidItemParsedAmounts(null);
   };
 
   const createBidItemMutation = useMutation({
@@ -312,6 +347,8 @@ const SupplementManagement: React.FC = () => {
       setPaInfo(info);
       setPaEmailContent(content);
       setPaCustomNotes('');
+      // Pre-fill To with PA email
+      setPaToEmails(info.pa_email ? [info.pa_email] : []);
       // Pre-select CC emails from same company
       setPaCcEmails((info.cc_emails || []).map((c: any) => c.email));
       // Auto-select first email account
@@ -339,14 +376,14 @@ const SupplementManagement: React.FC = () => {
   };
 
   const handleSendToPa = async () => {
-    if (!selectedSupplement || !paInfo?.pa_email) {
-      message.error('No PA email address');
+    if (!selectedSupplement || paToEmails.length === 0) {
+      message.error('No recipient email address');
       return;
     }
     setSendPaLoading(true);
     try {
       const result = await supplementService.sendToPa(selectedSupplement.id, {
-        to_addresses: [paInfo.pa_email],
+        to_addresses: paToEmails,
         cc_addresses: paCcEmails,
         subject: paEmailContent.subject,
         body_html: paEmailContent.body_html,
@@ -572,12 +609,28 @@ const SupplementManagement: React.FC = () => {
           });
           createMutation.mutate({ ...rest, required_estimates });
         })}
-        onCancel={() => { setCreateModalOpen(false); createForm.resetFields(); }}
+        onCancel={() => {
+          setCreateModalOpen(false);
+          createForm.resetFields();
+          setClaimPaInfo(null);
+        }}
         confirmLoading={createMutation.isPending}>
         <Form form={createForm} layout="vertical" size="small">
           <Form.Item name="claim_id" label="Claim ID" rules={[{ required: true }]}>
-            <Input placeholder="Claim UUID" />
+            <Input
+              placeholder="Claim UUID"
+              onChange={e => handleClaimIdChange(e.target.value)}
+              suffix={claimPaLoading ? <LoadingOutlined /> : undefined}
+            />
           </Form.Item>
+          {claimPaInfo && (
+            <Alert
+              type="info"
+              message={`PA auto-assigned: ${claimPaInfo.pa_name}${claimPaInfo.pa_email ? ` (${claimPaInfo.pa_email})` : ''}`}
+              style={{ marginBottom: 12 }}
+              showIcon
+            />
+          )}
           <Form.Item name="title" label="Title" rules={[{ required: true }]}>
             <Input placeholder="e.g., Supplement for bathroom rebuild" />
           </Form.Item>
@@ -599,12 +652,12 @@ const SupplementManagement: React.FC = () => {
           <Row gutter={12}>
             <Col span={12}>
               <Form.Item name="submitted_to" label="Submit To (PA Name)">
-                <Input placeholder="Public adjuster name" />
+                <Input placeholder="Auto-filled from claim PA" />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item name="submitted_to_email" label="PA Email">
-                <Input placeholder="pa@example.com" />
+                <Input placeholder="Auto-filled from claim PA" />
               </Form.Item>
             </Col>
           </Row>
@@ -773,24 +826,24 @@ const SupplementManagement: React.FC = () => {
                                   {idx === 0 && <Tag color="processing">LATEST</Tag>}
                                 </Space>
 
-                                <Row gutter={16} style={{ fontSize: 12 }}>
-                                  <Col span={6}>
-                                    <Text type="secondary">RCV:</Text>{' '}
+                                <div style={{ display: 'flex', gap: 16, fontSize: 12, flexWrap: 'wrap' }}>
+                                  <span>
+                                    <Text type="secondary">RCV: </Text>
                                     <Text strong>{formatCurrency(ver.rcv_amount)}</Text>
-                                  </Col>
-                                  <Col span={6}>
-                                    <Text type="secondary">ACV:</Text>{' '}
+                                  </span>
+                                  <span>
+                                    <Text type="secondary">ACV: </Text>
                                     <Text strong>{formatCurrency(ver.acv_amount)}</Text>
-                                  </Col>
-                                  <Col span={6}>
-                                    <Text type="secondary">Depreciation:</Text>{' '}
+                                  </span>
+                                  <span>
+                                    <Text type="secondary">Depreciation: </Text>
                                     <Text>{formatCurrency(ver.depreciation_amount)}</Text>
-                                  </Col>
-                                  <Col span={6}>
-                                    <Text type="secondary">Deductible:</Text>{' '}
+                                  </span>
+                                  <span>
+                                    <Text type="secondary">Deductible: </Text>
                                     <Text>{formatCurrency(ver.deductible)}</Text>
-                                  </Col>
-                                </Row>
+                                  </span>
+                                </div>
 
                                 <div style={{ fontSize: 11, marginTop: 4, color: '#888' }}>
                                   {ver.date_received && (
@@ -985,34 +1038,102 @@ const SupplementManagement: React.FC = () => {
                     columns={[
                       { title: 'Type', dataIndex: 'estimate_type', width: 100,
                         render: (t: string) => <Tag>{BID_TYPE_LABELS[t] || t}</Tag> },
-                      { title: 'Title', dataIndex: 'title', ellipsis: true,
+                      { title: 'Title / Scope Notes', dataIndex: 'title',
                         render: (v: string, item: BidItemEstimate) => (
-                          <Text
-                            editable={{
-                              onChange: (val) => {
-                                if (val && val !== v) {
-                                  updateBidItemMutation.mutate({
-                                    supplementId: selectedSupplement.id,
-                                    itemId: item.id,
-                                    data: { title: val },
-                                  });
-                                }
-                              },
-                            }}
-                          >
-                            {v}
-                          </Text>
+                          <div>
+                            <Text
+                              editable={{
+                                onChange: (val) => {
+                                  if (val && val !== v) {
+                                    updateBidItemMutation.mutate({
+                                      supplementId: selectedSupplement.id,
+                                      itemId: item.id,
+                                      data: { title: val },
+                                    });
+                                  }
+                                },
+                              }}
+                            >
+                              {v}
+                            </Text>
+                            <div style={{ marginTop: 2 }}>
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+                                <div style={{ flex: 1 }}>
+                                  <Text
+                                    type="secondary"
+                                    style={{ fontSize: 11, whiteSpace: 'pre-wrap' }}
+                                    editable={{
+                                      tooltip: 'Edit scope notes (included in PA email)',
+                                      onChange: (val) => {
+                                        updateBidItemMutation.mutate({
+                                          supplementId: selectedSupplement.id,
+                                          itemId: item.id,
+                                          data: { description: val || '' },
+                                        });
+                                      },
+                                    }}
+                                  >
+                                    {item.description || ''}
+                                  </Text>
+                                  {!item.description && (
+                                    <Text
+                                      type="secondary"
+                                      style={{ fontSize: 11, fontStyle: 'italic', cursor: 'pointer', color: '#bbb' }}
+                                      onClick={(e) => {
+                                        const editBtn = (e.currentTarget.previousElementSibling as HTMLElement)?.querySelector('.ant-typography-edit');
+                                        if (editBtn) (editBtn as HTMLElement).click();
+                                      }}
+                                    >
+                                      + Add scope notes
+                                    </Text>
+                                  )}
+                                </div>
+                                {item.description && item.description.trim() && (
+                                  <Tooltip title="AI polish">
+                                    <Button
+                                      type="text"
+                                      size="small"
+                                      icon={polishingItemId === item.id ? <LoadingOutlined /> : <ThunderboltOutlined />}
+                                      disabled={polishingItemId === item.id}
+                                      style={{ padding: '0 4px', height: 20, fontSize: 11, color: '#722ed1' }}
+                                      onClick={async () => {
+                                        setPolishingItemId(item.id);
+                                        try {
+                                          const result = await supplementService.polishScopeNotes(
+                                            item.description || '', item.estimate_type,
+                                          );
+                                          if (result.polished) {
+                                            updateBidItemMutation.mutate({
+                                              supplementId: selectedSupplement.id,
+                                              itemId: item.id,
+                                              data: { description: result.polished },
+                                            });
+                                            message.success('Scope notes polished');
+                                          }
+                                        } catch {
+                                          message.error('Failed to polish notes');
+                                        } finally {
+                                          setPolishingItemId(null);
+                                        }
+                                      }}
+                                    />
+                                  </Tooltip>
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         ),
                       },
                       { title: 'Amount', dataIndex: 'custom_amount', width: 140, align: 'right' as const,
                         render: (v: number | undefined, item: BidItemEstimate) => (
                           <div>
                             <InputNumber
+                              key={`${item.id}-${v}`}
                               size="small"
                               min={0}
                               step={0.01}
                               prefix="$"
-                              value={v || 0}
+                              defaultValue={v || 0}
                               style={{
                                 width: '100%',
                                 ...(item.included_in_xactimate ? { textDecoration: 'line-through', color: '#999' } : {}),
@@ -1064,64 +1185,89 @@ const SupplementManagement: React.FC = () => {
                           </Tooltip>
                         ),
                       }] : []),
-                      { title: 'PDF', key: 'pdf', width: 80, align: 'center' as const,
-                        render: (_: any, item: BidItemEstimate) => item.custom_document_file_id ? (
-                          <Space size={4}>
-                            <Tooltip title={item.custom_document_file_name || 'View PDF'}>
-                              <a href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
-                                target="_blank" rel="noopener noreferrer">
-                                <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />
-                              </a>
-                            </Tooltip>
-                            <Upload
-                              accept=".pdf"
-                              maxCount={1}
-                              showUploadList={false}
-                              beforeUpload={async (file) => {
-                                if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
-                                try {
-                                  const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
-                                  if (uploaded.length > 0) {
-                                    updateBidItemMutation.mutate({
-                                      supplementId: selectedSupplement.id,
-                                      itemId: item.id,
-                                      data: { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name },
-                                    });
-                                  }
-                                } catch { message.error('Upload failed'); }
-                                return false;
-                              }}
-                            >
-                              <Tooltip title="Replace PDF">
-                                <Button type="text" size="small" icon={<UploadOutlined />} style={{ padding: 0, width: 22, height: 22 }} />
-                              </Tooltip>
-                            </Upload>
-                          </Space>
-                        ) : (
-                          <Upload
-                            accept=".pdf"
-                            maxCount={1}
-                            showUploadList={false}
-                            beforeUpload={async (file) => {
-                              if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
-                              try {
-                                const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
-                                if (uploaded.length > 0) {
-                                  updateBidItemMutation.mutate({
-                                    supplementId: selectedSupplement.id,
-                                    itemId: item.id,
-                                    data: { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name },
-                                  });
-                                }
-                              } catch { message.error('Upload failed'); }
-                              return false;
-                            }}
-                          >
-                            <Tooltip title="Upload PDF">
-                              <Button type="text" size="small" icon={<UploadOutlined />} style={{ color: '#1890ff' }} />
-                            </Tooltip>
-                          </Upload>
-                        ) },
+                      { title: 'PDF', key: 'pdf', width: 90, align: 'center' as const,
+                        render: (_: any, item: BidItemEstimate) => {
+                          const linkedType = item.bathroom_estimate_id ? 'bathroom'
+                            : item.cabinet_estimate_id ? 'cabinet'
+                            : item.pack_calculation_id ? 'packing'
+                            : null;
+                          const linkedId = item.bathroom_estimate_id || item.cabinet_estimate_id || item.pack_calculation_id || null;
+                          return (
+                            <Space size={2} direction="vertical" align="center">
+                              {linkedType && linkedId && (
+                                <Tooltip title={`View ${BID_TYPE_LABELS[linkedType]} Estimate PDF`}>
+                                  <Button
+                                    type="link"
+                                    size="small"
+                                    icon={<FilePdfOutlined style={{ color: '#1890ff' }} />}
+                                    loading={pdfLoading}
+                                    onClick={() => openEstimatePdf(linkedType, linkedId)}
+                                    style={{ padding: 0, fontSize: 11 }}
+                                  >
+                                    Estimate
+                                  </Button>
+                                </Tooltip>
+                              )}
+                              {item.custom_document_file_id ? (
+                                <Space size={4}>
+                                  <Tooltip title={item.custom_document_file_name || 'View uploaded PDF'}>
+                                    <a href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
+                                      target="_blank" rel="noopener noreferrer">
+                                      <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />
+                                    </a>
+                                  </Tooltip>
+                                  <Upload
+                                    accept=".pdf"
+                                    maxCount={1}
+                                    showUploadList={false}
+                                    beforeUpload={async (file) => {
+                                      if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
+                                      try {
+                                        const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
+                                        if (uploaded.length > 0) {
+                                          updateBidItemMutation.mutate({
+                                            supplementId: selectedSupplement.id,
+                                            itemId: item.id,
+                                            data: { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name },
+                                          });
+                                        }
+                                      } catch { message.error('Upload failed'); }
+                                      return false;
+                                    }}
+                                  >
+                                    <Tooltip title="Replace uploaded PDF">
+                                      <Button type="text" size="small" icon={<UploadOutlined />} style={{ padding: 0, width: 22, height: 22 }} />
+                                    </Tooltip>
+                                  </Upload>
+                                </Space>
+                              ) : (
+                                <Upload
+                                  accept=".pdf"
+                                  maxCount={1}
+                                  showUploadList={false}
+                                  beforeUpload={async (file) => {
+                                    if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
+                                    try {
+                                      const uploaded = await fileService.uploadFiles([file], 'supplement_bid_item', item.id, 'estimate_pdf');
+                                      if (uploaded.length > 0) {
+                                        updateBidItemMutation.mutate({
+                                          supplementId: selectedSupplement.id,
+                                          itemId: item.id,
+                                          data: { custom_document_file_id: uploaded[0].id, custom_document_file_name: file.name },
+                                        });
+                                      }
+                                    } catch { message.error('Upload failed'); }
+                                    return false;
+                                  }}
+                                >
+                                  <Tooltip title="Upload PDF">
+                                    <Button type="text" size="small" icon={<UploadOutlined />} style={{ color: '#1890ff' }} />
+                                  </Tooltip>
+                                </Upload>
+                              )}
+                            </Space>
+                          );
+                        } },
                       { title: '', key: 'actions', width: 40, align: 'center' as const,
                         render: (_: any, item: BidItemEstimate) => (
                           <Tooltip title="Delete">
@@ -1309,7 +1455,7 @@ const SupplementManagement: React.FC = () => {
             icon={<SendOutlined />}
             loading={sendPaLoading}
             onClick={handleSendToPa}
-            disabled={!paInfo?.pa_email}
+            disabled={paToEmails.length === 0}
           >
             Send Email
           </Button>,
@@ -1337,35 +1483,40 @@ const SupplementManagement: React.FC = () => {
 
             {/* To */}
             <div style={{ marginBottom: 12 }}>
-              <Text type="secondary" style={{ marginRight: 8 }}>To:</Text>
-              <Text strong>{paInfo.pa_name}</Text>
-              <Text> ({paInfo.pa_email})</Text>
-              {paInfo.pa_company && (
-                <Tag style={{ marginLeft: 8 }}>{paInfo.pa_company}</Tag>
-              )}
-              {!paInfo.pa_email && (
-                <Alert type="warning" message="No PA email on file for this claim. Update Claim PA info first." showIcon style={{ marginTop: 8 }} />
+              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>To:</Text>
+              <Select
+                mode="tags"
+                style={{ width: '100%' }}
+                placeholder="Enter recipient email addresses..."
+                value={paToEmails}
+                onChange={(vals) => setPaToEmails(vals)}
+                tokenSeparators={[',', ';', ' ']}
+                options={paInfo.pa_email ? [{
+                  value: paInfo.pa_email,
+                  label: paInfo.pa_name ? `${paInfo.pa_name} (${paInfo.pa_email})` : paInfo.pa_email,
+                }] : []}
+              />
+              {paToEmails.length === 0 && (
+                <Alert type="warning" message="At least one recipient email is required." showIcon style={{ marginTop: 8 }} />
               )}
             </div>
 
             {/* CC */}
-            {paInfo.cc_emails?.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <Text type="secondary" style={{ marginRight: 8 }}>CC (same company):</Text>
-                <Checkbox.Group
-                  value={paCcEmails}
-                  onChange={(vals) => setPaCcEmails(vals as string[])}
-                >
-                  <Space direction="vertical" size={2}>
-                    {paInfo.cc_emails.map((cc: any) => (
-                      <Checkbox key={cc.email} value={cc.email}>
-                        {cc.name ? `${cc.name} (${cc.email})` : cc.email}
-                      </Checkbox>
-                    ))}
-                  </Space>
-                </Checkbox.Group>
-              </div>
-            )}
+            <div style={{ marginBottom: 12 }}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>CC:</Text>
+              <Select
+                mode="tags"
+                style={{ width: '100%' }}
+                placeholder="Enter CC email addresses..."
+                value={paCcEmails}
+                onChange={(vals) => setPaCcEmails(vals)}
+                tokenSeparators={[',', ';', ' ']}
+                options={(paInfo.cc_emails || []).map((cc: any) => ({
+                  value: cc.email,
+                  label: cc.name ? `${cc.name} (${cc.email})` : cc.email,
+                }))}
+              />
+            </div>
 
             <Divider style={{ margin: '12px 0' }} />
 
@@ -1444,6 +1595,7 @@ const SupplementManagement: React.FC = () => {
               supplementId: selectedSupplement.id,
               data: {
                 ...v,
+                title: v.title || BID_TYPE_LABELS[v.estimate_type] || v.estimate_type,
                 supplement_id: selectedSupplement.id,
                 custom_document_file_id: bidItemFile?.id,
                 custom_document_file_name: bidItemFile?.name,
@@ -1532,9 +1684,6 @@ const SupplementManagement: React.FC = () => {
               )}
             </Form.Item>
           )}
-          <Form.Item name="title" label="Title" rules={[{ required: true }]}>
-            <Input placeholder="e.g., Master Bathroom Rebuild" />
-          </Form.Item>
           <Form.Item name="custom_amount" label="Amount">
             <InputNumber
               min={0}
@@ -1550,11 +1699,38 @@ const SupplementManagement: React.FC = () => {
           </Form.Item>
           <Form.Item label="Estimate PDF">
             {bidItemFile ? (
-              <Space>
-                <FilePdfOutlined style={{ color: '#ff4d4f' }} />
-                <Text ellipsis style={{ maxWidth: 250 }}>{bidItemFile.name}</Text>
-                <Button type="link" size="small" danger onClick={() => setBidItemFile(null)}>Remove</Button>
-              </Space>
+              <div>
+                <Space>
+                  <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                  <Text ellipsis style={{ maxWidth: 250 }}>{bidItemFile.name}</Text>
+                  <Button type="link" size="small" danger onClick={() => { setBidItemFile(null); setBidItemParsedAmounts(null); }}>Remove</Button>
+                </Space>
+                {bidItemParsedAmounts && (
+                  <div style={{
+                    marginTop: 8, padding: '8px 12px', background: '#f6ffed',
+                    borderRadius: 6, border: '1px solid #b7eb8f', fontSize: 12,
+                  }}>
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                      <span>
+                        <Text type="secondary">RCV: </Text>
+                        <Text strong>{formatCurrency(bidItemParsedAmounts.rcv_amount)}</Text>
+                      </span>
+                      <span>
+                        <Text type="secondary">ACV: </Text>
+                        <Text strong>{formatCurrency(bidItemParsedAmounts.acv_amount)}</Text>
+                      </span>
+                      <span>
+                        <Text type="secondary">Depreciation: </Text>
+                        <Text>{formatCurrency(bidItemParsedAmounts.depreciation_amount)}</Text>
+                      </span>
+                      <span>
+                        <Text type="secondary">Deductible: </Text>
+                        <Text>{formatCurrency(bidItemParsedAmounts.deductible)}</Text>
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
               <Upload
                 accept=".pdf"
@@ -1580,6 +1756,23 @@ const SupplementManagement: React.FC = () => {
                     if (uploaded.length > 0) {
                       setBidItemFile({ id: uploaded[0].id, name: file.name });
                       message.success('PDF uploaded');
+
+                      // Parse xactimate PDFs to extract amounts
+                      if (bidItemType === 'xactimate') {
+                        try {
+                          const parsed = await claimFollowUpService.parseEstimatePdf(file as unknown as File);
+                          if (parsed?.totals) {
+                            setBidItemParsedAmounts(parsed.totals);
+                            if (parsed.totals.rcv_amount && parsed.totals.rcv_amount > 0) {
+                              bidItemForm.setFieldsValue({ custom_amount: parsed.totals.rcv_amount });
+                              message.success(`Parsed RCV: ${formatCurrency(parsed.totals.rcv_amount)}`);
+                            }
+                          }
+                        } catch {
+                          // PDF parsing is optional - don't block upload
+                          message.warning('Could not auto-parse amounts from PDF');
+                        }
+                      }
                     }
                   } catch {
                     message.error('Failed to upload PDF');

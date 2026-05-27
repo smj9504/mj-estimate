@@ -36,6 +36,25 @@ class SupplementService:
             supp = float(data.get('supplement_amount', 0))
             data['difference'] = supp - orig
 
+            # Auto-populate PA info from claim's pa_contact_id if not provided
+            if not data.get('submitted_to') and data.get('claim_id'):
+                try:
+                    from app.domains.client.models import Claim
+                    from app.domains.company.models import CompanyContact
+                    claim = session.query(Claim).filter(
+                        Claim.id == data['claim_id']
+                    ).first()
+                    if claim and claim.pa_contact_id:
+                        contact = session.query(CompanyContact).filter(
+                            CompanyContact.id == claim.pa_contact_id
+                        ).first()
+                        if contact:
+                            data['submitted_to'] = contact.name
+                            if not data.get('submitted_to_email') and contact.email:
+                                data['submitted_to_email'] = contact.email
+                except Exception:
+                    pass
+
             result = repo.create(data)
 
             # Update claim's needs_supplement flag
@@ -63,6 +82,13 @@ class SupplementService:
                     orig = float(data.get('original_amount', existing.get('original_amount', 0)))
                     supp = float(data.get('supplement_amount', existing.get('supplement_amount', 0)))
                     data['difference'] = supp - orig
+
+            # Auto-set submitted_date when manually changing status to 'submitted'
+            if data.get('status') == 'submitted':
+                existing_rec = repo.get_by_id(request_id)
+                if existing_rec and not existing_rec.get('submitted_date'):
+                    from datetime import datetime, timezone
+                    data['submitted_date'] = datetime.now(timezone.utc)
 
             result = repo.update(request_id, data)
 
@@ -317,6 +343,37 @@ class SupplementService:
     # PA Info & Send to PA
     # ============================================================
 
+    def get_claim_pa_info(self, claim_id: str) -> Dict[str, Any]:
+        """Get PA info directly from a claim (for supplement create form pre-fill)."""
+        session = self._get_readonly_session()
+        try:
+            from app.domains.client.models import Claim
+            claim = session.query(Claim).filter(Claim.id == claim_id).first()
+            if not claim:
+                return {}
+            pa_name = claim.pa_name or ""
+            pa_email = claim.pa_email or ""
+            pa_contact_id = getattr(claim, "pa_contact_id", None)
+            if pa_contact_id:
+                try:
+                    from app.domains.company.models import CompanyContact, Company
+                    contact = session.query(CompanyContact).filter(
+                        CompanyContact.id == pa_contact_id
+                    ).first()
+                    if contact:
+                        pa_name = contact.name or pa_name
+                        pa_email = contact.email or pa_email
+                except Exception:
+                    pass
+            return {
+                "pa_name": pa_name,
+                "pa_email": pa_email,
+                "pa_contact_id": str(pa_contact_id) if pa_contact_id else None,
+                "has_public_adjuster": bool(claim.has_public_adjuster),
+            }
+        finally:
+            session.close()
+
     def get_pa_info(self, supplement_id: str) -> Dict[str, Any]:
         """Get PA info for a supplement's claim + CC candidates from same PA company."""
         session = self._get_readonly_session()
@@ -338,11 +395,39 @@ class SupplementService:
                 Client.id == claim.client_id
             ).first()
 
+            # Resolve PA info: prefer linked CompanyContact, fallback to freetext fields
+            pa_name = claim.pa_name or ""
+            pa_email = claim.pa_email or ""
+            pa_phone = claim.pa_phone or ""
+            pa_company = claim.pa_company or ""
+            pa_contact_id = getattr(claim, "pa_contact_id", None)
+            pa_company_id = None  # Track for reliable CC lookup
+
+            if pa_contact_id:
+                try:
+                    from app.domains.company.models import CompanyContact, Company
+                    contact = session.query(CompanyContact).filter(
+                        CompanyContact.id == pa_contact_id
+                    ).first()
+                    if contact:
+                        pa_name = contact.name or pa_name
+                        pa_email = contact.email or pa_email
+                        pa_phone = contact.phone or pa_phone
+                        comp = session.query(Company).filter(
+                            Company.id == contact.company_id
+                        ).first()
+                        if comp:
+                            pa_company = comp.name
+                            pa_company_id = str(comp.id)
+                except Exception:
+                    pass
+
             result = {
-                "pa_name": claim.pa_name or "",
-                "pa_email": claim.pa_email or "",
-                "pa_phone": claim.pa_phone or "",
-                "pa_company": claim.pa_company or "",
+                "pa_name": pa_name,
+                "pa_email": pa_email,
+                "pa_phone": pa_phone,
+                "pa_company": pa_company,
+                "pa_contact_id": str(pa_contact_id) if pa_contact_id else None,
                 "has_public_adjuster": bool(claim.has_public_adjuster),
                 "claim_number": claim.claim_number or "",
                 "insurance_company": claim.insurance_company or "",
@@ -351,27 +436,82 @@ class SupplementService:
                 "cc_emails": [],
             }
 
-            # Find other PAs from the same company for CC
-            if claim.pa_company and claim.pa_email:
-                other_pas = (
-                    session.query(Claim.pa_name, Claim.pa_email)
-                    .filter(
-                        Claim.pa_company == claim.pa_company,
-                        Claim.pa_email.isnot(None),
-                        Claim.pa_email != "",
-                        Claim.pa_email != claim.pa_email,
-                    )
-                    .distinct()
-                    .all()
-                )
-                seen = set()
-                for pa_name, pa_email in other_pas:
-                    if pa_email and pa_email not in seen:
-                        seen.add(pa_email)
-                        result["cc_emails"].append({
-                            "name": pa_name or "",
-                            "email": pa_email,
-                        })
+            # Find other contacts from the same PA company for CC
+            if pa_email:
+                try:
+                    from app.domains.company.models import CompanyContact, Company
+
+                    if pa_company_id:
+                        # Reliable: use company_id directly (set from pa_contact_id lookup)
+                        other_contacts = (
+                            session.query(CompanyContact)
+                            .filter(
+                                CompanyContact.company_id == pa_company_id,
+                                CompanyContact.is_active == True,
+                                CompanyContact.email.isnot(None),
+                                CompanyContact.email != "",
+                                CompanyContact.email != pa_email,
+                            )
+                            .all()
+                        )
+                        seen = set()
+                        for c in other_contacts:
+                            if c.email and c.email not in seen:
+                                seen.add(c.email)
+                                result["cc_emails"].append({
+                                    "name": c.name or "",
+                                    "email": c.email,
+                                })
+                    elif pa_company:
+                        # Fallback: look up company by name
+                        same_company = (
+                            session.query(Company)
+                            .filter(Company.name == pa_company, Company.is_active == True)
+                            .first()
+                        )
+                        if same_company:
+                            other_contacts = (
+                                session.query(CompanyContact)
+                                .filter(
+                                    CompanyContact.company_id == same_company.id,
+                                    CompanyContact.is_active == True,
+                                    CompanyContact.email.isnot(None),
+                                    CompanyContact.email != "",
+                                    CompanyContact.email != pa_email,
+                                )
+                                .all()
+                            )
+                            seen = set()
+                            for c in other_contacts:
+                                if c.email and c.email not in seen:
+                                    seen.add(c.email)
+                                    result["cc_emails"].append({
+                                        "name": c.name or "",
+                                        "email": c.email,
+                                    })
+                        else:
+                            # Last resort: search other claims with same pa_company
+                            other_pas = (
+                                session.query(Claim.pa_name, Claim.pa_email)
+                                .filter(
+                                    Claim.pa_company == pa_company,
+                                    Claim.pa_email.isnot(None),
+                                    Claim.pa_email != "",
+                                    Claim.pa_email != pa_email,
+                                )
+                                .distinct()
+                                .all()
+                            )
+                            seen = set()
+                            for other_name, other_email in other_pas:
+                                if other_email and other_email not in seen:
+                                    seen.add(other_email)
+                                    result["cc_emails"].append({
+                                        "name": other_name or "",
+                                        "email": other_email,
+                                    })
+                except Exception:
+                    pass
 
             return result
         finally:
@@ -539,7 +679,7 @@ class SupplementService:
             bid_rows = ""
             for item in bid_items:
                 amt = float(item.custom_amount or 0)
-                has_pdf = "Yes" if item.custom_document_file_id else "No"
+                has_pdf = "&#10003;" if item.custom_document_file_id else "&#8212;"
                 in_xact = " (in Xactimate)" if item.included_in_xactimate else ""
                 bid_rows += (
                     f"<tr>"
@@ -558,6 +698,71 @@ class SupplementService:
                 f"Supplement Estimate - {address} - "
                 f"Claim #{claim_number} ({insurance})"
             )
+
+            # Build scope changes section — card layout per bid item
+            _type_colors = {
+                'xactimate': '#1890ff', 'bathroom': '#52c41a', 'cabinet': '#fa8c16',
+                'packing': '#722ed1', 'roofing': '#eb2f96', 'kitchen': '#13c2c2',
+                'flooring': '#faad14', 'other': '#8c8c8c',
+            }
+            scope_cards = ""
+            for item in bid_items:
+                amt = float(item.custom_amount or 0)
+                border_color = _type_colors.get(item.estimate_type, '#8c8c8c')
+                type_label = item.estimate_type.title()
+                in_xact_badge = (
+                    " <span style='font-size:11px;color:#888;font-weight:normal;'>"
+                    "(included in Xactimate)</span>"
+                    if item.included_in_xactimate else ""
+                )
+                desc_html = ""
+                if item.description and item.description.strip():
+                    lines = [
+                        l.strip()
+                        for l in item.description.replace('\r\n', '\n').split('\n')
+                        if l.strip()
+                    ]
+                    if len(lines) > 1:
+                        li_items = "".join(
+                            f"<li style='margin-bottom:4px;'>{l}</li>" for l in lines
+                        )
+                        desc_html = (
+                            f"<ul style='margin:8px 0 0;padding-left:18px;"
+                            f"color:#444;font-size:13px;line-height:1.6;'>{li_items}</ul>"
+                        )
+                    else:
+                        desc_html = (
+                            f"<p style='margin:8px 0 0;color:#444;"
+                            f"font-size:13px;line-height:1.6;'>{lines[0]}</p>"
+                        )
+                scope_cards += (
+                    f"<div style='margin-bottom:10px;padding:12px 16px;"
+                    f"background:#fafafa;border-left:4px solid {border_color};"
+                    f"border-radius:0 4px 4px 0;'>"
+                    f"<table width='100%' cellpadding='0' cellspacing='0'"
+                    f" style='border-collapse:collapse;'>"
+                    f"<tr>"
+                    f"<td style='font-weight:bold;font-size:13px;color:#1a1a1a;padding:0;'>"
+                    f"{item.title}{in_xact_badge}</td>"
+                    f"<td width='1' style='text-align:right;font-weight:bold;"
+                    f"font-size:13px;color:#1a1a1a;white-space:nowrap;padding:0 0 0 12px;'>"
+                    f"${amt:,.2f}</td>"
+                    f"</tr>"
+                    f"<tr>"
+                    f"<td colspan='2' style='font-size:11px;color:#888;padding:2px 0 0;'>"
+                    f"{type_label} Estimate</td>"
+                    f"</tr>"
+                    f"</table>"
+                    f"{desc_html}"
+                    f"</div>"
+                )
+            scope_notes_section = ""
+            if scope_cards:
+                scope_notes_section = (
+                    f"<h3 style='margin:20px 0 12px;color:#1a1a1a;font-size:15px;'>"
+                    f"Scope Changes / Additions</h3>"
+                    f"{scope_cards}"
+                )
 
             custom_section = ""
             if custom_notes:
@@ -584,18 +789,6 @@ class SupplementService:
     <td style="padding:6px 10px;background:#f5f5f5;font-weight:bold;border:1px solid #ddd;">Insurance</td>
     <td style="padding:6px 10px;border:1px solid #ddd;">{insurance}</td>
   </tr>
-  <tr>
-    <td style="padding:6px 10px;background:#f5f5f5;font-weight:bold;border:1px solid #ddd;">Insurance Estimate</td>
-    <td style="padding:6px 10px;border:1px solid #ddd;">${original:,.2f}</td>
-  </tr>
-  <tr>
-    <td style="padding:6px 10px;background:#f5f5f5;font-weight:bold;border:1px solid #ddd;">Our Estimate</td>
-    <td style="padding:6px 10px;border:1px solid #ddd;font-weight:bold;">${supplement:,.2f}</td>
-  </tr>
-  <tr>
-    <td style="padding:6px 10px;background:#f5f5f5;font-weight:bold;border:1px solid #ddd;">Difference</td>
-    <td style="padding:6px 10px;border:1px solid #ddd;color:{'#cf1322' if diff < 0 else '#389e0d'};">${diff:,.2f}</td>
-  </tr>
 </table>
 
 <h3 style="margin:20px 0 8px;">Bid Item Estimates</h3>
@@ -612,6 +805,8 @@ class SupplementService:
     {bid_rows}
   </tbody>
 </table>
+
+{scope_notes_section}
 
 {custom_section}
 
@@ -653,6 +848,23 @@ class SupplementService:
                     elif cc.role == 'reconstruction':
                         item['rebuild_company_id'] = str(comp.id)
                         item['rebuild_company_name'] = comp.name
+
+                # Fallback: get WM company from water_mitigation_jobs if not in claim_companies
+                if not item.get('wm_company_id'):
+                    try:
+                        from app.domains.water_mitigation.models import WaterMitigationJob
+                        wm_job = (
+                            session.query(WaterMitigationJob)
+                            .filter(WaterMitigationJob.claim_id == claim.id)
+                            .first()
+                        )
+                        if wm_job and wm_job.company_id:
+                            wm_comp = session.query(Company).filter(Company.id == wm_job.company_id).first()
+                            if wm_comp:
+                                item['wm_company_id'] = str(wm_comp.id)
+                                item['wm_company_name'] = wm_comp.name
+                    except Exception:
+                        pass
         except Exception:
             pass
 

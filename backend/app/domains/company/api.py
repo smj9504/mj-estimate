@@ -11,14 +11,17 @@ from app.core.database_factory import get_database
 
 logger = logging.getLogger(__name__)
 from .schemas import (
-    CompanyCreate, 
-    CompanyUpdate, 
+    CompanyCreate,
+    CompanyUpdate,
     CompanyResponse,
     CompanyDetailResponse,
     PaymentMethodInfo,
     PaymentFrequencyInfo,
     CompanyFilter,
-    CompanyPaginatedResponse
+    CompanyPaginatedResponse,
+    CompanyContactCreate,
+    CompanyContactUpdate,
+    CompanyContactResponse,
 )
 from .service import CompanyService
 
@@ -373,3 +376,156 @@ async def get_company(
         )
     
     return CompanyDetailResponse(**response_data)
+
+
+# ── Company Contact endpoints ─────────────────────────────────────────────────
+
+def _get_contact_session():
+    from app.core.database_factory import get_database
+    return get_database().get_session()
+
+
+@router.get("/contacts/all", response_model=list[CompanyContactResponse])
+async def list_all_contacts(
+    company_type: Optional[str] = Query(None, description="Filter by company type"),
+):
+    """List all active contacts, optionally filtered by company type."""
+    session = _get_contact_session()
+    try:
+        from app.domains.company.models import CompanyContact, Company
+        q = (
+            session.query(CompanyContact)
+            .join(Company, CompanyContact.company_id == Company.id)
+            .filter(CompanyContact.is_active == True, Company.is_active == True)
+        )
+        if company_type:
+            q = q.filter(Company.company_type == company_type)
+        contacts = q.order_by(Company.name, CompanyContact.name).all()
+        return [_contact_to_dict(c) for c in contacts]
+    finally:
+        session.close()
+
+
+@router.get("/{company_id}/contacts", response_model=list[CompanyContactResponse])
+async def list_contacts(company_id: str):
+    """List contacts for a company."""
+    session = _get_contact_session()
+    try:
+        from app.domains.company.models import CompanyContact
+        contacts = (
+            session.query(CompanyContact)
+            .filter(CompanyContact.company_id == company_id)
+            .order_by(CompanyContact.is_primary.desc(), CompanyContact.name)
+            .all()
+        )
+        return [_contact_to_dict(c) for c in contacts]
+    finally:
+        session.close()
+
+
+@router.post("/{company_id}/contacts", response_model=CompanyContactResponse, status_code=201)
+async def create_contact(company_id: str, data: CompanyContactCreate):
+    """Add a contact to a company."""
+    session = _get_contact_session()
+    try:
+        from app.domains.company.models import Company, CompanyContact
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+        # If marked primary, unset others
+        if data.is_primary:
+            session.query(CompanyContact).filter(
+                CompanyContact.company_id == company_id,
+                CompanyContact.is_primary == True,
+            ).update({"is_primary": False})
+        contact = CompanyContact(company_id=company_id, **data.model_dump())
+        session.add(contact)
+        session.commit()
+        session.refresh(contact)
+        return _contact_to_dict(contact)
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.put("/{company_id}/contacts/{contact_id}", response_model=CompanyContactResponse)
+async def update_contact(company_id: str, contact_id: str, data: CompanyContactUpdate):
+    """Update a company contact."""
+    session = _get_contact_session()
+    try:
+        from app.domains.company.models import CompanyContact
+        contact = session.query(CompanyContact).filter(
+            CompanyContact.id == contact_id,
+            CompanyContact.company_id == company_id,
+        ).first()
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        update_data = data.model_dump(exclude_unset=True)
+        # If marking primary, unset others first
+        if update_data.get("is_primary"):
+            session.query(CompanyContact).filter(
+                CompanyContact.company_id == company_id,
+                CompanyContact.is_primary == True,
+                CompanyContact.id != contact_id,
+            ).update({"is_primary": False})
+        for k, v in update_data.items():
+            setattr(contact, k, v)
+        session.commit()
+        session.refresh(contact)
+        return _contact_to_dict(contact)
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        session.close()
+
+
+@router.delete("/{company_id}/contacts/{contact_id}", status_code=204)
+async def delete_contact(company_id: str, contact_id: str):
+    """Delete a company contact."""
+    session = _get_contact_session()
+    try:
+        from app.domains.company.models import CompanyContact
+        contact = session.query(CompanyContact).filter(
+            CompanyContact.id == contact_id,
+            CompanyContact.company_id == company_id,
+        ).first()
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        session.delete(contact)
+        session.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        session.close()
+
+
+def _contact_to_dict(c) -> dict:
+    company_name = None
+    try:
+        company_name = c.company.name if c.company else None
+    except Exception:
+        pass
+    return {
+        "id": str(c.id),
+        "company_id": str(c.company_id),
+        "company_name": company_name,
+        "name": c.name,
+        "title": c.title,
+        "email": c.email,
+        "phone": c.phone,
+        "is_primary": c.is_primary,
+        "is_active": c.is_active,
+        "notes": c.notes,
+        "created_at": c.created_at,
+        "updated_at": c.updated_at,
+    }

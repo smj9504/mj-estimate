@@ -972,6 +972,25 @@ class WMReportConfig(Base, BaseModel):
     template = relationship("WMReportTemplate", foreign_keys=[template_id])
 
 
+class WMSheetPAMapping(Base, BaseModel):
+    """
+    Maps a Google Sheet tab name to a PA (Public Adjuster) CompanyContact.
+
+    When a WM job is synced from a sheet named e.g. "Angel", this table
+    tells the system which PA contact "Angel" refers to, so the linked
+    Claim is automatically updated with that PA's contact info.
+    """
+    __tablename__ = "wm_sheet_pa_mappings"
+    __table_args__ = (
+        {'extend_existing': True}
+    )
+
+    sheet_name = Column(String(100), nullable=False, unique=True, index=True,
+                        comment="Google Sheet tab name (e.g. 'Angel', 'Vanessa')")
+    pa_contact_id = Column(String(36), nullable=True,
+                           comment="FK to company_contacts.id")
+
+
 class WMInvoiceItemConfig(Base, BaseModel):
     """
     Water Mitigation Invoice Item Configuration.

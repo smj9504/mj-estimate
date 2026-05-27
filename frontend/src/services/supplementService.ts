@@ -139,6 +139,16 @@ export const supplementService = {
     return data;
   },
 
+  async getClaimPaInfo(claimId: string): Promise<{
+    pa_name: string;
+    pa_email: string;
+    pa_contact_id: string | null;
+    has_public_adjuster: boolean;
+  }> {
+    const { data } = await api.get(`${BASE_URL}/claim-pa/${claimId}`);
+    return data;
+  },
+
   // Send to PA
   async getPaInfo(supplementId: string): Promise<{
     pa_name: string;
@@ -177,6 +187,14 @@ export const supplementService = {
     email_account_id?: string;
   }): Promise<{ success: boolean; email_id: string; attachments_count: number; status: string }> {
     const { data } = await api.post(`${BASE_URL}/${supplementId}/send-to-pa`, payload);
+    return data;
+  },
+
+  async polishScopeNotes(notes: string, estimateType?: string): Promise<{ polished: string }> {
+    const { data } = await api.post(`${BASE_URL}/polish-scope-notes`, {
+      notes,
+      estimate_type: estimateType || '',
+    });
     return data;
   },
 };

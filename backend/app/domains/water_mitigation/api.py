@@ -3958,3 +3958,151 @@ async def detect_duplicate_photos(
         "total_duplicates": total_duplicates,
         "total_photos_analyzed": len(photo_hashes),
     }
+
+
+# ── Sheet → PA Mapping endpoints ─────────────────────────────────────────────
+
+class SheetPAMappingRequest(BaseModel):
+    pa_contact_id: Optional[str] = None
+
+
+@router.get("/sheet-pa-mappings")
+def list_sheet_pa_mappings(db: DatabaseSession = Depends(get_db_session)):
+    """
+    List all Sheet → PA Contact mappings, enriched with contact + company info.
+    Also returns all sheet names seen in existing WM jobs for easy discovery.
+    """
+    from sqlalchemy import select, distinct
+    from app.domains.water_mitigation.models import WMSheetPAMapping
+    from app.domains.company.models import CompanyContact, Company
+
+    # Current mappings
+    mappings = db.execute(select(WMSheetPAMapping)).scalars().all()
+
+    # Known sheet names from existing WM jobs (for display even if not yet mapped)
+    known_sheets_rows = db.execute(
+        select(distinct(WaterMitigationJob.google_sheet_name)).where(
+            WaterMitigationJob.google_sheet_name.isnot(None)
+        )
+    ).scalars().all()
+    known_sheet_names = set(r for r in known_sheets_rows if r)
+
+    mapping_dict: dict = {}
+    for m in mappings:
+        contact_info = None
+        if m.pa_contact_id:
+            contact = db.execute(
+                select(CompanyContact).where(CompanyContact.id == m.pa_contact_id)
+            ).scalar_one_or_none()
+            if contact:
+                company = db.execute(
+                    select(Company).where(Company.id == contact.company_id)
+                ) .scalar_one_or_none()
+                contact_info = {
+                    "id": str(contact.id),
+                    "name": contact.name,
+                    "title": contact.title,
+                    "email": contact.email,
+                    "phone": contact.phone,
+                    "company_id": str(contact.company_id) if contact.company_id else None,
+                    "company_name": company.name if company else None,
+                }
+        mapping_dict[m.sheet_name] = {
+            "sheet_name": m.sheet_name,
+            "pa_contact_id": m.pa_contact_id,
+            "contact": contact_info,
+        }
+        known_sheet_names.add(m.sheet_name)
+
+    result = []
+    for name in sorted(known_sheet_names):
+        if name in mapping_dict:
+            result.append(mapping_dict[name])
+        else:
+            result.append({"sheet_name": name, "pa_contact_id": None, "contact": None})
+
+    return result
+
+
+@router.put("/sheet-pa-mappings/{sheet_name}")
+def upsert_sheet_pa_mapping(
+    sheet_name: str,
+    body: SheetPAMappingRequest,
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """
+    Create or update the PA contact mapping for a specific sheet name.
+    Pass pa_contact_id=null to clear the mapping.
+    """
+    from sqlalchemy import select
+    from app.domains.water_mitigation.models import WMSheetPAMapping
+
+    mapping = db.execute(
+        select(WMSheetPAMapping).where(WMSheetPAMapping.sheet_name == sheet_name)
+    ).scalar_one_or_none()
+
+    if mapping:
+        mapping.pa_contact_id = body.pa_contact_id
+    else:
+        mapping = WMSheetPAMapping(sheet_name=sheet_name, pa_contact_id=body.pa_contact_id)
+        db.add(mapping)
+
+    db.commit()
+    return {"sheet_name": sheet_name, "pa_contact_id": body.pa_contact_id}
+
+
+@router.delete("/sheet-pa-mappings/{sheet_name}")
+def delete_sheet_pa_mapping(
+    sheet_name: str,
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """Remove the PA mapping for a sheet name."""
+    from sqlalchemy import select
+    from app.domains.water_mitigation.models import WMSheetPAMapping
+
+    mapping = db.execute(
+        select(WMSheetPAMapping).where(WMSheetPAMapping.sheet_name == sheet_name)
+    ).scalar_one_or_none()
+
+    if mapping:
+        db.delete(mapping)
+        db.commit()
+    return {"deleted": True, "sheet_name": sheet_name}
+
+
+@router.post("/sheet-pa-mappings/apply")
+def apply_sheet_pa_mappings(db: DatabaseSession = Depends(get_db_session)):
+    """
+    Apply current Sheet → PA mappings to all existing WM jobs.
+    For each job that has google_sheet_name set and a mapping exists,
+    updates the linked Claim's pa_contact_id.
+    """
+    from sqlalchemy import select
+    from app.domains.water_mitigation.models import WMSheetPAMapping
+    from app.domains.client.models import Claim
+
+    mappings = db.execute(select(WMSheetPAMapping)).scalars().all()
+    mapping_lookup = {m.sheet_name: m.pa_contact_id for m in mappings if m.pa_contact_id}
+
+    if not mapping_lookup:
+        return {"applied": 0, "message": "No active mappings found"}
+
+    jobs = db.execute(
+        select(WaterMitigationJob).where(
+            WaterMitigationJob.google_sheet_name.in_(list(mapping_lookup.keys())),
+            WaterMitigationJob.claim_id.isnot(None),
+        )
+    ).scalars().all()
+
+    applied = 0
+    for job in jobs:
+        pa_contact_id = mapping_lookup.get(job.google_sheet_name)
+        if not pa_contact_id:
+            continue
+        claim = db.get(Claim, job.claim_id)
+        if claim and claim.pa_contact_id != pa_contact_id:
+            claim.pa_contact_id = pa_contact_id
+            applied += 1
+
+    db.commit()
+    return {"applied": applied, "total_jobs": len(jobs)}

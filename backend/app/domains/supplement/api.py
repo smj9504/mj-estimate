@@ -494,6 +494,14 @@ async def assign_rebuild_company(claim_id: str, data: dict):
 # Send to PA
 # ============================================================
 
+@router.get("/supplements/claim-pa/{claim_id}")
+async def get_claim_pa_info(claim_id: str):
+    """Get PA contact info for a claim (used when creating a supplement)."""
+    service = _get_service()
+    result = service.get_claim_pa_info(claim_id)
+    return result or {}
+
+
 @router.get("/supplements/{supplement_id}/pa-info")
 async def get_pa_info(supplement_id: str):
     """Get PA contact info + CC candidates for a supplement."""
@@ -541,3 +549,52 @@ async def send_to_pa(supplement_id: str, data: dict):
             status_code=500,
             detail=f"Failed to send: {str(e)}",
         )
+
+
+@router.post("/supplements/polish-scope-notes")
+async def polish_scope_notes(data: dict):
+    """Use AI to polish rough scope notes into professional language for PA communication.
+
+    Request body:
+    - notes: str (raw scope notes to polish)
+    - estimate_type: str (optional, e.g. 'xactimate', 'bathroom')
+    """
+    notes = (data.get("notes") or "").strip()
+    if not notes:
+        raise HTTPException(status_code=400, detail="notes is required")
+
+    estimate_type = data.get("estimate_type", "")
+
+    try:
+        import openai
+        from app.core.config import settings
+
+        client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=300,
+            temperature=0.3,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a professional insurance supplement writer. "
+                        "Polish the user's rough scope notes into clear, concise, professional language "
+                        "suitable for communicating with a Public Adjuster (PA). "
+                        "Keep it factual and direct. Use construction/restoration industry terminology. "
+                        "Output ONLY the polished text, no explanations or quotes. "
+                        "Preserve the original meaning — do not add or remove scope items. "
+                        "Use bullet points (one per line starting with '• ') if there are multiple items."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Estimate type: {estimate_type}\nRough notes:\n{notes}",
+                },
+            ],
+        )
+        polished = response.choices[0].message.content.strip()
+        return {"polished": polished}
+    except Exception as e:
+        logger.error(f"Error polishing scope notes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

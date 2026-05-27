@@ -642,6 +642,13 @@ class GoogleSheetsSyncService:
         except Exception as e:
             logger.warning(f"Client sync after job update failed (non-fatal): {e}")
 
+        # Apply PA mapping to linked Claim
+        try:
+            self.db.refresh(job)
+            self._apply_pa_mapping(job)
+        except Exception as e:
+            logger.warning(f"PA mapping apply after job update failed (non-fatal): {e}")
+
         return job
 
     def _create_job(
@@ -702,7 +709,43 @@ class GoogleSheetsSyncService:
         except Exception as e:
             logger.warning(f"Client sync after job create failed (non-fatal): {e}")
 
+        # Apply PA mapping to linked Claim
+        try:
+            self.db.refresh(job)
+            self._apply_pa_mapping(job)
+        except Exception as e:
+            logger.warning(f"PA mapping apply after job create failed (non-fatal): {e}")
+
         return job
+
+    def _apply_pa_mapping(self, job: WaterMitigationJob) -> None:
+        """
+        If a Sheet→PA mapping exists for this job's sheet_name,
+        update the linked Claim's pa_contact_id accordingly.
+        """
+        if not job.google_sheet_name or not job.claim_id:
+            return
+
+        from app.domains.water_mitigation.models import WMSheetPAMapping
+        from app.domains.client.models import Claim
+
+        mapping = self.db.execute(
+            select(WMSheetPAMapping).where(
+                WMSheetPAMapping.sheet_name == job.google_sheet_name
+            )
+        ).scalar_one_or_none()
+
+        if not mapping or not mapping.pa_contact_id:
+            return
+
+        claim = self.db.get(Claim, job.claim_id)
+        if claim and claim.pa_contact_id != mapping.pa_contact_id:
+            claim.pa_contact_id = mapping.pa_contact_id
+            self.db.commit()
+            logger.info(
+                f"Applied PA contact {mapping.pa_contact_id} to claim {job.claim_id} "
+                f"(sheet: {job.google_sheet_name})"
+            )
 
     def cleanup_duplicate_jobs(self) -> Dict[str, Any]:
         """

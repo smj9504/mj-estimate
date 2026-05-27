@@ -46,11 +46,14 @@ import {
   UploadOutlined,
   EnvironmentOutlined,
   RightOutlined,
+  FilePdfOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { claimFollowUpService } from '../services/claimFollowUpService';
+import { supplementService } from '../services/supplementService';
+import { fileService } from '../services/fileService';
 import { EmailComposer, CommunicationTimeline } from '../components/claim-followup';
 import type {
   FollowUpTask,
@@ -151,6 +154,145 @@ interface ClaimGroup {
   nextFollowupDate: string | null;
   supplementStatuses: Record<string, number>;
 }
+
+const formatCurrency = (val?: number) => {
+  if (val == null) return '$0.00';
+  return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
+  const [estimates, setEstimates] = useState<any[]>([]);
+  const [bidItems, setBidItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    const loadData = async () => {
+      try {
+        const [estData, supData] = await Promise.all([
+          supplementService.listInsuranceEstimates(claimId).catch(() => []),
+          supplementService.getByClaim(claimId).catch(() => []),
+        ]);
+        if (cancelled) return;
+        setEstimates(estData);
+        // Collect all bid items from all supplements
+        const allBidItems = supData.flatMap((s: any) => (s.bid_items || []).map((b: any) => ({
+          ...b, supplement_title: s.title,
+        })));
+        setBidItems(allBidItems);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    loadData();
+    return () => { cancelled = true; };
+  }, [claimId]);
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 24 }}><Text type="secondary">Loading...</Text></div>;
+
+  const hasEstimates = estimates.length > 0;
+  const hasBidItems = bidItems.filter((b: any) => b.custom_document_file_id).length > 0;
+
+  if (!hasEstimates && !hasBidItems) {
+    return <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: 24 }}>No estimate documents uploaded yet.</Text>;
+  }
+
+  return (
+    <div>
+      {/* Insurance Company Estimates */}
+      {hasEstimates && (
+        <div style={{ marginBottom: 16 }}>
+          <Text strong style={{ display: 'block', marginBottom: 8 }}>Insurance Company Estimates</Text>
+          {estimates.map((ver: any, idx: number) => (
+            <Card
+              key={ver.id}
+              size="small"
+              style={{
+                marginBottom: 8,
+                border: idx === 0 ? '1px solid #1890ff' : '1px solid #f0f0f0',
+                background: idx === 0 ? '#f6fbff' : '#fff',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <Space size={6} style={{ marginBottom: 4 }}>
+                    <Tag color={idx === 0 ? 'blue' : 'default'}>Rev #{ver.revision_number}</Tag>
+                    <Tag color={
+                      ver.revision_type === 'initial' ? 'green' :
+                      ver.revision_type === 'supplement' ? 'orange' :
+                      ver.revision_type === 're_inspection' ? 'purple' : 'default'
+                    }>
+                      {ver.revision_type?.replace('_', ' ').toUpperCase()}
+                    </Tag>
+                    {idx === 0 && <Tag color="processing">LATEST</Tag>}
+                  </Space>
+                  <div style={{ display: 'flex', gap: 16, fontSize: 12, flexWrap: 'wrap', marginTop: 4 }}>
+                    <span><Text type="secondary">RCV: </Text><Text strong>{formatCurrency(ver.rcv_amount)}</Text></span>
+                    <span><Text type="secondary">ACV: </Text><Text strong>{formatCurrency(ver.acv_amount)}</Text></span>
+                    <span><Text type="secondary">Dep: </Text><Text>{formatCurrency(ver.depreciation_amount)}</Text></span>
+                    <span><Text type="secondary">Ded: </Text><Text>{formatCurrency(ver.deductible)}</Text></span>
+                  </div>
+                  {ver.date_received && (
+                    <div style={{ fontSize: 11, marginTop: 2, color: '#888' }}>
+                      Received: {dayjs(ver.date_received).format('MM/DD/YYYY')}
+                      {ver.received_from && ` · From: ${ver.received_from}`}
+                    </div>
+                  )}
+                </div>
+                {ver.file_download_id && (
+                  <a
+                    href={`${fileService.getDownloadUrl(ver.file_download_id)}?inline=true`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Button size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}>
+                      {ver.document_name || 'View PDF'}
+                    </Button>
+                  </a>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Bid Item Estimate PDFs */}
+      {hasBidItems && (
+        <div>
+          <Text strong style={{ display: 'block', marginBottom: 8 }}>Bid Item Estimates</Text>
+          {bidItems.filter((b: any) => b.custom_document_file_id).map((item: any) => (
+            <div
+              key={item.id}
+              style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '6px 12px', marginBottom: 4, background: '#fafafa', borderRadius: 6,
+              }}
+            >
+              <Space size={8}>
+                <Tag>{item.estimate_type?.toUpperCase()}</Tag>
+                <Text style={{ fontSize: 13 }}>{item.title || item.estimate_type}</Text>
+                {item.custom_amount != null && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>{formatCurrency(item.custom_amount)}</Text>
+                )}
+              </Space>
+              <a
+                href={`${fileService.getDownloadUrl(item.custom_document_file_id)}?inline=true`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button type="link" size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}>
+                  {item.custom_document_file_name || 'PDF'}
+                </Button>
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const ClaimFollowUpDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -1439,6 +1581,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     label: <span><ClockCircleOutlined /> Communication History</span>,
                     children: (
                       <CommunicationTimeline claimId={group.claim_id} taskId={drawerEmailTaskId} />
+                    ),
+                  },
+                  {
+                    key: 'estimates',
+                    label: <span><FilePdfOutlined /> Estimates</span>,
+                    children: (
+                      <ClaimEstimatesPanel claimId={group.claim_id} />
                     ),
                   },
                 ]}

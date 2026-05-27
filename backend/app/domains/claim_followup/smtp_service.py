@@ -186,15 +186,43 @@ class SmtpService:
             return
 
         try:
-            # Load file content from storage
-            from app.domains.storage.service import StorageService
-            storage = StorageService()
-            file_data = storage.get_file_content(file_id)
+            from app.domains.file.service import get_storage_provider
+            from app.domains.file.models import File as FileModel
+            from app.core.database_factory import get_database
+            from pathlib import Path
+
+            # Look up the File record to get the storage URL/path
+            database = get_database()
+            session = database.get_session()
+            try:
+                file_rec = session.query(FileModel).filter(FileModel.id == file_id).first()
+                if not file_rec:
+                    logger.warning(f"File record not found for ID: {file_id}")
+                    return
+                file_url = file_rec.url or ''
+            finally:
+                session.close()
+            file_data = None
+
+            if file_url.startswith('gs://') or file_url.startswith('https://') or file_url.startswith('http://'):
+                # Cloud storage - download via provider
+                storage = get_storage_provider()
+                file_data = storage.download(file_url)
+            else:
+                # Local file
+                file_path = Path(file_url)
+                if file_path.exists():
+                    file_data = file_path.read_bytes()
+                else:
+                    logger.warning(f"Local file not found: {file_url}")
 
             if file_data:
                 part = MIMEApplication(file_data, Name=filename)
                 part["Content-Disposition"] = f'attachment; filename="{filename}"'
                 msg.attach(part)
+                logger.info(f"Attached file: {filename} ({len(file_data)} bytes)")
+            else:
+                logger.warning(f"No file data for file_id={file_id}")
         except Exception as e:
             logger.warning(f"Could not attach file {file_id}: {e}")
 

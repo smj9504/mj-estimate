@@ -39,6 +39,7 @@ import type {
 import { JOB_STATUS_OPTIONS } from '../types/waterMitigation';
 import JobFormModal from '../components/water-mitigation/JobFormModal';
 import GoogleSheetsSyncButton from '../components/water-mitigation/GoogleSheetsSyncButton';
+import SheetPAMappingButton from '../components/water-mitigation/SheetPAMappingButton';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -332,12 +333,15 @@ const WaterMitigationList: React.FC = () => {
         extra={
           <Space size={isMobile ? 'small' : 'middle'}>
             {!isMobile && (
-              <GoogleSheetsSyncButton
-                onSyncComplete={loadJobs}
-                type="default"
-                size="middle"
-                showStats={true}
-              />
+              <>
+                <SheetPAMappingButton onApplied={loadJobs} />
+                <GoogleSheetsSyncButton
+                  onSyncComplete={loadJobs}
+                  type="default"
+                  size="middle"
+                  showStats={true}
+                />
+              </>
             )}
             <Button
               type="primary"

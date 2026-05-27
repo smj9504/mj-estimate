@@ -13,6 +13,7 @@ from app.common.schemas.shared import Address
 class CompanyBase(BaseModel):
     """Base company schema"""
     name: str = Field(..., min_length=1, max_length=255)
+    company_type: Optional[str] = Field(None, max_length=50)
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
@@ -47,6 +48,7 @@ class CompanyCreate(CompanyBase):
 class CompanyUpdate(BaseModel):
     """Schema for updating a company"""
     name: Optional[str] = Field(None, min_length=1, max_length=255)
+    company_type: Optional[str] = Field(None, max_length=50)
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
@@ -114,3 +116,43 @@ class CompanyFilter(BaseModel):
 
 # Paginated response for companies
 CompanyPaginatedResponse = PaginatedResponse[CompanyResponse]
+
+
+# ── Company Contact schemas ──────────────────────────────────────────────────
+
+class CompanyContactBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    title: Optional[str] = Field(None, max_length=100)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(None, max_length=50)
+    is_primary: bool = False
+    is_active: bool = True
+    notes: Optional[str] = None
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def empty_email_to_none(cls, v):
+        return None if v == '' else v
+
+
+class CompanyContactCreate(CompanyContactBase):
+    pass
+
+
+class CompanyContactUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    title: Optional[str] = Field(None, max_length=100)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(None, max_length=50)
+    is_primary: Optional[bool] = None
+    is_active: Optional[bool] = None
+    notes: Optional[str] = None
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def empty_email_to_none(cls, v):
+        return None if v == '' else v
+
+
+class CompanyContactResponse(CompanyContactBase, BaseResponseSchema):
+    company_id: str

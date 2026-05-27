@@ -136,6 +136,8 @@ class Claim(Base, BaseModel):
     pa_company = Column(String(255))
     pa_email = Column(String(255))
     pa_phone = Column(String(50))
+    # Link to a CompanyContact record (public adjuster contact)
+    pa_contact_id = Column(String(36), nullable=True, comment="FK to company_contacts.id")
 
     # Water Mitigation cost tracking
     wm_cost_status = Column(

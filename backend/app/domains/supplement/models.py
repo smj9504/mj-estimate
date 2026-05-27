@@ -136,7 +136,7 @@ class BidItemEstimate(Base, BaseModel):
         nullable=False,
         comment="bathroom | cabinet | packing | roofing | kitchen | flooring | other"
     )
-    title = Column(String(500), nullable=False)
+    title = Column(String(500), nullable=False, default="")
     description = Column(Text)
 
     # Link to actual estimate (polymorphic - only one should be set)

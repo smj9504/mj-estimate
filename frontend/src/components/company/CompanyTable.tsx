@@ -25,11 +25,11 @@ import {
   BuildOutlined,
   FileTextOutlined,
   SafetyOutlined,
-  CheckCircleOutlined,
   WarningOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import { Company, CompanyFilter } from '../../types';
+import { Company, CompanyFilter, COMPANY_TYPE_LABELS, CompanyType } from '../../types';
 
 const { Search } = Input;
 const { confirm } = Modal;
@@ -40,6 +40,7 @@ interface CompanyTableProps {
   onEdit: (company: Company) => void;
   onDelete: (id: string) => Promise<void>;
   onAdd: () => void;
+  onManageContacts?: (company: Company) => void;
   filter: CompanyFilter;
   onFilterChange: (filter: CompanyFilter) => void;
 }
@@ -50,6 +51,7 @@ const CompanyTable: React.FC<CompanyTableProps> = ({
   onEdit,
   onDelete,
   onAdd,
+  onManageContacts,
   filter,
   onFilterChange,
 }) => {
@@ -132,8 +134,13 @@ const CompanyTable: React.FC<CompanyTableProps> = ({
       render: (name, record) => (
         <div>
           <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{name}</div>
+          {record.company_type && (
+            <Tag color="geekblue" style={{ marginTop: 2, fontSize: '11px' }}>
+              {COMPANY_TYPE_LABELS[record.company_type as CompanyType] || record.company_type}
+            </Tag>
+          )}
           {record.email && (
-            <div style={{ fontSize: '12px', color: '#666' }}>
+            <div style={{ fontSize: '12px', color: '#666', marginTop: 2 }}>
               <MailOutlined style={{ marginRight: 4 }} />
               {record.email}
             </div>
@@ -236,9 +243,19 @@ const CompanyTable: React.FC<CompanyTableProps> = ({
     {
       title: 'Actions',
       key: 'actions',
-      width: 120,
+      width: 150,
       render: (_, record) => (
         <Space size="small">
+          {onManageContacts && (
+            <Tooltip title="Manage Contacts">
+              <Button
+                type="text"
+                icon={<TeamOutlined />}
+                onClick={() => onManageContacts(record)}
+                size="small"
+              />
+            </Tooltip>
+          )}
           <Tooltip title="Edit">
             <Button
               type="text"

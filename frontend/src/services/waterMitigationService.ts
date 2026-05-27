@@ -1176,7 +1176,45 @@ export const waterMitigationService = {
       const response = await api.post(`${BASE_URL}/scope/general-conditions/seed`);
       return response.data;
     }
-  }
+  },
+
+  // ── Sheet → PA Mapping ────────────────────────────────────────────────────
+
+  sheetPAMappings: {
+    list: async (): Promise<SheetPAMapping[]> => {
+      const response = await api.get(`${BASE_URL}/sheet-pa-mappings`);
+      return response.data;
+    },
+
+    upsert: async (sheetName: string, paContactId: string | null): Promise<void> => {
+      await api.put(`${BASE_URL}/sheet-pa-mappings/${encodeURIComponent(sheetName)}`, {
+        pa_contact_id: paContactId,
+      });
+    },
+
+    delete: async (sheetName: string): Promise<void> => {
+      await api.delete(`${BASE_URL}/sheet-pa-mappings/${encodeURIComponent(sheetName)}`);
+    },
+
+    apply: async (): Promise<{ applied: number; total_jobs: number }> => {
+      const response = await api.post(`${BASE_URL}/sheet-pa-mappings/apply`);
+      return response.data;
+    },
+  },
 };
+
+export interface SheetPAMapping {
+  sheet_name: string;
+  pa_contact_id: string | null;
+  contact: {
+    id: string;
+    name: string;
+    title?: string;
+    email?: string;
+    phone?: string;
+    company_id?: string;
+    company_name?: string;
+  } | null;
+}
 
 export default waterMitigationService;
