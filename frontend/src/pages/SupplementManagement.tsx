@@ -1031,7 +1031,7 @@ const SupplementManagement: React.FC = () => {
                       type="info"
                       showIcon
                       style={{ marginBottom: 8 }}
-                      message="Xactimate가 다른 bid item 금액을 포함하고 있으면 'In Xact' 체크하세요. 체크된 항목은 Xactimate 금액에서 차감됩니다."
+                      message="Check 'In Xact' if this bid item's amount is already included in the Xactimate estimate. Checked items will be deducted from the Xactimate total."
                     />
                   )}
                   <Table size="small" dataSource={selectedSupplement.bid_items} rowKey="id" pagination={false}
@@ -1463,6 +1463,20 @@ const SupplementManagement: React.FC = () => {
       >
         {paInfo && (
           <div>
+            {/* Assigned PA info */}
+            {(paInfo.pa_name || paInfo.pa_email) && (
+              <div style={{
+                background: '#f0f5ff', border: '1px solid #adc6ff',
+                borderRadius: 6, padding: '8px 12px', marginBottom: 12,
+                display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+              }}>
+                <Text style={{ fontSize: 12, color: '#555' }}>Assigned PA:</Text>
+                {paInfo.pa_name && <Text strong style={{ fontSize: 13 }}>{paInfo.pa_name}</Text>}
+                {paInfo.pa_company && <Text type="secondary" style={{ fontSize: 12 }}>{paInfo.pa_company}</Text>}
+                {paInfo.pa_email && <Text style={{ fontSize: 12, color: '#1890ff' }}>{paInfo.pa_email}</Text>}
+              </div>
+            )}
+
             {/* From Account */}
             <div style={{ marginBottom: 12 }}>
               <Text type="secondary" style={{ marginRight: 8 }}>From:</Text>
@@ -1481,7 +1495,7 @@ const SupplementManagement: React.FC = () => {
               )}
             </div>
 
-            {/* To */}
+            {/* To — all PA company contacts as searchable options */}
             <div style={{ marginBottom: 12 }}>
               <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>To:</Text>
               <Select
@@ -1489,14 +1503,20 @@ const SupplementManagement: React.FC = () => {
                 showSearch
                 optionFilterProp="label"
                 style={{ width: '100%' }}
-                placeholder="Enter recipient email addresses..."
+                placeholder="Search by name or email..."
                 value={paToEmails}
                 onChange={(vals) => setPaToEmails(vals)}
                 tokenSeparators={[',', ';']}
-                options={paInfo.pa_email ? [{
-                  value: paInfo.pa_email,
-                  label: paInfo.pa_name ? `${paInfo.pa_name} (${paInfo.pa_email})` : paInfo.pa_email,
-                }] : []}
+                options={[
+                  ...(paInfo.pa_email ? [{
+                    value: paInfo.pa_email,
+                    label: paInfo.pa_name ? `${paInfo.pa_name} (${paInfo.pa_email})` : paInfo.pa_email,
+                  }] : []),
+                  ...(paInfo.cc_emails || []).map((cc: any) => ({
+                    value: cc.email,
+                    label: cc.name ? `${cc.name} (${cc.email})` : cc.email,
+                  })),
+                ]}
               />
               {paToEmails.length === 0 && (
                 <Alert type="warning" message="At least one recipient email is required." showIcon style={{ marginTop: 8 }} />
@@ -1511,14 +1531,20 @@ const SupplementManagement: React.FC = () => {
                 showSearch
                 optionFilterProp="label"
                 style={{ width: '100%' }}
-                placeholder="Enter CC email addresses..."
+                placeholder="Search by name or email..."
                 value={paCcEmails}
                 onChange={(vals) => setPaCcEmails(vals)}
                 tokenSeparators={[',', ';']}
-                options={(paInfo.cc_emails || []).map((cc: any) => ({
-                  value: cc.email,
-                  label: cc.name ? `${cc.name} (${cc.email})` : cc.email,
-                }))}
+                options={[
+                  ...(paInfo.pa_email ? [{
+                    value: paInfo.pa_email,
+                    label: paInfo.pa_name ? `${paInfo.pa_name} (${paInfo.pa_email})` : paInfo.pa_email,
+                  }] : []),
+                  ...(paInfo.cc_emails || []).map((cc: any) => ({
+                    value: cc.email,
+                    label: cc.name ? `${cc.name} (${cc.email})` : cc.email,
+                  })),
+                ]}
               />
             </div>
 
