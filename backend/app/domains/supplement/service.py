@@ -398,13 +398,45 @@ class SupplementService:
             # Resolve PA info priority:
             # 1. claim.pa_contact_id → CompanyContact (most reliable, set by WM sheet mapping)
             # 2. claim freetext fields (pa_name, pa_email, etc.)
-            # 3. supplement.submitted_to / submitted_to_email (set at create time)
+            # 3. water_mitigation_jobs adjuster fields (fallback when claim PA fields are empty)
+            # 4. supplement.submitted_to / submitted_to_email (set at create time)
             pa_name = claim.pa_name or getattr(sup, "submitted_to", "") or ""
             pa_email = claim.pa_email or getattr(sup, "submitted_to_email", "") or ""
             pa_phone = claim.pa_phone or ""
             pa_company = claim.pa_company or ""
             pa_contact_id = getattr(claim, "pa_contact_id", None)
             pa_company_id = None  # Track for reliable CC lookup
+
+            # Fallback: derive PA from WM sheet→PA mapping when claim PA fields are empty
+            # WM job's google_sheet_name → WMSheetPAMapping → CompanyContact
+            if not pa_name and not pa_email:
+                try:
+                    from app.domains.water_mitigation.models import WaterMitigationJob, WMSheetPAMapping
+                    from app.domains.company.models import CompanyContact, Company
+                    wm_job = session.query(WaterMitigationJob).filter(
+                        WaterMitigationJob.claim_id == claim.id
+                    ).first()
+                    if wm_job and wm_job.google_sheet_name:
+                        mapping = session.query(WMSheetPAMapping).filter(
+                            WMSheetPAMapping.sheet_name == wm_job.google_sheet_name
+                        ).first()
+                        if mapping and mapping.pa_contact_id:
+                            contact = session.query(CompanyContact).filter(
+                                CompanyContact.id == mapping.pa_contact_id
+                            ).first()
+                            if contact:
+                                pa_name = contact.name or ""
+                                pa_email = contact.email or ""
+                                pa_phone = contact.phone or ""
+                                pa_contact_id = contact.id
+                                comp = session.query(Company).filter(
+                                    Company.id == contact.company_id
+                                ).first()
+                                if comp:
+                                    pa_company = comp.name
+                                    pa_company_id = str(comp.id)
+                except Exception:
+                    pass
 
             if pa_contact_id:
                 try:

@@ -984,6 +984,17 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
     },
   });
 
+  const deleteNegMutation = useMutation({
+    mutationFn: (negotiationId: string) =>
+      negotiationService.delete(clientId, claim.id, negotiationId),
+    onSuccess: () => {
+      message.success('Insurance estimate deleted.');
+      queryClient.invalidateQueries({ queryKey: ['negotiations', clientId, claim.id] });
+      queryClient.invalidateQueries({ queryKey: ['client', clientId] });
+    },
+    onError: () => message.error('Failed to delete.'),
+  });
+
   // Sort by revision number for delta calculation
   const sorted = [...negotiations].sort((a, b) => a.revision_number - b.revision_number);
 
@@ -1104,6 +1115,20 @@ const NegotiationHistory: React.FC<NegotiationHistoryProps> = ({ clientId, claim
                   style={{ padding: 0, width: 22, height: 22, color: fileId ? undefined : '#1890ff' }} />
               </Tooltip>
             </Upload>
+            <Popconfirm
+              title="Delete this insurance estimate?"
+              description={`v${record.revision_number} (RCV ${formatCurrency(record.rcv_amount)}) will be permanently deleted.`}
+              onConfirm={() => deleteNegMutation.mutate(record.id)}
+              okText="Delete"
+              okButtonProps={{ danger: true }}
+              cancelText="Cancel"
+            >
+              <Tooltip title="Delete estimate">
+                <Button type="text" size="small" danger
+                  icon={<DeleteOutlined />}
+                  style={{ padding: 0, width: 22, height: 22 }} />
+              </Tooltip>
+            </Popconfirm>
           </Space>
         );
       },
