@@ -129,6 +129,7 @@ const ClaimFollowUpEmail = lazy(() => import('./pages/ClaimFollowUpEmail'));
 
 // Supplement Management
 const SupplementManagement = lazy(() => import('./pages/SupplementManagement'));
+const SupplementDetail = lazy(() => import('./pages/SupplementDetail'));
 
 // Rebuild Projects
 const RebuildProjectList = lazy(() => import('./pages/RebuildProjectList'));
@@ -861,6 +862,18 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <SupplementManagement />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/supplements/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <SupplementDetail />
           </Suspense>
         </Layout>
       </ProtectedRoute>
