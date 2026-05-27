@@ -395,9 +395,12 @@ class SupplementService:
                 Client.id == claim.client_id
             ).first()
 
-            # Resolve PA info: prefer linked CompanyContact, fallback to freetext fields
-            pa_name = claim.pa_name or ""
-            pa_email = claim.pa_email or ""
+            # Resolve PA info priority:
+            # 1. claim.pa_contact_id → CompanyContact (most reliable, set by WM sheet mapping)
+            # 2. claim freetext fields (pa_name, pa_email, etc.)
+            # 3. supplement.submitted_to / submitted_to_email (set at create time)
+            pa_name = claim.pa_name or getattr(sup, "submitted_to", "") or ""
+            pa_email = claim.pa_email or getattr(sup, "submitted_to_email", "") or ""
             pa_phone = claim.pa_phone or ""
             pa_company = claim.pa_company or ""
             pa_contact_id = getattr(claim, "pa_contact_id", None)
@@ -670,7 +673,21 @@ class SupplementService:
             address = client.address if client else "N/A"
             claim_number = claim.claim_number if claim else "N/A"
             insurance = claim.insurance_company if claim else "N/A"
-            pa_name = claim.pa_name if claim else ""
+
+            # Resolve PA name: claim.pa_contact_id → contact > claim.pa_name > supplement.submitted_to
+            pa_name = (claim.pa_name if claim else "") or getattr(sup, "submitted_to", "") or ""
+            if claim:
+                pa_contact_id = getattr(claim, "pa_contact_id", None)
+                if pa_contact_id and not pa_name:
+                    try:
+                        from app.domains.company.models import CompanyContact
+                        contact = session.query(CompanyContact).filter(
+                            CompanyContact.id == pa_contact_id
+                        ).first()
+                        if contact and contact.name:
+                            pa_name = contact.name
+                    except Exception:
+                        pass
             original = float(sup.original_amount or 0)
             supplement = float(sup.supplement_amount or 0)
             diff = float(sup.difference or 0)
@@ -771,8 +788,11 @@ class SupplementService:
                     f"<p>{custom_notes}</p>"
                 )
 
+            # Use first name only for greeting
+            pa_first_name = (pa_name or '').strip().split()[0] if (pa_name or '').strip() else ''
+
             body_html = f"""
-<p>Dear {pa_name or 'Public Adjuster'},</p>
+<p>{pa_first_name + ',' if pa_first_name else 'Hello,'}</p>
 
 <p>Please find attached the supplement estimate documents for the following claim:</p>
 
