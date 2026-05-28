@@ -373,9 +373,34 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     const currentSection = sections.find(s => s.id === selectedSectionId);
     if (!currentSection) return;
 
-    const updatedPhotos = currentSection.photos.filter(p => p.photo_id !== photoId);
-    handleUpdateSection(currentSection.id, { photos: updatedPhotos });
-    message.success('Photo removed from section');
+    const photo = photoMap.get(photoId);
+    const photoLabel = photo?.caption || 'Photo';
+
+    Modal.confirm({
+      title: 'Move to Trash',
+      content: `"${photoLabel}" will be removed from this section and moved to trash. You can restore it later from the Photos tab.`,
+      okText: 'Move to Trash',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          // 1. Remove from section
+          const updatedPhotos = currentSection.photos.filter(p => p.photo_id !== photoId);
+          handleUpdateSection(currentSection.id, { photos: updatedPhotos });
+
+          // 2. Move to trash via API
+          await waterMitigationService.photos.trash(photoId);
+
+          // 3. Invalidate photo cache so trashed photo disappears
+          queryClient.invalidateQueries({ queryKey: ['water-mitigation-photos', jobId] });
+
+          message.success('Photo moved to trash');
+        } catch (error) {
+          console.error('Failed to trash photo:', error);
+          message.error('Failed to move photo to trash');
+        }
+      },
+    });
   };
 
   /**
