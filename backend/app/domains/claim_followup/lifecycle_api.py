@@ -90,30 +90,100 @@ async def get_payment_gaps(min_difference: float = Query(500, ge=0)):
 
 @router.get("/lifecycle/pending-estimates")
 async def get_pending_estimates():
-    """Get claims waiting for insurance rebuild estimate"""
+    """Get WM jobs with 'Sent to adjuster' status - awaiting insurance estimate"""
     from app.core.database_factory import get_database
+    from app.domains.water_mitigation.models import WaterMitigationJob
+
+    database = get_database()
+    session = database.get_readonly_session()
+    try:
+        jobs = session.query(WaterMitigationJob).filter(
+            WaterMitigationJob.active == True,
+            WaterMitigationJob.status == 'Sent to adjuster',
+        ).order_by(WaterMitigationJob.documents_sent_date.asc().nullsfirst()).all()
+
+        results = []
+        for job in jobs:
+            results.append({
+                "job_id": str(job.id),
+                "claim_number": job.claim_number,
+                "insurance_company": job.insurance_company,
+                "adjuster_name": job.adjuster_name,
+                "adjuster_email": job.adjuster_email,
+                "property_address": job.property_address,
+                "homeowner_name": job.homeowner_name,
+                "date_of_loss": job.date_of_loss.isoformat() if job.date_of_loss else None,
+                "documents_sent_date": job.documents_sent_date.isoformat() if job.documents_sent_date else None,
+                "status": job.status,
+            })
+        return results
+    finally:
+        session.close()
+
+
+@router.get("/lifecycle/wm-doc-prep")
+async def get_wm_doc_prep():
+    """Get WM jobs with 'Lead' or 'Doc prepping' status - need documents prepared"""
+    from app.core.database_factory import get_database
+    from app.domains.water_mitigation.models import WaterMitigationJob
+
+    database = get_database()
+    session = database.get_readonly_session()
+    try:
+        jobs = session.query(WaterMitigationJob).filter(
+            WaterMitigationJob.active == True,
+            WaterMitigationJob.status.in_(['Lead', 'Doc prepping']),
+        ).order_by(WaterMitigationJob.created_at.asc()).all()
+
+        results = []
+        for job in jobs:
+            results.append({
+                "job_id": str(job.id),
+                "claim_number": job.claim_number,
+                "insurance_company": job.insurance_company,
+                "property_address": job.property_address,
+                "homeowner_name": job.homeowner_name,
+                "date_of_loss": job.date_of_loss.isoformat() if job.date_of_loss else None,
+                "status": job.status,
+                "created_at": job.created_at.isoformat() if job.created_at else None,
+            })
+        return results
+    finally:
+        session.close()
+
+
+@router.get("/lifecycle/supplement-work")
+async def get_supplement_work():
+    """Get supplements with 'identified' or 'in_progress' status - need estimate work"""
+    from app.core.database_factory import get_database
+    from app.domains.supplement.models import SupplementRequest
     from app.domains.client.models import Claim, Client
 
     database = get_database()
     session = database.get_readonly_session()
     try:
-        claims = session.query(Claim).filter(
-            Claim.insurance_estimate_received == False,
-            Claim.status.in_(['open', 'negotiating']),
-        ).all()
+        supplements = session.query(SupplementRequest).filter(
+            SupplementRequest.status.in_(['identified', 'in_progress']),
+        ).order_by(SupplementRequest.created_at.asc()).all()
 
         results = []
-        for claim in claims:
-            client = session.query(Client).filter(Client.id == claim.client_id).first()
+        for sup in supplements:
+            claim = session.query(Claim).filter(Claim.id == sup.claim_id).first()
+            client = session.query(Client).filter(Client.id == claim.client_id).first() if claim else None
             results.append({
-                "claim_id": str(claim.id),
-                "claim_number": claim.claim_number,
-                "insurance_company": claim.insurance_company,
-                "adjuster_name": claim.adjuster_name,
-                "adjuster_email": claim.adjuster_email,
+                "supplement_id": str(sup.id),
+                "claim_id": str(sup.claim_id),
+                "claim_number": claim.claim_number if claim else None,
+                "title": sup.title,
+                "status": sup.status,
+                "priority": sup.priority,
+                "original_amount": float(sup.original_amount or 0),
+                "supplement_amount": float(sup.supplement_amount or 0),
+                "difference": float(sup.difference or 0),
+                "insurance_company": claim.insurance_company if claim else None,
                 "property_address": client.address if client else None,
-                "date_of_loss": claim.date_of_loss.isoformat() if claim.date_of_loss else None,
-                "status": claim.status,
+                "required_estimates": sup.required_estimates or {},
+                "created_at": sup.created_at.isoformat() if sup.created_at else None,
             })
         return results
     finally:

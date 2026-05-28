@@ -182,7 +182,7 @@ class BidItemEstimate(Base, BaseModel):
 class SupplementFollowUp(Base, BaseModel):
     """
     Follow-up log for supplement requests sent to public adjuster.
-    Tracks each contact attempt and response.
+    Tracks each contact attempt, info requests, and responses.
     """
     __tablename__ = "supplement_followups"
     __table_args__ = (
@@ -196,16 +196,46 @@ class SupplementFollowUp(Base, BaseModel):
         nullable=False,
     )
 
+    # Follow-up type
+    followup_type = Column(
+        String(30),
+        nullable=False,
+        default='general',
+        server_default='general',
+        comment="general | info_request"
+    )
+
     # Follow-up details
     contact_method = Column(String(30), nullable=False, comment="email | phone | text | in_person")
     contact_name = Column(String(255))
     contact_email = Column(String(255))
     summary = Column(Text)
 
+    # Info request specific fields
+    items_needed = Column(
+        JSONB,
+        default=list,
+        comment="List of info items needed: [{description: str, resolved: bool}]"
+    )
+    request_to_type = Column(
+        String(50),
+        comment="public_adjuster | contractor"
+    )
+    info_status = Column(
+        String(30),
+        default='pending',
+        server_default='pending',
+        comment="pending | sent | awaiting_response | partially_resolved | resolved"
+    )
+
     # Response
     response_received = Column(Boolean, default=False)
     response_date = Column(DateTime(timezone=True))
     response_summary = Column(Text)
+
+    # Follow-up tracking
+    follow_up_count = Column(Integer, default=0, server_default='0')
+    last_follow_up_date = Column(DateTime(timezone=True))
 
     # Audit
     logged_by_id = Column(UUIDType(), ForeignKey("staff.id"))

@@ -150,28 +150,42 @@ class BidItemEstimateResponse(BidItemEstimateBase):
 
 class SupplementFollowUpCreate(BaseModel):
     supplement_id: UUID
+    followup_type: str = "general"
     contact_method: str = Field(..., description="email | phone | text | in_person")
     contact_name: Optional[str] = None
     contact_email: Optional[str] = None
     summary: Optional[str] = None
+    items_needed: Optional[List[Dict[str, Any]]] = None
+    request_to_type: Optional[str] = None
+    info_status: Optional[str] = None
 
 
 class SupplementFollowUpUpdate(BaseModel):
     response_received: Optional[bool] = None
     response_date: Optional[datetime] = None
     response_summary: Optional[str] = None
+    items_needed: Optional[List[Dict[str, Any]]] = None
+    info_status: Optional[str] = None
+    follow_up_count: Optional[int] = None
+    last_follow_up_date: Optional[datetime] = None
 
 
 class SupplementFollowUpResponse(BaseModel):
     id: UUID
     supplement_id: UUID
+    followup_type: str = "general"
     contact_method: str
     contact_name: Optional[str] = None
     contact_email: Optional[str] = None
     summary: Optional[str] = None
+    items_needed: Optional[List[Dict[str, Any]]] = None
+    request_to_type: Optional[str] = None
+    info_status: Optional[str] = None
     response_received: bool = False
     response_date: Optional[datetime] = None
     response_summary: Optional[str] = None
+    follow_up_count: int = 0
+    last_follow_up_date: Optional[datetime] = None
     created_at: Optional[datetime] = None
 
     class Config:

@@ -933,6 +933,194 @@ class SupplementService:
         except Exception:
             pass
 
+    def send_info_request(self, supplement_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Send an info request email and create a followup record."""
+        session = self._get_session()
+        try:
+            from app.domains.supplement.models import SupplementRequest, SupplementFollowUp
+            from app.domains.client.models import Claim, Client
+
+            sup = session.query(SupplementRequest).filter(
+                SupplementRequest.id == supplement_id
+            ).first()
+            if not sup:
+                raise ValueError("Supplement not found")
+
+            claim = session.query(Claim).filter(Claim.id == sup.claim_id).first()
+            client = session.query(Client).filter(
+                Client.id == claim.client_id
+            ).first() if claim else None
+
+            to_email = data.get("to_email", "")
+            to_name = data.get("to_name", "")
+            request_to_type = data.get("request_to_type", "public_adjuster")
+            items_needed = data.get("items_needed", [])
+            email_account_id = data.get("email_account_id")
+
+            if not to_email:
+                raise ValueError("Recipient email is required")
+
+            address = client.address if client else ""
+            claim_number = claim.claim_number if claim else ""
+
+            # Build email content
+            subject = data.get("subject") or (
+                f"Information Request - {address} (Claim #{claim_number})"
+            )
+
+            if data.get("body_html"):
+                body_html = data["body_html"]
+            else:
+                items_html = "".join(
+                    f"<li>{item.get('description', '')}</li>"
+                    for item in items_needed
+                )
+                role_label = "Public Adjuster" if request_to_type == "public_adjuster" else "Contractor"
+                body_html = (
+                    f"<p>Hi {to_name or role_label},</p>"
+                    f"<p>We are working on the supplement estimate for <strong>{address}</strong> "
+                    f"(Claim #{claim_number}) and need the following information to proceed:</p>"
+                    f"<ul>{items_html}</ul>"
+                    f"<p>Could you please provide this information at your earliest convenience?</p>"
+                    f"<p>Thank you,<br/>MJ Estimate Team</p>"
+                )
+
+            # Send email
+            from app.domains.claim_followup.service import ClaimFollowUpService
+            email_service = ClaimFollowUpService()
+            email_result = email_service.send_email({
+                "claim_id": str(sup.claim_id),
+                "email_account_id": email_account_id,
+                "to_addresses": [to_email],
+                "subject": subject,
+                "body_html": body_html,
+                "attachments": [],
+            })
+
+            now = __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            )
+
+            # Create followup record
+            followup = SupplementFollowUp(
+                supplement_id=sup.id,
+                followup_type="info_request",
+                contact_method="email",
+                contact_name=to_name,
+                contact_email=to_email,
+                summary=f"Info request sent: {', '.join(i.get('description', '') for i in items_needed[:3])}",
+                items_needed=[{**item, 'resolved': False} for item in items_needed],
+                request_to_type=request_to_type,
+                info_status="sent",
+                response_received=False,
+                follow_up_count=0,
+            )
+            session.add(followup)
+            session.commit()
+
+            return {
+                "success": True,
+                "followup_id": str(followup.id),
+                "email_id": str(email_result.get("id", "")),
+            }
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error sending info request: {e}")
+            raise
+        finally:
+            session.close()
+
+    def resend_info_request(
+        self, supplement_id: str, followup_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Resend/follow-up on an existing info request."""
+        session = self._get_session()
+        try:
+            from app.domains.supplement.models import SupplementRequest, SupplementFollowUp
+            from app.domains.client.models import Claim, Client
+
+            followup = session.query(SupplementFollowUp).filter(
+                SupplementFollowUp.id == followup_id,
+                SupplementFollowUp.supplement_id == supplement_id,
+            ).first()
+            if not followup:
+                raise ValueError("Info request not found")
+
+            sup = session.query(SupplementRequest).filter(
+                SupplementRequest.id == supplement_id
+            ).first()
+            claim = session.query(Claim).filter(Claim.id == sup.claim_id).first() if sup else None
+            client = session.query(Client).filter(
+                Client.id == claim.client_id
+            ).first() if claim else None
+
+            to_email = followup.contact_email
+            to_name = followup.contact_name or ""
+            if not to_email:
+                raise ValueError("No email address on original request")
+
+            address = client.address if client else ""
+            claim_number = claim.claim_number if claim else ""
+            follow_up_num = (followup.follow_up_count or 0) + 1
+
+            # Unresolved items only
+            unresolved = [
+                item for item in (followup.items_needed or [])
+                if not item.get('resolved', False)
+            ]
+            items_html = "".join(
+                f"<li>{item.get('description', '')}</li>"
+                for item in unresolved
+            )
+
+            additional_msg = data.get("additional_message", "")
+            additional_html = f"<p>{additional_msg}</p>" if additional_msg else ""
+
+            subject = f"Follow-up #{follow_up_num}: Information Request - {address} (Claim #{claim_number})"
+            body_html = (
+                f"<p>Hi {to_name},</p>"
+                f"<p>This is a follow-up regarding our information request for "
+                f"<strong>{address}</strong> (Claim #{claim_number}).</p>"
+                f"<p>We are still waiting for the following information:</p>"
+                f"<ul>{items_html}</ul>"
+                f"{additional_html}"
+                f"<p>Please let us know if you need any clarification.</p>"
+                f"<p>Thank you,<br/>MJ Estimate Team</p>"
+            )
+
+            # Send email
+            from app.domains.claim_followup.service import ClaimFollowUpService
+            email_service = ClaimFollowUpService()
+            email_result = email_service.send_email({
+                "claim_id": str(sup.claim_id) if sup else "",
+                "email_account_id": data.get("email_account_id"),
+                "to_addresses": [to_email],
+                "subject": subject,
+                "body_html": body_html,
+                "attachments": [],
+            })
+
+            now = __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            )
+            followup.follow_up_count = follow_up_num
+            followup.last_follow_up_date = now
+            followup.info_status = "awaiting_response"
+            session.commit()
+
+            return {
+                "success": True,
+                "followup_id": str(followup.id),
+                "follow_up_count": follow_up_num,
+                "email_id": str(email_result.get("id", "")),
+            }
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error resending info request: {e}")
+            raise
+        finally:
+            session.close()
+
     def assign_rebuild_company(self, claim_id: str, company_id: str) -> Dict[str, Any]:
         """Assign or update the reconstruction company for a claim via ClaimCompany."""
         session = self._get_session()

@@ -153,6 +153,7 @@ interface ClaimGroup {
   hasOverdue: boolean;
   nextFollowupDate: string | null;
   supplementStatuses: Record<string, number>;
+  pendingInfoRequests: number;
 }
 
 const formatCurrency = (val?: number) => {
@@ -164,117 +165,321 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
   const [estimates, setEstimates] = useState<any[]>([]);
   const [bidItems, setBidItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<any>({});
+  const [saving, setSaving] = useState(false);
+
+  const loadData = async () => {
+    try {
+      const [estData, supData] = await Promise.all([
+        supplementService.listInsuranceEstimates(claimId).catch(() => []),
+        supplementService.getByClaim(claimId).catch(() => []),
+      ]);
+      setEstimates(estData);
+      const allBidItems = supData.flatMap((s: any) => (s.bid_items || []).map((b: any) => ({
+        ...b, supplement_title: s.title,
+      })));
+      setBidItems(allBidItems);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-
-    const loadData = async () => {
-      try {
-        const [estData, supData] = await Promise.all([
-          supplementService.listInsuranceEstimates(claimId).catch(() => []),
-          supplementService.getByClaim(claimId).catch(() => []),
-        ]);
-        if (cancelled) return;
-        setEstimates(estData);
-        // Collect all bid items from all supplements
-        const allBidItems = supData.flatMap((s: any) => (s.bid_items || []).map((b: any) => ({
-          ...b, supplement_title: s.title,
-        })));
-        setBidItems(allBidItems);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+    const run = async () => {
+      await loadData();
+      if (cancelled) return;
     };
-    loadData();
+    run();
     return () => { cancelled = true; };
   }, [claimId]);
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 24 }}><Text type="secondary">Loading...</Text></div>;
+  const startEdit = (ver: any) => {
+    setEditingId(ver.id);
+    setEditValues({
+      rcv_amount: ver.rcv_amount || 0,
+      acv_amount: ver.acv_amount || 0,
+      depreciation_amount: ver.depreciation_amount || 0,
+      deductible: ver.deductible || 0,
+      sections_data: ver.sections_data ? JSON.parse(JSON.stringify(ver.sections_data)) : [],
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditValues({});
+  };
+
+  const saveEdit = async (ver: any) => {
+    setSaving(true);
+    try {
+      await supplementService.updateInsuranceEstimate(claimId, ver.id, editValues);
+      message.success('Estimate updated');
+      setEditingId(null);
+      setEditValues({});
+      setLoading(true);
+      await loadData();
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to update');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateEditSection = (idx: number, field: string, value: any) => {
+    const sections = [...(editValues.sections_data || [])];
+    sections[idx] = { ...sections[idx], [field]: value };
+    if (field === 'rcv' || field === 'depreciation') {
+      const rcv = field === 'rcv' ? (value || 0) : (sections[idx].rcv || 0);
+      const dep = field === 'depreciation' ? (value || 0) : (sections[idx].depreciation || 0);
+      sections[idx].net_acv = rcv - dep;
+    }
+    // Recalc totals from sections
+    const totalRcv = sections.reduce((s: number, sec: any) => s + (sec.rcv || 0), 0);
+    const totalDep = sections.reduce((s: number, sec: any) => s + (sec.depreciation || 0), 0);
+    setEditValues({
+      ...editValues,
+      sections_data: sections,
+      rcv_amount: Math.round(totalRcv * 100) / 100,
+      acv_amount: Math.round((totalRcv - totalDep) * 100) / 100,
+      depreciation_amount: Math.round(totalDep * 100) / 100,
+    });
+  };
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 16 }}><Text type="secondary">Loading...</Text></div>;
 
   const hasEstimates = estimates.length > 0;
   const hasBidItems = bidItems.filter((b: any) => b.custom_document_file_id).length > 0;
 
   if (!hasEstimates && !hasBidItems) {
-    return <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: 24 }}>No estimate documents uploaded yet.</Text>;
+    return <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: 16 }}>No estimate documents uploaded yet.</Text>;
   }
+
+  const categorizeSection = (name: string): 'wm' | 'reconstruction' | 'other' => {
+    const lower = name.toLowerCase();
+    if (lower.includes('water') || lower.includes('mitigation') || lower.includes('emergency') || lower.includes('dry out') || lower.includes('drying')) return 'wm';
+    if (lower.includes('dwelling') || lower.includes('rebuild') || lower.includes('reconstruction') || lower.includes('drywall') || lower.includes('flooring') || lower.includes('paint') || lower.includes('cabinet') || lower.includes('plumb') || lower.includes('electrical') || lower.includes('code') || lower.includes('upgrade')) return 'reconstruction';
+    return 'other';
+  };
+
+  const SECTION_CATEGORY_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
+    wm: { label: 'Water Mitigation', color: '#0958d9', bg: '#e6f4ff', border: '#91caff' },
+    reconstruction: { label: 'Reconstruction', color: '#531dab', bg: '#f9f0ff', border: '#d3adf7' },
+    other: { label: 'Other', color: '#595959', bg: '#fafafa', border: '#d9d9d9' },
+  };
 
   return (
     <div>
       {/* Insurance Company Estimates */}
       {hasEstimates && (
-        <div style={{ marginBottom: 16 }}>
-          <Text strong style={{ display: 'block', marginBottom: 8 }}>Insurance Company Estimates</Text>
-          {estimates.map((ver: any, idx: number) => (
-            <Card
-              key={ver.id}
-              size="small"
-              style={{
-                marginBottom: 8,
-                border: idx === 0 ? '1px solid #1890ff' : '1px solid #f0f0f0',
-                background: idx === 0 ? '#f6fbff' : '#fff',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ flex: 1 }}>
-                  <Space size={6} style={{ marginBottom: 4 }}>
-                    <Tag color={idx === 0 ? 'blue' : 'default'}>Rev #{ver.revision_number}</Tag>
-                    <Tag color={
-                      ver.revision_type === 'initial' ? 'green' :
-                      ver.revision_type === 'supplement' ? 'orange' :
-                      ver.revision_type === 're_inspection' ? 'purple' : 'default'
-                    }>
-                      {ver.revision_type?.replace('_', ' ').toUpperCase()}
-                    </Tag>
-                    {idx === 0 && <Tag color="processing">LATEST</Tag>}
-                  </Space>
-                  <div style={{ display: 'flex', gap: 16, fontSize: 12, flexWrap: 'wrap', marginTop: 4 }}>
-                    <span><Text type="secondary">RCV: </Text><Text strong>{formatCurrency(ver.rcv_amount)}</Text></span>
-                    <span><Text type="secondary">ACV: </Text><Text strong>{formatCurrency(ver.acv_amount)}</Text></span>
-                    <span><Text type="secondary">Dep: </Text><Text>{formatCurrency(ver.depreciation_amount)}</Text></span>
-                    <span><Text type="secondary">Ded: </Text><Text>{formatCurrency(ver.deductible)}</Text></span>
-                  </div>
-                  {ver.date_received && (
-                    <div style={{ fontSize: 11, marginTop: 2, color: '#888' }}>
-                      Received: {dayjs(ver.date_received).format('MM/DD/YYYY')}
-                      {ver.received_from && ` · From: ${ver.received_from}`}
+        <div style={{ marginBottom: 8 }}>
+          <Text strong style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>Insurance Company Estimates</Text>
+          {estimates.map((ver: any, idx: number) => {
+            const isEditing = editingId === ver.id;
+            const displaySections: any[] = isEditing ? (editValues.sections_data || []) : (ver.sections_data || []);
+            const hasSections = displaySections.length > 0;
+
+            // Group sections by category
+            const grouped: Record<string, { items: any[]; indices: number[] }> = {};
+            if (hasSections) {
+              displaySections.forEach((s: any, sIdx: number) => {
+                const cat = categorizeSection(s.section_name || '');
+                if (!grouped[cat]) grouped[cat] = { items: [], indices: [] };
+                grouped[cat].items.push(s);
+                grouped[cat].indices.push(sIdx);
+              });
+            }
+
+            const hasWm = !!grouped['wm'];
+            const hasReconstruction = !!grouped['reconstruction'];
+
+            const isWmEstimate = ver.notes?.includes('Water Mitigation') ||
+              (hasSections && hasWm && !hasReconstruction && !grouped['other']);
+
+            const dispRcv = isEditing ? editValues.rcv_amount : ver.rcv_amount;
+            const dispAcv = isEditing ? editValues.acv_amount : ver.acv_amount;
+            const dispDep = isEditing ? editValues.depreciation_amount : ver.depreciation_amount;
+            const dispDed = isEditing ? editValues.deductible : ver.deductible;
+
+            return (
+              <div
+                key={ver.id}
+                style={{
+                  marginBottom: 6, padding: '8px 10px', borderRadius: 6,
+                  border: isEditing ? '1px solid #faad14' : idx === 0 ? '1px solid #1890ff' : '1px solid #f0f0f0',
+                  background: isEditing ? '#fffbe6' : idx === 0 ? '#f6fbff' : '#fff',
+                }}
+              >
+                {/* Header row */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 2 }}>
+                      <Tag color={idx === 0 ? 'blue' : 'default'} style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
+                        Rev #{ver.revision_number}
+                      </Tag>
+                      <Tag color={
+                        ver.revision_type === 'initial' ? 'green' :
+                        ver.revision_type === 'supplement' ? 'orange' :
+                        ver.revision_type === 're_inspection' ? 'purple' : 'default'
+                      } style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
+                        {ver.revision_type?.replace('_', ' ').toUpperCase()}
+                      </Tag>
+                      {idx === 0 && <Tag color="processing" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>LATEST</Tag>}
+                      {isWmEstimate && <Tag color="cyan" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>WM Estimate</Tag>}
+                      {!isWmEstimate && hasSections && hasWm && <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>WM Included</Tag>}
+                      {!isWmEstimate && hasSections && !hasWm && hasReconstruction && <Tag style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>Recon Only</Tag>}
                     </div>
-                  )}
+
+                    {/* Amounts: display or edit */}
+                    {isEditing ? (
+                      <Row gutter={[6, 4]} style={{ marginTop: 4 }}>
+                        <Col span={6}>
+                          <Text type="secondary" style={{ fontSize: 10 }}>RCV</Text>
+                          <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                            value={editValues.rcv_amount} onChange={v => setEditValues({ ...editValues, rcv_amount: v || 0 })} />
+                        </Col>
+                        <Col span={6}>
+                          <Text type="secondary" style={{ fontSize: 10 }}>ACV</Text>
+                          <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                            value={editValues.acv_amount} onChange={v => setEditValues({ ...editValues, acv_amount: v || 0 })} />
+                        </Col>
+                        <Col span={6}>
+                          <Text type="secondary" style={{ fontSize: 10 }}>Dep</Text>
+                          <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                            value={editValues.depreciation_amount} onChange={v => setEditValues({ ...editValues, depreciation_amount: v || 0 })} />
+                        </Col>
+                        <Col span={6}>
+                          <Text type="secondary" style={{ fontSize: 10 }}>Ded</Text>
+                          <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                            value={editValues.deductible} onChange={v => setEditValues({ ...editValues, deductible: v || 0 })} />
+                        </Col>
+                      </Row>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 10, fontSize: 12, flexWrap: 'wrap' }}>
+                        <span><Text type="secondary" style={{ fontSize: 11 }}>RCV </Text><Text strong style={{ fontSize: 12 }}>{formatCurrency(dispRcv)}</Text></span>
+                        <span><Text type="secondary" style={{ fontSize: 11 }}>ACV </Text><Text strong style={{ fontSize: 12 }}>{formatCurrency(dispAcv)}</Text></span>
+                        <span><Text type="secondary" style={{ fontSize: 11 }}>Dep </Text><Text style={{ fontSize: 12 }}>{formatCurrency(dispDep)}</Text></span>
+                        {dispDed > 0 && <span><Text type="secondary" style={{ fontSize: 11 }}>Ded </Text><Text style={{ fontSize: 12 }}>{formatCurrency(dispDed)}</Text></span>}
+                      </div>
+                    )}
+                    {ver.date_received && (
+                      <Text type="secondary" style={{ fontSize: 10 }}>
+                        {dayjs(ver.date_received).format('MM/DD/YYYY')}
+                        {ver.received_from && ` · ${ver.received_from}`}
+                      </Text>
+                    )}
+                  </div>
+                  <Space direction="vertical" size={2} style={{ flexShrink: 0 }}>
+                    {ver.file_download_id && (
+                      <a
+                        href={`${fileService.getDownloadUrl(ver.file_download_id)}?inline=true`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <Button size="small" type="text" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />} style={{ fontSize: 11 }}>
+                          PDF
+                        </Button>
+                      </a>
+                    )}
+                    {!isEditing ? (
+                      <Button size="small" type="text" icon={<EditOutlined />} style={{ fontSize: 11 }}
+                        onClick={() => startEdit(ver)}>
+                        Edit
+                      </Button>
+                    ) : (
+                      <Space size={2}>
+                        <Button size="small" type="primary" loading={saving}
+                          onClick={() => saveEdit(ver)} style={{ fontSize: 11 }}>
+                          Save
+                        </Button>
+                        <Button size="small" onClick={cancelEdit} style={{ fontSize: 11 }}>
+                          Cancel
+                        </Button>
+                      </Space>
+                    )}
+                  </Space>
                 </div>
-                {ver.file_download_id && (
-                  <a
-                    href={`${fileService.getDownloadUrl(ver.file_download_id)}?inline=true`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <Button size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}>
-                      {ver.document_name || 'View PDF'}
-                    </Button>
-                  </a>
+
+                {/* Section Breakdown */}
+                {hasSections && (
+                  <div style={{ marginTop: 6, borderTop: '1px dashed #e8e8e8', paddingTop: 6 }}>
+                    {(['wm', 'reconstruction', 'other'] as const).map(cat => {
+                      const group = grouped[cat];
+                      if (!group || group.items.length === 0) return null;
+                      const cfg = SECTION_CATEGORY_CONFIG[cat];
+                      const catRcv = group.items.reduce((sum: number, s: any) => sum + (s.rcv || 0), 0);
+                      const catAcv = group.items.reduce((sum: number, s: any) => sum + (s.net_acv || 0), 0);
+
+                      return (
+                        <div key={cat} style={{
+                          marginBottom: 4, padding: '4px 6px', borderRadius: 4,
+                          background: cfg.bg, borderLeft: `3px solid ${cfg.border}`,
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text strong style={{ fontSize: 11, color: cfg.color }}>{cfg.label}</Text>
+                            <Text style={{ fontSize: 11 }}>
+                              RCV <Text strong style={{ fontSize: 11 }}>{formatCurrency(catRcv)}</Text>
+                              <Text type="secondary" style={{ fontSize: 11 }}> · ACV {formatCurrency(catAcv)}</Text>
+                            </Text>
+                          </div>
+                          {group.items.map((s: any, sIdx: number) => {
+                            const globalIdx = group.indices[sIdx];
+                            return isEditing ? (
+                              <Row key={sIdx} gutter={4} align="middle" style={{ marginTop: 2 }}>
+                                <Col flex="auto">
+                                  <Input size="small" value={s.section_name} style={{ fontSize: 11 }}
+                                    onChange={e => updateEditSection(globalIdx, 'section_name', e.target.value)} />
+                                </Col>
+                                <Col flex="90px">
+                                  <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%', fontSize: 11 }}
+                                    value={s.rcv} onChange={v => updateEditSection(globalIdx, 'rcv', v || 0)} />
+                                </Col>
+                                <Col flex="90px">
+                                  <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%', fontSize: 11 }}
+                                    value={s.depreciation} onChange={v => updateEditSection(globalIdx, 'depreciation', v || 0)}
+                                    placeholder="Dep" />
+                                </Col>
+                              </Row>
+                            ) : (
+                              <div key={sIdx} style={{
+                                display: 'flex', justifyContent: 'space-between',
+                                fontSize: 10, padding: '1px 4px', color: '#666',
+                              }}>
+                                <span>{s.section_name}</span>
+                                <span>{formatCurrency(s.rcv)} (dep: {formatCurrency(s.depreciation)})</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-            </Card>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* Bid Item Estimate PDFs */}
       {hasBidItems && (
         <div>
-          <Text strong style={{ display: 'block', marginBottom: 8 }}>Bid Item Estimates</Text>
+          <Text strong style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>Bid Item Estimates</Text>
           {bidItems.filter((b: any) => b.custom_document_file_id).map((item: any) => (
             <div
               key={item.id}
               style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '6px 12px', marginBottom: 4, background: '#fafafa', borderRadius: 6,
+                padding: '4px 8px', marginBottom: 2, background: '#fafafa', borderRadius: 4,
               }}
             >
-              <Space size={8}>
-                <Tag>{item.estimate_type?.toUpperCase()}</Tag>
-                <Text style={{ fontSize: 13 }}>{item.title || item.estimate_type}</Text>
+              <Space size={6}>
+                <Tag style={{ margin: 0, fontSize: 10 }}>{item.estimate_type?.toUpperCase()}</Tag>
+                <Text style={{ fontSize: 12 }}>{item.title || item.estimate_type}</Text>
                 {item.custom_amount != null && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>{formatCurrency(item.custom_amount)}</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>{formatCurrency(item.custom_amount)}</Text>
                 )}
               </Space>
               <a
@@ -282,8 +487,8 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <Button type="link" size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}>
-                  {item.custom_document_file_name || 'PDF'}
+                <Button type="text" size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />} style={{ fontSize: 11 }}>
+                  PDF
                 </Button>
               </a>
             </div>
@@ -353,6 +558,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
           hasOverdue: false,
           nextFollowupDate: null,
           supplementStatuses: {},
+          pendingInfoRequests: 0,
         });
       }
       const group = groupMap.get(key)!;
@@ -363,6 +569,11 @@ const ClaimFollowUpDashboard: React.FC = () => {
         Object.entries(task.supplement_statuses).forEach(([status, count]) => {
           group.supplementStatuses[status] = count;
         });
+      }
+
+      // Track pending info requests
+      if (task.pending_info_requests && task.pending_info_requests > group.pendingInfoRequests) {
+        group.pendingInfoRequests = task.pending_info_requests;
       }
 
       // Track active (non-resolved) stages
@@ -929,33 +1140,82 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     </Text>
                   </div>
                 )}
-                {/* Row 3: Stage pipeline */}
+                {/* Row 3: Stage pipeline + Supplement status */}
                 <div style={{ marginTop: 4, overflow: 'hidden' }}>
                   <Space size={4} wrap>
                     {renderStagePipeline(group)}
-                    {Object.keys(group.supplementStatuses).length > 0 && (
-                      <Tooltip title={Object.entries(group.supplementStatuses).map(([s, c]) => `${s}: ${c}`).join(', ')}>
-                        <Tag
-                          color={
-                            group.supplementStatuses['identified'] ? 'orange' :
-                            group.supplementStatuses['in_progress'] || group.supplementStatuses['submitted'] ? 'blue' :
-                            group.supplementStatuses['approved'] ? 'green' :
-                            group.supplementStatuses['denied'] ? 'red' : 'default'
-                          }
-                          style={{ fontSize: 10, margin: 0, cursor: 'pointer' }}
-                          onClick={(e) => { e.stopPropagation(); navigate('/supplements'); }}
-                        >
-                          Suppl: {
-                            group.supplementStatuses['identified'] ? 'Review' :
-                            group.supplementStatuses['in_progress'] ? 'In Progress' :
-                            group.supplementStatuses['submitted'] ? 'Submitted' :
-                            group.supplementStatuses['under_review'] ? 'Under Review' :
-                            group.supplementStatuses['approved'] ? 'Approved' :
-                            group.supplementStatuses['denied'] ? 'Denied' : 'Active'
-                          }
-                        </Tag>
-                      </Tooltip>
-                    )}
+                    {(() => {
+                      const ss = group.supplementStatuses;
+                      const hasSupp = Object.keys(ss).length > 0;
+                      const hasResolved = group.tasks.some(t => t.status === 'resolved' && t.task_type === 'estimate_request');
+
+                      // Determine supplement display status
+                      let suppLabel = '';
+                      let suppColor = 'default';
+                      let suppTooltip = '';
+
+                      if (hasSupp) {
+                        if (ss['identified']) {
+                          suppLabel = 'Supplement: Review Needed';
+                          suppColor = 'orange';
+                          suppTooltip = 'Insurance estimate received. Supplement review needed.';
+                        } else if (ss['in_progress']) {
+                          suppLabel = 'Supplement: In Progress';
+                          suppColor = 'processing';
+                          suppTooltip = 'Supplement estimate is being prepared.';
+                        } else if (ss['submitted']) {
+                          suppLabel = 'Supplement: Submitted';
+                          suppColor = 'blue';
+                          suppTooltip = 'Supplement sent to PA/Insurance.';
+                        } else if (ss['under_review']) {
+                          suppLabel = 'Supplement: Under Review';
+                          suppColor = 'geekblue';
+                          suppTooltip = 'Supplement is under review by insurance.';
+                        } else if (ss['approved']) {
+                          suppLabel = 'Supplement: Approved';
+                          suppColor = 'green';
+                        } else if (ss['denied']) {
+                          suppLabel = 'Supplement: Denied';
+                          suppColor = 'red';
+                        }
+                      } else if (hasResolved) {
+                        suppLabel = 'Supplement: Pending';
+                        suppColor = 'warning';
+                        suppTooltip = 'Insurance estimate received. Supplement needs to be created.';
+                      }
+
+                      return (
+                        <>
+                          {suppLabel && (
+                            <Tooltip title={suppTooltip}>
+                              <Tag
+                                color={suppColor}
+                                style={{ fontSize: 10, margin: 0, cursor: 'pointer' }}
+                                onClick={(e) => { e.stopPropagation(); navigate('/supplements'); }}
+                              >
+                                {suppLabel}
+                              </Tag>
+                            </Tooltip>
+                          )}
+                          {group.pendingInfoRequests > 0 && (
+                            <Tooltip title={`${group.pendingInfoRequests} pending info request(s) - waiting for response from PA or contractor`}>
+                              <Tag
+                                color="volcano"
+                                style={{ fontSize: 10, margin: 0, cursor: 'pointer' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // Navigate to first in_progress supplement
+                                  const suppId = group.tasks.find(t => t.supplement_statuses)?.claim_id;
+                                  navigate('/supplements');
+                                }}
+                              >
+                                Info Waiting ({group.pendingInfoRequests})
+                              </Tag>
+                            </Tooltip>
+                          )}
+                        </>
+                      );
+                    })()}
                   </Space>
                 </div>
               </div>
@@ -1474,8 +1734,67 @@ const ClaimFollowUpDashboard: React.FC = () => {
               <Card size="small" style={{ marginBottom: 16 }}>
                 <div style={{ marginBottom: 12 }}>
                   <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Stage Pipeline</Text>
-                  {renderStagePipeline(group)}
+                  <Space size={4} wrap>
+                    {renderStagePipeline(group)}
+                  </Space>
                 </div>
+
+                {/* Supplement & Info Request Status */}
+                {(() => {
+                  const ss = group.supplementStatuses;
+                  const hasSupp = Object.keys(ss).length > 0;
+                  const hasResolvedEstimate = group.tasks.some(t => t.status === 'resolved' && t.task_type === 'estimate_request');
+
+                  if (!hasSupp && !hasResolvedEstimate && group.pendingInfoRequests === 0) return null;
+
+                  return (
+                    <div style={{ marginBottom: 12, padding: '6px 8px', background: '#fafafa', borderRadius: 6 }}>
+                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Supplement Status</Text>
+                      <Space size={4} wrap>
+                        {hasSupp ? (
+                          <>
+                            {ss['identified'] && (
+                              <Tag color="orange" style={{ margin: 0, fontSize: 11, cursor: 'pointer' }}
+                                onClick={() => navigate('/supplements')}>
+                                Review Needed ({ss['identified']})
+                              </Tag>
+                            )}
+                            {ss['in_progress'] && (
+                              <Tag color="processing" style={{ margin: 0, fontSize: 11, cursor: 'pointer' }}
+                                onClick={() => navigate('/supplements')}>
+                                In Progress ({ss['in_progress']})
+                              </Tag>
+                            )}
+                            {ss['submitted'] && (
+                              <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>Submitted ({ss['submitted']})</Tag>
+                            )}
+                            {ss['under_review'] && (
+                              <Tag color="geekblue" style={{ margin: 0, fontSize: 11 }}>Under Review ({ss['under_review']})</Tag>
+                            )}
+                            {ss['approved'] && (
+                              <Tag color="green" style={{ margin: 0, fontSize: 11 }}>Approved ({ss['approved']})</Tag>
+                            )}
+                            {ss['denied'] && (
+                              <Tag color="red" style={{ margin: 0, fontSize: 11 }}>Denied ({ss['denied']})</Tag>
+                            )}
+                          </>
+                        ) : hasResolvedEstimate ? (
+                          <Tag color="warning" style={{ margin: 0, fontSize: 11, cursor: 'pointer' }}
+                            onClick={() => navigate('/supplements')}>
+                            Supplement Pending - Needs Creation
+                          </Tag>
+                        ) : null}
+                        {group.pendingInfoRequests > 0 && (
+                          <Tag color="volcano" style={{ margin: 0, fontSize: 11, cursor: 'pointer' }}
+                            onClick={() => navigate('/supplements')}>
+                            Info Waiting ({group.pendingInfoRequests})
+                          </Tag>
+                        )}
+                      </Space>
+                    </div>
+                  );
+                })()}
+
                 <Row gutter={[8, 8]}>
                   <Col span={8}>
                     <Statistic title="Active Tasks" value={activeTasks.length} valueStyle={{ fontSize: 18, color: '#1890ff' }} />
@@ -1551,9 +1870,16 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
               {/* Email + Communication */}
               <Tabs
-                defaultActiveKey="email"
+                defaultActiveKey="estimates"
                 size="small"
                 items={[
+                  {
+                    key: 'estimates',
+                    label: <span><FilePdfOutlined /> Estimates</span>,
+                    children: (
+                      <ClaimEstimatesPanel claimId={group.claim_id} />
+                    ),
+                  },
                   {
                     key: 'email',
                     label: <span><MailOutlined /> Send Email</span>,
@@ -1581,13 +1907,6 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     label: <span><ClockCircleOutlined /> Communication History</span>,
                     children: (
                       <CommunicationTimeline claimId={group.claim_id} taskId={drawerEmailTaskId} />
-                    ),
-                  },
-                  {
-                    key: 'estimates',
-                    label: <span><FilePdfOutlined /> Estimates</span>,
-                    children: (
-                      <ClaimEstimatesPanel claimId={group.claim_id} />
                     ),
                   },
                 ]}

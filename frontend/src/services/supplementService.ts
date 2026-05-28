@@ -109,6 +109,24 @@ export const supplementService = {
     return data;
   },
 
+  async updateInsuranceEstimate(claimId: string, negotiationId: string, payload: {
+    acv_amount?: number;
+    rcv_amount?: number;
+    depreciation_amount?: number;
+    deductible?: number;
+    revision_type?: string;
+    date_received?: string;
+    received_from?: string;
+    notes?: string;
+    sections_data?: any[];
+  }) {
+    const { data } = await api.patch(
+      `${BASE_URL}/insurance-estimates/${claimId}/${negotiationId}`,
+      payload
+    );
+    return data;
+  },
+
   async replaceInsuranceEstimatePdf(claimId: string, negotiationId: string, fileId: string) {
     const { data } = await api.patch(
       `${BASE_URL}/insurance-estimates/${claimId}/${negotiationId}/replace-pdf`,
@@ -130,6 +148,28 @@ export const supplementService = {
 
   async updateFollowup(supplementId: string, followupId: string, payload: Partial<SupplementFollowUp>): Promise<SupplementFollowUp> {
     const { data } = await api.patch(`${BASE_URL}/${supplementId}/followups/${followupId}`, payload);
+    return data;
+  },
+
+  // Info Requests
+  async sendInfoRequest(supplementId: string, payload: {
+    to_email: string;
+    to_name: string;
+    request_to_type: string;
+    items_needed: Array<{ description: string }>;
+    subject?: string;
+    body_html?: string;
+    email_account_id?: string;
+  }): Promise<{ success: boolean; followup_id: string; email_id: string }> {
+    const { data } = await api.post(`${BASE_URL}/${supplementId}/send-info-request`, payload);
+    return data;
+  },
+
+  async resendInfoRequest(supplementId: string, followupId: string, payload?: {
+    additional_message?: string;
+    email_account_id?: string;
+  }): Promise<{ success: boolean; followup_id: string; follow_up_count: number }> {
+    const { data } = await api.post(`${BASE_URL}/${supplementId}/followups/${followupId}/resend`, payload || {});
     return data;
   },
 

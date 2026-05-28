@@ -31,7 +31,8 @@ import {
   ArrowLeftOutlined,
   EditOutlined,
   SwapOutlined,
-  InfoCircleOutlined
+  InfoCircleOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import waterMitigationService from '../services/waterMitigationService';
@@ -48,6 +49,8 @@ import WaterMitigationTrashTab from '../components/water-mitigation/WaterMitigat
 import WaterMitigationScopeTab from '../components/water-mitigation/WaterMitigationScopeTab';
 import EditableSection from '../components/water-mitigation/EditableSection';
 import WMSketchTab from '../components/water-mitigation/sketch/WMSketchTab';
+import SendToAdjusterModal from '../components/water-mitigation/SendToAdjusterModal';
+import WMFinancialComparisonCard from '../components/water-mitigation/WMFinancialComparison';
 
 const { useBreakpoint } = Grid;
 
@@ -58,6 +61,7 @@ const WaterMitigationDetail: React.FC = () => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const [activeTab, setActiveTab] = useState('details');
+  const [sendToAdjusterOpen, setSendToAdjusterOpen] = useState(false);
 
   // Background refresh job data when switching back to details tab
   const handleTabChange = useCallback((key: string) => {
@@ -407,6 +411,13 @@ const WaterMitigationDetail: React.FC = () => {
                   size="small"
                 />
                 <Button
+                  icon={<SendOutlined />}
+                  onClick={() => setSendToAdjusterOpen(true)}
+                  size="small"
+                >
+                  Send
+                </Button>
+                <Button
                   type="primary"
                   icon={<EditOutlined />}
                   onClick={() => navigate(`/water-mitigation/${id}/edit`)}
@@ -439,6 +450,12 @@ const WaterMitigationDetail: React.FC = () => {
                   options={JOB_STATUS_OPTIONS}
                   suffixIcon={<SwapOutlined />}
                 />
+                <Button
+                  icon={<SendOutlined />}
+                  onClick={() => setSendToAdjusterOpen(true)}
+                >
+                  Send to Adjuster
+                </Button>
                 <Button
                   type="primary"
                   icon={<EditOutlined />}
@@ -762,6 +779,13 @@ const WaterMitigationDetail: React.FC = () => {
                       )}
                     </EditableSection>
 
+                    {id && (
+                      <WMFinancialComparisonCard
+                        jobId={id}
+                        isActive={activeTab === 'details'}
+                      />
+                    )}
+
                     {job.notes && (
                       <Card title="Notes" style={{ marginTop: 16 }}>
                         <p style={{ whiteSpace: 'pre-wrap' }}>{job.notes}</p>
@@ -934,6 +958,23 @@ const WaterMitigationDetail: React.FC = () => {
           </div>
         </Space>
       </Modal>
+
+      {/* Send to Adjuster Modal */}
+      {id && (
+        <SendToAdjusterModal
+          open={sendToAdjusterOpen}
+          onClose={() => setSendToAdjusterOpen(false)}
+          jobId={id}
+          onSent={(result) => {
+            // Update local job state
+            setJob(prev => prev ? {
+              ...prev,
+              status: result.status as any,
+              documents_sent_date: result.documents_sent_date,
+            } : prev);
+          }}
+        />
+      )}
     </div>
   );
 };

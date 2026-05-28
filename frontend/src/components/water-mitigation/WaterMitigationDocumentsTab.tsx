@@ -43,6 +43,11 @@ const DOCUMENT_TYPES: DocumentType[] = [
     description: 'Authorization for emergency mitigation work'
   },
   {
+    value: 'W9',
+    label: 'Company W-9',
+    description: 'Company W-9 tax form for insurance claims'
+  },
+  {
     value: 'Custom',
     label: 'Custom Document',
     description: 'Custom document with user-defined filename'

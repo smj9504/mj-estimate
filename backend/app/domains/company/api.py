@@ -323,6 +323,124 @@ async def upload_logo(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/{company_id}/w9", response_model=dict)
+async def upload_w9(
+    company_id: str,
+    file: UploadFile = File(...),
+    service: CompanyService = Depends(get_company_service),
+):
+    """Upload company W-9 document (PDF).
+
+    Stores the file via the File service and saves the file_id on the company.
+    """
+    if not file.content_type or file.content_type not in (
+        'application/pdf', 'image/jpeg', 'image/png', 'image/tiff',
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="File must be a PDF or image",
+        )
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400, detail="File size must be less than 10MB",
+        )
+    await file.seek(0)
+
+    try:
+        from app.domains.file.service import FileService
+        from app.core.database_factory import get_database
+        import io
+        db = get_database()
+        file_service = FileService(db)
+        uploaded = await file_service.upload_file(
+            file_data=io.BytesIO(content),
+            original_filename=file.filename or 'W9.pdf',
+            content_type=file.content_type or 'application/pdf',
+            context='company',
+            context_id=company_id,
+            category='w9',
+        )
+        file_id = str(uploaded.get('id') or uploaded.get('file_id', ''))
+
+        # Update company w9_file_id
+        updated = service.update_company(company_id, {'w9_file_id': file_id})
+        if not updated:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        return {
+            "success": True,
+            "file_id": file_id,
+            "filename": file.filename,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading W9: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{company_id}/w9", response_model=dict)
+async def delete_w9(
+    company_id: str,
+    service: CompanyService = Depends(get_company_service),
+):
+    """Remove company W-9 document."""
+    try:
+        updated = service.update_company(company_id, {'w9_file_id': None})
+        if not updated:
+            raise HTTPException(status_code=404, detail="Company not found")
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting W9: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{company_id}/w9")
+async def get_w9_info(
+    company_id: str,
+    service: CompanyService = Depends(get_company_service),
+):
+    """Get W-9 file info for a company."""
+    try:
+        company = service.get_company(company_id)
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        w9_file_id = company.get('w9_file_id')
+        if not w9_file_id:
+            return {"has_w9": False, "file_id": None}
+
+        from app.domains.file.models import File as FileModel
+        from app.core.database_factory import get_database
+        database = get_database()
+        session = database.get_readonly_session()
+        try:
+            file_rec = session.query(FileModel).filter(
+                FileModel.id == w9_file_id
+            ).first()
+            if not file_rec:
+                return {"has_w9": False, "file_id": None}
+            return {
+                "has_w9": True,
+                "file_id": str(file_rec.id),
+                "filename": getattr(file_rec, 'original_name', None)
+                    or getattr(file_rec, 'filename', 'W9'),
+                "uploaded_at": file_rec.created_at.isoformat()
+                    if file_rec.created_at else None,
+            }
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting W9 info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{company_id}/set-default", response_model=CompanyResponse)
 async def set_default_company(
     company_id: str,

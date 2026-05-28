@@ -94,13 +94,19 @@ export interface BidItemEstimateCreate {
 export interface SupplementFollowUp {
   id: string;
   supplement_id: string;
+  followup_type?: string;
   contact_method: string;
   contact_name?: string;
   contact_email?: string;
   summary?: string;
+  items_needed?: Array<{ description: string; resolved: boolean }>;
+  request_to_type?: string;
+  info_status?: string;
   response_received: boolean;
   response_date?: string;
   response_summary?: string;
+  follow_up_count?: number;
+  last_follow_up_date?: string;
   created_at?: string;
 }
 

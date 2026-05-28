@@ -109,6 +109,13 @@ const SupplementDetail: React.FC = () => {
   const [bidItemForm] = Form.useForm();
   const [followupForm] = Form.useForm();
 
+  // Info request state
+  const [infoRequestModalOpen, setInfoRequestModalOpen] = useState(false);
+  const [infoRequestLoading, setInfoRequestLoading] = useState(false);
+  const [infoItems, setInfoItems] = useState<string[]>(['']);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [infoRequestForm] = Form.useForm();
+
   // Main supplement query
   const { data: supplement, isLoading, error } = useQuery({
     queryKey: ['supplement', id],
@@ -1084,67 +1091,391 @@ const SupplementDetail: React.FC = () => {
       </Col>
       </Row>
 
-      {/* Follow-ups */}
-      <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <Text strong>Follow-ups ({followups.length})</Text>
-          <Button size="small" icon={<PhoneOutlined />} onClick={() => setFollowupModalOpen(true)}>
-            Log Follow-up
-          </Button>
-        </div>
+      {/* Pending Info Requests */}
+      {(() => {
+        const infoRequests = followups.filter(fu => fu.followup_type === 'info_request');
+        const generalFollowups = followups.filter(fu => fu.followup_type !== 'info_request');
+        const pendingInfoRequests = infoRequests.filter(fu => fu.info_status !== 'resolved');
 
-        {followups.length === 0 ? (
-          <Empty description="No follow-ups yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
-          <div>
-            {followups.map((fu) => (
-              <Card
-                key={fu.id}
-                size="small"
-                style={{
-                  marginBottom: 6,
-                  border: fu.response_received ? '1px solid #b7eb8f' : '1px solid #f0f0f0',
-                  background: fu.response_received ? '#f6ffed' : '#fff',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ flex: 1 }}>
-                    <Space size={6} style={{ marginBottom: 4 }}>
-                      <Tag color={
-                        fu.contact_method === 'email' ? 'blue' :
-                        fu.contact_method === 'phone' ? 'green' :
-                        fu.contact_method === 'text' ? 'purple' : 'default'
-                      }>
-                        {fu.contact_method?.toUpperCase()}
-                      </Tag>
-                      {fu.response_received && <Tag color="success">Response Received</Tag>}
-                    </Space>
-                    {fu.contact_name && (
-                      <div style={{ fontSize: 12 }}>
-                        <Text type="secondary">To: </Text>
-                        <Text>{fu.contact_name}</Text>
-                        {fu.contact_email && <Text type="secondary"> ({fu.contact_email})</Text>}
-                      </div>
-                    )}
-                    {fu.summary && (
-                      <div style={{ fontSize: 12, marginTop: 2 }}>{fu.summary}</div>
-                    )}
-                    {fu.response_summary && (
-                      <div style={{ fontSize: 12, marginTop: 4, padding: '4px 8px', background: '#e6fffb', borderRadius: 4 }}>
-                        <Text type="secondary" style={{ fontSize: 11 }}>Response: </Text>
-                        {fu.response_summary}
-                      </div>
-                    )}
-                  </div>
-                  <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap', marginLeft: 8 }}>
-                    {fu.created_at ? dayjs(fu.created_at).format('MM/DD/YY HH:mm') : ''}
-                  </Text>
+        const handleSendInfoRequest = async () => {
+          try {
+            const values = await infoRequestForm.validateFields();
+            const validItems = infoItems.filter(i => i.trim());
+            if (validItems.length === 0) {
+              message.warning('Add at least one info item');
+              return;
+            }
+            setInfoRequestLoading(true);
+            await supplementService.sendInfoRequest(supplement.id, {
+              to_email: values.to_email,
+              to_name: values.to_name || '',
+              request_to_type: values.request_to_type,
+              items_needed: validItems.map(d => ({ description: d })),
+              email_account_id: values.email_account_id,
+            });
+            message.success('Info request sent');
+            setInfoRequestModalOpen(false);
+            infoRequestForm.resetFields();
+            setInfoItems(['']);
+            loadFollowups(supplement.id);
+          } catch (err: any) {
+            message.error(err?.response?.data?.detail || 'Failed to send');
+          } finally {
+            setInfoRequestLoading(false);
+          }
+        };
+
+        const handleResend = async (fu: SupplementFollowUp) => {
+          setResendingId(fu.id);
+          try {
+            await supplementService.resendInfoRequest(supplement.id, fu.id);
+            message.success(`Follow-up #${(fu.follow_up_count || 0) + 1} sent`);
+            loadFollowups(supplement.id);
+          } catch (err: any) {
+            message.error(err?.response?.data?.detail || 'Failed to resend');
+          } finally {
+            setResendingId(null);
+          }
+        };
+
+        const handleToggleItem = async (fu: SupplementFollowUp, itemIdx: number) => {
+          const updated = (fu.items_needed || []).map((item, i) =>
+            i === itemIdx ? { ...item, resolved: !item.resolved } : item
+          );
+          const allResolved = updated.every(item => item.resolved);
+          try {
+            await supplementService.updateFollowup(supplement.id, fu.id, {
+              items_needed: updated,
+              info_status: allResolved ? 'resolved' : 'partially_resolved',
+              response_received: allResolved ? true : fu.response_received,
+            } as any);
+            loadFollowups(supplement.id);
+          } catch {
+            message.error('Failed to update');
+          }
+        };
+
+        const handleMarkResponse = async (fu: SupplementFollowUp, summary: string) => {
+          try {
+            await supplementService.updateFollowup(supplement.id, fu.id, {
+              response_received: true,
+              response_date: new Date().toISOString(),
+              response_summary: summary,
+              info_status: 'resolved',
+            } as any);
+            message.success('Marked as responded');
+            loadFollowups(supplement.id);
+          } catch {
+            message.error('Failed to update');
+          }
+        };
+
+        return (
+          <>
+            {/* Pending Info Requests Card */}
+            <Card style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Space>
+                  <Text strong>Pending Info</Text>
+                  {pendingInfoRequests.length > 0 && (
+                    <Badge count={pendingInfoRequests.length} style={{ backgroundColor: '#fa8c16' }} />
+                  )}
+                </Space>
+                <Button size="small" type="primary" ghost icon={<SendOutlined />}
+                  onClick={() => {
+                    setInfoRequestModalOpen(true);
+                    // Pre-fill from PA info if available
+                    if (paDisplayInfo?.pa_email) {
+                      infoRequestForm.setFieldsValue({
+                        to_name: paDisplayInfo.pa_name || '',
+                        to_email: paDisplayInfo.pa_email || '',
+                        request_to_type: 'public_adjuster',
+                      });
+                    }
+                  }}>
+                  Request Info
+                </Button>
+              </div>
+
+              {infoRequests.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 12, color: '#999' }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>No info requests yet. Click "Request Info" when you need information from PA or contractor.</Text>
                 </div>
-              </Card>
-            ))}
-          </div>
-        )}
-      </Card>
+              ) : (
+                <div>
+                  {infoRequests.map((fu) => {
+                    const isPending = fu.info_status !== 'resolved';
+                    const unresolvedCount = (fu.items_needed || []).filter(i => !i.resolved).length;
+                    const totalCount = (fu.items_needed || []).length;
+
+                    return (
+                      <div
+                        key={fu.id}
+                        style={{
+                          marginBottom: 6, padding: '8px 10px', borderRadius: 6,
+                          border: isPending ? '1px solid #ffd591' : '1px solid #b7eb8f',
+                          background: isPending ? '#fffbe6' : '#f6ffed',
+                        }}
+                      >
+                        {/* Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                          <div>
+                            <Space size={4} wrap>
+                              <Tag color={fu.request_to_type === 'public_adjuster' ? 'blue' : 'orange'} style={{ margin: 0, fontSize: 11 }}>
+                                {fu.request_to_type === 'public_adjuster' ? 'PA' : 'Contractor'}
+                              </Tag>
+                              <Tag color={
+                                fu.info_status === 'resolved' ? 'green' :
+                                fu.info_status === 'awaiting_response' ? 'orange' :
+                                fu.info_status === 'sent' ? 'blue' : 'default'
+                              } style={{ margin: 0, fontSize: 11 }}>
+                                {(fu.info_status || 'pending').replace('_', ' ').toUpperCase()}
+                              </Tag>
+                              {(fu.follow_up_count || 0) > 0 && (
+                                <Tag style={{ margin: 0, fontSize: 10 }}>
+                                  Follow-up x{fu.follow_up_count}
+                                </Tag>
+                              )}
+                            </Space>
+                            <div style={{ fontSize: 11, marginTop: 2 }}>
+                              <Text type="secondary">To: </Text>
+                              <Text style={{ fontSize: 11 }}>{fu.contact_name || fu.contact_email}</Text>
+                              {fu.contact_name && fu.contact_email && (
+                                <Text type="secondary" style={{ fontSize: 11 }}> ({fu.contact_email})</Text>
+                              )}
+                            </div>
+                          </div>
+                          <Space size={4}>
+                            {isPending && (
+                              <Tooltip title="Send follow-up email">
+                                <Button size="small" type="link"
+                                  icon={<SendOutlined />}
+                                  loading={resendingId === fu.id}
+                                  onClick={() => handleResend(fu)}
+                                  style={{ fontSize: 11, padding: '0 4px' }}>
+                                  Follow up
+                                </Button>
+                              </Tooltip>
+                            )}
+                            <Text type="secondary" style={{ fontSize: 10 }}>
+                              {fu.created_at ? dayjs(fu.created_at).format('MM/DD') : ''}
+                            </Text>
+                          </Space>
+                        </div>
+
+                        {/* Checklist items */}
+                        {(fu.items_needed || []).length > 0 && (
+                          <div style={{ marginTop: 2 }}>
+                            <Text type="secondary" style={{ fontSize: 10 }}>
+                              {unresolvedCount === 0 ? 'All items resolved' : `${unresolvedCount}/${totalCount} pending`}
+                            </Text>
+                            {(fu.items_needed || []).map((item, idx) => (
+                              <div key={idx} style={{
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                padding: '2px 0', fontSize: 12,
+                              }}>
+                                <Checkbox
+                                  checked={item.resolved}
+                                  onChange={() => handleToggleItem(fu, idx)}
+                                  style={{ fontSize: 12 }}
+                                />
+                                <Text
+                                  style={{ fontSize: 12 }}
+                                  delete={item.resolved}
+                                  type={item.resolved ? 'secondary' : undefined}
+                                >
+                                  {item.description}
+                                </Text>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Response */}
+                        {fu.response_summary && (
+                          <div style={{ fontSize: 11, marginTop: 4, padding: '4px 6px', background: '#e6fffb', borderRadius: 4 }}>
+                            <Text type="secondary" style={{ fontSize: 10 }}>Response: </Text>
+                            {fu.response_summary}
+                          </div>
+                        )}
+
+                        {/* Mark as responded (inline) */}
+                        {isPending && !fu.response_received && (
+                          <div style={{ marginTop: 4 }}>
+                            <Button size="small" type="link" style={{ fontSize: 11, padding: 0 }}
+                              onClick={() => {
+                                Modal.confirm({
+                                  title: 'Mark as Responded',
+                                  content: (
+                                    <Input.TextArea
+                                      id="response-summary-input"
+                                      rows={2}
+                                      placeholder="Brief summary of the response..."
+                                    />
+                                  ),
+                                  onOk: () => {
+                                    const el = document.getElementById('response-summary-input') as HTMLTextAreaElement;
+                                    handleMarkResponse(fu, el?.value || 'Response received');
+                                  },
+                                });
+                              }}>
+                              Mark as responded
+                            </Button>
+                          </div>
+                        )}
+
+                        {fu.last_follow_up_date && (
+                          <Text type="secondary" style={{ fontSize: 10, display: 'block', marginTop: 2 }}>
+                            Last follow-up: {dayjs(fu.last_follow_up_date).format('MM/DD HH:mm')}
+                          </Text>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+
+            {/* Info Request Modal */}
+            <Modal
+              title="Request Information"
+              open={infoRequestModalOpen}
+              width={500}
+              onOk={handleSendInfoRequest}
+              onCancel={() => { setInfoRequestModalOpen(false); infoRequestForm.resetFields(); setInfoItems(['']); }}
+              confirmLoading={infoRequestLoading}
+              okText="Send Request"
+            >
+              <Form form={infoRequestForm} layout="vertical" size="small">
+                <Form.Item name="request_to_type" label="Request To" rules={[{ required: true }]} initialValue="public_adjuster">
+                  <Select options={[
+                    { value: 'public_adjuster', label: 'Public Adjuster' },
+                    { value: 'contractor', label: 'Contractor' },
+                  ]} onChange={(v) => {
+                    if (v === 'public_adjuster' && paDisplayInfo?.pa_email) {
+                      infoRequestForm.setFieldsValue({
+                        to_name: paDisplayInfo.pa_name || '',
+                        to_email: paDisplayInfo.pa_email || '',
+                      });
+                    } else {
+                      infoRequestForm.setFieldsValue({ to_name: '', to_email: '' });
+                    }
+                  }} />
+                </Form.Item>
+                <Row gutter={12}>
+                  <Col span={12}>
+                    <Form.Item name="to_name" label="Name">
+                      <Input placeholder="Contact name" />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item name="to_email" label="Email" rules={[{ required: true, type: 'email' }]}>
+                      <Input placeholder="email@example.com" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Form.Item name="email_account_id" label="Send From">
+                  <Select
+                    placeholder="Default email account"
+                    allowClear
+                    options={emailAccounts.map((acc: any) => ({
+                      value: acc.id, label: acc.email_address || acc.name,
+                    }))}
+                  />
+                </Form.Item>
+                <div style={{ marginBottom: 12 }}>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Information Needed</Text>
+                  {infoItems.map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                      <Input
+                        size="small"
+                        placeholder={`e.g., Photos of ${idx === 0 ? 'affected area' : 'damage'}, measurements, etc.`}
+                        value={item}
+                        onChange={e => {
+                          const updated = [...infoItems];
+                          updated[idx] = e.target.value;
+                          setInfoItems(updated);
+                        }}
+                      />
+                      {infoItems.length > 1 && (
+                        <Button size="small" type="text" danger icon={<DeleteOutlined />}
+                          onClick={() => setInfoItems(infoItems.filter((_, i) => i !== idx))} />
+                      )}
+                    </div>
+                  ))}
+                  <Button size="small" type="dashed" icon={<PlusOutlined />}
+                    onClick={() => setInfoItems([...infoItems, ''])}
+                    style={{ width: '100%', marginTop: 2 }}>
+                    Add Item
+                  </Button>
+                </div>
+              </Form>
+            </Modal>
+
+            {/* Follow-ups (general only) */}
+            <Card>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Text strong>Follow-ups ({generalFollowups.length})</Text>
+                <Button size="small" icon={<PhoneOutlined />} onClick={() => setFollowupModalOpen(true)}>
+                  Log Follow-up
+                </Button>
+              </div>
+
+              {generalFollowups.length === 0 ? (
+                <Empty description="No follow-ups yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              ) : (
+                <div>
+                  {generalFollowups.map((fu) => (
+                    <Card
+                      key={fu.id}
+                      size="small"
+                      style={{
+                        marginBottom: 6,
+                        border: fu.response_received ? '1px solid #b7eb8f' : '1px solid #f0f0f0',
+                        background: fu.response_received ? '#f6ffed' : '#fff',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1 }}>
+                          <Space size={6} style={{ marginBottom: 4 }}>
+                            <Tag color={
+                              fu.contact_method === 'email' ? 'blue' :
+                              fu.contact_method === 'phone' ? 'green' :
+                              fu.contact_method === 'text' ? 'purple' : 'default'
+                            }>
+                              {fu.contact_method?.toUpperCase()}
+                            </Tag>
+                            {fu.response_received && <Tag color="success">Response Received</Tag>}
+                          </Space>
+                          {fu.contact_name && (
+                            <div style={{ fontSize: 12 }}>
+                              <Text type="secondary">To: </Text>
+                              <Text>{fu.contact_name}</Text>
+                              {fu.contact_email && <Text type="secondary"> ({fu.contact_email})</Text>}
+                            </div>
+                          )}
+                          {fu.summary && (
+                            <div style={{ fontSize: 12, marginTop: 2 }}>{fu.summary}</div>
+                          )}
+                          {fu.response_summary && (
+                            <div style={{ fontSize: 12, marginTop: 4, padding: '4px 8px', background: '#e6fffb', borderRadius: 4 }}>
+                              <Text type="secondary" style={{ fontSize: 11 }}>Response: </Text>
+                              {fu.response_summary}
+                            </div>
+                          )}
+                        </div>
+                        <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap', marginLeft: 8 }}>
+                          {fu.created_at ? dayjs(fu.created_at).format('MM/DD/YY HH:mm') : ''}
+                        </Text>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </>
+        );
+      })()}
 
       {/* ─── Send to PA Modal ─── */}
       <Modal

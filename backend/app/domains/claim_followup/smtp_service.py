@@ -177,11 +177,25 @@ class SmtpService:
         return msg
 
     def _attach_file(self, msg: MIMEMultipart, attachment: Dict[str, Any]) -> None:
-        """Attach a file to the message"""
-        file_id = attachment.get("file_id")
+        """Attach a file to the message.
+
+        Supports two modes:
+        - file_id: looks up File model and reads from storage
+        - data: raw bytes passed directly (for on-the-fly generated PDFs)
+        """
         filename = attachment.get("filename", "attachment")
         mime_type = attachment.get("mime_type", "application/octet-stream")
 
+        # Mode 1: Raw bytes provided directly
+        raw_data = attachment.get("data")
+        if raw_data and isinstance(raw_data, bytes):
+            part = MIMEApplication(raw_data, Name=filename)
+            part["Content-Disposition"] = f'attachment; filename="{filename}"'
+            msg.attach(part)
+            logger.info(f"Attached file (raw): {filename} ({len(raw_data)} bytes)")
+            return
+
+        file_id = attachment.get("file_id")
         if not file_id:
             return
 

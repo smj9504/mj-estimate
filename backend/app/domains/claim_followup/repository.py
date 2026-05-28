@@ -74,14 +74,16 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         offset = (page - 1) * page_size
         tasks = query.offset(offset).limit(page_size).all()
 
-        # Enrich with claim data + supplement status
+        # Enrich with claim data + supplement status + pending info requests
         # Pre-fetch supplement statuses for all claim_ids in one query
         claim_ids = list(set(str(t.claim_id) for t in tasks if t.claim_id))
         supplement_map = {}
+        info_request_map = {}
         if claim_ids:
             try:
-                from app.domains.supplement.models import SupplementRequest
+                from app.domains.supplement.models import SupplementRequest, SupplementFollowUp
                 from sqlalchemy import func as sqlfunc
+
                 supp_rows = self.db_session.query(
                     SupplementRequest.claim_id,
                     SupplementRequest.status,
@@ -97,6 +99,24 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     if key not in supplement_map:
                         supplement_map[key] = {}
                     supplement_map[key][status] = cnt
+
+                # Pending info requests per claim (via supplement)
+                info_rows = (
+                    self.db_session.query(
+                        SupplementRequest.claim_id,
+                        sqlfunc.count(SupplementFollowUp.id),
+                    )
+                    .join(SupplementFollowUp, SupplementFollowUp.supplement_id == SupplementRequest.id)
+                    .filter(
+                        SupplementRequest.claim_id.in_(claim_ids),
+                        SupplementFollowUp.followup_type == 'info_request',
+                        SupplementFollowUp.info_status.notin_(['resolved']),
+                    )
+                    .group_by(SupplementRequest.claim_id)
+                    .all()
+                )
+                for cid, cnt in info_rows:
+                    info_request_map[str(cid)] = cnt
             except Exception:
                 pass
 
@@ -108,6 +128,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     d['claim_number'] = t.claim.claim_number or ''
                     d['insurance_company'] = t.claim.insurance_company or ''
                     d['supplement_statuses'] = supplement_map.get(str(t.claim_id), {})
+                    d['pending_info_requests'] = info_request_map.get(str(t.claim_id), 0)
                     # Address is on the Client model
                     if hasattr(t.claim, 'client') and t.claim.client:
                         client = t.claim.client

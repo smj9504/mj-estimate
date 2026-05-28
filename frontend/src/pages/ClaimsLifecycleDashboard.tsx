@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { lifecycleService } from '../services/lifecycleService';
-import type { PaymentGap, PendingEstimate } from '../services/lifecycleService';
+import type { PaymentGap, PendingEstimate, WMDocPrep, SupplementWork } from '../services/lifecycleService';
 import type { ColumnsType } from 'antd/es/table';
 
 dayjs.extend(relativeTime);
@@ -54,6 +54,16 @@ const ClaimsLifecycleDashboard: React.FC = () => {
     queryFn: () => lifecycleService.getActiveRebuilds(),
   });
 
+  const { data: wmDocPrep = [], isLoading: docPrepLoading } = useQuery({
+    queryKey: ['lifecycle-wm-doc-prep'],
+    queryFn: () => lifecycleService.getWMDocPrep(),
+  });
+
+  const { data: supplementWork = [], isLoading: suppWorkLoading } = useQuery({
+    queryKey: ['lifecycle-supplement-work'],
+    queryFn: () => lifecycleService.getSupplementWork(),
+  });
+
   const f = stats?.followup;
   const s = stats?.supplement;
   const r = stats?.rebuild;
@@ -90,22 +100,91 @@ const ClaimsLifecycleDashboard: React.FC = () => {
   const pendingEstimateColumns: ColumnsType<PendingEstimate> = [
     {
       title: 'Claim #', dataIndex: 'claim_number', width: 110,
-      render: (v: string) => <Text strong>{v}</Text>,
-    },
-    {
-      title: 'Insurance', dataIndex: 'insurance_company', width: 140, ellipsis: true,
-    },
-    {
-      title: 'Adjuster', dataIndex: 'adjuster_name', width: 130,
-      render: (v?: string) => v || '-',
+      render: (v: string) => <Text strong>{v || '-'}</Text>,
     },
     {
       title: 'Property', dataIndex: 'property_address', ellipsis: true,
       render: (v?: string) => v || '-',
     },
     {
-      title: 'Date of Loss', dataIndex: 'date_of_loss', width: 110,
-      render: (v?: string) => v ? dayjs(v).format('MM/DD/YYYY') : '-',
+      title: 'Adjuster', dataIndex: 'adjuster_name', width: 120,
+      render: (v?: string) => v || '-',
+    },
+    {
+      title: 'Docs Sent', dataIndex: 'documents_sent_date', width: 110,
+      render: (v?: string) => v ? (
+        <Tooltip title={dayjs(v).format('MM/DD/YYYY')}>
+          <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>{dayjs(v).fromNow()}</Text>
+        </Tooltip>
+      ) : '-',
+    },
+  ];
+
+  const wmDocPrepColumns: ColumnsType<WMDocPrep> = [
+    {
+      title: 'Property', dataIndex: 'property_address', ellipsis: true,
+      render: (v?: string) => <Text strong>{v || '-'}</Text>,
+    },
+    {
+      title: 'Homeowner', dataIndex: 'homeowner_name', width: 130, ellipsis: true,
+      render: (v?: string) => v || '-',
+    },
+    {
+      title: 'Insurance', dataIndex: 'insurance_company', width: 130, ellipsis: true,
+      render: (v?: string) => v || '-',
+    },
+    {
+      title: 'Status', dataIndex: 'status', width: 110,
+      render: (v: string) => (
+        <Tag color={v === 'Lead' ? 'orange' : 'cyan'}>{v}</Tag>
+      ),
+    },
+    {
+      title: 'Created', dataIndex: 'created_at', width: 100,
+      render: (v?: string) => v ? dayjs(v).format('MM/DD') : '-',
+    },
+    {
+      title: '', width: 40,
+      render: (_: any, r: WMDocPrep) => (
+        <Button type="link" size="small" onClick={() => navigate(`/water-mitigation/${r.job_id}`)}>
+          <ArrowRightOutlined />
+        </Button>
+      ),
+    },
+  ];
+
+  const supplementWorkColumns: ColumnsType<SupplementWork> = [
+    {
+      title: 'Claim #', dataIndex: 'claim_number', width: 110,
+      render: (v: string, r: SupplementWork) => (
+        <Button type="link" size="small" style={{ padding: 0 }}
+          onClick={() => navigate(`/supplements/${r.supplement_id}`)}>
+          <Text strong>{v || '-'}</Text>
+        </Button>
+      ),
+    },
+    {
+      title: 'Property', dataIndex: 'property_address', ellipsis: true,
+      render: (v?: string) => v || '-',
+    },
+    {
+      title: 'Status', dataIndex: 'status', width: 100,
+      render: (v: string) => (
+        <Tag color={v === 'identified' ? 'orange' : 'blue'}>
+          {v === 'in_progress' ? 'In Progress' : 'Identified'}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Difference', dataIndex: 'difference', width: 110, align: 'right' as const,
+      render: (v: number) => v > 0 ? <Text type="danger" strong>{formatCurrency(v)}</Text> : '-',
+    },
+    {
+      title: 'Priority', dataIndex: 'priority', width: 80,
+      render: (v: string) => {
+        const colors: Record<string, string> = { urgent: 'red', high: 'orange', normal: 'blue', low: 'default' };
+        return <Tag color={colors[v] || 'default'}>{v}</Tag>;
+      },
     },
   ];
 
@@ -267,7 +346,37 @@ const ClaimsLifecycleDashboard: React.FC = () => {
             )}
           </Card>
 
-          {/* Pending Insurance Estimates */}
+          {/* WM Doc Prep - Lead / Doc prepping */}
+          <Card
+            size="small"
+            title={
+              <Space>
+                <FileTextOutlined style={{ color: '#13c2c2' }} />
+                <span>WM Doc Prep</span>
+                <Badge count={wmDocPrep.length} style={{ backgroundColor: '#13c2c2' }} />
+              </Space>
+            }
+            extra={<Button type="link" size="small" onClick={() => navigate('/water-mitigation')}>View All</Button>}
+            style={{ marginBottom: 16 }}
+            loading={docPrepLoading}
+          >
+            {wmDocPrep.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 16, color: '#52c41a' }}>
+                <CheckCircleOutlined style={{ fontSize: 24, marginBottom: 4 }} />
+                <div><Text type="secondary">All documents prepared</Text></div>
+              </div>
+            ) : (
+              <Table
+                dataSource={wmDocPrep.slice(0, 8)}
+                rowKey="job_id"
+                size="small"
+                pagination={false}
+                columns={wmDocPrepColumns}
+              />
+            )}
+          </Card>
+
+          {/* Awaiting Insurance Estimates - Sent to adjuster */}
           <Card
             size="small"
             title={
@@ -277,6 +386,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 <Badge count={pendingEstimates.length} style={{ backgroundColor: '#fa8c16' }} />
               </Space>
             }
+            loading={estimatesLoading}
           >
             {pendingEstimates.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 16 }}>
@@ -285,7 +395,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
             ) : (
               <Table
                 dataSource={pendingEstimates.slice(0, 8)}
-                rowKey="claim_id"
+                rowKey="job_id"
                 size="small"
                 pagination={false}
                 columns={pendingEstimateColumns}
@@ -325,14 +435,44 @@ const ClaimsLifecycleDashboard: React.FC = () => {
             )}
           </Card>
 
+          {/* Supplement Estimates Work */}
+          <Card
+            size="small"
+            title={
+              <Space>
+                <FileTextOutlined style={{ color: '#722ed1' }} />
+                <span>Supplement Estimates</span>
+                <Badge count={supplementWork.length} style={{ backgroundColor: '#722ed1' }} />
+              </Space>
+            }
+            extra={<Button type="link" size="small" onClick={() => navigate('/supplements')}>View All</Button>}
+            style={{ marginBottom: 16 }}
+            loading={suppWorkLoading}
+          >
+            {supplementWork.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 16, color: '#52c41a' }}>
+                <CheckCircleOutlined style={{ fontSize: 24, marginBottom: 4 }} />
+                <div><Text type="secondary">No pending supplement work</Text></div>
+              </div>
+            ) : (
+              <Table
+                dataSource={supplementWork.slice(0, 8)}
+                rowKey="supplement_id"
+                size="small"
+                pagination={false}
+                columns={supplementWorkColumns}
+              />
+            )}
+          </Card>
+
           {/* Active Rebuild Projects */}
           <Card
             size="small"
             title={
               <Space>
-                <ToolOutlined style={{ color: '#722ed1' }} />
+                <ToolOutlined style={{ color: '#fa8c16' }} />
                 <span>Active Rebuild Projects</span>
-                <Badge count={activeRebuilds.length} style={{ backgroundColor: '#722ed1' }} />
+                <Badge count={activeRebuilds.length} style={{ backgroundColor: '#fa8c16' }} />
               </Space>
             }
             extra={<Button type="link" size="small" onClick={() => navigate('/rebuild-projects')}>View All</Button>}
@@ -354,15 +494,15 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                   },
                   {
                     title: 'Contractor', key: 'contractor', width: 130,
-                    render: (_, r: any) => r.contractor_name || <Text type="secondary">-</Text>,
+                    render: (_: any, r: any) => r.contractor_name || <Text type="secondary">-</Text>,
                   },
                   {
-                    title: 'Contract $', dataIndex: 'contract_amount', width: 110, align: 'right',
+                    title: 'Contract $', dataIndex: 'contract_amount', width: 110, align: 'right' as const,
                     render: formatCurrency,
                   },
                   {
-                    title: 'Docs', width: 70, align: 'center',
-                    render: (_, r: any) => {
+                    title: 'Docs', width: 70, align: 'center' as const,
+                    render: (_: any, r: any) => {
                       const sent = [r.coc_sent, r.invoice_sent, r.photos_sent].filter(Boolean).length;
                       return <Badge count={`${sent}/3`}
                         style={{ backgroundColor: sent === 3 ? '#52c41a' : '#faad14' }} />;

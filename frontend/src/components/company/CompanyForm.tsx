@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   Form,
   Input,
@@ -8,10 +8,18 @@ import {
   Space,
   Tabs,
   Select,
+  Upload,
+  message,
+  Typography,
+  Tag,
 } from 'antd';
-import { SaveOutlined, CloseOutlined } from '@ant-design/icons';
+import {
+  SaveOutlined, CloseOutlined, UploadOutlined,
+  FilePdfOutlined, DeleteOutlined, CheckCircleFilled,
+} from '@ant-design/icons';
 import AddressAutocomplete from '../common/AddressAutocomplete';
 import { Company, CompanyFormData, PaymentMethod, PaymentFrequency, CompanyType, COMPANY_TYPE_LABELS } from '../../types';
+import { companyService } from '../../services/companyService';
 import LogoUpload from './LogoUpload';
 import LicenseManager from './LicenseManager';
 import InsuranceManager from './InsuranceManager';
@@ -36,6 +44,12 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [paymentFrequencies, setPaymentFrequencies] = useState<PaymentFrequency[]>([]);
 
+  // W9 state
+  const [w9Info, setW9Info] = useState<{
+    has_w9: boolean; filename: string | null; uploaded_at: string | null;
+  }>({ has_w9: false, filename: null, uploaded_at: null });
+  const [w9Uploading, setW9Uploading] = useState(false);
+
   useEffect(() => {
     // Load payment configurations
     const loadPaymentConfigs = async () => {
@@ -51,7 +65,12 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
       }
     };
     loadPaymentConfigs();
-    
+
+    // Load W9 info if editing
+    if (initialData?.id) {
+      companyService.getW9Info(initialData.id).then(setW9Info).catch(() => {});
+    }
+
     if (initialData) {
       form.setFieldsValue({
         name: initialData.name,
@@ -326,6 +345,89 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
             onChange={setInsurancePolicies}
             disabled={loading}
           />
+        </Tabs.TabPane>
+
+        <Tabs.TabPane tab="Documents" key="documents">
+          {!initialData?.id ? (
+            <Typography.Text type="secondary">
+              Save the company first, then you can upload documents.
+            </Typography.Text>
+          ) : (
+            <div>
+              <Typography.Title level={5}>Company W-9</Typography.Title>
+              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+                Upload your company W-9 form. This will be attached when sending water mitigation documents to insurance adjusters.
+              </Typography.Text>
+
+              {w9Info.has_w9 ? (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '12px 16px', background: '#f6ffed',
+                  border: '1px solid #b7eb8f', borderRadius: 6,
+                }}>
+                  <CheckCircleFilled style={{ color: '#52c41a', fontSize: 20 }} />
+                  <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 18 }} />
+                  <div style={{ flex: 1 }}>
+                    <Typography.Text strong>{w9Info.filename || 'W-9 Document'}</Typography.Text>
+                    {w9Info.uploaded_at && (
+                      <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                        Uploaded: {new Date(w9Info.uploaded_at).toLocaleDateString()}
+                      </Typography.Text>
+                    )}
+                  </div>
+                  <Button
+                    danger size="small" icon={<DeleteOutlined />}
+                    onClick={async () => {
+                      try {
+                        await companyService.deleteW9(initialData.id);
+                        setW9Info({ has_w9: false, filename: null, uploaded_at: null });
+                        message.success('W-9 removed');
+                      } catch {
+                        message.error('Failed to remove W-9');
+                      }
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ) : (
+                <Upload
+                  accept=".pdf,.jpg,.jpeg,.png,.tiff"
+                  showUploadList={false}
+                  beforeUpload={async (file) => {
+                    if (file.size > 10 * 1024 * 1024) {
+                      message.error('File must be less than 10MB');
+                      return false;
+                    }
+                    setW9Uploading(true);
+                    try {
+                      const result = await companyService.uploadW9(initialData!.id, file);
+                      setW9Info({
+                        has_w9: true,
+                        filename: result.filename || file.name,
+                        uploaded_at: new Date().toISOString(),
+                      });
+                      message.success('W-9 uploaded successfully');
+                    } catch {
+                      message.error('Failed to upload W-9');
+                    } finally {
+                      setW9Uploading(false);
+                    }
+                    return false;
+                  }}
+                >
+                  <Button
+                    icon={<UploadOutlined />}
+                    loading={w9Uploading}
+                    type="dashed"
+                    style={{ width: 300 }}
+                  >
+                    Upload W-9 (PDF or Image)
+                  </Button>
+                </Upload>
+              )}
+            </div>
+          )}
         </Tabs.TabPane>
       </Tabs>
 

@@ -40,6 +40,7 @@ export interface FollowUpTask {
   property_address?: string;
   insurance_company?: string;
   supplement_statuses?: Record<string, number>;
+  pending_info_requests?: number;
 }
 
 export interface FollowUpTaskCreate {

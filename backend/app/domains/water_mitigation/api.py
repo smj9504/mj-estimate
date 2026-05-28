@@ -4106,3 +4106,200 @@ def apply_sheet_pa_mappings(db: DatabaseSession = Depends(get_db_session)):
 
     db.commit()
     return {"applied": applied, "total_jobs": len(jobs)}
+
+
+# ============================================================
+# Financial Comparison Endpoint
+# ============================================================
+
+@router.get("/jobs/{job_id}/financial-comparison")
+async def get_financial_comparison(
+    job_id: UUID,
+    db: DatabaseSession = Depends(get_db_session),
+):
+    """Get financial comparison: our invoice vs insurance company's WM estimate.
+
+    Returns our invoice amount + insurance estimate (RCV, depreciation, net ACV)
+    from ClaimNegotiation sections_data or Claim.wm_estimate_amount.
+    """
+    try:
+        from .models import WaterMitigationJob, WMScopeInvoice
+        from app.domains.client.models import Claim, ClaimNegotiation
+        from app.domains.invoice.models import Invoice
+
+        job = db.query(WaterMitigationJob).filter(
+            WaterMitigationJob.id == job_id
+        ).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # --- Our Invoice ---
+        our_invoice = None
+        invoice_link = (
+            db.query(WMScopeInvoice)
+            .filter(WMScopeInvoice.job_id == str(job_id))
+            .order_by(WMScopeInvoice.generated_at.desc())
+            .first()
+        )
+        if invoice_link:
+            invoice = db.query(Invoice).filter(
+                Invoice.id == invoice_link.invoice_id
+            ).first()
+            if invoice:
+                our_invoice = {
+                    "invoice_id": str(invoice.id),
+                    "invoice_number": invoice.invoice_number,
+                    "total_amount": float(invoice.total_amount or 0),
+                    "subtotal": float(invoice.subtotal or 0),
+                    "tax_amount": float(invoice.tax_amount or 0),
+                    "generated_at": invoice_link.generated_at.isoformat() if invoice_link.generated_at else None,
+                }
+        # Fallback to job-level amount
+        if not our_invoice and job.invoice_amount:
+            our_invoice = {
+                "invoice_id": None,
+                "invoice_number": job.invoice_number,
+                "total_amount": float(job.invoice_amount),
+                "subtotal": float(job.invoice_amount),
+                "tax_amount": 0,
+                "generated_at": None,
+            }
+
+        # --- Insurance Estimate ---
+        insurance_estimate = None
+        wm_section = None
+
+        if job.claim_id:
+            claim = db.query(Claim).filter(Claim.id == job.claim_id).first()
+            if claim:
+                # 1) Try to find WM section in latest ClaimNegotiation sections_data
+                latest_neg = (
+                    db.query(ClaimNegotiation)
+                    .filter(ClaimNegotiation.claim_id == job.claim_id)
+                    .order_by(ClaimNegotiation.revision_number.desc())
+                    .first()
+                )
+                if latest_neg and latest_neg.sections_data:
+                    sections = latest_neg.sections_data
+                    if isinstance(sections, list):
+                        for sec in sections:
+                            name = (sec.get('section_name') or '').lower()
+                            if 'water' in name and 'mitig' in name:
+                                wm_section = {
+                                    "section_name": sec.get('section_name', ''),
+                                    "rcv": float(sec.get('rcv') or 0),
+                                    "depreciation": float(sec.get('depreciation') or 0),
+                                    "net_acv": float(sec.get('net_acv') or 0),
+                                    "line_item_total": float(sec.get('line_item_total') or 0),
+                                    "overhead_amount": float(sec.get('overhead_amount') or 0),
+                                    "profit_amount": float(sec.get('profit_amount') or 0),
+                                    "deductible": float(sec.get('deductible') or 0),
+                                }
+                                break
+
+                insurance_estimate = {
+                    "wm_cost_status": claim.wm_cost_status,
+                    "wm_estimate_amount": float(claim.wm_estimate_amount) if claim.wm_estimate_amount else None,
+                    "wm_section": wm_section,
+                    # Claim-level totals for reference
+                    "claim_rcv": float(claim.current_rcv or 0),
+                    "claim_acv": float(claim.current_acv or 0),
+                    "claim_depreciation": float(claim.current_depreciation or 0),
+                    "negotiation_revision": latest_neg.revision_number if latest_neg else None,
+                    "negotiation_type": latest_neg.revision_type if latest_neg else None,
+                    "negotiation_date": latest_neg.date_received.isoformat() if latest_neg and latest_neg.date_received else None,
+                }
+
+        # --- Comparison ---
+        our_total = our_invoice["total_amount"] if our_invoice else 0
+        insurance_total = 0
+        if wm_section:
+            insurance_total = wm_section["rcv"]
+        elif insurance_estimate and insurance_estimate.get("wm_estimate_amount"):
+            insurance_total = insurance_estimate["wm_estimate_amount"]
+
+        difference = our_total - insurance_total if insurance_total > 0 else None
+
+        return {
+            "our_invoice": our_invoice,
+            "insurance_estimate": insurance_estimate,
+            "comparison": {
+                "our_total": our_total,
+                "insurance_total": insurance_total,
+                "difference": difference,
+                "difference_pct": round((difference / insurance_total) * 100, 1) if difference is not None and insurance_total > 0 else None,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting financial comparison: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Adjuster Email Endpoints
+# ============================================================
+
+def get_adjuster_email_service():
+    from .adjuster_email_service import AdjusterEmailService
+    return AdjusterEmailService()
+
+
+@router.get("/jobs/{job_id}/adjuster-email-info")
+async def get_adjuster_email_info(job_id: UUID):
+    """Get adjuster/PA info, document readiness, and email accounts for sending."""
+    service = get_adjuster_email_service()
+    try:
+        info = service.get_adjuster_info(str(job_id))
+        readiness = service.get_document_readiness(str(job_id))
+        return {**info, "documents": readiness}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting adjuster email info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/jobs/{job_id}/generate-adjuster-email")
+async def generate_adjuster_email(
+    job_id: UUID,
+    custom_notes: str = Query("", description="Additional notes to include"),
+):
+    """Generate email template for sending WM documents to adjuster."""
+    service = get_adjuster_email_service()
+    result = service.generate_adjuster_email(str(job_id), custom_notes)
+    if not result.get("subject"):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return result
+
+
+class SendToAdjusterRequest(BaseModel):
+    to_addresses: List[str]
+    cc_addresses: Optional[List[str]] = []
+    bcc_addresses: Optional[List[str]] = []
+    subject: str
+    body_html: str
+    email_account_id: Optional[str] = None
+    selected_documents: Optional[List[str]] = None
+
+
+@router.post("/jobs/{job_id}/send-to-adjuster")
+async def send_to_adjuster(job_id: UUID, data: SendToAdjusterRequest):
+    """Send water mitigation documents to insurance adjuster via email.
+
+    Attaches selected documents (photo_report, invoice, w9, cos, ewa, sketch).
+    BCC can include PA email for copy.
+    """
+    service = get_adjuster_email_service()
+    try:
+        result = service.send_to_adjuster(str(job_id), data.dict())
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error sending to adjuster: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send: {str(e)}",
+        )

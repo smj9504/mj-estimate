@@ -311,6 +311,64 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.patch("/supplements/insurance-estimates/{claim_id}/{negotiation_id}")
+async def update_insurance_estimate(claim_id: str, negotiation_id: str, data: dict):
+    """Update an existing insurance estimate negotiation.
+
+    Request body (all optional):
+    - acv_amount, rcv_amount, depreciation_amount, deductible: float
+    - revision_type: str
+    - date_received, received_from, notes: str
+    - sections_data: list of section objects
+    """
+    try:
+        from app.domains.client.models import ClaimNegotiation
+        database = get_database()
+        session = database.get_session()
+        try:
+            neg = session.query(ClaimNegotiation).filter(
+                ClaimNegotiation.id == negotiation_id,
+                ClaimNegotiation.claim_id == claim_id,
+            ).first()
+            if not neg:
+                raise HTTPException(status_code=404, detail="Negotiation not found")
+
+            updatable_fields = [
+                'acv_amount', 'rcv_amount', 'depreciation_amount', 'deductible',
+                'revision_type', 'date_received', 'received_from', 'notes',
+                'sections_data',
+            ]
+            for field in updatable_fields:
+                if field in data:
+                    setattr(neg, field, data[field])
+
+            session.commit()
+
+            # Return updated record
+            from decimal import Decimal
+            result = {}
+            for col in neg.__table__.columns:
+                val = getattr(neg, col.name)
+                if isinstance(val, Decimal):
+                    val = float(val)
+                elif hasattr(val, 'isoformat'):
+                    val = val.isoformat()
+                elif isinstance(val, (int, float, str, bool, list, dict)) or val is None:
+                    pass
+                else:
+                    val = str(val)
+                result[col.name] = val
+
+            return result
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating insurance estimate: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.patch("/supplements/insurance-estimates/{claim_id}/{negotiation_id}/replace-pdf")
 async def replace_insurance_estimate_pdf(claim_id: str, negotiation_id: str, data: dict):
     """Replace PDF for an existing insurance estimate negotiation.
@@ -464,6 +522,49 @@ async def update_followup(supplement_id: str, followup_id: str, data: Supplement
     if not result:
         raise HTTPException(status_code=404, detail="Follow-up not found")
     return result
+
+
+@router.post("/supplements/{supplement_id}/send-info-request")
+async def send_info_request(supplement_id: str, data: dict):
+    """Send an info request email to PA or contractor and create a followup record.
+
+    Request body:
+    - to_email: str
+    - to_name: str
+    - request_to_type: str (public_adjuster | contractor)
+    - items_needed: list[{description: str}]
+    - subject: str (optional, auto-generated if not provided)
+    - body_html: str (optional, auto-generated if not provided)
+    - email_account_id: str (optional)
+    """
+    service = _get_service()
+    try:
+        result = service.send_info_request(supplement_id, data)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error sending info request: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send: {str(e)}")
+
+
+@router.post("/supplements/{supplement_id}/followups/{followup_id}/resend")
+async def resend_info_request(supplement_id: str, followup_id: str, data: dict = {}):
+    """Resend/follow-up on an existing info request.
+
+    Request body (optional):
+    - additional_message: str
+    - email_account_id: str
+    """
+    service = _get_service()
+    try:
+        result = service.resend_info_request(supplement_id, followup_id, data)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error resending info request: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to resend: {str(e)}")
 
 
 # ============================================================

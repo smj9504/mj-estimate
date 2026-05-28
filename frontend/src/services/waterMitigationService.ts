@@ -1203,6 +1203,118 @@ export const waterMitigationService = {
   },
 };
 
+// ============================================================
+// Financial Comparison
+// ============================================================
+
+export interface WMFinancialComparison {
+  our_invoice: {
+    invoice_id: string | null;
+    invoice_number: string | null;
+    total_amount: number;
+    subtotal: number;
+    tax_amount: number;
+    generated_at: string | null;
+  } | null;
+  insurance_estimate: {
+    wm_cost_status: string | null;
+    wm_estimate_amount: number | null;
+    wm_section: {
+      section_name: string;
+      rcv: number;
+      depreciation: number;
+      net_acv: number;
+      line_item_total: number;
+      overhead_amount: number;
+      profit_amount: number;
+      deductible: number;
+    } | null;
+    claim_rcv: number;
+    claim_acv: number;
+    claim_depreciation: number;
+    negotiation_revision: number | null;
+    negotiation_type: string | null;
+    negotiation_date: string | null;
+  } | null;
+  comparison: {
+    our_total: number;
+    insurance_total: number;
+    difference: number | null;
+    difference_pct: number | null;
+  };
+}
+
+export const financialComparisonService = {
+  get: async (jobId: string): Promise<WMFinancialComparison> => {
+    const response = await api.get(`${BASE_URL}/jobs/${jobId}/financial-comparison`);
+    return response.data;
+  },
+};
+
+// ============================================================
+// Adjuster Email
+// ============================================================
+
+export interface DocumentReadiness {
+  photo_report: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
+  invoice: { ready: boolean; invoice_id?: string | null };
+  w9: { ready: boolean };
+  cos: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
+  ewa: { ready: boolean; document?: { id: string; filename: string; created_at: string } | null };
+  sketch: { ready: boolean };
+  all_ready: boolean;
+}
+
+export interface AdjusterEmailInfo {
+  adjuster: { name: string; email: string; phone: string };
+  pa: { name: string; email: string; company: string };
+  job: {
+    property_address: string;
+    homeowner_name: string;
+    claim_number: string;
+    insurance_company: string;
+    date_of_loss: string;
+    documents_sent_date: string | null;
+  };
+  email_accounts: { id: string; email_address: string; display_name: string }[];
+  documents: DocumentReadiness;
+}
+
+export interface SendToAdjusterPayload {
+  to_addresses: string[];
+  cc_addresses?: string[];
+  bcc_addresses?: string[];
+  subject: string;
+  body_html: string;
+  email_account_id?: string;
+  selected_documents?: string[];
+}
+
+export const adjusterEmailService = {
+  getInfo: async (jobId: string): Promise<AdjusterEmailInfo> => {
+    const response = await api.get(`${BASE_URL}/jobs/${jobId}/adjuster-email-info`);
+    return response.data;
+  },
+
+  generateEmail: async (jobId: string, customNotes: string = ''): Promise<{ subject: string; body_html: string }> => {
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/generate-adjuster-email?custom_notes=${encodeURIComponent(customNotes)}`
+    );
+    return response.data;
+  },
+
+  send: async (jobId: string, payload: SendToAdjusterPayload): Promise<{
+    success: boolean;
+    email_id: string;
+    attachments_count: number;
+    status: string;
+    documents_sent_date: string;
+  }> => {
+    const response = await api.post(`${BASE_URL}/jobs/${jobId}/send-to-adjuster`, payload);
+    return response.data;
+  },
+};
+
 export interface SheetPAMapping {
   sheet_name: string;
   pa_contact_id: string | null;

@@ -50,14 +50,43 @@ export interface PaymentGap {
 }
 
 export interface PendingEstimate {
-  claim_id: string;
+  job_id: string;
   claim_number: string;
   insurance_company?: string;
   adjuster_name?: string;
   adjuster_email?: string;
   property_address?: string;
+  homeowner_name?: string;
+  date_of_loss?: string;
+  documents_sent_date?: string;
+  status: string;
+}
+
+export interface WMDocPrep {
+  job_id: string;
+  claim_number?: string;
+  insurance_company?: string;
+  property_address?: string;
+  homeowner_name?: string;
   date_of_loss?: string;
   status: string;
+  created_at?: string;
+}
+
+export interface SupplementWork {
+  supplement_id: string;
+  claim_id: string;
+  claim_number?: string;
+  title: string;
+  status: string;
+  priority: string;
+  original_amount: number;
+  supplement_amount: number;
+  difference: number;
+  insurance_company?: string;
+  property_address?: string;
+  required_estimates: Record<string, boolean>;
+  created_at?: string;
 }
 
 const BASE = '/api/claims/lifecycle';
@@ -87,6 +116,16 @@ export const lifecycleService = {
 
   async getActiveRebuilds(): Promise<any[]> {
     const { data } = await api.get(`${BASE}/active-rebuilds`);
+    return data;
+  },
+
+  async getWMDocPrep(): Promise<WMDocPrep[]> {
+    const { data } = await api.get(`${BASE}/wm-doc-prep`);
+    return data;
+  },
+
+  async getSupplementWork(): Promise<SupplementWork[]> {
+    const { data } = await api.get(`${BASE}/supplement-work`);
     return data;
   },
 };

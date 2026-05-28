@@ -44,6 +44,9 @@ class Company(Base, BaseModel):
     
     # Logo and branding
     logo = Column(Text)  # Base64 encoded logo
+
+    # Company documents
+    w9_file_id = Column(UUIDType(), nullable=True, comment="File ID for company W-9 document")
     
     # Status
     is_active = Column(Boolean, default=True)

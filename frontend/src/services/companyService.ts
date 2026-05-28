@@ -138,6 +138,31 @@ export const companyService = {
     await apiClient.delete(`/api/companies/${companyId}/contacts/${contactId}`);
   },
 
+  // ── W9 Document ─────────────────────────────────────────────────────────────
+
+  uploadW9: async (companyId: string, file: File): Promise<{ file_id: string; filename: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post(`/api/companies/${companyId}/w9`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  deleteW9: async (companyId: string): Promise<void> => {
+    await apiClient.delete(`/api/companies/${companyId}/w9`);
+  },
+
+  getW9Info: async (companyId: string): Promise<{
+    has_w9: boolean;
+    file_id: string | null;
+    filename: string | null;
+    uploaded_at: string | null;
+  }> => {
+    const response = await apiClient.get(`/api/companies/${companyId}/w9`);
+    return response.data;
+  },
+
   // Link a PA contact to a claim (updates pa_* freetext fields too)
   linkPaContactToClaim: async (
     claimId: string,
