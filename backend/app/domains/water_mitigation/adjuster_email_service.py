@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from app.core.database_factory import get_database
 
@@ -290,11 +291,11 @@ class AdjusterEmailService:
             insurance = job.insurance_company or "N/A"
             homeowner = job.homeowner_name or "N/A"
 
-            # Use adjuster first name for greeting
-            adjuster_name = (job.adjuster_name or "").strip()
-            adjuster_first = adjuster_name.split()[0] if adjuster_name else ""
-
             subject = claim_number
+
+            # Determine greeting based on US Eastern time
+            eastern_now = datetime.now(ZoneInfo("America/New_York"))
+            greeting_time = "Good morning" if eastern_now.hour < 12 else "Good afternoon"
 
             # Get company name
             company_name = ""
@@ -313,9 +314,9 @@ class AdjusterEmailService:
                 )
 
             body_html = f"""
-<p>{adjuster_first + ',' if adjuster_first else 'Hello,'}</p>
+<p>{greeting_time}, I hope this email finds you well.</p>
 
-<p>Please find attached the water mitigation documents for the following claim:</p>
+<p>Please find the attached documentation for the water mitigation work.</p>
 
 <table style="border-collapse:collapse;margin:16px 0;width:100%;max-width:500px;">
   <tr>
@@ -336,19 +337,9 @@ class AdjusterEmailService:
   </tr>
 </table>
 
-<h3 style="margin:20px 0 8px;color:#1a1a1a;font-size:15px;">Attached Documents</h3>
-<ul style="margin:8px 0;padding-left:18px;color:#444;font-size:14px;line-height:1.8;">
-  <li>Photo Report</li>
-  <li>Invoice</li>
-  <li>Company W-9</li>
-  <li>Certificate of Satisfaction (COS)</li>
-  <li>Emergency Work Authorization (EWA)</li>
-  <li>Sketch</li>
-</ul>
-
 {custom_section}
 
-<p>Please review the attached documents and let us know if you have any questions or need additional information.</p>
+<p>I would appreciate a brief confirmation of receipt, and let me know if you have any questions.</p>
 
 <p>Thank you.</p>
 <p>Best regards,<br/>{company_name}</p>
