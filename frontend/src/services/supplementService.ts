@@ -185,6 +185,7 @@ export const supplementService = {
     body_html: string;
     pa_name?: string;
     email_account_id?: string;
+    extra_file_ids?: string[];
   }): Promise<{ success: boolean; email_id: string; attachments_count: number; status: string }> {
     const { data } = await api.post(`${BASE_URL}/${supplementId}/send-to-pa`, payload);
     return data;

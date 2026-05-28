@@ -14,6 +14,8 @@ import type {
   BEFixture,
   BETileZone,
   BEDamageZone,
+  BEDrywallRepairZone,
+  DrywallTextureType,
   BEPoint,
   BEFixtureType,
   BEFixtureProperties,
@@ -26,6 +28,7 @@ import {
   BATHTUB_SURROUND_DEFAULTS,
   DEFAULT_TILE_SPEC,
   TILE_ZONE_COLORS,
+  DEFAULT_DRYWALL_COSTS,
 } from '../../../../types/bathroomSketch';
 import { generateTileZones } from '../utils/beTileZoneGenerator';
 import { findClosedWallLoop } from '../utils/beWallLoop';
@@ -103,6 +106,7 @@ export function useBESketchState(initialData?: BESketchData) {
   const [activeTool, setActiveTool] = useState<BESketchTool>('select');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const [drywallSurface, setDrywallSurface] = useState<'wall' | 'ceiling'>('wall');
 
   const historyRef = useRef<HistoryState>({ past: [], future: [] });
 
@@ -473,6 +477,97 @@ export function useBESketchState(initialData?: BESketchData) {
     [mutate, selectedId],
   );
 
+  // ── Drywall Repair Zone CRUD ──
+
+  const addDrywallRepairZone = useCallback(
+    (boundary: BEPoint[], roomId?: string, surface: 'wall' | 'ceiling' = 'wall') => {
+      const ppf = data.settings.pixelsPerFoot;
+      const repairHeightInches = 96;
+
+      let areaSF: number;
+      if (surface === 'wall') {
+        // boundary = [start, end]; area = lineLengthFt × repairHeightInches/12
+        const dx = boundary[1].x - boundary[0].x;
+        const dy = boundary[1].y - boundary[0].y;
+        const lineLengthFt = Math.sqrt(dx * dx + dy * dy) / ppf;
+        areaSF = Math.round(lineLengthFt * (repairHeightInches / 12) * 100) / 100;
+      } else {
+        // boundary = 4-point rectangle; shoelace formula
+        let areaPx2 = 0;
+        for (let i = 0; i < boundary.length; i++) {
+          const j = (i + 1) % boundary.length;
+          areaPx2 += boundary[i].x * boundary[j].y;
+          areaPx2 -= boundary[j].x * boundary[i].y;
+        }
+        areaSF = Math.round((Math.abs(areaPx2) / 2 / (ppf * ppf)) * 100) / 100;
+      }
+
+      const zone: BEDrywallRepairZone = {
+        id: generateId('dwr'),
+        roomId,
+        surface,
+        boundary,
+        areaSF,
+        repairHeightInches,
+        includeGluing: true,
+        textureType: 'skip_trowel',
+        paintCoats: 2,
+        ...DEFAULT_DRYWALL_COSTS,
+      };
+      mutate((d) => ({
+        ...d,
+        drywallRepairZones: [...(d.drywallRepairZones ?? []), zone],
+      }));
+      return zone.id;
+    },
+    [mutate, data.settings.pixelsPerFoot],
+  );
+
+  const updateDrywallRepairZone = useCallback(
+    (id: string, updates: Partial<BEDrywallRepairZone>) => {
+      mutate((d) => {
+        const ppf = d.settings.pixelsPerFoot;
+        return {
+          ...d,
+          drywallRepairZones: (d.drywallRepairZones ?? []).map((z) => {
+            if (z.id !== id) return z;
+            const merged = { ...z, ...updates };
+            // Recalculate area whenever boundary or height changes
+            if (updates.boundary !== undefined || updates.repairHeightInches !== undefined) {
+              if (merged.surface === 'wall') {
+                const dx = merged.boundary[1].x - merged.boundary[0].x;
+                const dy = merged.boundary[1].y - merged.boundary[0].y;
+                const lineLengthFt = Math.sqrt(dx * dx + dy * dy) / ppf;
+                merged.areaSF = Math.round(lineLengthFt * (merged.repairHeightInches / 12) * 100) / 100;
+              } else {
+                let areaPx2 = 0;
+                for (let i = 0; i < merged.boundary.length; i++) {
+                  const j = (i + 1) % merged.boundary.length;
+                  areaPx2 += merged.boundary[i].x * merged.boundary[j].y;
+                  areaPx2 -= merged.boundary[j].x * merged.boundary[i].y;
+                }
+                merged.areaSF = Math.round((Math.abs(areaPx2) / 2 / (ppf * ppf)) * 100) / 100;
+              }
+            }
+            return merged;
+          }),
+        };
+      });
+    },
+    [mutate],
+  );
+
+  const removeDrywallRepairZone = useCallback(
+    (id: string) => {
+      mutate((d) => ({
+        ...d,
+        drywallRepairZones: (d.drywallRepairZones ?? []).filter((z) => z.id !== id),
+      }));
+      if (selectedId === id) setSelectedId(null);
+    },
+    [mutate, selectedId],
+  );
+
   // ── Settings ──
 
   const updateSettings = useCallback(
@@ -547,6 +642,13 @@ export function useBESketchState(initialData?: BESketchData) {
     // Damage zone ops
     addDamageZone,
     removeDamageZone,
+
+    // Drywall repair zone ops
+    addDrywallRepairZone,
+    updateDrywallRepairZone,
+    removeDrywallRepairZone,
+    drywallSurface,
+    setDrywallSurface,
 
     // Settings
     updateSettings,

@@ -104,6 +104,7 @@ const SupplementDetail: React.FC = () => {
   const [paToEmails, setPaToEmails] = useState<string[]>([]);
   const [paCcEmails, setPaCcEmails] = useState<string[]>([]);
   const [paSelectedAccountId, setPaSelectedAccountId] = useState<string | undefined>();
+  const [paExtraFiles, setPaExtraFiles] = useState<File[]>([]);
 
   const [bidItemForm] = Form.useForm();
   const [followupForm] = Form.useForm();
@@ -250,6 +251,7 @@ const SupplementDetail: React.FC = () => {
       setPaCustomNotes('');
       setPaToEmails(info.pa_email ? [info.pa_email] : []);
       setPaCcEmails((info.cc_emails || []).map((c: any) => c.email));
+      setPaExtraFiles([]);
       if (emailAccounts.length > 0 && !paSelectedAccountId) {
         setPaSelectedAccountId(emailAccounts[0].id);
       }
@@ -277,6 +279,13 @@ const SupplementDetail: React.FC = () => {
     }
     setSendPaLoading(true);
     try {
+      // Upload extra files first if any
+      let extraFileIds: string[] = [];
+      if (paExtraFiles.length > 0) {
+        const uploaded = await fileService.uploadFiles(paExtraFiles, 'supplement', supplement.id, 'pa_attachment');
+        extraFileIds = uploaded.map(f => f.id);
+      }
+
       const result = await supplementService.sendToPa(supplement.id, {
         to_addresses: paToEmails,
         cc_addresses: paCcEmails,
@@ -284,6 +293,7 @@ const SupplementDetail: React.FC = () => {
         body_html: paEmailContent.body_html,
         pa_name: paInfo.pa_name,
         email_account_id: paSelectedAccountId,
+        extra_file_ids: extraFileIds,
       });
       message.success(`Sent to PA with ${result.attachments_count} PDF attachment(s)`);
       setSendPaModalOpen(false);
@@ -1289,6 +1299,31 @@ const SupplementDetail: React.FC = () => {
                   <Text type="secondary">No PDFs attached</Text>
                 )}
               </Space>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>Additional Attachments (optional):</Text>
+              <Upload
+                multiple
+                beforeUpload={(file) => {
+                  setPaExtraFiles(prev => [...prev, file]);
+                  return false;
+                }}
+                onRemove={(file) => {
+                  setPaExtraFiles(prev => prev.filter(f => f.name !== file.name || f.size !== file.size));
+                }}
+                fileList={paExtraFiles.map((f, i) => ({
+                  uid: `extra-${i}`,
+                  name: f.name,
+                  size: f.size,
+                  type: f.type,
+                  status: 'done' as const,
+                  originFileObj: f as any,
+                }))}
+                showUploadList={{ showRemoveIcon: true }}
+              >
+                <Button size="small" icon={<UploadOutlined />}>Add Files</Button>
+              </Upload>
             </div>
           </div>
         )}

@@ -42,6 +42,7 @@ import {
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { BATHROOM_PRESETS, type BathroomPreset } from './utils/bePresets';
 import BETileCalculationPanel from './BETileCalculationPanel';
+import BEDrywallRepairPanel from './BEDrywallRepairPanel';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -77,6 +78,7 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
     removeRoom,
     removeWall,
     removeDamageZone,
+    removeDrywallRepairZone,
   } = api;
 
   const selectedFixture = data.fixtures.find((f) => f.id === selectedId);
@@ -111,8 +113,10 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
       removeWall(selectedId);
     } else if (data.damageZones.find((z) => z.id === selectedId)) {
       removeDamageZone(selectedId);
+    } else if ((data.drywallRepairZones ?? []).find((z) => z.id === selectedId)) {
+      removeDrywallRepairZone(selectedId);
     }
-  }, [selectedId, selectedFixture, selectedRoom, data.walls, data.damageZones, removeFixture, removeRoom, removeWall, removeDamageZone]);
+  }, [selectedId, selectedFixture, selectedRoom, data.walls, data.damageZones, data.drywallRepairZones, removeFixture, removeRoom, removeWall, removeDamageZone, removeDrywallRepairZone]);
 
   // ── Apply preset template ──
   const handleApplyPreset = useCallback(
@@ -291,6 +295,24 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
                     ppf={data.settings.pixelsPerFoot}
                     api={api}
                   />
+                ) : (data.drywallRepairZones ?? []).find((z) => z.id === selectedId) ? (
+                  (() => {
+                    const zone = (data.drywallRepairZones ?? []).find((z) => z.id === selectedId)!;
+                    const roomName = zone.roomId ? data.rooms.find((r) => r.id === zone.roomId)?.name : undefined;
+                    return (
+                      <div style={{ fontSize: 12 }}>
+                        <Text strong>Drywall Repair Zone</Text>
+                        {roomName && <Tag color="orange" style={{ marginLeft: 6 }}>{roomName}</Tag>}
+                        <Divider style={{ margin: '6px 0' }} />
+                        <div>Area: <strong>{zone.areaSF} SF</strong></div>
+                        <div>Height: <strong>{zone.repairHeightInches}"</strong></div>
+                        <div>Texture: <strong>{zone.textureType.replace(/_/g, ' ')}</strong></div>
+                        <div style={{ marginTop: 4, color: '#888', fontSize: 11 }}>
+                          Edit details in the Drywall Repair panel below.
+                        </div>
+                      </div>
+                    );
+                  })()
                 ) : (
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     Damage zone selected.
@@ -320,6 +342,19 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
             children: <BETileCalculationPanel api={api} />,
           },
           {
+            key: 'drywall_repair',
+            label: (
+              <Text strong>
+                Drywall Repair{(data.drywallRepairZones ?? []).length > 0 && (
+                  <Tag color="orange" style={{ marginLeft: 6, fontSize: 10 }}>
+                    {(data.drywallRepairZones ?? []).length}
+                  </Tag>
+                )}
+              </Text>
+            ),
+            children: <BEDrywallRepairPanel api={api} />,
+          },
+          {
             key: 'summary',
             label: <Text strong>Summary</Text>,
             children: (
@@ -329,6 +364,7 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
                 <div>Fixtures: <Tag>{data.fixtures.length}</Tag></div>
                 <div>Tile Zones: <Tag>{data.tileZones.length}</Tag></div>
                 <div>Damage Zones: <Tag>{data.damageZones.length}</Tag></div>
+                <div>Drywall Repair: <Tag color="orange">{(data.drywallRepairZones ?? []).length}</Tag></div>
               </div>
             ),
           },

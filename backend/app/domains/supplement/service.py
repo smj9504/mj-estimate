@@ -587,6 +587,19 @@ class SupplementService:
                         "mime_type": "application/pdf",
                     })
 
+            # Add manually uploaded extra files
+            extra_file_ids = data.get("extra_file_ids") or []
+            if extra_file_ids:
+                from app.domains.file.models import File as FileModel
+                for file_id in extra_file_ids:
+                    file_rec = session.query(FileModel).filter(FileModel.id == file_id).first()
+                    if file_rec:
+                        attachments.append({
+                            "filename": file_rec.original_name or file_rec.filename,
+                            "file_id": file_id,
+                            "mime_type": file_rec.content_type or "application/octet-stream",
+                        })
+
             to_addresses = data.get("to_addresses", [])
             cc_addresses = data.get("cc_addresses", [])
             subject = data.get("subject", "")

@@ -17,7 +17,8 @@ export type BESketchTool =
   | 'fixture'
   | 'measure'
   | 'tile_zone'
-  | 'damage_zone';
+  | 'damage_zone'
+  | 'drywall_repair';
 
 // =====================
 // Fixture Types
@@ -243,6 +244,50 @@ export interface BEDamageZone {
 }
 
 // =====================
+// Drywall Repair Zones
+// =====================
+
+export type DrywallTextureType =
+  | 'skip_trowel'
+  | 'orange_peel'
+  | 'knockdown'
+  | 'flat'
+  | 'smooth';
+
+export interface BEDrywallRepairZone {
+  id: string;
+  /** Associated room ID */
+  roomId?: string;
+  /**
+   * wall  → boundary has 2 points [start, end]; area = lineLengthFt × repairHeightInches/12
+   * ceiling → boundary has 4 points (rectangle); area from polygon
+   */
+  surface: 'wall' | 'ceiling';
+  /** Boundary points: 2 pts for wall line, 4 pts for ceiling rectangle */
+  boundary: BEPoint[];
+  /** Area in SF */
+  areaSF: number;
+  /** Wall repair height in inches (used only for surface=wall; default 96 = 8 ft) */
+  repairHeightInches: number;
+  /** Optional label */
+  label?: string;
+  /** Include gluing (cement board or drywall adhesive) */
+  includeGluing: boolean;
+  /** Texture type to apply after installation */
+  textureType: DrywallTextureType;
+  /** Number of paint coats (default 2) */
+  paintCoats: number;
+  /** Drywall board material cost per SF */
+  drywallMaterialCostPerSF: number;
+  /** Drywall install + gluing labor cost per SF */
+  drywallLaborCostPerSF: number;
+  /** Texture application cost per SF */
+  textureCostPerSF: number;
+  /** Prime + paint cost per SF (all coats combined) */
+  paintCostPerSF: number;
+}
+
+// =====================
 // Sketch Document
 // =====================
 
@@ -259,6 +304,8 @@ export interface BESketchData {
   tileZones: BETileZone[];
   /** Damage zones */
   damageZones: BEDamageZone[];
+  /** Drywall repair zones */
+  drywallRepairZones: BEDrywallRepairZone[];
   /** Canvas settings */
   settings: BESketchSettings;
 }
@@ -278,6 +325,8 @@ export interface BESketchSettings {
   showTileZones: boolean;
   /** Show damage zones */
   showDamageZones: boolean;
+  /** Show drywall repair zones */
+  showDrywallRepairZones: boolean;
   /** Snap to grid */
   snapToGrid: boolean;
   /** Snap tolerance in pixels */
@@ -298,6 +347,7 @@ export const DEFAULT_BE_SKETCH_SETTINGS: BESketchSettings = {
   showAreaLabels: true,
   showTileZones: true,
   showDamageZones: true,
+  showDrywallRepairZones: true,
   snapToGrid: true,
   snapTolerance: 8,
   backgroundColor: '#ffffff',
@@ -310,7 +360,16 @@ export const EMPTY_BE_SKETCH: BESketchData = {
   fixtures: [],
   tileZones: [],
   damageZones: [],
+  drywallRepairZones: [],
   settings: { ...DEFAULT_BE_SKETCH_SETTINGS },
+};
+
+/** Default cost rates for drywall repair */
+export const DEFAULT_DRYWALL_COSTS = {
+  drywallMaterialCostPerSF: 1.50,
+  drywallLaborCostPerSF: 3.50,
+  textureCostPerSF: 1.50,
+  paintCostPerSF: 2.20,
 };
 
 export const DEFAULT_TILE_SPEC: BETileSpec = {

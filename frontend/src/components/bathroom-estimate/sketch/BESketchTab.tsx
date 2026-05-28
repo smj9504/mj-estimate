@@ -443,6 +443,9 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         <span>W:{api.data.walls.length}</span>
         <span>R:{api.data.rooms.length}</span>
         <span>F:{api.data.fixtures.length}</span>
+        {(api.data.drywallRepairZones ?? []).length > 0 && (
+          <span style={{ color: '#d46b08' }}>DW:{api.data.drywallRepairZones.length}</span>
+        )}
         {!isMobile && <span>Scale: {api.data.settings.pixelsPerFoot} px/ft</span>}
         {api.selectedId && !isMobile && <span>Selected: {api.selectedId.slice(0, 15)}</span>}
       </div>

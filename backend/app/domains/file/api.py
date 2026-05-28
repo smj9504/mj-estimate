@@ -52,13 +52,16 @@ async def upload_files(
                         'application/vnd.ms-excel',
                         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                         'text/plain', 'text/csv']
+        # Extensions allowed regardless of MIME type (e.g. Xactimate .esx)
+        allowed_extensions = {'.esx', '.esc', '.exc'}
         max_file_size = 20 * 1024 * 1024  # 20MB
 
         uploaded_files = []
 
         for file in files:
-            # Validate file type
-            if not service.validate_file_type(file.content_type, allowed_types):
+            # Validate file type (by MIME type or extension)
+            file_ext = Path(file.filename).suffix.lower() if file.filename else ''
+            if not service.validate_file_type(file.content_type, allowed_types) and file_ext not in allowed_extensions:
                 raise HTTPException(
                     status_code=400,
                     detail=f"File type {file.content_type} not allowed for {file.filename}"
