@@ -71,6 +71,7 @@ class CompanyUpdate(BaseModel):
     payment_method_id: Optional[str] = None
     payment_frequency_id: Optional[str] = None
     logo: Optional[str] = None
+    w9_file_id: Optional[str] = None
     is_active: Optional[bool] = None
     is_default: Optional[bool] = None
 

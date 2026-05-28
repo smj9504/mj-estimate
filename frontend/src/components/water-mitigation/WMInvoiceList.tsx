@@ -24,7 +24,7 @@ import {
   DollarOutlined,
   DeleteOutlined,
   EyeOutlined,
-  PrinterOutlined,
+  DownloadOutlined,
   CalendarOutlined
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -44,6 +44,7 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
     const [invoiceHistory, setInvoiceHistory] = useState<JobInvoiceHistoryResponse | null>(null);
     const [loading, setLoading] = useState(false);
     const [deleting, setDeleting] = useState<string | null>(null);
+    const [downloading, setDownloading] = useState<string | null>(null);
 
     const fetchInvoiceHistory = useCallback(async () => {
       setLoading(true);
@@ -72,9 +73,18 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
       navigate(`/invoices/${invoiceId}/edit`);
     };
 
-    const handlePrintInvoice = (invoiceId: string) => {
-      // Open invoice in print mode
-      window.open(`/invoices/${invoiceId}/edit?print=true`, '_blank');
+    const handleDownloadPdf = async (invoice: WMScopeInvoiceResponse) => {
+      setDownloading(invoice.invoice_id);
+      try {
+        const filename = `Invoice_${invoice.invoice_number || 'unknown'}.pdf`;
+        await waterMitigationService.scopeInvoice.downloadPdf(invoice.invoice_id, filename);
+        message.success('Invoice PDF downloaded');
+      } catch (error) {
+        console.error('Failed to download invoice PDF:', error);
+        message.error('Failed to download invoice PDF');
+      } finally {
+        setDownloading(null);
+      }
     };
 
     const handleDeleteInvoice = async (invoiceId: string) => {
@@ -173,12 +183,13 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
                   View
                 </Button>,
                 <Button
-                  key="print"
+                  key="download"
                   type="link"
-                  icon={<PrinterOutlined />}
-                  onClick={() => handlePrintInvoice(invoice.invoice_id)}
+                  icon={<DownloadOutlined />}
+                  loading={downloading === invoice.invoice_id}
+                  onClick={() => handleDownloadPdf(invoice)}
                 >
-                  Print
+                  PDF
                 </Button>,
                 <Popconfirm
                   key="delete"

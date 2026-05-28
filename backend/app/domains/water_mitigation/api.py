@@ -2735,7 +2735,7 @@ async def generate_photo_report(
 
         logger.info(f"Report generated: {output_path}")
 
-        # Create file record in database
+        # Create/update file record in database
         import os
 
         from app.domains.file.repository import FileRepository
@@ -2756,10 +2756,39 @@ async def generate_photo_report(
         }
 
         created_file = file_repo.create(file_data)
-        db.commit()
 
         file_id = created_file.get('id') if isinstance(created_file, dict) else str(created_file.id)
         logger.info(f"Created file record: {file_id}")
+
+        # Upsert WMDocument record so report appears in Documents tab
+        from .document_repository import WMDocumentRepository
+        doc_repo = WMDocumentRepository(db)
+        existing_docs = doc_repo.get_by_job_and_type(str(job_id), 'photo_report')
+
+        if existing_docs:
+            # Update existing document (avoid duplicates on regeneration)
+            existing_doc = existing_docs[0]
+            existing_doc.filename = filename
+            existing_doc.file_path = str(output_path)
+            existing_doc.file_size = file_size
+            existing_doc.is_active = True
+            db.add(existing_doc)
+            logger.info(f"Updated existing WMDocument {existing_doc.id} for photo_report")
+        else:
+            # Create new WMDocument
+            doc_repo.create({
+                "job_id": str(job_id),
+                "document_type": "photo_report",
+                "filename": filename,
+                "file_path": str(output_path),
+                "file_size": file_size,
+                "mime_type": "application/pdf",
+                "title": "Water Mitigation Photo Report",
+                "is_active": True,
+            })
+            logger.info(f"Created new WMDocument for photo_report")
+
+        db.commit()
 
         # Return the PDF file directly for preview/download
         return FileResponse(

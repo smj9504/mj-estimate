@@ -365,7 +365,8 @@ async def upload_w9(
         file_id = str(uploaded.get('id') or uploaded.get('file_id', ''))
 
         # Update company w9_file_id
-        updated = service.update_company(company_id, {'w9_file_id': file_id})
+        from .schemas import CompanyUpdate
+        updated = service.update(company_id, CompanyUpdate(w9_file_id=file_id))
         if not updated:
             raise HTTPException(status_code=404, detail="Company not found")
 
@@ -388,9 +389,18 @@ async def delete_w9(
 ):
     """Remove company W-9 document."""
     try:
-        updated = service.update_company(company_id, {'w9_file_id': None})
-        if not updated:
-            raise HTTPException(status_code=404, detail="Company not found")
+        from app.domains.company.models import Company as CompanyModel
+        from app.core.database_factory import get_database
+        database = get_database()
+        session = database.get_session()
+        try:
+            company = session.query(CompanyModel).filter(CompanyModel.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+            company.w9_file_id = None
+            session.commit()
+        finally:
+            session.close()
         return {"success": True}
     except HTTPException:
         raise
@@ -406,7 +416,7 @@ async def get_w9_info(
 ):
     """Get W-9 file info for a company."""
     try:
-        company = service.get_company(company_id)
+        company = service.get_by_id(company_id)
         if not company:
             raise HTTPException(status_code=404, detail="Company not found")
 

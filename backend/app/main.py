@@ -7,7 +7,14 @@ Main application entry point with comprehensive database abstraction system
 # These are harmless warnings from Linux libraries running on Windows
 import os
 
-os.environ.setdefault('FONTCONFIG_FILE', 'NUL')
+_fontconfig_path = os.path.join(
+    os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
+)
+if os.path.isdir(_fontconfig_path):
+    os.environ['FONTCONFIG_PATH'] = _fontconfig_path
+    os.environ.pop('FONTCONFIG_FILE', None)  # Remove conflicting var
+else:
+    os.environ.setdefault('FONTCONFIG_FILE', 'NUL')
 os.environ.setdefault('G_SLICE', 'always-malloc')
 
 # Suppress GLib warnings

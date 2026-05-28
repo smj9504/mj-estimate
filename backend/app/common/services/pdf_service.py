@@ -416,6 +416,11 @@ class PDFService:
             logger.error(traceback.format_exc())
             raise
 
+        # Strip logo for subprocess PDF (base64 logos crash WeasyPrint
+        # subprocess on Windows). Logo still renders fine in HTML preview.
+        if 'company' in context and isinstance(context['company'], dict):
+            context['company']['logo'] = None
+
         # Load template - default to modern template
         template_path = f"invoice/general_invoice.html"
         logger.info(f"Loading template: {template_path}")
@@ -423,29 +428,161 @@ class PDFService:
         html_content = template.render(**context)
         logger.info(f"Template rendered, HTML length: {len(html_content)}")
 
-        # general_invoice.html has inline CSS, so no external stylesheets needed
-        stylesheets = []
+        # Collect CSS strings for subprocess
+        css_strings = []
 
-        # Add header/footer CSS - same as estimate PDF generation
-        logger.info("Attempting to generate header/footer CSS...")
+        # Add invoice-specific header/footer CSS
+        logger.info("Generating invoice header/footer CSS...")
         try:
-            header_footer_css = self._generate_header_footer_css(context)
-            stylesheets.append(CSS(string=header_footer_css))
-            logger.info("Header/footer CSS added to invoice PDF")
+            hf_css = self._generate_invoice_header_footer_css(context)
+            css_strings.append(hf_css)
+            logger.info("Invoice header/footer CSS added")
         except Exception as e:
-            logger.error(f"Error generating header/footer CSS for invoice: {e}")
+            logger.error(f"Error generating header/footer CSS: {e}")
             logger.error(traceback.format_exc())
 
-        # Generate PDF
+        # Generate PDF via subprocess
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        HTML(string=html_content).write_pdf(
-            output_path,
-            stylesheets=stylesheets
-        )
+        logger.info("Starting write_pdf for invoice (subprocess)...")
+        try:
+            self._write_pdf_subprocess(
+                html_content, css_strings, str(output_path)
+            )
+            logger.info(
+                f"write_pdf completed. File size: "
+                f"{output_path.stat().st_size} bytes"
+            )
+        except Exception as e:
+            logger.error(f"write_pdf FAILED: {e}")
+            logger.error(traceback.format_exc())
+            raise
 
         return str(output_path)
+
+    def _write_pdf_subprocess(
+        self, html_content: str, css_strings: list, output_path: str
+    ) -> None:
+        """Run WeasyPrint write_pdf in a separate script file to avoid
+        GLib/event-loop conflicts in the uvicorn process.
+
+        Args:
+            html_content: HTML string to render
+            css_strings: List of raw CSS strings
+            output_path: Output PDF file path
+        """
+        import subprocess
+        import tempfile
+        import json
+
+        logger = logging.getLogger(__name__)
+
+        # Save HTML to temp file
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.html', delete=False, encoding='utf-8'
+        ) as f:
+            f.write(html_content)
+            html_path = f.name
+
+        # Save CSS strings to temp file
+        css_path = None
+        if css_strings:
+            with tempfile.NamedTemporaryFile(
+                mode='w', suffix='.json', delete=False, encoding='utf-8'
+            ) as f:
+                json.dump(css_strings, f)
+                css_path = f.name
+
+        # Write a standalone script file instead of -c inline
+        script_content = """
+import sys, json, os
+os.environ['FONTCONFIG_PATH'] = os.path.join(
+    os.path.expanduser('~'), 'anaconda3', 'Library', 'etc', 'fonts'
+)
+os.environ.pop('FONTCONFIG_FILE', None)
+
+html_path = sys.argv[1]
+output_path = sys.argv[2]
+css_path = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] != 'None' else None
+
+from weasyprint import HTML, CSS
+
+stylesheets = []
+if css_path:
+    with open(css_path, 'r', encoding='utf-8') as f:
+        for s in json.load(f):
+            stylesheets.append(CSS(string=s))
+
+with open(html_path, 'r', encoding='utf-8') as f:
+    html = f.read()
+
+HTML(string=html).write_pdf(output_path, stylesheets=stylesheets)
+print(os.path.getsize(output_path))
+"""
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.py', delete=False, encoding='utf-8'
+        ) as f:
+            f.write(script_content)
+            script_path = f.name
+
+        try:
+            import sys
+            python_exe = sys.executable
+
+            cmd = [python_exe, script_path, html_path, output_path]
+            if css_path:
+                cmd.append(css_path)
+            else:
+                cmd.append('None')
+
+            logger.info(
+                f"Subprocess PDF: html={len(html_content)} chars, "
+                f"css_count={len(css_strings)}"
+            )
+
+            # Use clean environment to avoid inheriting GLib state
+            env = os.environ.copy()
+            env.pop('G_SLICE', None)
+            env['FONTCONFIG_PATH'] = os.path.join(
+                os.path.expanduser('~'),
+                'anaconda3', 'Library', 'etc', 'fonts'
+            )
+            env.pop('FONTCONFIG_FILE', None)
+
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=60, env=env
+            )
+
+            logger.info(
+                f"Subprocess result: rc={result.returncode}, "
+                f"stdout={result.stdout.strip()}, "
+                f"stderr={result.stderr[:300] if result.stderr else ''}"
+            )
+
+            out_path = Path(output_path)
+            if not out_path.exists() or out_path.stat().st_size == 0:
+                raise RuntimeError(
+                    f"PDF subprocess failed (rc={result.returncode}): "
+                    f"{result.stderr[:500]}"
+                )
+
+            # Validate PDF header
+            with open(output_path, 'rb') as f:
+                header = f.read(5)
+            if header != b'%PDF-':
+                raise RuntimeError(
+                    f"Invalid PDF output (header={header!r})"
+                )
+
+        finally:
+            for p in [html_path, css_path, script_path]:
+                if p:
+                    try:
+                        os.unlink(p)
+                    except Exception:
+                        pass
 
     def generate_invoice_html(self, data: Dict[str, Any]) -> str:
         """
@@ -1201,19 +1338,16 @@ class PDFService:
         
         return context
     
-    def _generate_header_footer_css(self, context: Dict[str, Any]) -> str:
-        """Generate CSS for PDF headers and footers"""
-        import logging
-        logger = logging.getLogger(__name__)
-
+    def _generate_header_footer_css(
+        self, context: Dict[str, Any]
+    ) -> str:
+        """Generate CSS for estimate PDF headers and footers.
+        Shows company info (top-left), client info (top-right),
+        page number (bottom-center), and generated date (bottom-right).
+        """
         company = context.get('company', {})
         client = context.get('client', {})
 
-        logger.info(f"=== Header/Footer CSS Generation ===")
-        logger.info(f"Company data: {company}")
-        logger.info(f"Client data: {client}")
-
-        # Build company info text
         company_lines = []
         if company.get('name'):
             company_lines.append(company['name'])
@@ -1223,10 +1357,8 @@ class PDFService:
             company_lines.append(f"Tel: {company['phone']}")
         if company.get('email'):
             company_lines.append(company['email'])
-
         company_text = '\\A '.join(company_lines)
 
-        # Build client info text
         client_lines = []
         if client.get('name'):
             client_lines.append(client['name'])
@@ -1234,19 +1366,16 @@ class PDFService:
             client_lines.append(client['address'])
         if client.get('phone'):
             client_lines.append(f"Tel: {client['phone']}")
-
         client_text = '\\A '.join(client_lines)
 
-        logger.info(f"Company text for header: {company_text}")
-        logger.info(f"Client text for header: {client_text}")
-
-        css = f"""
+        return f"""
         @page {{
             size: A4;
             margin: 2.5cm 2cm 2cm 2cm;
 
             @top-left {{
                 content: "{company_text}";
+                font-family: Arial, sans-serif;
                 font-size: 9pt;
                 white-space: pre;
                 padding-top: 10px;
@@ -1254,6 +1383,7 @@ class PDFService:
 
             @top-right {{
                 content: "{client_text}";
+                font-family: Arial, sans-serif;
                 font-size: 9pt;
                 white-space: pre;
                 text-align: right;
@@ -1262,11 +1392,13 @@ class PDFService:
 
             @bottom-center {{
                 content: "Page " counter(page) " of " counter(pages);
+                font-family: Arial, sans-serif;
                 font-size: 9pt;
             }}
 
             @bottom-right {{
                 content: "Generated on {datetime.now().strftime('%Y-%m-%d')}";
+                font-family: Arial, sans-serif;
                 font-size: 8pt;
                 color: #666;
             }}
@@ -1283,8 +1415,16 @@ class PDFService:
         }}
         """
 
-        logger.info(f"Generated header/footer CSS length: {len(css)}")
-        return css
+    def _generate_invoice_header_footer_css(
+        self, context: Dict[str, Any]
+    ) -> str:
+        """Generate CSS for invoice PDF - no header/footer content."""
+        return """
+        @page {
+            size: A4;
+            margin: 1.2cm 2cm 2cm 2cm;
+        }
+        """
     
     def _generate_invoice_number(self) -> str:
         """Generate unique invoice number"""

@@ -983,6 +983,22 @@ export const waterMitigationService = {
       return response.data;
     },
 
+    // Download invoice PDF
+    downloadPdf: async (invoiceId: string, filename?: string): Promise<void> => {
+      const response = await api.post(`/api/invoices/${invoiceId}/pdf`, {}, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename || `invoice.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    },
+
     // Delete a WM invoice and reset scope items
     deleteInvoice: async (invoiceId: string): Promise<{
       success: boolean;
