@@ -28,6 +28,7 @@ import {
   Descriptions,
   Divider,
   Tabs,
+  Popconfirm,
 } from 'antd';
 import {
   PlusOutlined,
@@ -196,13 +197,18 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
     return () => { cancelled = true; };
   }, [claimId]);
 
+  const [editReplacePdf, setEditReplacePdf] = useState<File | undefined>();
+  const [editParsing, setEditParsing] = useState(false);
+
   const startEdit = (ver: any) => {
     setEditingId(ver.id);
+    setEditReplacePdf(undefined);
     setEditValues({
       rcv_amount: ver.rcv_amount || 0,
       acv_amount: ver.acv_amount || 0,
       depreciation_amount: ver.depreciation_amount || 0,
       deductible: ver.deductible || 0,
+      estimate_category: ver.estimate_category || null,
       sections_data: ver.sections_data ? JSON.parse(JSON.stringify(ver.sections_data)) : [],
     });
   };
@@ -210,15 +216,26 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
   const cancelEdit = () => {
     setEditingId(null);
     setEditValues({});
+    setEditReplacePdf(undefined);
   };
 
   const saveEdit = async (ver: any) => {
     setSaving(true);
     try {
+      // If PDF replaced, upload file first then replace on negotiation
+      if (editReplacePdf) {
+        const uploaded = await fileService.uploadFiles(
+          [editReplacePdf], 'negotiation', ver.id, 'estimate', 'Insurance estimate PDF'
+        );
+        if (uploaded?.[0]?.id) {
+          await supplementService.replaceInsuranceEstimatePdf(claimId, ver.id, uploaded[0].id);
+        }
+      }
       await supplementService.updateInsuranceEstimate(claimId, ver.id, editValues);
       message.success('Estimate updated');
       setEditingId(null);
       setEditValues({});
+      setEditReplacePdf(undefined);
       setLoading(true);
       await loadData();
     } catch (err: any) {
@@ -226,6 +243,24 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const addEditSection = () => {
+    const sections = [...(editValues.sections_data || []), { section_name: '', rcv: 0, depreciation: 0, net_acv: 0 }];
+    setEditValues({ ...editValues, sections_data: sections });
+  };
+
+  const removeEditSection = (idx: number) => {
+    const sections = (editValues.sections_data || []).filter((_: any, i: number) => i !== idx);
+    const totalRcv = sections.reduce((s: number, sec: any) => s + (sec.rcv || 0), 0);
+    const totalDep = sections.reduce((s: number, sec: any) => s + (sec.depreciation || 0), 0);
+    setEditValues({
+      ...editValues,
+      sections_data: sections,
+      rcv_amount: Math.round(totalRcv * 100) / 100,
+      acv_amount: Math.round((totalRcv - totalDep) * 100) / 100,
+      depreciation_amount: Math.round(totalDep * 100) / 100,
+    });
   };
 
   const updateEditSection = (idx: number, field: string, value: any) => {
@@ -246,6 +281,17 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
       acv_amount: Math.round((totalRcv - totalDep) * 100) / 100,
       depreciation_amount: Math.round(totalDep * 100) / 100,
     });
+  };
+
+  const handleDelete = async (ver: any) => {
+    try {
+      await supplementService.deleteInsuranceEstimate(claimId, ver.id);
+      message.success('Estimate deleted');
+      setLoading(true);
+      await loadData();
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to delete');
+    }
   };
 
   if (loading) return <div style={{ textAlign: 'center', padding: 16 }}><Text type="secondary">Loading...</Text></div>;
@@ -295,8 +341,11 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
             const hasWm = !!grouped['wm'];
             const hasReconstruction = !!grouped['reconstruction'];
 
-            const isWmEstimate = ver.notes?.includes('Water Mitigation') ||
+            const isWmEstimate = ver.estimate_category === 'water_mitigation' ||
+              ver.notes?.includes('Water Mitigation') ||
               (hasSections && hasWm && !hasReconstruction && !grouped['other']);
+            const isReconEstimate = ver.estimate_category === 'reconstruction';
+            const isCombinedEstimate = ver.estimate_category === 'combined';
 
             const dispRcv = isEditing ? editValues.rcv_amount : ver.rcv_amount;
             const dispAcv = isEditing ? editValues.acv_amount : ver.acv_amount;
@@ -327,13 +376,15 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                         {ver.revision_type?.replace('_', ' ').toUpperCase()}
                       </Tag>
                       {idx === 0 && <Tag color="processing" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>LATEST</Tag>}
-                      {isWmEstimate && <Tag color="cyan" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>WM Estimate</Tag>}
-                      {!isWmEstimate && hasSections && hasWm && <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>WM Included</Tag>}
-                      {!isWmEstimate && hasSections && !hasWm && hasReconstruction && <Tag style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>Recon Only</Tag>}
+                      {isWmEstimate && <Tag color="cyan" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>Water Mitigation</Tag>}
+                      {isReconEstimate && <Tag color="purple" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>Reconstruction</Tag>}
+                      {isCombinedEstimate && <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>Combined</Tag>}
+                      {!isWmEstimate && !isReconEstimate && !isCombinedEstimate && hasSections && hasWm && <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>WM Included</Tag>}
                     </div>
 
                     {/* Amounts: display or edit */}
                     {isEditing ? (
+                      <>
                       <Row gutter={[6, 4]} style={{ marginTop: 4 }}>
                         <Col span={6}>
                           <Text type="secondary" style={{ fontSize: 10 }}>RCV</Text>
@@ -356,6 +407,66 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                             value={editValues.deductible} onChange={v => setEditValues({ ...editValues, deductible: v || 0 })} />
                         </Col>
                       </Row>
+                      {/* PDF replace + Category selector in edit mode */}
+                      <Row gutter={[6, 4]} style={{ marginTop: 6 }}>
+                        <Col span={14}>
+                          <Text type="secondary" style={{ fontSize: 10 }}>Replace PDF</Text>
+                          <Upload
+                            maxCount={1}
+                            accept=".pdf"
+                            beforeUpload={async (file) => {
+                              setEditReplacePdf(file);
+                              if (file.name.toLowerCase().endsWith('.pdf')) {
+                                setEditParsing(true);
+                                try {
+                                  const result = await claimFollowUpService.parseEstimatePdf(file);
+                                  if (result.sections?.length) {
+                                    const sections = result.sections;
+                                    const totalRcv = sections.reduce((s: number, sec: any) => s + (sec.rcv || 0), 0);
+                                    const totalDep = sections.reduce((s: number, sec: any) => s + (sec.depreciation || 0), 0);
+                                    setEditValues((prev: any) => ({
+                                      ...prev,
+                                      sections_data: sections,
+                                      rcv_amount: Math.round(totalRcv * 100) / 100,
+                                      acv_amount: Math.round((totalRcv - totalDep) * 100) / 100,
+                                      depreciation_amount: Math.round(totalDep * 100) / 100,
+                                      deductible: result.totals?.deductible || prev.deductible,
+                                    }));
+                                    message.success(`Parsed ${sections.length} sections`);
+                                  }
+                                } catch {
+                                  message.warning('PDF parsing failed. Edit amounts manually.');
+                                } finally {
+                                  setEditParsing(false);
+                                }
+                              }
+                              return false;
+                            }}
+                            onRemove={() => setEditReplacePdf(undefined)}
+                            fileList={editReplacePdf ? [{ uid: '-1', name: editReplacePdf.name, status: 'done' as const }] : []}
+                          >
+                            <Button size="small" icon={<UploadOutlined />} loading={editParsing} style={{ fontSize: 11 }}>
+                              {editParsing ? 'Parsing...' : 'Upload PDF'}
+                            </Button>
+                          </Upload>
+                        </Col>
+                        <Col span={10}>
+                          <Text type="secondary" style={{ fontSize: 10 }}>Category</Text>
+                          <Select
+                            size="small"
+                            style={{ width: '100%' }}
+                            value={editValues.estimate_category}
+                            onChange={v => setEditValues({ ...editValues, estimate_category: v })}
+                            allowClear
+                            placeholder="Select..."
+                          >
+                            <Select.Option value="combined">Combined</Select.Option>
+                            <Select.Option value="reconstruction">Reconstruction</Select.Option>
+                            <Select.Option value="water_mitigation">Water Mitigation</Select.Option>
+                          </Select>
+                        </Col>
+                      </Row>
+                      </>
                     ) : (
                       <div style={{ display: 'flex', gap: 10, fontSize: 12, flexWrap: 'wrap' }}>
                         <span><Text type="secondary" style={{ fontSize: 11 }}>RCV </Text><Text strong style={{ fontSize: 12 }}>{formatCurrency(dispRcv)}</Text></span>
@@ -384,10 +495,21 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                       </a>
                     )}
                     {!isEditing ? (
-                      <Button size="small" type="text" icon={<EditOutlined />} style={{ fontSize: 11 }}
-                        onClick={() => startEdit(ver)}>
-                        Edit
-                      </Button>
+                      <Space size={2}>
+                        <Button size="small" type="text" icon={<EditOutlined />} style={{ fontSize: 11 }}
+                          onClick={() => startEdit(ver)}>
+                          Edit
+                        </Button>
+                        <Popconfirm
+                          title="Delete this estimate?"
+                          description={`Rev #${ver.revision_number} will be permanently deleted.`}
+                          onConfirm={() => handleDelete(ver)}
+                          okText="Delete"
+                          okButtonProps={{ danger: true }}
+                        >
+                          <Button size="small" type="text" danger icon={<DeleteOutlined />} style={{ fontSize: 11 }} />
+                        </Popconfirm>
+                      </Space>
                     ) : (
                       <Space size={2}>
                         <Button size="small" type="primary" loading={saving}
@@ -403,7 +525,7 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                 </div>
 
                 {/* Section Breakdown */}
-                {hasSections && (
+                {(hasSections || isEditing) && (
                   <div style={{ marginTop: 6, borderTop: '1px dashed #e8e8e8', paddingTop: 6 }}>
                     {(['wm', 'reconstruction', 'other'] as const).map(cat => {
                       const group = grouped[cat];
@@ -441,6 +563,11 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                                     value={s.depreciation} onChange={v => updateEditSection(globalIdx, 'depreciation', v || 0)}
                                     placeholder="Dep" />
                                 </Col>
+                                <Col flex="24px">
+                                  <Button type="text" size="small" danger icon={<DeleteOutlined />}
+                                    style={{ padding: 0, height: 24, width: 24, minWidth: 24 }}
+                                    onClick={() => removeEditSection(globalIdx)} />
+                                </Col>
                               </Row>
                             ) : (
                               <div key={sIdx} style={{
@@ -455,6 +582,17 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                         </div>
                       );
                     })}
+                    {isEditing && (
+                      <Button
+                        type="dashed"
+                        size="small"
+                        icon={<PlusOutlined />}
+                        onClick={addEditSection}
+                        style={{ width: '100%', marginTop: 4, fontSize: 11 }}
+                      >
+                        Add Section
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
