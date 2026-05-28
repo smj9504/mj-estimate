@@ -241,10 +241,7 @@ class ScopeInvoiceService:
             status="pending",
             notes=invoice_notes,
             adjustments=adjustments if adjustments else [],
-            show_insurance=bool(job.insurance_company or job.claim_number),
-            insurance_company=job.insurance_company,
-            insurance_policy_number=job.insurance_policy_number,
-            insurance_claim_number=job.claim_number,
+            show_insurance=False,
         )
 
         self.db.add(invoice)
