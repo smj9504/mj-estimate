@@ -155,6 +155,10 @@ interface ClaimGroup {
   nextFollowupDate: string | null;
   supplementStatuses: Record<string, number>;
   pendingInfoRequests: number;
+  pa_name: string;
+  pa_company: string;
+  pa_email: string;
+  pa_phone: string;
 }
 
 const formatCurrency = (val?: number) => {
@@ -254,11 +258,12 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
     const sections = (editValues.sections_data || []).filter((_: any, i: number) => i !== idx);
     const totalRcv = sections.reduce((s: number, sec: any) => s + (sec.rcv || 0), 0);
     const totalDep = sections.reduce((s: number, sec: any) => s + (sec.depreciation || 0), 0);
+    const ded = editValues.deductible || 0;
     setEditValues({
       ...editValues,
       sections_data: sections,
       rcv_amount: Math.round(totalRcv * 100) / 100,
-      acv_amount: Math.round((totalRcv - totalDep) * 100) / 100,
+      acv_amount: Math.round((totalRcv - totalDep - ded) * 100) / 100,
       depreciation_amount: Math.round(totalDep * 100) / 100,
     });
   };
@@ -271,14 +276,15 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
       const dep = field === 'depreciation' ? (value || 0) : (sections[idx].depreciation || 0);
       sections[idx].net_acv = rcv - dep;
     }
-    // Recalc totals from sections
+    // Recalc totals: ACV = RCV - DEP - DED
     const totalRcv = sections.reduce((s: number, sec: any) => s + (sec.rcv || 0), 0);
     const totalDep = sections.reduce((s: number, sec: any) => s + (sec.depreciation || 0), 0);
+    const ded = editValues.deductible || 0;
     setEditValues({
       ...editValues,
       sections_data: sections,
       rcv_amount: Math.round(totalRcv * 100) / 100,
-      acv_amount: Math.round((totalRcv - totalDep) * 100) / 100,
+      acv_amount: Math.round((totalRcv - totalDep - ded) * 100) / 100,
       depreciation_amount: Math.round(totalDep * 100) / 100,
     });
   };
@@ -316,6 +322,14 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
     other: { label: 'Other', color: '#595959', bg: '#fafafa', border: '#d9d9d9' },
   };
 
+  // Track latest per category for "LATEST" badge
+  const latestPerCategory = new Set<string>();
+  estimates.forEach((ver: any) => {
+    const cat = ver.estimate_category || '_none';
+    if (!latestPerCategory.has(cat)) latestPerCategory.add(cat);
+  });
+  const seenCategories = new Set<string>();
+
   return (
     <div>
       {/* Insurance Company Estimates */}
@@ -323,6 +337,9 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
         <div style={{ marginBottom: 8 }}>
           <Text strong style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>Insurance Company Estimates</Text>
           {estimates.map((ver: any, idx: number) => {
+            const verCat = ver.estimate_category || '_none';
+            const isLatestInCategory = !seenCategories.has(verCat);
+            seenCategories.add(verCat);
             const isEditing = editingId === ver.id;
             const displaySections: any[] = isEditing ? (editValues.sections_data || []) : (ver.sections_data || []);
             const hasSections = displaySections.length > 0;
@@ -341,11 +358,18 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
             const hasWm = !!grouped['wm'];
             const hasReconstruction = !!grouped['reconstruction'];
 
-            const isWmEstimate = ver.estimate_category === 'water_mitigation' ||
-              ver.notes?.includes('Water Mitigation') ||
-              (hasSections && hasWm && !hasReconstruction && !grouped['other']);
-            const isReconEstimate = ver.estimate_category === 'reconstruction';
-            const isCombinedEstimate = ver.estimate_category === 'combined';
+            // estimate_category takes priority; fall back to heuristic only for old records
+            const hasCategory = !!ver.estimate_category;
+            const isWmEstimate = hasCategory
+              ? ver.estimate_category === 'water_mitigation'
+              : (ver.notes?.includes('Water Mitigation') ||
+                (hasSections && hasWm && !hasReconstruction && !grouped['other']));
+            const isReconEstimate = hasCategory
+              ? ver.estimate_category === 'reconstruction'
+              : (hasSections && hasReconstruction && !hasWm);
+            const isCombinedEstimate = hasCategory
+              ? ver.estimate_category === 'combined'
+              : false;
 
             const dispRcv = isEditing ? editValues.rcv_amount : ver.rcv_amount;
             const dispAcv = isEditing ? editValues.acv_amount : ver.acv_amount;
@@ -357,15 +381,15 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                 key={ver.id}
                 style={{
                   marginBottom: 6, padding: '8px 10px', borderRadius: 6,
-                  border: isEditing ? '1px solid #faad14' : idx === 0 ? '1px solid #1890ff' : '1px solid #f0f0f0',
-                  background: isEditing ? '#fffbe6' : idx === 0 ? '#f6fbff' : '#fff',
+                  border: isEditing ? '1px solid #faad14' : isLatestInCategory ? '1px solid #1890ff' : '1px solid #f0f0f0',
+                  background: isEditing ? '#fffbe6' : isLatestInCategory ? '#f6fbff' : '#fff',
                 }}
               >
                 {/* Header row */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 2 }}>
-                      <Tag color={idx === 0 ? 'blue' : 'default'} style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
+                      <Tag color={isLatestInCategory ? 'blue' : 'default'} style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
                         Rev #{ver.revision_number}
                       </Tag>
                       <Tag color={
@@ -375,7 +399,7 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                       } style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
                         {ver.revision_type?.replace('_', ' ').toUpperCase()}
                       </Tag>
-                      {idx === 0 && <Tag color="processing" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>LATEST</Tag>}
+                      {isLatestInCategory && <Tag color="processing" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>LATEST</Tag>}
                       {isWmEstimate && <Tag color="cyan" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>Water Mitigation</Tag>}
                       {isReconEstimate && <Tag color="purple" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>Reconstruction</Tag>}
                       {isCombinedEstimate && <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>Combined</Tag>}
@@ -404,7 +428,12 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                         <Col span={6}>
                           <Text type="secondary" style={{ fontSize: 10 }}>Ded</Text>
                           <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
-                            value={editValues.deductible} onChange={v => setEditValues({ ...editValues, deductible: v || 0 })} />
+                            value={editValues.deductible} onChange={v => {
+                              const ded = v || 0;
+                              const rcv = editValues.rcv_amount || 0;
+                              const dep = editValues.depreciation_amount || 0;
+                              setEditValues({ ...editValues, deductible: ded, acv_amount: Math.round((rcv - dep - ded) * 100) / 100 });
+                            }} />
                         </Col>
                       </Row>
                       {/* PDF replace + Category selector in edit mode */}
@@ -424,14 +453,17 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                                     const sections = result.sections;
                                     const totalRcv = sections.reduce((s: number, sec: any) => s + (sec.rcv || 0), 0);
                                     const totalDep = sections.reduce((s: number, sec: any) => s + (sec.depreciation || 0), 0);
-                                    setEditValues((prev: any) => ({
-                                      ...prev,
-                                      sections_data: sections,
-                                      rcv_amount: Math.round(totalRcv * 100) / 100,
-                                      acv_amount: Math.round((totalRcv - totalDep) * 100) / 100,
-                                      depreciation_amount: Math.round(totalDep * 100) / 100,
-                                      deductible: result.totals?.deductible || prev.deductible,
-                                    }));
+                                    setEditValues((prev: any) => {
+                                      const ded = result.totals?.deductible || prev.deductible || 0;
+                                      return {
+                                        ...prev,
+                                        sections_data: sections,
+                                        rcv_amount: Math.round(totalRcv * 100) / 100,
+                                        acv_amount: Math.round((totalRcv - totalDep - ded) * 100) / 100,
+                                        depreciation_amount: Math.round(totalDep * 100) / 100,
+                                        deductible: ded,
+                                      };
+                                    });
                                     message.success(`Parsed ${sections.length} sections`);
                                   }
                                 } catch {
@@ -652,6 +684,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const [isParsingWm, setIsParsingWm] = useState(false);
   const [parsedSections, setParsedSections] = useState<any[] | null>(null);
   const [isParsing, setIsParsing] = useState(false);
+  const [existingPdfName, setExistingPdfName] = useState<string | undefined>();
+  const [existingPdfId, setExistingPdfId] = useState<string | undefined>();
   const [selectedTask, setSelectedTask] = useState<FollowUpTask | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [claimDrawerOpen, setClaimDrawerOpen] = useState(false);
@@ -697,6 +731,10 @@ const ClaimFollowUpDashboard: React.FC = () => {
           nextFollowupDate: null,
           supplementStatuses: {},
           pendingInfoRequests: 0,
+          pa_name: task.pa_name || '',
+          pa_company: task.pa_company || '',
+          pa_email: task.pa_email || '',
+          pa_phone: task.pa_phone || '',
         });
       }
       const group = groupMap.get(key)!;
@@ -783,6 +821,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
       setResolveFile(undefined);
       setResolveWmFile(undefined);
       setParsedWmAmount(undefined);
+      setExistingPdfName(undefined);
+      setExistingPdfId(undefined);
       resolveForm.resetFields();
       queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['followup-stats'] });
@@ -833,7 +873,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const recalcTotals = (sections: any[]) => {
     const totalRcv = sections.reduce((sum, s) => sum + (s.rcv || 0), 0);
     const totalDep = sections.reduce((sum, s) => sum + (s.depreciation || 0), 0);
-    const totalAcv = totalRcv - totalDep;
+    const ded = resolveForm.getFieldValue('deductible') || 0;
+    const totalAcv = totalRcv - totalDep - ded;
     resolveForm.setFieldsValue({
       rcv_amount: Math.round(totalRcv * 100) / 100,
       acv_amount: Math.round(totalAcv * 100) / 100,
@@ -961,9 +1002,66 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 icon: <CheckCircleOutlined />,
                 label: 'Resolve',
                 disabled: record.status === 'resolved',
-                onClick: () => {
+                onClick: async () => {
                   setSelectedTask(record);
+                  resolveForm.resetFields();
+                  setResolveOutcome(undefined);
+                  setParsedSections(null);
+                  setResolveFile(undefined);
+                  setResolveWmFile(undefined);
+                  setParsedWmAmount(undefined);
+                  setExistingPdfName(undefined);
+                  setExistingPdfId(undefined);
                   setResolveModalOpen(true);
+                  // Pre-populate with existing data
+                  if (record.resolution_notes) {
+                    resolveForm.setFieldsValue({ resolution_notes: record.resolution_notes });
+                  }
+                  if (record.claim_id) {
+                    try {
+                      const estimates = await supplementService.listInsuranceEstimates(record.claim_id);
+                      if (estimates.length > 0) {
+                        // Find the main estimate (combined or reconstruction, prefer latest)
+                        const main = estimates.find((e: any) =>
+                          e.estimate_category === 'combined' || e.estimate_category === 'reconstruction'
+                        ) || estimates[0];
+                        const wmEst = estimates.find((e: any) => e.estimate_category === 'water_mitigation');
+
+                        // Determine wm_cost_status from existing categories
+                        let wmStatus = 'included_in_rebuild';
+                        if (wmEst && main && main.estimate_category === 'reconstruction') {
+                          wmStatus = 'separate_estimate';
+                        } else if (wmEst && !main) {
+                          wmStatus = 'separate_estimate';
+                        }
+
+                        // Totals from main estimate
+                        resolveForm.setFieldsValue({
+                          outcome: 'estimate_received',
+                          rcv_amount: main.rcv_amount || 0,
+                          acv_amount: main.acv_amount || 0,
+                          depreciation_amount: main.depreciation_amount || 0,
+                          deductible: main.deductible || 0,
+                          wm_cost_status: wmStatus,
+                        });
+                        setResolveOutcome('estimate_received');
+                        if (main.sections_data?.length) {
+                          setParsedSections(main.sections_data);
+                        }
+                        // Show existing PDF info
+                        if (main.document_name) {
+                          setExistingPdfName(main.document_name);
+                          setExistingPdfId(main.file_download_id || main.document_url);
+                        }
+                        if (wmEst?.rcv_amount) {
+                          setParsedWmAmount(wmEst.rcv_amount);
+                          resolveForm.setFieldsValue({ wm_estimate_amount: wmEst.rcv_amount });
+                        }
+                      }
+                    } catch {
+                      // Ignore - just open empty modal
+                    }
+                  }
                 },
               },
               {
@@ -1238,6 +1336,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
                         <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
                           #{group.claim_number}
                         </Text>
+                        {group.pa_name && (
+                          <Tooltip title={`PA: ${group.pa_name}${group.pa_company ? ` (${group.pa_company})` : ''}${group.pa_email ? ` · ${group.pa_email}` : ''}${group.pa_phone ? ` · ${group.pa_phone}` : ''}`}>
+                            <Tag color="geekblue" style={{ fontSize: 10, margin: 0, flexShrink: 0 }}>
+                              PA: {group.pa_name}
+                            </Tag>
+                          </Tooltip>
+                        )}
                       </>
                     )}
                   </div>
@@ -1276,6 +1381,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     <Text type="secondary" style={{ fontSize: 10 }}>
                       #{group.claim_number}
                     </Text>
+                    {group.pa_name && (
+                      <Tag color="geekblue" style={{ fontSize: 9, margin: 0 }}>PA: {group.pa_name}</Tag>
+                    )}
                   </div>
                 )}
                 {/* Row 3: Stage pipeline + Supplement status */}
@@ -1492,6 +1600,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 },
               });
             }
+          }).catch(() => {
+            // Form validation failed — antd shows field-level errors
           });
         }}
         onCancel={() => {
@@ -1501,6 +1611,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
           setResolveWmFile(undefined);
           setParsedWmAmount(undefined);
           setParsedSections(null);
+          setExistingPdfName(undefined);
+          setExistingPdfId(undefined);
           resolveForm.resetFields();
         }}
         confirmLoading={resolveMutation.isPending}
@@ -1518,23 +1630,34 @@ const ClaimFollowUpDashboard: React.FC = () => {
             <>
               <Form.Item label="Insurance Estimate PDF">
                 <Space direction="vertical" style={{ width: '100%' }}>
+                  {existingPdfName && !resolveFile && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', background: '#f6ffed', borderRadius: 4, border: '1px solid #b7eb8f' }}>
+                      <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                      {existingPdfId ? (
+                        <a href={`${fileService.getDownloadUrl(existingPdfId)}?inline=true`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: 12 }}>
+                          {existingPdfName}
+                        </a>
+                      ) : (
+                        <Text style={{ flex: 1, fontSize: 12 }}>{existingPdfName}</Text>
+                      )}
+                      <Tag color="green" style={{ margin: 0, fontSize: 10 }}>Uploaded</Tag>
+                    </div>
+                  )}
                   <Upload
                     maxCount={1}
                     accept=".pdf"
                     beforeUpload={async (file) => {
                       setResolveFile(file);
                       setParsedSections(null);
-                      // Auto-parse PDF
                       if (file.name.toLowerCase().endsWith('.pdf')) {
                         setIsParsing(true);
                         try {
                           const result = await claimFollowUpService.parseEstimatePdf(file);
                           setParsedSections(result.sections);
-                          // Auto-fill totals from sections
-                          recalcTotals(result.sections);
                           if (result.totals?.deductible) {
                             resolveForm.setFieldsValue({ deductible: result.totals.deductible });
                           }
+                          recalcTotals(result.sections);
                           message.success(`Parsed ${result.sections.length} sections from PDF`);
                         } catch (err: any) {
                           message.warning('PDF parsing failed. Enter amounts manually.');
@@ -1548,7 +1671,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     fileList={resolveFile ? [{ uid: '-1', name: resolveFile.name, status: 'done' }] : []}
                   >
                     <Button icon={<UploadOutlined />} loading={isParsing}>
-                      {isParsing ? 'Parsing PDF...' : 'Upload & Parse Estimate PDF'}
+                      {isParsing ? 'Parsing PDF...' : existingPdfName ? 'Replace PDF' : 'Upload & Parse Estimate PDF'}
                     </Button>
                   </Upload>
                 </Space>
@@ -1876,6 +1999,31 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     {renderStagePipeline(group)}
                   </Space>
                 </div>
+
+                {/* PA Info */}
+                {group.pa_name && (
+                  <div style={{ marginBottom: 12, padding: '6px 8px', background: '#f0f5ff', borderRadius: 6, borderLeft: '3px solid #597ef7' }}>
+                    <Text strong style={{ fontSize: 12, color: '#2f54eb', display: 'block', marginBottom: 2 }}>Public Adjuster</Text>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
+                      <span><Text type="secondary" style={{ fontSize: 11 }}>Name: </Text>{group.pa_name}</span>
+                      {group.pa_company && <span><Text type="secondary" style={{ fontSize: 11 }}>Company: </Text>{group.pa_company}</span>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12, marginTop: 2 }}>
+                      {group.pa_email && (
+                        <span>
+                          <Text type="secondary" style={{ fontSize: 11 }}>Email: </Text>
+                          <a href={`mailto:${group.pa_email}`} onClick={e => e.stopPropagation()} style={{ fontSize: 12 }}>{group.pa_email}</a>
+                        </span>
+                      )}
+                      {group.pa_phone && (
+                        <span>
+                          <Text type="secondary" style={{ fontSize: 11 }}>Phone: </Text>
+                          <a href={`tel:${group.pa_phone}`} onClick={e => e.stopPropagation()} style={{ fontSize: 12 }}>{group.pa_phone}</a>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Supplement & Info Request Status */}
                 {(() => {

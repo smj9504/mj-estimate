@@ -129,6 +129,12 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     d['insurance_company'] = t.claim.insurance_company or ''
                     d['supplement_statuses'] = supplement_map.get(str(t.claim_id), {})
                     d['pending_info_requests'] = info_request_map.get(str(t.claim_id), 0)
+                    # PA info
+                    d['has_public_adjuster'] = t.claim.has_public_adjuster or False
+                    d['pa_name'] = t.claim.pa_name or ''
+                    d['pa_company'] = t.claim.pa_company or ''
+                    d['pa_email'] = t.claim.pa_email or ''
+                    d['pa_phone'] = t.claim.pa_phone or ''
                     # Address is on the Client model
                     if hasattr(t.claim, 'client') and t.claim.client:
                         client = t.claim.client

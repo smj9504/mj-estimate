@@ -41,6 +41,11 @@ export interface FollowUpTask {
   insurance_company?: string;
   supplement_statuses?: Record<string, number>;
   pending_info_requests?: number;
+  has_public_adjuster?: boolean;
+  pa_name?: string;
+  pa_company?: string;
+  pa_email?: string;
+  pa_phone?: string;
 }
 
 export interface FollowUpTaskCreate {
