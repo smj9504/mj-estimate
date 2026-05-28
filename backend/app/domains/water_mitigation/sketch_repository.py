@@ -137,7 +137,7 @@ class SketchRepository:
         )
 
         # Fields that exist only on the frontend / JSONB, not in the DB table
-        _DEMO_ZONE_SKIP = {"pixel_width", "pixel_height", "polygon_points", "combined_from", "group_id"}
+        _DEMO_ZONE_SKIP = {"pixel_width", "pixel_height", "polygon_points", "combined_from", "group_id", "baseboard_type"}
 
         # --- Step 2: insert new child rows (DB tables for relational queries) ---
         for zone_data in overlay_data.demolition_zones:

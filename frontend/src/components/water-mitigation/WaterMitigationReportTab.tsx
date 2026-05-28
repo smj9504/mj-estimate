@@ -42,11 +42,12 @@ import {
   ThunderboltOutlined,
   CalendarOutlined,
   LayoutOutlined,
-  DownOutlined
+  DownOutlined,
+  SwapOutlined
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import waterMitigationService from '../../services/waterMitigationService';
+import waterMitigationService, { AI_CATEGORY_LABELS, AI_CATEGORY_COLORS } from '../../services/waterMitigationService';
 import { useWaterMitigationPhotos } from '../../hooks/useWaterMitigationPhotos';
 import PhotoSelectorModal from './PhotoSelectorModal';
 import type {
@@ -375,6 +376,66 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     const updatedPhotos = currentSection.photos.filter(p => p.photo_id !== photoId);
     handleUpdateSection(currentSection.id, { photos: updatedPhotos });
     message.success('Photo removed from section');
+  };
+
+  /**
+   * Change photo category and move it to the matching section
+   * 1. Update category via API
+   * 2. Remove from current section
+   * 3. Add to best matching section (or keep if no match)
+   */
+  const handlePhotoCategoryChange = async (photoId: string, newCategory: string) => {
+    const sourceSection = sections.find(s => s.id === selectedSectionId);
+    if (!sourceSection) return;
+
+    try {
+      // 1. Update category via API
+      await waterMitigationService.photos.updateCategory(photoId, newCategory);
+
+      // 2. Invalidate photo cache so other components see the change
+      queryClient.invalidateQueries({ queryKey: ['water-mitigation-photos', jobId] });
+
+      // 3. Find the best matching target section for the new category
+      let bestSection: ReportSection | null = null;
+      let bestScore = 0;
+
+      for (const section of sections) {
+        const score = calculateMatchScore(section.title, newCategory);
+        if (score > bestScore) {
+          bestScore = score;
+          bestSection = section;
+        }
+      }
+
+      // Get the photo metadata from current section
+      const photoMeta = sourceSection.photos.find(p => p.photo_id === photoId);
+      if (!photoMeta) return;
+
+      // If best match is the same section or no match found, just update without moving
+      if (!bestSection || bestScore === 0 || bestSection.id === sourceSection.id) {
+        message.success(`Category changed to "${AI_CATEGORY_LABELS[newCategory] || newCategory}"`);
+        return;
+      }
+
+      // 4. Move photo: remove from source, add to target
+      const newSections = sections.map(s => {
+        if (s.id === sourceSection.id) {
+          return { ...s, photos: s.photos.filter(p => p.photo_id !== photoId) };
+        }
+        if (s.id === bestSection!.id) {
+          return { ...s, photos: [...s.photos, photoMeta] };
+        }
+        return s;
+      });
+
+      setSections(newSections);
+      message.success(
+        `Category → "${AI_CATEGORY_LABELS[newCategory] || newCategory}", moved to "${bestSection.title}"`
+      );
+    } catch (error) {
+      console.error('Failed to update photo category:', error);
+      message.error('Failed to update photo category');
+    }
   };
 
   const handleDownloadPdf = async (compress: boolean = false) => {
@@ -1158,11 +1219,22 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                                   {photo.caption}
                                 </div>
                               )}
-                              {photo.category && (
-                                <Tag color="blue" style={{ fontSize: 10, marginBottom: 4 }}>
-                                  {photo.category}
-                                </Tag>
-                              )}
+                              <Select
+                                size="small"
+                                value={photo.category || 'uncategorized'}
+                                onChange={(value) => handlePhotoCategoryChange(photoMeta.photo_id, value)}
+                                style={{ width: '100%', fontSize: 10, marginBottom: 4 }}
+                                popupMatchSelectWidth={false}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {Object.entries(AI_CATEGORY_LABELS).map(([key, label]) => (
+                                  <Select.Option key={key} value={key}>
+                                    <span style={{ color: AI_CATEGORY_COLORS[key] || '#1890ff', fontSize: 11 }}>
+                                      {label}
+                                    </span>
+                                  </Select.Option>
+                                ))}
+                              </Select>
                               {photo.taken_date && (
                                 <div style={{ color: '#999', fontSize: 10 }}>
                                   {new Date(photo.taken_date).toLocaleDateString()}

@@ -35,6 +35,24 @@ function getMaterial(zone: WMDemolitionZone, materialTypes: DemoMaterialType[]) 
 
 /** Rotation anchor offset above the line midpoint */
 const ROTATE_ANCHOR_OFFSET = 24;
+/** Insulation line offset above the main drywall line (pixels) */
+const INSULATION_OFFSET = -10;
+/** Insulation indicator color */
+const INSULATION_COLOR = '#E91E63';
+/** Baseboard line offset below the main drywall line (pixels) — tight to drywall */
+const BASEBOARD_OFFSET = 5;
+/** Baseboard/trim color by type */
+const BASEBOARD_COLORS: Record<string, string> = {
+  baseboard: '#DEB887',
+  quarter_round: '#C4A882',
+  baseboard_quarter_round: '#D2B48C',
+};
+/** Baseboard/trim label by type */
+const BASEBOARD_LABELS: Record<string, string> = {
+  baseboard: 'BB',
+  quarter_round: 'QR',
+  baseboard_quarter_round: 'BB+QR',
+};
 
 const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
   zone,
@@ -48,6 +66,11 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
 }) => {
   const mat = getMaterial(zone, materialTypes);
   const isLF = mat?.unit === 'LF';
+  const isWallSF = mat?.surface === 'wall' && !isLF;
+  const showInsulation = isWallSF && zone.include_insulation;
+  const showBaseboard = isWallSF && !!zone.baseboard_type;
+  const baseboardColor = zone.baseboard_type ? BASEBOARD_COLORS[zone.baseboard_type] ?? '#DEB887' : '#DEB887';
+  const baseboardLabel = zone.baseboard_type ? BASEBOARD_LABELS[zone.baseboard_type] ?? 'BB' : 'BB';
   const groupRef = useRef<Konva.Group>(null);
 
   // dimension1_ft stores the line length
@@ -243,11 +266,105 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
         opacity={0.8}
       />
 
+      {/* Insulation indicator line (offset above the drywall line) */}
+      {showInsulation && (
+        <>
+          <Line
+            points={[0, INSULATION_OFFSET, lengthPx, INSULATION_OFFSET]}
+            stroke={INSULATION_COLOR}
+            strokeWidth={3}
+            dash={[4, 6]}
+            lineCap="round"
+            opacity={0.8}
+            listening={false}
+          />
+          {/* Zigzag pattern to represent insulation */}
+          {(() => {
+            const zigzagPoints: number[] = [];
+            const step = 8;
+            const amp = 4;
+            for (let px = 0; px <= lengthPx; px += step) {
+              const yOff = (Math.floor(px / step) % 2 === 0) ? -amp : amp;
+              zigzagPoints.push(px, INSULATION_OFFSET + yOff);
+            }
+            return (
+              <Line
+                points={zigzagPoints}
+                stroke={INSULATION_COLOR}
+                strokeWidth={1.5}
+                opacity={0.5}
+                listening={false}
+              />
+            );
+          })()}
+          {/* Insulation label */}
+          {lengthPx > 80 && (() => {
+            const insText = `INS ${(zone.dimension1_ft * (zone.height_ft ?? 8)).toFixed(1)} SF`;
+            const insLabelW = insText.length * 6 + 8;
+            return (
+              <>
+                <Rect
+                  x={lengthPx / 2 - insLabelW / 2}
+                  y={INSULATION_OFFSET - 16}
+                  width={insLabelW}
+                  height={14}
+                  fill="rgba(255,255,255,0.85)"
+                  cornerRadius={2}
+                  listening={false}
+                />
+                <Text
+                  x={lengthPx / 2 - insLabelW / 2}
+                  y={INSULATION_OFFSET - 15}
+                  width={insLabelW}
+                  text={insText}
+                  fontSize={8}
+                  fontFamily="'Inter', 'Segoe UI', sans-serif"
+                  fill={INSULATION_COLOR}
+                  fontStyle="bold"
+                  align="center"
+                  listening={false}
+                />
+              </>
+            );
+          })()}
+        </>
+      )}
+
+      {/* Baseboard indicator line (offset below the drywall line) */}
+      {showBaseboard && (
+        <>
+          <Line
+            points={[0, BASEBOARD_OFFSET, lengthPx, BASEBOARD_OFFSET]}
+            stroke={baseboardColor}
+            strokeWidth={3}
+            dash={[6, 3]}
+            lineCap="round"
+            opacity={0.85}
+            listening={false}
+          />
+          {/* Baseboard label */}
+          {lengthPx > 60 && (
+            <Text
+              x={lengthPx / 2 - 30}
+              y={BASEBOARD_OFFSET + 4}
+              width={60}
+              text={`${baseboardLabel} ${zone.dimension1_ft.toFixed(1)} LF`}
+              fontSize={8}
+              fontFamily="'Inter', 'Segoe UI', sans-serif"
+              fill={baseboardColor}
+              fontStyle="bold"
+              align="center"
+              listening={false}
+            />
+          )}
+        </>
+      )}
+
       {/* Hit area */}
       <Line
         points={[0, 0, lengthPx, 0]}
         stroke="transparent"
-        strokeWidth={16}
+        strokeWidth={(showBaseboard || showInsulation) ? 28 : 16}
       />
 
       {/* Selection highlight */}
@@ -321,6 +438,37 @@ const WMWallLineRenderer: React.FC<WMWallLineRendererProps> = ({
           />
         </>
       )}
+
+      {/* Baseboard indicator badge */}
+      {showBaseboard && lengthPx > 50 && (() => {
+        const bbBadgeW = baseboardLabel.length * 7 + 6;
+        const bbBadgeX = lengthPx / 2 + (zone.include_insulation ? 86 : 54);
+        return (
+        <>
+          <Rect
+            x={bbBadgeX}
+            y={-22}
+            width={bbBadgeW}
+            height={14}
+            fill={baseboardColor}
+            cornerRadius={3}
+            listening={false}
+          />
+          <Text
+            x={bbBadgeX}
+            y={-21}
+            width={bbBadgeW}
+            text={baseboardLabel}
+            fontSize={9}
+            fontFamily="'Inter', 'Segoe UI', sans-serif"
+            fill="#ffffff"
+            fontStyle="bold"
+            align="center"
+            listening={false}
+          />
+        </>
+        );
+      })()}
 
       {/* Endpoint handles + Rotation handle (only when selected) */}
       {isSelected && (

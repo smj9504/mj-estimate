@@ -96,6 +96,7 @@ export const supplementService = {
 
   async uploadInsuranceEstimate(claimId: string, payload: {
     revision_type: string;
+    estimate_category?: string;
     acv_amount?: number;
     rcv_amount?: number;
     depreciation_amount?: number;
@@ -115,6 +116,7 @@ export const supplementService = {
     depreciation_amount?: number;
     deductible?: number;
     revision_type?: string;
+    estimate_category?: string | null;
     date_received?: string;
     received_from?: string;
     notes?: string;
@@ -123,6 +125,13 @@ export const supplementService = {
     const { data } = await api.patch(
       `${BASE_URL}/insurance-estimates/${claimId}/${negotiationId}`,
       payload
+    );
+    return data;
+  },
+
+  async deleteInsuranceEstimate(claimId: string, negotiationId: string) {
+    const { data } = await api.delete(
+      `${BASE_URL}/insurance-estimates/${claimId}/${negotiationId}`
     );
     return data;
   },

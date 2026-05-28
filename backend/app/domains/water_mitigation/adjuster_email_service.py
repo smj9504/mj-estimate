@@ -34,7 +34,8 @@ class AdjusterEmailService:
         """Check which of the 6 required documents are ready for sending."""
         session = self._get_readonly_session()
         try:
-            from .models import WaterMitigationJob, WMDocument, WMScopeInvoice, WMFloorSketch
+            from .models import WaterMitigationJob, WMDocument, WMScopeInvoice
+            from .sketch_models import WMFloorSketch
 
             job = session.query(WaterMitigationJob).filter(
                 WaterMitigationJob.id == job_id
@@ -225,7 +226,9 @@ class AdjusterEmailService:
             }
 
             # Get email accounts for sender selection
-            email_accounts = self._get_email_accounts(session)
+            email_accounts = self._get_email_accounts(
+                session, company_id=job.company_id
+            )
 
             return {
                 "adjuster": adjuster_info,
@@ -236,21 +239,31 @@ class AdjusterEmailService:
         finally:
             session.close()
 
-    def _get_email_accounts(self, session) -> List[Dict[str, str]]:
-        """Get available email accounts for sending."""
+    def _get_email_accounts(self, session, company_id=None) -> List[Dict[str, str]]:
+        """Get available email accounts for sending.
+        Returns accounts matching company_id first, then others.
+        """
         try:
             from app.domains.email_ingestion.models import EmailAccount
             accounts = session.query(EmailAccount).filter(
                 EmailAccount.is_active == True
             ).all()
-            return [
-                {
+
+            result = []
+            for a in accounts:
+                result.append({
                     "id": str(a.id),
                     "email_address": a.email_address,
                     "display_name": getattr(a, 'display_name', '') or a.email_address,
-                }
-                for a in accounts
-            ]
+                    "company_id": str(a.company_id) if a.company_id else None,
+                })
+
+            # Sort: matching company_id first
+            if company_id:
+                company_id_str = str(company_id)
+                result.sort(key=lambda x: (0 if x.get("company_id") == company_id_str else 1))
+
+            return result
         except Exception:
             return []
 
@@ -281,10 +294,7 @@ class AdjusterEmailService:
             adjuster_name = (job.adjuster_name or "").strip()
             adjuster_first = adjuster_name.split()[0] if adjuster_name else ""
 
-            subject = (
-                f"Water Mitigation Documents - {address} - "
-                f"Claim #{claim_number}"
-            )
+            subject = claim_number
 
             # Get company name
             company_name = ""
@@ -357,8 +367,9 @@ class AdjusterEmailService:
         try:
             from .models import (
                 WaterMitigationJob, WMDocument, WMScopeInvoice,
-                WMFloorSketch, WMJobStatusHistory,
+                WMJobStatusHistory,
             )
+            from .sketch_models import WMFloorSketch
             from app.domains.client.models import ClaimActivity
 
             job = session.query(WaterMitigationJob).filter(

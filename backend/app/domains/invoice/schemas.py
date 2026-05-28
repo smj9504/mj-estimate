@@ -50,23 +50,24 @@ class InsuranceInfo(BaseModel):
 class Adjustment(BaseModel):
     """Adjustment schema for invoice/estimate (e.g., Holiday Premium, Discount, O&P)"""
     name: str = Field(..., description="Adjustment name (e.g., 'Holiday Premium', 'Discount', 'O&P')")
-    percentage: float = Field(..., description="Percentage value (can be positive or negative)")
+    percentage: float = Field(0, description="Percentage value (can be positive or negative)")
     fixed_amount: Optional[float] = Field(None, description="Fixed dollar amount (used when percentage is 0)")
     type: str = Field("add", description="Type: 'add' or 'subtract'")
-    order: int = Field(..., description="Application order (lower number = applied first)")
+    order: int = Field(1, description="Application order (lower number = applied first)")
     amount: Optional[float] = Field(None, description="Calculated amount (computed, not user input)")
     note: Optional[str] = Field(None, description="Optional note for this adjustment")
 
-    @validator('type')
+    @validator('type', pre=True)
     def validate_type(cls, v):
-        if v not in ['add', 'subtract']:
-            raise ValueError("type must be 'add' or 'subtract'")
+        # Legacy data may store 'percentage' or 'fixed' as type — map to 'add'
+        if v not in ('add', 'subtract'):
+            return 'add'
         return v
 
     @validator('order')
     def validate_order(cls, v):
         if v < 1:
-            raise ValueError('order must be at least 1')
+            return 1
         return v
 
 

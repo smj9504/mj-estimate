@@ -127,6 +127,28 @@ const STAGE_LABELS: Record<TaskType, string> = {
   general: 'General',
 };
 
+// ── Estimate Category Configuration ──
+// Add new estimate types here. Everything else adapts automatically.
+const ESTIMATE_CATEGORIES: Record<string, {
+  label: string;
+  tagColor: string;
+  fileLabel: string;       // Used in PDF filenames: {address}-{fileLabel}-v1.pdf
+  sectionKeywords: string[]; // Keywords to auto-detect sections in this category
+}> = {
+  combined:          { label: 'Combined',          tagColor: 'blue',   fileLabel: 'Insurance-Estimate',        sectionKeywords: [] },
+  reconstruction:    { label: 'Reconstruction',    tagColor: 'purple', fileLabel: 'Reconstruction-Estimate',   sectionKeywords: ['dwelling', 'water damage', 'rebuild', 'reconstruction', 'drywall', 'flooring', 'paint', 'cabinet', 'plumb', 'electrical', 'code', 'upgrade', 'coverage a'] },
+  water_mitigation:  { label: 'Water Mitigation',  tagColor: 'cyan',   fileLabel: 'WM-Estimate',              sectionKeywords: ['water mitigation', 'emergency service', 'dry out', 'drying', 'dehumidifier', 'extraction'] },
+  mold_remediation:  { label: 'Mold Remediation',  tagColor: 'volcano', fileLabel: 'Mold-Estimate',           sectionKeywords: ['mold', 'remediation', 'fungi', 'microbial'] },
+};
+
+const ESTIMATE_CATEGORY_OPTIONS = Object.entries(ESTIMATE_CATEGORIES).map(([value, cfg]) => ({
+  value,
+  label: cfg.label,
+}));
+
+const getEstimateCategoryConfig = (category: string | null | undefined) =>
+  (category && ESTIMATE_CATEGORIES[category]) || null;
+
 const STATUS_COLORS: Record<string, string> = {
   pending: 'blue',
   awaiting_response: 'orange',
@@ -309,16 +331,27 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
     return <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: 16 }}>No estimate documents uploaded yet.</Text>;
   }
 
-  const categorizeSection = (name: string): 'wm' | 'reconstruction' | 'other' => {
+  // Auto-categorize sections by matching keywords from ESTIMATE_CATEGORIES config
+  const categorizeSection = (name: string): string => {
     const lower = name.toLowerCase();
-    if (lower.includes('water') || lower.includes('mitigation') || lower.includes('emergency') || lower.includes('dry out') || lower.includes('drying')) return 'wm';
-    if (lower.includes('dwelling') || lower.includes('rebuild') || lower.includes('reconstruction') || lower.includes('drywall') || lower.includes('flooring') || lower.includes('paint') || lower.includes('cabinet') || lower.includes('plumb') || lower.includes('electrical') || lower.includes('code') || lower.includes('upgrade')) return 'reconstruction';
+    for (const [key, cfg] of Object.entries(ESTIMATE_CATEGORIES)) {
+      if (key === 'combined') continue; // skip combined — it's not a section type
+      if (cfg.sectionKeywords.some(kw => lower.includes(kw))) return key;
+    }
     return 'other';
   };
 
-  const SECTION_CATEGORY_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
-    wm: { label: 'Water Mitigation', color: '#0958d9', bg: '#e6f4ff', border: '#91caff' },
-    reconstruction: { label: 'Reconstruction', color: '#531dab', bg: '#f9f0ff', border: '#d3adf7' },
+  // Section display config — derived from ESTIMATE_CATEGORIES + fallback for 'other'
+  const SECTION_COLORS: Record<string, { label: string; color: string; bg: string; border: string }> = {
+    ...Object.fromEntries(Object.entries(ESTIMATE_CATEGORIES)
+      .filter(([k]) => k !== 'combined')
+      .map(([key, cfg]) => [key, {
+        label: cfg.label,
+        color: cfg.tagColor === 'cyan' ? '#0958d9' : cfg.tagColor === 'purple' ? '#531dab' : cfg.tagColor === 'volcano' ? '#d4380d' : '#595959',
+        bg: cfg.tagColor === 'cyan' ? '#e6f4ff' : cfg.tagColor === 'purple' ? '#f9f0ff' : cfg.tagColor === 'volcano' ? '#fff2e8' : '#fafafa',
+        border: cfg.tagColor === 'cyan' ? '#91caff' : cfg.tagColor === 'purple' ? '#d3adf7' : cfg.tagColor === 'volcano' ? '#ffbb96' : '#d9d9d9',
+      }])
+    ),
     other: { label: 'Other', color: '#595959', bg: '#fafafa', border: '#d9d9d9' },
   };
 
@@ -355,21 +388,11 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
               });
             }
 
-            const hasWm = !!grouped['wm'];
+            const hasWm = !!grouped['water_mitigation'];
             const hasReconstruction = !!grouped['reconstruction'];
 
-            // estimate_category takes priority; fall back to heuristic only for old records
-            const hasCategory = !!ver.estimate_category;
-            const isWmEstimate = hasCategory
-              ? ver.estimate_category === 'water_mitigation'
-              : (ver.notes?.includes('Water Mitigation') ||
-                (hasSections && hasWm && !hasReconstruction && !grouped['other']));
-            const isReconEstimate = hasCategory
-              ? ver.estimate_category === 'reconstruction'
-              : (hasSections && hasReconstruction && !hasWm);
-            const isCombinedEstimate = hasCategory
-              ? ver.estimate_category === 'combined'
-              : false;
+            // Category tag: use estimate_category if set, otherwise leave empty
+            const categoryCfg = getEstimateCategoryConfig(ver.estimate_category);
 
             const dispRcv = isEditing ? editValues.rcv_amount : ver.rcv_amount;
             const dispAcv = isEditing ? editValues.acv_amount : ver.acv_amount;
@@ -400,10 +423,9 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                         {ver.revision_type?.replace('_', ' ').toUpperCase()}
                       </Tag>
                       {isLatestInCategory && <Tag color="processing" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>LATEST</Tag>}
-                      {isWmEstimate && <Tag color="cyan" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>Water Mitigation</Tag>}
-                      {isReconEstimate && <Tag color="purple" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>Reconstruction</Tag>}
-                      {isCombinedEstimate && <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>Combined</Tag>}
-                      {!isWmEstimate && !isReconEstimate && !isCombinedEstimate && hasSections && hasWm && <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>WM Included</Tag>}
+                      {categoryCfg && (
+                        <Tag color={categoryCfg.tagColor} style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>{categoryCfg.label}</Tag>
+                      )}
                     </div>
 
                     {/* Amounts: display or edit */}
@@ -492,9 +514,9 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                             allowClear
                             placeholder="Select..."
                           >
-                            <Select.Option value="combined">Combined</Select.Option>
-                            <Select.Option value="reconstruction">Reconstruction</Select.Option>
-                            <Select.Option value="water_mitigation">Water Mitigation</Select.Option>
+                            {ESTIMATE_CATEGORY_OPTIONS.map(opt => (
+                              <Select.Option key={opt.value} value={opt.value}>{opt.label}</Select.Option>
+                            ))}
                           </Select>
                         </Col>
                       </Row>
@@ -559,10 +581,10 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                 {/* Section Breakdown */}
                 {(hasSections || isEditing) && (
                   <div style={{ marginTop: 6, borderTop: '1px dashed #e8e8e8', paddingTop: 6 }}>
-                    {(['wm', 'reconstruction', 'other'] as const).map(cat => {
+                    {Object.keys(SECTION_COLORS).map(cat => {
                       const group = grouped[cat];
                       if (!group || group.items.length === 0) return null;
-                      const cfg = SECTION_CATEGORY_CONFIG[cat];
+                      const cfg = SECTION_COLORS[cat];
                       const catRcv = group.items.reduce((sum: number, s: any) => sum + (s.rcv || 0), 0);
                       const catAcv = group.items.reduce((sum: number, s: any) => sum + (s.net_acv || 0), 0);
 
@@ -686,6 +708,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const [isParsing, setIsParsing] = useState(false);
   const [existingPdfName, setExistingPdfName] = useState<string | undefined>();
   const [existingPdfId, setExistingPdfId] = useState<string | undefined>();
+  const [existingWmPdfName, setExistingWmPdfName] = useState<string | undefined>();
+  const [existingWmPdfId, setExistingWmPdfId] = useState<string | undefined>();
   const [selectedTask, setSelectedTask] = useState<FollowUpTask | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [claimDrawerOpen, setClaimDrawerOpen] = useState(false);
@@ -823,6 +847,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
       setParsedWmAmount(undefined);
       setExistingPdfName(undefined);
       setExistingPdfId(undefined);
+      setExistingWmPdfName(undefined);
+      setExistingWmPdfId(undefined);
       resolveForm.resetFields();
       queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['followup-stats'] });
@@ -1012,6 +1038,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   setParsedWmAmount(undefined);
                   setExistingPdfName(undefined);
                   setExistingPdfId(undefined);
+                  setExistingWmPdfName(undefined);
+                  setExistingWmPdfId(undefined);
                   setResolveModalOpen(true);
                   // Pre-populate with existing data
                   if (record.resolution_notes) {
@@ -1021,41 +1049,56 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     try {
                       const estimates = await supplementService.listInsuranceEstimates(record.claim_id);
                       if (estimates.length > 0) {
-                        // Find the main estimate (combined or reconstruction, prefer latest)
-                        const main = estimates.find((e: any) =>
-                          e.estimate_category === 'combined' || e.estimate_category === 'reconstruction'
-                        ) || estimates[0];
-                        const wmEst = estimates.find((e: any) => e.estimate_category === 'water_mitigation');
+                        // Find estimates by category
+                        const combined = estimates.find((e: any) => e.estimate_category === 'combined');
+                        const recon = estimates.find((e: any) => e.estimate_category === 'reconstruction');
+                        const wm = estimates.find((e: any) => e.estimate_category === 'water_mitigation');
 
-                        // Determine wm_cost_status from existing categories
-                        let wmStatus = 'included_in_rebuild';
-                        if (wmEst && main && main.estimate_category === 'reconstruction') {
-                          wmStatus = 'separate_estimate';
-                        } else if (wmEst && !main) {
-                          wmStatus = 'separate_estimate';
-                        }
+                        // Main estimate = combined > reconstruction > latest with non-zero amounts
+                        const main = combined || recon
+                          || estimates.find((e: any) => (e.rcv_amount || 0) > 0)
+                          || estimates[0];
 
-                        // Totals from main estimate
-                        resolveForm.setFieldsValue({
+                        // Pre-fill amounts from main estimate
+                        const formValues: any = {
                           outcome: 'estimate_received',
                           rcv_amount: main.rcv_amount || 0,
                           acv_amount: main.acv_amount || 0,
                           depreciation_amount: main.depreciation_amount || 0,
                           deductible: main.deductible || 0,
-                          wm_cost_status: wmStatus,
-                        });
+                        };
+
+                        // WM cost status: only set if data is reliable
+                        if (combined) {
+                          // Single combined estimate — WM was included
+                          formValues.wm_cost_status = 'included_in_rebuild';
+                        } else if (wm && wm.document_url && wm.document_url !== main.document_url) {
+                          // Separate WM with its own distinct file
+                          formValues.wm_cost_status = 'separate_estimate';
+                        }
+                        // Otherwise don't pre-set — let user choose
+
+                        resolveForm.setFieldsValue(formValues);
                         setResolveOutcome('estimate_received');
+
                         if (main.sections_data?.length) {
                           setParsedSections(main.sections_data);
                         }
-                        // Show existing PDF info
                         if (main.document_name) {
                           setExistingPdfName(main.document_name);
                           setExistingPdfId(main.file_download_id || main.document_url);
                         }
-                        if (wmEst?.rcv_amount) {
-                          setParsedWmAmount(wmEst.rcv_amount);
-                          resolveForm.setFieldsValue({ wm_estimate_amount: wmEst.rcv_amount });
+
+                        // WM: only if separate WM has its own distinct file
+                        if (wm && wm.document_url && wm.document_url !== main.document_url) {
+                          if (wm.document_name) {
+                            setExistingWmPdfName(wm.document_name);
+                            setExistingWmPdfId(wm.file_download_id || wm.document_url);
+                          }
+                          if (wm.rcv_amount) {
+                            setParsedWmAmount(wm.rcv_amount);
+                            resolveForm.setFieldsValue({ wm_estimate_amount: wm.rcv_amount });
+                          }
                         }
                       }
                     } catch {
@@ -1613,6 +1656,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
           setParsedSections(null);
           setExistingPdfName(undefined);
           setExistingPdfId(undefined);
+          setExistingWmPdfName(undefined);
+          setExistingWmPdfId(undefined);
           resolveForm.resetFields();
         }}
         confirmLoading={resolveMutation.isPending}
@@ -1815,6 +1860,19 @@ const ClaimFollowUpDashboard: React.FC = () => {
                       return (
                         <div style={{ marginTop: 8 }}>
                           <Form.Item label="WM Estimate PDF (Optional)" style={{ marginBottom: 8 }}>
+                            {existingWmPdfName && !resolveWmFile && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', marginBottom: 6, background: '#f6ffed', borderRadius: 4, border: '1px solid #b7eb8f' }}>
+                                <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                                {existingWmPdfId ? (
+                                  <a href={`${fileService.getDownloadUrl(existingWmPdfId)}?inline=true`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: 12 }}>
+                                    {existingWmPdfName}
+                                  </a>
+                                ) : (
+                                  <Text style={{ flex: 1, fontSize: 12 }}>{existingWmPdfName}</Text>
+                                )}
+                                <Tag color="green" style={{ margin: 0, fontSize: 10 }}>Uploaded</Tag>
+                              </div>
+                            )}
                             <Upload
                               maxCount={1}
                               accept=".pdf"
@@ -1845,7 +1903,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                               fileList={resolveWmFile ? [{ uid: '-2', name: resolveWmFile.name, status: 'done' }] : []}
                             >
                               <Button icon={<UploadOutlined />} loading={isParsingWm} size="small">
-                                {isParsingWm ? 'Parsing...' : 'Upload WM Estimate PDF'}
+                                {isParsingWm ? 'Parsing...' : existingWmPdfName ? 'Replace WM PDF' : 'Upload WM Estimate PDF'}
                               </Button>
                             </Upload>
                           </Form.Item>

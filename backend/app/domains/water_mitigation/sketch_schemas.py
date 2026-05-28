@@ -37,6 +37,7 @@ class WMDemolitionZoneBase(PydanticBaseModel):
     include_pad: bool = Field(False, description="Include carpet pad with this carpet zone")
     include_insulation: bool = Field(False, description="Include insulation demo with wall/ceiling zone")
     glue_down: bool = Field(False, description="Floor is glued down to substrate, adds extra removal cost")
+    baseboard_type: Optional[str] = Field(None, max_length=50, description="Baseboard/trim type: baseboard, quarter_round, baseboard_quarter_round")
     trim_removal: Optional[str] = Field(None, max_length=20, description="Trim removal extent: full, half, quarter, custom")
     trim_lf: Optional[Decimal] = Field(None, ge=0, description="Custom trim length in LF")
     label: Optional[str] = Field(None, max_length=255)

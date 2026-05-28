@@ -216,9 +216,10 @@ class ScopeInvoiceService:
         if holiday_premium:
             adjustments.append({
                 "name": "Holiday Premium",
-                "type": "percentage",
-                "value": 30,  # 30% surcharge
-                "description": "Holiday Special Labor rates (130% of standard rate)"
+                "type": "add",
+                "percentage": 30,  # 30% surcharge
+                "order": 1,
+                "note": "Holiday Special Labor rates (130% of standard rate)",
             })
 
         # Parse the property address into components

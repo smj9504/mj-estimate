@@ -619,8 +619,15 @@ def generate_sketch_report(
     - Per-floor demolition, equipment, containment, and protection summaries
 
     Returns a PDF file as an attachment.
+    Also saves/updates the PDF as a WMDocument (document_type='sketch_report')
+    so it appears in the Documents list.
     """
     import logging
+    import os
+    from pathlib import Path
+    from app.domains.water_mitigation.models import WaterMitigationJob, WMDocument
+    from app.domains.water_mitigation.document_repository import WMDocumentRepository
+
     _logger = logging.getLogger(__name__)
 
     try:
@@ -641,8 +648,69 @@ def generate_sketch_report(
             detail="Failed to generate PDF report",
         )
 
+    # --- Save PDF to disk and upsert WMDocument record ---
+    try:
+        # Get job info for filename
+        job = db.query(WaterMitigationJob).filter(
+            WaterMitigationJob.id == job_id
+        ).first()
+        address = (job.property_address or "").strip() if job else ""
+        base_name = f"{address} - Sketch Report" if address else f"Sketch Report"
+        filename = f"{base_name}.pdf"
+
+        # Save to storage directory
+        output_dir = Path("storage/water-mitigation/documents") / str(job_id)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / filename
+
+        with open(output_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        file_size = len(pdf_bytes)
+
+        # Upsert: find existing sketch_report document for this job
+        doc_repo = WMDocumentRepository(db)
+        existing_docs = doc_repo.get_by_type(str(job_id), "sketch_report", is_active=True)
+        existing_doc = existing_docs[0] if existing_docs else None
+
+        if existing_doc:
+            # Update existing document — delete old file if path changed
+            old_path = existing_doc.file_path
+            if old_path and old_path != str(output_path) and os.path.exists(old_path):
+                try:
+                    os.unlink(old_path)
+                except Exception:
+                    pass
+            doc_repo.update(str(existing_doc.id), {
+                "filename": filename,
+                "file_path": str(output_path),
+                "file_size": file_size,
+                "title": base_name,
+                "generated_by_id": str(current_user.id) if current_user else None,
+            })
+            _logger.info("Updated sketch_report document %s for job %s", existing_doc.id, job_id)
+        else:
+            # Create new document record
+            doc_repo.create({
+                "job_id": str(job_id),
+                "document_type": "sketch_report",
+                "filename": filename,
+                "file_path": str(output_path),
+                "file_size": file_size,
+                "mime_type": "application/pdf",
+                "title": base_name,
+                "is_active": True,
+                "generated_by_id": str(current_user.id) if current_user else None,
+            })
+            _logger.info("Created sketch_report document for job %s", job_id)
+
+        db.commit()
+    except Exception as doc_exc:
+        _logger.warning("Failed to save sketch PDF as document: %s", doc_exc)
+        # Don't fail the download — document save is best-effort
+
     headers = {
-        "Content-Disposition": f'attachment; filename="sketch_report_{job_id}.pdf"',
+        "Content-Disposition": f'attachment; filename="{filename}"',
         "Content-Length": str(len(pdf_bytes)),
     }
     return StreamingResponse(

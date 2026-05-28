@@ -227,6 +227,11 @@ class ClaimNegotiation(Base, BaseModel):
     revision_type = Column(String(50), nullable=False, default="initial")
     # Types: initial | supplement | re_inspection | appraisal | final
 
+    estimate_category = Column(
+        String(30), nullable=True,
+        comment="reconstruction | water_mitigation | combined"
+    )
+
     # Amounts at this revision
     acv_amount = Column(DECIMAL(15, 2), default=0)
     rcv_amount = Column(DECIMAL(15, 2), default=0)

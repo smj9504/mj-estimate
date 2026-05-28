@@ -162,7 +162,6 @@ class ClaimFollowUpService:
             result = repo.update(task_id, {
                 'status': 'pending',
                 'resolved_at': None,
-                'resolution_notes': None,
             })
             session.commit()
             return result
@@ -437,148 +436,122 @@ class ClaimFollowUpService:
         except Exception as e:
             logger.error(f"Error auto-creating supplement: {e}")
 
+    def _get_next_revision_number(self, session, claim_id: str, category: str) -> int:
+        """Get next revision number per claim + category (independent tracks)."""
+        from app.domains.client.models import ClaimNegotiation
+        from sqlalchemy import func as sqlfunc
+        max_rev = session.query(sqlfunc.max(ClaimNegotiation.revision_number)).filter(
+            ClaimNegotiation.claim_id == claim_id,
+            ClaimNegotiation.estimate_category == category,
+        ).scalar() or 0
+        return max_rev + 1
+
+    def _upsert_negotiation(
+        self, session, claim_id: str, category: str, data: Dict[str, Any]
+    ):
+        """Create or update a ClaimNegotiation by claim + category.
+
+        Matches existing initial negotiation by estimate_category to avoid
+        creating duplicate revisions. Reconstruction and WM estimates are
+        independent and won't overwrite each other.
+        """
+        from app.domains.client.models import ClaimNegotiation
+
+        existing = session.query(ClaimNegotiation).filter(
+            ClaimNegotiation.claim_id == claim_id,
+            ClaimNegotiation.revision_type == 'initial',
+            ClaimNegotiation.estimate_category == category,
+        ).first()
+
+        if existing:
+            existing.acv_amount = data.get('acv_amount', 0)
+            existing.rcv_amount = data.get('rcv_amount', 0)
+            existing.depreciation_amount = data.get('depreciation_amount', 0)
+            existing.deductible = data.get('deductible', 0)
+            existing.date_received = datetime.now(timezone.utc)
+            existing.received_from = data.get('received_from', 'Insurance Company')
+            existing.document_url = data.get('document_url', '')
+            existing.document_name = data.get('document_name', '')
+            existing.sections_data = data.get('sections_data')
+            existing.notes = data.get('notes', '')
+            session.flush()
+            logger.info(f"Updated {category} negotiation (rev {existing.revision_number}) for claim {claim_id}")
+            return existing
+        else:
+            neg = ClaimNegotiation(
+                claim_id=claim_id,
+                revision_number=self._get_next_revision_number(session, claim_id, category),
+                revision_type='initial',
+                estimate_category=category,
+                acv_amount=data.get('acv_amount', 0),
+                rcv_amount=data.get('rcv_amount', 0),
+                depreciation_amount=data.get('depreciation_amount', 0),
+                deductible=data.get('deductible', 0),
+                date_received=datetime.now(timezone.utc),
+                received_from=data.get('received_from', 'Insurance Company'),
+                document_url=data.get('document_url', ''),
+                document_name=data.get('document_name', ''),
+                sections_data=data.get('sections_data'),
+                notes=data.get('notes', ''),
+            )
+            session.add(neg)
+            session.flush()
+            logger.info(f"Created {category} negotiation (rev {neg.revision_number}) for claim {claim_id}")
+            return neg
+
     def _create_negotiation_from_estimate(
         self, session, claim_id: str, estimate_data: Dict[str, Any]
     ):
         """Create or update ClaimNegotiation record(s) from insurance estimate data.
 
-        If an 'initial' revision already exists for this claim, updates it
-        instead of creating a new revision. This handles the case where the
-        user reopens a resolved task and re-uploads the insurance estimate.
-
-        If wm_cost_status is 'separate_estimate' and a WM file was uploaded,
-        manages two negotiation records: one for reconstruction and one for WM.
+        Uses estimate_category to match existing records, so Reconstruction
+        and WM estimates are independent and won't overwrite each other.
         """
         try:
-            from app.domains.client.models import ClaimNegotiation
-            from sqlalchemy import func as sqlfunc
-
-            # Check for existing initial negotiations to update instead of duplicating
-            existing_initials = session.query(ClaimNegotiation).filter(
-                ClaimNegotiation.claim_id == claim_id,
-                ClaimNegotiation.revision_type == 'initial',
-            ).order_by(ClaimNegotiation.revision_number.asc()).all()
-
             wm_cost_status = estimate_data.get('wm_cost_status')
             wm_file_id = estimate_data.get('wm_file_id')
             all_sections = estimate_data.get('sections_data') or []
 
             if wm_cost_status == 'separate_estimate' and wm_file_id:
-                # Split sections: WM sections go to WM negotiation, rest to reconstruction
-                wm_keywords = ('water', 'mitigation', 'emergency', 'dry out', 'drying')
-                wm_sections = []
-                recon_sections = []
-                for s in all_sections:
-                    name_lower = (s.get('section_name') or '').lower()
-                    if any(kw in name_lower for kw in wm_keywords):
-                        wm_sections.append(s)
-                    else:
-                        recon_sections.append(s)
+                # Separate PDFs: main PDF = reconstruction, WM PDF = water mitigation
+                # No section splitting needed — each PDF is already category-specific
+                wm_est_amount = estimate_data.get('wm_estimate_amount') or 0
 
-                # Calculate WM totals from sections or use provided amount
-                wm_rcv = sum(s.get('rcv', 0) for s in wm_sections)
-                wm_dep = sum(s.get('depreciation', 0) for s in wm_sections)
-                wm_acv = wm_rcv - wm_dep
-                wm_est_amount = estimate_data.get('wm_estimate_amount')
-                if wm_est_amount and not wm_rcv:
-                    wm_rcv = wm_est_amount
-                    wm_acv = wm_est_amount
+                # Reconstruction: use main PDF amounts and sections as-is
+                self._upsert_negotiation(session, claim_id, 'reconstruction', {
+                    'acv_amount': estimate_data.get('acv_amount', 0),
+                    'rcv_amount': estimate_data.get('rcv_amount', 0),
+                    'depreciation_amount': estimate_data.get('depreciation_amount', 0),
+                    'deductible': estimate_data.get('deductible', 0),
+                    'document_url': estimate_data.get('file_id', ''),
+                    'document_name': estimate_data.get('file_name', ''),
+                    'sections_data': all_sections if all_sections else None,
+                    'notes': 'Reconstruction estimate',
+                })
 
-                # Reconstruction negotiation (main estimate minus WM)
-                recon_rcv = estimate_data.get('rcv_amount', 0) - wm_rcv
-                recon_dep = estimate_data.get('depreciation_amount', 0) - wm_dep
-                recon_acv = estimate_data.get('acv_amount', 0) - wm_acv
-
-                # Clear existing initials (mode may have changed from single to separate)
-                base_rev = existing_initials[0].revision_number if existing_initials else None
-                for ex in existing_initials:
-                    session.delete(ex)
-                if existing_initials:
-                    session.flush()
-
-                if not base_rev:
-                    max_rev = session.query(sqlfunc.max(ClaimNegotiation.revision_number)).filter(
-                        ClaimNegotiation.claim_id == claim_id
-                    ).scalar() or 0
-                    base_rev = max_rev + 1
-
-                negotiation = ClaimNegotiation(
-                    claim_id=claim_id,
-                    revision_number=base_rev,
-                    revision_type='initial',
-                    acv_amount=max(recon_acv, 0),
-                    rcv_amount=max(recon_rcv, 0),
-                    depreciation_amount=max(recon_dep, 0),
-                    deductible=estimate_data.get('deductible', 0),
-                    date_received=datetime.now(timezone.utc),
-                    received_from='Insurance Company',
-                    document_url=estimate_data.get('file_id', ''),
-                    document_name=estimate_data.get('file_name', ''),
-                    sections_data=recon_sections if recon_sections else all_sections,
-                    notes='Reconstruction estimate - uploaded during follow-up resolution',
-                )
-                session.add(negotiation)
-
-                wm_negotiation = ClaimNegotiation(
-                    claim_id=claim_id,
-                    revision_number=base_rev + 1,
-                    revision_type='initial',
-                    acv_amount=max(wm_acv, 0),
-                    rcv_amount=max(wm_rcv, 0),
-                    depreciation_amount=max(wm_dep, 0),
-                    deductible=0,
-                    date_received=datetime.now(timezone.utc),
-                    received_from='Insurance Company',
-                    document_url=wm_file_id,
-                    document_name=estimate_data.get('wm_file_name', ''),
-                    sections_data=wm_sections if wm_sections else None,
-                    notes='Water Mitigation estimate - uploaded during follow-up resolution',
-                )
-                session.add(wm_negotiation)
-                session.flush()
-                action = 'Updated' if existing_initials else 'Created'
-                logger.info(f"{action} negotiation revisions {base_rev} (recon) and {base_rev + 1} (WM) for claim {claim_id}")
+                # WM: use WM PDF and its parsed amount
+                self._upsert_negotiation(session, claim_id, 'water_mitigation', {
+                    'acv_amount': wm_est_amount,
+                    'rcv_amount': wm_est_amount,
+                    'depreciation_amount': 0,
+                    'deductible': 0,
+                    'document_url': wm_file_id,
+                    'document_name': estimate_data.get('wm_file_name', ''),
+                    'sections_data': None,
+                    'notes': 'Water Mitigation estimate',
+                })
             else:
-                # Single negotiation (WM included or N/A)
-                if existing_initials:
-                    # Update existing initial negotiation
-                    negotiation = existing_initials[0]
-                    negotiation.acv_amount = estimate_data.get('acv_amount', 0)
-                    negotiation.rcv_amount = estimate_data.get('rcv_amount', 0)
-                    negotiation.depreciation_amount = estimate_data.get('depreciation_amount', 0)
-                    negotiation.deductible = estimate_data.get('deductible', 0)
-                    negotiation.date_received = datetime.now(timezone.utc)
-                    negotiation.document_url = estimate_data.get('file_id', '')
-                    negotiation.document_name = estimate_data.get('file_name', '')
-                    negotiation.sections_data = all_sections if all_sections else None
-                    negotiation.notes = 'Uploaded during follow-up resolution (updated)'
-                    # Remove extra initials if mode changed from separate to single
-                    for extra in existing_initials[1:]:
-                        session.delete(extra)
-                    session.flush()
-                    logger.info(f"Updated existing negotiation revision {negotiation.revision_number} for claim {claim_id}")
-                else:
-                    max_rev = session.query(sqlfunc.max(ClaimNegotiation.revision_number)).filter(
-                        ClaimNegotiation.claim_id == claim_id
-                    ).scalar() or 0
-                    negotiation = ClaimNegotiation(
-                        claim_id=claim_id,
-                        revision_number=max_rev + 1,
-                        revision_type='initial',
-                        acv_amount=estimate_data.get('acv_amount', 0),
-                        rcv_amount=estimate_data.get('rcv_amount', 0),
-                        depreciation_amount=estimate_data.get('depreciation_amount', 0),
-                        deductible=estimate_data.get('deductible', 0),
-                        date_received=datetime.now(timezone.utc),
-                        received_from='Insurance Company',
-                        document_url=estimate_data.get('file_id', ''),
-                        document_name=estimate_data.get('file_name', ''),
-                        sections_data=all_sections if all_sections else None,
-                        notes='Uploaded during follow-up resolution',
-                    )
-                    session.add(negotiation)
-                    session.flush()
-                    logger.info(f"Created negotiation revision {max_rev + 1} for claim {claim_id}")
+                # Single combined estimate
+                self._upsert_negotiation(session, claim_id, 'combined', {
+                    'acv_amount': estimate_data.get('acv_amount', 0),
+                    'rcv_amount': estimate_data.get('rcv_amount', 0),
+                    'depreciation_amount': estimate_data.get('depreciation_amount', 0),
+                    'deductible': estimate_data.get('deductible', 0),
+                    'document_url': estimate_data.get('file_id', ''),
+                    'document_name': estimate_data.get('file_name', ''),
+                    'sections_data': all_sections if all_sections else None,
+                    'notes': 'Insurance estimate',
+                })
         except Exception as e:
             logger.error(f"Error creating/updating negotiation: {e}")
 

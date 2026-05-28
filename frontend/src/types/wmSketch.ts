@@ -375,6 +375,8 @@ export interface WMDemolitionZone {
   include_pad?: boolean;
   /** When true, insulation demo is included with this wall/ceiling zone */
   include_insulation?: boolean;
+  /** Baseboard/trim type included along this wall drywall zone (undefined = none) */
+  baseboard_type?: 'baseboard' | 'quarter_round' | 'baseboard_quarter_round';
   /** When true, floor is glued down to substrate — adds extra removal cost */
   glue_down?: boolean;
   /** Trim removal extent: full (all sides), half, quarter, or custom LF */

@@ -561,6 +561,50 @@ const ZoneEditForm: React.FC<{
         </Checkbox>
       )}
 
+      {/* Baseboard / Quarter Round selector — for wall SF materials (drywall lines) */}
+      {selectedMaterial?.surface === 'wall'
+        && selectedMaterial?.unit === 'SF'
+        && zone.material_type !== 'insulation' && (
+        <div>
+          <Text style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>
+            Baseboard / Trim
+          </Text>
+          <Select
+            size="small"
+            value={zone.baseboard_type || undefined}
+            onChange={(value: string) => onUpdate({ baseboard_type: value as any })}
+            placeholder="None"
+            style={{ width: '100%' }}
+            allowClear
+            onClear={() => onUpdate({ baseboard_type: undefined })}
+          >
+            <Select.Option value="baseboard">
+              <Space size={6}>
+                <ColorSwatch color="#DEB887" size={10} />
+                <span>Baseboard</span>
+              </Space>
+            </Select.Option>
+            <Select.Option value="quarter_round">
+              <Space size={6}>
+                <ColorSwatch color="#C4A882" size={10} />
+                <span>Quarter Round</span>
+              </Space>
+            </Select.Option>
+            <Select.Option value="baseboard_quarter_round">
+              <Space size={6}>
+                <ColorSwatch color="#D2B48C" size={10} />
+                <span>Baseboard + Quarter Round</span>
+              </Space>
+            </Select.Option>
+          </Select>
+          {zone.baseboard_type && !needsDimensions && (
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+              +{zone.dimension1_ft.toFixed(2)} LF
+            </Text>
+          )}
+        </div>
+      )}
+
       {/* Label */}
       <div>
         <Text style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>

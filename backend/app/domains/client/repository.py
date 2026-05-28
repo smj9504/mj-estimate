@@ -359,15 +359,18 @@ class ClaimNegotiationSQLAlchemyRepository(SQLAlchemyRepository):
             logger.error(f"Error getting negotiations by claim: {e}")
             raise
 
-    def get_next_revision_number(self, claim_id: str) -> int:
-        """Get the next revision number for a claim"""
+    def get_next_revision_number(self, claim_id: str, category: str = None) -> int:
+        """Get the next revision number for a claim, scoped by estimate_category."""
         try:
             from sqlalchemy import func
-            max_rev = self.db_session.query(
+            q = self.db_session.query(
                 func.max(ClaimNegotiation.revision_number)
             ).filter(
                 ClaimNegotiation.claim_id == claim_id
-            ).scalar()
+            )
+            if category:
+                q = q.filter(ClaimNegotiation.estimate_category == category)
+            max_rev = q.scalar()
             return (max_rev or 0) + 1
         except Exception as e:
             logger.error(f"Error getting next revision number: {e}")
@@ -376,9 +379,10 @@ class ClaimNegotiationSQLAlchemyRepository(SQLAlchemyRepository):
     def create_and_update_claim(self, negotiation_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create negotiation and update parent claim's current amounts"""
         try:
-            # Auto-assign revision number
+            # Auto-assign revision number (per category)
             claim_id = negotiation_data['claim_id']
-            negotiation_data['revision_number'] = self.get_next_revision_number(claim_id)
+            category = negotiation_data.get('estimate_category')
+            negotiation_data['revision_number'] = self.get_next_revision_number(claim_id, category)
 
             # Create negotiation
             result = self.create(negotiation_data)

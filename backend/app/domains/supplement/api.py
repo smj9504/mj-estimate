@@ -221,6 +221,7 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
         neg_data = {
             'claim_id': claim_id,
             'revision_type': data.get('revision_type', 'supplement'),
+            'estimate_category': data.get('estimate_category'),
             'acv_amount': data.get('acv_amount', 0),
             'rcv_amount': data.get('rcv_amount', 0),
             'depreciation_amount': data.get('depreciation_amount', 0),
@@ -335,7 +336,7 @@ async def update_insurance_estimate(claim_id: str, negotiation_id: str, data: di
 
             updatable_fields = [
                 'acv_amount', 'rcv_amount', 'depreciation_amount', 'deductible',
-                'revision_type', 'date_received', 'received_from', 'notes',
+                'revision_type', 'estimate_category', 'date_received', 'received_from', 'notes',
                 'sections_data',
             ]
             for field in updatable_fields:
@@ -412,6 +413,32 @@ async def replace_insurance_estimate_pdf(claim_id: str, negotiation_id: str, dat
         raise
     except Exception as e:
         logger.error(f"Error replacing estimate PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/supplements/insurance-estimates/{claim_id}/{negotiation_id}")
+async def delete_insurance_estimate(claim_id: str, negotiation_id: str):
+    """Delete an insurance estimate negotiation record."""
+    try:
+        from app.domains.client.models import ClaimNegotiation
+        database = get_database()
+        session = database.get_session()
+        try:
+            neg = session.query(ClaimNegotiation).filter(
+                ClaimNegotiation.id == negotiation_id,
+                ClaimNegotiation.claim_id == claim_id,
+            ).first()
+            if not neg:
+                raise HTTPException(status_code=404, detail="Negotiation not found")
+            session.delete(neg)
+            session.commit()
+            return {"message": "Estimate deleted successfully"}
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting insurance estimate: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

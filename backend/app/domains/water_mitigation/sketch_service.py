@@ -518,6 +518,12 @@ class SketchService:
         for sketch in sketches:
             floor_label = sketch.floor_label or f"Floor {sketch.floor_order}"
 
+            # Use JSONB overlay_data as source of truth — it preserves ALL
+            # frontend fields (baseboard_type, polygon_points, etc.) that the
+            # normalised DB rows may not have.
+            _overlay = sketch.overlay_data if isinstance(sketch.overlay_data, dict) else {}
+            _jsonb_demo_zones = _overlay.get("demolition_zones") or []
+
             # Create scope location for this floor
             location = WMScopeLocation(
                 job_id=job_id,
@@ -538,29 +544,36 @@ class SketchService:
             carpet_pad_sqft: float = 0.0
             insulation_sqft: float = 0.0
             glue_down_sqft: float = 0.0
-            for zone in (sketch.demolition_zones or []):
-                mt = zone.material_type or "unknown"
-                st = getattr(zone, "sub_type", None) or ""
-                sqft = float(zone.calculated_sqft or 0)
+            # Baseboard/trim LF accumulated from wall drywall zones with baseboard_type
+            baseboard_lf: dict[str, float] = {}  # key = baseboard_type, value = total LF
+            for zone in _jsonb_demo_zones:
+                mt = zone.get("material_type") or "unknown"
+                st = zone.get("sub_type") or ""
+                sqft = float(zone.get("calculated_sqft") or 0)
 
                 # Trim items: ensure value is in LF, not EA count
                 if mt in self._TRIM_REMOVAL_MATERIAL_IDS:
-                    trim_removal = getattr(zone, "trim_removal", None) or "full"
-                    trim_lf_custom = getattr(zone, "trim_lf", None)
+                    trim_removal = zone.get("trim_removal") or "full"
+                    trim_lf_custom = zone.get("trim_lf")
                     sqft = self._calc_trim_lf(mt, st, trim_removal, float(trim_lf_custom) if trim_lf_custom else None)
 
                 key = (mt, st)
                 if sqft > 0:
                     demo_groups[key] = demo_groups.get(key, 0) + sqft
                 # Accumulate carpet pad area
-                if mt == "carpet" and zone.include_pad and sqft > 0:
+                if mt == "carpet" and zone.get("include_pad") and sqft > 0:
                     carpet_pad_sqft += sqft
                 # Accumulate insulation area (from wall/ceiling checkbox)
-                if getattr(zone, "include_insulation", False) and sqft > 0:
+                if zone.get("include_insulation") and sqft > 0:
                     insulation_sqft += sqft
                 # Accumulate glue down area (floor SF materials)
-                if getattr(zone, "glue_down", False) and sqft > 0:
+                if zone.get("glue_down") and sqft > 0:
                     glue_down_sqft += sqft
+                # Accumulate baseboard/trim LF from wall drywall zones
+                bb_type = zone.get("baseboard_type")
+                if bb_type and float(zone.get("dimension1_ft") or 0) > 0:
+                    wall_lf = float(zone.get("dimension1_ft"))
+                    baseboard_lf[bb_type] = baseboard_lf.get(bb_type, 0) + wall_lf
 
             for (material_type, sub_type), total_qty in demo_groups.items():
                 base_name = self._MATERIAL_TYPE_NAMES.get(
@@ -687,6 +700,52 @@ class SketchService:
                 all_items.append(GeneratedScopeItemSummary(
                     name="Glue Down Floor Removal", item_type="demolition",
                     quantity=round(glue_down_sqft, 2), unit="SF",
+                    floor_label=floor_label,
+                ))
+
+            # Baseboard / Quarter Round — separate line items from wall drywall zones
+            # Expand baseboard_quarter_round into two separate items (Baseboard + Quarter Round)
+            expanded_bb: dict[str, float] = {}
+            for bb_type, total_lf in baseboard_lf.items():
+                if total_lf <= 0:
+                    continue
+                if bb_type == "baseboard_quarter_round":
+                    expanded_bb["baseboard"] = expanded_bb.get("baseboard", 0) + total_lf
+                    expanded_bb["quarter_round"] = expanded_bb.get("quarter_round", 0) + total_lf
+                else:
+                    expanded_bb[bb_type] = expanded_bb.get(bb_type, 0) + total_lf
+
+            _BB_NAMES = {
+                "baseboard": "Baseboard",
+                "quarter_round": "Quarter Round",
+            }
+            for bb_type, total_lf in expanded_bb.items():
+                if total_lf <= 0:
+                    continue
+                bb_name = _BB_NAMES.get(bb_type, bb_type)
+                bb_mw_id = self._resolve_material_weight_id(
+                    material_weight_map, bb_name, bb_type, "",
+                )
+                bb_item = WMScopeItem(
+                    location_id=location.id,
+                    item_type="demolition",
+                    name=bb_name,
+                    quantity=Decimal(str(round(total_lf, 2))),
+                    unit="LF",
+                    include_in_debris=True,
+                    material_weight_id=bb_mw_id,
+                    display_order=item_order,
+                )
+                if not bb_mw_id:
+                    warnings.append(
+                        f"No material weight mapping found for '{bb_name}'"
+                    )
+                self.db.add(bb_item)
+                items_created += 1
+                item_order += 1
+                all_items.append(GeneratedScopeItemSummary(
+                    name=bb_name, item_type="demolition",
+                    quantity=round(total_lf, 2), unit="LF",
                     floor_label=floor_label,
                 ))
 

@@ -54,6 +54,7 @@ export interface ClaimNegotiation {
   claim_id: string;
   revision_number: number;
   revision_type: 'initial' | 'supplement' | 're_inspection' | 'appraisal' | 'final';
+  estimate_category?: string | null;
   acv_amount: number;
   rcv_amount: number;
   depreciation_amount: number;

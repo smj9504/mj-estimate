@@ -341,9 +341,17 @@ async def resolve_task(
     if not existing_task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    # Resolve address and version info once (shared by both uploads)
+    # Category → file label mapping (add new types here)
+    CATEGORY_FILE_LABELS = {
+        'combined': 'Insurance-Estimate',
+        'reconstruction': 'Reconstruction-Estimate',
+        'water_mitigation': 'WM-Estimate',
+        'mold_remediation': 'Mold-Estimate',
+    }
+
+    # Resolve address and per-category version info
     address_part = ''
-    version = 1
+    category_versions: dict = {}  # {category: next_version}
     try:
         from app.core.database_factory import get_database
         from app.domains.claim_followup.models import FollowUpTask as FUTask
@@ -360,14 +368,23 @@ async def resolve_task(
                     client_obj = session.query(Client).filter(Client.id == claim_obj.client_id).first()
                     if client_obj and client_obj.address:
                         address_part = client_obj.address.strip()
-                    max_rev = session.query(sqlfunc.max(ClaimNegotiation.revision_number)).filter(
-                        ClaimNegotiation.claim_id == str(claim_obj.id)
-                    ).scalar() or 0
-                    version = max_rev + 1
+                    claim_id_str = str(claim_obj.id)
+                    for cat in CATEGORY_FILE_LABELS:
+                        max_rev = session.query(sqlfunc.max(ClaimNegotiation.revision_number)).filter(
+                            ClaimNegotiation.claim_id == claim_id_str,
+                            ClaimNegotiation.estimate_category == cat,
+                        ).scalar() or 0
+                        category_versions[cat] = max_rev + 1
         finally:
             session.close()
     except Exception as e:
         logger.error(f"Failed to fetch address info for file naming: {e}")
+
+    # Determine main estimate category based on WM cost status
+    is_separate = wm_cost_status == 'separate_estimate'
+    main_category = 'reconstruction' if is_separate else 'combined'
+    main_label = CATEGORY_FILE_LABELS.get(main_category, 'Insurance-Estimate')
+    main_version = category_versions.get(main_category, 1)
 
     # Handle insurance estimate file upload
     file_id = None
@@ -377,7 +394,7 @@ async def resolve_task(
             db = get_database()
             file_id, file_name = await _upload_pdf_file(
                 db, file, "insurance_estimate", task_id,
-                address_part, version, "Insurance-Estimate",
+                address_part, main_version, main_label,
             )
         except Exception as e:
             logger.error(f"Insurance estimate file upload failed: {e}")
@@ -396,18 +413,18 @@ async def resolve_task(
                 parsed_wm_amount = auto_amount
                 logger.info(f"Auto-parsed WM estimate amount from PDF: ${auto_amount:,.2f}")
 
-            # Re-read for upload (already consumed above)
             import io
             wm_estimate_file.file.seek(0) if hasattr(wm_estimate_file.file, 'seek') else None
-            # Use the already-read bytes for upload
             from app.domains.file.service import FileService
             import os as _os
             ext = _os.path.splitext(wm_estimate_file.filename)[1] or '.pdf'
+            wm_label = CATEGORY_FILE_LABELS.get('water_mitigation', 'WM-Estimate')
+            wm_ver = category_versions.get('water_mitigation', 1)
             if address_part:
                 safe_address = address_part.replace('/', '-').replace('\\', '-').replace(':', '').replace('"', '')
-                wm_upload_filename = f"{safe_address}-WM-Estimate-v{version}{ext}"
+                wm_upload_filename = f"{safe_address}-{wm_label}-v{wm_ver}{ext}"
             else:
-                wm_upload_filename = f"WM-Estimate-v{version}{ext}"
+                wm_upload_filename = f"{wm_label}-v{wm_ver}{ext}"
 
             db2 = get_database()
             fs = FileService(db2)
