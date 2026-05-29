@@ -35,11 +35,12 @@ const { Text, Title } = Typography;
 
 interface WMInvoiceListProps {
   jobId: string;
+  jobAddress?: string;
   onInvoiceDeleted?: () => void;
 }
 
 const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListProps>(
-  ({ jobId, onInvoiceDeleted }, ref) => {
+  ({ jobId, jobAddress, onInvoiceDeleted }, ref) => {
     const navigate = useNavigate();
     const [invoiceHistory, setInvoiceHistory] = useState<JobInvoiceHistoryResponse | null>(null);
     const [loading, setLoading] = useState(false);
@@ -76,7 +77,9 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
     const handleDownloadPdf = async (invoice: WMScopeInvoiceResponse) => {
       setDownloading(invoice.invoice_id);
       try {
-        const filename = `Invoice_${invoice.invoice_number || 'unknown'}.pdf`;
+        const addr = (jobAddress || '').split(',')[0].trim();
+        const invNum = invoice.invoice_number || 'unknown';
+        const filename = `WM - ${addr} - ${invNum}.pdf`;
         await waterMitigationService.scopeInvoice.downloadPdf(invoice.invoice_id, filename);
         message.success('Invoice PDF downloaded');
       } catch (error) {

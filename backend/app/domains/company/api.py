@@ -352,8 +352,13 @@ async def upload_w9(
         from app.domains.file.service import FileService
         from app.core.database_factory import get_database
         import io
+        import traceback
+
         db = get_database()
         file_service = FileService(db)
+
+        logger.info(f"W9 upload: company_id={company_id}, filename={file.filename}, size={len(content)}")
+
         uploaded = await file_service.upload_file(
             file_data=io.BytesIO(content),
             original_filename=file.filename or 'W9.pdf',
@@ -362,13 +367,29 @@ async def upload_w9(
             context_id=company_id,
             category='w9',
         )
-        file_id = str(uploaded.get('id') or uploaded.get('file_id', ''))
+
+        # Extract file_id - handle both dict and ORM object
+        if isinstance(uploaded, dict):
+            file_id = str(uploaded.get('id') or uploaded.get('file_id', ''))
+        else:
+            file_id = str(getattr(uploaded, 'id', ''))
+
+        logger.info(f"W9 upload: file created with id={file_id}")
+
+        # Ensure file record is committed
+        file_session = file_service.repository.session
+        try:
+            file_session.commit()
+        except Exception:
+            pass  # May already be committed by repository
 
         # Update company w9_file_id
         from .schemas import CompanyUpdate
         updated = service.update(company_id, CompanyUpdate(w9_file_id=file_id))
         if not updated:
             raise HTTPException(status_code=404, detail="Company not found")
+
+        logger.info(f"W9 upload: company updated with w9_file_id={file_id}")
 
         return {
             "success": True,
@@ -379,6 +400,7 @@ async def upload_w9(
         raise
     except Exception as e:
         logger.error(f"Error uploading W9: {e}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -429,8 +451,9 @@ async def get_w9_info(
         database = get_database()
         session = database.get_readonly_session()
         try:
+            # File.id is String, w9_file_id may be UUID - cast to str
             file_rec = session.query(FileModel).filter(
-                FileModel.id == w9_file_id
+                FileModel.id == str(w9_file_id)
             ).first()
             if not file_rec:
                 return {"has_w9": False, "file_id": None}

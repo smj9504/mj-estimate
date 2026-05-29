@@ -453,3 +453,132 @@ async def link_plumber_report(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# WM Job Contract Integration
+# ============================================================
+
+@router.get("/wm-jobs/{job_id}/contracts")
+async def list_wm_job_contracts(
+    job_id: str,
+    db=Depends(get_db),
+    service: ContractInstanceService = Depends(_get_instance_service),
+):
+    """List contracts for a WM job (via its claim_id)"""
+    try:
+        from app.domains.water_mitigation.models import WaterMitigationJob
+        job = db.query(WaterMitigationJob).filter(
+            WaterMitigationJob.id == job_id
+        ).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="WM Job not found")
+        if not job.claim_id:
+            return {"contracts": [], "total": 0}
+        contracts = service.get_by_claim(str(job.claim_id))
+        return {"contracts": contracts, "total": len(contracts)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing WM job contracts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/wm-jobs/{job_id}/contracts")
+async def create_wm_job_contract(
+    job_id: str,
+    data: ContractInstanceCreate,
+    db=Depends(get_db),
+    service: ContractInstanceService = Depends(_get_instance_service),
+):
+    """Generate a contract for a WM job using its claim/client/company info"""
+    try:
+        from app.domains.water_mitigation.models import WaterMitigationJob
+        job = db.query(WaterMitigationJob).filter(
+            WaterMitigationJob.id == job_id
+        ).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="WM Job not found")
+        if not job.claim_id:
+            raise HTTPException(
+                status_code=400,
+                detail="WM Job has no linked claim. Please link a claim first."
+            )
+
+        contract_data = data.dict()
+        contract_data['claim_id'] = str(job.claim_id)
+        contract_data['wm_job_id'] = job_id
+        # Use job's company_id if not specified
+        if not contract_data.get('company_id') and job.company_id:
+            contract_data['company_id'] = str(job.company_id)
+        # Use job's client_id if not specified
+        if not contract_data.get('client_id') and job.client_id:
+            contract_data['client_id'] = str(job.client_id)
+
+        result = service.create_contract(contract_data)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating WM job contract: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/wm-jobs/{job_id}/prefill-preview")
+async def get_wm_job_prefill_preview(
+    job_id: str,
+    template_id: str,
+    db=Depends(get_db),
+    service: ContractInstanceService = Depends(_get_instance_service),
+):
+    """Preview prefill data for a WM job contract, including WM-specific fields"""
+    try:
+        from app.domains.water_mitigation.models import WaterMitigationJob
+        job = db.query(WaterMitigationJob).filter(
+            WaterMitigationJob.id == job_id
+        ).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="WM Job not found")
+        if not job.claim_id:
+            raise HTTPException(status_code=400, detail="WM Job has no linked claim.")
+
+        result = service.get_prefill_preview(
+            claim_id=str(job.claim_id),
+            template_id=template_id,
+            client_id=str(job.client_id) if job.client_id else '',
+            company_id=str(job.company_id) if job.company_id else '',
+            wm_job_id=job_id,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting WM prefill preview: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/wm-jobs/{job_id}/available-templates")
+async def get_wm_job_available_templates(
+    job_id: str,
+    db=Depends(get_db),
+    service: ContractTemplateService = Depends(_get_template_service),
+):
+    """Get available contract templates for a WM job's company"""
+    try:
+        from app.domains.water_mitigation.models import WaterMitigationJob
+        job = db.query(WaterMitigationJob).filter(
+            WaterMitigationJob.id == job_id
+        ).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="WM Job not found")
+        if not job.company_id:
+            return {"templates": [], "total": 0}
+        templates = service.get_by_company(str(job.company_id))
+        # Only return active templates
+        active = [t for t in templates if t.get('is_active', True)]
+        return {"templates": active, "total": len(active)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting available templates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

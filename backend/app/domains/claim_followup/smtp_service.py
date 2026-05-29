@@ -5,10 +5,11 @@ Handles outbound email delivery via SMTP with support for Gmail, Outlook, and cu
 
 import logging
 import smtplib
+from datetime import datetime, timezone
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.utils import formataddr, make_msgid
+from email.utils import formataddr, formatdate, make_msgid
 from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
@@ -60,6 +61,7 @@ class SmtpService:
             body_html=body_html,
             attachments=attachments,
             reply_to=reply_to,
+            display_name=smtp_config.get("display_name", ""),
         )
 
         # Send
@@ -134,6 +136,7 @@ class SmtpService:
                 "use_tls": preset["use_tls"],
                 "username": account["username"],
                 "password": password,
+                "display_name": account.get("display_name", ""),
             }
         finally:
             session.close()
@@ -147,25 +150,39 @@ class SmtpService:
         body_html: str,
         attachments: List[Dict[str, Any]],
         reply_to: Optional[str] = None,
+        display_name: str = "",
     ) -> MIMEMultipart:
-        """Build MIME message"""
+        """Build MIME message with spam-prevention headers"""
         msg = MIMEMultipart("mixed")
-        msg["From"] = from_address
+        msg["From"] = formataddr((display_name, from_address)) if display_name else from_address
         msg["To"] = ", ".join(to_addresses)
         if cc_addresses:
             msg["Cc"] = ", ".join(cc_addresses)
         msg["Subject"] = subject
-        msg["Message-ID"] = make_msgid()
+
+        # Required headers to avoid spam classification
+        sender_domain = from_address.split("@")[-1] if "@" in from_address else "gmail.com"
+        msg["Message-ID"] = make_msgid(domain=sender_domain)
+        msg["Date"] = formatdate(localtime=True)
+        msg["MIME-Version"] = "1.0"
 
         if reply_to:
             msg["Reply-To"] = reply_to
 
-        # Body
+        # Body - proper multipart/alternative with plain text and HTML
         body_part = MIMEMultipart("alternative")
-        # Plain text fallback (strip HTML tags)
+
+        # Plain text: clean conversion from HTML (better than regex strip)
         import re
-        plain_text = re.sub(r'<[^>]+>', '', body_html)
-        plain_text = re.sub(r'\s+', ' ', plain_text).strip()
+        plain_text = body_html
+        # Convert <br>, <p>, <li> to newlines for readable plain text
+        plain_text = re.sub(r'<br\s*/?>',  '\n', plain_text)
+        plain_text = re.sub(r'</p>\s*', '\n\n', plain_text)
+        plain_text = re.sub(r'<li[^>]*>', '- ', plain_text)
+        plain_text = re.sub(r'</li>', '\n', plain_text)
+        plain_text = re.sub(r'<[^>]+>', '', plain_text)
+        plain_text = re.sub(r'\n{3,}', '\n\n', plain_text).strip()
+
         body_part.attach(MIMEText(plain_text, "plain", "utf-8"))
         body_part.attach(MIMEText(body_html, "html", "utf-8"))
         msg.attach(body_part)

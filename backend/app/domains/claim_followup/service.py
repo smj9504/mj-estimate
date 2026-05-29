@@ -122,12 +122,31 @@ class ClaimFollowUpService:
         resolution_notes: Optional[str] = None,
         outcome: Optional[str] = None,
         estimate_data: Optional[Dict[str, Any]] = None,
+        denied_action: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Mark a task as resolved and process outcome"""
+        """Mark a task as resolved and process outcome.
+
+        When outcome='denied' and denied_action is dispute/appraisal/attorney,
+        the task is NOT resolved — instead it is converted to the new type
+        and the claim stays open.
+        """
         session = self._get_session()
         try:
             from app.domains.claim_followup.repository import get_followup_task_repository
             repo = get_followup_task_repository(session)
+
+            # Denied + continuing action → keep task open, change type
+            if (outcome == 'denied'
+                    and denied_action
+                    and denied_action != 'complete'):
+                result = self._handle_denied_continue(
+                    session, repo, task_id,
+                    denied_action, resolution_notes,
+                )
+                session.commit()
+                return result
+
+            # Normal resolve flow
             result = repo.resolve_task(task_id, resolution_notes)
             if not result:
                 return None
@@ -171,6 +190,90 @@ class ClaimFollowUpService:
             raise
         finally:
             session.close()
+
+    def _handle_denied_continue(
+        self, session, repo, task_id: str,
+        denied_action: str,
+        resolution_notes: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Handle denied claim with continuing action.
+
+        Updates task type to dispute/appraisal/attorney_referral,
+        keeps task open, and keeps claim.status as 'open'.
+        """
+        from app.domains.client.models import Claim, ClaimActivity
+
+        task = repo.get_by_id(task_id)
+        if not task:
+            return None
+
+        ACTION_MAP = {
+            'dispute': {
+                'task_type': 'dispute',
+                'title': 'Dispute: Insurance claim denied',
+                'desc': 'Claim denied. Preparing estimate '
+                        'to dispute with insurance company.',
+                'activity': 'Proceeding with dispute',
+            },
+            'appraisal': {
+                'task_type': 'appraisal',
+                'title': 'Appraisal: Insurance claim denied',
+                'desc': 'Claim denied. '
+                        'Proceeding to appraisal process.',
+                'activity': 'Proceeding with appraisal',
+            },
+            'attorney': {
+                'task_type': 'attorney_referral',
+                'title': 'Attorney: Insurance claim denied',
+                'desc': 'Claim denied. '
+                        'Referred to attorney for review.',
+                'activity': 'Referred to attorney',
+            },
+        }
+
+        action_info = ACTION_MAP.get(denied_action)
+        if not action_info:
+            return None
+
+        # Update task type and description, keep open
+        update_data = {
+            'task_type': action_info['task_type'],
+            'title': action_info['title'],
+            'description': (
+                resolution_notes or action_info['desc']
+            ),
+            'status': 'pending',
+            'resolved_at': None,
+            'next_followup_date': (
+                datetime.now(timezone.utc) + timedelta(days=3)
+            ),
+        }
+        result = repo.update(task_id, update_data)
+
+        # Log activity on claim
+        claim_id = task.get('claim_id')
+        if claim_id:
+            claim = session.query(Claim).filter(
+                Claim.id == claim_id
+            ).first()
+            # Keep claim status as open (not denied)
+            if claim and claim.status == 'denied':
+                claim.status = 'open'
+
+            session.add(ClaimActivity(
+                claim_id=claim_id,
+                activity_type='denied_action',
+                title=action_info['activity'],
+                description=(
+                    resolution_notes
+                    or action_info['desc']
+                ),
+                related_entity_type='followup_task',
+                related_entity_id=task.get('id'),
+            ))
+
+        session.flush()
+        return result
 
     def _process_resolve_outcome(
         self,
@@ -909,6 +1012,14 @@ class ClaimFollowUpService:
             if not from_address:
                 from_address = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@example.com')
 
+            # Separate binary attachment data from metadata for DB storage
+            raw_attachments = data.get('attachments', [])
+            # Store only JSON-safe metadata in the DB (strip binary 'data' field)
+            attachments_metadata = [
+                {k: v for k, v in att.items() if k != 'data'}
+                for att in raw_attachments
+            ]
+
             # Create sent email record
             email_data = {
                 'claim_id': data['claim_id'],
@@ -922,7 +1033,7 @@ class ClaimFollowUpService:
                 'subject': data['subject'],
                 'body_html': data['body_html'],
                 'body_text': data.get('body_text'),
-                'attachments': data.get('attachments', []),
+                'attachments': attachments_metadata,
                 'template_id': data.get('template_id'),
                 'template_variables': data.get('template_variables'),
                 'is_ai_generated': data.get('is_ai_generated', False),

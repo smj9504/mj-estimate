@@ -152,8 +152,9 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
 
             session = self.database.get_session()
             try:
-                # Build prefill snapshot
+                # Build prefill snapshot (wm_job_id used here, then removed)
                 prefill = self._build_prefill(session, data)
+                data.pop('wm_job_id', None)
 
                 # Merge user overrides
                 if prefill_overrides:
@@ -249,9 +250,64 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                     'email': company.email,
                     'license_number': company.license_number,
                 }
+
+            # WM Job data
+            wm_job_id = data.get('wm_job_id')
+            if wm_job_id:
+                self._add_wm_prefill(session, prefill, wm_job_id)
         except Exception as e:
             logger.warning(f"Error building prefill: {e}")
         return prefill
+
+    def _add_wm_prefill(self, session, prefill: Dict[str, Any], wm_job_id: str):
+        """Add Water Mitigation job fields to prefill data"""
+        try:
+            from app.domains.water_mitigation.models import WaterMitigationJob
+            job = session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.id == wm_job_id
+            ).first()
+            if not job:
+                return
+
+            def fmt_date(dt, fmt='%m/%d/%Y'):
+                if not dt:
+                    return None
+                if hasattr(dt, 'strftime'):
+                    return dt.strftime(fmt)
+                return str(dt)
+
+            today = datetime.utcnow()
+            dol = job.date_of_loss
+            dol_plus1 = None
+            if dol and hasattr(dol, 'date'):
+                from datetime import timedelta
+                dol_plus1 = (dol + timedelta(days=1)).strftime('%m/%d/%Y')
+
+            prefill['wm_job'] = {
+                'property_address': job.property_address,
+                'property_street': job.property_street,
+                'property_city': job.property_city,
+                'property_state': job.property_state,
+                'property_zipcode': job.property_zipcode,
+                'property_full_address': job.property_address or '',
+                'homeowner_name': job.homeowner_name,
+                'homeowner_phone': job.homeowner_phone,
+                'homeowner_email': job.homeowner_email,
+                'insurance_company': job.insurance_company,
+                'insurance_policy_number': job.insurance_policy_number,
+                'claim_number': job.claim_number,
+                'date_of_loss': fmt_date(dol),
+                'date_of_loss_plus_1': dol_plus1,
+                'mitigation_start_date': fmt_date(job.mitigation_start_date),
+                'mitigation_end_date': fmt_date(job.mitigation_end_date),
+                'mitigation_period': job.mitigation_period,
+                'adjuster_name': job.adjuster_name,
+                'adjuster_phone': job.adjuster_phone,
+                'adjuster_email': job.adjuster_email,
+                'today': today.strftime('%m/%d/%Y'),
+            }
+        except Exception as e:
+            logger.warning(f"Error adding WM prefill: {e}")
 
     def _resolve_field_value(self, prefill: Dict[str, Any], field_key: str) -> str:
         """Resolve a field key like 'client.display_name' from prefill data"""
@@ -358,7 +414,10 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             logger.error(f"Error generating filled PDF: {e}")
             return None
 
-    def get_prefill_preview(self, claim_id: str, template_id: str, client_id: str, company_id: str) -> Dict[str, Any]:
+    def get_prefill_preview(
+        self, claim_id: str, template_id: str, client_id: str, company_id: str,
+        wm_job_id: str = None,
+    ) -> Dict[str, Any]:
         """Preview prefill data without creating a contract"""
         try:
             session = self.database.get_readonly_session()
@@ -368,6 +427,8 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                     'client_id': client_id,
                     'company_id': company_id,
                 }
+                if wm_job_id:
+                    data['wm_job_id'] = wm_job_id
                 prefill = self._build_prefill(session, data)
                 prefill['meta'] = {
                     'current_date': datetime.utcnow().strftime('%m/%d/%Y'),

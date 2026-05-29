@@ -304,6 +304,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
         <WMInvoiceList
           ref={invoiceListRef}
           jobId={jobId}
+          jobAddress={jobAddress}
         />
       </Card>
 

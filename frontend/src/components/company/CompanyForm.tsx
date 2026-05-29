@@ -23,6 +23,7 @@ import { companyService } from '../../services/companyService';
 import LogoUpload from './LogoUpload';
 import LicenseManager from './LicenseManager';
 import InsuranceManager from './InsuranceManager';
+import ContractTemplateManager from './ContractTemplateManager';
 import paymentConfigService from '../../services/paymentConfigService';
 
 interface CompanyFormProps {
@@ -428,6 +429,13 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
               )}
             </div>
           )}
+        </Tabs.TabPane>
+
+        <Tabs.TabPane tab="Contracts" key="contracts">
+          <ContractTemplateManager
+            companyId={initialData?.id}
+            disabled={loading}
+          />
         </Tabs.TabPane>
       </Tabs>
 

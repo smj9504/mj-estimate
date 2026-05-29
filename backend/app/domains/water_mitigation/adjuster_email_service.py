@@ -69,8 +69,19 @@ class AdjusterEmailService:
             if job.company_id:
                 from app.domains.company.models import Company
                 company = session.query(Company).filter(Company.id == job.company_id).first()
-                if company and getattr(company, 'w9_file_id', None):
-                    w9_ready = True
+                w9_file_id = getattr(company, 'w9_file_id', None) if company else None
+                logger.info(f"W9 readiness: company_id={job.company_id}, company={company.name if company else None}, w9_file_id={w9_file_id}")
+                if company and w9_file_id:
+                    # Verify the File record actually exists
+                    from app.domains.file.models import File as FileModel
+                    file_exists = session.query(FileModel).filter(
+                        FileModel.id == str(w9_file_id)
+                    ).first() is not None
+                    w9_ready = file_exists
+                    if not file_exists:
+                        logger.warning(f"W9: file_id={w9_file_id} referenced but File record not found in DB")
+            else:
+                logger.warning(f"W9 readiness: job has no company_id")
 
             # 4. COS - check WMDocument
             cos_doc = (
@@ -286,16 +297,18 @@ class AdjusterEmailService:
             if not job:
                 return {"subject": "", "body_html": ""}
 
-            address = job.property_address or "N/A"
-            claim_number = job.claim_number or "N/A"
-            insurance = job.insurance_company or "N/A"
-            homeowner = job.homeowner_name or "N/A"
-
-            subject = claim_number
+            subject = job.claim_number or "N/A"
 
             # Determine greeting based on US Eastern time
             eastern_now = datetime.now(ZoneInfo("America/New_York"))
             greeting_time = "Good morning" if eastern_now.hour < 12 else "Good afternoon"
+
+            # Adjuster first name for personalized greeting
+            adjuster_name = (job.adjuster_name or "").strip()
+            adjuster_first = adjuster_name.split()[0] if adjuster_name else ""
+
+            # Property address for context
+            address = job.property_address or ""
 
             # Get company name
             company_name = ""
@@ -308,34 +321,19 @@ class AdjusterEmailService:
             custom_section = ""
             if custom_notes:
                 custom_section = (
-                    f"<h3 style='margin:20px 0 8px;color:#1a1a1a;font-size:15px;'>"
-                    f"Additional Notes</h3>"
                     f"<p style='color:#444;font-size:14px;line-height:1.6;'>{custom_notes}</p>"
                 )
 
+            # Personalized greeting reduces spam score significantly
+            if adjuster_first:
+                greeting = f"{greeting_time} {adjuster_first},"
+            else:
+                greeting = f"{greeting_time},"
+
             body_html = f"""
-<p>{greeting_time}, I hope this email finds you well.</p>
+<p>{greeting} I hope this email finds you well.</p>
 
-<p>Please find the attached documentation for the water mitigation work.</p>
-
-<table style="border-collapse:collapse;margin:16px 0;width:100%;max-width:500px;">
-  <tr>
-    <td style="padding:6px 10px;background:#f5f5f5;font-weight:bold;border:1px solid #ddd;">Property</td>
-    <td style="padding:6px 10px;border:1px solid #ddd;">{address}</td>
-  </tr>
-  <tr>
-    <td style="padding:6px 10px;background:#f5f5f5;font-weight:bold;border:1px solid #ddd;">Homeowner</td>
-    <td style="padding:6px 10px;border:1px solid #ddd;">{homeowner}</td>
-  </tr>
-  <tr>
-    <td style="padding:6px 10px;background:#f5f5f5;font-weight:bold;border:1px solid #ddd;">Claim #</td>
-    <td style="padding:6px 10px;border:1px solid #ddd;">{claim_number}</td>
-  </tr>
-  <tr>
-    <td style="padding:6px 10px;background:#f5f5f5;font-weight:bold;border:1px solid #ddd;">Insurance</td>
-    <td style="padding:6px 10px;border:1px solid #ddd;">{insurance}</td>
-  </tr>
-</table>
+<p>Please find the attached documentation for the water mitigation work{f' at {address}' if address else ''}.</p>
 
 {custom_section}
 
@@ -466,6 +464,7 @@ class AdjusterEmailService:
         """Collect file attachments for email based on selected document types."""
         from .models import WMDocument, WMScopeInvoice
 
+        logger.info(f"Collecting attachments for selected_docs={selected_docs}")
         attachments = []
         address_short = (job.property_address or "property").split(",")[0].strip()
 
@@ -632,25 +631,36 @@ class AdjusterEmailService:
 
             pdf_data = {
                 "invoice_number": invoice.get('invoice_number', ''),
-                "date": str(invoice.get('date', '')),
+                "date": str(invoice.get('invoice_date',
+                            invoice.get('date', ''))),
                 "due_date": str(invoice.get('due_date', '')),
-                "client_name": invoice.get('client_name', ''),
-                "client_address": invoice.get('client_address', ''),
-                "company_name": invoice.get('company_name', ''),
-                "company_address": invoice.get('company_address', ''),
-                "company_city": invoice.get('company_city', ''),
-                "company_state": invoice.get('company_state', ''),
-                "company_zip": invoice.get('company_zip', ''),
-                "company_phone": invoice.get('company_phone', ''),
-                "company_email": invoice.get('company_email', ''),
-                "company_logo": invoice.get('company_logo', ''),
+                "company": {
+                    "name": invoice.get('company_name', ''),
+                    "address": invoice.get('company_address', ''),
+                    "city": invoice.get('company_city', ''),
+                    "state": invoice.get('company_state', ''),
+                    "zip": invoice.get('company_zip', ''),
+                    "phone": invoice.get('company_phone', ''),
+                    "email": invoice.get('company_email', ''),
+                    "logo": None,
+                },
+                "client": {
+                    "name": invoice.get('client_name', ''),
+                    "address": invoice.get('client_address', ''),
+                    "city": invoice.get('client_city', ''),
+                    "state": invoice.get('client_state', ''),
+                    "zip": invoice.get('client_zipcode',
+                                       invoice.get('client_zip', '')),
+                },
+                "items": all_items,
                 "sections": sections,
                 "subtotal": float(invoice.get('subtotal', 0) or 0),
+                "adjustments": invoice.get('adjustments', []),
                 "tax_amount": float(invoice.get('tax_amount', 0) or 0),
                 "total": float(invoice.get('total_amount', 0) or 0),
-                "insurance_company": invoice.get('insurance_company', ''),
-                "policy_number": invoice.get('policy_number', ''),
-                "claim_number": invoice.get('claim_number', ''),
+                "payments": invoice.get('payments', []),
+                "balance_due": float(invoice.get('balance_due',
+                                     invoice.get('total_amount', 0)) or 0),
                 "notes": invoice.get('notes', ''),
             }
 
@@ -680,25 +690,33 @@ class AdjusterEmailService:
         """Get company W9 file as attachment."""
         try:
             if not job.company_id:
+                logger.warning("W9: job has no company_id")
                 return None
 
             from app.domains.company.models import Company
             company = session.query(Company).filter(Company.id == job.company_id).first()
             if not company:
+                logger.warning(f"W9: company not found for id={job.company_id}")
                 return None
 
             w9_file_id = getattr(company, 'w9_file_id', None)
             if not w9_file_id:
+                logger.warning(f"W9: company '{company.name}' has no w9_file_id")
                 return None
 
+            # File.id is String, w9_file_id may be UUID — cast to str for matching
             from app.domains.file.models import File as FileModel
-            file_rec = session.query(FileModel).filter(FileModel.id == w9_file_id).first()
+            file_rec = session.query(FileModel).filter(
+                FileModel.id == str(w9_file_id)
+            ).first()
             if not file_rec:
+                logger.warning(f"W9: File record not found for w9_file_id={w9_file_id} (type={type(w9_file_id).__name__})")
                 return None
 
             # Read file data
             file_url = file_rec.url or ''
             file_data = None
+            logger.info(f"W9: file_url={file_url}")
 
             if file_url.startswith(('gs://', 'https://', 'http://')):
                 from app.domains.file.service import get_storage_provider
@@ -708,8 +726,11 @@ class AdjusterEmailService:
                 file_path = Path(file_url)
                 if file_path.exists():
                     file_data = file_path.read_bytes()
+                else:
+                    logger.warning(f"W9: local file not found at {file_path}")
 
             if not file_data:
+                logger.warning(f"W9: no file data retrieved for {file_url}")
                 return None
 
             company_name = (company.name or "Company").replace(" ", "_")

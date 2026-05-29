@@ -187,3 +187,40 @@ export const claimPlumberReportService = {
     return data;
   },
 };
+
+// ============================================================
+// WM Job Contract Integration
+// ============================================================
+
+export const wmContractService = {
+  async listByJob(jobId: string) {
+    const { data } = await api.get(`/api/contracts/wm-jobs/${jobId}/contracts`);
+    return data as { contracts: ContractInstance[]; total: number };
+  },
+
+  async getAvailableTemplates(jobId: string) {
+    const { data } = await api.get(`/api/contracts/wm-jobs/${jobId}/available-templates`);
+    return data as { templates: ContractTemplate[]; total: number };
+  },
+
+  async getPrefillPreview(jobId: string, templateId: string) {
+    const { data } = await api.get(`/api/contracts/wm-jobs/${jobId}/prefill-preview`, {
+      params: { template_id: templateId },
+    });
+    return data as PrefillPreviewData;
+  },
+
+  async create(jobId: string, payload: {
+    template_id: string;
+    claim_id: string;
+    client_id: string;
+    company_id: string;
+    title?: string;
+    notes?: string;
+    token_expires_days?: number;
+    prefill_overrides?: Record<string, Record<string, string | null>>;
+  }) {
+    const { data } = await api.post(`/api/contracts/wm-jobs/${jobId}/contracts`, payload);
+    return data;
+  },
+};

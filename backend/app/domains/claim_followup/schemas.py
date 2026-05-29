@@ -30,7 +30,7 @@ class FollowUpTaskBase(BaseModel):
 
     @validator('task_type')
     def validate_task_type(cls, v):
-        allowed = ['wm_docs_sent', 'supplement_sent', 'depreciation_recovery', 'estimate_request', 'payment_check', 'wm_payment_check', 'docs_sent', 'general']
+        allowed = ['wm_docs_sent', 'supplement_sent', 'depreciation_recovery', 'estimate_request', 'payment_check', 'wm_payment_check', 'docs_sent', 'general', 'dispute', 'appraisal', 'attorney_referral']
         if v not in allowed:
             raise ValueError(f"task_type must be one of {allowed}")
         return v
@@ -75,14 +75,32 @@ class FollowUpTaskUpdate(BaseModel):
 class FollowUpTaskResolve(BaseModel):
     """Request body for resolving a follow-up task with outcome"""
     resolution_notes: Optional[str] = None
-    outcome: Optional[str] = None  # estimate_received | denied | other
+    outcome: Optional[str] = None
+    denied_action: Optional[str] = None
 
     @validator('outcome')
     def validate_outcome(cls, v):
         if v is not None:
-            allowed = ['estimate_received', 'denied', 'other']
+            allowed = [
+                'estimate_received', 'denied', 'other',
+            ]
             if v not in allowed:
-                raise ValueError(f"outcome must be one of {allowed}")
+                raise ValueError(
+                    f"outcome must be one of {allowed}"
+                )
+        return v
+
+    @validator('denied_action')
+    def validate_denied_action(cls, v):
+        if v is not None:
+            allowed = [
+                'complete', 'dispute',
+                'appraisal', 'attorney',
+            ]
+            if v not in allowed:
+                raise ValueError(
+                    f"denied_action must be one of {allowed}"
+                )
         return v
 
 

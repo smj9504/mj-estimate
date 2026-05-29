@@ -51,6 +51,7 @@ import EditableSection from '../components/water-mitigation/EditableSection';
 import WMSketchTab from '../components/water-mitigation/sketch/WMSketchTab';
 import SendToAdjusterModal from '../components/water-mitigation/SendToAdjusterModal';
 import WMFinancialComparisonCard from '../components/water-mitigation/WMFinancialComparison';
+import WMContractTab from '../components/water-mitigation/WMContractTab';
 
 const { useBreakpoint } = Grid;
 
@@ -871,6 +872,19 @@ const WaterMitigationDetail: React.FC = () => {
                   dateOfLoss={job.date_of_loss}
                   mitigationStartDate={job.mitigation_start_date}
                   isActive={activeTab === 'documents'}
+                />
+              ) : null
+            },
+            {
+              key: 'contracts',
+              label: 'Contracts',
+              children: id ? (
+                <WMContractTab
+                  jobId={id}
+                  claimId={job.claim_id}
+                  clientId={job.client_id}
+                  companyId={job.company_id}
+                  companyName={job.company?.name}
                 />
               ) : null
             },

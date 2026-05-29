@@ -1095,9 +1095,13 @@ print(os.path.getsize(output_path))
         for idx, payment in enumerate(payments):
             logger.info(f"Payment {idx}: {payment}")
         total_paid = sum(float(payment.get('amount', 0)) for payment in payments)
-        balance_due = total - total_paid
-
         context['total_paid'] = total_paid
+
+        # Use explicit balance_due if provided, otherwise calculate
+        if 'balance_due' in context and context['balance_due'] is not None:
+            balance_due = float(context['balance_due'])
+        else:
+            balance_due = total - total_paid
         context['balance_due'] = balance_due
         
         # Convert markdown in notes and payment_terms

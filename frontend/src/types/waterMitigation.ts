@@ -45,6 +45,7 @@ export interface CategoryCreate {
 export interface WaterMitigationJob {
   id: string;
   client_id?: string;
+  claim_id?: string; // Linked claim ID
   company_id?: string; // Optional company assignment
   active: boolean;
   status: JobStatus;
