@@ -66,6 +66,7 @@ export const claimFollowUpService = {
     body?: {
       resolution_notes?: string;
       outcome?: string;
+      denied_action?: string;
       acv_amount?: number;
       rcv_amount?: number;
       depreciation_amount?: number;
@@ -79,6 +80,7 @@ export const claimFollowUpService = {
   ): Promise<FollowUpTask> {
     const formData = new FormData();
     if (body?.outcome) formData.append('outcome', body.outcome);
+    if (body?.denied_action) formData.append('denied_action', body.denied_action);
     if (body?.resolution_notes) formData.append('resolution_notes', body.resolution_notes);
     if (body?.acv_amount != null) formData.append('acv_amount', String(body.acv_amount));
     if (body?.rcv_amount != null) formData.append('rcv_amount', String(body.rcv_amount));

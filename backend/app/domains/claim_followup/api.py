@@ -319,6 +319,7 @@ async def resolve_task(
     task_id: str,
     outcome: Optional[str] = Form(None),
     resolution_notes: Optional[str] = Form(None),
+    denied_action: Optional[str] = Form(None),
     acv_amount: Optional[float] = Form(None),
     rcv_amount: Optional[float] = Form(None),
     depreciation_amount: Optional[float] = Form(None),
@@ -472,6 +473,7 @@ async def resolve_task(
         resolution_notes=resolution_notes,
         outcome=outcome,
         estimate_data=estimate_data,
+        denied_action=denied_action,
     )
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")

@@ -91,6 +91,9 @@ const TASK_TYPE_OPTIONS: { value: TaskType; label: string }[] = [
   { value: 'wm_payment_check', label: 'WM Payment Check' },
   { value: 'docs_sent', label: 'Other Documents' },
   { value: 'general', label: 'General' },
+  { value: 'dispute', label: 'Dispute (Denied)' },
+  { value: 'appraisal', label: 'Appraisal (Denied)' },
+  { value: 'attorney_referral', label: 'Attorney Referral (Denied)' },
 ];
 
 const TASK_TYPE_ICONS: Record<TaskType, React.ReactNode> = {
@@ -102,12 +105,18 @@ const TASK_TYPE_ICONS: Record<TaskType, React.ReactNode> = {
   wm_payment_check: <DollarOutlined />,
   docs_sent: <FileTextOutlined />,
   general: <ClockCircleOutlined />,
+  dispute: <AuditOutlined />,
+  appraisal: <FileTextOutlined />,
+  attorney_referral: <AlertOutlined />,
 };
 
 // Ordered stages for the pipeline view
 const STAGE_ORDER: TaskType[] = [
   'wm_docs_sent',
   'estimate_request',
+  'dispute',
+  'appraisal',
+  'attorney_referral',
   'supplement_sent',
   'payment_check',
   'wm_payment_check',
@@ -125,6 +134,9 @@ const STAGE_LABELS: Record<TaskType, string> = {
   depreciation_recovery: 'Depreciation',
   docs_sent: 'Other Docs',
   general: 'General',
+  dispute: 'Dispute',
+  appraisal: 'Appraisal',
+  attorney_referral: 'Attorney',
 };
 
 // ── Estimate Category Configuration ──
@@ -700,6 +712,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [resolveModalOpen, setResolveModalOpen] = useState(false);
   const [resolveOutcome, setResolveOutcome] = useState<string | undefined>();
+  const [resolveDeniedAction, setResolveDeniedAction] = useState<string | undefined>();
   const [resolveFile, setResolveFile] = useState<File | undefined>();
   const [resolveWmFile, setResolveWmFile] = useState<File | undefined>();
   const [parsedWmAmount, setParsedWmAmount] = useState<number | undefined>();
@@ -833,8 +846,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
       claimFollowUpService.resolveTask(taskId, body),
     onSuccess: (_, variables) => {
       const outcome = variables.body?.outcome;
+      const deniedAction = variables.body?.denied_action;
       if (outcome === 'estimate_received') {
         message.success('Task resolved - Insurance estimate received. Rebuild project created.');
+      } else if (outcome === 'denied' && deniedAction && deniedAction !== 'complete') {
+        const labels: Record<string, string> = { dispute: 'Dispute', appraisal: 'Appraisal', attorney: 'Attorney' };
+        message.info(`Claim denied - Proceeding with ${labels[deniedAction] || deniedAction}. Task updated.`);
       } else if (outcome === 'denied') {
         message.warning('Task resolved - Claim denied.');
       } else {
@@ -842,6 +859,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
       }
       setResolveModalOpen(false);
       setResolveOutcome(undefined);
+      setResolveDeniedAction(undefined);
       setResolveFile(undefined);
       setResolveWmFile(undefined);
       setParsedWmAmount(undefined);
@@ -1619,8 +1637,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
       {/* Resolve Task Modal */}
       <Modal
-        title={`Resolve: ${selectedTask?.title}`}
+        title={resolveOutcome === 'denied' && resolveDeniedAction && resolveDeniedAction !== 'complete'
+          ? `Denied - Next Action: ${selectedTask?.title}`
+          : `Resolve: ${selectedTask?.title}`}
         open={resolveModalOpen}
+        okText={resolveOutcome === 'denied' && resolveDeniedAction && resolveDeniedAction !== 'complete'
+          ? 'Update Task'
+          : 'Resolve'}
         width={isMobile ? '95vw' : 650}
         style={isMobile ? { top: 10 } : undefined}
         onOk={() => {
@@ -1631,6 +1654,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 body: {
                   resolution_notes: values.resolution_notes,
                   outcome: values.outcome,
+                  denied_action: values.denied_action,
                   acv_amount: values.acv_amount,
                   rcv_amount: values.rcv_amount,
                   depreciation_amount: values.depreciation_amount,
@@ -1664,12 +1688,39 @@ const ClaimFollowUpDashboard: React.FC = () => {
       >
         <Form form={resolveForm} layout="vertical">
           <Form.Item name="outcome" label="Outcome" rules={[{ required: true, message: 'Select an outcome' }]}>
-            <Select placeholder="What was the result?" onChange={(v) => setResolveOutcome(v)}>
+            <Select placeholder="What was the result?" onChange={(v) => { setResolveOutcome(v); setResolveDeniedAction(undefined); resolveForm.setFieldsValue({ denied_action: undefined }); }}>
               <Select.Option value="estimate_received">Insurance Estimate Received</Select.Option>
               <Select.Option value="denied">Claim Denied</Select.Option>
               <Select.Option value="other">Other</Select.Option>
             </Select>
           </Form.Item>
+
+          {resolveOutcome === 'denied' && (
+            <Form.Item
+              name="denied_action"
+              label="Next Action"
+              rules={[{ required: true, message: 'Select next action' }]}
+            >
+              <Select placeholder="What would you like to do?" onChange={(v) => setResolveDeniedAction(v)}>
+                <Select.Option value="complete">
+                  <span>Complete</span>
+                  <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>Close the claim</span>
+                </Select.Option>
+                <Select.Option value="dispute">
+                  <span>Dispute</span>
+                  <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>Create estimate & dispute with insurance</span>
+                </Select.Option>
+                <Select.Option value="appraisal">
+                  <span>Appraisal</span>
+                  <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>Proceed to appraisal process</span>
+                </Select.Option>
+                <Select.Option value="attorney">
+                  <span>Attorney</span>
+                  <span style={{ color: '#999', fontSize: 12, marginLeft: 8 }}>Refer to attorney</span>
+                </Select.Option>
+              </Select>
+            </Form.Item>
+          )}
 
           {resolveOutcome === 'estimate_received' && (
             <>
