@@ -82,7 +82,8 @@ class FollowUpTaskResolve(BaseModel):
     def validate_outcome(cls, v):
         if v is not None:
             allowed = [
-                'estimate_received', 'denied', 'other',
+                'estimate_received', 'denied',
+                'estimate_requested', 'other',
             ]
             if v not in allowed:
                 raise ValueError(

@@ -52,6 +52,15 @@ class SupplementRequest(Base, BaseModel):
         comment="The insurance estimate revision this supplement addresses"
     )
 
+    # Request type: supplement (default) or estimate_request (insurer asked us for estimate)
+    request_type = Column(
+        String(50),
+        nullable=False,
+        default='supplement',
+        server_default='supplement',
+        comment="supplement | estimate_request"
+    )
+
     # Supplement details
     title = Column(String(500), nullable=False)
     reason = Column(Text, comment="Why re-estimation is needed")
@@ -61,6 +70,10 @@ class SupplementRequest(Base, BaseModel):
     original_amount = Column(DECIMAL(15, 2), default=0, comment="Insurance estimate amount")
     supplement_amount = Column(DECIMAL(15, 2), default=0, comment="Our supplement amount")
     difference = Column(DECIMAL(15, 2), default=0, comment="Difference (auto-calculated)")
+    our_estimate_amount = Column(
+        DECIMAL(15, 2), default=0,
+        comment="Contractor estimate amount (for estimate_request type)"
+    )
 
     # Status workflow: identified -> in_progress -> submitted -> under_review -> approved/denied
     status = Column(

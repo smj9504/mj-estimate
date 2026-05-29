@@ -21,6 +21,7 @@ export const supplementService = {
     status?: string;
     claim_id?: string;
     priority?: string;
+    request_type?: string;
     page?: number;
     page_size?: number;
   }): Promise<SupplementRequest[]> {

@@ -396,13 +396,21 @@ const SupplementDetail: React.FC = () => {
                     .map(s => ({ value: s, label: s.replace('_',' ').toUpperCase() }))} />
               </Descriptions.Item>
               <Descriptions.Item label="Priority">{supplement.priority}</Descriptions.Item>
-              <Descriptions.Item label="Original">{formatCurrency(supplement.original_amount)}</Descriptions.Item>
-              <Descriptions.Item label="Supplement">{formatCurrency(supplement.supplement_amount)}</Descriptions.Item>
-              <Descriptions.Item label="Difference">
-                <Text type={supplement.difference > 0 ? 'success' : 'danger'}>
-                  {formatCurrency(supplement.difference)}
-                </Text>
-              </Descriptions.Item>
+              {supplement.request_type === 'estimate_request' ? (
+                <Descriptions.Item label="Our Estimate">
+                  <Text strong>{formatCurrency(supplement.our_estimate_amount)}</Text>
+                </Descriptions.Item>
+              ) : (
+                <>
+                  <Descriptions.Item label="Original">{formatCurrency(supplement.original_amount)}</Descriptions.Item>
+                  <Descriptions.Item label="Supplement">{formatCurrency(supplement.supplement_amount)}</Descriptions.Item>
+                  <Descriptions.Item label="Difference">
+                    <Text type={supplement.difference > 0 ? 'success' : 'danger'}>
+                      {formatCurrency(supplement.difference)}
+                    </Text>
+                  </Descriptions.Item>
+                </>
+              )}
               <Descriptions.Item label="Submitted To">{supplement.submitted_to || '-'}</Descriptions.Item>
             </Descriptions>
             {supplement.reason && (

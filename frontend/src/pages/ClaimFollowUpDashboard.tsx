@@ -849,6 +849,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
       const deniedAction = variables.body?.denied_action;
       if (outcome === 'estimate_received') {
         message.success('Task resolved - Insurance estimate received. Rebuild project created.');
+      } else if (outcome === 'estimate_requested') {
+        message.success('Task resolved - Estimate request created. Check Estimates page.');
       } else if (outcome === 'denied' && deniedAction && deniedAction !== 'complete') {
         const labels: Record<string, string> = { dispute: 'Dispute', appraisal: 'Appraisal', attorney: 'Attorney' };
         message.info(`Claim denied - Proceeding with ${labels[deniedAction] || deniedAction}. Task updated.`);
@@ -870,6 +872,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
       resolveForm.resetFields();
       queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['followup-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['supplements'] });
+      queryClient.invalidateQueries({ queryKey: ['supplement-stats'] });
     },
     onError: (err: any) => {
       const detail = err?.response?.data?.detail || 'Failed to resolve task';
@@ -1690,6 +1694,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
           <Form.Item name="outcome" label="Outcome" rules={[{ required: true, message: 'Select an outcome' }]}>
             <Select placeholder="What was the result?" onChange={(v) => { setResolveOutcome(v); setResolveDeniedAction(undefined); resolveForm.setFieldsValue({ denied_action: undefined }); }}>
               <Select.Option value="estimate_received">Insurance Estimate Received</Select.Option>
+              <Select.Option value="estimate_requested">Insurance Requested Our Estimate</Select.Option>
               <Select.Option value="denied">Claim Denied</Select.Option>
               <Select.Option value="other">Other</Select.Option>
             </Select>

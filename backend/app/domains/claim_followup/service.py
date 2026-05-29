@@ -377,6 +377,25 @@ class ClaimFollowUpService:
             if wm_cost_status == 'not_received':
                 self._auto_create_wm_followup(session, claim_id, task, claim)
 
+        elif outcome == 'estimate_requested':
+            # Insurance asked us to provide the estimate
+            self._auto_create_estimate_request(
+                session, claim, task, notes
+            )
+
+            session.add(ClaimActivity(
+                claim_id=claim_id,
+                activity_type='estimate_requested',
+                title='Insurance requested contractor estimate',
+                description=(
+                    notes
+                    or 'Insurance company requested '
+                       'our estimate for this claim.'
+                ),
+                related_entity_type='followup_task',
+                related_entity_id=task.get('id'),
+            ))
+
         elif outcome == 'denied':
             claim.status = 'denied'
 
@@ -538,6 +557,84 @@ class ClaimFollowUpService:
             logger.info(f"Auto-created supplement for claim {claim_id}")
         except Exception as e:
             logger.error(f"Error auto-creating supplement: {e}")
+
+    def _auto_create_estimate_request(
+        self, session, claim, task: Dict[str, Any],
+        notes: Optional[str] = None,
+    ):
+        """Auto-create a SupplementRequest with request_type='estimate_request'
+        when insurance asks the contractor to provide an estimate."""
+        try:
+            from app.domains.supplement.models import SupplementRequest
+            from app.domains.client.models import ClaimActivity, Client
+
+            claim_id = str(claim.id)
+
+            # Check if one already exists
+            existing = session.query(SupplementRequest).filter(
+                SupplementRequest.claim_id == claim_id,
+                SupplementRequest.request_type == 'estimate_request',
+                SupplementRequest.status.notin_(
+                    ['approved', 'denied', 'withdrawn']
+                ),
+            ).first()
+            if existing:
+                logger.info(
+                    f"Estimate request already exists for claim {claim_id}"
+                )
+                return
+
+            # Get address
+            client = session.query(Client).filter(
+                Client.id == claim.client_id
+            ).first()
+            address = client.address if client else ''
+
+            # Get PA info from claim
+            pa_name = claim.pa_name or ''
+            pa_email = claim.pa_email or ''
+
+            est_req = SupplementRequest(
+                claim_id=claim_id,
+                request_type='estimate_request',
+                title=(
+                    f"Estimate Request - {address}"
+                    if address
+                    else "Estimate Request"
+                ),
+                reason=(
+                    notes
+                    or 'Insurance company requested '
+                       'contractor estimate for this claim.'
+                ),
+                original_amount=0,
+                supplement_amount=0,
+                our_estimate_amount=0,
+                status='identified',
+                priority='high',
+                submitted_to=pa_name,
+                submitted_to_email=pa_email,
+            )
+            session.add(est_req)
+            session.flush()
+
+            session.add(ClaimActivity(
+                claim_id=claim_id,
+                activity_type='estimate_request_created',
+                title='Estimate request created',
+                description=(
+                    'Insurance requested contractor estimate. '
+                    'Auto-created estimate request task.'
+                ),
+                related_entity_type='supplement',
+                related_entity_id=est_req.id,
+            ))
+
+            logger.info(
+                f"Auto-created estimate request for claim {claim_id}"
+            )
+        except Exception as e:
+            logger.error(f"Error auto-creating estimate request: {e}")
 
     def _get_next_revision_number(self, session, claim_id: str, category: str) -> int:
         """Get next revision number per claim + category (independent tracks)."""

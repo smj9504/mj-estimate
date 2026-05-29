@@ -172,7 +172,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           {
             key: '/supplements',
             icon: <FileTextOutlined />,
-            label: 'Supplements',
+            label: 'Estimates',
           },
           {
             key: '/rebuild-projects',

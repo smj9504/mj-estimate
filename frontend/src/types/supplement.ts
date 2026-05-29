@@ -6,15 +6,19 @@ export type SupplementStatus = 'identified' | 'in_progress' | 'submitted' | 'und
 export type BidItemStatus = 'draft' | 'sent' | 'approved' | 'revision_needed' | 'denied';
 export type BidItemType = 'xactimate' | 'bathroom' | 'cabinet' | 'packing' | 'roofing' | 'kitchen' | 'flooring' | 'other';
 
+export type RequestType = 'supplement' | 'estimate_request';
+
 export interface SupplementRequest {
   id: string;
   claim_id: string;
   negotiation_id?: string;
+  request_type: RequestType;
   title: string;
   reason?: string;
   description?: string;
   original_amount: number;
   supplement_amount: number;
+  our_estimate_amount: number;
   difference: number;
   status: SupplementStatus;
   priority: string;
@@ -44,11 +48,13 @@ export interface SupplementRequest {
 export interface SupplementRequestCreate {
   claim_id: string;
   negotiation_id?: string;
+  request_type?: RequestType;
   title: string;
   reason?: string;
   description?: string;
   original_amount?: number;
   supplement_amount?: number;
+  our_estimate_amount?: number;
   priority?: string;
   submitted_to?: string;
   submitted_to_email?: string;

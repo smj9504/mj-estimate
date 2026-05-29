@@ -27,6 +27,7 @@ class SupplementRequestRepository(SQLAlchemyRepository):
         status: Optional[str] = None,
         claim_id: Optional[str] = None,
         priority: Optional[str] = None,
+        request_type: Optional[str] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> Tuple[List[Dict[str, Any]], int]:
@@ -38,6 +39,10 @@ class SupplementRequestRepository(SQLAlchemyRepository):
             query = query.filter(SupplementRequest.claim_id == claim_id)
         if priority:
             query = query.filter(SupplementRequest.priority == priority)
+        if request_type:
+            query = query.filter(
+                SupplementRequest.request_type == request_type
+            )
 
         total = query.count()
 

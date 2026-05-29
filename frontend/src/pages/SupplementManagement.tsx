@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber,
   Select, message, Typography, Row, Col, Statistic, Tooltip, Badge,
-  Dropdown, Alert, Checkbox,
+  Dropdown, Alert, Checkbox, Tabs,
 } from 'antd';
 import {
   PlusOutlined, ReloadOutlined,
@@ -53,11 +53,14 @@ const formatCurrency = (val?: number) => {
 const SupplementManagement: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<string>('supplement');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createForm] = Form.useForm();
   const [claimPaInfo, setClaimPaInfo] = useState<{ pa_name: string; pa_email: string } | null>(null);
   const [claimPaLoading, setClaimPaLoading] = useState(false);
+
+  const isEstimateRequest = activeTab === 'estimate_request';
 
   // Queries
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -66,8 +69,8 @@ const SupplementManagement: React.FC = () => {
   });
 
   const { data: supplements = [], isLoading, refetch } = useQuery({
-    queryKey: ['supplements', statusFilter],
-    queryFn: () => supplementService.list({ status: statusFilter, page_size: 100 }),
+    queryKey: ['supplements', statusFilter, activeTab],
+    queryFn: () => supplementService.list({ status: statusFilter, request_type: activeTab, page_size: 100 }),
   });
 
   const { data: pendingReview = [] } = useQuery({
@@ -127,7 +130,7 @@ const SupplementManagement: React.FC = () => {
   const createMutation = useMutation({
     mutationFn: (data: SupplementRequestCreate) => supplementService.create(data),
     onSuccess: () => {
-      message.success('Supplement request created');
+      message.success(isEstimateRequest ? 'Estimate request created' : 'Supplement request created');
       setCreateModalOpen(false);
       createForm.resetFields();
       queryClient.invalidateQueries({ queryKey: ['supplements'] });
@@ -181,20 +184,27 @@ const SupplementManagement: React.FC = () => {
         </Text>
       ),
     },
-    {
-      title: 'Original', dataIndex: 'original_amount', key: 'original', width: 100,
-      align: 'right', render: formatCurrency,
-    },
-    {
-      title: 'Supplement', dataIndex: 'supplement_amount', key: 'supplement', width: 100,
-      align: 'right', render: (v: number) => <Text strong>{formatCurrency(v)}</Text>,
-    },
-    {
-      title: 'Diff', dataIndex: 'difference', key: 'diff', width: 95, align: 'right',
-      render: (v: number) => (
-        <Text type={v > 0 ? 'success' : v < 0 ? 'danger' : undefined}>{formatCurrency(v)}</Text>
-      ),
-    },
+    ...(!isEstimateRequest ? [
+      {
+        title: 'Original', dataIndex: 'original_amount', key: 'original', width: 100,
+        align: 'right' as const, render: formatCurrency,
+      },
+      {
+        title: 'Supplement', dataIndex: 'supplement_amount', key: 'supplement', width: 100,
+        align: 'right' as const, render: (v: number) => <Text strong>{formatCurrency(v)}</Text>,
+      },
+      {
+        title: 'Diff', dataIndex: 'difference', key: 'diff', width: 95, align: 'right' as const,
+        render: (v: number) => (
+          <Text type={v > 0 ? 'success' : v < 0 ? 'danger' : undefined}>{formatCurrency(v)}</Text>
+        ),
+      },
+    ] : [
+      {
+        title: 'Our Estimate', dataIndex: 'our_estimate_amount', key: 'our_estimate', width: 120,
+        align: 'right' as const, render: (v: number) => <Text strong>{formatCurrency(v)}</Text>,
+      },
+    ]),
     {
       title: 'Status', dataIndex: 'status', key: 'status', width: 110,
       render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s.replace('_', ' ').toUpperCase()}</Tag>,
@@ -239,17 +249,27 @@ const SupplementManagement: React.FC = () => {
   return (
     <div style={{ padding: '0 4px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={3} style={{ margin: 0 }}>Supplement Management</Title>
+        <Title level={3} style={{ margin: 0 }}>Estimates</Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => refetch()}>Refresh</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
-            New Supplement
+            {isEstimateRequest ? 'New Estimate Request' : 'New Supplement'}
           </Button>
         </Space>
       </div>
 
+      <Tabs
+        activeKey={activeTab}
+        onChange={(key) => { setActiveTab(key); setStatusFilter(undefined); }}
+        items={[
+          { key: 'supplement', label: 'Supplements' },
+          { key: 'estimate_request', label: 'Estimate Requests' },
+        ]}
+        style={{ marginBottom: 16 }}
+      />
+
       {/* Pending Review Alert */}
-      {pendingReview.length > 0 && (
+      {!isEstimateRequest && pendingReview.length > 0 && (
         <Alert
           type="warning"
           showIcon
@@ -307,18 +327,18 @@ const SupplementManagement: React.FC = () => {
       <Card>
         <Table dataSource={supplements} columns={columns} rowKey="id" loading={isLoading}
           size="small" scroll={{ x: 700 }}
-          pagination={{ pageSize: 20, showTotal: t => `${t} supplements` }} />
+          pagination={{ pageSize: 20, showTotal: t => `${t} ${isEstimateRequest ? 'estimate requests' : 'supplements'}` }} />
       </Card>
 
       {/* Create Modal */}
-      <Modal title="Create Supplement Request" open={createModalOpen} width={550}
+      <Modal title={isEstimateRequest ? 'Create Estimate Request' : 'Create Supplement Request'} open={createModalOpen} width={550}
         onOk={() => createForm.validateFields().then(v => {
           const { required_estimate_keys, ...rest } = v;
           const required_estimates: Record<string, boolean> = {};
           REQUIRED_ESTIMATE_OPTIONS.forEach(opt => {
             required_estimates[opt.key] = (required_estimate_keys || []).includes(opt.key);
           });
-          createMutation.mutate({ ...rest, required_estimates });
+          createMutation.mutate({ ...rest, request_type: activeTab, required_estimates });
         })}
         onCancel={() => {
           setCreateModalOpen(false);
@@ -343,23 +363,29 @@ const SupplementManagement: React.FC = () => {
             />
           )}
           <Form.Item name="title" label="Title" rules={[{ required: true }]}>
-            <Input placeholder="e.g., Supplement for bathroom rebuild" />
+            <Input placeholder={isEstimateRequest ? 'e.g., Estimate Request - 123 Main St' : 'e.g., Supplement for bathroom rebuild'} />
           </Form.Item>
           <Form.Item name="reason" label="Reason">
-            <Input.TextArea rows={3} placeholder="Why is re-estimation needed?" />
+            <Input.TextArea rows={3} placeholder={isEstimateRequest ? 'Insurance requested our estimate' : 'Why is re-estimation needed?'} />
           </Form.Item>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="original_amount" label="Original Amount">
-                <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="supplement_amount" label="Supplement Amount">
-                <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
+          {isEstimateRequest ? (
+            <Form.Item name="our_estimate_amount" label="Our Estimate Amount">
+              <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+            </Form.Item>
+          ) : (
+            <Row gutter={12}>
+              <Col span={12}>
+                <Form.Item name="original_amount" label="Original Amount">
+                  <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="supplement_amount" label="Supplement Amount">
+                  <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
           <Row gutter={12}>
             <Col span={12}>
               <Form.Item name="submitted_to" label="Submit To (PA Name)">

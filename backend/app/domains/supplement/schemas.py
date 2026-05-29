@@ -14,15 +14,26 @@ from pydantic import BaseModel, Field, validator
 # ============================================================
 
 class SupplementRequestBase(BaseModel):
+    request_type: str = "supplement"
     title: str
     reason: Optional[str] = None
     description: Optional[str] = None
     original_amount: float = 0
     supplement_amount: float = 0
+    our_estimate_amount: float = 0
     priority: str = "normal"
     submitted_to: Optional[str] = None
     submitted_to_email: Optional[str] = None
     required_estimates: Optional[Dict[str, bool]] = None
+
+    @validator('request_type')
+    def validate_request_type(cls, v):
+        allowed = ['supplement', 'estimate_request']
+        if v not in allowed:
+            raise ValueError(
+                f"request_type must be one of {allowed}"
+            )
+        return v
 
 
 class SupplementRequestCreate(SupplementRequestBase):
@@ -36,6 +47,7 @@ class SupplementRequestUpdate(BaseModel):
     description: Optional[str] = None
     original_amount: Optional[float] = None
     supplement_amount: Optional[float] = None
+    our_estimate_amount: Optional[float] = None
     status: Optional[str] = None
     priority: Optional[str] = None
     submitted_to: Optional[str] = None
@@ -60,6 +72,7 @@ class SupplementRequestResponse(SupplementRequestBase):
     id: UUID
     claim_id: UUID
     negotiation_id: Optional[UUID] = None
+    request_type: str = "supplement"
     difference: float = 0
     status: str
     submitted_date: Optional[datetime] = None

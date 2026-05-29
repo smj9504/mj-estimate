@@ -127,7 +127,7 @@ const EmailAccountSettings = lazy(() => import('./pages/EmailAccountSettings'));
 const ClaimFollowUpDashboard = lazy(() => import('./pages/ClaimFollowUpDashboard'));
 const ClaimFollowUpEmail = lazy(() => import('./pages/ClaimFollowUpEmail'));
 
-// Supplement Management
+// Estimates (Supplements + Estimate Requests)
 const SupplementManagement = lazy(() => import('./pages/SupplementManagement'));
 const SupplementDetail = lazy(() => import('./pages/SupplementDetail'));
 

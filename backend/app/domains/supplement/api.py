@@ -40,6 +40,7 @@ async def list_supplements(
     status: Optional[str] = Query(None),
     claim_id: Optional[str] = Query(None),
     priority: Optional[str] = Query(None),
+    request_type: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -48,6 +49,7 @@ async def list_supplements(
         "status": status,
         "claim_id": claim_id,
         "priority": priority,
+        "request_type": request_type,
         "page": page,
         "page_size": page_size,
     })
