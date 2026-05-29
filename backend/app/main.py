@@ -454,7 +454,14 @@ async def lifespan(app: FastAPI):
         # Start SQLAdmin in background after DB is ready (avoids connection contention)
         threading.Thread(target=_init_sqladmin, daemon=True).start()
 
-        print("[STARTUP] Ready - database/storage initialize on first use")
+        # Pre-initialize storage provider to avoid cold start delay on first file request
+        try:
+            initialize_storage()
+            print("[STARTUP] Storage provider initialized")
+        except Exception as e:
+            print(f"[STARTUP] Storage init deferred: {e}")
+
+        print("[STARTUP] Ready")
         yield
         
     except ConfigurationError as e:
