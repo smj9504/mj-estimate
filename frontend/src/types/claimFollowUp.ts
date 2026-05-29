@@ -230,6 +230,9 @@ export const TASK_TYPE_LABELS: Record<TaskType, string> = {
   wm_payment_check: 'WM Payment Check',
   docs_sent: 'Documents Sent',
   general: 'General',
+  dispute: 'Dispute',
+  appraisal: 'Appraisal',
+  attorney_referral: 'Attorney Referral',
 };
 
 export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
