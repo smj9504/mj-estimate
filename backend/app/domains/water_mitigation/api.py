@@ -2393,6 +2393,57 @@ def delete_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/jobs/{job_id}/documents/upload", response_model=WMDocumentResponse)
+async def upload_document(
+    job_id: UUID,
+    file: UploadFile = File(...),
+    document_type: str = Form(...),
+    title: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    invoice_amount: Optional[float] = Form(None),
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Upload a document file manually to a job.
+
+    Supports document types: COS, EWA, Invoice, Sketch, Photo, etc.
+    For Invoice type, invoice_amount can be provided.
+    """
+    try:
+        # Validate document_type
+        valid_types = ['COS', 'EWA', 'Invoice', 'Sketch', 'Photo', 'Other']
+        if document_type not in valid_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid document_type. Must be one of: {', '.join(valid_types)}"
+            )
+
+        # invoice_amount only for Invoice type
+        if invoice_amount is not None and document_type != 'Invoice':
+            invoice_amount = None
+
+        created = await service.upload_document(
+            job_id=job_id,
+            file=file,
+            document_type=document_type,
+            title=title,
+            description=description,
+            invoice_amount=invoice_amount,
+        )
+        db.commit()
+        return created
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to upload document: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/jobs/{job_id}/documents/upload-annotated-pdf", response_model=WMDocumentResponse)
 async def upload_annotated_pdf(
     job_id: UUID,

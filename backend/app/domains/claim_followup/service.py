@@ -116,6 +116,80 @@ class ClaimFollowUpService:
         finally:
             session.close()
 
+    def save_estimate_data(
+        self,
+        task_id: str,
+        estimate_data: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Save/update estimate data on a task without resolving it."""
+        session = self._get_session()
+        try:
+            from app.domains.claim_followup.repository import (
+                get_followup_task_repository,
+            )
+            repo = get_followup_task_repository(session)
+            task = repo.get_by_id(task_id)
+            if not task:
+                return None
+
+            claim_id = task.get('claim_id')
+            if not claim_id:
+                return None
+
+            from app.domains.client.models import Claim
+            claim = session.query(Claim).filter(
+                Claim.id == claim_id
+            ).first()
+            if not claim:
+                return None
+
+            # Update claim amounts
+            acv = estimate_data.get('acv_amount', 0)
+            rcv = estimate_data.get('rcv_amount', 0)
+            dep = estimate_data.get('depreciation_amount', 0)
+            if acv or rcv:
+                claim.current_acv = acv
+                claim.current_rcv = rcv
+                claim.current_depreciation = dep
+
+            # Store file info
+            if estimate_data.get('file_id'):
+                claim.insurance_estimate_file_id = (
+                    estimate_data['file_id']
+                )
+                claim.insurance_estimate_file_name = (
+                    estimate_data.get('file_name', '')
+                )
+            if estimate_data.get('wm_file_id'):
+                claim.wm_estimate_file_id = (
+                    estimate_data['wm_file_id']
+                )
+                claim.wm_estimate_file_name = (
+                    estimate_data.get('wm_file_name', '')
+                )
+
+            # WM cost status
+            wm_cost_status = estimate_data.get('wm_cost_status')
+            if wm_cost_status:
+                claim.wm_cost_status = wm_cost_status
+            wm_est_amount = estimate_data.get('wm_estimate_amount')
+            if wm_est_amount:
+                claim.wm_estimate_amount = wm_est_amount
+
+            # Create/update ClaimNegotiation
+            self._create_negotiation_from_estimate(
+                session, str(claim_id), estimate_data
+            )
+
+            session.commit()
+            return repo.get_by_id(task_id)
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error saving estimate data: {e}")
+            raise
+        finally:
+            session.close()
+
     def resolve_task(
         self,
         task_id: str,
@@ -712,12 +786,14 @@ class ClaimFollowUpService:
             wm_file_id = estimate_data.get('wm_file_id')
             all_sections = estimate_data.get('sections_data') or []
 
-            if wm_cost_status == 'separate_estimate' and wm_file_id:
-                # Separate PDFs: main PDF = reconstruction, WM PDF = water mitigation
-                # No section splitting needed — each PDF is already category-specific
-                wm_est_amount = estimate_data.get('wm_estimate_amount') or 0
+            wm_est_amount = estimate_data.get('wm_estimate_amount') or 0
+            has_separate_wm = (
+                wm_cost_status == 'separate_estimate'
+                and (wm_file_id or wm_est_amount)
+            )
 
-                # Reconstruction: use main PDF amounts and sections as-is
+            if has_separate_wm:
+                # Separate: main = reconstruction, WM = water mitigation
                 self._upsert_negotiation(session, claim_id, 'reconstruction', {
                     'acv_amount': estimate_data.get('acv_amount', 0),
                     'rcv_amount': estimate_data.get('rcv_amount', 0),
@@ -729,13 +805,13 @@ class ClaimFollowUpService:
                     'notes': 'Reconstruction estimate',
                 })
 
-                # WM: use WM PDF and its parsed amount
+                # WM: use WM PDF (if any) and amount
                 self._upsert_negotiation(session, claim_id, 'water_mitigation', {
                     'acv_amount': wm_est_amount,
                     'rcv_amount': wm_est_amount,
                     'depreciation_amount': 0,
                     'deductible': 0,
-                    'document_url': wm_file_id,
+                    'document_url': wm_file_id or '',
                     'document_name': estimate_data.get('wm_file_name', ''),
                     'sections_data': None,
                     'notes': 'Water Mitigation estimate',

@@ -409,11 +409,15 @@ class WMDocumentResponse(WMDocumentBase):
     """Document response schema (excludes file_path for security)"""
     id: UUID
     job_id: UUID
-    file_size: int
+    file_size: Optional[int] = None
     mime_type: str
-    photo_count: int
+    photo_count: Optional[int] = 0
     source_photo_ids: Optional[str] = None  # JSON string of photo IDs
     annotation_data: Optional[str] = None  # JSON string of annotation data for re-editing
+    invoice_amount: Optional[float] = None  # Amount for invoice documents
+    upload_source: Optional[str] = 'generated'  # 'generated' or 'manual_upload'
+    title: Optional[str] = None
+    description: Optional[str] = None
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime] = None

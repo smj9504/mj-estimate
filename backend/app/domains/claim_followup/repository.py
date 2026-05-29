@@ -135,6 +135,7 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     d['pa_company'] = t.claim.pa_company or ''
                     d['pa_email'] = t.claim.pa_email or ''
                     d['pa_phone'] = t.claim.pa_phone or ''
+                    d['wm_cost_status'] = t.claim.wm_cost_status or ''
                     # Address is on the Client model
                     if hasattr(t.claim, 'client') and t.claim.client:
                         client = t.claim.client

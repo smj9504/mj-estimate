@@ -580,6 +580,78 @@ class WaterMitigationService:
 
         return created_photo
 
+    async def upload_document(
+        self,
+        job_id: UUID,
+        file: UploadFile,
+        document_type: str,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        invoice_amount: Optional[float] = None,
+        uploaded_by_id: Optional[UUID] = None
+    ) -> WMDocument:
+        """
+        Upload a document file (PDF, image, etc.) manually to a job.
+        Supports document types: COS, EWA, Invoice, Sketch, Photo, etc.
+        """
+        # Verify job exists
+        job = self.job_repo.get_by_id(job_id)
+        if not job:
+            raise ValueError(f"Job {job_id} not found")
+
+        # Get storage provider
+        storage = StorageFactory.get_instance()
+        storage_provider_type = settings.STORAGE_PROVIDER.lower()
+
+        # Read file content
+        file_content = await file.read()
+        file_size = len(file_content)
+
+        # Upload to storage
+        try:
+            file_stream = BytesIO(file_content)
+            upload_result = await asyncio.to_thread(
+                storage.upload,
+                file_data=file_stream,
+                filename=file.filename or f"document_{datetime.utcnow().timestamp()}.pdf",
+                context="water-mitigation",
+                context_id=str(job_id),
+                category="documents",
+                content_type=file.content_type or "application/pdf",
+            )
+
+            logger.info(
+                f"Document uploaded to {storage_provider_type} storage: "
+                f"{upload_result.file_path}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to upload document to storage: {e}", exc_info=True)
+            raise
+
+        # Create document record
+        document_data = {
+            'job_id': job_id,
+            'document_type': document_type,
+            'filename': file.filename or upload_result.file_id,
+            'file_path': upload_result.file_path,
+            'file_size': file_size,
+            'mime_type': file.content_type or 'application/pdf',
+            'title': title,
+            'description': description,
+            'invoice_amount': invoice_amount,
+            'upload_source': 'manual_upload',
+            'storage_provider': storage_provider_type,
+            'storage_file_id': upload_result.file_id,
+            'photo_count': 0,
+            'is_active': True,
+            'generated_by_id': uploaded_by_id,
+        }
+
+        created_document = self.document_repo.create(document_data)
+        logger.info(f"Document uploaded to job {job_id}: {file.filename} (type: {document_type})")
+
+        return created_document
+
     async def save_companycam_photo(
         self,
         job_id: UUID,

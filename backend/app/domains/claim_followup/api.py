@@ -453,7 +453,7 @@ async def resolve_task(
             pass
 
     estimate_data = None
-    if acv_amount is not None or rcv_amount is not None or file_id or wm_file_id:
+    if acv_amount is not None or rcv_amount is not None or file_id or wm_file_id or wm_estimate_amount is not None:
         estimate_data = {
             'acv_amount': acv_amount or 0,
             'rcv_amount': rcv_amount or 0,
@@ -475,6 +475,150 @@ async def resolve_task(
         estimate_data=estimate_data,
         denied_action=denied_action,
     )
+    if not result:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return result
+
+
+@router.post("/tasks/{task_id}/estimate")
+async def save_task_estimate(
+    task_id: str,
+    acv_amount: Optional[float] = Form(None),
+    rcv_amount: Optional[float] = Form(None),
+    depreciation_amount: Optional[float] = Form(None),
+    deductible: Optional[float] = Form(None),
+    wm_cost_status: Optional[str] = Form(None),
+    wm_estimate_amount: Optional[float] = Form(None),
+    sections_data: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    wm_estimate_file: Optional[UploadFile] = File(None),
+):
+    """Save/update estimate data on a task without resolving it."""
+    service = _get_service()
+
+    existing_task = service.get_task(task_id)
+    if not existing_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Reuse file upload logic from resolve
+    CATEGORY_FILE_LABELS = {
+        'combined': 'Insurance-Estimate',
+        'reconstruction': 'Reconstruction-Estimate',
+        'water_mitigation': 'WM-Estimate',
+    }
+
+    address_part = ''
+    category_versions: dict = {}
+    try:
+        from app.core.database_factory import get_database
+        from app.domains.claim_followup.models import FollowUpTask as FUTask
+        from app.domains.client.models import Claim, ClaimNegotiation, Client
+        from sqlalchemy import func as sqlfunc
+
+        db = get_database()
+        session = db.get_session()
+        try:
+            task_obj = session.query(FUTask).filter(FUTask.id == task_id).first()
+            if task_obj and task_obj.claim_id:
+                claim_obj = session.query(Claim).filter(Claim.id == task_obj.claim_id).first()
+                if claim_obj:
+                    client_obj = session.query(Client).filter(Client.id == claim_obj.client_id).first()
+                    if client_obj and client_obj.address:
+                        address_part = client_obj.address.strip()
+                    claim_id_str = str(claim_obj.id)
+                    for cat in CATEGORY_FILE_LABELS:
+                        max_rev = session.query(sqlfunc.max(ClaimNegotiation.revision_number)).filter(
+                            ClaimNegotiation.claim_id == claim_id_str,
+                            ClaimNegotiation.estimate_category == cat,
+                        ).scalar() or 0
+                        category_versions[cat] = max_rev + 1
+        finally:
+            session.close()
+    except Exception as e:
+        logger.error(f"Failed to fetch address info: {e}")
+
+    is_separate = wm_cost_status == 'separate_estimate'
+    main_category = 'reconstruction' if is_separate else 'combined'
+    main_label = CATEGORY_FILE_LABELS.get(main_category, 'Insurance-Estimate')
+    main_version = category_versions.get(main_category, 1)
+
+    # Upload main PDF
+    file_id = None
+    file_name = None
+    if file and file.filename:
+        try:
+            db = get_database()
+            file_id, file_name = await _upload_pdf_file(
+                db, file, "insurance_estimate", task_id,
+                address_part, main_version, main_label,
+            )
+        except Exception as e:
+            logger.error(f"Estimate file upload failed: {e}")
+
+    # Upload WM PDF
+    wm_file_id = None
+    wm_file_name = None
+    parsed_wm_amount = wm_estimate_amount
+    if wm_estimate_file and wm_estimate_file.filename:
+        try:
+            db = get_database()
+            wm_file_content = await wm_estimate_file.read()
+            auto_amount = _parse_pdf_amount(wm_file_content)
+            if auto_amount and not wm_estimate_amount:
+                parsed_wm_amount = auto_amount
+
+            import io
+            wm_estimate_file.file.seek(0) if hasattr(wm_estimate_file.file, 'seek') else None
+            from app.domains.file.service import FileService
+            import os as _os
+            ext = _os.path.splitext(wm_estimate_file.filename)[1] or '.pdf'
+            wm_label = CATEGORY_FILE_LABELS.get('water_mitigation', 'WM-Estimate')
+            wm_ver = category_versions.get('water_mitigation', 1)
+            if address_part:
+                safe_address = address_part.replace('/', '-').replace('\\', '-').replace(':', '').replace('"', '')
+                wm_upload_filename = f"{safe_address}-{wm_label}-v{wm_ver}{ext}"
+            else:
+                wm_upload_filename = f"{wm_label}-v{wm_ver}{ext}"
+
+            db2 = get_database()
+            fs = FileService(db2)
+            wm_record = await fs.upload_file(
+                file_data=io.BytesIO(wm_file_content),
+                original_filename=wm_upload_filename,
+                content_type=wm_estimate_file.content_type or "application/pdf",
+                context="wm_estimate",
+                context_id=task_id,
+            )
+            fs.repository.db_session.commit()
+            fs.repository.db_session.close()
+            wm_file_id = str(wm_record.get("id", ""))
+            wm_file_name = wm_upload_filename
+        except Exception as e:
+            logger.error(f"WM estimate file upload failed: {e}")
+
+    parsed_sections = None
+    if sections_data:
+        try:
+            import json
+            parsed_sections = json.loads(sections_data)
+        except Exception:
+            pass
+
+    estimate_data = {
+        'acv_amount': acv_amount or 0,
+        'rcv_amount': rcv_amount or 0,
+        'depreciation_amount': depreciation_amount or 0,
+        'deductible': deductible or 0,
+        'file_id': file_id,
+        'file_name': file_name,
+        'sections_data': parsed_sections,
+        'wm_cost_status': wm_cost_status,
+        'wm_estimate_amount': parsed_wm_amount,
+        'wm_file_id': wm_file_id,
+        'wm_file_name': wm_file_name,
+    }
+
+    result = service.save_estimate_data(task_id, estimate_data)
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")
     return result

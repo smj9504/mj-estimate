@@ -48,6 +48,9 @@ import {
   EnvironmentOutlined,
   RightOutlined,
   FilePdfOutlined,
+  HistoryOutlined,
+  UserOutlined,
+  PhoneOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -129,7 +132,7 @@ const STAGE_LABELS: Record<TaskType, string> = {
   wm_docs_sent: 'WM Docs',
   estimate_request: 'Est. Request',
   supplement_sent: 'Supplement',
-  payment_check: 'Payment',
+  payment_check: 'Rebuild Payment',
   wm_payment_check: 'WM Payment',
   depreciation_recovery: 'Depreciation',
   docs_sent: 'Other Docs',
@@ -186,6 +189,8 @@ interface ClaimGroup {
   activeStages: Set<TaskType>;
   currentStage: TaskType | null;
   hasOverdue: boolean;
+  hasUrgent: boolean;
+  wmCostStatus: string;
   nextFollowupDate: string | null;
   supplementStatuses: Record<string, number>;
   pendingInfoRequests: number;
@@ -339,7 +344,13 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
   const hasEstimates = estimates.length > 0;
   const hasBidItems = bidItems.filter((b: any) => b.custom_document_file_id).length > 0;
 
-  if (!hasEstimates && !hasBidItems) {
+  // Check for WM data on claim but no WM negotiation record
+  const hasWmNegotiation = estimates.some((e: any) => e.estimate_category === 'water_mitigation');
+  const claimWmStatus = hasEstimates ? (estimates[0] as any).claim_wm_cost_status : null;
+  const claimWmAmount = hasEstimates ? (estimates[0] as any).claim_wm_estimate_amount : 0;
+  const showWmFallback = !hasWmNegotiation && claimWmStatus === 'separate_estimate' && claimWmAmount > 0;
+
+  if (!hasEstimates && !hasBidItems && !showWmFallback) {
     return <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: 16 }}>No estimate documents uploaded yet.</Text>;
   }
 
@@ -437,6 +448,16 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
                       {isLatestInCategory && <Tag color="processing" style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>LATEST</Tag>}
                       {categoryCfg && (
                         <Tag color={categoryCfg.tagColor} style={{ margin: 0, fontSize: 10, lineHeight: '16px' }}>{categoryCfg.label}</Tag>
+                      )}
+                      {ver.file_download_id && (
+                        <a
+                          href={`${fileService.getDownloadUrl(ver.file_download_id)}?inline=true`}
+                          target="_blank" rel="noopener noreferrer"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11 }}
+                        >
+                          <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                          PDF
+                        </a>
                       )}
                     </div>
 
@@ -667,6 +688,24 @@ const ClaimEstimatesPanel: React.FC<{ claimId: string }> = ({ claimId }) => {
         </div>
       )}
 
+      {/* WM Estimate fallback (when no WM negotiation record but claim has WM data) */}
+      {showWmFallback && (
+        <div style={{
+          marginBottom: 8, padding: '8px 10px', borderRadius: 6,
+          border: '1px solid #e6f0fa', background: '#f6fbff',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+            <Tag color="cyan" style={{ margin: 0, fontSize: 11 }}>WM</Tag>
+            <Tag color="orange" style={{ margin: 0, fontSize: 10 }}>Separate Estimate</Tag>
+          </div>
+          <div style={{ fontSize: 13 }}>
+            <Text type="secondary">WM Amount: </Text>
+            <Text strong>${Number(claimWmAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+            <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>(no PDF uploaded)</Text>
+          </div>
+        </div>
+      )}
+
       {/* Bid Item Estimate PDFs */}
       {hasBidItems && (
         <div>
@@ -725,11 +764,20 @@ const ClaimFollowUpDashboard: React.FC = () => {
   const [existingWmPdfId, setExistingWmPdfId] = useState<string | undefined>();
   const [selectedTask, setSelectedTask] = useState<FollowUpTask | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editEstimateFile, setEditEstimateFile] = useState<File | undefined>();
+  const [editWmFile, setEditWmFile] = useState<File | undefined>();
+  const [editParsedSections, setEditParsedSections] = useState<any[] | null>(null);
+  const [editIsParsing, setEditIsParsing] = useState(false);
+  const [editEstimateSaving, setEditEstimateSaving] = useState(false);
+  const [editExistingEstimates, setEditExistingEstimates] = useState<any[]>([]);
   const [claimDrawerOpen, setClaimDrawerOpen] = useState(false);
   const [selectedClaimGroup, setSelectedClaimGroup] = useState<ClaimGroup | null>(null);
   const [drawerEmailTaskId, setDrawerEmailTaskId] = useState<string | undefined>();
+  const [taskDetailOpen, setTaskDetailOpen] = useState(false);
+  const [detailTask, setDetailTask] = useState<FollowUpTask | null>(null);
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
+  const [editEstimateForm] = Form.useForm();
   const [resolveForm] = Form.useForm();
 
   // Queries
@@ -765,6 +813,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
           activeStages: new Set<TaskType>(),
           currentStage: null,
           hasOverdue: false,
+          hasUrgent: false,
+          wmCostStatus: '',
           nextFollowupDate: null,
           supplementStatuses: {},
           pendingInfoRequests: 0,
@@ -794,6 +844,16 @@ const ClaimFollowUpDashboard: React.FC = () => {
         group.activeStages.add(task.task_type);
       }
 
+      // Track WM cost status from claim
+      if ((task as any).wm_cost_status && !group.wmCostStatus) {
+        group.wmCostStatus = (task as any).wm_cost_status;
+      }
+
+      // Check urgent priority on active tasks
+      if (task.priority === 'urgent' && !['resolved', 'cancelled'].includes(task.status)) {
+        group.hasUrgent = true;
+      }
+
       // Check overdue
       const date = task.next_followup_date || task.due_date;
       if (date && dayjs(date).isBefore(dayjs()) && ['pending', 'awaiting_response'].includes(task.status)) {
@@ -818,10 +878,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
       }
     });
 
-    // Sort: overdue first, then by nextFollowupDate
+    // Sort: overdue first, then urgent, then by nextFollowupDate
     return Array.from(groupMap.values()).sort((a, b) => {
       if (a.hasOverdue && !b.hasOverdue) return -1;
       if (!a.hasOverdue && b.hasOverdue) return 1;
+      if (a.hasUrgent && !b.hasUrgent) return -1;
+      if (!a.hasUrgent && b.hasUrgent) return 1;
       if (!a.nextFollowupDate) return 1;
       if (!b.nextFollowupDate) return -1;
       return dayjs(a.nextFollowupDate).unix() - dayjs(b.nextFollowupDate).unix();
@@ -1140,7 +1202,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 key: 'edit',
                 icon: <EditOutlined />,
                 label: 'Edit',
-                onClick: () => {
+                onClick: async () => {
                   setSelectedTask(record);
                   editForm.setFieldsValue({
                     title: record.title,
@@ -1155,6 +1217,34 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     followup_interval_days: record.followup_interval_days,
                     max_followup_count: record.max_followup_count,
                   });
+                  // Load existing estimate data for this claim
+                  setEditEstimateFile(undefined);
+                  setEditWmFile(undefined);
+                  setEditParsedSections(null);
+                  setEditExistingEstimates([]);
+                  editEstimateForm.resetFields();
+                  try {
+                    const estimates = await supplementService.listInsuranceEstimates(record.claim_id);
+                    setEditExistingEstimates(estimates || []);
+                    if (estimates.length > 0) {
+                      const latest = estimates[0];
+                      const formVals: any = {
+                        acv_amount: latest.acv_amount || 0,
+                        rcv_amount: latest.rcv_amount || 0,
+                        depreciation_amount: latest.depreciation_amount || 0,
+                        deductible: latest.deductible || 0,
+                      };
+                      // Load claim-level WM fields
+                      if ((latest as any).claim_wm_cost_status) {
+                        formVals.wm_cost_status = (latest as any).claim_wm_cost_status;
+                      }
+                      if ((latest as any).claim_wm_estimate_amount) {
+                        formVals.wm_estimate_amount = (latest as any).claim_wm_estimate_amount;
+                      }
+                      editEstimateForm.setFieldsValue(formVals);
+                      if (latest.sections_data) setEditParsedSections(latest.sections_data);
+                    }
+                  } catch { /* ignore */ }
                   setEditModalOpen(true);
                 },
               },
@@ -1197,9 +1287,17 @@ const ClaimFollowUpDashboard: React.FC = () => {
     );
     const activeTypes = group.activeStages;
 
-    // Only show stages that this claim actually has tasks for
+    // Virtual resolved stages based on claim data (no task needed)
+    const virtualResolved = new Set<TaskType>();
+    if (group.wmCostStatus === 'included_in_rebuild'
+        && !resolvedTypes.has('wm_payment_check')
+        && !activeTypes.has('wm_payment_check')) {
+      virtualResolved.add('wm_payment_check');
+    }
+
+    // Only show stages that this claim actually has tasks for (or virtual)
     const relevantStages = STAGE_ORDER.filter(
-      stage => resolvedTypes.has(stage) || activeTypes.has(stage)
+      stage => resolvedTypes.has(stage) || activeTypes.has(stage) || virtualResolved.has(stage)
     );
 
     if (relevantStages.length === 0) return null;
@@ -1212,16 +1310,18 @@ const ClaimFollowUpDashboard: React.FC = () => {
           const stageTask = group.tasks.find(t => t.task_type === stage && !['resolved', 'cancelled'].includes(t.status));
           const isStageOverdue = stageTask ? isOverdue(stageTask) : false;
 
-          let color = '#d9d9d9'; // not reached
+          const isVirtual = virtualResolved.has(stage);
+          const resolved = (isResolved && !isActive) || isVirtual;
+          let color = '#d9d9d9';
           let textColor = '#999';
-          if (isResolved && !isActive) {
-            color = '#52c41a'; // completed
-            textColor = '#fff';
+          if (resolved) {
+            color = '#f6ffed';
+            textColor = '#52c41a';
           } else if (isStageOverdue) {
-            color = '#ff4d4f'; // overdue
+            color = '#ff4d4f';
             textColor = '#fff';
           } else if (isActive) {
-            color = '#1890ff'; // active
+            color = '#1890ff';
             textColor = '#fff';
           }
 
@@ -1232,13 +1332,14 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 style={{
                   backgroundColor: color,
                   color: textColor,
-                  border: 'none',
+                  border: resolved ? '1px solid #b7eb8f' : 'none',
                   fontSize: 11,
                   margin: 0,
                   whiteSpace: 'nowrap',
                   lineHeight: '20px',
                 }}
               >
+                {resolved && <CheckCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
                 {STAGE_LABELS[stage]}
               </Tag>
             </React.Fragment>
@@ -1540,6 +1641,16 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 pagination={false}
                 scroll={{ x: 900 }}
                 rowClassName={(record) => isOverdue(record) ? 'ant-table-row-overdue' : ''}
+                onRow={(record) => ({
+                  onClick: (e) => {
+                    // Don't open drawer if clicking action buttons/dropdowns
+                    const target = e.target as HTMLElement;
+                    if (target.closest('.ant-dropdown-trigger') || target.closest('.ant-btn') || target.closest('.ant-dropdown')) return;
+                    setDetailTask(record);
+                    setTaskDetailOpen(true);
+                  },
+                  style: { cursor: 'pointer' },
+                })}
               />
             ),
           };
@@ -1995,7 +2106,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
       <Modal
         title={`Edit: ${selectedTask?.title}`}
         open={editModalOpen}
-        width={isMobile ? '95vw' : 550}
+        width={isMobile ? '95vw' : 650}
         style={isMobile ? { top: 10 } : undefined}
         onOk={() => {
           editForm.validateFields().then(values => {
@@ -2004,7 +2115,14 @@ const ClaimFollowUpDashboard: React.FC = () => {
             }
           });
         }}
-        onCancel={() => { setEditModalOpen(false); editForm.resetFields(); }}
+        onCancel={() => {
+          setEditModalOpen(false);
+          editForm.resetFields();
+          editEstimateForm.resetFields();
+          setEditEstimateFile(undefined);
+          setEditWmFile(undefined);
+          setEditParsedSections(null);
+        }}
         confirmLoading={editMutation.isPending}
       >
         <Form form={editForm} layout="vertical" size="small">
@@ -2081,6 +2199,184 @@ const ClaimFollowUpDashboard: React.FC = () => {
             </Col>
           </Row>
         </Form>
+
+        {/* Estimate Data Section */}
+        <Divider style={{ margin: '12px 0 8px' }} />
+        <div style={{ border: '1px solid #f0f0f0', borderRadius: 6, padding: '10px 12px' }}>
+          <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Insurance Estimate Data</Text>
+
+          {/* Existing uploaded PDFs */}
+          {editExistingEstimates.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>Uploaded Estimates</Text>
+              {editExistingEstimates.map((est: any) => {
+                const catLabel = est.estimate_category === 'water_mitigation' ? 'WM'
+                  : est.estimate_category === 'reconstruction' ? 'Reconstruction'
+                  : est.estimate_category === 'combined' ? 'Combined' : est.estimate_category || '';
+                return (
+                  <div key={est.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px',
+                    background: '#f6fbff', borderRadius: 4, border: '1px solid #e6f0fa', marginBottom: 4,
+                  }}>
+                    {est.file_download_id
+                      ? <FilePdfOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />
+                      : <FileTextOutlined style={{ color: '#999', fontSize: 14 }} />
+                    }
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {est.file_download_id ? (
+                        <a
+                          href={`${fileService.getDownloadUrl(est.file_download_id)}?inline=true`}
+                          target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: 12 }}
+                        >
+                          {est.document_name || `Rev #${est.revision_number}`}
+                        </a>
+                      ) : (
+                        <Text type="secondary" style={{ fontSize: 12 }}>{est.document_name || `Rev #${est.revision_number}`} <span style={{ fontSize: 10 }}>(no PDF)</span></Text>
+                      )}
+                    </div>
+                    {catLabel && <Tag color="blue" style={{ margin: 0, fontSize: 10 }}>{catLabel}</Tag>}
+                    <Text type="secondary" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>
+                      RCV ${Number(est.rcv_amount || 0).toLocaleString()}
+                    </Text>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <Form form={editEstimateForm} layout="vertical" size="small">
+            {/* Upload new / replace PDF */}
+            <Form.Item label="Upload Estimate PDF" style={{ marginBottom: 8 }}>
+              <Upload
+                maxCount={1}
+                accept=".pdf"
+                beforeUpload={async (file) => {
+                  setEditEstimateFile(file);
+                  setEditParsedSections(null);
+                  if (file.name.toLowerCase().endsWith('.pdf')) {
+                    setEditIsParsing(true);
+                    try {
+                      const result = await claimFollowUpService.parseEstimatePdf(file);
+                      if (result.sections?.length) {
+                        setEditParsedSections(result.sections);
+                        const totalRcv = result.sections.reduce((s: number, sec: any) => s + (sec.rcv || 0), 0);
+                        const totalDep = result.sections.reduce((s: number, sec: any) => s + (sec.depreciation || 0), 0);
+                        const ded = result.totals?.deductible || editEstimateForm.getFieldValue('deductible') || 0;
+                        editEstimateForm.setFieldsValue({
+                          rcv_amount: Math.round(totalRcv * 100) / 100,
+                          depreciation_amount: Math.round(totalDep * 100) / 100,
+                          acv_amount: Math.round((totalRcv - totalDep - ded) * 100) / 100,
+                          deductible: ded,
+                        });
+                        message.success(`Parsed ${result.sections.length} sections from PDF`);
+                      }
+                    } catch { message.warning('PDF parsing failed. Enter amounts manually.'); }
+                    finally { setEditIsParsing(false); }
+                  }
+                  return false;
+                }}
+                onRemove={() => { setEditEstimateFile(undefined); setEditParsedSections(null); }}
+                fileList={editEstimateFile ? [{ uid: '-1', name: editEstimateFile.name, status: 'done' as const }] : []}
+              >
+                <Button icon={<UploadOutlined />} loading={editIsParsing} size="small">
+                  {editIsParsing ? 'Parsing...' : 'Upload & Parse PDF'}
+                </Button>
+              </Upload>
+            </Form.Item>
+
+            <Row gutter={6}>
+              <Col span={6}>
+                <Form.Item name="rcv_amount" label="RCV" style={{ marginBottom: 6 }}>
+                  <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="depreciation_amount" label="Dep" style={{ marginBottom: 6 }}>
+                  <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="deductible" label="Ded" style={{ marginBottom: 6 }}>
+                  <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="acv_amount" label="ACV" style={{ marginBottom: 6 }}>
+                  <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={6}>
+              <Col span={12}>
+                <Form.Item name="wm_cost_status" label="WM Cost Status" style={{ marginBottom: 6 }}>
+                  <Select allowClear placeholder="Select...">
+                    <Select.Option value="included_in_rebuild">Included in Rebuild</Select.Option>
+                    <Select.Option value="separate_estimate">Separate Estimate</Select.Option>
+                    <Select.Option value="not_received">Not Received</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="wm_estimate_amount" label="WM Amount" style={{ marginBottom: 6 }}>
+                  <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Form.Item label="WM Estimate PDF" style={{ marginBottom: 8 }}>
+              <Upload
+                maxCount={1}
+                accept=".pdf"
+                beforeUpload={(file) => { setEditWmFile(file); return false; }}
+                onRemove={() => setEditWmFile(undefined)}
+                fileList={editWmFile ? [{ uid: '-2', name: editWmFile.name, status: 'done' as const }] : []}
+              >
+                <Button icon={<UploadOutlined />} size="small">Upload WM PDF</Button>
+              </Upload>
+            </Form.Item>
+
+            <Button
+              type="primary"
+              size="small"
+              loading={editEstimateSaving}
+              onClick={async () => {
+                if (!selectedTask) return;
+                setEditEstimateSaving(true);
+                try {
+                  const vals = editEstimateForm.getFieldsValue();
+                  await claimFollowUpService.saveEstimate(selectedTask.id, {
+                    acv_amount: vals.acv_amount,
+                    rcv_amount: vals.rcv_amount,
+                    depreciation_amount: vals.depreciation_amount,
+                    deductible: vals.deductible,
+                    wm_cost_status: vals.wm_cost_status,
+                    wm_estimate_amount: vals.wm_estimate_amount,
+                    sections_data: editParsedSections,
+                    file: editEstimateFile,
+                    wm_estimate_file: editWmFile,
+                  });
+                  message.success('Estimate data saved');
+                  // Reload existing estimates
+                  const freshEstimates = await supplementService.listInsuranceEstimates(selectedTask.claim_id);
+                  setEditExistingEstimates(freshEstimates || []);
+                  setEditEstimateFile(undefined);
+                  setEditWmFile(undefined);
+                  queryClient.invalidateQueries({ queryKey: ['followup-tasks'] });
+                  queryClient.invalidateQueries({ queryKey: ['supplements'] });
+                } catch (err: any) {
+                  message.error(err?.response?.data?.detail || 'Failed to save estimate');
+                } finally {
+                  setEditEstimateSaving(false);
+                }
+              }}
+              style={{ width: '100%' }}
+            >
+              Save Estimate Data
+            </Button>
+          </Form>
+        </div>
       </Modal>
 
       {/* Claim Detail Drawer */}
@@ -2314,6 +2610,156 @@ const ClaimFollowUpDashboard: React.FC = () => {
             </>
           );
         })()}
+      </Drawer>
+
+      {/* Task Activity Detail Drawer */}
+      <Drawer
+        title={
+          detailTask ? (
+            <Space direction="vertical" size={0}>
+              <Text strong style={{ fontSize: 16 }}>{detailTask.title}</Text>
+            </Space>
+          ) : 'Task Activity'
+        }
+        open={taskDetailOpen}
+        onClose={() => { setTaskDetailOpen(false); setDetailTask(null); }}
+        width={isMobile ? '100%' : 560}
+        destroyOnClose
+      >
+        {detailTask && (
+          <>
+            {/* Status & Priority row */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              <Tag color="blue">{STAGE_LABELS[detailTask.task_type] || detailTask.task_type}</Tag>
+              <Tag color={STATUS_COLORS[isOverdue(detailTask) ? 'overdue' : detailTask.status] || 'default'}>
+                {(isOverdue(detailTask) ? 'OVERDUE' : detailTask.status).replace('_', ' ').toUpperCase()}
+              </Tag>
+              <Tag color={PRIORITY_TAG_COLORS[detailTask.priority] || 'default'}>
+                {detailTask.priority.toUpperCase()}
+              </Tag>
+            </div>
+
+            {/* Task Info Card */}
+            <Card size="small" style={{ marginBottom: 12 }}>
+              {detailTask.assigned_to_name && (
+                <div style={{ marginBottom: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Assigned To</Text>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                    <UserOutlined />
+                    <Text strong>{detailTask.assigned_to_name}</Text>
+                    {detailTask.assigned_to_role && (
+                      <Tag style={{ margin: 0, fontSize: 11 }}>{detailTask.assigned_to_role}</Tag>
+                    )}
+                  </div>
+                  {detailTask.assigned_to_email && (
+                    <div style={{ marginTop: 2, marginLeft: 20 }}>
+                      <MailOutlined style={{ marginRight: 4, fontSize: 12 }} />
+                      <Text style={{ fontSize: 13 }}>{detailTask.assigned_to_email}</Text>
+                    </div>
+                  )}
+                  {detailTask.assigned_to_phone && (
+                    <div style={{ marginTop: 2, marginLeft: 20 }}>
+                      <PhoneOutlined style={{ marginRight: 4, fontSize: 12 }} />
+                      <Text style={{ fontSize: 13 }}>{detailTask.assigned_to_phone}</Text>
+                    </div>
+                  )}
+                </div>
+              )}
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Created</Text>
+                  <div><Text style={{ fontSize: 13 }}>{detailTask.created_at ? dayjs(detailTask.created_at).format('YYYY-MM-DD HH:mm') : '-'}</Text></div>
+                </Col>
+                <Col span={12}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Last Contact</Text>
+                  <div><Text style={{ fontSize: 13 }}>{detailTask.last_contacted_at ? dayjs(detailTask.last_contacted_at).format('YYYY-MM-DD HH:mm') : '-'}</Text></div>
+                </Col>
+              </Row>
+              {detailTask.next_followup_date && (
+                <div style={{ marginTop: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Next Follow-up</Text>
+                  <div>
+                    <Text style={{ fontSize: 13 }} type={isOverdue(detailTask) ? 'danger' : undefined}>
+                      {dayjs(detailTask.next_followup_date).format('YYYY-MM-DD')} ({dayjs(detailTask.next_followup_date).fromNow()})
+                    </Text>
+                  </div>
+                </div>
+              )}
+              {detailTask.resolved_at && (
+                <div style={{ marginTop: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Resolved</Text>
+                  <div><Text style={{ fontSize: 13 }}>{dayjs(detailTask.resolved_at).format('YYYY-MM-DD HH:mm')}</Text></div>
+                </div>
+              )}
+              {detailTask.resolution_notes && (
+                <div style={{ marginTop: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Resolution Notes</Text>
+                  <div style={{ padding: '4px 8px', background: '#fafafa', borderRadius: 4, marginTop: 2 }}>
+                    <Text style={{ fontSize: 13 }}>{detailTask.resolution_notes}</Text>
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            {/* Insurance Estimates */}
+            <Card size="small" style={{ marginBottom: 12 }}>
+              <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 8 }}>Insurance Estimates</Text>
+              <ClaimEstimatesPanel claimId={detailTask.claim_id} />
+            </Card>
+
+            {/* Quick Actions */}
+            <Space style={{ marginBottom: 12 }} wrap>
+              <Button
+                icon={<MailOutlined />}
+                onClick={() => navigate(`/claim-followup/${detailTask.id}/email`)}
+              >
+                Send Email
+              </Button>
+              {detailTask.status !== 'resolved' && (
+                <Button
+                  icon={<CheckCircleOutlined />}
+                  onClick={() => {
+                    setTaskDetailOpen(false);
+                    setSelectedTask(detailTask);
+                    resolveForm.resetFields();
+                    setResolveOutcome(undefined);
+                    setParsedSections(null);
+                    setResolveFile(undefined);
+                    setResolveWmFile(undefined);
+                    setParsedWmAmount(undefined);
+                    setExistingPdfName(undefined);
+                    setExistingPdfId(undefined);
+                    setExistingWmPdfName(undefined);
+                    setExistingWmPdfId(undefined);
+                    setResolveModalOpen(true);
+                  }}
+                >
+                  Resolve
+                </Button>
+              )}
+              {detailTask.status === 'resolved' && (
+                <Button
+                  icon={<ClockCircleOutlined />}
+                  onClick={() => {
+                    reopenMutation.mutate(detailTask.id);
+                    setTaskDetailOpen(false);
+                  }}
+                >
+                  Reopen
+                </Button>
+              )}
+            </Space>
+
+            <Divider style={{ margin: '8px 0 12px' }} />
+
+            {/* Activity Timeline */}
+            <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 12 }}>
+              <HistoryOutlined style={{ marginRight: 6 }} />
+              Activity History
+            </Text>
+            <CommunicationTimeline claimId={detailTask.claim_id} taskId={detailTask.id} />
+          </>
+        )}
       </Drawer>
 
       <style>{`

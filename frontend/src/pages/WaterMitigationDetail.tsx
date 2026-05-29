@@ -72,7 +72,9 @@ const WaterMitigationDetail: React.FC = () => {
       waterMitigationService.getJob(id).then((jobData) => {
         setJob(jobData);
       }).catch(() => { /* silent */ });
+      loadDocumentInvoices();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   // Prefetch photos data on tab hover for instant tab switch
@@ -123,6 +125,7 @@ const WaterMitigationDetail: React.FC = () => {
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [statusChangeNote, setStatusChangeNote] = useState('');
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [documentInvoices, setDocumentInvoices] = useState<{ filename: string; invoice_amount: number }[]>([]);
 
   // Edit form states for each section
   const [jobInfoForm, setJobInfoForm] = useState({
@@ -186,9 +189,23 @@ const WaterMitigationDetail: React.FC = () => {
     }
   };
 
+  const loadDocumentInvoices = async () => {
+    if (!id) return;
+    try {
+      const docs = await waterMitigationService.documents.getByJob(id, 'Invoice');
+      const invoiceDocs = docs
+        .filter((d: any) => d.invoice_amount != null && d.invoice_amount > 0)
+        .map((d: any) => ({ filename: d.filename, invoice_amount: d.invoice_amount }));
+      setDocumentInvoices(invoiceDocs);
+    } catch {
+      // Silent - not critical
+    }
+  };
+
   useEffect(() => {
     loadJob();
     loadCompanies();
+    loadDocumentInvoices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -738,6 +755,28 @@ const WaterMitigationDetail: React.FC = () => {
                               job.invoice_amount ? `$${job.invoice_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'
                             )}
                           </Descriptions.Item>
+                          {documentInvoices.length > 0 && !isEditing && (
+                            <Descriptions.Item label="Uploaded Invoices" span={descColumn}>
+                              <div>
+                                {documentInvoices.map((inv, idx) => (
+                                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: idx < documentInvoices.length - 1 ? 4 : 0 }}>
+                                    <span style={{ color: '#595959', fontSize: 13 }}>{inv.filename}</span>
+                                    <span style={{ fontWeight: 500, color: '#52c41a' }}>
+                                      ${inv.invoice_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  </div>
+                                ))}
+                                {documentInvoices.length > 1 && (
+                                  <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 4, marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ fontWeight: 600 }}>Total</span>
+                                    <span style={{ fontWeight: 600, color: '#52c41a' }}>
+                                      ${documentInvoices.reduce((sum, inv) => sum + inv.invoice_amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </Descriptions.Item>
+                          )}
                           <Descriptions.Item label="Check Number">
                             {isEditing ? (
                               <Input

@@ -98,6 +98,37 @@ export const claimFollowUpService = {
     return data;
   },
 
+  async saveEstimate(
+    taskId: string,
+    body: {
+      acv_amount?: number;
+      rcv_amount?: number;
+      depreciation_amount?: number;
+      deductible?: number;
+      wm_cost_status?: string;
+      wm_estimate_amount?: number;
+      sections_data?: any;
+      file?: File;
+      wm_estimate_file?: File;
+    }
+  ): Promise<FollowUpTask> {
+    const formData = new FormData();
+    if (body.acv_amount != null) formData.append('acv_amount', String(body.acv_amount));
+    if (body.rcv_amount != null) formData.append('rcv_amount', String(body.rcv_amount));
+    if (body.depreciation_amount != null) formData.append('depreciation_amount', String(body.depreciation_amount));
+    if (body.deductible != null) formData.append('deductible', String(body.deductible));
+    if (body.wm_cost_status) formData.append('wm_cost_status', body.wm_cost_status);
+    if (body.wm_estimate_amount != null) formData.append('wm_estimate_amount', String(body.wm_estimate_amount));
+    if (body.sections_data) formData.append('sections_data', JSON.stringify(body.sections_data));
+    if (body.file) formData.append('file', body.file);
+    if (body.wm_estimate_file) formData.append('wm_estimate_file', body.wm_estimate_file);
+
+    const { data } = await api.post(`${BASE_URL}/tasks/${taskId}/estimate`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+
   async parseEstimatePdf(file: File): Promise<{
     sections: Array<{
       section_name: string;

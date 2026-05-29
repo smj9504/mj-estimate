@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { List, Button, Popconfirm, message, Tag, Typography, Checkbox, Space } from 'antd';
-import { FilePdfOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined } from '@ant-design/icons';
+import { FilePdfOutlined, FileImageOutlined, FileOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined, DollarOutlined } from '@ant-design/icons';
 import waterMitigationService from '../../services/waterMitigationService';
 
 const { Text } = Typography;
@@ -22,6 +22,10 @@ interface Document {
   file_size: number;
   photo_count: number;
   annotation_data?: string | null;
+  invoice_amount?: number | null;
+  upload_source?: string | null;
+  title?: string | null;
+  description?: string | null;
   created_at: string;
 }
 
@@ -131,6 +135,10 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     const labels: Record<string, { label: string; color: string }> = {
       'COS': { label: 'Certificate of Satisfaction', color: 'green' },
       'EWA': { label: 'Emergency Work Agreement', color: 'blue' },
+      'Invoice': { label: 'Invoice', color: 'gold' },
+      'Sketch': { label: 'Sketch', color: 'cyan' },
+      'Photo': { label: 'Photo', color: 'magenta' },
+      'Other': { label: 'Other', color: 'default' },
       'annotated_pdf': { label: 'Annotated PDF', color: 'purple' },
     };
     return labels[type] || { label: type, color: 'default' };
@@ -264,7 +272,13 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
                     checked={selectedIds.includes(doc.id)}
                     onChange={(e) => handleSelectOne(doc.id, e.target.checked)}
                   />
-                  <FilePdfOutlined style={{ fontSize: 32, color: '#ff4d4f' }} />
+                  {doc.document_type === 'Photo' ? (
+                    <FileImageOutlined style={{ fontSize: 32, color: '#eb2f96' }} />
+                  ) : doc.document_type === 'Sketch' ? (
+                    <FileOutlined style={{ fontSize: 32, color: '#13c2c2' }} />
+                  ) : (
+                    <FilePdfOutlined style={{ fontSize: 32, color: '#ff4d4f' }} />
+                  )}
                 </div>
               }
               title={
@@ -273,12 +287,20 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
                   <Tag color={typeInfo.color} style={{ marginLeft: 8 }}>
                     {typeInfo.label}
                   </Tag>
+                  {doc.invoice_amount != null && (
+                    <Tag color="gold" icon={<DollarOutlined />} style={{ marginLeft: 4 }}>
+                      ${doc.invoice_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </Tag>
+                  )}
                 </div>
               }
               description={
                 <div>
                   <Text type="secondary">
-                    {formatFileSize(doc.file_size)} • {doc.photo_count} photo{doc.photo_count !== 1 ? 's' : ''} • Created {formatDate(doc.created_at)}
+                    {doc.file_size ? formatFileSize(doc.file_size) : ''}{doc.file_size ? ' • ' : ''}
+                    {doc.upload_source === 'manual_upload' ? 'Uploaded' : `${doc.photo_count} photo${doc.photo_count !== 1 ? 's' : ''}`}
+                    {' • '}Created {formatDate(doc.created_at)}
+                    {doc.title && ` • ${doc.title}`}
                   </Text>
                 </div>
               }

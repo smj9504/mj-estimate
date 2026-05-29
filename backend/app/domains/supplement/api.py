@@ -151,12 +151,25 @@ async def get_latest_insurance_estimate(claim_id: str):
 async def list_insurance_estimates(claim_id: str):
     """Get ALL insurance estimate versions (ClaimNegotiation) for a claim, ordered by revision_number desc."""
     try:
-        from app.domains.client.models import ClaimNegotiation
+        from app.domains.client.models import Claim, ClaimNegotiation
         from app.domains.file.models import File
         from decimal import Decimal
         database = get_database()
         session = database.get_session()
         try:
+            # Fetch claim-level WM fields
+            claim_wm = {}
+            claim_obj = session.query(Claim).filter(
+                Claim.id == claim_id
+            ).first()
+            if claim_obj:
+                claim_wm = {
+                    'claim_wm_cost_status': claim_obj.wm_cost_status,
+                    'claim_wm_estimate_amount': float(
+                        claim_obj.wm_estimate_amount or 0
+                    ),
+                }
+
             negotiations = (
                 session.query(ClaimNegotiation)
                 .filter(ClaimNegotiation.claim_id == claim_id)
@@ -192,6 +205,10 @@ async def list_insurance_estimates(claim_id: str):
                         item['file_download_id'] = str(file_rec.id)
 
                 results.append(item)
+
+            # Attach claim-level WM info to each result
+            for r in results:
+                r.update(claim_wm)
 
             return results
         finally:

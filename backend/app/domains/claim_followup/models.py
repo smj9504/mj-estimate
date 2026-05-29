@@ -109,13 +109,15 @@ class FollowUpTask(Base, BaseModel):
     communications = relationship(
         "CommunicationLog",
         back_populates="followup_task",
-        cascade="all, delete-orphan",
+        cascade="save-update, merge",
+        passive_deletes=True,
         order_by="CommunicationLog.created_at.desc()"
     )
     sent_emails = relationship(
         "SentEmail",
         back_populates="followup_task",
-        cascade="all, delete-orphan",
+        cascade="save-update, merge",
+        passive_deletes=True,
         order_by="SentEmail.sent_at.desc()"
     )
 

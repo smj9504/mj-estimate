@@ -269,6 +269,16 @@ class WMDocument(Base, BaseModel):
     # Annotation data for re-editing (JSON: texts, signatures per page)
     annotation_data = Column(Text)  # JSON: PdfAnnotationData
 
+    # Invoice-specific fields
+    invoice_amount = Column(DECIMAL(10, 2))  # Amount for invoice documents
+
+    # Upload source: 'generated' (from photos), 'manual_upload'
+    upload_source = Column(String(50), default='generated')
+
+    # Storage provider info (for manual uploads via StorageFactory)
+    storage_provider = Column(String(50))  # 'local', 'gdrive', 's3', etc.
+    storage_file_id = Column(String(500))  # Provider-specific file ID
+
     # Status
     is_active = Column(Boolean, default=True)
     generated_by_id = Column(UUIDType(), ForeignKey("staff.id"))

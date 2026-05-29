@@ -6,9 +6,10 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Grid } from 'antd';
-import { FilePdfOutlined, PlusOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined, EditOutlined } from '@ant-design/icons';
+import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined, EditOutlined } from '@ant-design/icons';
 import FileGallery from '../common/FileGallery/FileGallery';
 import WMDocumentList from './WMDocumentList';
+import WMDocumentUploadModal from './WMDocumentUploadModal';
 import WMInvoiceList from './WMInvoiceList';
 import WMPdfAnnotator from './pdf-annotator/WMPdfAnnotator';
 import type { PdfAnnotationData } from './pdf-annotator/types';
@@ -66,6 +67,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const [selectedDocType, setSelectedDocType] = useState<string | null>(null);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
   const [photoRotations, setPhotoRotations] = useState<Record<string, number>>({});  // {photoId: degrees}
@@ -267,6 +269,13 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
         size="small"
         extra={
           <Space size="small">
+            <Button
+              icon={<UploadOutlined />}
+              onClick={() => setUploadModalVisible(true)}
+              size="small"
+            >
+              Upload
+            </Button>
             <Button
               type="primary"
               icon={<PlusOutlined />}
@@ -590,6 +599,17 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
           )}
         </Space>
       </Modal>
+
+      {/* Document Upload Modal */}
+      <WMDocumentUploadModal
+        open={uploadModalVisible}
+        jobId={jobId}
+        onClose={() => setUploadModalVisible(false)}
+        onSuccess={() => {
+          setUploadModalVisible(false);
+          documentListRef.current?.refresh();
+        }}
+      />
 
       {/* PDF Annotator Modal */}
       <Modal

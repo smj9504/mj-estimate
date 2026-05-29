@@ -558,6 +558,32 @@ export const waterMitigationService = {
       return response.data;
     },
 
+    // Upload document file manually
+    uploadDocument: async (
+      jobId: string,
+      file: File,
+      documentType: string,
+      title?: string,
+      description?: string,
+      invoiceAmount?: number
+    ): Promise<any> => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('document_type', documentType);
+      if (title) formData.append('title', title);
+      if (description) formData.append('description', description);
+      if (invoiceAmount !== undefined && invoiceAmount !== null) {
+        formData.append('invoice_amount', invoiceAmount.toString());
+      }
+
+      const response = await api.post(
+        `${BASE_URL}/jobs/${jobId}/documents/upload`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      return response.data;
+    },
+
     // Upload source PDF for annotation
     uploadSourcePdf: async (jobId: string, file: File): Promise<{ filename: string; url: string }> => {
       const formData = new FormData();
