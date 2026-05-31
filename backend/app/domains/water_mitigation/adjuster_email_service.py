@@ -340,7 +340,6 @@ class AdjusterEmailService:
 <p>I would appreciate a brief confirmation of receipt, and let me know if you have any questions.</p>
 
 <p>Thank you.</p>
-<p>Best regards,<br/>{company_name}</p>
 """
             return {"subject": subject, "body_html": body_html.strip()}
         finally:
@@ -542,19 +541,38 @@ class AdjusterEmailService:
     def _attachment_from_wm_document(
         self, doc, display_filename: str
     ) -> Optional[Dict[str, Any]]:
-        """Create attachment dict from a WMDocument (file stored on disk)."""
+        """Create attachment dict from a WMDocument (local or cloud storage)."""
         try:
-            file_path = Path(doc.file_path)
-            if file_path.exists():
-                file_data = file_path.read_bytes()
-                return {
-                    "filename": display_filename,
-                    "data": file_data,
-                    "mime_type": doc.mime_type or "application/pdf",
-                }
+            file_data = None
+            file_path_str = doc.file_path or ''
+            storage_provider = getattr(doc, 'storage_provider', 'local') or 'local'
+
+            if storage_provider != 'local':
+                # Cloud storage (GCS, GDrive, S3, etc.)
+                try:
+                    from app.domains.storage.factory import StorageFactory
+                    storage = StorageFactory.get_instance()
+                    file_data = storage.download(file_path_str)
+                    logger.info(f"Downloaded WMDocument {doc.id} from {storage_provider}: {file_path_str}")
+                except Exception as e:
+                    logger.warning(f"Cloud download failed for WMDocument {doc.id}: {e}")
             else:
-                logger.warning(f"WMDocument file not found: {doc.file_path}")
+                # Local filesystem
+                local_path = Path(file_path_str)
+                if local_path.exists():
+                    file_data = local_path.read_bytes()
+                else:
+                    logger.warning(f"WMDocument file not found locally: {file_path_str}")
+
+            if not file_data:
+                logger.warning(f"No file data for WMDocument {doc.id} ({file_path_str})")
                 return None
+
+            return {
+                "filename": display_filename,
+                "data": file_data,
+                "mime_type": doc.mime_type or "application/pdf",
+            }
         except Exception as e:
             logger.warning(f"Error reading WMDocument {doc.id}: {e}")
             return None

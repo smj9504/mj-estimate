@@ -521,6 +521,15 @@ export const waterMitigationService = {
       return response.data;
     },
 
+    // Update document invoice amount (also syncs to job)
+    updateInvoiceAmount: async (documentId: string, invoiceAmount: number | null): Promise<any> => {
+      const response = await api.patch(
+        `${BASE_URL}/documents/${documentId}/invoice-amount`,
+        { invoice_amount: invoiceAmount }
+      );
+      return response.data;
+    },
+
     // Delete document
     delete: async (documentId: string): Promise<void> => {
       await api.delete(`${BASE_URL}/documents/${documentId}`);
@@ -578,6 +587,34 @@ export const waterMitigationService = {
 
       const response = await api.post(
         `${BASE_URL}/jobs/${jobId}/documents/upload`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+      return response.data;
+    },
+
+    // Bulk upload multiple document files at once
+    bulkUploadDocuments: async (
+      jobId: string,
+      files: File[],
+      documentType: string,
+      title?: string,
+      description?: string,
+      invoiceAmount?: number
+    ): Promise<any[]> => {
+      const formData = new FormData();
+      files.forEach((file) => {
+        formData.append('files', file);
+      });
+      formData.append('document_type', documentType);
+      if (title) formData.append('title', title);
+      if (description) formData.append('description', description);
+      if (invoiceAmount !== undefined && invoiceAmount !== null) {
+        formData.append('invoice_amount', invoiceAmount.toString());
+      }
+
+      const response = await api.post(
+        `${BASE_URL}/jobs/${jobId}/documents/bulk-upload`,
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
       );

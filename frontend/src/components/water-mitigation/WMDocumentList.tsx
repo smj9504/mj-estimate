@@ -1,10 +1,11 @@
 /**
  * Water Mitigation Document List Component
+ * Supports inline editing of invoice amount for Invoice-type documents
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { List, Button, Popconfirm, message, Tag, Typography, Checkbox, Space } from 'antd';
-import { FilePdfOutlined, FileImageOutlined, FileOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined, DollarOutlined } from '@ant-design/icons';
+import { List, Button, Popconfirm, message, Tag, Typography, Checkbox, Space, InputNumber, Tooltip } from 'antd';
+import { FilePdfOutlined, FileImageOutlined, FileOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined, DollarOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import waterMitigationService from '../../services/waterMitigationService';
 
 const { Text } = Typography;
@@ -13,6 +14,7 @@ interface WMDocumentListProps {
   jobId: string;
   onDelete?: () => void;
   onEditAnnotation?: (documentId: string, annotationData: string | null, previewUrl: string) => void;
+  onInvoiceAmountChange?: () => void;
 }
 
 interface Document {
@@ -30,19 +32,23 @@ interface Document {
 }
 
 const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListProps>(
-  ({ jobId, onDelete, onEditAnnotation }, ref) => {
+  ({ jobId, onDelete, onEditAnnotation, onInvoiceAmountChange }, ref) => {
     const [documents, setDocuments] = useState<Document[]>([]);
     const [loading, setLoading] = useState(false);
     const [deleting, setDeleting] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [bulkDeleting, setBulkDeleting] = useState(false);
+    // Inline invoice amount editing
+    const [editingAmountId, setEditingAmountId] = useState<string | null>(null);
+    const [editingAmountValue, setEditingAmountValue] = useState<number | null>(null);
+    const [savingAmount, setSavingAmount] = useState(false);
 
     const fetchDocuments = useCallback(async () => {
       setLoading(true);
       try {
         const docs = await waterMitigationService.documents.getByJob(jobId);
         setDocuments(docs);
-        setSelectedIds([]); // Clear selection when documents refresh
+        setSelectedIds([]);
       } catch (error) {
         console.error('Failed to fetch documents:', error);
         message.error('Failed to load documents');
@@ -55,7 +61,6 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     fetchDocuments();
   }, [fetchDocuments]);
 
-  // Expose refresh method via ref
   React.useImperativeHandle(ref, () => ({
     refresh: fetchDocuments
   }), [fetchDocuments]);
@@ -131,6 +136,45 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     message.success(`${selectedIds.length} document(s) download started`);
   };
 
+  // --- Invoice Amount Editing ---
+  const startEditAmount = (doc: Document) => {
+    setEditingAmountId(doc.id);
+    setEditingAmountValue(doc.invoice_amount ?? null);
+  };
+
+  const cancelEditAmount = () => {
+    setEditingAmountId(null);
+    setEditingAmountValue(null);
+  };
+
+  const saveInvoiceAmount = async () => {
+    if (!editingAmountId) return;
+    setSavingAmount(true);
+    try {
+      await waterMitigationService.documents.updateInvoiceAmount(
+        editingAmountId,
+        editingAmountValue
+      );
+      message.success('Invoice amount updated');
+      // Update local state immediately
+      setDocuments(prev =>
+        prev.map(d =>
+          d.id === editingAmountId
+            ? { ...d, invoice_amount: editingAmountValue }
+            : d
+        )
+      );
+      setEditingAmountId(null);
+      setEditingAmountValue(null);
+      onInvoiceAmountChange?.();
+    } catch (error) {
+      console.error('Failed to update invoice amount:', error);
+      message.error('Failed to update invoice amount');
+    } finally {
+      setSavingAmount(false);
+    }
+  };
+
   const getDocumentTypeLabel = (type: string) => {
     const labels: Record<string, { label: string; color: string }> = {
       'COS': { label: 'Certificate of Satisfaction', color: 'green' },
@@ -162,6 +206,78 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
 
   const isAllSelected = documents.length > 0 && selectedIds.length === documents.length;
   const isIndeterminate = selectedIds.length > 0 && selectedIds.length < documents.length;
+
+  const renderInvoiceAmount = (doc: Document) => {
+    const isEditing = editingAmountId === doc.id;
+
+    if (isEditing) {
+      return (
+        <Space size={4} style={{ marginLeft: 4 }}>
+          <InputNumber
+            size="small"
+            value={editingAmountValue}
+            onChange={(val) => setEditingAmountValue(val)}
+            prefix="$"
+            precision={2}
+            min={0}
+            style={{ width: 130 }}
+            autoFocus
+            onPressEnter={saveInvoiceAmount}
+            onKeyDown={(e) => { if (e.key === 'Escape') cancelEditAmount(); }}
+          />
+          <Button
+            type="text"
+            size="small"
+            icon={<CheckOutlined />}
+            onClick={saveInvoiceAmount}
+            loading={savingAmount}
+            style={{ color: '#52c41a' }}
+          />
+          <Button
+            type="text"
+            size="small"
+            icon={<CloseOutlined />}
+            onClick={cancelEditAmount}
+            style={{ color: '#ff4d4f' }}
+          />
+        </Space>
+      );
+    }
+
+    // Show amount tag (clickable for Invoice type or manual uploads)
+    if (doc.invoice_amount != null) {
+      return (
+        <Tooltip title="Click to edit amount">
+          <Tag
+            color="gold"
+            icon={<DollarOutlined />}
+            style={{ marginLeft: 4, cursor: 'pointer' }}
+            onClick={() => startEditAmount(doc)}
+          >
+            ${doc.invoice_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Tag>
+        </Tooltip>
+      );
+    }
+
+    // Show "Set Amount" button for Invoice-type documents without amount
+    if (doc.document_type === 'Invoice') {
+      return (
+        <Tooltip title="Set invoice amount">
+          <Tag
+            color="default"
+            icon={<DollarOutlined />}
+            style={{ marginLeft: 4, cursor: 'pointer', borderStyle: 'dashed' }}
+            onClick={() => startEditAmount(doc)}
+          >
+            Set Amount
+          </Tag>
+        </Tooltip>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div>
@@ -282,16 +398,12 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
                 </div>
               }
               title={
-                <div>
+                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
                   <Text strong>{doc.filename}</Text>
                   <Tag color={typeInfo.color} style={{ marginLeft: 8 }}>
                     {typeInfo.label}
                   </Tag>
-                  {doc.invoice_amount != null && (
-                    <Tag color="gold" icon={<DollarOutlined />} style={{ marginLeft: 4 }}>
-                      ${doc.invoice_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </Tag>
-                  )}
+                  {renderInvoiceAmount(doc)}
                 </div>
               }
               description={

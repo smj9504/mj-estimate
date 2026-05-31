@@ -24,6 +24,7 @@ interface WaterMitigationDocumentsTabProps {
   dateOfLoss?: string;  // Date of loss from job data
   mitigationStartDate?: string;  // Mitigation start date (required for EWA)
   isActive?: boolean;
+  onJobDataChange?: () => void;  // Callback when job data changes (e.g., invoice amount sync)
 }
 
 interface DocumentType {
@@ -63,6 +64,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   dateOfLoss,
   mitigationStartDate,
   isActive,
+  onJobDataChange,
 }) => {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
@@ -302,6 +304,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
             // Refresh list after delete
           }}
           onEditAnnotation={handleEditAnnotatedDocument}
+          onInvoiceAmountChange={onJobDataChange}
         />
       </Card>
 

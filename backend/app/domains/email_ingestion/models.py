@@ -47,6 +47,10 @@ class EmailAccount(Base, BaseModel):
     username = Column(String(255), nullable=False)
     encrypted_password = Column(Text, nullable=False)
 
+    # Sender identity (for email signature)
+    sender_name = Column(String(255), nullable=True, comment="Sender full name for signature")
+    sender_phone = Column(String(50), nullable=True, comment="Sender phone for signature")
+
     # State
     is_active = Column(Boolean, nullable=False, default=True)
     last_synced_at = Column(DateTime(timezone=True), nullable=True)

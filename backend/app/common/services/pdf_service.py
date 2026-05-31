@@ -3,6 +3,7 @@ PDF Generation Service for React Backend
 Separate from Streamlit's pdf_generator.py
 """
 
+import io
 import json
 import logging
 import os

@@ -911,6 +911,7 @@ const WaterMitigationDetail: React.FC = () => {
                   dateOfLoss={job.date_of_loss}
                   mitigationStartDate={job.mitigation_start_date}
                   isActive={activeTab === 'documents'}
+                  onJobDataChange={loadJob}
                 />
               ) : null
             },

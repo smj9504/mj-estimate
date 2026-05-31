@@ -1,11 +1,12 @@
 /**
  * Water Mitigation Document Upload Modal
- * Allows manual upload of documents (COS, EWA, Invoice, Sketch, Photo, Other)
+ * Allows manual bulk upload of documents (COS, EWA, Invoice, Sketch, Photo, Other)
  * Invoice type includes amount field
+ * Uses bulk upload API endpoint for efficient multi-file upload
  */
 
 import React, { useState } from 'react';
-import { Modal, Select, Input, InputNumber, Upload, Button, Space, Typography, message } from 'antd';
+import { Modal, Select, Input, InputNumber, Upload, Button, Space, Typography, message, Progress } from 'antd';
 import { UploadOutlined, InboxOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import waterMitigationService from '../../services/waterMitigationService';
@@ -42,6 +43,7 @@ const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
   const [invoiceAmount, setInvoiceAmount] = useState<number | null>(null);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
 
   const resetForm = () => {
     setDocumentType(null);
@@ -49,9 +51,11 @@ const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
     setDescription('');
     setInvoiceAmount(null);
     setFileList([]);
+    setUploadProgress(null);
   };
 
   const handleClose = () => {
+    if (uploading) return;
     resetForm();
     onClose();
   };
@@ -67,23 +71,40 @@ const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
     }
 
     setUploading(true);
+    const totalFiles = fileList.length;
+    const invoiceAmountVal = documentType === 'Invoice' && invoiceAmount !== null ? invoiceAmount : undefined;
+
     try {
-      for (const uploadFile of fileList) {
-        const file = uploadFile.originFileObj as File;
+      if (totalFiles === 1) {
+        // Single file: use existing single upload endpoint
+        const file = fileList[0].originFileObj as File;
         await waterMitigationService.documents.uploadDocument(
           jobId,
           file,
           documentType,
           title || undefined,
           description || undefined,
-          documentType === 'Invoice' && invoiceAmount !== null ? invoiceAmount : undefined
+          invoiceAmountVal
         );
+      } else {
+        // Multiple files: use bulk upload endpoint
+        setUploadProgress({ current: 0, total: totalFiles });
+        const files = fileList.map(f => f.originFileObj as File);
+        await waterMitigationService.documents.bulkUploadDocuments(
+          jobId,
+          files,
+          documentType,
+          title || undefined,
+          description || undefined,
+          invoiceAmountVal
+        );
+        setUploadProgress({ current: totalFiles, total: totalFiles });
       }
 
       message.success(
-        fileList.length === 1
+        totalFiles === 1
           ? 'Document uploaded successfully'
-          : `${fileList.length} documents uploaded successfully`
+          : `${totalFiles} documents uploaded successfully`
       );
       resetForm();
       onSuccess();
@@ -93,16 +114,26 @@ const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
       message.error(errorMessage);
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
+  };
+
+  const totalSize = fileList.reduce((sum, f) => sum + (f.size || 0), 0);
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   return (
     <Modal
-      title="Upload Document"
+      title="Upload Documents"
       open={open}
       onCancel={handleClose}
+      maskClosable={!uploading}
+      closable={!uploading}
       footer={[
-        <Button key="cancel" onClick={handleClose}>
+        <Button key="cancel" onClick={handleClose} disabled={uploading}>
           Cancel
         </Button>,
         <Button
@@ -113,7 +144,9 @@ const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
           disabled={!documentType || fileList.length === 0}
           loading={uploading}
         >
-          Upload
+          {fileList.length > 1
+            ? `Upload ${fileList.length} Files`
+            : 'Upload'}
         </Button>,
       ]}
       width={520}
@@ -129,6 +162,7 @@ const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
             value={documentType}
             onChange={setDocumentType}
             options={UPLOAD_DOCUMENT_TYPES}
+            disabled={uploading}
           />
         </div>
 
@@ -144,6 +178,7 @@ const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
               prefix="$"
               precision={2}
               min={0}
+              disabled={uploading}
             />
           </div>
         )}
@@ -156,6 +191,7 @@ const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Optional title"
             maxLength={200}
+            disabled={uploading}
           />
         </div>
 
@@ -168,28 +204,60 @@ const WMDocumentUploadModal: React.FC<WMDocumentUploadModalProps> = ({
             placeholder="Optional description"
             rows={2}
             maxLength={500}
+            disabled={uploading}
           />
         </div>
 
         {/* File Upload */}
         <div>
-          <Text strong style={{ display: 'block', marginBottom: 4 }}>File *</Text>
+          <Text strong style={{ display: 'block', marginBottom: 4 }}>Files *</Text>
           <Dragger
             fileList={fileList}
             onChange={({ fileList: newFileList }) => setFileList(newFileList)}
             beforeUpload={() => false}
             multiple
             accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.tiff,.tif"
+            disabled={uploading}
           >
             <p className="ant-upload-drag-icon">
               <InboxOutlined />
             </p>
-            <p className="ant-upload-text">Click or drag file to upload</p>
+            <p className="ant-upload-text">Click or drag files to upload</p>
             <p className="ant-upload-hint">
-              PDF, Images, Word, Excel files supported
+              Select multiple files at once. PDF, Images, Word, Excel supported.
             </p>
           </Dragger>
         </div>
+
+        {/* File summary */}
+        {fileList.length > 0 && !uploading && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {fileList.length} file{fileList.length !== 1 ? 's' : ''} selected
+            {totalSize > 0 && ` (${formatSize(totalSize)} total)`}
+          </Text>
+        )}
+
+        {/* Upload progress */}
+        {uploading && uploadProgress && (
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Uploading {uploadProgress.total} files...
+            </Text>
+            <Progress
+              percent={Math.round((uploadProgress.current / uploadProgress.total) * 100)}
+              size="small"
+              status="active"
+            />
+          </div>
+        )}
+        {uploading && !uploadProgress && (
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Uploading...
+            </Text>
+            <Progress percent={0} size="small" status="active" />
+          </div>
+        )}
       </Space>
     </Modal>
   );

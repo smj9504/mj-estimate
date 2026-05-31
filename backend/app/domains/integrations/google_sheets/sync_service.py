@@ -744,7 +744,9 @@ class GoogleSheetsSyncService:
         if not mapping or not mapping.pa_contact_id:
             return
 
-        claim = self.db.get(Claim, job.claim_id)
+        claim = self.db.execute(
+            select(Claim).where(Claim.id == job.claim_id)
+        ).scalar_one_or_none()
         if claim and claim.pa_contact_id != mapping.pa_contact_id:
             claim.pa_contact_id = mapping.pa_contact_id
             self.db.commit()

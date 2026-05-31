@@ -1295,9 +1295,25 @@ const ClaimFollowUpDashboard: React.FC = () => {
       virtualResolved.add('wm_payment_check');
     }
 
+    // Virtual pending: WM payment needs tracking but no task created yet
+    const virtualPending = new Set<TaskType>();
+    if (group.wmCostStatus === 'separate_estimate'
+        && !resolvedTypes.has('wm_payment_check')
+        && !activeTypes.has('wm_payment_check')) {
+      virtualPending.add('wm_payment_check');
+    }
+    // Ensure rebuild payment shows when estimate exists but no task yet
+    if ((resolvedTypes.has('wm_docs_sent') || activeTypes.has('wm_docs_sent'))
+        && !resolvedTypes.has('payment_check')
+        && !activeTypes.has('payment_check')
+        && group.wmCostStatus) {
+      virtualPending.add('payment_check');
+    }
+
     // Only show stages that this claim actually has tasks for (or virtual)
     const relevantStages = STAGE_ORDER.filter(
-      stage => resolvedTypes.has(stage) || activeTypes.has(stage) || virtualResolved.has(stage)
+      stage => resolvedTypes.has(stage) || activeTypes.has(stage)
+        || virtualResolved.has(stage) || virtualPending.has(stage)
     );
 
     if (relevantStages.length === 0) return null;
@@ -1310,8 +1326,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
           const stageTask = group.tasks.find(t => t.task_type === stage && !['resolved', 'cancelled'].includes(t.status));
           const isStageOverdue = stageTask ? isOverdue(stageTask) : false;
 
-          const isVirtual = virtualResolved.has(stage);
-          const resolved = (isResolved && !isActive) || isVirtual;
+          const isVirtualResolved = virtualResolved.has(stage);
+          const isVirtualPending = virtualPending.has(stage);
+          const resolved = (isResolved && !isActive) || isVirtualResolved;
           let color = '#d9d9d9';
           let textColor = '#999';
           if (resolved) {
@@ -1323,6 +1340,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
           } else if (isActive) {
             color = '#1890ff';
             textColor = '#fff';
+          } else if (isVirtualPending) {
+            color = '#fff7e6';
+            textColor = '#fa8c16';
           }
 
           return (
@@ -1332,7 +1352,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 style={{
                   backgroundColor: color,
                   color: textColor,
-                  border: resolved ? '1px solid #b7eb8f' : 'none',
+                  border: resolved ? '1px solid #b7eb8f' : isVirtualPending ? '1px dashed #ffc069' : 'none',
                   fontSize: 11,
                   margin: 0,
                   whiteSpace: 'nowrap',
@@ -1340,6 +1360,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 }}
               >
                 {resolved && <CheckCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
+                {isVirtualPending && <ClockCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
                 {STAGE_LABELS[stage]}
               </Tag>
             </React.Fragment>

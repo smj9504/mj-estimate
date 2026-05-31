@@ -2393,6 +2393,54 @@ def delete_document(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.patch("/documents/{document_id}/invoice-amount", response_model=WMDocumentResponse)
+def update_document_invoice_amount(
+    document_id: UUID,
+    payload: dict,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Update invoice amount on a document and sync to the job.
+
+    Body: { "invoice_amount": 1234.56 }
+    Set to null to clear the amount.
+    """
+    from .models import WaterMitigationJob, WMDocument
+
+    try:
+        invoice_amount = payload.get('invoice_amount')
+
+        # Get the document model directly
+        doc = db.query(WMDocument).filter(WMDocument.id == document_id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        # Update document invoice_amount
+        doc.invoice_amount = invoice_amount
+
+        # Sync to job's invoice_amount field
+        if doc.job_id:
+            job = db.query(WaterMitigationJob).filter(
+                WaterMitigationJob.id == doc.job_id
+            ).first()
+            if job:
+                job.invoice_amount = invoice_amount
+                logger.info(
+                    f"Synced invoice_amount=${invoice_amount} "
+                    f"from document {document_id} to job {doc.job_id}"
+                )
+
+        db.commit()
+        db.refresh(doc)
+        return doc
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to update document invoice amount: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/jobs/{job_id}/documents/upload", response_model=WMDocumentResponse)
 async def upload_document(
     job_id: UUID,
@@ -2439,6 +2487,62 @@ async def upload_document(
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to upload document: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/jobs/{job_id}/documents/bulk-upload", response_model=List[WMDocumentResponse])
+async def bulk_upload_documents(
+    job_id: UUID,
+    files: List[UploadFile] = File(...),
+    document_type: str = Form(...),
+    title: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    invoice_amount: Optional[float] = Form(None),
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Bulk upload multiple document files to a job.
+
+    All files share the same document_type, title, and description.
+    For Invoice type, invoice_amount can be provided (applies to all).
+    """
+    try:
+        valid_types = ['COS', 'EWA', 'Invoice', 'Sketch', 'Photo', 'Other']
+        if document_type not in valid_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid document_type. Must be one of: {', '.join(valid_types)}"
+            )
+
+        if not files:
+            raise HTTPException(status_code=400, detail="No files provided")
+
+        if invoice_amount is not None and document_type != 'Invoice':
+            invoice_amount = None
+
+        results = []
+        for file in files:
+            created = await service.upload_document(
+                job_id=job_id,
+                file=file,
+                document_type=document_type,
+                title=title,
+                description=description,
+                invoice_amount=invoice_amount,
+            )
+            results.append(created)
+
+        db.commit()
+        return results
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to bulk upload documents: {e}")
         import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
@@ -2814,7 +2918,7 @@ async def generate_photo_report(
         # Upsert WMDocument record so report appears in Documents tab
         from .document_repository import WMDocumentRepository
         doc_repo = WMDocumentRepository(db)
-        existing_docs = doc_repo.get_by_job_and_type(str(job_id), 'photo_report')
+        existing_docs = doc_repo.get_by_type(str(job_id), 'photo_report')
 
         if existing_docs:
             # Update existing document (avoid duplicates on regeneration)

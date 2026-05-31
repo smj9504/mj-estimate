@@ -447,8 +447,23 @@ class ClaimFollowUpService:
             if wm_cost_status in ('included_in_rebuild', 'separate_estimate'):
                 self._update_wm_jobs_paperwork_received(session, claim_id)
 
-            # Auto-create WM follow-up task if WM costs not received
-            if wm_cost_status == 'not_received':
+            # Auto-create payment tasks based on WM cost status
+            # Always create rebuild payment task when estimate is received
+            self._auto_create_payment_task(
+                session, claim_id, task, 'payment_check',
+                title=f'Rebuild Payment - {property_address}',
+                description='Insurance estimate received. Follow up for rebuild payment check.',
+            )
+
+            if wm_cost_status == 'separate_estimate':
+                # WM costs are separate → need independent WM payment tracking
+                self._auto_create_payment_task(
+                    session, claim_id, task, 'wm_payment_check',
+                    title=f'WM Payment - {property_address}',
+                    description='Water mitigation estimate received separately. Follow up for WM payment check.',
+                )
+            elif wm_cost_status == 'not_received':
+                # WM costs not included → follow up to request coverage
                 self._auto_create_wm_followup(session, claim_id, task, claim)
 
         elif outcome == 'estimate_requested':
@@ -483,6 +498,51 @@ class ClaimFollowUpService:
             ))
 
         session.flush()
+
+    def _auto_create_payment_task(
+        self,
+        session,
+        claim_id: str,
+        source_task: Dict[str, Any],
+        task_type: str,
+        title: str,
+        description: str,
+    ):
+        """Auto-create a payment follow-up task (rebuild or WM) if one doesn't exist"""
+        try:
+            from app.domains.claim_followup.models import FollowUpTask as FollowUpTaskModel
+
+            existing = session.query(FollowUpTaskModel).filter(
+                FollowUpTaskModel.claim_id == claim_id,
+                FollowUpTaskModel.task_type == task_type,
+                FollowUpTaskModel.status.notin_(['cancelled']),
+            ).first()
+            if existing:
+                logger.info(f"{task_type} task already exists for claim {claim_id}")
+                return
+
+            payment_task = FollowUpTaskModel(
+                claim_id=claim_id,
+                task_type=task_type,
+                title=title,
+                description=description,
+                status='pending',
+                priority='normal',
+                next_followup_date=datetime.now(timezone.utc) + timedelta(days=7),
+                assigned_to_name=source_task.get('assigned_to_name'),
+                assigned_to_email=source_task.get('assigned_to_email'),
+                assigned_to_phone=source_task.get('assigned_to_phone'),
+                assigned_to_role=source_task.get('assigned_to_role', 'adjuster'),
+                auto_followup_enabled=True,
+                followup_interval_days=7,
+                max_followup_count=10,
+            )
+            session.add(payment_task)
+            session.flush()
+
+            logger.info(f"Auto-created {task_type} task for claim {claim_id}")
+        except Exception as e:
+            logger.error(f"Error auto-creating {task_type} task: {e}")
 
     def _auto_create_wm_followup(
         self, session, claim_id: str, source_task: Dict[str, Any], claim

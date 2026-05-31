@@ -13,6 +13,8 @@ export interface EmailAccount {
   username: string;
   company_id?: string;
   company_name?: string;
+  sender_name?: string;
+  sender_phone?: string;
   is_active: boolean;
   auto_schedule?: string;
   last_synced_at?: string;
@@ -30,6 +32,8 @@ export interface EmailAccountCreate {
   username: string;
   password: string;
   company_id?: string;
+  sender_name?: string;
+  sender_phone?: string;
   is_active?: boolean;
   auto_schedule?: string;
 }
@@ -44,6 +48,8 @@ export interface EmailAccountUpdate {
   username?: string;
   password?: string;
   company_id?: string;
+  sender_name?: string;
+  sender_phone?: string;
   is_active?: boolean;
   auto_schedule?: string;
 }

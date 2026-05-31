@@ -138,6 +138,8 @@ const EmailAccountSettings: React.FC = () => {
       use_ssl: account.use_ssl,
       username: account.username,
       company_id: account.company_id || undefined,
+      sender_name: account.sender_name || undefined,
+      sender_phone: account.sender_phone || undefined,
       is_active: account.is_active,
       auto_schedule: account.auto_schedule,
     });
@@ -308,6 +310,16 @@ const EmailAccountSettings: React.FC = () => {
           <Form.Item name="email_address" label="Email Address" rules={[{ required: true, type: 'email' }]}>
             <Input placeholder="claims@mycompany.com" />
           </Form.Item>
+
+          <div style={{ background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 6, padding: '12px 16px', marginBottom: 16 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>Email Signature</Text>
+            <Form.Item name="sender_name" label="Sender Name" style={{ marginBottom: 8 }}>
+              <Input placeholder="e.g. Mila Song" />
+            </Form.Item>
+            <Form.Item name="sender_phone" label="Sender Phone" style={{ marginBottom: 0 }}>
+              <Input placeholder="e.g. (571) 663-3273" />
+            </Form.Item>
+          </div>
 
           <Form.Item name="username" label="Username" rules={[{ required: true }]}>
             <Input placeholder="Usually same as email address" />

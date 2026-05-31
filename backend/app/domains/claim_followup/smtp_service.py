@@ -62,6 +62,10 @@ class SmtpService:
             attachments=attachments,
             reply_to=reply_to,
             display_name=smtp_config.get("display_name", ""),
+            sender_name=smtp_config.get("sender_name", ""),
+            sender_phone=smtp_config.get("sender_phone", ""),
+            email_address=smtp_config.get("email_address", from_address),
+            company_name=smtp_config.get("company_name", ""),
         )
 
         # Send
@@ -130,6 +134,19 @@ class SmtpService:
             # Decrypt the password
             password = decrypt_password(account["encrypted_password"])
 
+            # Get company name for signature
+            company_name = ""
+            if account.get("company_id"):
+                try:
+                    from app.domains.company.models import Company
+                    company = session.query(Company).filter(
+                        Company.id == account["company_id"]
+                    ).first()
+                    if company:
+                        company_name = company.name or ""
+                except Exception:
+                    pass
+
             return {
                 "server": preset["server"],
                 "port": preset["port"],
@@ -137,6 +154,10 @@ class SmtpService:
                 "username": account["username"],
                 "password": password,
                 "display_name": account.get("display_name", ""),
+                "sender_name": account.get("sender_name", ""),
+                "sender_phone": account.get("sender_phone", ""),
+                "email_address": account.get("email_address", ""),
+                "company_name": company_name,
             }
         finally:
             session.close()
@@ -151,8 +172,18 @@ class SmtpService:
         attachments: List[Dict[str, Any]],
         reply_to: Optional[str] = None,
         display_name: str = "",
+        sender_name: str = "",
+        sender_phone: str = "",
+        email_address: str = "",
+        company_name: str = "",
     ) -> MIMEMultipart:
-        """Build MIME message with spam-prevention headers"""
+        """Build MIME message with spam-prevention headers and signature"""
+        # Append email signature if sender info is available
+        if sender_name:
+            body_html = self._append_signature(
+                body_html, sender_name, company_name, sender_phone, email_address
+            )
+
         msg = MIMEMultipart("mixed")
         msg["From"] = formataddr((display_name, from_address)) if display_name else from_address
         msg["To"] = ", ".join(to_addresses)
@@ -192,6 +223,32 @@ class SmtpService:
             self._attach_file(msg, attachment)
 
         return msg
+
+    def _append_signature(
+        self,
+        body_html: str,
+        sender_name: str,
+        company_name: str = "",
+        sender_phone: str = "",
+        email_address: str = "",
+    ) -> str:
+        """Append professional email signature to HTML body."""
+        lines = [f"<strong>{sender_name}</strong>"]
+        if company_name:
+            lines.append(company_name)
+        if sender_phone:
+            lines.append(sender_phone)
+        if email_address:
+            lines.append(email_address)
+
+        signature_html = (
+            '<div style="margin-top:24px;padding-top:12px;'
+            'border-top:1px solid #ddd;font-size:13px;color:#555;'
+            'line-height:1.6;">'
+            + "<br/>".join(lines)
+            + "</div>"
+        )
+        return body_html + signature_html
 
     def _attach_file(self, msg: MIMEMultipart, attachment: Dict[str, Any]) -> None:
         """Attach a file to the message.

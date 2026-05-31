@@ -337,6 +337,9 @@ _NEEDED_COLUMNS = [
     ("pack_calculations", "special_items", "JSONB"),
     ("pack_calculations", "custom_special_items", "JSONB"),
     ("pack_calculations", "room_summaries", "JSONB"),
+    # Email account signature fields
+    ("email_accounts", "sender_name", "VARCHAR(255)"),
+    ("email_accounts", "sender_phone", "VARCHAR(50)"),
 ]
 
 

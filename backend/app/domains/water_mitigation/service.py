@@ -650,6 +650,15 @@ class WaterMitigationService:
         created_document = self.document_repo.create(document_data)
         logger.info(f"Document uploaded to job {job_id}: {file.filename} (type: {document_type})")
 
+        # Sync invoice_amount to job when uploading an Invoice document
+        if document_type == 'Invoice' and invoice_amount is not None:
+            job_model = self.session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.id == job_id
+            ).first()
+            if job_model:
+                job_model.invoice_amount = invoice_amount
+                logger.info(f"Synced invoice_amount=${invoice_amount} to job {job_id}")
+
         return created_document
 
     async def save_companycam_photo(

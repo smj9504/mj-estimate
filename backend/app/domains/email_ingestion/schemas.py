@@ -30,6 +30,8 @@ class EmailAccountBase(BaseModel):
     use_ssl: bool = True
     username: str
     company_id: Optional[UUID] = None
+    sender_name: Optional[str] = None
+    sender_phone: Optional[str] = None
     is_active: bool = True
     auto_schedule: Optional[str] = None
 
@@ -48,6 +50,8 @@ class EmailAccountUpdate(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None  # Only update if provided
     company_id: Optional[UUID] = None
+    sender_name: Optional[str] = None
+    sender_phone: Optional[str] = None
     is_active: Optional[bool] = None
     auto_schedule: Optional[str] = None
 
@@ -63,6 +67,8 @@ class EmailAccountResponse(BaseModel):
     username: str
     company_id: Optional[UUID] = None
     company_name: Optional[str] = None
+    sender_name: Optional[str] = None
+    sender_phone: Optional[str] = None
     is_active: bool
     auto_schedule: Optional[str] = None
     last_synced_at: Optional[datetime] = None
