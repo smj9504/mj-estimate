@@ -122,7 +122,7 @@ export const roofingEstimateService = {
 
   // ── Export ──
 
-  async exportPdf(id: string, options?: { show_signature?: boolean; pricing_mode?: string }) {
+  async exportPdf(id: string, options?: { show_signature?: boolean; pricing_mode?: string; address?: string }) {
     const params: Record<string, any> = {};
     if (options?.show_signature === false) {
       params.show_signature = false;
@@ -134,10 +134,17 @@ export const roofingEstimateService = {
       responseType: 'blob',
       params,
     });
+    const sanitized = (options?.address || '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '_');
+    const filename = sanitized
+      ? `roofing_estimate_${sanitized}.pdf`
+      : `roofing_estimate_${id.substring(0, 8)}.pdf`;
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `roofing_estimate_${id.substring(0, 8)}.pdf`);
+    link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
     link.remove();

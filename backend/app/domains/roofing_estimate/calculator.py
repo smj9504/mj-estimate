@@ -691,6 +691,35 @@ def _finalize_totals(
             grand_total = (subtotal + markup_amount + overhead_amount
                 + profit_amount + contingency
                 + tax_amount + permit_fee)
+
+            # Fix rounding drift: adjust largest line item to hit target exactly
+            rounding_diff = round(target_total - grand_total, 2)
+            if rounding_diff != 0:
+                adjustable = [
+                    it for it in line_items
+                    if not it["description"].startswith("Building permit")
+                ]
+                if adjustable:
+                    largest = max(adjustable, key=lambda x: x["total"])
+                    largest["total"] = round(largest["total"] + rounding_diff, 2)
+                    if largest["quantity"]:
+                        largest["unit_price"] = round(
+                            largest["total"] / largest["quantity"], 2
+                        )
+                    subtotal = sum(
+                        it["total"] for it in line_items
+                        if not it["description"].startswith("Building permit")
+                    )
+                    markup_amount = subtotal * avg_markup
+                    if config["include_overhead_profit"]:
+                        overhead_amount = subtotal * config["overhead_pct"]
+                        profit_amount = subtotal * config["profit_pct"]
+                    contingency = subtotal * config["contingency_pct"]
+                    tax_amount = subtotal * MATERIAL_PORTION * tax_rate
+                    grand_total = (subtotal + markup_amount + overhead_amount
+                        + profit_amount + contingency
+                        + tax_amount + permit_fee)
+
             warnings.append(
                 f"Target total applied: ${target_total:,.2f} "
                 f"(adjustment factor: {adjustment_factor:.4f})")

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { Modal } from 'antd';
 
 // Create axios instance with base configuration
 // For production: use backend URL directly (Vercel env vars not working)
@@ -45,11 +46,17 @@ api.interceptors.response.use(
   (error) => {
     console.error('[API] Response error:', error.response?.status, error.config?.method?.toUpperCase(), error.config?.url, error.response?.data);
     if (error.response?.status === 401) {
-      // Handle unauthorized access
-      console.warn('[API] Unauthorized - redirecting to login');
+      console.warn('[API] Unauthorized - session expired');
       localStorage.removeItem('auth_token');
       localStorage.removeItem('auth_user');
-      window.location.href = '/login';
+      Modal.warning({
+        title: 'Session Expired',
+        content: 'Your session has expired. Please log in again.',
+        okText: 'Log In',
+        onOk: () => {
+          window.location.href = '/login';
+        },
+      });
     }
     return Promise.reject(error);
   }

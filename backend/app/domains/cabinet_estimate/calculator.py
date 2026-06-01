@@ -1134,8 +1134,21 @@ def calculate_estimate(
         subtotal = round(
             sum(item.total for item in line_items), 2,
         )
-        # Round to nearest $10 for clean presentation
-        total = round(subtotal / 10) * 10
+        total = subtotal
+
+        # Fix rounding drift: adjust largest line item to hit target exactly
+        rounding_diff = round(target_total - total, 2)
+        if rounding_diff != 0 and line_items:
+            largest = max(line_items, key=lambda x: x.total)
+            largest.total = round(largest.total + rounding_diff, 2)
+            if largest.quantity:
+                largest.unit_price = round(
+                    largest.total / largest.quantity, 2
+                )
+            subtotal = round(
+                sum(item.total for item in line_items), 2,
+            )
+            total = subtotal
 
     # ── 14. Methodology notes ──
     methodology_lines = [

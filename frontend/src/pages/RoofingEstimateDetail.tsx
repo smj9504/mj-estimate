@@ -537,6 +537,7 @@ const RoofingEstimateDetail: React.FC = () => {
                   roofingEstimateService.exportPdf(id!, {
                     pricing_mode: isLumpsum ? 'lumpsum' : 'detailed',
                     show_signature: showSig,
+                    address: estimate.property_address,
                   });
                 },
               }}
@@ -1428,7 +1429,7 @@ const RoofingEstimateDetail: React.FC = () => {
                           <Col>
                             <Statistic
                               title="Combined Subtotal"
-                              value={estimate.subtotal}
+                              value={estimate.line_items.reduce((sum: number, li: any) => sum + (li.total || 0), 0)}
                               prefix="$"
                               precision={2}
                               valueStyle={{ fontWeight: 'bold' }}
@@ -1453,7 +1454,7 @@ const RoofingEstimateDetail: React.FC = () => {
                           </Table.Summary.Cell>
                           <Table.Summary.Cell index={5} align="right">
                             <Text strong>
-                              ${estimate.subtotal?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              ${estimate.line_items.reduce((sum: number, li: any) => sum + (li.total || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </Text>
                           </Table.Summary.Cell>
                           <Table.Summary.Cell index={6} />

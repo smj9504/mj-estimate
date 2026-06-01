@@ -1691,10 +1691,24 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             profit_amount = round(subtotal * profit_pct, 2)
         material_portion = subtotal * 0.50
         tax_amount = round(material_portion * tax_rate, 2)
-        raw_total = round(subtotal + overhead_amount + profit_amount + tax_amount, 2)
+        total = round(subtotal + overhead_amount + profit_amount + tax_amount, 2)
 
-        # Round to nearest $10 for clean presentation
-        total = round(raw_total / 10) * 10
+        # Fix rounding drift: adjust largest line item to hit target exactly
+        rounding_diff = round(target_total - total, 2)
+        if rounding_diff != 0 and line_items:
+            largest = max(line_items, key=lambda x: x["total"])
+            largest["total"] = round(largest["total"] + rounding_diff, 2)
+            if largest["quantity"]:
+                largest["unit_price"] = round(
+                    largest["total"] / largest["quantity"], 2
+                )
+            subtotal = sum(item["total"] for item in line_items)
+            if include_op:
+                overhead_amount = round(subtotal * overhead_pct, 2)
+                profit_amount = round(subtotal * profit_pct, 2)
+            material_portion = subtotal * 0.50
+            tax_amount = round(material_portion * tax_rate, 2)
+            total = round(subtotal + overhead_amount + profit_amount + tax_amount, 2)
 
     # Methodology notes
     method_parts = [
