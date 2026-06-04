@@ -197,6 +197,13 @@ const BathroomEstimateDetail: React.FC = () => {
       estimate.walls_spec = estimate.walls_spec || {};
       estimate.shower_spec = estimate.shower_spec || {};
       estimate.bathtub_spec = estimate.bathtub_spec || {};
+      // Default curtain_rod to true for bathtub replacements (opt-out)
+      if (estimate.replace_tub) {
+        estimate.bathtub_spec = {
+          ...estimate.bathtub_spec,
+          curtain_rod: estimate.bathtub_spec.curtain_rod ?? true,
+        };
+      }
       estimate.vanity_spec = estimate.vanity_spec || {};
       estimate.toilet_spec = estimate.toilet_spec || {};
       estimate.accessories_spec = estimate.accessories_spec || {};
@@ -812,8 +819,6 @@ const BathroomEstimateDetail: React.FC = () => {
               <Card>
                 <Divider orientation="left" plain>Demolition Areas</Divider>
                 <Form.Item noStyle shouldUpdate={(prev, cur) =>
-                  prev.demo_floor !== cur.demo_floor ||
-                  prev.demo_walls !== cur.demo_walls ||
                   prev.demo_ceiling !== cur.demo_ceiling ||
                   prev.floor_spec?.material !== cur.floor_spec?.material ||
                   prev.replace_shower !== cur.replace_shower ||
@@ -827,50 +832,51 @@ const BathroomEstimateDetail: React.FC = () => {
                     const hasSurroundTile = !!form.getFieldValue(['bathtub_spec', 'surround_tile']);
                     const autoFloor = hasFloorMaterial;
                     const autoWalls = hasCustomShower || hasSurroundTile;
+                    const autoLabel = <Tag color="blue" style={{ marginLeft: 4, fontSize: 10, lineHeight: '16px' }}>auto</Tag>;
                     return (
-                      <>
-                        <Row gutter={16} align="middle">
-                          <Col xs={12} sm={8} md={4}>
-                            <Form.Item name="demo_floor" valuePropName="checked" style={{ marginBottom: 8 }}>
-                              <Checkbox>Demo Floor</Checkbox>
-                            </Form.Item>
-                            {autoFloor && !form.getFieldValue('demo_floor') && (
-                              <Text type="warning" style={{ fontSize: 11 }}>Auto-included (floor material set)</Text>
-                            )}
-                          </Col>
-                          <Col xs={12} sm={8} md={4} style={{ display: (form.getFieldValue('demo_floor') || autoFloor) ? undefined : 'none' }}>
-                            <Form.Item label="Floor SF" name="demo_floor_sf" style={{ marginBottom: 8 }}>
-                              <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                      <Row gutter={16} align="middle">
+                        {autoFloor && (
+                          <Col xs={12} sm={8} md={5}>
+                            <Form.Item
+                              label={<>{`Floor SF`}{autoLabel}</>}
+                              name="demo_floor_sf"
+                              style={{ marginBottom: 8 }}
+                            >
+                              <InputNumber style={{ width: '100%' }} min={0} placeholder="= room SF" />
                             </Form.Item>
                           </Col>
-                          <Col xs={12} sm={8} md={4}>
-                            <Form.Item name="demo_walls" valuePropName="checked" style={{ marginBottom: 8 }}>
-                              <Checkbox>Demo Walls</Checkbox>
-                            </Form.Item>
-                            {autoWalls && !form.getFieldValue('demo_walls') && (
-                              <Text type="warning" style={{ fontSize: 11 }}>Auto-included (tile shower/surround)</Text>
-                            )}
-                          </Col>
-                          <Col xs={12} sm={8} md={4} style={{ display: (form.getFieldValue('demo_walls') || autoWalls) ? undefined : 'none' }}>
-                            <Form.Item label="Wall SF" name="demo_wall_sf" style={{ marginBottom: 8 }}>
-                              <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                        )}
+                        {autoWalls && (
+                          <Col xs={12} sm={8} md={5}>
+                            <Form.Item
+                              label={<>{`Wall SF`}{autoLabel}</>}
+                              name="demo_wall_sf"
+                              style={{ marginBottom: 8 }}
+                            >
+                              <InputNumber style={{ width: '100%' }} min={0} placeholder="= room SF" />
                             </Form.Item>
                           </Col>
-                          <Col xs={12} sm={8} md={4}>
-                            <Form.Item name="demo_ceiling" valuePropName="checked" style={{ marginBottom: 8 }}>
-                              <Checkbox>Demo Ceiling</Checkbox>
-                            </Form.Item>
-                          </Col>
-                          <Col xs={12} sm={8} md={4} style={{ display: form.getFieldValue('demo_ceiling') ? undefined : 'none' }}>
+                        )}
+                        <Col xs={12} sm={6} md={4}>
+                          <Form.Item name="demo_ceiling" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Demo Ceiling</Checkbox>
+                          </Form.Item>
+                        </Col>
+                        {form.getFieldValue('demo_ceiling') && (
+                          <Col xs={12} sm={8} md={5}>
                             <Form.Item label="Ceiling SF" name="demo_ceiling_sf" style={{ marginBottom: 8 }}>
-                              <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                              <InputNumber style={{ width: '100%' }} min={0} placeholder="= room SF" />
                             </Form.Item>
                           </Col>
-                        </Row>
-                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-                          Floor & Wall demo auto-determined from scope (floor material, tile shower/surround). Check manually for additional areas. SF blank = use room dimensions.
-                        </Text>
-                      </>
+                        )}
+                        {!autoFloor && !autoWalls && (
+                          <Col span={24}>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              Floor and wall demo are auto-included when floor material or tile shower/surround is set.
+                            </Text>
+                          </Col>
+                        )}
+                      </Row>
                     );
                   }}
                 </Form.Item>
@@ -897,10 +903,17 @@ const BathroomEstimateDetail: React.FC = () => {
                       return 'none';
                     };
                     const setAction = (fixture: string, action: string) => {
-                      form.setFieldsValue({
+                      const updates: Record<string, any> = {
                         [`replace_${fixture}`]: action === 'replace',
                         [`detach_reset_${fixture}`]: action === 'detach_reset',
-                      });
+                      };
+                      if (fixture === 'tub' && action === 'replace') {
+                        const spec = form.getFieldValue('bathtub_spec') || {};
+                        if (spec.curtain_rod === undefined || spec.curtain_rod === null) {
+                          updates.bathtub_spec = { ...spec, curtain_rod: true };
+                        }
+                      }
+                      form.setFieldsValue(updates);
                     };
                     return (
                       <Row gutter={[16, 8]}>
@@ -1241,6 +1254,11 @@ const BathroomEstimateDetail: React.FC = () => {
                       <Col xs={12} sm={8} md={4}>
                         <Form.Item name={['bathtub_spec', 'jetted']} valuePropName="checked">
                           <Checkbox>Jetted/Whirlpool</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={4}>
+                        <Form.Item name={['bathtub_spec', 'curtain_rod']} valuePropName="checked">
+                          <Checkbox>Curtain Rod</Checkbox>
                         </Form.Item>
                       </Col>
                     </Row>

@@ -58,7 +58,7 @@ PLUMBING_RATES = {
 
     # Fixture connection labor (licensed plumber, per fixture)
     "toilet_set": 295,                # toilet install (set, wax ring, bolt, connect, test; $225-$375 Angi 2026)
-    "vanity_faucet_install": 350,     # faucet install (connect supply, drain, test for leaks)
+    "vanity_faucet_install": 225,     # faucet install ($200-$250; simplest plumbing task)
     "tub_faucet_install": 400,        # tub faucet/valve install (access panel, connect, test)
     "shower_valve_trim": 325,         # shower trim kit install (existing valve)
 }
@@ -68,7 +68,8 @@ PLUMBING_RATES = {
 # ──────────────────────────────────────────────
 # Sources: Angi GFCI $130-$300 avg $210, Exhaust fan $250-$950
 ELECTRICAL_RATES = {
-    "gfci_outlet_each": 210,          # GFCI outlet install ($130-$300, Angi avg $210)
+    # 1st outlet ~$210 incl. service call; add'l same visit ~$100
+    "gfci_outlet_each": 165,          # blended avg (1-3 outlets per bath)
     "vanity_light_install": 185,      # light fixture install (labor)
     "ceiling_fixture_install": 195,   # ceiling light install
     "exhaust_fan": {                  # fan + install by CFM ($250-$950, Angi/HomeGuide)
@@ -100,7 +101,8 @@ SUBSTRATE_RATES = {
 
     # Waterproofing membrane
     "redgard_per_sf": 2.25,           # paint-on membrane ($1-$3/SF)
-    "kerdi_per_sf": 4.50,             # Schluter Kerdi sheet ($3-$6/SF)
+    # Schluter Kerdi: material ~$2.25/SF + thinset + labor → $7-$12/SF
+    "kerdi_per_sf": 9.00,
     "hydroban_per_sf": 2.75,          # Laticrete HydroBan
 
     # Subfloor repair
@@ -130,7 +132,8 @@ TILE_LABOR_RATES = {
     "floor_per_sf": 10.00,            # $8-$14/SF (Fixr tile installer)
     "wall_per_sf": 12.00,             # $10-$15/SF (vertical work premium)
     "shower_wall_per_sf": 14.00,      # $10-$18/SF (wet area, precision)
-    "shower_floor_per_sf": 12.00,     # $10-$15/SF (slope to drain, wet area, small area = more cuts)
+    # slope + drain cuts + mosaic → more labor than shower wall
+    "shower_floor_per_sf": 18.00,     # $16-$22/SF
 }
 
 TILE_PATTERN_MULTIPLIER = {
@@ -214,6 +217,7 @@ BATHTUB_EXTRAS = {
     "shower_valve_body_trim": 475,    # pressure-balance valve body + trim kit installed
     "shower_valve_trim_only": 225,    # trim kit only (retain existing valve body)
     "showerhead_install": 85,         # shower head + arm install labor
+    "curtain_rod": 65,                # curtain rod + rings + mount (supply + install)
 }
 
 # Shower door / enclosure
@@ -320,7 +324,11 @@ VANITY_PRICES = {
     # By width (material only, mid-range stock)
     "stock_rta": {24: 350, 30: 425, 36: 500, 48: 700, 60: 950, 72: 1200},
     "semi_custom": {24: 650, 30: 800, 36: 950, 48: 1350, 60: 1800, 72: 2400},
-    "custom": {24: 1200, 30: 1500, 36: 1800, 48: 2600, 60: 3500, 72: 4500},
+    # truly custom (local shop/craftsman); DMV min ~$2,500 for 36"
+    "custom": {
+        24: 1650, 30: 2100, 36: 2500,
+        48: 3600, 60: 4800, 72: 6200,
+    },
 }
 
 VANITY_TOP_PRICES = {

@@ -445,7 +445,7 @@ class BathroomExportService:
                     li.get("notes", ""), show_breakdown_prices)
                 if notes_text:
                     desc_text += (
-                        f'<br/><font size="7" color="#666666">'
+                        f'<br/><font size="8.5" color="#666666">'
                         f'{notes_text}</font>'
                     )
                 detail_data.append([

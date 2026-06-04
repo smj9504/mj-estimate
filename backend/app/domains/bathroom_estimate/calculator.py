@@ -4,7 +4,7 @@ Bathroom Remodel Estimate calculator.
 """
 
 import logging
-import math
+import re
 from typing import Any, Dict, List, Optional
 
 from .pricing import (
@@ -54,6 +54,16 @@ from .pricing import (
 )
 
 logger = logging.getLogger(__name__)
+
+_DOLLAR_RE = re.compile(r'\$([0-9,]+(?:\.[0-9]+)?)')
+
+
+def _scale_dollar_amounts(text: str, factor: float) -> str:
+    """Scale every $amount in a note string by factor."""
+    def _replace(m: re.Match) -> str:
+        raw = float(m.group(1).replace(',', ''))
+        return f"${round(raw * factor, 2):,.2f}"
+    return _DOLLAR_RE.sub(_replace, text)
 
 
 def calculate_estimate(estimate) -> Dict[str, Any]:
@@ -550,6 +560,16 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     # ────────────────────────────────────────
     # Floor tile (consolidated: material + labor + supplies → 1 item)
     floor_spec = estimate.floor_spec or {}
+    if not replace_floor and demo_floor and tile_floor_sf > 0:
+        # Floor is being demoed but no replacement material specified —
+        # flag as TBD so the estimator doesn't miss it.
+        _add(line_items, 4, "Floor finish - NOT SPECIFIED (TBD)",
+             tile_floor_sf, "SF", 0, "tile",
+             notes=(
+                 "Floor demo is included but finish material has not been "
+                 "selected. Please specify floor tile/flooring to complete "
+                 "this section (existing finish kept or new material)."
+             ))
     if replace_floor and tile_floor_sf > 0:
         tile_mat = floor_spec.get("material", "porcelain")
         pattern = floor_spec.get("pattern", "straight")
@@ -840,6 +860,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              1, "EA", tub_combined, "fixture",
              notes=" | ".join(tub_parts))
 
+        # Curtain rod — placed in Phase 7 with other accessories
+        if tub_spec.get("curtain_rod"):
+            _add(line_items, 7, "Bathtub curtain rod + rings",
+                 1, "EA",
+                 round(BATHTUB_EXTRAS["curtain_rod"] * labor_mult, 2),
+                 "fixture",
+                 notes="Curtain rod + rings (supply + mount)")
+
         # Shower valve & trim — auto-include when tub has surround tile
         # Skip if plumber already fixed shower/tub valve (water damage source)
         _has_tub_surround = tub_spec.get("surround_tile", False)
@@ -1119,22 +1147,35 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                     f"Wall-mount blocking: "
                     f"${wall_mount_price:,.2f}"
                 )
+            # Faucet note: show per-unit price × count when double-sink
+            _fa_each = faucet_price  # allowance per faucet
+            _fa_total = round(_fa_each * sink_count, 2)
+            if sink_count > 1:
+                _fa_str = (
+                    f"${_fa_each:,.2f} ×{sink_count}"
+                    f" = ${_fa_total:,.2f} allowance"
+                )
+            else:
+                _fa_str = f"${_fa_total:,.2f} allowance"
             if faucet_connect:
                 parts.append(
                     f"Faucet: {faucet_label} "
-                    f"${faucet_price:,.2f} allowance + "
+                    f"{_fa_str} + "
                     f"plumbing connect ${faucet_connect:,.2f}"
                 )
             else:
                 parts.append(
                     f"Faucet: {faucet_label} "
-                    f"${faucet_price:,.2f} allowance "
+                    f"{_fa_str} "
                     f"(plumbing: plumber completed)"
                 )
             if getattr(estimate, 'replace_mirror', False):
+                mirror_install_cost = round(
+                    MIRROR_INSTALL * labor_mult, 2)
                 parts.append(
                     f"Mirror: {mirror_label} "
-                    f"${mirror_price:,.2f} allowance"
+                    f"${mirror_price:,.2f} allowance + "
+                    f"install ${mirror_install_cost:,.2f}"
                 )
             elif getattr(estimate, 'detach_reset_mirror', False):
                 parts.append("Mirror: D&R (separate line)")
@@ -1568,9 +1609,13 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         _add(line_items, 1, "Mobilization / setup", 1, "LS",
              HIDDEN_COSTS["mobilization"], "demo")
 
-    # Phase 3: Substrate — drywall patch/replacement
+    # Phase 3: Substrate — drywall patch/replacement (hidden cost)
+    #   Skip when repair_drywall_walls is set — Path A already covers it.
     drywall_patch_sf = hc.get("drywall_patch_sf") or 0
-    if hc.get("drywall_patch") and drywall_patch_sf > 0:
+    _repair_walls_explicit = getattr(
+        estimate, 'repair_drywall_walls', False)
+    if (hc.get("drywall_patch") and drywall_patch_sf > 0
+            and not _repair_walls_explicit):
         drywall_patch_full = hc.get("drywall_patch_full", False)
         if drywall_patch_full:
             use_moisture = estimate.water_damage or estimate.mold_suspected
@@ -1628,17 +1673,66 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     # Can be disabled via hidden_costs flags (set to false).
 
     # 1) Drywall skim coat after wall tile removal
-    if (demo_walls and demo_wall_sf > 0
-            and hc.get("drywall_skim_coat") is True):
-        _add(line_items, 6, "Drywall prep/skim coat (post tile removal)",
-             demo_wall_sf, "SF",
-             HIDDEN_COSTS["drywall_skim_coat_per_sf"] * labor_mult, "finish",
-             notes="Skim coat + primer on substrate exposed after tile demo")
+    # Use actual tiled-wall area, NOT full room wall SF.
+    # demo_wall_sf is the whole-room perimeter×height fallback — far too large.
+    if (demo_walls and hc.get("drywall_skim_coat") is True):
+        # If estimator explicitly entered an override, honour it.
+        if getattr(estimate, 'demo_wall_sf', None):
+            skim_coat_sf = demo_wall_sf
+            skim_note_area = f"{skim_coat_sf:.0f}SF (manual override)"
+        else:
+            # Build from actual tile removal areas only.
+            skim_coat_sf = 0.0
+            skim_parts = []
 
-    # 2) Subfloor allowance when water damage is reported
+            # Shower surround: (width + 2×depth) × tile_height
+            _sc_shower = estimate.shower_spec or {}
+            if (estimate.replace_shower
+                    and _sc_shower.get("type") in ("custom_tile", "curbless")):
+                _sc_w = _sc_shower.get("width_in", 36) or 36
+                _sc_d = _sc_shower.get("depth_in", 36) or 36
+                _sc_h = _sc_shower.get("tile_height_in", 72) or 72
+                _sc_sf = round((_sc_w + 2 * _sc_d) * _sc_h / 144, 1)
+                skim_coat_sf += _sc_sf
+                skim_parts.append(f"shower surround {_sc_sf:.0f}SF")
+
+            # Tub surround: 3 walls of alcove (back + 2 ends) × surround height
+            _sc_tub = estimate.bathtub_spec or {}
+            if (_sc_tub.get("surround_tile", False)
+                    and (estimate.replace_tub
+                         or getattr(estimate, 'detach_reset_tub', False))):
+                _st_l = _sc_tub.get("tub_length_in", 60) or 60
+                _st_end = 32  # standard alcove end-wall depth
+                _st_h = _sc_tub.get("surround_height_in", 60) or 60
+                _st_sf = round((_st_l + 2 * _st_end) * _st_h / 144, 1)
+                skim_coat_sf += _st_sf
+                skim_parts.append(f"tub surround {_st_sf:.0f}SF")
+
+            # Explicit demo_walls flag with no dimension source → cap at 25% of wall_sf
+            if skim_coat_sf == 0 and demo_walls:
+                skim_coat_sf = round(wall_sf * 0.25, 1)
+                skim_parts.append(
+                    f"est. 25% of room walls {skim_coat_sf:.0f}SF"
+                    f" (no tile dims — verify on site)")
+
+            skim_coat_sf = max(round(skim_coat_sf, 1), 0)
+            skim_note_area = " + ".join(skim_parts) if skim_parts else ""
+
+        if skim_coat_sf > 0:
+            _add(line_items, 6, "Drywall prep/skim coat (post tile removal)",
+                 skim_coat_sf, "SF",
+                 HIDDEN_COSTS["drywall_skim_coat_per_sf"] * labor_mult, "finish",
+                 notes=(
+                     "Skim coat + primer on substrate exposed after tile demo"
+                     + (f" | Area: {skim_note_area}" if skim_note_area else "")
+                 ))
+
+    # 2) Subfloor allowance when water damage is reported.
+    #    Skip when demo_floor=True — Phase 3 auto-30% already covers it.
     sub_spec = estimate.substrate_spec or {}
     if (estimate.water_damage
             and not sub_spec.get("subfloor_repair")
+            and not demo_floor  # Phase 3 auto-30% already covers
             and hc.get("subfloor_allowance") is True):
         allowance_sf = min(floor_sf, 20)  # conservative 20 SF allowance
         if allowance_sf > 0:
@@ -1765,6 +1859,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 item["unit_price"] * adjustment_factor, 2,
             )
             item["total"] = round(item["quantity"] * item["unit_price"], 2)
+            if item.get("notes"):
+                item["notes"] = _scale_dollar_amounts(
+                    item["notes"], adjustment_factor
+                )
 
         # Recalculate totals with adjusted line items
         subtotal = sum(item["total"] for item in line_items)
@@ -1779,10 +1877,17 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         rounding_diff = round(target_total - total, 2)
         if rounding_diff != 0 and line_items:
             largest = max(line_items, key=lambda x: x["total"])
+            _old_largest_total = largest["total"]
             largest["total"] = round(largest["total"] + rounding_diff, 2)
             if largest["quantity"]:
                 largest["unit_price"] = round(
                     largest["total"] / largest["quantity"], 2
+                )
+            # Scale notes by the secondary correction factor
+            if largest.get("notes") and _old_largest_total > 0:
+                _sec_factor = largest["total"] / _old_largest_total
+                largest["notes"] = _scale_dollar_amounts(
+                    largest["notes"], _sec_factor
                 )
             subtotal = sum(item["total"] for item in line_items)
             if include_op:

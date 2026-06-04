@@ -36,6 +36,7 @@ export interface BathtubSpec {
   material?: string;      // acrylic, porcelain_steel, cast_iron, fiberglass
   size?: { length: number; width: number };
   jetted?: boolean;
+  curtain_rod?: boolean;           // curtain rod + rings (supply + mount)
   spout_type?: string;
   surround_tile?: boolean;         // drop_in tub surround tile
   surround_tile_sf?: number;       // surround tile area SF
