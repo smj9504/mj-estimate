@@ -860,14 +860,6 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              1, "EA", tub_combined, "fixture",
              notes=" | ".join(tub_parts))
 
-        # Curtain rod — placed in Phase 7 with other accessories
-        if tub_spec.get("curtain_rod"):
-            _add(line_items, 7, "Bathtub curtain rod + rings",
-                 1, "EA",
-                 round(BATHTUB_EXTRAS["curtain_rod"] * labor_mult, 2),
-                 "fixture",
-                 notes="Curtain rod + rings (supply + mount)")
-
         # Shower valve & trim — auto-include when tub has surround tile
         # Skip if plumber already fixed shower/tub valve (water damage source)
         _has_tub_surround = tub_spec.get("surround_tile", False)
@@ -1573,9 +1565,19 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         qty = acc.get(key) or 0
         if qty > 0:
             base_price = ACCESSORY_PRICES.get(price_key, 50)
-            item_cost = round(qty * base_price * af_mult * ag_mult * labor_mult, 2)
+            item_cost = round(
+                qty * base_price * af_mult * ag_mult * labor_mult, 2)
             acc_total += item_cost
             acc_parts.append(f"{label} x{qty} ${item_cost:,.2f}")
+
+    # Curtain rod rolls into accessories line item
+    if tub_spec.get("curtain_rod"):
+        cr_cost = round(
+            BATHTUB_EXTRAS["curtain_rod"] * af_mult * ag_mult * labor_mult,
+            2,
+        )
+        acc_total += cr_cost
+        acc_parts.append(f"Curtain rod + rings ${cr_cost:,.2f}")
 
     if acc_total > 0:
         finish_label = acc_finish.replace('_', ' ')
