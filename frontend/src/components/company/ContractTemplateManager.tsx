@@ -41,7 +41,8 @@ const { TextArea } = Input;
 
 const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   authorization: 'Authorization to Work',
-  certificate_of_satisfaction: 'Certificate of Satisfaction',
+  certificate_of_satisfaction: 'Certificate of Satisfaction (WM)',
+  certificate_of_completion: 'Certificate of Completion (Recon)',
   scope_of_work: 'Scope of Work',
   lien_waiver: 'Lien Waiver',
   change_order: 'Change Order',
@@ -51,6 +52,7 @@ const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
 const DOCUMENT_TYPE_COLORS: Record<DocumentType, string> = {
   authorization: 'blue',
   certificate_of_satisfaction: 'green',
+  certificate_of_completion: 'cyan',
   scope_of_work: 'purple',
   lien_waiver: 'orange',
   change_order: 'red',

@@ -25,6 +25,7 @@ class ContractTemplateCreate(BaseModel):
     def validate_document_type(cls, v):
         allowed = [
             'authorization', 'certificate_of_satisfaction',
+            'certificate_of_completion',
             'scope_of_work', 'lien_waiver', 'change_order', 'other'
         ]
         if v not in allowed:

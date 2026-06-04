@@ -42,6 +42,27 @@ AVAILABLE_FIELDS = [
     {"key": "company.phone", "label": "Company Phone", "category": "Company"},
     {"key": "company.email", "label": "Company Email", "category": "Company"},
     {"key": "company.license_number", "label": "License Number", "category": "Company"},
+    # WM Job fields
+    {"key": "wm_job.property_address", "label": "Property Address (Full)", "category": "WM Job"},
+    {"key": "wm_job.property_street", "label": "Property Street", "category": "WM Job"},
+    {"key": "wm_job.property_city", "label": "Property City", "category": "WM Job"},
+    {"key": "wm_job.property_state", "label": "Property State", "category": "WM Job"},
+    {"key": "wm_job.property_zipcode", "label": "Property Zip Code", "category": "WM Job"},
+    {"key": "wm_job.homeowner_name", "label": "Homeowner Name", "category": "WM Job"},
+    {"key": "wm_job.homeowner_phone", "label": "Homeowner Phone", "category": "WM Job"},
+    {"key": "wm_job.homeowner_email", "label": "Homeowner Email", "category": "WM Job"},
+    {"key": "wm_job.insurance_company", "label": "Insurance Company (WM)", "category": "WM Job"},
+    {"key": "wm_job.insurance_policy_number", "label": "Policy Number (WM)", "category": "WM Job"},
+    {"key": "wm_job.claim_number", "label": "Claim Number (WM)", "category": "WM Job"},
+    {"key": "wm_job.date_of_loss", "label": "Date of Loss", "category": "WM Job"},
+    {"key": "wm_job.date_of_loss_plus_1", "label": "Date of Loss + 1 Day", "category": "WM Job"},
+    {"key": "wm_job.mitigation_start_date", "label": "Mitigation Start Date", "category": "WM Job"},
+    {"key": "wm_job.mitigation_end_date", "label": "Mitigation End Date", "category": "WM Job"},
+    {"key": "wm_job.mitigation_period", "label": "Mitigation Period", "category": "WM Job"},
+    {"key": "wm_job.adjuster_name", "label": "Adjuster Name (WM)", "category": "WM Job"},
+    {"key": "wm_job.adjuster_phone", "label": "Adjuster Phone (WM)", "category": "WM Job"},
+    {"key": "wm_job.adjuster_email", "label": "Adjuster Email (WM)", "category": "WM Job"},
+    {"key": "wm_job.today", "label": "Today (Contract Date)", "category": "WM Job"},
     # Meta fields
     {"key": "meta.current_date", "label": "Current Date", "category": "Meta"},
     {"key": "meta.contract_number", "label": "Contract Number", "category": "Meta"},
@@ -72,7 +93,7 @@ class ContractTemplateService(BaseService[Dict[str, Any], str]):
                 t["file_available"] = True
             elif file_url.startswith("/uploads/"):
                 file_path = (
-                    Path(__file__).resolve().parents[2]
+                    Path(__file__).resolve().parents[3]
                     / file_url.lstrip("/")
                 )
                 available = file_path.exists()
@@ -139,10 +160,27 @@ class ContractTemplateService(BaseService[Dict[str, Any], str]):
             raise
 
     def update_field_mappings(self, template_id: str, field_mappings: list) -> Dict[str, Any]:
-        """Update field mappings on a template"""
+        """Update field mappings on a template.
+
+        Uses direct SQLAlchemy to avoid _prepare_sqlalchemy_data parsing
+        the JSON string back into a Python object (breaks Text columns).
+        """
         try:
-            mappings_json = json.dumps(field_mappings)
-            return self.update(template_id, {"field_mappings": mappings_json})
+            session = self.database.get_session()
+            try:
+                from app.domains.contract.models import ContractTemplate
+                tmpl = session.query(ContractTemplate).filter(
+                    ContractTemplate.id == template_id
+                ).first()
+                if not tmpl:
+                    return None
+                tmpl.field_mappings = json.dumps(field_mappings)
+                session.flush()
+                session.commit()
+                repo = self._get_repository_instance(session)
+                return repo._convert_to_dict(tmpl)
+            finally:
+                session.close()
         except Exception as e:
             logger.error(f"Error updating field mappings: {e}")
             raise
@@ -357,7 +395,7 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             from reportlab.pdfgen import canvas as rl_canvas
 
             # Resolve template file path
-            backend_dir = Path(__file__).resolve().parents[2]
+            backend_dir = Path(__file__).resolve().parents[3]
             if template_file_url.startswith('/uploads/'):
                 template_path = backend_dir / template_file_url.lstrip('/')
             else:
@@ -399,9 +437,11 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                             continue
 
                         # Convert ratio (0-1) to PDF points
-                        x = field.get('x', 0) * page_width
+                        fx = field.get('x', 0) * page_width
+                        fw = field.get('width', 0.25) * page_width
+                        fh = field.get('height', 0.03) * page_height
                         # PDF coordinate system: origin at bottom-left
-                        y = page_height - (field.get('y', 0) * page_height) - (field.get('height', 0.03) * page_height)
+                        fy = page_height - (field.get('y', 0) * page_height) - fh
                         font_size = field.get('fontSize', 12)
 
                         # Set font color
@@ -414,8 +454,20 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                         except (ValueError, IndexError):
                             c.setFillColorRGB(0, 0, 0)
 
-                        c.setFont("Helvetica", font_size)
-                        c.drawString(x, y, value)
+                        # Auto-shrink font to fit within field width
+                        from reportlab.pdfbase.pdfmetrics import stringWidth
+                        usable_w = fw - 4  # 2pt padding each side
+                        actual_size = font_size
+                        while actual_size > 5:
+                            tw = stringWidth(value, "Helvetica", actual_size)
+                            if tw <= usable_w:
+                                break
+                            actual_size -= 0.5
+
+                        c.setFont("Helvetica", actual_size)
+                        # Vertically center text within field
+                        text_y = fy + (fh - actual_size) / 2
+                        c.drawString(fx + 2, text_y, value)
 
                     c.save()
                     overlay_buffer.seek(0)

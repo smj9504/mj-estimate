@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Stage, Layer, Image as KonvaImage, Rect, Text as KonvaText, Group,
+  Stage, Layer, Image as KonvaImage, Rect, Text as KonvaText, Group, Transformer,
 } from 'react-konva';
 import Konva from 'konva';
 import {
@@ -61,12 +61,31 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
   const [saving, setSaving] = useState(false);
 
   const stageRef = useRef<Konva.Stage>(null);
+  const transformerRef = useRef<Konva.Transformer>(null);
 
   const currentPageData = renderedPages[currentPage];
   const stageWidth = currentPageData ? currentPageData.width * scale : 600;
   const stageHeight = currentPageData ? currentPageData.height * scale : 800;
   const fieldsOnPage = fields.filter(f => f.pageIndex === currentPage);
   const selectedField = fields.find(f => f.id === selectedFieldId);
+
+  // Attach transformer to selected field
+  useEffect(() => {
+    const tr = transformerRef.current;
+    if (!tr) return;
+    if (!selectedFieldId) {
+      tr.nodes([]);
+      tr.getLayer()?.batchDraw();
+      return;
+    }
+    const stage = stageRef.current;
+    if (!stage) return;
+    const node = stage.findOne(`#rect-${selectedFieldId}`);
+    if (node) {
+      tr.nodes([node]);
+      tr.getLayer()?.batchDraw();
+    }
+  }, [selectedFieldId, currentPage, fields]);
 
   // Load PDF and field mappings when opened
   useEffect(() => {
@@ -176,23 +195,6 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
     setFields(prev => prev.map(f => f.id === id ? { ...f, x, y } : f));
   };
 
-  const handleFieldTransformEnd = (id: string, e: Konva.KonvaEventObject<Event>) => {
-    const node = e.target;
-    const scaleX = node.scaleX();
-    const scaleY = node.scaleY();
-    node.scaleX(1);
-    node.scaleY(1);
-
-    const newWidth = Math.max(0.02, (node.width() * scaleX) / stageWidth);
-    const newHeight = Math.max(0.01, (node.height() * scaleY) / stageHeight);
-    const x = Math.max(0, node.x() / stageWidth);
-    const y = Math.max(0, node.y() / stageHeight);
-
-    setFields(prev => prev.map(f =>
-      f.id === id ? { ...f, x, y, width: newWidth, height: newHeight } : f
-    ));
-  };
-
   const handleFieldKeyChange = (fieldId: string, fieldKey: string) => {
     const fieldDef = availableFields.find(f => f.key === fieldKey);
     setFields(prev => prev.map(f =>
@@ -234,7 +236,8 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
   };
 
   // Group available fields by category for the Select dropdown
-  const fieldOptions = ['Client', 'Claim', 'Company', 'Meta'].map(cat => ({
+  const categories = Array.from(new Set(availableFields.map(f => f.category)));
+  const fieldOptions = categories.map(cat => ({
     label: cat,
     options: availableFields
       .filter(f => f.category === cat)
@@ -346,16 +349,15 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
                         return (
                           <Group
                             key={field.id}
-                            id={field.id}
                             x={field.x * stageWidth}
                             y={field.y * stageHeight}
                             draggable
                             onClick={() => setSelectedFieldId(field.id)}
                             onTap={() => setSelectedFieldId(field.id)}
                             onDragEnd={(e) => handleFieldDragEnd(field.id, e)}
-                            onTransformEnd={(e) => handleFieldTransformEnd(field.id, e)}
                           >
                             <Rect
+                              id={`rect-${field.id}`}
                               width={field.width * stageWidth}
                               height={field.height * stageHeight}
                               fill={`${catColor}15`}
@@ -363,6 +365,29 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
                               strokeWidth={isSelected ? 2 : 1}
                               dash={field.fieldKey ? undefined : [4, 4]}
                               cornerRadius={2}
+                              onTransformEnd={(e) => {
+                                const node = e.target;
+                                const scX = node.scaleX();
+                                const scY = node.scaleY();
+                                node.scaleX(1);
+                                node.scaleY(1);
+
+                                const group = node.getParent()!;
+                                const newX = Math.max(0, (group.x() + node.x()) / stageWidth);
+                                const newY = Math.max(0, (group.y() + node.y()) / stageHeight);
+                                const newW = Math.max(0.02, (node.width() * scX) / stageWidth);
+                                const newH = Math.max(0.01, (node.height() * scY) / stageHeight);
+
+                                // Reset rect offset within group
+                                node.x(0);
+                                node.y(0);
+
+                                setFields(prev => prev.map(f =>
+                                  f.id === field.id
+                                    ? { ...f, x: newX, y: newY, width: newW, height: newH }
+                                    : f
+                                ));
+                              }}
                             />
                             <KonvaText
                               text={field.label}
@@ -373,10 +398,26 @@ const FieldMappingEditor: React.FC<FieldMappingEditorProps> = ({
                               width={(field.width * stageWidth) - 8}
                               ellipsis
                               wrap="none"
+                              listening={false}
                             />
                           </Group>
                         );
                       })}
+                      <Transformer
+                        ref={transformerRef}
+                        rotateEnabled={false}
+                        keepRatio={false}
+                        boundBoxFunc={(oldBox, newBox) => {
+                          // Minimum size
+                          if (newBox.width < 20 || newBox.height < 10) return oldBox;
+                          return newBox;
+                        }}
+                        anchorSize={8}
+                        anchorCornerRadius={2}
+                        borderStroke="#1890ff"
+                        anchorStroke="#1890ff"
+                        anchorFill="#fff"
+                      />
                     </Layer>
                   </Stage>
                 </div>

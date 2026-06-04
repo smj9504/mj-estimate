@@ -9,6 +9,7 @@
 export type DocumentType =
   | 'authorization'
   | 'certificate_of_satisfaction'
+  | 'certificate_of_completion'
   | 'scope_of_work'
   | 'lien_waiver'
   | 'change_order'
