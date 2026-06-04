@@ -241,6 +241,9 @@ const BathroomEstimateDetail: React.FC = () => {
     // Room dimensions
     if (sync.length_ft) updates.length_ft = sync.length_ft;
     if (sync.width_ft) updates.width_ft = sync.width_ft;
+    if (sync.floor_sf) updates.floor_sf = sync.floor_sf;
+    if (sync.wall_sf) updates.wall_sf = sync.wall_sf;
+    if (sync.paint_wall_sf != null) updates.paint_wall_sf = sync.paint_wall_sf;
 
     // Replace & demo flags
     // When sketch adds/removes a fixture, sync the action flags.
@@ -262,6 +265,7 @@ const BathroomEstimateDetail: React.FC = () => {
     syncFixtureAction('shower', sync.replace_shower);
     syncFixtureAction('vanity', sync.replace_vanity);
     syncFixtureAction('toilet', sync.replace_toilet);
+    syncFixtureAction('mirror', sync.replace_mirror);
     if (sync.demo_walls !== undefined) updates.demo_walls = sync.demo_walls;
 
     // Merge specs (keep existing form values, override with sketch values)
@@ -284,6 +288,15 @@ const BathroomEstimateDetail: React.FC = () => {
         ...si,
       }));
       updates.vanity_spec = { items: mergedItems };
+    }
+
+    if (sync.walls_spec) {
+      updates.walls_spec = { ...(current.walls_spec || {}), ...sync.walls_spec };
+    }
+    if (sync.tile_wall_sf != null) updates.tile_wall_sf = sync.tile_wall_sf;
+
+    if (sync.hidden_costs) {
+      updates.hidden_costs = { ...(current.hidden_costs || {}), ...sync.hidden_costs };
     }
 
     // Auto-calculate substrate_spec from shower/tub dimensions
@@ -1331,6 +1344,17 @@ const BathroomEstimateDetail: React.FC = () => {
               <Card>
                 <Collapse defaultActiveKey={['vanity', 'toilet']}>
                   <Panel header="Vanity" key="vanity">
+                    <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f6f8fa', borderRadius: 4, fontSize: 11, color: '#666' }}>
+                      <Text strong style={{ fontSize: 12 }}>Vanity Complete includes:</Text>
+                      <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
+                        <span>🪵 Cabinet (source/size)</span>
+                        <span>🪨 Countertop + sink(s)</span>
+                        <span>🚰 Faucet + drain</span>
+                        <span>🪞 Mirror</span>
+                        <span>🔧 Mounting hardware</span>
+                        <span>📐 Supply lines + shutoffs</span>
+                      </div>
+                    </div>
                     <Form.List name={['vanity_spec', 'items']}>
                       {(fields, { add, remove }) => (
                         <>
@@ -1448,21 +1472,53 @@ const BathroomEstimateDetail: React.FC = () => {
                       </Col>
                     </Row>
                   </Panel>
-                  <Panel header="Walls & Paint" key="walls">
+                  <Panel header="Walls & Paint / Tile" key="walls">
+                    <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                      prev?.wall_sf !== cur?.wall_sf || prev?.paint_wall_sf !== cur?.paint_wall_sf
+                    }>
+                      {({ getFieldValue }) => {
+                        const wallSF = getFieldValue('wall_sf');
+                        const paintSF = getFieldValue('paint_wall_sf');
+                        return wallSF ? (
+                          <div style={{ marginBottom: 12, padding: '6px 12px', background: '#f6f6f6', borderRadius: 4, fontSize: 12 }}>
+                            Total Wall: <strong>{wallSF} SF</strong>
+                            {paintSF != null && paintSF !== wallSF && (
+                              <span style={{ marginLeft: 12 }}>
+                                Paintable: <strong>{paintSF} SF</strong>
+                                <span style={{ color: '#999', marginLeft: 4 }}>
+                                  (−{Math.round((wallSF - paintSF) * 10) / 10} SF covered by shower/tub)
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        ) : null;
+                      }}
+                    </Form.Item>
                     <Row gutter={16}>
-                      <Col xs={12} sm={8} md={4}>
-                        <Form.Item name={['walls_spec', 'paint_walls']} valuePropName="checked">
-                          <Checkbox>Paint Walls</Checkbox>
+                      <Col xs={24} sm={12} md={8}>
+                        <Form.Item label="Wall Finish" name={['walls_spec', 'wall_finish']}>
+                          <Select
+                            allowClear
+                            placeholder="Select wall finish"
+                            onChange={(v) => {
+                              // Clear conflicting fields when switching
+                              if (v === 'paint') {
+                                form.setFieldsValue({ walls_spec: { tile_walls: false } });
+                              } else if (v === 'tile') {
+                                form.setFieldsValue({ walls_spec: { paint_walls: false } });
+                              }
+                            }}
+                            options={[
+                              { label: 'Paint', value: 'paint' },
+                              { label: 'Tile', value: 'tile' },
+                              { label: 'Paint + Tile (partial)', value: 'paint_and_tile' },
+                            ]}
+                          />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={8} md={4}>
                         <Form.Item name={['walls_spec', 'paint_ceiling']} valuePropName="checked">
                           <Checkbox>Paint Ceiling</Checkbox>
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={8} md={4}>
-                        <Form.Item label="Paint Grade" name={['walls_spec', 'paint_grade']}>
-                          <Select options={selectOpts(pricingInfo?.paint_grades)} allowClear />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={12} md={6}>
@@ -1473,6 +1529,63 @@ const BathroomEstimateDetail: React.FC = () => {
                           ]} />
                         </Form.Item>
                       </Col>
+                    </Row>
+                    <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                      prev?.walls_spec?.wall_finish !== cur?.walls_spec?.wall_finish
+                    }>
+                      {({ getFieldValue }) => {
+                        const finish = getFieldValue(['walls_spec', 'wall_finish']);
+                        const showPaint = finish === 'paint' || finish === 'paint_and_tile';
+                        const showTile = finish === 'tile' || finish === 'paint_and_tile';
+                        return (
+                          <>
+                            {showPaint && (
+                              <Row gutter={16} style={{ marginBottom: 8 }}>
+                                <Col xs={12} sm={12} md={6}>
+                                  <Form.Item label="Paint Grade" name={['walls_spec', 'paint_grade']}>
+                                    <Select options={selectOpts(pricingInfo?.paint_grades)} allowClear />
+                                  </Form.Item>
+                                </Col>
+                                {finish === 'paint_and_tile' && (
+                                  <Col xs={12} sm={8} md={4}>
+                                    <Form.Item label="Paint SF" name={['walls_spec', 'paint_wall_sf']}
+                                      tooltip="Wall area to paint (excluding tiled portions)">
+                                      <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                                    </Form.Item>
+                                  </Col>
+                                )}
+                              </Row>
+                            )}
+                            {showTile && (
+                              <Row gutter={16} style={{ marginBottom: 8 }}>
+                                <Col xs={12} sm={8} md={4}>
+                                  <Form.Item label="Tile Wall SF" name={['walls_spec', 'tile_wall_sf']}
+                                    tooltip="Wall area to tile. Auto-filled from sketch.">
+                                    <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={12} md={6}>
+                                  <Form.Item label="Tile Material" name={['walls_spec', 'tile_material']}>
+                                    <Select options={selectOpts(pricingInfo?.tile_materials)} allowClear />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={12} md={6}>
+                                  <Form.Item label="Tile Pattern" name={['walls_spec', 'tile_pattern']}>
+                                    <Select options={selectOpts(pricingInfo?.tile_patterns)} allowClear />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={12} sm={8} md={4}>
+                                  <Form.Item label="Tile Size" name={['walls_spec', 'tile_size']}>
+                                    <Select options={selectOpts(pricingInfo?.tile_sizes)} allowClear />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            )}
+                          </>
+                        );
+                      }}
+                    </Form.Item>
+                    <Row gutter={16}>
                       <Form.Item noStyle shouldUpdate={(prev, cur) =>
                         prev?.walls_spec?.baseboard_material !== cur?.walls_spec?.baseboard_material
                       }>

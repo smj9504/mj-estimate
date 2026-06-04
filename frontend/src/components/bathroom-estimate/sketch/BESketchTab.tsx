@@ -41,12 +41,20 @@ export interface SketchFixtureSync {
   width_ft?: number;
   floor_sf?: number;
   wall_sf?: number;
+  /** Paintable wall SF (total wall minus shower/tub/tile wall areas) */
+  paint_wall_sf?: number;
+  /** Tile wall SF (walls marked as 'tile' finish in sketch) */
+  tile_wall_sf?: number;
+
+  // Walls spec sync
+  walls_spec?: Record<string, any>;
 
   // Fixture replace flags
   replace_tub?: boolean;
   replace_shower?: boolean;
   replace_vanity?: boolean;
   replace_toilet?: boolean;
+  replace_mirror?: boolean;
 
   // Demo flags
   demo_walls?: boolean;
@@ -55,6 +63,9 @@ export interface SketchFixtureSync {
   bathtub_spec?: Record<string, any>;
   shower_spec?: Record<string, any>;
   vanity_spec?: Record<string, any>;
+
+  // Drywall repair (from sketch drywall zones)
+  hidden_costs?: Record<string, any>;
 }
 
 export interface BESketchTabProps {
@@ -76,7 +87,7 @@ export interface BESketchTabProps {
 
 /** Build sync payload from sketch rooms + fixtures → estimate form fields */
 function buildSketchSync(data: BESketchData): SketchFixtureSync {
-  const { fixtures, rooms } = data;
+  const { fixtures, rooms, walls } = data;
   const ppf = data.settings.pixelsPerFoot;
   const sync: SketchFixtureSync = {};
 
@@ -91,11 +102,98 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
     const depthFt = Math.round((depthPx / ppf) * 4) / 4;
     sync.length_ft = widthFt;
     sync.width_ft = depthFt;
-    sync.floor_sf = Math.round(widthFt * depthFt * 10) / 10;
+    // Floor SF = room area minus fixture footprints (bathtub, shower, vanity)
+    const grossFloorSF = widthFt * depthFt;
+    let fixtureFootprintSF = 0;
+    for (const fix of fixtures) {
+      if (fix.type !== 'bathtub' && fix.type !== 'shower' && fix.type !== 'vanity') continue;
+      fixtureFootprintSF += (fix.dimensions.width / 12) * (fix.dimensions.height / 12);
+    }
+    sync.floor_sf = Math.round(Math.max(0, grossFloorSF - fixtureFootprintSF) * 10) / 10;
 
     const heightFt = (bathroom.heightInches || 96) / 12;
     const perimeterFt = 2 * (widthFt + depthFt);
-    sync.wall_sf = Math.round(perimeterFt * heightFt * 10) / 10;
+    const grossWallSF = perimeterFt * heightFt;
+    sync.wall_sf = Math.round(grossWallSF * 10) / 10;
+
+    // ── Per-wall finish: calculate paint SF vs tile SF ──
+    // Walls with finish='tile' → tile_wall_sf, rest → paint_wall_sf
+    // Both exclude areas covered by shower/bathtub fixtures
+    let coveredWallSF = 0;
+
+    // Shower: walls touching bathroom walls
+    const showerFix = fixtures.find(f => f.type === 'shower');
+    if (showerFix) {
+      const sp = showerFix.properties;
+      const sLayout = sp.showerLayout ?? 'alcove';
+      const sTileH = (sp.showerTileHeight ?? 96) / 12;
+      const sW = showerFix.dimensions.width / 12;
+      const sD = showerFix.dimensions.height / 12;
+      if (sLayout === 'alcove') {
+        coveredWallSF += (sW + 2 * sD) * sTileH;
+      } else {
+        coveredWallSF += (sW + sD) * sTileH;
+      }
+    }
+
+    // Bathtub: walls covered by surround (skip freestanding)
+    const tubFix = fixtures.find(f => f.type === 'bathtub');
+    if (tubFix) {
+      const tp = tubFix.properties;
+      if ((tp.bathtubSubType ?? 'standard_alcove') !== 'freestanding') {
+        const surrWalls = tp.surroundWallCount ?? 3;
+        const surrH = (tp.surroundHeight ?? 60) / 12;
+        const tW = tubFix.dimensions.width / 12;
+        const tD = tubFix.dimensions.height / 12;
+        let surrLen = 0;
+        if (surrWalls >= 1) surrLen += tW;
+        if (surrWalls >= 2) surrLen += tD;
+        if (surrWalls >= 3) surrLen += tD;
+        coveredWallSF += surrLen * surrH;
+        coveredWallSF += surrLen * ((tp.deckHeight ?? 18) / 12);
+      }
+    }
+
+    // Available wall SF (after shower/tub deduction)
+    const availableWallSF = Math.max(0, grossWallSF - coveredWallSF);
+
+    // Split available area by per-wall finish settings
+    let tileWallSF = 0;
+    let paintWallSF = 0;
+    const roomWalls = walls.filter(w => bathroom.wallIds.includes(w.id));
+
+    if (roomWalls.length > 0) {
+      // Walls exist: use per-wall finish
+      let totalWallLen = 0;
+      let tileWallLen = 0;
+      for (const w of roomWalls) {
+        const wDx = w.end.x - w.start.x;
+        const wDy = w.end.y - w.start.y;
+        const wLen = Math.sqrt(wDx * wDx + wDy * wDy) / ppf; // ft
+        totalWallLen += wLen;
+        if (w.finish === 'tile') tileWallLen += wLen;
+      }
+      const tileRatio = totalWallLen > 0 ? tileWallLen / totalWallLen : 0;
+      tileWallSF = Math.round(availableWallSF * tileRatio * 10) / 10;
+      paintWallSF = Math.round((availableWallSF - tileWallSF) * 10) / 10;
+    } else {
+      // No explicit walls: all paint by default
+      paintWallSF = Math.round(availableWallSF * 10) / 10;
+    }
+
+    sync.paint_wall_sf = paintWallSF;
+    sync.tile_wall_sf = tileWallSF;
+
+    // Determine wall_finish mode
+    const hasAnyTile = tileWallSF > 0;
+    const hasAnyPaint = paintWallSF > 0;
+    if (hasAnyTile && hasAnyPaint) {
+      sync.walls_spec = { wall_finish: 'paint_and_tile', paint_wall_sf: paintWallSF, tile_wall_sf: tileWallSF };
+    } else if (hasAnyTile) {
+      sync.walls_spec = { wall_finish: 'tile', tile_wall_sf: tileWallSF };
+    } else {
+      sync.walls_spec = { wall_finish: 'paint' };
+    }
   }
 
   // ── Fixture flags & specs ──
@@ -103,11 +201,14 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
   const shower = fixtures.find(f => f.type === 'shower');
   const vanities = fixtures.filter(f => f.type === 'vanity');
   const toilet = fixtures.find(f => f.type === 'toilet');
+  const mirrors = fixtures.filter(f => f.type === 'mirror');
+  const lights = fixtures.filter(f => f.type === 'light');
 
   sync.replace_tub = !!bathtub;
   sync.replace_shower = !!shower;
   sync.replace_vanity = vanities.length > 0;
   sync.replace_toilet = !!toilet;
+  sync.replace_mirror = mirrors.length > 0;
   // demo_floor is a user decision — don't auto-set from sketch
   sync.demo_walls = !!(shower || bathtub);
 
@@ -118,14 +219,50 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
       standard_alcove: 'alcove', drop_in: 'drop_in',
       corner_garden: 'corner', freestanding: 'freestanding',
     };
+    // Calculate surround tile SF
+    const tubW = bathtub.dimensions.width;
+    const tubD = bathtub.dimensions.height;
+    const surrWallCount = p.surroundWallCount ?? 3;
+    const surrHeight = p.surroundHeight ?? 60;
+    let surrPerimeter = 0;
+    if (surrWallCount >= 1) surrPerimeter += tubW;
+    if (surrWallCount >= 2) surrPerimeter += tubD;
+    if (surrWallCount >= 3) surrPerimeter += tubD;
+    const surroundSF = Math.round((surrPerimeter * surrHeight) / 144 * 100) / 100;
+
+    // Calculate deck tile SF
+    const deckW = p.deckWidth ?? 0;
+    const deckSides = p.deckTileSides ?? 0;
+    let deckLen = 0;
+    if (deckSides >= 1) deckLen += tubW;
+    if (deckSides >= 2) deckLen += tubD;
+    if (deckSides >= 3) deckLen += tubD;
+    if (deckSides >= 4) deckLen += tubW;
+    const cornerCount = Math.max(0, deckSides - 1);
+    const deckSF = Math.round((deckLen * deckW + cornerCount * deckW * deckW) / 144 * 100) / 100;
+
+    // Calculate front panel SF
+    const deckH = p.deckHeight ?? 0;
+    const frontPanelSF = p.hasFrontPanel && deckH > 0
+      ? Math.round((deckLen * deckH) / 144 * 100) / 100
+      : 0;
+
     sync.bathtub_spec = {
       type: typeMap[subType] ?? 'alcove',
       material: 'acrylic',
       surround_tile: !!p.hasSurround,
-      tub_length_in: Math.max(bathtub.dimensions.width, bathtub.dimensions.height),
-      tub_depth_in: Math.min(bathtub.dimensions.width, bathtub.dimensions.height),
-      surround_height_in: p.surroundHeight ?? 60,
-      surround_wall_count: p.surroundWallCount ?? 3,
+      surround_tile_sf: p.hasSurround ? surroundSF : 0,
+      tub_length_in: Math.max(tubW, tubD),
+      tub_depth_in: Math.min(tubW, tubD),
+      surround_height_in: surrHeight,
+      surround_wall_count: surrWallCount,
+      deck_tile: deckW > 0 && deckSides > 0,
+      deck_tile_sf: deckSF,
+      deck_width_in: deckW,
+      deck_tile_sides: deckSides,
+      front_panel_tile: !!p.hasFrontPanel,
+      front_panel_sf: frontPanelSF,
+      deck_height_in: deckH,
     };
   }
 
@@ -138,15 +275,46 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
       tile_height_in: p.showerTileHeight ?? 84,
       niches: p.nicheCount ?? 0,
       bench: !!p.hasBench,
+      curb_height: p.curbHeight ?? 4,
+      door_type: p.showerDoorType ?? 'none',
+      door_width_in: p.showerDoorWidth ?? Math.round(shower.dimensions.width * 0.5),
+      fixed_panel_config: p.fixedPanelConfig ?? 'none',
+      layout: p.showerLayout ?? 'alcove',
     };
   }
 
   if (vanities.length > 0) {
     sync.vanity_spec = {
-      items: vanities.map(v => ({
-        width: v.dimensions.width,
-        sinks: v.properties.sinkCount ?? 1,
+      items: vanities.map((v, i) => {
+        // Try to match mirror to vanity (closest mirror or by index)
+        const mirrorForVanity = mirrors[i] ?? mirrors[0];
+        return {
+          width: v.dimensions.width,
+          sinks: v.properties.sinkCount ?? 1,
+          mirror_width: mirrorForVanity ? mirrorForVanity.dimensions.width : undefined,
+          has_mirror: !!mirrorForVanity,
+        };
+      }),
+    };
+  } else if (mirrors.length > 0) {
+    // Mirrors without vanity: still sync mirror replacement
+    sync.vanity_spec = {
+      items: mirrors.map(m => ({
+        mirror_width: m.dimensions.width,
+        has_mirror: true,
       })),
+    };
+  }
+
+  // ── Drywall repair zones → hidden_costs ──
+  const dwZones = data.drywallRepairZones ?? [];
+  if (dwZones.length > 0) {
+    const totalDwSF = dwZones.reduce((sum, z) => sum + z.areaSF, 0);
+    const hasFullRepair = dwZones.some(z => z.includeGluing);
+    sync.hidden_costs = {
+      drywall_patch: true,
+      drywall_patch_sf: Math.round(totalDwSF * 10) / 10,
+      drywall_patch_full: hasFullRepair,
     };
   }
 

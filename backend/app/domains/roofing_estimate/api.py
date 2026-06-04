@@ -330,3 +330,72 @@ def export_pdf(
             "Content-Disposition": f'attachment; filename="roofing_estimate_{estimate_id[:8]}.pdf"'
         },
     )
+
+
+@router.get("/{estimate_id}/export/invoice")
+def export_invoice(
+    estimate_id: str,
+    completion_date: str = Query(""),
+    pricing_mode: str = Query("detailed"),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    from .export_service import RoofingExportService
+
+    service = RoofingEstimateService(session)
+    estimate = service.get_estimate(estimate_id)
+    if not estimate:
+        raise HTTPException(
+            status_code=404, detail="Estimate not found",
+        )
+
+    export_svc = RoofingExportService()
+    pdf_bytes = export_svc.generate_invoice_pdf(
+        estimate,
+        completion_date=completion_date,
+        pricing_mode=pricing_mode,
+    )
+
+    return StreamingResponse(
+        pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename='
+                f'"roofing_invoice_{estimate_id[:8]}.pdf"'
+            )
+        },
+    )
+
+
+@router.get("/{estimate_id}/export/warranty-cert")
+def export_warranty_cert(
+    estimate_id: str,
+    completion_date: str = Query(""),
+    session: DatabaseSession = Depends(get_db_session),
+    current_user: dict = Depends(get_current_user),
+):
+    from .export_service import RoofingExportService
+
+    service = RoofingEstimateService(session)
+    estimate = service.get_estimate(estimate_id)
+    if not estimate:
+        raise HTTPException(
+            status_code=404, detail="Estimate not found",
+        )
+
+    export_svc = RoofingExportService()
+    pdf_bytes = export_svc.generate_warranty_cert_pdf(
+        estimate, completion_date=completion_date,
+    )
+
+    return StreamingResponse(
+        pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename='
+                f'"roofing_warranty_{estimate_id[:8]}.pdf"'
+            )
+        },
+    )

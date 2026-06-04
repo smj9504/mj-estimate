@@ -34,9 +34,12 @@ export type BEFixtureType =
   | 'mirror'
   | 'light';
 
+export type ShowerDoorType = 'none' | 'sliding' | 'swing' | 'frameless_swing' | 'bi_fold' | 'curtain';
+
 export type BathtubSubType =
   | 'standard_alcove'
   | 'corner_garden'
+  | 'corner_drop_in'
   | 'drop_in'
   | 'freestanding';
 
@@ -66,6 +69,8 @@ export interface BEDimensions {
 // Wall
 // =====================
 
+export type WallFinish = 'paint' | 'tile';
+
 export interface BEWall {
   id: string;
   start: BEPoint;
@@ -76,6 +81,8 @@ export interface BEWall {
   heightInches: number;
   /** Label (e.g. "A", "B", "North") */
   label?: string;
+  /** Wall surface finish: paint or tile (default paint) */
+  finish?: WallFinish;
 }
 
 // =====================
@@ -137,6 +144,10 @@ export interface BEFixtureProperties {
   deckWidth?: number;
   /** Deck height from floor in inches */
   deckHeight?: number;
+  /** Number of exposed sides with deck tile (1-3, default 2 for corner, 3 for drop-in) */
+  deckTileSides?: number;
+  /** Enable tile on the vertical front panel of deck/platform */
+  hasFrontPanel?: boolean;
   /** Enable tile surround */
   hasSurround?: boolean;
   /** Surround height in inches above tub rim (default 60) */
@@ -155,10 +166,23 @@ export interface BEFixtureProperties {
   benchDepth?: number;
   /** Curb height in inches (0 = curbless) */
   curbHeight?: number;
-  /** Number of walls with tile (1-3) */
+  /** Number of walls with tile (1-3, the 4th side is the opening/door) */
   showerWallCount?: number;
   /** Shower wall tile height in inches */
   showerTileHeight?: number;
+  /** Shower door/opening type */
+  showerDoorType?: ShowerDoorType;
+  /** Shower door opening width in inches (auto-calculated if not set) */
+  showerDoorWidth?: number;
+  /** Fixed glass panel position: none, left of door, right, or both sides */
+  fixedPanelConfig?: 'none' | 'left' | 'right' | 'both';
+  /**
+   * Shower enclosure layout:
+   * - 'alcove': 3 walls, 1 open front (default for wallCount=3)
+   * - 'corner': 2 walls (back+left), right side = fixed glass, front = door (wallCount=2)
+   * - 'corner_right': 2 walls (back+right), left side = fixed glass, front = door
+   */
+  showerLayout?: 'alcove' | 'corner' | 'corner_right';
 
   // --- Vanity ---
   vanityWidth?: number;
@@ -189,6 +213,9 @@ export type TileZoneType =
   | 'shower_floor'
   | 'shower_niche'
   | 'shower_bench'
+  | 'shower_curb'
+  | 'shower_glass_panel'
+  | 'shower_door'
   | 'vanity_backsplash';
 
 export interface BETileZone {
@@ -341,7 +368,7 @@ export interface BESketchSettings {
 
 export const DEFAULT_BE_SKETCH_SETTINGS: BESketchSettings = {
   pixelsPerFoot: 40,
-  gridSizeFt: 0.5,
+  gridSizeFt: 0.125,
   showGrid: true,
   showDimensions: true,
   showAreaLabels: true,
@@ -392,12 +419,15 @@ export const TILE_ZONE_COLORS: Record<TileZoneType, string> = {
   shower_floor: 'rgba(0, 188, 212, 0.30)',
   shower_niche: 'rgba(255, 193, 7, 0.35)',
   shower_bench: 'rgba(121, 85, 72, 0.30)',
+  shower_curb: 'rgba(161, 136, 127, 0.35)',
+  shower_glass_panel: 'rgba(33, 150, 243, 0.20)',
+  shower_door: 'rgba(33, 150, 243, 0.30)',
   vanity_backsplash: 'rgba(96, 125, 139, 0.30)',
 };
 
 // Fixture default dimensions (in inches, PLAN VIEW — looking down from above)
 export const BE_FIXTURE_DEFAULTS: Record<BEFixtureType, BEDimensions> = {
-  bathtub: { width: 60, height: 32 },   // 5' x 2'8" standard alcove
+  bathtub: { width: 60, height: 32 },   // 5' x 2'8" standard alcove (corner_drop_in uses 60x42)
   shower: { width: 36, height: 36 },    // 3' x 3' standard stall
   vanity: { width: 36, height: 21 },    // 3' wide x 21" deep
   toilet: { width: 15, height: 29 },    // 15" wide x 29" deep (elongated)
@@ -413,9 +443,12 @@ export const BATHTUB_SURROUND_DEFAULTS: Record<BathtubSubType, {
   surroundHeight: number;
   deckWidth: number;
   deckHeight: number;
+  deckTileSides: number;
+  hasFrontPanel: boolean;
 }> = {
-  standard_alcove: { surroundWallCount: 3, surroundHeight: 60, deckWidth: 0, deckHeight: 0 },
-  corner_garden: { surroundWallCount: 2, surroundHeight: 48, deckWidth: 12, deckHeight: 18 },
-  drop_in: { surroundWallCount: 3, surroundHeight: 60, deckWidth: 10, deckHeight: 20 },
-  freestanding: { surroundWallCount: 0, surroundHeight: 0, deckWidth: 0, deckHeight: 0 },
+  standard_alcove: { surroundWallCount: 3, surroundHeight: 60, deckWidth: 0, deckHeight: 0, deckTileSides: 0, hasFrontPanel: false },
+  corner_garden: { surroundWallCount: 2, surroundHeight: 48, deckWidth: 12, deckHeight: 18, deckTileSides: 2, hasFrontPanel: true },
+  corner_drop_in: { surroundWallCount: 2, surroundHeight: 60, deckWidth: 12, deckHeight: 18, deckTileSides: 2, hasFrontPanel: true },
+  drop_in: { surroundWallCount: 3, surroundHeight: 60, deckWidth: 10, deckHeight: 20, deckTileSides: 1, hasFrontPanel: true },
+  freestanding: { surroundWallCount: 0, surroundHeight: 0, deckWidth: 0, deckHeight: 0, deckTileSides: 0, hasFrontPanel: false },
 };

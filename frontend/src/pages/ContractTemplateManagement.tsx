@@ -273,8 +273,17 @@ const ContractTemplateManagement: React.FC = () => {
       title: 'File',
       dataIndex: 'file_name',
       key: 'file_name',
-      render: (_: unknown, record) =>
-        record.file_url ? (
+      render: (_: unknown, record) => {
+        if (!record.file_url) return <Text type="secondary">No file</Text>;
+        if (record.file_available === false)
+          return (
+            <Tooltip title="PDF file is missing. Please re-upload.">
+              <Tag color="error" icon={<FilePdfOutlined />}>
+                File Missing
+              </Tag>
+            </Tooltip>
+          );
+        return (
           <Button
             size="small"
             type="link"
@@ -285,9 +294,8 @@ const ContractTemplateManagement: React.FC = () => {
           >
             View PDF
           </Button>
-        ) : (
-          <Text type="secondary">No file</Text>
-        ),
+        );
+      },
     },
     {
       title: 'Signature',
@@ -311,12 +319,12 @@ const ContractTemplateManagement: React.FC = () => {
       align: 'right',
       render: (_: unknown, record) => (
         <Space>
-          <Tooltip title="Field Mapping">
+          <Tooltip title={record.file_available === false ? 'PDF file is missing' : 'Field Mapping'}>
             <Button
               icon={<FormOutlined />}
               size="small"
               onClick={() => setFieldMappingTemplate(record)}
-              disabled={!record.file_url}
+              disabled={!record.file_url || record.file_available === false}
             />
           </Tooltip>
           <Tooltip title="Edit">

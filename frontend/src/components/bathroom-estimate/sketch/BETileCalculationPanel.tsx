@@ -115,6 +115,9 @@ const ZONE_TYPE_LABELS: Record<TileZoneType, string> = {
   shower_floor: 'Shower Floor',
   shower_niche: 'Shower Niche',
   shower_bench: 'Shower Bench',
+  shower_curb: 'Shower Curb',
+  shower_glass_panel: 'Glass Panel (fixed)',
+  shower_door: 'Shower Door',
   vanity_backsplash: 'Vanity Backsplash',
 };
 

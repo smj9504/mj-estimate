@@ -60,29 +60,73 @@ VALIDITY_CLAUSE = (
 DEFAULT_LABOR_WARRANTY_YEARS = 10
 
 DEFAULT_MATERIAL_WARRANTY_TEXT = (
-    "All roofing materials installed under this contract are covered by the "
-    "respective manufacturer's warranty. Shingle warranty coverage follows the "
-    "manufacturer's published terms, which typically include a Limited Lifetime "
-    "Warranty for architectural shingles and a 25-year warranty for three-tab "
-    "shingles. Coverage may be prorated after an initial non-prorated period. "
-    "Warranty is transferable once to a subsequent owner within the first 10 "
-    "years of installation, subject to manufacturer requirements."
+    "All roofing materials installed under this contract come with "
+    "the manufacturer's standard Shingle Limited Warranty, which "
+    "covers manufacturing defects in the shingle products "
+    "themselves. Architectural shingles are typically covered for "
+    "the lifetime of the original homeowner (up to 50 years) and "
+    "three-tab shingles for up to 25 years. Coverage details, "
+    "including any prorated periods and wind resistance terms, "
+    "are governed by the manufacturer's published warranty terms "
+    "that accompany the product."
 )
 
 DEFAULT_LABOR_WARRANTY_TEXT = (
-    "Our company provides a {years}-year workmanship warranty covering all "
-    "labor performed under this contract, effective from the date of project "
-    "completion. Should any defect in workmanship arise during the warranty "
-    "period, we will repair or correct the deficiency at no additional cost."
+    "This roofing installation is backed by our {warranty_label}, "
+    "effective from the date of substantial completion. "
+    '"Lifetime" coverage, where applicable, is defined as the '
+    "period during which the original property owner continuously "
+    "resides at and maintains ownership of the property where "
+    "the work was performed, not to exceed 50 years from the "
+    "date of completion. All work performed under this contract "
+    "\u2014 including shingle installation, flashing integration, "
+    "ventilation systems, drip edge application, and all related "
+    "roofing components \u2014 has been executed by factory-trained "
+    "installers in strict accordance with manufacturer "
+    "installation specifications and NRCA (National Roofing "
+    "Contractors Association) guidelines. Should any defect in "
+    "workmanship be identified during the coverage period \u2014 "
+    "including but not limited to leaks resulting from improper "
+    "installation, flashing failures, inadequate sealing, nail "
+    "placement errors, or ventilation deficiencies \u2014 we will "
+    "conduct an on-site inspection within 5 business days of "
+    "notification and complete all necessary corrective work at "
+    "no additional cost to the property owner. Emergency leak "
+    "situations will be addressed within 24\u201348 hours. All repair "
+    "work performed under this coverage carries the same "
+    "workmanship protection for the remainder of the original "
+    "coverage period. This coverage is transferable to one "
+    "subsequent property owner, provided written notice is "
+    "submitted within 60 days of the ownership transfer. Upon "
+    "transfer, the remaining coverage period shall not exceed "
+    "10 years from the original completion date or the remainder "
+    "of the original warranty term, whichever is shorter."
 )
 
 DEFAULT_WARRANTY_EXCLUSIONS = (
-    "Excluded from all warranty coverage: damage caused by acts of God; ice "
-    "damming resulting from inadequate attic insulation or ventilation; damage "
-    "by foot traffic or third-party modifications after completion; "
-    "pre-existing structural damage; neglect or failure to perform routine "
-    "maintenance; damage from unlicensed repairs; and normal wear and tear."
+    "Excluded from all warranty coverage: damage caused by acts "
+    "of God; ice damming resulting from pre-existing or "
+    "inadequate attic insulation or ventilation conditions not "
+    "included in the scope of this contract \u2014 however, if "
+    "ventilation improvements were performed as part of this "
+    "project, any ice damming directly attributable to a defect "
+    "in that ventilation work shall remain covered under the "
+    "workmanship warranty; damage by foot traffic or third-party "
+    "modifications after completion; pre-existing structural "
+    "damage; neglect or failure to perform routine maintenance; "
+    "damage from unlicensed repairs; and normal wear and tear."
 )
+
+
+def _get_warranty_label(years: int) -> str:
+    """Return tiered warranty label based on years (0 = Lifetime)."""
+    if years == 0:
+        return "Lifetime Workmanship Guarantee"
+    if years <= 5:
+        return f"{years}-Year Standard Workmanship Warranty"
+    if years <= 10:
+        return f"{years}-Year Extended Workmanship Protection"
+    return f"{years}-Year Premium Workmanship Protection Plan"
 
 
 class RoofingExportService:
@@ -683,20 +727,43 @@ class RoofingExportService:
         )))
 
         warranty_info = estimate.get("warranty_info") or {}
-        labor_years = warranty_info.get("labor_warranty_years", DEFAULT_LABOR_WARRANTY_YEARS)
-        material_text = warranty_info.get(
-            "material_warranty_text", DEFAULT_MATERIAL_WARRANTY_TEXT)
-        labor_text = warranty_info.get(
-            "labor_warranty_text", DEFAULT_LABOR_WARRANTY_TEXT
-        ).format(years=labor_years)
+        labor_years = warranty_info.get(
+            "labor_warranty_years", DEFAULT_LABOR_WARRANTY_YEARS
+        )
+        warranty_label = _get_warranty_label(labor_years)
+
+        # Material text — detect legacy and upgrade
+        raw_mat = warranty_info.get("material_warranty_text", "")
+        if (not raw_mat
+                or "manufacturer's warranty" in raw_mat
+                or "manufacturer's published" in raw_mat):
+            material_text = DEFAULT_MATERIAL_WARRANTY_TEXT
+        else:
+            material_text = raw_mat
+
+        # Labor text — detect legacy and upgrade
+        raw_labor = warranty_info.get("labor_warranty_text", "")
+        if (not raw_labor
+                or "Our company provides a" in raw_labor):
+            labor_text = DEFAULT_LABOR_WARRANTY_TEXT.format(
+                warranty_label=warranty_label,
+                years=labor_years,
+            )
+        else:
+            # Support both old {years} and new {warranty_label}
+            labor_text = raw_labor.format(
+                warranty_label=warranty_label,
+                years=labor_years,
+            )
+
         exclusions = warranty_info.get(
-            "warranty_exclusions", DEFAULT_WARRANTY_EXCLUSIONS)
+            "warranty_exclusions", DEFAULT_WARRANTY_EXCLUSIONS
+        )
 
         elements.append(Paragraph("Material Warranty (Manufacturer)", s_clause_title))
         elements.append(Paragraph(material_text, s_clause))
 
-        elements.append(Paragraph(
-            f"Workmanship Warranty ({labor_years} Years)", s_clause_title))
+        elements.append(Paragraph(warranty_label, s_clause_title))
         elements.append(Paragraph(labor_text, s_clause))
 
         elements.append(Paragraph("Exclusions", s_clause_title))
@@ -1055,6 +1122,586 @@ class RoofingExportService:
                     return f"{predominant} (range: {int(p_min)}\u2013{int(p_max)})"
 
         return predominant
+
+    # ════════════════════════════════════════════════
+    #  INVOICE PDF (via existing invoice system)
+    # ════════════════════════════════════════════════
+
+    def generate_invoice_pdf(
+        self,
+        estimate: Dict[str, Any],
+        completion_date: str = "",
+        pricing_mode: str = "detailed",
+    ) -> io.BytesIO:
+        """Generate invoice PDF using the existing invoice
+        template system (WeasyPrint + Jinja2).
+
+        pricing_mode:
+            "detailed" - line items with qty/unit/price
+            "lumpsum"  - single total amount
+        """
+        import tempfile
+        from collections import OrderedDict
+        from pathlib import Path
+
+        from app.common.services.pdf_service import (
+            get_pdf_service,
+        )
+
+        pdf_svc = get_pdf_service()
+        if not pdf_svc:
+            logger.warning("pdf_service unavailable, "
+                           "falling back to reportlab")
+            return self._generate_invoice_reportlab(
+                estimate, completion_date, pricing_mode,
+            )
+
+        # ── Map estimate data to invoice system format ──
+        co = estimate.get("company_info") or {}
+        est_id = (estimate.get("id") or "")[:8].upper()
+        inv_number = f"INV-{est_id}" if est_id else "DRAFT"
+        today = completion_date or datetime.now().strftime(
+            "%Y-%m-%d"
+        )
+
+        client_name = estimate.get("client_name") or ""
+        addr = estimate.get("property_address") or ""
+        city = estimate.get("city") or ""
+        state = estimate.get("state") or ""
+        zipcode = estimate.get("zip_code") or ""
+        loc = ", ".join(filter(None, [city, state, zipcode]))
+
+        # Build line items / sections
+        line_items = estimate.get("line_items") or []
+        is_lumpsum = pricing_mode == "lumpsum"
+
+        if is_lumpsum:
+            # Single line item with total
+            total = estimate.get("total", 0) or 0
+            sections = [{
+                "title": "Roofing Services",
+                "items": [{
+                    "name": "Complete Roof Replacement",
+                    "description": (
+                        f"{addr}, {loc}" if addr else ""
+                    ),
+                    "quantity": 1,
+                    "unit": "job",
+                    "rate": total,
+                    "amount": total,
+                }],
+                "subtotal": total,
+            }]
+            items_subtotal = total
+        else:
+            # Group by phase
+            items_by_phase: OrderedDict = OrderedDict()
+            for li in sorted(
+                line_items,
+                key=lambda x: (
+                    x.get("phase", 99),
+                    x.get("display_order", 0),
+                ),
+            ):
+                phase = li.get("phase", 8)
+                phase_name = PHASE_LABELS.get(
+                    phase, f"Phase {phase}"
+                )
+                if phase_name not in items_by_phase:
+                    items_by_phase[phase_name] = []
+                items_by_phase[phase_name].append({
+                    "name": li.get("description", ""),
+                    "description": li.get("notes") or "",
+                    "quantity": li.get("quantity", 0),
+                    "unit": li.get("unit", ""),
+                    "rate": li.get("unit_price", 0),
+                    "amount": li.get("total", 0),
+                })
+
+            sections = []
+            for name, items in items_by_phase.items():
+                sec_sub = sum(
+                    i["amount"] for i in items
+                )
+                sections.append({
+                    "title": name,
+                    "items": items,
+                    "subtotal": sec_sub,
+                })
+            items_subtotal = estimate.get(
+                "subtotal", 0
+            ) or 0
+
+        # Build adjustments
+        adjustments = []
+        markup = estimate.get("markup_amount", 0) or 0
+        overhead = estimate.get("overhead_amount", 0) or 0
+        profit = estimate.get("profit_amount", 0) or 0
+        permit = estimate.get("permit_fee", 0) or 0
+
+        if not is_lumpsum:
+            order = 1
+            if markup:
+                adjustments.append({
+                    "name": "Material & Labor Markup",
+                    "percentage": 0,
+                    "fixed_amount": markup,
+                    "type": "add",
+                    "order": order,
+                    "amount": markup,
+                })
+                order += 1
+            if overhead:
+                adjustments.append({
+                    "name": "Overhead",
+                    "percentage": 0,
+                    "fixed_amount": overhead,
+                    "type": "add",
+                    "order": order,
+                    "amount": overhead,
+                })
+                order += 1
+            if profit:
+                adjustments.append({
+                    "name": "Profit",
+                    "percentage": 0,
+                    "fixed_amount": profit,
+                    "type": "add",
+                    "order": order,
+                    "amount": profit,
+                })
+                order += 1
+            if permit:
+                adjustments.append({
+                    "name": "Permit Fee",
+                    "percentage": 0,
+                    "fixed_amount": permit,
+                    "type": "add",
+                    "order": order,
+                    "amount": permit,
+                })
+
+        total = estimate.get("total", 0) or 0
+        tax = estimate.get("tax_amount", 0) or 0
+
+        # Insurance info
+        ins = estimate.get("insurance_info") or {}
+        insurance_data = {}
+        if ins.get("carrier"):
+            insurance_data = {
+                "company": ins.get("carrier", ""),
+                "claim_number": ins.get(
+                    "claim_number", ""
+                ),
+            }
+
+        pdf_data = {
+            "invoice_number": inv_number,
+            "date": today,
+            "due_date": today,
+            "company": {
+                "name": co.get("name") or "",
+                "address": co.get("address") or "",
+                "city": co.get("city") or "",
+                "state": co.get("state") or "",
+                "zip": co.get("zipcode") or "",
+                "phone": co.get("phone") or "",
+                "email": co.get("email") or "",
+                "logo": None,
+            },
+            "client": {
+                "name": client_name,
+                "address": addr,
+                "city": city,
+                "state": state,
+                "zip": zipcode,
+            },
+            "sections": sections,
+            "items": [],
+            "items_subtotal": items_subtotal,
+            "adjustments": adjustments,
+            "tax_rate": 0,
+            "tax_amount": tax,
+            "total": total,
+            "payments": [],
+            "payment_terms": (
+                "Payment is due upon receipt of invoice. "
+                "Accepted methods: check, credit card, "
+                "or bank transfer. Please reference "
+                f"invoice number {inv_number} with "
+                "your payment."
+            ),
+            "notes": (
+                f"Estimate Reference: EST-{est_id}"
+                if est_id else ""
+            ),
+        }
+
+        if insurance_data:
+            pdf_data["insurance"] = insurance_data
+
+        # Generate via existing system
+        with tempfile.NamedTemporaryFile(
+            suffix=".pdf", delete=False,
+        ) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            pdf_svc.generate_invoice_pdf(
+                pdf_data, tmp_path,
+            )
+            with open(tmp_path, "rb") as f:
+                buffer = io.BytesIO(f.read())
+            buffer.seek(0)
+            return buffer
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+    # ════════════════════════════════════════════════
+    #  WARRANTY CERTIFICATE PDF
+    # ════════════════════════════════════════════════
+
+    def generate_warranty_cert_pdf(
+        self,
+        estimate: Dict[str, Any],
+        completion_date: str = "",
+    ) -> io.BytesIO:
+        """Generate a warranty certificate PDF."""
+        try:
+            from reportlab.lib import colors
+            from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+            from reportlab.lib.pagesizes import letter
+            from reportlab.lib.styles import ParagraphStyle
+            from reportlab.lib.units import inch
+            from reportlab.platypus import (
+                HRFlowable, Paragraph, SimpleDocTemplate,
+                Spacer, Table, TableStyle,
+            )
+        except ImportError:
+            return self._generate_text_fallback(estimate)
+
+        buffer = io.BytesIO()
+        page_w, page_h = letter
+        margin = 0.7 * inch
+
+        doc = SimpleDocTemplate(
+            buffer, pagesize=letter,
+            topMargin=margin, bottomMargin=margin,
+            leftMargin=margin, rightMargin=margin,
+        )
+        cw = page_w - 2 * margin
+        elements: List[Any] = []
+
+        # ── Styles ──
+        s_title = ParagraphStyle(
+            "WCTitle", fontName="Helvetica-Bold",
+            fontSize=22,
+            textColor=colors.HexColor(COLOR_PRIMARY),
+            alignment=TA_CENTER, spaceAfter=2,
+        )
+        s_cert_num = ParagraphStyle(
+            "WCNum", fontName="Helvetica", fontSize=10,
+            textColor=colors.HexColor(COLOR_MEDIUM),
+            alignment=TA_CENTER, spaceAfter=6,
+        )
+        s_section = ParagraphStyle(
+            "WCSec", fontName="Helvetica-Bold",
+            fontSize=10,
+            textColor=colors.HexColor(COLOR_PRIMARY),
+            spaceBefore=8, spaceAfter=2,
+        )
+        s_body = ParagraphStyle(
+            "WCBody", fontName="Helvetica", fontSize=8,
+            textColor=colors.HexColor(COLOR_DARK),
+            leading=11, spaceAfter=2,
+        )
+        s_label = ParagraphStyle(
+            "WCL", fontName="Helvetica-Bold", fontSize=9,
+            textColor=colors.HexColor(COLOR_MEDIUM),
+        )
+        s_val = ParagraphStyle(
+            "WCV", fontName="Helvetica", fontSize=9,
+            textColor=colors.HexColor(COLOR_DARK),
+        )
+        s_small = ParagraphStyle(
+            "WCSm", fontName="Helvetica", fontSize=8,
+            textColor=colors.HexColor(COLOR_MEDIUM),
+            leading=11,
+        )
+        s_sig_label = ParagraphStyle(
+            "WCSigL", fontName="Helvetica", fontSize=9,
+            textColor=colors.HexColor(COLOR_MEDIUM),
+        )
+
+        # ── Data extraction ──
+        co = estimate.get("company_info") or {}
+        co_name = co.get("name") or ""
+        co_addr = ", ".join(filter(None, [
+            co.get("address") or "",
+            co.get("city") or "",
+            co.get("state") or "",
+            co.get("zipcode") or "",
+        ]))
+        co_phone = co.get("phone") or ""
+        co_email = co.get("email") or ""
+
+        est_id = (
+            estimate.get("id") or ""
+        )[:8].upper()
+        cert_num = (
+            f"WC-{est_id}" if est_id else "WC-DRAFT"
+        )
+        client = estimate.get("client_name") or ""
+        addr = estimate.get("property_address") or ""
+        loc = ", ".join(filter(None, [
+            estimate.get("city") or "",
+            estimate.get("state") or "",
+            estimate.get("zip_code") or "",
+        ]))
+        today = completion_date or datetime.now().strftime(
+            "%B %d, %Y"
+        )
+
+        shingle = estimate.get("shingle_spec") or {}
+        shingle_brand = (
+            (shingle.get("brand") or "")
+            .replace("_", " ").title()
+        )
+        shingle_type = (
+            (shingle.get("type") or "")
+            .replace("_", " ").title()
+        )
+        shingle_product = shingle.get("product") or ""
+        shingle_color = shingle.get("color") or ""
+        total_sf = estimate.get("total_sf") or 0
+        squares = estimate.get("squares") or 0
+
+        warranty_info = estimate.get("warranty_info") or {}
+        labor_years = warranty_info.get(
+            "labor_warranty_years",
+            DEFAULT_LABOR_WARRANTY_YEARS,
+        )
+        warranty_label = _get_warranty_label(labor_years)
+
+        # ── Header ──
+        elements.append(HRFlowable(
+            width="100%", thickness=2,
+            color=colors.HexColor(COLOR_PRIMARY),
+        ))
+        elements.append(Spacer(1, 8))
+        elements.append(
+            Paragraph("ROOFING WARRANTY CERTIFICATE", s_title)
+        )
+        elements.append(Spacer(1, 4))
+        elements.append(Paragraph(
+            f"<b>{co_name}</b>  |  "
+            f"Certificate No. {cert_num}",
+            s_cert_num,
+        ))
+        elements.append(Paragraph(
+            f"{co_addr}  |  "
+            f"{co_phone}  |  {co_email}",
+            ParagraphStyle(
+                "WCCo2", fontName="Helvetica",
+                fontSize=8,
+                textColor=colors.HexColor(COLOR_LIGHT),
+                alignment=TA_CENTER,
+            ),
+        ))
+        elements.append(Spacer(1, 4))
+        elements.append(HRFlowable(
+            width="100%", thickness=2,
+            color=colors.HexColor(COLOR_PRIMARY),
+        ))
+        elements.append(Spacer(1, 8))
+
+        # ── Project Details ──
+        elements.append(
+            Paragraph("PROJECT DETAILS", s_section)
+        )
+        info_data = [
+            [
+                Paragraph("<b>Property Owner:</b>", s_label),
+                Paragraph(client, s_val),
+                Paragraph("<b>Completion Date:</b>", s_label),
+                Paragraph(today, s_val),
+            ],
+            [
+                Paragraph("<b>Property Address:</b>", s_label),
+                Paragraph(f"{addr}, {loc}", s_val),
+                Paragraph("<b>Certificate #:</b>", s_label),
+                Paragraph(cert_num, s_val),
+            ],
+            [
+                Paragraph("<b>Shingle Brand:</b>", s_label),
+                Paragraph(
+                    shingle_brand or "N/A", s_val,
+                ),
+                Paragraph("<b>Shingle Type:</b>", s_label),
+                Paragraph(
+                    shingle_type or "N/A", s_val,
+                ),
+            ],
+            [
+                Paragraph("<b>Product:</b>", s_label),
+                Paragraph(
+                    shingle_product or "N/A", s_val,
+                ),
+                Paragraph("<b>Color:</b>", s_label),
+                Paragraph(
+                    shingle_color or "N/A", s_val,
+                ),
+            ],
+            [
+                Paragraph("<b>Roof Area:</b>", s_label),
+                Paragraph(
+                    f"{total_sf:,.0f} SF "
+                    f"({squares:,.1f} squares)",
+                    s_val,
+                ),
+                Paragraph("", s_label),
+                Paragraph("", s_val),
+            ],
+        ]
+        t = Table(
+            info_data,
+            colWidths=[
+                cw * 0.2, cw * 0.32,
+                cw * 0.2, cw * 0.28,
+            ],
+        )
+        t.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("BACKGROUND", (0, 0), (-1, -1),
+             colors.HexColor(COLOR_ACCENT)),
+            ("BOX", (0, 0), (-1, -1), 0.5,
+             colors.HexColor(COLOR_BORDER)),
+            ("INNERGRID", (0, 0), (-1, -1), 0.3,
+             colors.HexColor(COLOR_BORDER)),
+        ]))
+        elements.append(t)
+
+        # ── Material Warranty ──
+        elements.append(
+            Paragraph("MATERIAL WARRANTY (MANUFACTURER)",
+                      s_section)
+        )
+        raw_mat = warranty_info.get(
+            "material_warranty_text", ""
+        )
+        if (not raw_mat
+                or "manufacturer's warranty" in raw_mat
+                or "manufacturer's published" in raw_mat):
+            mat_text = DEFAULT_MATERIAL_WARRANTY_TEXT
+        else:
+            mat_text = raw_mat
+        elements.append(Paragraph(mat_text, s_body))
+
+        # ── Workmanship Warranty ──
+        elements.append(
+            Paragraph(warranty_label.upper(), s_section)
+        )
+        raw_labor = warranty_info.get(
+            "labor_warranty_text", ""
+        )
+        if (not raw_labor
+                or "Our company provides a" in raw_labor):
+            labor_text = DEFAULT_LABOR_WARRANTY_TEXT.format(
+                warranty_label=warranty_label,
+                years=labor_years,
+            )
+        else:
+            labor_text = raw_labor.format(
+                warranty_label=warranty_label,
+                years=labor_years,
+            )
+        elements.append(Paragraph(labor_text, s_body))
+
+        # ── Exclusions ──
+        elements.append(
+            Paragraph("EXCLUSIONS", s_section)
+        )
+        exclusions = warranty_info.get(
+            "warranty_exclusions",
+            DEFAULT_WARRANTY_EXCLUSIONS,
+        )
+        elements.append(Paragraph(exclusions, s_small))
+
+        # ── Signature Block ──
+        elements.append(Spacer(1, 14))
+        elements.append(HRFlowable(
+            width="100%", thickness=0.5,
+            color=colors.HexColor(COLOR_BORDER),
+        ))
+        elements.append(Spacer(1, 6))
+
+        s_sig_line = ParagraphStyle(
+            "WCSigLine", fontName="Helvetica",
+            fontSize=9,
+            textColor=colors.HexColor(COLOR_DARK),
+        )
+
+        sig_data = [
+            [
+                Paragraph(
+                    "Contractor Signature:  "
+                    "__________________________",
+                    s_sig_line,
+                ),
+                Paragraph(
+                    f"Date:  {today}",
+                    s_sig_line,
+                ),
+            ],
+            [
+                Paragraph("", s_sig_line),
+                Paragraph("", s_sig_line),
+            ],
+            [
+                Paragraph(
+                    "Property Owner:  "
+                    "__________________________",
+                    s_sig_line,
+                ),
+                Paragraph(
+                    "Date:  ______________",
+                    s_sig_line,
+                ),
+            ],
+        ]
+        t = Table(
+            sig_data,
+            colWidths=[cw * 0.6, cw * 0.4],
+        )
+        t.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        elements.append(t)
+
+        # ── Footer note ──
+        elements.append(Spacer(1, 10))
+        elements.append(HRFlowable(
+            width="100%", thickness=1,
+            color=colors.HexColor(COLOR_PRIMARY),
+        ))
+        elements.append(Spacer(1, 4))
+        elements.append(Paragraph(
+            "This certificate is issued as confirmation "
+            "of warranty coverage for the roofing work "
+            "described above. Please retain this document "
+            "for your records. In the event of a warranty "
+            "claim, contact us with this certificate "
+            "number for expedited service.",
+            s_small,
+        ))
+
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer
 
     def _generate_text_fallback(self, estimate: Dict[str, Any]) -> io.BytesIO:
         """Simple text fallback when reportlab is not installed."""

@@ -268,12 +268,31 @@ export function useBESketchState(initialData?: BESketchData) {
           ? (roomType === 'toilet_room' ? 'Toilet Room' : roomType === 'linen_closet' ? 'Linen Closet' : 'Closet')
           : 'Bathroom';
 
+        // Auto-create walls for each boundary edge if none provided
+        let finalWallIds = wallIds;
+        let newWalls = [...d.walls];
+        if (wallIds.length === 0 && boundary.length >= 3) {
+          finalWallIds = [];
+          for (let i = 0; i < boundary.length; i++) {
+            const next = boundary[(i + 1) % boundary.length];
+            const wall: BEWall = {
+              id: generateId('wall'),
+              start: boundary[i],
+              end: next,
+              thickness: 4,
+              heightInches,
+            };
+            newWalls.push(wall);
+            finalWallIds.push(wall.id);
+          }
+        }
+
         const room: BERoom = {
           id: generateId('room'),
           name: name ?? defaultName,
           roomType: roomType ?? defaultType,
           boundary,
-          wallIds,
+          wallIds: finalWallIds,
           parentRoomId,
           heightInches,
           floorAreaSF: Math.round(floorAreaSF * 100) / 100,
@@ -282,7 +301,7 @@ export function useBESketchState(initialData?: BESketchData) {
           perimeterLF: Math.round(perimeterLF * 100) / 100,
         };
         const newRooms = recalcNetAreas([...d.rooms, room]);
-        return { ...d, rooms: newRooms };
+        return { ...d, walls: newWalls, rooms: newRooms };
       });
       return generateId('room'); // Note: actual ID created inside mutate
     },
@@ -387,6 +406,8 @@ export function useBESketchState(initialData?: BESketchData) {
           surroundHeight: sd.surroundHeight,
           deckWidth: sd.deckWidth,
           deckHeight: sd.deckHeight,
+          deckTileSides: sd.deckTileSides,
+          hasFrontPanel: properties?.hasFrontPanel ?? sd.hasFrontPanel,
         };
       }
 

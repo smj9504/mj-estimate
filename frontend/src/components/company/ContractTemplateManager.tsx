@@ -270,14 +270,16 @@ const ContractTemplateManager: React.FC<ContractTemplateManagerProps> = ({
       render: (_: unknown, record) => (
         <Space size={4}>
           {record.file_url && (
-            <Tooltip title="View PDF">
+            <Tooltip title={record.file_available === false ? 'PDF file is missing. Please re-upload.' : 'View PDF'}>
               <Button
                 icon={<FilePdfOutlined />}
                 size="small"
                 type="text"
-                href={record.file_url}
+                href={record.file_available === false ? undefined : record.file_url}
                 target="_blank"
                 rel="noopener noreferrer"
+                disabled={record.file_available === false}
+                danger={record.file_available === false}
               />
             </Tooltip>
           )}

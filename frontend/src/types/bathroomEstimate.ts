@@ -8,6 +8,16 @@ export interface ShowerSpec {
   type?: string;          // tub_combo, one_piece, multi_piece_kit, custom_tile, curbless
   size?: { width: number; depth: number; height: number };
   enclosure?: string;     // curtain, sliding, pivot, frameless, half_wall_glass
+  /** Door type from sketch: sliding, swing, frameless_swing, bi_fold, curtain, none */
+  door_type?: string;
+  /** Door opening width in inches */
+  door_width?: number;
+  /** Fixed glass panel config: none, left, right, both */
+  fixed_panel_config?: string;
+  /** Enclosure layout: alcove, corner, corner_right */
+  layout?: string;
+  /** Curb height in inches (0 = curbless) */
+  curb_height?: number;
   niches?: number;
   bench?: boolean;
   showerhead_type?: string;
@@ -70,9 +80,19 @@ export interface FloorSpec {
 }
 
 export interface WallsSpec {
+  /** Wall finish: paint, tile, or paint_and_tile (partial each) */
+  wall_finish?: 'paint' | 'tile' | 'paint_and_tile';
   paint_walls?: boolean;
   paint_ceiling?: boolean;
   paint_grade?: string;
+  /** Paint area SF (for paint_and_tile mode) */
+  paint_wall_sf?: number;
+  /** Tile the remaining (paintable) wall area */
+  tile_walls?: boolean;
+  tile_wall_sf?: number;
+  tile_material?: string;
+  tile_pattern?: string;
+  tile_size?: string;
   baseboard_material?: string;
   quarter_round?: boolean;
   colors?: number;

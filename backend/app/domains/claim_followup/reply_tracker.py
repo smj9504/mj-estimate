@@ -5,6 +5,7 @@ Polls IMAP inboxes for replies to sent follow-up emails and
 auto-updates SentEmail, FollowUpTask, CommunicationLog, and ClaimActivity.
 """
 
+import imaplib
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -150,42 +151,60 @@ class ReplyTracker:
 
             found = 0
 
-            # Strategy 1: Header-based matching (smtp_message_id)
-            if msg_id_map:
-                replies = imap.fetch_replies(
-                    original_message_ids=list(msg_id_map.keys()),
-                    since_date=since,
-                )
-                logger.info(
-                    f"[ReplyTracker] Header search returned "
-                    f"{len(replies)} candidate replies"
-                )
-                for reply in replies:
-                    matched = self._match_reply_to_sent(
-                        reply, msg_id_map
+            try:
+                # Strategy 1: Header-based matching (smtp_message_id)
+                if msg_id_map:
+                    replies = imap.fetch_replies(
+                        original_message_ids=list(msg_id_map.keys()),
+                        since_date=since,
                     )
-                    if matched:
-                        self._process_reply(session, matched, reply)
-                        found += 1
+                    logger.info(
+                        f"[ReplyTracker] Header search returned "
+                        f"{len(replies)} candidate replies"
+                    )
+                    for reply in replies:
+                        matched = self._match_reply_to_sent(
+                            reply, msg_id_map
+                        )
+                        if matched:
+                            self._process_reply(session, matched, reply)
+                            found += 1
 
-            # Strategy 2: Subject-based matching for emails without
-            # smtp_message_id (older emails or failed tracking)
-            if subject_map:
-                subject_replies = imap.fetch_replies_by_subject(
-                    subjects=list(subject_map.keys()),
-                    since_date=since,
-                )
-                logger.info(
-                    f"[ReplyTracker] Subject search returned "
-                    f"{len(subject_replies)} candidate replies"
-                )
-                for reply in subject_replies:
-                    matched = self._match_reply_by_subject(
-                        reply, subject_map, unreplied
+                # Strategy 2: Subject-based matching for emails without
+                # smtp_message_id (older emails or failed tracking)
+                if subject_map:
+                    subject_replies = imap.fetch_replies_by_subject(
+                        subjects=list(subject_map.keys()),
+                        since_date=since,
                     )
-                    if matched:
-                        self._process_reply(session, matched, reply)
-                        found += 1
+                    logger.info(
+                        f"[ReplyTracker] Subject search returned "
+                        f"{len(subject_replies)} candidate replies"
+                    )
+                    for reply in subject_replies:
+                        matched = self._match_reply_by_subject(
+                            reply, subject_map, unreplied
+                        )
+                        if matched:
+                            self._process_reply(session, matched, reply)
+                            found += 1
+
+            except imaplib.IMAP4.error as imap_err:
+                err_bytes = imap_err.args[0] if imap_err.args else b""
+                err_str = (
+                    err_bytes.decode() if isinstance(err_bytes, bytes)
+                    else str(err_bytes)
+                )
+                if "AUTHENTICATIONFAILED" in err_str or "Invalid credentials" in err_str:
+                    logger.warning(
+                        f"[ReplyTracker] Authentication failed for "
+                        f"{account['email_address']} — disabling account. "
+                        f"Please update credentials in email settings."
+                    )
+                    self._disable_account(session, account["id"])
+                    session.commit()
+                    return 0
+                raise
 
             session.commit()
             logger.info(
@@ -204,6 +223,22 @@ class ReplyTracker:
             raise
         finally:
             session.close()
+
+    def _disable_account(self, session, account_id: str) -> None:
+        """Disable an email account after authentication failure."""
+        try:
+            from app.domains.email_ingestion.models import EmailAccount
+            account = session.query(EmailAccount).filter(
+                EmailAccount.id == account_id
+            ).first()
+            if account:
+                account.is_active = False
+                logger.info(
+                    f"[ReplyTracker] Account {account_id} disabled "
+                    f"due to authentication failure"
+                )
+        except Exception as e:
+            logger.warning(f"[ReplyTracker] Could not disable account: {e}")
 
     def _get_unreplied_emails(
         self, session, account_id: str

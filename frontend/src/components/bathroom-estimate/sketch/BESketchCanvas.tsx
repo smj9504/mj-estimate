@@ -218,7 +218,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   const drywallRepairZones = data.drywallRepairZones ?? [];
   const drywallSurface = api.drywallSurface ?? 'wall';
   const ppf = settings.pixelsPerFoot;
-  const gridPx = ppf * settings.gridSizeFt;
+  const gridPx = ppf * settings.gridSizeFt;  // visual minor grid (3")
+  const snapPx = ppf * 0.125;                // snap resolution: 1.5" always
 
   // ── Wall body drag ref (move entire wall) ──
   const wallDragRef = useRef<{ wallId: string; rawStart: BEPoint; rawEnd: BEPoint } | null>(null);
@@ -266,7 +267,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
       const pos = stage?.getPointerPosition();
       if (!pos) return { x: 0, y: 0 };
       let p = { x: pos.x, y: pos.y };
-      if (settings.snapToGrid) p = snapToGrid(p, gridPx);
+      if (settings.snapToGrid) p = snapToGrid(p, snapPx);
       if (applyWallSnap) p = snapToWallEndpoints(p, walls);
       return p;
     },
@@ -359,7 +360,10 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         pos = constrainAxis(drawingWall.start, pos);
         const lenPx = dist(drawingWall.start, pos);
         if (lenPx > 8) {
-          addWall(drawingWall.start, pos);
+          const newWallId = addWall(drawingWall.start, pos);
+          // Auto-select the new wall and switch to select mode
+          setSelectedId(newWallId);
+          api.setActiveTool('select');
         }
         setDrawingWall(null);
         setSnapIndicator(null);
@@ -791,53 +795,42 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
       >
         {/* ── Grid Layer ── */}
         {settings.showGrid && (() => {
-          // Multi-level grid: minor = gridPx (1/4 ft = 3"), major = 1 ft
-          const majorPx = ppf; // 1 foot intervals
-          const minorPx = gridPx; // 1/4 foot (3") intervals
+          // Grid: minor = 3" (gridPx), major = 1 ft (ppf)
+          const majorPx = ppf;    // 1 foot intervals (bold lines)
+          const minorPx = gridPx; // 3 inch intervals (each visible square = 3")
           return (
           <Layer listening={false}>
-            {/* Minor grid lines (every 1/4 ft = 3") */}
+            {/* 3-level grid: sub (1.5"), minor (3" = gridPx), major (1ft = ppf) */}
+            {/* Sub-grid lines (halfway between minor lines) */}
+            {Array.from({ length: Math.ceil(width / minorPx) }, (_, i) => (
+              <Line key={`gsv${i}`} points={[i * minorPx + minorPx / 2, 0, i * minorPx + minorPx / 2, height]} stroke="#f0f0f0" strokeWidth={0.3} />
+            ))}
+            {Array.from({ length: Math.ceil(height / minorPx) }, (_, i) => (
+              <Line key={`gsh${i}`} points={[0, i * minorPx + minorPx / 2, width, i * minorPx + minorPx / 2]} stroke="#f0f0f0" strokeWidth={0.3} />
+            ))}
+            {/* Minor (3") + Major (1ft) grid lines */}
             {Array.from({ length: Math.ceil(width / minorPx) + 1 }, (_, i) => {
               const isMajor = Math.abs(i * minorPx - Math.round(i * minorPx / majorPx) * majorPx) < 1;
-              if (isMajor) return null; // drawn separately
               return (
                 <Line
                   key={`gv${i}`}
                   points={[i * minorPx, 0, i * minorPx, height]}
-                  stroke="#f0f0f0"
-                  strokeWidth={0.4}
+                  stroke={isMajor ? '#ccc' : '#e8e8e8'}
+                  strokeWidth={isMajor ? 1 : 0.5}
                 />
               );
             })}
             {Array.from({ length: Math.ceil(height / minorPx) + 1 }, (_, i) => {
               const isMajor = Math.abs(i * minorPx - Math.round(i * minorPx / majorPx) * majorPx) < 1;
-              if (isMajor) return null;
               return (
                 <Line
                   key={`gh${i}`}
                   points={[0, i * minorPx, width, i * minorPx]}
-                  stroke="#f0f0f0"
-                  strokeWidth={0.4}
+                  stroke={isMajor ? '#ccc' : '#e8e8e8'}
+                  strokeWidth={isMajor ? 1 : 0.5}
                 />
               );
             })}
-            {/* Major grid lines (every 1 ft) */}
-            {Array.from({ length: Math.ceil(width / majorPx) + 1 }, (_, i) => (
-              <Line
-                key={`gvM${i}`}
-                points={[i * majorPx, 0, i * majorPx, height]}
-                stroke="#ddd"
-                strokeWidth={0.8}
-              />
-            ))}
-            {Array.from({ length: Math.ceil(height / majorPx) + 1 }, (_, i) => (
-              <Line
-                key={`ghM${i}`}
-                points={[0, i * majorPx, width, i * majorPx]}
-                stroke="#ddd"
-                strokeWidth={0.8}
-              />
-            ))}
             {/* Scale indicator */}
             <Line points={[10, height - 20, 10 + ppf, height - 20]} stroke="#999" strokeWidth={1.5} />
             <Line points={[10, height - 24, 10, height - 16]} stroke="#999" strokeWidth={1} />
@@ -860,7 +853,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             const pts = room.boundary.flatMap((p) => [p.x, p.y]);
             const cx = room.boundary.reduce((s, p) => s + p.x, 0) / room.boundary.length;
             const cy = room.boundary.reduce((s, p) => s + p.y, 0) / room.boundary.length;
-            const isRoomSelected = selectedId === room.id && activeTool === 'select';
+            const isRoomSelected = selectedId === room.id;
             const isRect = room.boundary.length === 4;
             const xs = room.boundary.map((p) => p.x);
             const ys = room.boundary.map((p) => p.y);
@@ -868,17 +861,81 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             const maxX = Math.max(...xs);
             const minY = Math.min(...ys);
             const maxY = Math.max(...ys);
+            // Find walls belonging to this room for per-edge click
+            const roomWallMap = new Map<string, BEWall>();
+            for (const wId of room.wallIds) {
+              const w = walls.find(ww => ww.id === wId);
+              if (w) roomWallMap.set(wId, w);
+            }
             return (
               <Group key={room.id}>
+                {/* Room fill (interior click → select room) */}
                 <Line
                   points={pts}
                   closed
                   fill={room.parentRoomId ? 'rgba(255, 235, 200, 0.3)' : 'rgba(200, 230, 255, 0.25)'}
-                  stroke={isRoomSelected ? '#1890ff' : room.parentRoomId ? '#d48806' : '#90caf9'}
-                  strokeWidth={isRoomSelected ? 2.5 : 1}
-                  onClick={() => setSelectedId(room.id)}
-                  hitStrokeWidth={6}
+                  stroke="transparent"
+                  strokeWidth={0}
+                  onClick={() => { setSelectedId(room.id); if (activeTool !== 'select') api.setActiveTool('select'); }}
                 />
+                {/* Room boundary edges: click each edge → select corresponding wall */}
+                {room.boundary.map((pt, idx) => {
+                  const nIdx = (idx + 1) % room.boundary.length;
+                  const npt = room.boundary[nIdx];
+                  // Find wall matching this edge
+                  const matchWall = Array.from(roomWallMap.values()).find(w => {
+                    const m1 = Math.abs(w.start.x - pt.x) < 4 && Math.abs(w.start.y - pt.y) < 4
+                            && Math.abs(w.end.x - npt.x) < 4 && Math.abs(w.end.y - npt.y) < 4;
+                    const m2 = Math.abs(w.start.x - npt.x) < 4 && Math.abs(w.start.y - npt.y) < 4
+                            && Math.abs(w.end.x - pt.x) < 4 && Math.abs(w.end.y - pt.y) < 4;
+                    return m1 || m2;
+                  });
+                  const isTile = matchWall?.finish === 'tile';
+                  const isThisWallSelected = matchWall && selectedId === matchWall.id;
+                  const edgeColor = isThisWallSelected
+                    ? '#1890ff'
+                    : isTile ? '#1976d2' : (room.parentRoomId ? '#d48806' : '#555');
+                  const edgeWidth = isThisWallSelected ? 3.5 : (isRoomSelected ? 2.5 : 2);
+                  return (
+                    <React.Fragment key={`re-${room.id}-${idx}`}>
+                      <Line
+                        points={[pt.x, pt.y, npt.x, npt.y]}
+                        stroke={edgeColor}
+                        strokeWidth={edgeWidth}
+                        lineCap="round"
+                        hitStrokeWidth={12}
+                        onClick={(e) => {
+                          e.cancelBubble = true;
+                          if (matchWall) {
+                            setSelectedId(matchWall.id);
+                          } else {
+                            setSelectedId(room.id);
+                          }
+                          if (activeTool !== 'select') api.setActiveTool('select');
+                        }}
+                        onDblClick={(e) => {
+                          if (matchWall) {
+                            e.cancelBubble = true;
+                            handleWallDblClick(matchWall.id);
+                          }
+                        }}
+                      />
+                      {/* Finish indicator tag on each edge */}
+                      {isTile && !isThisWallSelected && (() => {
+                        const mx = (pt.x + npt.x) / 2;
+                        const my = (pt.y + npt.y) / 2;
+                        const isH = Math.abs(npt.y - pt.y) < Math.abs(npt.x - pt.x);
+                        return (
+                          <Text
+                            x={isH ? mx - 8 : mx + 4} y={isH ? my + 4 : my - 6}
+                            text="T" fontSize={9} fill="#1976d2" fontStyle="bold"
+                            listening={false}
+                          />
+                        );
+                      })()}
+                    </React.Fragment>
+                  );
+                })}
                 {settings.showAreaLabels && (
                   <Text
                     x={cx - 35} y={cy - 14}
@@ -903,7 +960,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     onDragMove={(e) => {
                       const raw = { x: e.target.x(), y: e.target.y() };
                       const pos = settings.snapToGrid
-                        ? snapToGrid(raw, gridPx)
+                        ? snapToGrid(raw, snapPx)
                         : raw;
                       e.target.position(pos);
 
@@ -958,7 +1015,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
                       onDragMove={(e) => {
                         const raw = { x: e.target.x() + (isH ? 8 : 3), y: e.target.y() + (isH ? 3 : 8) };
-                        const pos = settings.snapToGrid ? snapToGrid(raw, gridPx) : raw;
+                        const pos = settings.snapToGrid ? snapToGrid(raw, snapPx) : raw;
                         const b = [...room.boundary];
                         if (isH) {
                           // Move both endpoints of this edge vertically
@@ -1134,7 +1191,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                           const snap = settings.snapToGrid;
                           const newB: BEPoint[] = orig.map((pt) => {
                             const moved = { x: pt.x + dx, y: pt.y + dy };
-                            return snap ? snapToGrid(moved, gridPx) : moved;
+                            return snap ? snapToGrid(moved, snapPx) : moved;
                           });
                           e.target.position({ x: 0, y: 0 });
                           // do NOT update rawBoundary – dx/dy are always total delta from dragStart
@@ -1153,7 +1210,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                         onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
                         onDragMove={(e) => {
                           let pos = { x: e.target.x(), y: e.target.y() };
-                          if (settings.snapToGrid) pos = snapToGrid(pos, gridPx);
+                          if (settings.snapToGrid) pos = snapToGrid(pos, snapPx);
                           e.target.position(pos);
                           const other = epIdx === 0 ? p1 : p0;
                           const newB: BEPoint[] = epIdx === 0 ? [pos, { ...other }] : [{ ...other }, pos];
@@ -1205,7 +1262,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                           const orig = dwDragRef.current.rawBoundary; // fixed origin from dragStart
                           const newB: BEPoint[] = orig.map((pt) => {
                             const moved = { x: pt.x + dx, y: pt.y + dy };
-                            return settings.snapToGrid ? snapToGrid(moved, gridPx) : moved;
+                            return settings.snapToGrid ? snapToGrid(moved, snapPx) : moved;
                           });
                           e.target.position({ x: 0, y: 0 });
                           // do NOT update rawBoundary – dx/dy are always total delta from dragStart
@@ -1224,7 +1281,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                         onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
                         onDragMove={(e) => {
                           let pos = { x: e.target.x(), y: e.target.y() };
-                          if (settings.snapToGrid) pos = snapToGrid(pos, gridPx);
+                          if (settings.snapToGrid) pos = snapToGrid(pos, snapPx);
                           e.target.position(pos);
                           const b = [...zone.boundary];
                           b[cIdx] = pos;
@@ -1306,35 +1363,38 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
           </Layer>
         )}
 
-        {/* ── Walls Layer ── */}
+        {/* ── Walls Layer (only walls NOT belonging to a room — room walls rendered in Room Layer) ── */}
         <Layer>
-          {walls.map((wall) => {
+          {walls.filter((w) => !rooms.some((r) => r.wallIds.includes(w.id))).map((wall) => {
             const lenIn = (calcWallLengthPx(wall) / ppf) * 12;
             const mid = wallMidpoint(wall);
-            const isWallSelected = selectedId === wall.id && activeTool === 'select';
+            const isWallSelected = selectedId === wall.id;
+            const isTileWall = wall.finish === 'tile';
+            const wallColor = isWallSelected ? '#1890ff' : isTileWall ? '#1976d2' : '#555';
             return (
               <Group key={wall.id}>
                 <Line
                   points={[wall.start.x, wall.start.y, wall.end.x, wall.end.y]}
-                  stroke={isWallSelected ? '#1890ff' : '#333'}
-                  strokeWidth={wall.thickness}
+                  stroke={wallColor}
+                  strokeWidth={isWallSelected ? 3 : 2}
                   lineCap="round"
                   onMouseDown={(e) => { e.cancelBubble = true; }}
                   onClick={(e) => {
                     e.cancelBubble = true;
-                    if (isWallSelected) {
-                      handleWallDblClick(wall.id);
-                    } else {
-                      setSelectedId(wall.id);
-                    }
+                    setSelectedId(wall.id);
+                    if (activeTool !== 'select') api.setActiveTool('select');
+                  }}
+                  onDblClick={(e) => {
+                    e.cancelBubble = true;
+                    handleWallDblClick(wall.id);
                   }}
                   hitStrokeWidth={14}
                 />
                 {/* Endpoints (static when not selected) */}
                 {!isWallSelected && (
                   <>
-                    <Circle x={wall.start.x} y={wall.start.y} radius={3} fill="#666" />
-                    <Circle x={wall.end.x} y={wall.end.y} radius={3} fill="#666" />
+                    <Circle x={wall.start.x} y={wall.start.y} radius={3} fill={wallColor} />
+                    <Circle x={wall.end.x} y={wall.end.y} radius={3} fill={wallColor} />
                   </>
                 )}
                 {/* Draggable wall body (move entire wall when selected) */}
@@ -1346,7 +1406,9 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     draggable
                     onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'move'; }}
                     onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                    onMouseDown={(e) => { e.cancelBubble = true; }}
                     onClick={(e) => { e.cancelBubble = true; }}
+                    onDblClick={(e) => { e.cancelBubble = true; handleWallDblClick(wall.id); }}
                     onDragStart={() => {
                       wallDragRef.current = {
                         wallId: wall.id,
@@ -1361,8 +1423,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       const ref = wallDragRef.current;
                       const rawNewStart = { x: ref.rawStart.x + dx, y: ref.rawStart.y + dy };
                       const rawNewEnd = { x: ref.rawEnd.x + dx, y: ref.rawEnd.y + dy };
-                      const newStart = settings.snapToGrid ? snapToGrid(rawNewStart, gridPx) : rawNewStart;
-                      const newEnd = settings.snapToGrid ? snapToGrid(rawNewEnd, gridPx) : rawNewEnd;
+                      const newStart = settings.snapToGrid ? snapToGrid(rawNewStart, snapPx) : rawNewStart;
+                      const newEnd = settings.snapToGrid ? snapToGrid(rawNewEnd, snapPx) : rawNewEnd;
                       // Capture pre-update positions for room vertex lookup
                       const prevStart = wall.start;
                       const prevEnd = wall.end;
@@ -1403,7 +1465,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       onDragMove={(e) => {
                         const oldPos = wall.start;
                         let pos = settings.snapToGrid
-                          ? snapToGrid({ x: e.target.x(), y: e.target.y() }, gridPx)
+                          ? snapToGrid({ x: e.target.x(), y: e.target.y() }, snapPx)
                           : { x: e.target.x(), y: e.target.y() };
                         pos = snapToWallEndpoints(pos, walls, wall.id);
                         e.target.position(pos);
@@ -1424,7 +1486,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       onDragMove={(e) => {
                         const oldPos = wall.end;
                         let pos = settings.snapToGrid
-                          ? snapToGrid({ x: e.target.x(), y: e.target.y() }, gridPx)
+                          ? snapToGrid({ x: e.target.x(), y: e.target.y() }, snapPx)
                           : { x: e.target.x(), y: e.target.y() };
                         pos = snapToWallEndpoints(pos, walls, wall.id);
                         e.target.position(pos);
@@ -1449,7 +1511,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               <Line
                 points={[drawingWall.start.x, drawingWall.start.y, drawingWall.current.x, drawingWall.current.y]}
                 stroke="#1890ff"
-                strokeWidth={4}
+                strokeWidth={2}
                 dash={[8, 4]}
                 lineCap="round"
               />
@@ -1658,6 +1720,10 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
     fix.type,
     fix.properties.bathtubSubType as BathtubSubType | undefined,
     fix.properties.sinkCount,
+    fix.properties.showerDoorType,
+    fix.properties.showerLayout,
+    fix.properties.fixedPanelConfig,
+    fix.properties.showerDoorWidth ? fix.properties.showerDoorWidth / fix.dimensions.width : undefined,
   );
 
   // Attach transformer to the standalone Rect; re-sync on dimension/rotation change

@@ -31,6 +31,7 @@ import type {
   BEFixtureType,
   BathtubSubType,
   ShowerFloorType,
+  ShowerDoorType,
   BEFixture,
   BEWall,
   BEPoint,
@@ -94,6 +95,8 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
         showerFloorType: type === 'shower' ? 'tile' : undefined,
         showerWallCount: type === 'shower' ? 3 : undefined,
         showerTileHeight: type === 'shower' ? 96 : undefined,
+        showerDoorType: type === 'shower' ? 'sliding' : undefined,
+        showerDoorSide: type === 'shower' ? 'front' : undefined,
       });
       setSelectedId(id);
       setActiveTool('select');
@@ -424,6 +427,18 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
               value={p.bathtubSubType ?? 'standard_alcove'}
               onChange={(v: BathtubSubType) => {
                 const sd = BATHTUB_SURROUND_DEFAULTS[v];
+                // Auto-adjust tub dimensions based on subtype
+                const dimMap: Partial<Record<BathtubSubType, { width: number; height: number }>> = {
+                  standard_alcove: { width: 60, height: 32 },
+                  corner_drop_in: { width: 60, height: 42 },
+                  corner_garden: { width: 60, height: 60 },
+                  drop_in: { width: 60, height: 32 },
+                  freestanding: { width: 60, height: 30 },
+                };
+                const dims = dimMap[v];
+                if (dims) {
+                  api.updateFixture(fixture.id, { dimensions: dims });
+                }
                 updateFixtureProperties(fixture.id, {
                   bathtubSubType: v,
                   hasSurround: sd.surroundWallCount > 0,
@@ -431,11 +446,14 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
                   surroundHeight: sd.surroundHeight,
                   deckWidth: sd.deckWidth,
                   deckHeight: sd.deckHeight,
+                  deckTileSides: sd.deckTileSides,
+                  hasFrontPanel: sd.hasFrontPanel,
                 });
               }}
               style={{ width: '100%', marginTop: 4 }}
             >
               <Option value="standard_alcove">Standard Alcove (3-wall)</Option>
+              <Option value="corner_drop_in">Corner Drop-in (platform)</Option>
               <Option value="corner_garden">Corner / Garden</Option>
               <Option value="drop_in">Drop-in (with deck)</Option>
               <Option value="freestanding">Freestanding</Option>
@@ -476,27 +494,53 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
             </div>
           )}
 
-          {(p.bathtubSubType === 'drop_in' || p.bathtubSubType === 'corner_garden') && (
-            <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-              <InputNumber
-                size="small"
-                addonBefore="Deck W″"
-                value={p.deckWidth ?? 10}
-                min={4}
-                max={24}
-                onChange={(v) => v && updateFixtureProperties(fixture.id, { deckWidth: v })}
-                style={{ width: '50%' }}
-              />
-              <InputNumber
-                size="small"
-                addonBefore="Deck H″"
-                value={p.deckHeight ?? 20}
-                min={12}
-                max={36}
-                onChange={(v) => v && updateFixtureProperties(fixture.id, { deckHeight: v })}
-                style={{ width: '50%' }}
-              />
-            </div>
+          {(p.bathtubSubType === 'drop_in' || p.bathtubSubType === 'corner_garden' || p.bathtubSubType === 'corner_drop_in') && (
+            <>
+              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>Deck / Platform:</Text>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                <div style={{ flex: 1 }}>
+                  <Text type="secondary" style={{ fontSize: 10 }}>Width″</Text>
+                  <InputNumber
+                    size="small"
+                    value={p.deckWidth ?? 10}
+                    min={4}
+                    max={24}
+                    style={{ width: '100%' }}
+                    onChange={(v) => v && updateFixtureProperties(fixture.id, { deckWidth: v })}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <Text type="secondary" style={{ fontSize: 10 }}>Height″</Text>
+                  <InputNumber
+                    size="small"
+                    value={p.deckHeight ?? 20}
+                    min={12}
+                    max={36}
+                    style={{ width: '100%' }}
+                    onChange={(v) => v && updateFixtureProperties(fixture.id, { deckHeight: v })}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <Text type="secondary" style={{ fontSize: 10 }}>Sides</Text>
+                  <InputNumber
+                    size="small"
+                    value={p.deckTileSides ?? 2}
+                    min={1}
+                    max={4}
+                    style={{ width: '100%' }}
+                    onChange={(v) => v && updateFixtureProperties(fixture.id, { deckTileSides: v })}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text type="secondary">Front Panel Tile:</Text>
+                <Switch
+                  size="small"
+                  checked={p.hasFrontPanel ?? false}
+                  onChange={(v) => updateFixtureProperties(fixture.id, { hasFrontPanel: v })}
+                />
+              </div>
+            </>
           )}
         </>
       )}
@@ -570,6 +614,70 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
               style={{ width: '50%' }}
             />
             {(p.curbHeight ?? 4) === 0 && <Tag color="blue" style={{ marginLeft: 6 }}>Curbless</Tag>}
+          </div>
+
+          <Divider style={{ margin: '6px 0' }} />
+          <div style={{ marginBottom: 6 }}>
+            <Text type="secondary">Enclosure:</Text>
+            <Select
+              size="small"
+              value={p.showerLayout ?? 'alcove'}
+              onChange={(v: string) => {
+                const wallMap: Record<string, number> = { alcove: 3, corner: 2, corner_right: 2 };
+                updateFixtureProperties(fixture.id, {
+                  showerLayout: v as any,
+                  showerWallCount: wallMap[v] ?? 3,
+                });
+              }}
+              style={{ width: '100%', marginTop: 4 }}
+            >
+              <Option value="alcove">Alcove (3 walls)</Option>
+              <Option value="corner">Corner - glass right</Option>
+              <Option value="corner_right">Corner - glass left</Option>
+            </Select>
+          </div>
+          <div style={{ marginBottom: 6 }}>
+            <Text type="secondary">Door / Opening:</Text>
+            <Select
+              size="small"
+              value={p.showerDoorType ?? 'none'}
+              onChange={(v: ShowerDoorType) => updateFixtureProperties(fixture.id, { showerDoorType: v })}
+              style={{ width: '100%', marginTop: 4 }}
+            >
+              <Option value="none">Open (no door)</Option>
+              <Option value="curtain">Curtain</Option>
+              <Option value="sliding">Sliding glass</Option>
+              <Option value="swing">Swing (framed)</Option>
+              <Option value="frameless_swing">Swing (frameless)</Option>
+              <Option value="bi_fold">Bi-fold</Option>
+            </Select>
+          </div>
+          {p.showerDoorType && p.showerDoorType !== 'none' && p.showerDoorType !== 'curtain' && (
+            <div style={{ marginBottom: 6 }}>
+              <InputNumber
+                size="small"
+                addonBefore="Door W″"
+                value={p.showerDoorWidth ?? Math.round(fixture.dimensions.width * 0.5)}
+                min={18}
+                max={fixture.dimensions.width}
+                onChange={(v) => v && updateFixtureProperties(fixture.id, { showerDoorWidth: v })}
+                style={{ width: '100%' }}
+              />
+            </div>
+          )}
+          <div style={{ marginBottom: 6 }}>
+            <Text type="secondary">Fixed glass panel:</Text>
+            <Select
+              size="small"
+              value={p.fixedPanelConfig ?? 'none'}
+              onChange={(v) => updateFixtureProperties(fixture.id, { fixedPanelConfig: v as 'none' | 'left' | 'right' | 'both' })}
+              style={{ width: '100%', marginTop: 4 }}
+            >
+              <Option value="none">None</Option>
+              <Option value="left">Left side</Option>
+              <Option value="right">Right side</Option>
+              <Option value="both">Both sides</Option>
+            </Select>
           </div>
         </>
       )}
@@ -699,6 +807,19 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
         </div>
       </div>
 
+      <div style={{ marginBottom: 8 }}>
+        <Text type="secondary">Finish:</Text>
+        <Select
+          size="small"
+          value={wall.finish ?? 'paint'}
+          onChange={(v) => api.updateWall(wall.id, { finish: v })}
+          style={{ width: '100%', marginTop: 4 }}
+        >
+          <Option value="paint">🎨 Paint</Option>
+          <Option value="tile">🔲 Tile</Option>
+        </Select>
+      </div>
+
       <div style={{ marginBottom: 4 }}>
         <Text type="secondary">Label:</Text>
         <input
@@ -707,6 +828,15 @@ const WallPropertiesPanel: React.FC<{ wall: BEWall; ppf: number; api: BESketchSt
           placeholder="e.g. North"
           onChange={(e) => api.updateWall(wall.id, { label: e.target.value || undefined })}
         />
+      </div>
+
+      {/* Wall area display */}
+      <Divider style={{ margin: '6px 0' }} />
+      <div style={{ fontSize: 11, color: '#888' }}>
+        Wall Area: <strong>{Math.round(lengthFt * (wall.heightInches / 12) * 10) / 10} SF</strong>
+        <Tag color={wall.finish === 'tile' ? 'blue' : 'default'} style={{ marginLeft: 6, fontSize: 10 }}>
+          {wall.finish === 'tile' ? 'Tile' : 'Paint'}
+        </Tag>
       </div>
     </div>
   );

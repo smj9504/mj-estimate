@@ -60,12 +60,39 @@ class ContractTemplateService(BaseService[Dict[str, Any], str]):
         from app.domains.contract.repository import get_template_repository
         return get_template_repository(session)
 
+    def _annotate_file_availability(
+        self, templates: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Add file_available flag to each template (local storage only)."""
+        from app.core.config import settings
+        storage = getattr(settings, "STORAGE_PROVIDER", "local")
+        for t in templates:
+            file_url = t.get("file_url") or ""
+            if storage != "local":
+                t["file_available"] = True
+            elif file_url.startswith("/uploads/"):
+                file_path = (
+                    Path(__file__).resolve().parents[2]
+                    / file_url.lstrip("/")
+                )
+                available = file_path.exists()
+                if not available:
+                    logger.warning(
+                        f"Template '{t.get('name')}' ({t.get('id')}) "
+                        f"references missing file: {file_path}"
+                    )
+                t["file_available"] = available
+            else:
+                t["file_available"] = bool(file_url)
+        return templates
+
     def get_by_company(self, company_id: str) -> List[Dict[str, Any]]:
         try:
             session = self.database.get_readonly_session()
             try:
                 repo = self._get_repository_instance(session)
-                return repo.get_by_company(company_id)
+                templates = repo.get_by_company(company_id)
+                return self._annotate_file_availability(templates)
             finally:
                 session.close()
         except Exception as e:
@@ -77,7 +104,8 @@ class ContractTemplateService(BaseService[Dict[str, Any], str]):
             session = self.database.get_readonly_session()
             try:
                 repo = self._get_repository_instance(session)
-                return repo.get_all_with_company(**kwargs)
+                templates = repo.get_all_with_company(**kwargs)
+                return self._annotate_file_availability(templates)
             finally:
                 session.close()
         except Exception as e:

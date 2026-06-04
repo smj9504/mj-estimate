@@ -250,7 +250,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         demo_total += cost
         demo_parts.append(f"Toilet ${cost:,.2f}")
 
-    # Cement board repair: demo damaged section (water damage)
+    # Cement board: demo section requiring replacement
     cb_repair_sf = 0
     if estimate.water_damage and getattr(estimate, 'demo_cement_board', False):
         cb_repair_sf = getattr(estimate, 'demo_cement_board_sf', 0) or 0
@@ -467,17 +467,16 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     subfloor_explicit = sub.get("subfloor_repair", None)
     if not has_explicit_repair_subfloor and subfloor_explicit is True and subfloor_repair_sf > 0:
         # Explicit: user specified repair area
-        _add(line_items, 3, "Subfloor repair/replacement (plywood)", subfloor_repair_sf, "SF",
+        _add(line_items, 3, "Subfloor repair allowance (plywood)", subfloor_repair_sf, "SF",
              SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
-             notes="Damaged/rotted plywood replacement + fasteners")
+             notes="Subfloor integrity verification + replacement as needed per industry standard")
     elif not has_explicit_repair_subfloor and subfloor_explicit is not False and demo_floor and floor_sf > 0:
-        # Auto-include: demo floor → high probability of subfloor damage
-        # Budget 30% of floor area as likely repair zone
+        # Auto-include: demo floor → standard allowance for subfloor condition verification
         auto_repair_sf = round(floor_sf * 0.3, 1)
         _add(line_items, 3, "Subfloor repair allowance (plywood)", auto_repair_sf, "SF",
              SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
-             notes=f"Allowance ~30% of {floor_sf:.0f}SF floor — "
-                   f"common rot/damage after tile demo; adjust after inspection")
+             notes=f"Standard allowance ~30% of {floor_sf:.0f}SF — "
+                   f"subfloor condition to be verified upon demo; adjust per actual findings")
 
     # Self-leveling compound — auto-include when demo floor + tile install
     leveling_explicit = sub.get("self_leveling", None)
@@ -494,14 +493,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     # Cement board replacement — same SF as demo (partial repair)
     if cb_repair_sf > 0:
         _add(line_items, 3,
-             "Cement board replacement (water damage repair)",
+             "Cement board replacement",
              cb_repair_sf, "SF",
              SUBSTRATE_RATES["durock_per_sf"] * labor_mult,
              "substrate",
-             notes="Replace damaged section + overlap to nearest studs; "
-                   "undamaged board is reused")
+             notes="Replace section per code-compliant installation; "
+                   "overlap to nearest studs; reuse serviceable board")
 
-    # ── Water Damage Repair: Drywall & Subfloor ──
+    # ── Substrate Repair: Drywall & Subfloor ──
     # Wall drywall replacement (hang + tape + mud + sand + prime)
     if getattr(estimate, 'repair_drywall_walls', False):
         repair_wall_sf = getattr(estimate, 'repair_drywall_walls_sf', None) or demo_wall_sf
@@ -514,7 +513,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  repair_wall_sf, "SF",
                  SUBSTRATE_RATES[rate_key] * labor_mult, "substrate",
                  notes=f"Hang + tape + mud + sand + prime | "
-                       f"{'Greenboard for wet area' if use_moisture else 'Standard 1/2\" drywall'}")
+                       f"{'Greenboard per code for wet area' if use_moisture else 'Standard 1/2\" drywall'}")
 
     # Ceiling drywall replacement
     if getattr(estimate, 'repair_drywall_ceiling', False):
@@ -523,11 +522,11 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             use_mold = estimate.water_damage or estimate.mold_suspected
             if use_mold:
                 _add(line_items, 3,
-                     "Drywall replacement - ceiling (mold-resistant)",
+                     "Drywall replacement - ceiling (moisture-resistant)",
                      repair_ceil_sf, "SF",
                      SUBSTRATE_RATES["mold_resistant_drywall_per_sf"] * labor_mult,
                      "substrate",
-                     notes="Purple board / mold-resistant drywall | Hang + tape + mud + prime")
+                     notes="Moisture-resistant drywall per code for wet area | Hang + tape + mud + prime")
             else:
                 _add(line_items, 3,
                      "Drywall replacement - ceiling",
@@ -536,15 +535,15 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                      "substrate",
                      notes="Standard 1/2\" drywall | Hang + tape + mud + prime")
 
-    # Subfloor replacement (explicit repair flag - overrides auto-include logic)
+    # Subfloor replacement (explicit repair flag)
     if getattr(estimate, 'repair_subfloor', False):
         repair_floor_sf = getattr(estimate, 'repair_subfloor_sf', None) or floor_sf
         if repair_floor_sf > 0:
             _add(line_items, 3,
-                 "Subfloor replacement (water damage repair)",
+                 "Subfloor replacement (plywood)",
                  repair_floor_sf, "SF",
                  SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
-                 notes="Damaged/rotted plywood replacement + fasteners")
+                 notes="Plywood replacement per code-compliant installation + fasteners")
 
     # ────────────────────────────────────────
     # Phase 4: Tile & Flooring
@@ -772,6 +771,25 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  surround_sf, "SF", round(bt_total / surround_sf, 2), "tile",
                  notes=" | ".join(bt_parts))
 
+    # Bathtub deck tile (platform top surface)
+    if estimate.replace_tub and tub_spec.get("deck_tile"):
+        deck_sf = tub_spec.get("deck_tile_sf", 0) or 0
+        deck_sides = tub_spec.get("deck_tile_sides", 2)
+        if deck_sf > 0:
+            _add(line_items, 4,
+                 f"Bathtub deck tile ({deck_sides} sides)",
+                 deck_sf, "SF", round(14.00 * labor_mult, 2), "tile",
+                 notes=f"Deck top surface, bullnose edges")
+
+    # Bathtub front panel tile (vertical face)
+    if estimate.replace_tub and tub_spec.get("front_panel_tile"):
+        panel_sf = tub_spec.get("front_panel_sf", 0) or 0
+        if panel_sf > 0:
+            _add(line_items, 4,
+                 "Bathtub front panel tile",
+                 panel_sf, "SF", round(16.00 * labor_mult, 2), "tile",
+                 notes="Vertical face of platform/deck")
+
     if floor_spec.get("heated_floor") and tile_floor_sf > 0:
         _add(line_items, 4, "Heated floor mat + installation", tile_floor_sf, "SF",
              ELECTRICAL_RATES["heated_floor_per_sf"] * labor_mult, "electrical")
@@ -965,6 +983,44 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             elif enclosure == "curtain":
                 _add(line_items, 5, "Shower curtain rod + curtain", 1, "EA",
                      SHOWER_ENCLOSURE_PRICES["curtain"], "fixture")
+
+    # --- Shower curb tile ---
+    if estimate.replace_shower and shower_spec.get("type") in ("custom_tile", "curbless"):
+        curb_h = shower_spec.get("curb_height", 4) or 0
+        if curb_h > 0:
+            s_w = shower_spec.get("width_in", 36) or 36
+            curb_depth = 4  # standard curb depth
+            curb_sf = round((s_w * curb_depth + 2 * s_w * curb_h) / 144, 1)
+            if curb_sf > 0:
+                _add(line_items, 4, "Shower curb tile",
+                     curb_sf, "SF", round(12.00 * labor_mult, 2), "tile",
+                     notes=f"Top + front/back faces, {curb_h}\" curb height")
+
+    # --- Fixed glass panel (shower) ---
+    if estimate.replace_shower:
+        panel_cfg = shower_spec.get("fixed_panel_config", "none")
+        layout = shower_spec.get("layout", "alcove")
+        s_w = shower_spec.get("width_in", 36) or 36
+        s_d = shower_spec.get("depth_in", 36) or 36
+        panel_width_in = 0
+        panel_count = 0
+
+        if layout in ("corner", "corner_right"):
+            panel_width_in += s_d  # full side glass
+            panel_count += 1
+        if panel_cfg == "left" or panel_cfg == "both":
+            panel_width_in += s_w * 0.25
+            panel_count += 1
+        if panel_cfg == "right" or panel_cfg == "both":
+            panel_width_in += s_w * 0.25
+            panel_count += 1
+
+        if panel_count > 0 and panel_width_in > 0:
+            panel_sf = round(panel_width_in * 72 / 144, 1)  # 72" standard height
+            panel_cost = round(25.00 * panel_sf * labor_mult, 2)
+            _add(line_items, 5, f"Fixed glass panel ({panel_count})",
+                 panel_count, "EA", panel_cost, "fixture",
+                 notes=f"{panel_sf} SF tempered glass, installed")
 
     # Tile edge trim (Schluter/metal) for custom tile showers
     if (estimate.replace_shower
@@ -1251,12 +1307,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     # ────────────────────────────────────────
     walls = estimate.walls_spec or {}
     paint_grade = walls.get("paint_grade")  # None if not specified
-    paint_walls = walls.get("paint_walls", False)
+    wall_finish = walls.get("wall_finish", "paint" if walls.get("paint_walls") else None)
     paint_ceiling = walls.get("paint_ceiling", False)
     pg_mult = PAINT_GRADE_MULTIPLIER.get(paint_grade, 1.0) if paint_grade else 1.0
+    do_paint = wall_finish in ("paint", "paint_and_tile")
+    do_tile_walls = wall_finish in ("tile", "paint_and_tile")
 
-    # Wall painting (only if paint_walls is enabled and paint_grade is set)
-    if paint_walls and paint_grade and wall_sf > 0:
+    # Wall painting
+    if do_paint and paint_grade and wall_sf > 0:
         # Subtract non-paintable wall areas (tile, surround, tub alcove)
         wall_deductions: List[tuple] = []  # (label, sf)
 
@@ -1307,6 +1365,12 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         total_deduct = sum(sf for _, sf in wall_deductions)
         paint_wall_sf = max(wall_sf - total_deduct, 0)
 
+        # In paint_and_tile mode, use sketch-provided paint_wall_sf if available
+        if wall_finish == "paint_and_tile":
+            sketch_paint_sf = walls.get("paint_wall_sf")
+            if sketch_paint_sf and sketch_paint_sf > 0:
+                paint_wall_sf = sketch_paint_sf
+
         if paint_wall_sf > 0:
             deduct_note = None
             if wall_deductions:
@@ -1320,6 +1384,25 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  paint_wall_sf, "SF",
                  PAINT_RATES["wall_per_sf"] * pg_mult * labor_mult,
                  "finish", notes=deduct_note)
+
+    # Wall tile (when wall_finish is 'tile' or 'paint_and_tile')
+    if do_tile_walls and wall_sf > 0:
+        tile_wall_sf = walls.get("tile_wall_sf", 0) or 0
+        if wall_finish == "tile":
+            # Full tile: use paint_wall_sf (available after deductions) or wall_sf
+            tile_wall_sf = tile_wall_sf or paint_wall_sf if 'paint_wall_sf' in dir() else wall_sf
+        if tile_wall_sf > 0:
+            tile_mat = walls.get("tile_material", "porcelain")
+            tile_pat = walls.get("tile_pattern", "straight")
+            tile_sz = walls.get("tile_size", "12x24")
+            # Material + labor per SF
+            mat_rate = 5.50  # default porcelain
+            lab_rate = 10.00
+            tile_cost = round((mat_rate + lab_rate) * labor_mult, 2)
+            _add(line_items, 4,
+                 f"Wall tile - {tile_mat} ({tile_sz}, {tile_pat})",
+                 round(tile_wall_sf, 1), "SF", tile_cost, "tile",
+                 notes="Bathroom wall tile (non-shower/tub areas)")
 
     # Ceiling painting (independent from wall painting)
     if paint_ceiling and paint_grade and floor_sf > 0:
@@ -1532,11 +1615,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     if estimate.water_damage:
         warnings.append(
-            "Pre-existing water damage noted during scope assessment. Demolition may reveal "
-            "additional conditions (subfloor deterioration, framing damage, or hidden moisture) "
-            "not visible during initial inspection. Any required additional work will be "
-            "documented with photos and presented as a written change order for approval "
-            "prior to proceeding."
+            "Conditions identified during scope assessment require restoration. Demolition may reveal "
+            "additional underlying conditions not visible during initial inspection. Any required "
+            "additional work will be documented with photos and presented as a written change order "
+            "for approval prior to proceeding."
         )
 
     # ────────────────────────────────────────
@@ -1560,10 +1642,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             and hc.get("subfloor_allowance") is True):
         allowance_sf = min(floor_sf, 20)  # conservative 20 SF allowance
         if allowance_sf > 0:
-            _add(line_items, 3, "Subfloor repair allowance (water damage)",
+            _add(line_items, 3, "Subfloor repair allowance (plywood)",
                  allowance_sf, "SF",
                  SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
-                 notes="Allowance for water-damaged subfloor discovered during demo")
+                 notes="Allowance for subfloor condition verification upon demo")
 
     # 3) Auto-include GFCI if not explicitly specified (code requirement)
     elec_spec = estimate.electrical_spec or {}
@@ -1614,18 +1696,18 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             warnings.append(permit_info["note"])
 
     # 7) Auto-include ceiling paint for bathroom remodels
-    #    Bathrooms almost always need ceiling paint (moisture/mold prevention).
-    #    Use mold-resistant if water_damage or mold_suspected.
+    #    Bathrooms almost always need ceiling paint (moisture prevention per code).
+    #    Use moisture-resistant if water_damage or mold_suspected.
     walls_spec = estimate.walls_spec or {}
     paint_ceiling_explicit = walls_spec.get("paint_ceiling", False)
     if (not paint_ceiling_explicit and has_demo
             and floor_sf > 0 and hc.get("auto_ceiling_paint") is True):
         if estimate.water_damage or estimate.mold_suspected:
-            ceil_rate = PAINT_RATES["ceiling_per_sf"] * 1.20  # mold-resistant premium
+            ceil_rate = PAINT_RATES["ceiling_per_sf"] * 1.20  # moisture-resistant premium
             _add(line_items, 6,
-                 "Ceiling painting (mold-resistant)",
+                 "Ceiling painting (moisture-resistant)",
                  floor_sf, "SF", ceil_rate * labor_mult, "finish",
-                 notes="Mold-resistant paint (e.g., Zinsser Perma-White)")
+                 notes="Moisture-resistant paint per code for wet area")
         else:
             _add(line_items, 6,
                  "Ceiling painting (bathroom grade)",
@@ -1633,17 +1715,17 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  PAINT_RATES["ceiling_per_sf"] * labor_mult, "finish",
                  notes="Moisture-resistant ceiling paint")
 
-    # 8) Mold-resistant drywall for ceiling if water_damage + demo_ceiling
+    # 8) Moisture-resistant drywall for ceiling
     #    Skip if repair_drywall_ceiling is explicitly set (handled in repair section)
     if (estimate.water_damage and demo_ceiling
             and not getattr(estimate, 'repair_drywall_ceiling', False)
             and floor_sf > 0 and hc.get("mold_resistant_drywall") is True):
         _add(line_items, 3,
-             "Mold-resistant drywall - ceiling",
+             "Moisture-resistant drywall - ceiling",
              floor_sf, "SF",
              SUBSTRATE_RATES["mold_resistant_drywall_per_sf"] * labor_mult,
              "substrate",
-             notes="Purple board / mold-resistant drywall for ceiling replacement")
+             notes="Moisture-resistant drywall per code for wet area")
 
     # ────────────────────────────────────────
     # Totals

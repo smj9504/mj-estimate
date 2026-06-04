@@ -30,7 +30,9 @@ import {
   BankOutlined,
   CalculatorOutlined,
   CloudUploadOutlined,
+  DollarOutlined,
   FilePdfOutlined,
+  SafetyCertificateOutlined,
   SaveOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
@@ -55,32 +57,91 @@ const { Title, Text } = Typography;
 const { Panel } = Collapse;
 
 const DEFAULT_MATERIAL_WARRANTY_TEXT =
-  'All roofing materials installed under this contract are covered by the respective ' +
-  "manufacturer's warranty. Shingle warranty coverage follows the manufacturer's published " +
-  'terms, which typically include a Limited Lifetime Warranty for architectural shingles ' +
-  'and a 25-year warranty for three-tab shingles. Coverage may be prorated after an initial ' +
-  'non-prorated period. Warranty is transferable once to a subsequent owner within the first ' +
-  '10 years of installation, subject to manufacturer requirements. The homeowner is responsible ' +
-  'for registering the warranty with the manufacturer within the required timeframe to ensure ' +
-  'full coverage. For complete warranty terms, refer to the manufacturer\'s warranty documentation ' +
-  'provided at the time of installation.';
+  'All roofing materials installed under this contract come with the manufacturer\'s standard ' +
+  'Shingle Limited Warranty, which covers manufacturing defects in the shingle products themselves. ' +
+  'Architectural shingles are typically covered for the lifetime of the original homeowner (up to ' +
+  '50 years) and three-tab shingles for up to 25 years. Coverage details, including any prorated ' +
+  'periods and wind resistance terms, are governed by the manufacturer\'s published warranty terms ' +
+  'that accompany the product.';
 
 const DEFAULT_LABOR_WARRANTY_TEXT =
-  'Our company provides a {years}-year workmanship warranty covering all labor performed under ' +
-  'this contract, effective from the date of project completion. This warranty guarantees that ' +
-  'all roofing work has been performed in accordance with manufacturer specifications and industry ' +
-  'best practices. Should any defect in workmanship arise during the warranty period \u2014 including ' +
-  'but not limited to leaks caused by improper installation, flashing failures, or inadequate ' +
-  'sealing \u2014 we will repair or correct the deficiency at no additional cost to the homeowner.';
+  'This roofing installation is backed by our {warranty_label}, effective from the date of ' +
+  'substantial completion. "Lifetime" coverage, where applicable, is defined as the period ' +
+  'during which the original property owner continuously resides at and maintains ownership of ' +
+  'the property where the work was performed, not to exceed 50 years from the date of completion. ' +
+  'All work performed under this contract — including shingle installation, flashing integration, ' +
+  'ventilation systems, drip edge application, and all related roofing components — has been ' +
+  'executed by factory-trained installers in strict accordance with manufacturer installation ' +
+  'specifications and NRCA (National Roofing Contractors Association) guidelines. Should any ' +
+  'defect in workmanship be identified during the coverage period — including but not limited to ' +
+  'leaks resulting from improper installation, flashing failures, inadequate sealing, nail ' +
+  'placement errors, or ventilation deficiencies — we will conduct an on-site inspection within ' +
+  '5 business days of notification and complete all necessary corrective work at no additional ' +
+  'cost to the property owner. Emergency leak situations will be addressed within 24–48 hours. ' +
+  'All repair work performed under this coverage carries the same workmanship protection for ' +
+  'the remainder of the original coverage period. This coverage is transferable to one subsequent ' +
+  'property owner, provided written notice is submitted within 60 days of the ownership transfer. ' +
+  'Upon transfer, the remaining coverage period shall not exceed 10 years from the original ' +
+  'completion date or the remainder of the original warranty term, whichever is shorter.';
 
 const DEFAULT_WARRANTY_EXCLUSIONS =
   'The following are excluded from all warranty coverage: damage caused by acts of God ' +
-  '(hurricanes, tornadoes, hail, lightning, earthquakes); ice damming resulting from inadequate ' +
-  'attic insulation or ventilation; damage caused by foot traffic, antenna/satellite dish ' +
-  'installation, or other modifications performed by third parties after project completion; ' +
+  '(hurricanes, tornadoes, hail, lightning, earthquakes); ice damming resulting from ' +
+  'pre-existing or inadequate attic insulation or ventilation conditions not included in the ' +
+  'scope of this contract — however, if ventilation improvements were performed as part of this ' +
+  'project, any ice damming directly attributable to a defect in that ventilation work shall ' +
+  'remain covered under the workmanship warranty; damage caused by foot traffic, antenna/satellite ' +
+  'dish installation, or other modifications performed by third parties after project completion; ' +
   'pre-existing structural damage not disclosed or discovered prior to installation; neglect ' +
   'or failure to perform routine maintenance (e.g., gutter cleaning, debris removal); damage ' +
   'resulting from improper repairs performed by unlicensed contractors; and normal wear and tear.';
+
+// Warranty tier label based on years (0 = Lifetime)
+const getWarrantyLabel = (years: number): string => {
+  if (years === 0) return 'Lifetime Workmanship Guarantee';
+  if (years <= 5) return `${years}-Year Standard Workmanship Warranty`;
+  if (years <= 10) return `${years}-Year Extended Workmanship Protection`;
+  return `${years}-Year Premium Workmanship Protection Plan`;
+};
+
+// Legacy default text patterns — detect old saved data and auto-upgrade
+const isLegacyLaborWarrantyText = (text?: string): boolean => {
+  if (!text) return true;
+  return text.includes('Our company provides a') && text.includes('workmanship warranty covering all labor');
+};
+
+// Brand display name mapping
+const BRAND_NAMES: Record<string, string> = {
+  gaf: 'GAF', owens_corning: 'Owens Corning', certainteed: 'CertainTeed',
+  iko: 'IKO', malarkey: 'Malarkey',
+};
+
+// Type-based material warranty text generator (pass-through, not our warranty)
+const generateMaterialWarrantyText = (brand?: string, type?: string): string | null => {
+  if (!brand) return null;
+  const brandName = BRAND_NAMES[brand] || brand.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  const isThreeTab = type === 'three_tab';
+
+  if (isThreeTab) {
+    return (
+      `All roofing materials installed under this contract are ${brandName} products. ` +
+      `These shingles come with ${brandName}'s standard Shingle Limited Warranty, which covers ` +
+      'manufacturing defects in the shingle products themselves. Three-tab shingles are typically ' +
+      'covered for up to 25 years under the standard warranty. Coverage details, including any ' +
+      'prorated periods, are governed by the manufacturer\'s published warranty terms that ' +
+      'accompany the product.'
+    );
+  }
+
+  return (
+    `All roofing materials installed under this contract are ${brandName} products. ` +
+    `These shingles come with ${brandName}'s standard Shingle Limited Warranty, which covers ` +
+    'manufacturing defects in the shingle products themselves. Architectural shingles are ' +
+    'typically covered for the lifetime of the original homeowner (up to 50 years) under the ' +
+    'standard warranty. Coverage details, including any prorated periods and wind resistance ' +
+    'terms, are governed by the manufacturer\'s published warranty terms that accompany the product.'
+  );
+};
 
 const RoofingEstimateDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -154,7 +215,9 @@ const RoofingEstimateDetail: React.FC = () => {
         hc_permit_custom_fee: estimate.hidden_costs?.permit_custom_fee,
         labor_warranty_years: estimate.warranty_info?.labor_warranty_years ?? 10,
         material_warranty_text: estimate.warranty_info?.material_warranty_text || DEFAULT_MATERIAL_WARRANTY_TEXT,
-        labor_warranty_text: estimate.warranty_info?.labor_warranty_text || DEFAULT_LABOR_WARRANTY_TEXT,
+        labor_warranty_text: isLegacyLaborWarrantyText(estimate.warranty_info?.labor_warranty_text)
+            ? DEFAULT_LABOR_WARRANTY_TEXT
+            : estimate.warranty_info!.labor_warranty_text!,
         warranty_exclusions: estimate.warranty_info?.warranty_exclusions || DEFAULT_WARRANTY_EXCLUSIONS,
       });
       if (estimate.eagleview_data) {
@@ -525,13 +588,31 @@ const RoofingEstimateDetail: React.FC = () => {
               disabled={estimate.status === 'draft'}
               menu={{
                 items: [
-                  { key: 'detailed', label: 'PDF — Detailed (with pricing)' },
-                  { key: 'lumpsum', label: 'PDF — Lump Sum (no pricing)' },
+                  { key: 'detailed', icon: <FilePdfOutlined />, label: 'Estimate — Detailed (with pricing)' },
+                  { key: 'lumpsum', icon: <FilePdfOutlined />, label: 'Estimate — Lump Sum (no pricing)' },
                   { type: 'divider' },
-                  { key: 'detailed-nosig', label: 'Detailed (no signature)' },
-                  { key: 'lumpsum-nosig', label: 'Lump Sum (no signature)' },
+                  { key: 'detailed-nosig', label: 'Estimate — Detailed (no signature)' },
+                  { key: 'lumpsum-nosig', label: 'Estimate — Lump Sum (no signature)' },
+                  { type: 'divider' },
+                  { key: 'invoice-detailed', icon: <DollarOutlined />, label: 'Invoice — Detailed' },
+                  { key: 'invoice-lumpsum', icon: <DollarOutlined />, label: 'Invoice — Lump Sum' },
+                  { type: 'divider' },
+                  { key: 'warranty-cert', icon: <SafetyCertificateOutlined />, label: 'Warranty Certificate' },
                 ],
                 onClick: ({ key }) => {
+                  if (key.startsWith('invoice-')) {
+                    roofingEstimateService.exportInvoice(id!, {
+                      pricing_mode: key === 'invoice-lumpsum' ? 'lumpsum' : 'detailed',
+                      address: estimate.property_address,
+                    });
+                    return;
+                  }
+                  if (key === 'warranty-cert') {
+                    roofingEstimateService.exportWarrantyCert(id!, {
+                      address: estimate.property_address,
+                    });
+                    return;
+                  }
                   const isLumpsum = key.startsWith('lumpsum');
                   const showSig = !key.endsWith('-nosig');
                   roofingEstimateService.exportPdf(id!, {
@@ -1285,28 +1366,59 @@ const RoofingEstimateDetail: React.FC = () => {
 
                 <Divider orientation="left">Labor Warranty Period</Divider>
                 <Row gutter={16}>
-                  <Col xs={24} sm={12} md={6}>
-                    <Form.Item label="Labor Warranty (Years)" name="labor_warranty_years">
-                      <InputNumber
-                        style={{ width: '100%' }}
-                        min={1}
-                        max={30}
-                        placeholder="10"
+                  <Col xs={24} sm={12} md={8}>
+                    <Form.Item label="Labor Warranty" name="labor_warranty_years">
+                      <Select
+                        options={[
+                          { value: 5, label: '5 Years — Standard Warranty' },
+                          { value: 10, label: '10 Years — Extended Protection' },
+                          { value: 15, label: '15 Years — Premium Protection' },
+                          { value: 20, label: '20 Years — Premium Protection' },
+                          { value: 25, label: '25 Years — Premium Protection' },
+                          { value: 0, label: 'Lifetime — Workmanship Guarantee' },
+                        ]}
                       />
                     </Form.Item>
                   </Col>
-                  <Col xs={24} md={18}>
+                  <Col xs={24} md={16}>
                     <Text type="secondary" style={{ display: 'block', marginTop: 30 }}>
-                      Industry standard: 5-10 years for workmanship warranty. Premium contractors may offer up to 25 years.
+                      Industry standard: 5–10 years. Premium: 15–25 years. Lifetime: coverage for the duration of original ownership.
                     </Text>
                   </Col>
                 </Row>
 
                 <Divider orientation="left">Material Warranty (Manufacturer)</Divider>
+                <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                  prev.shingle_brand !== cur.shingle_brand || prev.shingle_type !== cur.shingle_type
+                }>
+                  {() => {
+                    const brand = form.getFieldValue('shingle_brand');
+                    const type = form.getFieldValue('shingle_type');
+                    const brandName = brand ? (BRAND_NAMES[brand] || brand) : null;
+                    const generated = generateMaterialWarrantyText(brand, type);
+                    return generated && brandName ? (
+                      <Button
+                        type="link"
+                        size="small"
+                        style={{ padding: 0, marginBottom: 8 }}
+                        onClick={() => {
+                          form.setFieldsValue({ material_warranty_text: generated });
+                          message.success(`${brandName} material warranty reference applied`);
+                        }}
+                      >
+                        Apply {brandName} {type === 'three_tab' ? '25-Year' : 'Lifetime'} Manufacturer Warranty Reference
+                      </Button>
+                    ) : (
+                      <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+                        Select a shingle brand and type in the Materials tab to auto-generate manufacturer warranty reference.
+                      </Text>
+                    );
+                  }}
+                </Form.Item>
                 <Form.Item
                   label="Material Warranty Text"
                   name="material_warranty_text"
-                  extra="This warranty follows the product manufacturer's terms. Edit to match the specific shingle product selected."
+                  extra="This warranty follows the product manufacturer's terms. Click the link above to auto-fill based on selected shingle brand."
                 >
                   <Input.TextArea rows={5} />
                 </Form.Item>
@@ -1315,7 +1427,7 @@ const RoofingEstimateDetail: React.FC = () => {
                 <Form.Item
                   label="Workmanship Warranty Text"
                   name="labor_warranty_text"
-                  extra="Use {years} as a placeholder for the labor warranty years entered above."
+                  extra="Use {warranty_label} as a placeholder — it auto-generates the tier name (e.g., '10-Year Extended Workmanship Protection' or 'Lifetime Workmanship Guarantee')."
                 >
                   <Input.TextArea rows={5} />
                 </Form.Item>

@@ -129,12 +129,11 @@ def _generate_template_note(estimate) -> str:
     if estimate.water_damage:
         if getattr(estimate, 'demo_already_done', False):
             specials.append(
-                "existing water damage with demolition completed "
-                "by mitigation team (repair/rebuild scope)"
+                "demolition completed by mitigation team (repair/rebuild scope)"
             )
         else:
             specials.append(
-                "existing water damage (scope may expand upon demo)"
+                "restoration scope (conditions to be verified upon demo)"
             )
     repair_areas = []
     if getattr(estimate, 'repair_drywall_walls', False):
@@ -150,13 +149,12 @@ def _generate_template_note(estimate) -> str:
     if getattr(estimate, 'demo_cement_board', False):
         cb_sf = getattr(estimate, 'demo_cement_board_sf', 0) or 0
         specials.append(
-            f"water-damaged cement board ({cb_sf:.0f}SF) "
-            f"— partial removal and replacement of damaged section"
+            f"cement board ({cb_sf:.0f}SF) — partial removal and replacement"
             if cb_sf else
-            "water-damaged cement board requiring partial demo and replacement"
+            "cement board requiring partial demo and replacement"
         )
     if estimate.mold_suspected:
-        specials.append("suspected mold presence (separate remediation required)")
+        specials.append("moisture conditions identified (separate remediation if required)")
     year = estimate.year_built or 2000
     if year < 1978:
         specials.append(f"lead paint compliance (built {year}, EPA RRP rule applies)")
@@ -241,9 +239,9 @@ def _build_context(estimate) -> str:
     # Special conditions
     if estimate.water_damage:
         if getattr(estimate, 'demo_already_done', False):
-            lines.append("CONDITION: Water damage - demo already completed by mitigation")
+            lines.append("SCOPE: Restoration — demo completed by mitigation team")
         else:
-            lines.append("CONDITION: Water damage present")
+            lines.append("SCOPE: Restoration — conditions to be verified upon demo")
     repair_items = []
     if getattr(estimate, 'repair_drywall_walls', False):
         sf = getattr(estimate, 'repair_drywall_walls_sf', 0) or 0
@@ -258,8 +256,8 @@ def _build_context(estimate) -> str:
         lines.append(f"REPAIR: {', '.join(repair_items)}")
     if getattr(estimate, 'demo_cement_board', False):
         cb_sf = getattr(estimate, 'demo_cement_board_sf', 0) or 0
-        lines.append(f"REPAIR: Cement board — demo & replace damaged section {cb_sf}SF")
-    if estimate.mold_suspected: lines.append("CONDITION: Mold suspected")
+        lines.append(f"REPAIR: Cement board — partial removal and replacement {cb_sf}SF")
+    if estimate.mold_suspected: lines.append("SCOPE: Moisture conditions identified")
     if (estimate.year_built or 2000) < 1978: lines.append("CONDITION: Pre-1978 (lead paint risk)")
     if (estimate.bathtub_spec or {}).get("material") == "cast_iron": lines.append("CONDITION: Cast iron tub")
 

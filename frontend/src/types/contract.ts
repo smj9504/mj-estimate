@@ -24,6 +24,7 @@ export interface ContractTemplate {
   file_url?: string;
   file_name?: string;
   file_size?: number;
+  file_available?: boolean;
   requires_signature: boolean;
   signature_roles?: string; // JSON string
   field_mappings?: string; // JSON string

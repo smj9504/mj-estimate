@@ -505,7 +505,7 @@ class BathroomExportService:
             "Structural changes or wall relocation",
             "HVAC modifications",
             "Window or door replacement",
-            "Mold remediation (if suspected, separate estimate required)",
+            "Environmental remediation (if required, separate estimate)",
             "Asbestos testing or abatement",
             "Customer-supplied materials (unless pre-approved in writing)",
         ]
@@ -520,7 +520,7 @@ class BathroomExportService:
             "Workmanship warranty: 1 year from completion date",
             "Waterproofing (shower pan, membrane): 5 years",
             "Manufacturer warranties on fixtures and materials apply per product",
-            "Warranty does not cover damage from misuse, neglect, or acts of nature",
+            "Warranty does not cover issues from misuse, neglect, or acts of nature",
         ]
         for w in warranty_items:
             elements.append(Paragraph(f"\u2022 {w}", terms_style))
@@ -552,7 +552,7 @@ class BathroomExportService:
             "Any changes to the scope of work after contract signing "
             "will require a written change order.",
             "Unforeseen conditions discovered during demolition "
-            "(e.g., mold, structural damage, plumbing/electrical "
+            "(e.g., concealed conditions, plumbing/electrical "
             "code violations) will be documented with photos, "
             "presented as a written change order with itemized cost, "
             "and require Owner's written approval before work "

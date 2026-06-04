@@ -150,4 +150,55 @@ export const roofingEstimateService = {
     link.remove();
     window.URL.revokeObjectURL(url);
   },
+
+  async exportInvoice(id: string, options?: { completion_date?: string; address?: string; pricing_mode?: string }) {
+    const params: Record<string, any> = {};
+    if (options?.completion_date) params.completion_date = options.completion_date;
+    if (options?.pricing_mode) params.pricing_mode = options.pricing_mode;
+
+    const response = await api.get(`${BASE_URL}/${id}/export/invoice`, {
+      responseType: 'blob',
+      params,
+    });
+    const sanitized = (options?.address || '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '_');
+    const filename = sanitized
+      ? `roofing_invoice_${sanitized}.pdf`
+      : `roofing_invoice_${id.substring(0, 8)}.pdf`;
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
+  async exportWarrantyCert(id: string, options?: { completion_date?: string; address?: string }) {
+    const params: Record<string, any> = {};
+    if (options?.completion_date) params.completion_date = options.completion_date;
+
+    const response = await api.get(`${BASE_URL}/${id}/export/warranty-cert`, {
+      responseType: 'blob',
+      params,
+    });
+    const sanitized = (options?.address || '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '_');
+    const filename = sanitized
+      ? `roofing_warranty_${sanitized}.pdf`
+      : `roofing_warranty_${id.substring(0, 8)}.pdf`;
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
 };
