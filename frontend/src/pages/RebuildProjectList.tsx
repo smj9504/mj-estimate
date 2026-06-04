@@ -9,9 +9,12 @@ import {
   PlusOutlined, ReloadOutlined, EllipsisOutlined, DeleteOutlined, EditOutlined,
   BuildOutlined, TeamOutlined, FileTextOutlined, CheckCircleOutlined,
   ToolOutlined, HomeOutlined, DollarOutlined, SendOutlined,
+  FilePdfOutlined, CameraOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { rebuildService } from '../services/rebuildService';
+import RebuildDocGenerator from '../components/rebuild/RebuildDocGenerator';
+import RebuildPhotoToPdf from '../components/rebuild/RebuildPhotoToPdf';
 import type {
   RebuildProject, RebuildProjectCreate, RebuildContractor,
   RebuildCompletionDoc, ProjectStatus, PROJECT_STATUS_COLORS, DOC_TYPE_LABELS,
@@ -45,6 +48,8 @@ const RebuildProjectList: React.FC = () => {
   const [docModalOpen, setDocModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<RebuildProject | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [docGeneratorOpen, setDocGeneratorOpen] = useState(false);
+  const [photoToPdfOpen, setPhotoToPdfOpen] = useState(false);
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const [contractorForm] = Form.useForm();
@@ -149,16 +154,6 @@ const RebuildProjectList: React.FC = () => {
         return <Badge count={`${sent}/3`} style={{ backgroundColor: sent === 3 ? '#52c41a' : '#faad14' }} />;
       },
     },
-    {
-      title: '', key: 'actions', width: 80,
-      render: (_, r) => (
-        <Space size={4}>
-          <Button type="link" size="small" onClick={() => {
-            rebuildService.getProject(r.id).then(p => { setSelectedProject(p); setDetailModalOpen(true); });
-          }}>Detail</Button>
-        </Space>
-      ),
-    },
   ];
 
   return (
@@ -203,7 +198,13 @@ const RebuildProjectList: React.FC = () => {
       <Card>
         <Table dataSource={projects} columns={columns} rowKey="id" loading={isLoading}
           size="small" scroll={{ x: 800 }}
-          pagination={{ pageSize: 20, showTotal: t => `${t} projects` }} />
+          pagination={{ pageSize: 20, showTotal: t => `${t} projects` }}
+          onRow={(record) => ({
+            onClick: () => {
+              rebuildService.getProject(record.id).then(p => { setSelectedProject(p); setDetailModalOpen(true); });
+            },
+            style: { cursor: 'pointer' },
+          })} />
       </Card>
 
       {/* Create Project Modal */}
@@ -341,7 +342,17 @@ const RebuildProjectList: React.FC = () => {
             {/* Completion Documents */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <Text strong>Completion Documents</Text>
-              <Button size="small" icon={<PlusOutlined />} onClick={() => setDocModalOpen(true)}>Add Document</Button>
+              <Space size={4}>
+                <Button size="small" icon={<FilePdfOutlined />} onClick={() => setDocGeneratorOpen(true)}>
+                  Generate Doc
+                </Button>
+                <Button size="small" icon={<CameraOutlined />} onClick={() => setPhotoToPdfOpen(true)}>
+                  Photos to PDF
+                </Button>
+                <Button size="small" icon={<PlusOutlined />} onClick={() => setDocModalOpen(true)}>
+                  Add Manual
+                </Button>
+              </Space>
             </div>
 
             {(selectedProject.completion_docs || []).length === 0 ? (
@@ -477,6 +488,32 @@ const RebuildProjectList: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* Document Generator Modal */}
+      {selectedProject && (
+        <RebuildDocGenerator
+          open={docGeneratorOpen}
+          project={selectedProject}
+          onClose={() => setDocGeneratorOpen(false)}
+          onSuccess={() => {
+            rebuildService.getProject(selectedProject.id).then(setSelectedProject);
+            queryClient.invalidateQueries({ queryKey: ['rebuild-projects'] });
+          }}
+        />
+      )}
+
+      {/* Photos to PDF Modal */}
+      {selectedProject && (
+        <RebuildPhotoToPdf
+          open={photoToPdfOpen}
+          project={selectedProject}
+          onClose={() => setPhotoToPdfOpen(false)}
+          onSuccess={() => {
+            rebuildService.getProject(selectedProject.id).then(setSelectedProject);
+            queryClient.invalidateQueries({ queryKey: ['rebuild-projects'] });
+          }}
+        />
+      )}
     </div>
   );
 };

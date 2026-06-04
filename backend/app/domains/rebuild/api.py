@@ -2,10 +2,11 @@
 Rebuild domain API endpoints.
 """
 
+import json
 import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
 
 from app.domains.rebuild.schemas import (
     RebuildCompletionDocCreate,
@@ -162,3 +163,60 @@ async def delete_completion_doc(project_id: str, doc_id: str):
     if not _get_service().delete_completion_doc(doc_id):
         raise HTTPException(status_code=404, detail="Document not found")
     return {"success": True}
+
+
+# ============================================================
+# Document Generation
+# ============================================================
+
+@router.get("/rebuild/projects/{project_id}/available-templates")
+async def get_available_templates(project_id: str):
+    """Get contract templates for the project's contractor."""
+    return _get_service().get_available_templates(project_id)
+
+
+@router.get("/rebuild/projects/{project_id}/prefill-data")
+async def get_prefill_data(project_id: str):
+    """Get prefill data for document generation."""
+    return _get_service().get_prefill_data(project_id)
+
+
+@router.post("/rebuild/projects/{project_id}/generate-doc", response_model=RebuildCompletionDocResponse)
+async def generate_document(project_id: str, data: Dict[str, Any]):
+    """Generate a filled PDF from a contract template."""
+    try:
+        return _get_service().generate_document(project_id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Document generation error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate document")
+
+
+@router.post("/rebuild/projects/{project_id}/photos-to-pdf", response_model=RebuildCompletionDocResponse)
+async def photos_to_pdf(
+    project_id: str,
+    photos: List[UploadFile] = File(...),
+    rotations: str = Form(default="{}"),
+    doc_type: str = Form(default="completion_photo"),
+    title: str = Form(default="Completion Photos"),
+):
+    """Convert uploaded photos to a multi-page PDF."""
+    try:
+        rotation_map = json.loads(rotations)
+        rotation_map = {int(k): int(v) for k, v in rotation_map.items()}
+    except (json.JSONDecodeError, ValueError):
+        rotation_map = {}
+
+    photo_list = []
+    for photo in photos:
+        content = await photo.read()
+        photo_list.append((photo.filename or "photo.jpg", content))
+
+    try:
+        return _get_service().photos_to_pdf(project_id, photo_list, rotation_map, doc_type, title)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Photos to PDF error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create PDF from photos")

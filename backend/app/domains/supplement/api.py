@@ -254,6 +254,10 @@ async def upload_insurance_estimate(claim_id: str, data: dict):
         if data.get('file_id'):
             neg_data['file_id'] = data['file_id']
 
+        # Pass sections_data from PDF extraction
+        if data.get('sections_data'):
+            neg_data['sections_data'] = data['sections_data']
+
         result = service.add_negotiation(neg_data)
 
         # Update claim's supplement-related info + auto-create follow-up
@@ -433,6 +437,115 @@ async def replace_insurance_estimate_pdf(claim_id: str, negotiation_id: str, dat
     except Exception as e:
         logger.error(f"Error replacing estimate PDF: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/supplements/insurance-estimates/extract-pdf/{file_id}")
+async def extract_insurance_estimate_pdf(file_id: str):
+    """Extract summary amounts (RCV, ACV, depreciation, deductible) from an uploaded PDF.
+
+    Returns parsed totals and per-section breakdown for auto-filling the upload form.
+    """
+    try:
+        from app.domains.file.models import File
+        database = get_database()
+        session = database.get_session()
+        try:
+            file_rec = session.query(File).filter(
+                File.id == file_id, File.is_active == True
+            ).first()
+            if not file_rec:
+                raise HTTPException(status_code=404, detail="File not found")
+
+            # Resolve PDF path using the extraction service helper
+            from app.domains.insurance_extraction.service import InsuranceExtractionService
+            ext_svc = InsuranceExtractionService(session)
+            pdf_path, tmp_path = ext_svc._resolve_pdf_path(file_rec.stored_url)
+
+            try:
+                from app.domains.insurance_extraction.parsers.xactimate_reference_parser import (
+                    parse_estimate,
+                )
+                result = parse_estimate(pdf_path)
+            finally:
+                if tmp_path:
+                    import os
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+
+            summary = result.get("summary", {})
+            header = {
+                k: result.get(k)
+                for k in ("carrier", "claim_number", "insured", "date_of_loss",
+                           "deductible", "estimate_id")
+                if result.get(k) is not None
+            }
+
+            # Build per-section breakdown (field names match NegotiationSectionData schema)
+            sections = []
+            def _build_section(name, totals):
+                dep_raw = totals.get("depreciation", 0) or 0
+                rcv_val = totals.get("rcv") or totals.get("grand_total_rcv") or 0
+                acv_val = totals.get("acv") or 0
+                return {
+                    "section_name": name,
+                    "line_item_total": totals.get("line_item_total") or 0,
+                    "material_sales_tax": totals.get("material_sales_tax") or 0,
+                    "subtotal": totals.get("subtotal") or 0,
+                    "overhead_amount": totals.get("gc_overhead") or 0,
+                    "profit_amount": totals.get("gc_profit") or 0,
+                    "rcv": rcv_val,
+                    "depreciation": abs(dep_raw),
+                    "deductible": totals.get("deductible") or 0,
+                    "net_acv": acv_val,
+                }
+            for sec_group_key in ("standalone_sections", "levels"):
+                group = result.get(sec_group_key, [])
+                if sec_group_key == "levels":
+                    for lv in group:
+                        for rm in lv.get("rooms", []):
+                            totals = rm.get("room_totals", {})
+                            if totals:
+                                sections.append(_build_section(rm.get("name", "Unknown"), totals))
+                else:
+                    for sec in group:
+                        totals = sec.get("section_totals", {})
+                        if totals:
+                            sections.append(_build_section(sec.get("name", "Unknown"), totals))
+
+            # Build totals from summary
+            rcv_amount = summary.get("grand_total_rcv") or summary.get("rcv") or 0
+            depreciation_raw = summary.get("depreciation") or 0
+            depreciation_amount = abs(depreciation_raw)
+            acv_amount = summary.get("acv") or 0
+            deductible = summary.get("deductible") or 0
+
+            return {
+                "success": True,
+                "totals": {
+                    "rcv_amount": rcv_amount,
+                    "acv_amount": acv_amount,
+                    "depreciation_amount": depreciation_amount,
+                    "deductible": deductible,
+                    "net_claim": summary.get("net_claim") or 0,
+                },
+                "sections": sections,
+                "header": header,
+            }
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"PDF extraction failed (non-critical): {e}")
+        return {
+            "success": False,
+            "totals": None,
+            "sections": [],
+            "header": {},
+            "error": str(e),
+        }
 
 
 @router.delete("/supplements/insurance-estimates/{claim_id}/{negotiation_id}")

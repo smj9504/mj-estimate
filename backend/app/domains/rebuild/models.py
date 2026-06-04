@@ -34,6 +34,15 @@ class RebuildContractor(Base, BaseModel):
         {'extend_existing': True}
     )
 
+    # Link to Company table (optional — auto-created when assigned via Supplement)
+    company_id = Column(
+        UUIDType(),
+        ForeignKey("companies.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+        comment="Linked Company entity (for ClaimCompany integration)"
+    )
+
     company_name = Column(String(255), nullable=False)
     contact_name = Column(String(255))
     phone = Column(String(50))

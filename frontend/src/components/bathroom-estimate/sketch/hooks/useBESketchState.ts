@@ -330,6 +330,23 @@ export function useBESketchState(initialData?: BESketchData) {
       const wallAreaSF = (perimeterLF * heightInches) / 144;
 
       mutate((d) => {
+        const room = d.rooms.find((r) => r.id === id);
+
+        // Sync walls to match new boundary edges
+        let newWalls = d.walls;
+        if (room && room.wallIds.length === boundary.length && room.wallIds.length > 0) {
+          const wallIdSet = new Set(room.wallIds);
+          newWalls = d.walls.map((w) => {
+            if (!wallIdSet.has(w.id)) return w;
+            const wallIdx = room.wallIds.indexOf(w.id);
+            return {
+              ...w,
+              start: boundary[wallIdx],
+              end: boundary[(wallIdx + 1) % boundary.length],
+            };
+          });
+        }
+
         const updated = d.rooms.map((r) =>
           r.id === id
             ? {
@@ -342,7 +359,7 @@ export function useBESketchState(initialData?: BESketchData) {
               }
             : r,
         );
-        return { ...d, rooms: recalcNetAreas(updated) };
+        return { ...d, walls: newWalls, rooms: recalcNetAreas(updated) };
       });
     },
     [mutate, data.settings.pixelsPerFoot],

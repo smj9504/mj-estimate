@@ -76,6 +76,8 @@ const SupplementDetail: React.FC = () => {
   const [uploadEstimateLoading, setUploadEstimateLoading] = useState(false);
   const [uploadEstimateFileId, setUploadEstimateFileId] = useState<string | null>(null);
   const [uploadEstimateFileName, setUploadEstimateFileName] = useState<string | null>(null);
+  const [uploadEstimateParsing, setUploadEstimateParsing] = useState(false);
+  const [uploadEstimateSections, setUploadEstimateSections] = useState<any[]>([]);
   const [uploadEstimateForm] = Form.useForm();
 
   const [estimateVersions, setEstimateVersions] = useState<(ClaimNegotiation & { file_download_id?: string | null })[]>([]);
@@ -1887,7 +1889,7 @@ const SupplementDetail: React.FC = () => {
       <Modal
         title="Upload Insurance Estimate"
         open={uploadEstimateModalOpen}
-        width={500}
+        width={560}
         confirmLoading={uploadEstimateLoading}
         onOk={() => {
           uploadEstimateForm.validateFields().then(async (values) => {
@@ -1901,6 +1903,7 @@ const SupplementDetail: React.FC = () => {
                 deductible: values.deductible || 0,
                 received_from: values.received_from || undefined,
                 notes: values.notes || undefined,
+                sections_data: uploadEstimateSections.length > 0 ? uploadEstimateSections : undefined,
               };
               if (values.date_received) {
                 payload.date_received = values.date_received.toISOString();
@@ -1914,6 +1917,7 @@ const SupplementDetail: React.FC = () => {
               uploadEstimateForm.resetFields();
               setUploadEstimateFileId(null);
               setUploadEstimateFileName(null);
+              setUploadEstimateSections([]);
               supplementService.listInsuranceEstimates(supplement.claim_id)
                 .then(versions => setEstimateVersions(versions));
               loadFollowups(supplement.id);
@@ -1930,6 +1934,7 @@ const SupplementDetail: React.FC = () => {
           uploadEstimateForm.resetFields();
           setUploadEstimateFileId(null);
           setUploadEstimateFileName(null);
+          setUploadEstimateSections([]);
         }}
       >
         <Form form={uploadEstimateForm} layout="vertical" size="small">
@@ -2018,9 +2023,37 @@ const SupplementDetail: React.FC = () => {
                       [file], 'negotiation', supplement.claim_id, 'insurance_estimate'
                     );
                     if (uploaded.length > 0) {
-                      setUploadEstimateFileId(uploaded[0].id);
+                      const fid = uploaded[0].id;
+                      setUploadEstimateFileId(fid);
                       setUploadEstimateFileName(file.name);
-                      message.success('PDF uploaded');
+                      message.success('PDF uploaded — parsing...');
+
+                      // Auto-parse PDF to fill form fields
+                      setUploadEstimateParsing(true);
+                      try {
+                        const result = await supplementService.extractInsuranceEstimatePdf(fid);
+                        if (result.success && result.totals) {
+                          const t = result.totals;
+                          const updates: any = {};
+                          if (t.rcv_amount) updates.rcv_amount = t.rcv_amount;
+                          if (t.acv_amount) updates.acv_amount = t.acv_amount;
+                          if (t.depreciation_amount) updates.depreciation_amount = t.depreciation_amount;
+                          if (t.deductible) updates.deductible = t.deductible;
+                          if (Object.keys(updates).length > 0) {
+                            uploadEstimateForm.setFieldsValue(updates);
+                            message.success(`Parsed: RCV $${(t.rcv_amount || 0).toLocaleString()}, ACV $${(t.acv_amount || 0).toLocaleString()}`);
+                          }
+                          if (result.sections && result.sections.length > 0) {
+                            setUploadEstimateSections(result.sections);
+                          }
+                        } else {
+                          message.info('Could not auto-parse this PDF format. Please fill in manually.');
+                        }
+                      } catch {
+                        // Non-critical — user can fill manually
+                      } finally {
+                        setUploadEstimateParsing(false);
+                      }
                     }
                   } catch {
                     message.error('Upload failed');
@@ -2032,6 +2065,37 @@ const SupplementDetail: React.FC = () => {
               </Upload>
             )}
           </Form.Item>
+
+          {uploadEstimateParsing && (
+            <div style={{ textAlign: 'center', padding: '8px 0' }}>
+              <Spin size="small" /> <Text type="secondary" style={{ fontSize: 12 }}>Parsing PDF...</Text>
+            </div>
+          )}
+
+          {uploadEstimateSections.length > 0 && (
+            <Collapse size="small" style={{ marginTop: 4 }} items={[{
+              key: 'sections',
+              label: <Text style={{ fontSize: 12 }}>Section Breakdown ({uploadEstimateSections.length} sections)</Text>,
+              children: (
+                <Table
+                  size="small"
+                  dataSource={uploadEstimateSections}
+                  rowKey={(r: any, i?: number) => `${r.section_name}-${i}`}
+                  pagination={false}
+                  scroll={{ x: 400 }}
+                  columns={[
+                    { title: 'Section', dataIndex: 'section_name', key: 'name', width: 140, ellipsis: true },
+                    { title: 'RCV', dataIndex: 'rcv', key: 'rcv', width: 90, align: 'right' as const,
+                      render: (v: number) => v ? formatCurrency(v) : '—' },
+                    { title: 'Deprec.', dataIndex: 'depreciation', key: 'dep', width: 90, align: 'right' as const,
+                      render: (v: number) => v ? formatCurrency(v) : '—' },
+                    { title: 'ACV', dataIndex: 'net_acv', key: 'acv', width: 90, align: 'right' as const,
+                      render: (v: number) => v ? formatCurrency(v) : '—' },
+                  ]}
+                />
+              ),
+            }]} />
+          )}
         </Form>
       </Modal>
     </div>

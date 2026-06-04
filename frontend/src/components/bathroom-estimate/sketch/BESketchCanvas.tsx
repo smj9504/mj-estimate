@@ -670,21 +670,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     }
 
     updateRoom(room.id, b);
-
-    // Sync wall endpoints
-    for (let i = 0; i < oldB.length; i++) {
-      if (Math.abs(oldB[i].x - b[i].x) < 1 && Math.abs(oldB[i].y - b[i].y) < 1) continue;
-      for (const w of walls) {
-        if (Math.abs(w.start.x - oldB[i].x) < 2 && Math.abs(w.start.y - oldB[i].y) < 2) {
-          api.updateWall(w.id, { start: b[i] });
-        }
-        if (Math.abs(w.end.x - oldB[i].x) < 2 && Math.abs(w.end.y - oldB[i].y) < 2) {
-          api.updateWall(w.id, { end: b[i] });
-        }
-      }
-    }
     setEditingRoomEdge(null);
-  }, [editingRoomEdge, editingRoomValue, rooms, walls, ppf, updateRoom, api]);
+  }, [editingRoomEdge, editingRoomValue, rooms, ppf, updateRoom]);
 
   // Room edit overlay position
   const editingRoom = editingRoomEdge ? rooms.find(r => r.id === editingRoomEdge.roomId) : null;

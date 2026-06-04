@@ -1621,23 +1621,43 @@ const BathroomEstimateDetail: React.FC = () => {
                       </Form.Item>
                     </Row>
                     <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
-                      <Row gutter={16}>
-                        <Col xs={12} sm={8} md={5}>
-                          <Form.Item name={['hidden_costs', 'drywall_patch']} valuePropName="checked" style={{ marginBottom: 8 }}>
-                            <Checkbox>Drywall Patch</Checkbox>
-                          </Form.Item>
-                        </Col>
-                        <Col xs={8} sm={6} md={4}>
-                          <Form.Item label="SF" name={['hidden_costs', 'drywall_patch_sf']} style={{ marginBottom: 8 }}>
-                            <InputNumber style={{ width: '100%' }} min={0} />
-                          </Form.Item>
-                        </Col>
-                        <Col xs={12} sm={8} md={5}>
-                          <Form.Item name={['hidden_costs', 'drywall_patch_full']} valuePropName="checked" style={{ marginBottom: 8 }}>
-                            <Checkbox>Full (hang, tape, mud, prime)</Checkbox>
-                          </Form.Item>
-                        </Col>
-                      </Row>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                        prev?.repair_drywall_walls !== cur?.repair_drywall_walls ||
+                        prev?.repair_drywall_walls_sf !== cur?.repair_drywall_walls_sf
+                      }>
+                        {({ getFieldValue }) => {
+                          const repairWallsActive = getFieldValue('repair_drywall_walls');
+                          return repairWallsActive ? (
+                            <Row gutter={16} style={{ marginBottom: 8 }}>
+                              <Col span={24}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  <AuditOutlined style={{ color: '#52c41a', marginRight: 4 }} />
+                                  Drywall repair — "Water Damage Repair" 항목에서 이미 포함됨
+                                  {getFieldValue('repair_drywall_walls_sf') ? ` (${getFieldValue('repair_drywall_walls_sf')} SF)` : ''}
+                                </Text>
+                              </Col>
+                            </Row>
+                          ) : (
+                            <Row gutter={16}>
+                              <Col xs={12} sm={8} md={5}>
+                                <Form.Item name={['hidden_costs', 'drywall_patch']} valuePropName="checked" style={{ marginBottom: 8 }}>
+                                  <Checkbox>Drywall Patch</Checkbox>
+                                </Form.Item>
+                              </Col>
+                              <Col xs={8} sm={6} md={4}>
+                                <Form.Item label="SF" name={['hidden_costs', 'drywall_patch_sf']} style={{ marginBottom: 8 }}>
+                                  <InputNumber style={{ width: '100%' }} min={0} />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={12} sm={8} md={5}>
+                                <Form.Item name={['hidden_costs', 'drywall_patch_full']} valuePropName="checked" style={{ marginBottom: 8 }}>
+                                  <Checkbox>Full (hang, tape, mud, prime)</Checkbox>
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          );
+                        }}
+                      </Form.Item>
                       <Row gutter={16}>
                         <Col xs={12} sm={8} md={5}>
                           <Form.Item name={['hidden_costs', 'trim_paint']} valuePropName="checked" style={{ marginBottom: 8 }}>

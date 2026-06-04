@@ -180,6 +180,79 @@ const PRIORITY_TAG_COLORS: Record<string, string> = {
   urgent: 'red',
 };
 
+// ── Stage Aggregation ──
+// Groups multiple tasks of the same stage into one row with the worst status
+interface StageAggregated {
+  task_type: TaskType;
+  status: string;
+  assigned_to_name?: string;
+  assigned_to_role?: string;
+  primaryTask: FollowUpTask;
+  taskCount: number;
+  contact_count: number;
+  priority: string;
+  next_followup_date?: string;
+  title: string;
+}
+
+const STAGE_STATUS_PRIORITY: Record<string, number> = {
+  overdue: 0,
+  awaiting_response: 1,
+  pending: 2,
+  responded: 3,
+  resolved: 4,
+  cancelled: 5,
+};
+
+const aggregateByStage = (
+  tasks: FollowUpTask[],
+  isOverdueFn: (t: FollowUpTask) => boolean,
+): StageAggregated[] => {
+  const stageMap = new Map<TaskType, FollowUpTask[]>();
+  tasks.forEach(task => {
+    if (!stageMap.has(task.task_type)) stageMap.set(task.task_type, []);
+    stageMap.get(task.task_type)!.push(task);
+  });
+
+  return STAGE_ORDER
+    .filter(stage => stageMap.has(stage))
+    .map(stage => {
+      const stageTasks = stageMap.get(stage)!;
+
+      // Worst (most urgent) status across all tasks in this stage
+      let worstStatus = 'cancelled';
+      let worstPri = 5;
+      stageTasks.forEach(t => {
+        const effective = isOverdueFn(t) ? 'overdue' : t.status;
+        const pri = STAGE_STATUS_PRIORITY[effective] ?? 5;
+        if (pri < worstPri) { worstPri = pri; worstStatus = effective; }
+      });
+
+      // Primary task: prefer active (non-resolved/cancelled) task
+      const activeTask = stageTasks.find(t => !['resolved', 'cancelled'].includes(t.status));
+      const primary = activeTask || stageTasks[0];
+
+      // Earliest upcoming follow-up date among active tasks
+      const dates = stageTasks
+        .filter(t => !['resolved', 'cancelled'].includes(t.status))
+        .map(t => t.next_followup_date || t.due_date)
+        .filter(Boolean) as string[];
+
+      return {
+        task_type: stage,
+        status: worstStatus,
+        assigned_to_name: primary.assigned_to_name,
+        assigned_to_role: primary.assigned_to_role,
+        primaryTask: primary,
+        taskCount: stageTasks.length,
+        contact_count: stageTasks.reduce((sum, t) => sum + t.contact_count, 0),
+        priority: primary.priority,
+        next_followup_date: dates.sort()[0],
+        title: primary.title,
+      };
+    });
+};
+
 interface ClaimGroup {
   claim_id: string;
   property_address: string;
@@ -999,8 +1072,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
       ['pending', 'awaiting_response'].includes(task.status);
   };
 
-  // Columns for expanded task table (within each claim group)
-  const taskColumns: ColumnsType<FollowUpTask> = [
+  // Columns for expanded task table (aggregated by stage)
+  const taskColumns: ColumnsType<StageAggregated> = [
     {
       title: 'Stage',
       dataIndex: 'task_type',
@@ -1015,14 +1088,11 @@ const ClaimFollowUpDashboard: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       width: 140,
-      render: (status: string, record) => {
-        const displayStatus = isOverdue(record) ? 'overdue' : status;
-        return (
-          <Tag color={STATUS_COLORS[displayStatus] || 'default'}>
-            {displayStatus.replace('_', ' ').toUpperCase()}
-          </Tag>
-        );
-      },
+      render: (status: string) => (
+        <Tag color={STATUS_COLORS[status] || 'default'}>
+          {status.replace('_', ' ').toUpperCase()}
+        </Tag>
+      ),
     },
     {
       title: 'Priority',
@@ -1039,12 +1109,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
       title: 'Next Follow-up',
       key: 'next_followup_date',
       width: 130,
-      render: (_, record) => {
+      render: (_, record: StageAggregated) => {
         if (record.status === 'resolved') return <Text type="success">Resolved</Text>;
-        const date = record.next_followup_date || record.due_date;
+        const date = record.next_followup_date;
         if (!date) return <Text type="secondary">-</Text>;
         const d = dayjs(date);
-        const overdue = isOverdue(record);
+        const overdue = d.isBefore(dayjs());
         return (
           <Tooltip title={d.format('YYYY-MM-DD HH:mm')}>
             <Text type={overdue ? 'danger' : undefined}>
@@ -1059,7 +1129,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
       key: 'assigned_to',
       width: 140,
       ellipsis: true,
-      render: (_, record) => {
+      render: (_, record: StageAggregated) => {
         if (!record.assigned_to_name) return <Text type="secondary">-</Text>;
         return (
           <Space direction="vertical" size={0}>
@@ -1097,176 +1167,160 @@ const ClaimFollowUpDashboard: React.FC = () => {
       key: 'actions',
       width: 100,
       fixed: 'right',
-      render: (_, record) => (
-        <Dropdown
-          menu={{
-            items: [
-              {
-                key: 'email',
-                icon: <MailOutlined />,
-                label: 'Send Email',
-                onClick: () => navigate(`/claim-followup/${record.id}/email`),
-              },
-              {
-                key: 'resolve',
-                icon: <CheckCircleOutlined />,
-                label: 'Resolve',
-                disabled: record.status === 'resolved',
-                onClick: async () => {
-                  setSelectedTask(record);
-                  resolveForm.resetFields();
-                  setResolveOutcome(undefined);
-                  setParsedSections(null);
-                  setResolveFile(undefined);
-                  setResolveWmFile(undefined);
-                  setParsedWmAmount(undefined);
-                  setExistingPdfName(undefined);
-                  setExistingPdfId(undefined);
-                  setExistingWmPdfName(undefined);
-                  setExistingWmPdfId(undefined);
-                  setResolveModalOpen(true);
-                  // Pre-populate with existing data
-                  if (record.resolution_notes) {
-                    resolveForm.setFieldsValue({ resolution_notes: record.resolution_notes });
-                  }
-                  if (record.claim_id) {
+      render: (_, record: StageAggregated) => {
+        const task = record.primaryTask;
+        return (
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'email',
+                  icon: <MailOutlined />,
+                  label: 'Send Email',
+                  onClick: () => navigate(`/claim-followup/${task.id}/email`),
+                },
+                {
+                  key: 'resolve',
+                  icon: <CheckCircleOutlined />,
+                  label: 'Resolve',
+                  disabled: record.status === 'resolved',
+                  onClick: async () => {
+                    setSelectedTask(task);
+                    resolveForm.resetFields();
+                    setResolveOutcome(undefined);
+                    setParsedSections(null);
+                    setResolveFile(undefined);
+                    setResolveWmFile(undefined);
+                    setParsedWmAmount(undefined);
+                    setExistingPdfName(undefined);
+                    setExistingPdfId(undefined);
+                    setExistingWmPdfName(undefined);
+                    setExistingWmPdfId(undefined);
+                    setResolveModalOpen(true);
+                    if (task.resolution_notes) {
+                      resolveForm.setFieldsValue({ resolution_notes: task.resolution_notes });
+                    }
+                    if (task.claim_id) {
+                      try {
+                        const estimates = await supplementService.listInsuranceEstimates(task.claim_id);
+                        if (estimates.length > 0) {
+                          const combined = estimates.find((e: any) => e.estimate_category === 'combined');
+                          const recon = estimates.find((e: any) => e.estimate_category === 'reconstruction');
+                          const wm = estimates.find((e: any) => e.estimate_category === 'water_mitigation');
+                          const main = combined || recon
+                            || estimates.find((e: any) => (e.rcv_amount || 0) > 0)
+                            || estimates[0];
+                          const formValues: any = {
+                            outcome: 'estimate_received',
+                            rcv_amount: main.rcv_amount || 0,
+                            acv_amount: main.acv_amount || 0,
+                            depreciation_amount: main.depreciation_amount || 0,
+                            deductible: main.deductible || 0,
+                          };
+                          if (combined) {
+                            formValues.wm_cost_status = 'included_in_rebuild';
+                          } else if (wm && wm.document_url && wm.document_url !== main.document_url) {
+                            formValues.wm_cost_status = 'separate_estimate';
+                          }
+                          resolveForm.setFieldsValue(formValues);
+                          setResolveOutcome('estimate_received');
+                          if (main.sections_data?.length) setParsedSections(main.sections_data);
+                          if (main.document_name) {
+                            setExistingPdfName(main.document_name);
+                            setExistingPdfId(main.file_download_id || main.document_url);
+                          }
+                          if (wm && wm.document_url && wm.document_url !== main.document_url) {
+                            if (wm.document_name) {
+                              setExistingWmPdfName(wm.document_name);
+                              setExistingWmPdfId(wm.file_download_id || wm.document_url);
+                            }
+                            if (wm.rcv_amount) {
+                              setParsedWmAmount(wm.rcv_amount);
+                              resolveForm.setFieldsValue({ wm_estimate_amount: wm.rcv_amount });
+                            }
+                          }
+                        }
+                      } catch {
+                        // Ignore - just open empty modal
+                      }
+                    }
+                  },
+                },
+                {
+                  key: 'reopen',
+                  icon: <ClockCircleOutlined />,
+                  label: 'Reopen',
+                  disabled: record.status !== 'resolved',
+                  onClick: () => reopenMutation.mutate(task.id),
+                },
+                {
+                  key: 'edit',
+                  icon: <EditOutlined />,
+                  label: 'Edit',
+                  onClick: async () => {
+                    setSelectedTask(task);
+                    editForm.setFieldsValue({
+                      title: task.title,
+                      task_type: task.task_type,
+                      status: task.status,
+                      priority: task.priority,
+                      assigned_to_name: task.assigned_to_name,
+                      assigned_to_email: task.assigned_to_email,
+                      assigned_to_phone: task.assigned_to_phone,
+                      assigned_to_role: task.assigned_to_role,
+                      auto_followup_enabled: task.auto_followup_enabled,
+                      followup_interval_days: task.followup_interval_days,
+                      max_followup_count: task.max_followup_count,
+                    });
+                    setEditEstimateFile(undefined);
+                    setEditWmFile(undefined);
+                    setEditParsedSections(null);
+                    setEditExistingEstimates([]);
+                    editEstimateForm.resetFields();
                     try {
-                      const estimates = await supplementService.listInsuranceEstimates(record.claim_id);
+                      const estimates = await supplementService.listInsuranceEstimates(task.claim_id);
+                      setEditExistingEstimates(estimates || []);
                       if (estimates.length > 0) {
-                        // Find estimates by category
-                        const combined = estimates.find((e: any) => e.estimate_category === 'combined');
-                        const recon = estimates.find((e: any) => e.estimate_category === 'reconstruction');
-                        const wm = estimates.find((e: any) => e.estimate_category === 'water_mitigation');
-
-                        // Main estimate = combined > reconstruction > latest with non-zero amounts
-                        const main = combined || recon
-                          || estimates.find((e: any) => (e.rcv_amount || 0) > 0)
-                          || estimates[0];
-
-                        // Pre-fill amounts from main estimate
-                        const formValues: any = {
-                          outcome: 'estimate_received',
-                          rcv_amount: main.rcv_amount || 0,
-                          acv_amount: main.acv_amount || 0,
-                          depreciation_amount: main.depreciation_amount || 0,
-                          deductible: main.deductible || 0,
+                        const latest = estimates[0];
+                        const formVals: any = {
+                          acv_amount: latest.acv_amount || 0,
+                          rcv_amount: latest.rcv_amount || 0,
+                          depreciation_amount: latest.depreciation_amount || 0,
+                          deductible: latest.deductible || 0,
                         };
-
-                        // WM cost status: only set if data is reliable
-                        if (combined) {
-                          // Single combined estimate — WM was included
-                          formValues.wm_cost_status = 'included_in_rebuild';
-                        } else if (wm && wm.document_url && wm.document_url !== main.document_url) {
-                          // Separate WM with its own distinct file
-                          formValues.wm_cost_status = 'separate_estimate';
+                        if ((latest as any).claim_wm_cost_status) {
+                          formVals.wm_cost_status = (latest as any).claim_wm_cost_status;
                         }
-                        // Otherwise don't pre-set — let user choose
-
-                        resolveForm.setFieldsValue(formValues);
-                        setResolveOutcome('estimate_received');
-
-                        if (main.sections_data?.length) {
-                          setParsedSections(main.sections_data);
+                        if ((latest as any).claim_wm_estimate_amount) {
+                          formVals.wm_estimate_amount = (latest as any).claim_wm_estimate_amount;
                         }
-                        if (main.document_name) {
-                          setExistingPdfName(main.document_name);
-                          setExistingPdfId(main.file_download_id || main.document_url);
-                        }
-
-                        // WM: only if separate WM has its own distinct file
-                        if (wm && wm.document_url && wm.document_url !== main.document_url) {
-                          if (wm.document_name) {
-                            setExistingWmPdfName(wm.document_name);
-                            setExistingWmPdfId(wm.file_download_id || wm.document_url);
-                          }
-                          if (wm.rcv_amount) {
-                            setParsedWmAmount(wm.rcv_amount);
-                            resolveForm.setFieldsValue({ wm_estimate_amount: wm.rcv_amount });
-                          }
-                        }
+                        editEstimateForm.setFieldsValue(formVals);
+                        if (latest.sections_data) setEditParsedSections(latest.sections_data);
                       }
-                    } catch {
-                      // Ignore - just open empty modal
-                    }
-                  }
+                    } catch { /* ignore */ }
+                    setEditModalOpen(true);
+                  },
                 },
-              },
-              {
-                key: 'reopen',
-                icon: <ClockCircleOutlined />,
-                label: 'Reopen',
-                disabled: record.status !== 'resolved',
-                onClick: () => reopenMutation.mutate(record.id),
-              },
-              {
-                key: 'edit',
-                icon: <EditOutlined />,
-                label: 'Edit',
-                onClick: async () => {
-                  setSelectedTask(record);
-                  editForm.setFieldsValue({
-                    title: record.title,
-                    task_type: record.task_type,
-                    status: record.status,
-                    priority: record.priority,
-                    assigned_to_name: record.assigned_to_name,
-                    assigned_to_email: record.assigned_to_email,
-                    assigned_to_phone: record.assigned_to_phone,
-                    assigned_to_role: record.assigned_to_role,
-                    auto_followup_enabled: record.auto_followup_enabled,
-                    followup_interval_days: record.followup_interval_days,
-                    max_followup_count: record.max_followup_count,
-                  });
-                  // Load existing estimate data for this claim
-                  setEditEstimateFile(undefined);
-                  setEditWmFile(undefined);
-                  setEditParsedSections(null);
-                  setEditExistingEstimates([]);
-                  editEstimateForm.resetFields();
-                  try {
-                    const estimates = await supplementService.listInsuranceEstimates(record.claim_id);
-                    setEditExistingEstimates(estimates || []);
-                    if (estimates.length > 0) {
-                      const latest = estimates[0];
-                      const formVals: any = {
-                        acv_amount: latest.acv_amount || 0,
-                        rcv_amount: latest.rcv_amount || 0,
-                        depreciation_amount: latest.depreciation_amount || 0,
-                        deductible: latest.deductible || 0,
-                      };
-                      // Load claim-level WM fields
-                      if ((latest as any).claim_wm_cost_status) {
-                        formVals.wm_cost_status = (latest as any).claim_wm_cost_status;
-                      }
-                      if ((latest as any).claim_wm_estimate_amount) {
-                        formVals.wm_estimate_amount = (latest as any).claim_wm_estimate_amount;
-                      }
-                      editEstimateForm.setFieldsValue(formVals);
-                      if (latest.sections_data) setEditParsedSections(latest.sections_data);
-                    }
-                  } catch { /* ignore */ }
-                  setEditModalOpen(true);
+                { type: 'divider' },
+                {
+                  key: 'delete',
+                  icon: <DeleteOutlined />,
+                  label: 'Delete',
+                  danger: true,
+                  onClick: () => {
+                    Modal.confirm({
+                      title: 'Delete this task?',
+                      onOk: () => deleteMutation.mutate(task.id),
+                    });
+                  },
                 },
-              },
-              { type: 'divider' },
-              {
-                key: 'delete',
-                icon: <DeleteOutlined />,
-                label: 'Delete',
-                danger: true,
-                onClick: () => {
-                  Modal.confirm({
-                    title: 'Delete this task?',
-                    onOk: () => deleteMutation.mutate(record.id),
-                  });
-                },
-              },
-            ],
-          }}
-        >
-          <Button type="text" icon={<EllipsisOutlined />} />
-        </Dropdown>
-      ),
+              ],
+            }}
+          >
+            <Button type="text" icon={<EllipsisOutlined />} />
+          </Dropdown>
+        );
+      },
     },
   ];
 
@@ -1654,20 +1708,19 @@ const ClaimFollowUpDashboard: React.FC = () => {
               </div>
             ),
             children: (
-              <Table
-                dataSource={group.tasks}
+              <Table<StageAggregated>
+                dataSource={aggregateByStage(group.tasks, isOverdue)}
                 columns={taskColumns}
-                rowKey="id"
+                rowKey="task_type"
                 size="small"
                 pagination={false}
                 scroll={{ x: 900 }}
-                rowClassName={(record) => isOverdue(record) ? 'ant-table-row-overdue' : ''}
-                onRow={(record) => ({
+                rowClassName={(record: StageAggregated) => record.status === 'overdue' ? 'ant-table-row-overdue' : ''}
+                onRow={(record: StageAggregated) => ({
                   onClick: (e) => {
-                    // Don't open drawer if clicking action buttons/dropdowns
                     const target = e.target as HTMLElement;
                     if (target.closest('.ant-dropdown-trigger') || target.closest('.ant-btn') || target.closest('.ant-dropdown')) return;
-                    setDetailTask(record);
+                    setDetailTask(record.primaryTask);
                     setTaskDetailOpen(true);
                   },
                   style: { cursor: 'pointer' },
@@ -2532,12 +2585,12 @@ const ClaimFollowUpDashboard: React.FC = () => {
                 </Row>
               </Card>
 
-              {/* Tasks Summary */}
+              {/* Tasks Summary (aggregated by stage) */}
               <Card size="small" title="Tasks" style={{ marginBottom: 16 }}>
-                <Table
+                <Table<StageAggregated>
                   size="small"
-                  dataSource={group.tasks}
-                  rowKey="id"
+                  dataSource={aggregateByStage(group.tasks, isOverdue)}
+                  rowKey="task_type"
                   pagination={false}
                   columns={[
                     {
@@ -2546,10 +2599,9 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     },
                     {
                       title: 'Status', dataIndex: 'status', width: 130,
-                      render: (s: string, record: FollowUpTask) => {
-                        const display = isOverdue(record) ? 'overdue' : s;
-                        return <Tag color={STATUS_COLORS[display] || 'default'}>{display.replace('_', ' ').toUpperCase()}</Tag>;
-                      },
+                      render: (s: string) => (
+                        <Tag color={STATUS_COLORS[s] || 'default'}>{s.replace('_', ' ').toUpperCase()}</Tag>
+                      ),
                     },
                     {
                       title: 'Assigned', dataIndex: 'assigned_to_name', width: 120, ellipsis: true,
@@ -2557,14 +2609,14 @@ const ClaimFollowUpDashboard: React.FC = () => {
                     },
                     {
                       title: '', key: 'actions', width: 80, align: 'center' as const,
-                      render: (_: any, record: FollowUpTask) => (
+                      render: (_: any, record: StageAggregated) => (
                         <Space size={4}>
                           <Tooltip title="Send Email">
                             <Button
                               type="link"
                               size="small"
                               icon={<MailOutlined />}
-                              onClick={() => setDrawerEmailTaskId(record.id)}
+                              onClick={() => setDrawerEmailTaskId(record.primaryTask.id)}
                             />
                           </Tooltip>
                           <Tooltip title="Open full page">
@@ -2572,14 +2624,14 @@ const ClaimFollowUpDashboard: React.FC = () => {
                               type="link"
                               size="small"
                               icon={<RightOutlined />}
-                              onClick={() => navigate(`/claim-followup/${record.id}/email`)}
+                              onClick={() => navigate(`/claim-followup/${record.primaryTask.id}/email`)}
                             />
                           </Tooltip>
                         </Space>
                       ),
                     },
                   ]}
-                  rowClassName={(record) => record.id === drawerEmailTaskId ? 'ant-table-row-selected' : ''}
+                  rowClassName={(record: StageAggregated) => record.primaryTask.id === drawerEmailTaskId ? 'ant-table-row-selected' : ''}
                 />
               </Card>
 

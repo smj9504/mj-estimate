@@ -1122,11 +1122,14 @@ class SupplementService:
             session.close()
 
     def assign_rebuild_company(self, claim_id: str, company_id: str) -> Dict[str, Any]:
-        """Assign or update the reconstruction company for a claim via ClaimCompany."""
+        """Assign or update the reconstruction company for a claim via ClaimCompany.
+        Also auto-assigns the matching RebuildContractor to any rebuild projects for this claim.
+        """
         session = self._get_session()
         try:
             from app.domains.contract.models import ClaimCompany
             from app.domains.company.models import Company
+            from app.domains.rebuild.models import RebuildContractor, RebuildProject
 
             # Verify company exists
             company = session.query(Company).filter(Company.id == company_id).first()
@@ -1153,6 +1156,37 @@ class SupplementService:
                     is_primary=True,
                 )
                 session.add(cc)
+
+            # Auto-assign contractor to rebuild projects for this claim
+            contractor = (
+                session.query(RebuildContractor)
+                .filter(RebuildContractor.company_id == company_id, RebuildContractor.is_active == True)
+                .first()
+            )
+            if not contractor:
+                # Create RebuildContractor from Company
+                contractor = RebuildContractor(
+                    company_id=company_id,
+                    company_name=company.name,
+                    contact_name=None,
+                    phone=company.phone,
+                    email=company.email,
+                    address=company.address,
+                    is_active=True,
+                )
+                session.add(contractor)
+                session.flush()
+
+            # Update all rebuild projects for this claim
+            projects = (
+                session.query(RebuildProject)
+                .filter(RebuildProject.claim_id == claim_id)
+                .all()
+            )
+            for proj in projects:
+                proj.contractor_id = contractor.id
+                if proj.status == 'pending':
+                    proj.status = 'assigned'
 
             session.commit()
             return {"company_id": str(company.id), "company_name": company.name}

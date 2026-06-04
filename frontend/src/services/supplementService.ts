@@ -137,6 +137,17 @@ export const supplementService = {
     return data;
   },
 
+  async extractInsuranceEstimatePdf(fileId: string): Promise<{
+    success: boolean;
+    totals?: { rcv_amount: number; acv_amount: number; depreciation_amount: number; deductible: number; net_claim: number };
+    sections?: any[];
+    header?: Record<string, any>;
+    error?: string;
+  }> {
+    const { data } = await api.post(`${BASE_URL}/insurance-estimates/extract-pdf/${fileId}`);
+    return data;
+  },
+
   async replaceInsuranceEstimatePdf(claimId: string, negotiationId: string, fileId: string) {
     const { data } = await api.patch(
       `${BASE_URL}/insurance-estimates/${claimId}/${negotiationId}/replace-pdf`,

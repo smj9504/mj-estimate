@@ -83,4 +83,32 @@ export const rebuildService = {
   async deleteDoc(projectId: string, docId: string): Promise<void> {
     await api.delete(`${BASE}/projects/${projectId}/docs/${docId}`);
   },
+
+  // Document Generation
+  async getAvailableTemplates(projectId: string): Promise<any[]> {
+    const { data } = await api.get(`${BASE}/projects/${projectId}/available-templates`);
+    return data;
+  },
+  async getPrefillData(projectId: string): Promise<Record<string, any>> {
+    const { data } = await api.get(`${BASE}/projects/${projectId}/prefill-data`);
+    return data;
+  },
+  async generateDocument(projectId: string, payload: {
+    template_id: string;
+    doc_type: string;
+    title: string;
+    overrides?: Record<string, string>;
+    additional_text?: string;
+    signature_image?: string;
+    signature_name?: string;
+  }): Promise<RebuildCompletionDoc> {
+    const { data } = await api.post(`${BASE}/projects/${projectId}/generate-doc`, payload);
+    return data;
+  },
+  async photosToPdf(projectId: string, formData: FormData): Promise<RebuildCompletionDoc> {
+    const { data } = await api.post(`${BASE}/projects/${projectId}/photos-to-pdf`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
 };
