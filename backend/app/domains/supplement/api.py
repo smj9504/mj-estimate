@@ -204,7 +204,34 @@ async def list_insurance_estimates(claim_id: str):
                     if file_rec:
                         item['file_download_id'] = str(file_rec.id)
 
+                # Fallback: if document_url is empty/null but a file was
+                # previously uploaded for this negotiation, recover the link.
+                if not item['file_download_id']:
+                    fallback = (
+                        session.query(File)
+                        .filter(
+                            File.context == 'negotiation',
+                            File.context_id == claim_id,
+                            File.category == 'insurance_estimate',
+                            File.is_active == True,
+                        )
+                        .order_by(File.created_at.desc())
+                        .first()
+                    )
+                    if fallback:
+                        item['file_download_id'] = str(fallback.id)
+                        # Auto-heal: restore the broken link
+                        if not doc_url:
+                            neg.document_url = str(fallback.id)
+                            neg.document_name = fallback.original_name
+
                 results.append(item)
+
+            # Persist any auto-healed document links
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
 
             # Attach claim-level WM info to each result
             for r in results:
@@ -459,7 +486,7 @@ async def extract_insurance_estimate_pdf(file_id: str):
             # Resolve PDF path using the extraction service helper
             from app.domains.insurance_extraction.service import InsuranceExtractionService
             ext_svc = InsuranceExtractionService(session)
-            pdf_path, tmp_path = ext_svc._resolve_pdf_path(file_rec.stored_url)
+            pdf_path, tmp_path = ext_svc._resolve_pdf_path(file_rec.url)
 
             try:
                 from app.domains.insurance_extraction.parsers.xactimate_reference_parser import (
@@ -825,36 +852,91 @@ async def polish_scope_notes(data: dict):
 
     estimate_type = data.get("estimate_type", "")
 
-    try:
-        import openai
-        from app.core.config import settings
+    system_prompt = (
+        "You are a professional insurance supplement writer. "
+        "Polish the user's rough scope notes into clear, grammatically correct, professional language "
+        "suitable for emailing a Public Adjuster (PA).\n\n"
+        "STRICT RULES:\n"
+        "- ONLY fix grammar, spelling, and sentence structure. Do NOT change the meaning.\n"
+        "- Do NOT add scope items, details, quantities, or technical claims that are not in the original.\n"
+        "- Do NOT remove or omit any scope items from the original.\n"
+        "- You MAY interpret the user's intent from rough notes, but do NOT fabricate details that were not implied.\n"
+        "- Keep all specific details exactly: room names, floor numbers, measurements, "
+        "Xactimate codes (FCCAV, FCCPAD, etc.), item names.\n"
+        "- Use construction/restoration industry terminology where the user already implies it.\n"
+        "- Use bullet points (one per line starting with '• ') if there are multiple items.\n"
+        "- Output ONLY the polished text. No explanations, no quotes, no preamble."
+    )
+    user_msg = f"Estimate type: {estimate_type}\nRough notes:\n{notes}"
 
-        client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
+    try:
+        from app.core.config import settings
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
             max_tokens=300,
-            temperature=0.3,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a professional insurance supplement writer. "
-                        "Polish the user's rough scope notes into clear, concise, professional language "
-                        "suitable for communicating with a Public Adjuster (PA). "
-                        "Keep it factual and direct. Use construction/restoration industry terminology. "
-                        "Output ONLY the polished text, no explanations or quotes. "
-                        "Preserve the original meaning — do not add or remove scope items. "
-                        "Use bullet points (one per line starting with '• ') if there are multiple items."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Estimate type: {estimate_type}\nRough notes:\n{notes}",
-                },
-            ],
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_msg}],
         )
-        polished = response.choices[0].message.content.strip()
+        polished = response.content[0].text.strip()
         return {"polished": polished}
     except Exception as e:
         logger.error(f"Error polishing scope notes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/supplements/polish-description-for-email")
+async def polish_description_for_email(data: dict):
+    """Use AI to organize rough bid item descriptions into professional HTML
+    suitable for embedding in a PA email body.
+
+    Request body:
+    - descriptions: str (raw description text with scope changes)
+    """
+    descriptions = (data.get("descriptions") or "").strip()
+    if not descriptions:
+        raise HTTPException(status_code=400, detail="descriptions is required")
+
+    system_prompt = (
+        "You are a professional insurance supplement writer. "
+        "Polish the user's rough scope notes into clear, professional language for an email to a Public Adjuster (PA). "
+        "\n\nRules:"
+        "\n- Group related items under short category headings."
+        "\n- Format as HTML: use <p><strong> for headings, then lines separated by <br/>."
+        "\n- Each item on its own line, starting with a bullet or dash is optional."
+        "\n- Combine related items (e.g. multiple carpet items together)."
+        "\n- Keep it concise and factual. Use construction/restoration terminology."
+        "\n- Preserve ALL original scope items — do not add or remove any."
+        "\n- Keep Xactimate line item codes (FCCAV, FCCPAD, etc.) when mentioned."
+        "\n- Output ONLY the HTML. No explanations, no markdown, no ```."
+        "\n- NO <h1>-<h4>, <ul>, <li>, <table> tags. Keep it simple: <p>, <strong>, <br/> only."
+        "\n\nExample output:"
+        "\n<p><strong>Flooring & Material Adjustments</strong><br/>"
+        "\nAdded 1st-floor baseboard replacement (hardwood floor).<br/>"
+        "\nAdded carpet replacement for 2nd-floor bedrooms (1, 2, and 3).<br/>"
+        "\nAdjusted carpet and pad pricing per independent analysis; applied Xactimate line items FCCAV and FCCPAD.<br/>"
+        "\nIncluded carpet disposal/waste fees.</p>"
+        "\n<p><strong>Bid Items</strong><br/>"
+        "\nIncluded Bathroom bid item.<br/>"
+        "\nIncluded Pack-in/out bid item.</p>"
+    )
+    user_msg = f"Rough scope change notes:\n{descriptions}"
+
+    try:
+        from app.core.config import settings
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=800,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        polished_html = response.content[0].text.strip()
+        return {"polished_html": polished_html}
+    except Exception as e:
+        logger.error(f"Error polishing description for email: {e}")
         raise HTTPException(status_code=500, detail=str(e))

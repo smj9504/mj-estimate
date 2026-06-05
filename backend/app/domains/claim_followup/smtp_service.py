@@ -38,6 +38,7 @@ class SmtpService:
         bcc_addresses: List[str] = None,
         attachments: List[Dict[str, Any]] = None,
         reply_to: Optional[str] = None,
+        skip_signature: bool = False,
     ) -> Dict[str, Any]:
         """
         Send an email via SMTP.
@@ -62,7 +63,7 @@ class SmtpService:
             attachments=attachments,
             reply_to=reply_to,
             display_name=smtp_config.get("display_name", ""),
-            sender_name=smtp_config.get("sender_name", ""),
+            sender_name="" if skip_signature else smtp_config.get("sender_name", ""),
             sender_phone=smtp_config.get("sender_phone", ""),
             email_address=smtp_config.get("email_address", from_address),
             company_name=smtp_config.get("company_name", ""),
@@ -184,8 +185,33 @@ class SmtpService:
                 body_html, sender_name, company_name, sender_phone, email_address
             )
 
-        msg = MIMEMultipart("mixed")
-        msg["From"] = formataddr((display_name, from_address)) if display_name else from_address
+        # Plain text: clean conversion from HTML
+        import re
+        plain_text = body_html
+        plain_text = re.sub(r'<br\s*/?>', '\n', plain_text)
+        plain_text = re.sub(r'</p>\s*', '\n\n', plain_text)
+        plain_text = re.sub(r'<li[^>]*>', '- ', plain_text)
+        plain_text = re.sub(r'</li>', '\n', plain_text)
+        plain_text = re.sub(r'<[^>]+>', '', plain_text)
+        plain_text = re.sub(r'\n{3,}', '\n\n', plain_text).strip()
+
+        # Use multipart/alternative when no attachments, multipart/mixed when attachments exist
+        has_attachments = bool(attachments)
+        if has_attachments:
+            msg = MIMEMultipart("mixed")
+            body_part = MIMEMultipart("alternative")
+            body_part.attach(MIMEText(plain_text, "plain", "utf-8"))
+            body_part.attach(MIMEText(body_html, "html", "utf-8"))
+            msg.attach(body_part)
+            for attachment in attachments:
+                self._attach_file(msg, attachment)
+        else:
+            msg = MIMEMultipart("alternative")
+            msg.attach(MIMEText(plain_text, "plain", "utf-8"))
+            msg.attach(MIMEText(body_html, "html", "utf-8"))
+
+        from_header = formataddr((display_name, from_address)) if display_name else from_address
+        msg["From"] = from_header
         msg["To"] = ", ".join(to_addresses)
         if cc_addresses:
             msg["Cc"] = ", ".join(cc_addresses)
@@ -197,30 +223,8 @@ class SmtpService:
         msg["Date"] = formatdate(localtime=True)
         msg["MIME-Version"] = "1.0"
 
-        if reply_to:
-            msg["Reply-To"] = reply_to
-
-        # Body - proper multipart/alternative with plain text and HTML
-        body_part = MIMEMultipart("alternative")
-
-        # Plain text: clean conversion from HTML (better than regex strip)
-        import re
-        plain_text = body_html
-        # Convert <br>, <p>, <li> to newlines for readable plain text
-        plain_text = re.sub(r'<br\s*/?>',  '\n', plain_text)
-        plain_text = re.sub(r'</p>\s*', '\n\n', plain_text)
-        plain_text = re.sub(r'<li[^>]*>', '- ', plain_text)
-        plain_text = re.sub(r'</li>', '\n', plain_text)
-        plain_text = re.sub(r'<[^>]+>', '', plain_text)
-        plain_text = re.sub(r'\n{3,}', '\n\n', plain_text).strip()
-
-        body_part.attach(MIMEText(plain_text, "plain", "utf-8"))
-        body_part.attach(MIMEText(body_html, "html", "utf-8"))
-        msg.attach(body_part)
-
-        # Attachments
-        for attachment in attachments:
-            self._attach_file(msg, attachment)
+        # Always set Reply-To for deliverability
+        msg["Reply-To"] = reply_to or from_address
 
         return msg
 

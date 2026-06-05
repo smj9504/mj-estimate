@@ -340,6 +340,10 @@ _NEEDED_COLUMNS = [
     # Email account signature fields
     ("email_accounts", "sender_name", "VARCHAR(255)"),
     ("email_accounts", "sender_phone", "VARCHAR(50)"),
+    # Supplement followup reply tracking
+    ("supplement_followups", "sent_email_id", "UUID"),
+    ("supplement_followups", "reply_body_html", "TEXT"),
+    ("supplement_followups", "reply_attachment_ids", "JSONB"),
 ]
 
 

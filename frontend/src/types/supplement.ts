@@ -111,6 +111,9 @@ export interface SupplementFollowUp {
   response_received: boolean;
   response_date?: string;
   response_summary?: string;
+  reply_body_html?: string;
+  reply_attachment_ids?: string[];
+  sent_email_id?: string;
   follow_up_count?: number;
   last_follow_up_date?: string;
   created_at?: string;

@@ -401,6 +401,25 @@ class ReplyTracker:
         except Exception as e:
             logger.warning(f"Failed to log ClaimActivity for auto-reply: {e}")
 
+        # 5. Update linked SupplementFollowUp if exists
+        try:
+            from app.domains.supplement.models import SupplementFollowUp
+            sup_followup = session.query(SupplementFollowUp).filter(
+                SupplementFollowUp.sent_email_id == email_id
+            ).first()
+            if sup_followup:
+                sup_followup.response_received = True
+                sup_followup.response_date = reply_time
+                sup_followup.response_summary = reply_summary
+                sup_followup.reply_body_html = reply.body_html or reply.body_text or ""
+                sup_followup.info_status = "resolved"
+                logger.info(
+                    f"Auto-updated SupplementFollowUp {sup_followup.id} "
+                    f"with reply from {reply.sender}"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to update SupplementFollowUp for reply: {e}")
+
         session.flush()
         logger.info(
             f"Auto-detected reply for email {email_id} from {reply.sender}"

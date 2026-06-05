@@ -612,7 +612,7 @@ class SupplementService:
             # Send via claim_followup email service
             from app.domains.claim_followup.service import ClaimFollowUpService
             email_service = ClaimFollowUpService()
-            email_result = email_service.send_email({
+            send_payload = {
                 "claim_id": str(sup.claim_id),
                 "email_account_id": email_account_id,
                 "to_addresses": to_addresses,
@@ -620,7 +620,10 @@ class SupplementService:
                 "subject": subject,
                 "body_html": body_html,
                 "attachments": attachments,
-            })
+            }
+            if data.get("from_address"):
+                send_payload["from_address"] = data["from_address"]
+            email_result = email_service.send_email(send_payload)
 
             # Update supplement status & submission info
             now = __import__("datetime").datetime.now(
@@ -875,7 +878,7 @@ class SupplementService:
 
 {custom_section}
 
-<p>Please review the attached documents and let us know if you have any questions or need additional information.</p>
+<p>Please review the attached documents and let me know if you have any questions or need additional information.</p>
 
 <p>Thank you.</p>
 <p>Best regards</p>
@@ -1001,7 +1004,7 @@ class SupplementService:
                 __import__("datetime").timezone.utc
             )
 
-            # Create followup record
+            # Create followup record (linked to sent email for auto reply detection)
             followup = SupplementFollowUp(
                 supplement_id=sup.id,
                 followup_type="info_request",
@@ -1014,6 +1017,7 @@ class SupplementService:
                 info_status="sent",
                 response_received=False,
                 follow_up_count=0,
+                sent_email_id=email_result.get("id"),
             )
             session.add(followup)
             session.commit()
@@ -1084,7 +1088,7 @@ class SupplementService:
                 f"<p>We are still waiting for the following information:</p>"
                 f"<ul>{items_html}</ul>"
                 f"{additional_html}"
-                f"<p>Please let us know if you need any clarification.</p>"
+                f"<p>Please let me know if you need any clarification.</p>"
                 f"<p>Thank you,<br/>MJ Estimate Team</p>"
             )
 
@@ -1106,6 +1110,8 @@ class SupplementService:
             followup.follow_up_count = follow_up_num
             followup.last_follow_up_date = now
             followup.info_status = "awaiting_response"
+            # Update sent_email_id to track latest email for reply detection
+            followup.sent_email_id = email_result.get("id")
             session.commit()
 
             return {

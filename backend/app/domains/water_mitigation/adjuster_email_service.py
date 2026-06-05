@@ -389,7 +389,7 @@ class AdjusterEmailService:
             # Build claim_id for the email record (may be None)
             claim_id = str(job.claim_id) if job.claim_id else None
 
-            email_result = email_service.send_email({
+            send_payload = {
                 "claim_id": claim_id,
                 "email_account_id": email_account_id,
                 "to_addresses": to_addresses,
@@ -398,7 +398,10 @@ class AdjusterEmailService:
                 "subject": subject,
                 "body_html": body_html,
                 "attachments": attachments,
-            })
+            }
+            if data.get("from_address"):
+                send_payload["from_address"] = data["from_address"]
+            email_result = email_service.send_email(send_payload)
 
             # Update job: documents_sent_date
             now = datetime.now(timezone.utc)

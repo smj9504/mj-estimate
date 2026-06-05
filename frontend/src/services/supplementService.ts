@@ -246,6 +246,7 @@ export const supplementService = {
     body_html: string;
     pa_name?: string;
     email_account_id?: string;
+    from_address?: string;
     extra_file_ids?: string[];
   }): Promise<{ success: boolean; email_id: string; attachments_count: number; status: string }> {
     const { data } = await api.post(`${BASE_URL}/${supplementId}/send-to-pa`, payload);
@@ -256,6 +257,13 @@ export const supplementService = {
     const { data } = await api.post(`${BASE_URL}/polish-scope-notes`, {
       notes,
       estimate_type: estimateType || '',
+    });
+    return data;
+  },
+
+  async polishDescriptionForEmail(descriptions: string): Promise<{ polished_html: string }> {
+    const { data } = await api.post(`${BASE_URL}/polish-description-for-email`, {
+      descriptions,
     });
     return data;
   },

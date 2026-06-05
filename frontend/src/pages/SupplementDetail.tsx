@@ -30,6 +30,60 @@ import type {
 } from '../types/supplement';
 import type { ClaimNegotiation, NegotiationSection } from '../types/client';
 
+// Section category config — matches ClaimFollowUpDashboard
+const SECTION_CATEGORIES: Record<string, {
+  label: string;
+  keywords: string[];
+  color: string;
+  bg: string;
+  border: string;
+}> = {
+  reconstruction: {
+    label: 'Reconstruction',
+    keywords: ['dwelling', 'water damage', 'rebuild', 'reconstruction', 'drywall', 'flooring', 'paint', 'cabinet', 'plumb', 'electrical', 'code', 'upgrade', 'coverage a'],
+    color: '#531dab', bg: '#f9f0ff', border: '#d3adf7',
+  },
+  water_mitigation: {
+    label: 'Water Mitigation',
+    keywords: ['water mitigation', 'emergency service', 'dry out', 'drying', 'dehumidifier', 'extraction'],
+    color: '#0958d9', bg: '#e6f4ff', border: '#91caff',
+  },
+  mold_remediation: {
+    label: 'Mold Remediation',
+    keywords: ['mold', 'remediation', 'fungi', 'microbial'],
+    color: '#d4380d', bg: '#fff2e8', border: '#ffbb96',
+  },
+  roofing: {
+    label: 'Roofing',
+    keywords: ['roof', 'shingle', 'flashing', 'gutter'],
+    color: '#08979c', bg: '#e6fffb', border: '#87e8de',
+  },
+  other: {
+    label: 'Other',
+    keywords: [],
+    color: '#595959', bg: '#fafafa', border: '#d9d9d9',
+  },
+};
+
+const categorizeSection = (name: string): string => {
+  const lower = name.toLowerCase();
+  for (const [key, cfg] of Object.entries(SECTION_CATEGORIES)) {
+    if (key === 'other') continue;
+    if (cfg.keywords.some(kw => lower.includes(kw))) return key;
+  }
+  return 'other';
+};
+
+const groupSectionsByCategory = (sections: NegotiationSection[]) => {
+  const grouped: Record<string, NegotiationSection[]> = {};
+  sections.forEach(s => {
+    const cat = categorizeSection(s.section_name || '');
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(s);
+  });
+  return grouped;
+};
+
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
@@ -106,6 +160,9 @@ const SupplementDetail: React.FC = () => {
   const [paToEmails, setPaToEmails] = useState<string[]>([]);
   const [paCcEmails, setPaCcEmails] = useState<string[]>([]);
   const [paSelectedAccountId, setPaSelectedAccountId] = useState<string | undefined>();
+  const [paManualFromEmail, setPaManualFromEmail] = useState('');
+  const [paDescriptionDraft, setPaDescriptionDraft] = useState('');
+  const [polishingDescription, setPolishingDescription] = useState(false);
   const [paExtraFiles, setPaExtraFiles] = useState<File[]>([]);
 
   const [bidItemForm] = Form.useForm();
@@ -117,6 +174,14 @@ const SupplementDetail: React.FC = () => {
   const [infoItems, setInfoItems] = useState<string[]>(['']);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [infoRequestForm] = Form.useForm();
+
+  // Response modal state
+  const [responseModalOpen, setResponseModalOpen] = useState(false);
+  const [responseTargetFu, setResponseTargetFu] = useState<SupplementFollowUp | null>(null);
+  const [responseSummary, setResponseSummary] = useState('');
+  const [responseBodyHtml, setResponseBodyHtml] = useState('');
+  const [responseFiles, setResponseFiles] = useState<File[]>([]);
+  const [responseSubmitting, setResponseSubmitting] = useState(false);
 
   // Main supplement query
   const { data: supplement, isLoading, error } = useQuery({
@@ -260,6 +325,17 @@ const SupplementDetail: React.FC = () => {
       setPaCustomNotes('');
       setPaToEmails(info.pa_email ? [info.pa_email] : []);
       setPaCcEmails((info.cc_emails || []).map((c: any) => c.email));
+      setPaManualFromEmail('');
+      // Pre-populate description draft from bid item descriptions
+      const descLines = (supplement.bid_items || [])
+        .map(item => {
+          const parts: string[] = [];
+          if (item.title) parts.push(item.title);
+          if (item.description) parts.push(item.description);
+          return parts.join(': ');
+        })
+        .filter(Boolean);
+      setPaDescriptionDraft(descLines.join('\n'));
       setPaExtraFiles([]);
       if (emailAccounts.length > 0 && !paSelectedAccountId) {
         setPaSelectedAccountId(emailAccounts[0].id);
@@ -302,6 +378,7 @@ const SupplementDetail: React.FC = () => {
         body_html: paEmailContent.body_html,
         pa_name: paInfo.pa_name,
         email_account_id: paSelectedAccountId,
+        from_address: paManualFromEmail.trim() || undefined,
         extra_file_ids: extraFileIds,
       });
       message.success(`Sent to PA with ${result.attachments_count} PDF attachment(s)`);
@@ -346,6 +423,12 @@ const SupplementDetail: React.FC = () => {
   }
 
   if (error || !supplement) {
+    const is404 = (error as any)?.response?.status === 404;
+    if (is404) {
+      message.warning('Supplement not found. It may have been deleted.');
+      navigate('/supplements', { replace: true });
+      return null;
+    }
     return (
       <div style={{ padding: 24 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/supplements')}>
@@ -653,30 +736,56 @@ const SupplementDetail: React.FC = () => {
                           </div>
                         </div>
 
-                        {ver.sections_data && ver.sections_data.length > 0 && (
-                          <Collapse size="small" style={{ marginTop: 8 }} items={[{
-                            key: 'sections',
-                            label: <Text style={{ fontSize: 11 }}>Section Breakdown ({ver.sections_data.length} sections)</Text>,
-                            children: (
-                              <Table
-                                size="small"
-                                dataSource={ver.sections_data}
-                                rowKey={(r: NegotiationSection, i?: number) => `${r.section_name}-${i}`}
-                                pagination={false}
-                                scroll={{ x: 500 }}
-                                columns={[
-                                  { title: 'Section', dataIndex: 'section_name', key: 'section', width: 180, ellipsis: true },
-                                  { title: 'RCV', dataIndex: 'rcv', key: 'rcv', width: 100, align: 'right' as const,
-                                    render: (v?: number) => v != null ? formatCurrency(v) : '-' },
-                                  { title: 'Depreciation', dataIndex: 'depreciation', key: 'dep', width: 100, align: 'right' as const,
-                                    render: (v?: number) => v != null ? formatCurrency(v) : '-' },
-                                  { title: 'Net ACV', dataIndex: 'net_acv', key: 'acv', width: 100, align: 'right' as const,
-                                    render: (v?: number) => v != null ? formatCurrency(v) : '-' },
-                                ]}
-                              />
-                            ),
-                          }]} />
-                        )}
+                        {ver.sections_data && ver.sections_data.length > 0 && (() => {
+                          const grouped = groupSectionsByCategory(ver.sections_data);
+                          return (
+                            <Collapse size="small" style={{ marginTop: 8 }} items={[{
+                              key: 'sections',
+                              label: <Text style={{ fontSize: 11 }}>Section Breakdown ({ver.sections_data.length} sections)</Text>,
+                              children: (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  {Object.keys(SECTION_CATEGORIES).map(cat => {
+                                    const items = grouped[cat];
+                                    if (!items || items.length === 0) return null;
+                                    const cfg = SECTION_CATEGORIES[cat];
+                                    const catRcv = items.reduce((sum, s) => sum + (s.rcv || 0), 0);
+                                    const catDep = items.reduce((sum, s) => sum + (s.depreciation || 0), 0);
+                                    const catAcv = items.reduce((sum, s) => sum + (s.net_acv || 0), 0);
+                                    return (
+                                      <div key={cat} style={{
+                                        padding: '6px 8px', borderRadius: 4,
+                                        background: cfg.bg, borderLeft: `3px solid ${cfg.border}`,
+                                      }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                                          <Text strong style={{ fontSize: 11, color: cfg.color }}>{cfg.label}</Text>
+                                          <Text style={{ fontSize: 11 }}>
+                                            RCV <Text strong style={{ fontSize: 11 }}>{formatCurrency(catRcv)}</Text>
+                                            <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>Dep {formatCurrency(catDep)}</Text>
+                                            <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>ACV {formatCurrency(catAcv)}</Text>
+                                          </Text>
+                                        </div>
+                                        {items.map((s, sIdx) => (
+                                          <div key={sIdx} style={{
+                                            display: 'flex', justifyContent: 'space-between',
+                                            fontSize: 10, padding: '1px 4px', color: '#666',
+                                          }}>
+                                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                              {s.section_name}
+                                            </span>
+                                            <span style={{ whiteSpace: 'nowrap', marginLeft: 8 }}>
+                                              {formatCurrency(s.rcv || 0)}
+                                              <span style={{ color: '#999', marginLeft: 4 }}>(dep: {formatCurrency(s.depreciation || 0)})</span>
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ),
+                            }]} />
+                          );
+                        })()}
                       </Card>
                     ))}
                   </div>
@@ -1157,7 +1266,6 @@ const SupplementDetail: React.FC = () => {
             await supplementService.updateFollowup(supplement.id, fu.id, {
               items_needed: updated,
               info_status: allResolved ? 'resolved' : 'partially_resolved',
-              response_received: allResolved ? true : fu.response_received,
             } as any);
             loadFollowups(supplement.id);
           } catch {
@@ -1165,18 +1273,45 @@ const SupplementDetail: React.FC = () => {
           }
         };
 
-        const handleMarkResponse = async (fu: SupplementFollowUp, summary: string) => {
+        const handleMarkResponse = async (fu: SupplementFollowUp) => {
+          setResponseTargetFu(fu);
+          setResponseSummary('');
+          setResponseBodyHtml('');
+          setResponseFiles([]);
+          setResponseModalOpen(true);
+        };
+
+        const handleSubmitResponse = async () => {
+          if (!responseTargetFu) return;
+          setResponseSubmitting(true);
           try {
-            await supplementService.updateFollowup(supplement.id, fu.id, {
+            // Upload attachment files if any
+            let attachmentIds: string[] = [];
+            if (responseFiles.length > 0) {
+              const uploaded = await fileService.uploadFiles(
+                responseFiles,
+                'supplement_followup',
+                responseTargetFu.id,
+                'reply_attachment',
+              );
+              attachmentIds = uploaded.map((f: any) => f.id);
+            }
+
+            await supplementService.updateFollowup(supplement.id, responseTargetFu.id, {
               response_received: true,
               response_date: new Date().toISOString(),
-              response_summary: summary,
+              response_summary: responseSummary || 'Response received',
+              reply_body_html: responseBodyHtml || undefined,
+              reply_attachment_ids: attachmentIds.length > 0 ? attachmentIds : (responseTargetFu.reply_attachment_ids || undefined),
               info_status: 'resolved',
             } as any);
             message.success('Marked as responded');
+            setResponseModalOpen(false);
             loadFollowups(supplement.id);
           } catch {
             message.error('Failed to update');
+          } finally {
+            setResponseSubmitting(false);
           }
         };
 
@@ -1217,34 +1352,31 @@ const SupplementDetail: React.FC = () => {
                     const isPending = fu.info_status !== 'resolved';
                     const unresolvedCount = (fu.items_needed || []).filter(i => !i.resolved).length;
                     const totalCount = (fu.items_needed || []).length;
+                    const hasReply = fu.response_summary || fu.reply_body_html || (fu.reply_attachment_ids || []).length > 0;
 
                     return (
                       <div
                         key={fu.id}
                         style={{
                           marginBottom: 6, padding: '8px 10px', borderRadius: 6,
-                          border: isPending ? '1px solid #ffd591' : '1px solid #b7eb8f',
-                          background: isPending ? '#fffbe6' : '#f6ffed',
+                          border: '1px solid #f0f0f0',
+                          background: '#fafafa',
                         }}
                       >
                         {/* Header */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
                           <div>
                             <Space size={4} wrap>
-                              <Tag color={fu.request_to_type === 'public_adjuster' ? 'blue' : 'orange'} style={{ margin: 0, fontSize: 11 }}>
+                              <Tag style={{ margin: 0, fontSize: 11 }}>
                                 {fu.request_to_type === 'public_adjuster' ? 'PA' : 'Contractor'}
                               </Tag>
-                              <Tag color={
-                                fu.info_status === 'resolved' ? 'green' :
-                                fu.info_status === 'awaiting_response' ? 'orange' :
-                                fu.info_status === 'sent' ? 'blue' : 'default'
-                              } style={{ margin: 0, fontSize: 11 }}>
-                                {(fu.info_status || 'pending').replace('_', ' ').toUpperCase()}
-                              </Tag>
+                              <Text type="secondary" style={{ fontSize: 11 }}>
+                                {(fu.info_status || 'pending').replace(/_/g, ' ')}
+                              </Text>
                               {(fu.follow_up_count || 0) > 0 && (
-                                <Tag style={{ margin: 0, fontSize: 10 }}>
-                                  Follow-up x{fu.follow_up_count}
-                                </Tag>
+                                <Text type="secondary" style={{ fontSize: 10 }}>
+                                  (follow-up x{fu.follow_up_count})
+                                </Text>
                               )}
                             </Space>
                             <div style={{ fontSize: 11, marginTop: 2 }}>
@@ -1257,18 +1389,16 @@ const SupplementDetail: React.FC = () => {
                           </div>
                           <Space size={4}>
                             {isPending && (
-                              <Tooltip title="Send follow-up email">
-                                <Button size="small" type="link"
-                                  icon={<SendOutlined />}
-                                  loading={resendingId === fu.id}
-                                  onClick={() => handleResend(fu)}
-                                  style={{ fontSize: 11, padding: '0 4px' }}>
-                                  Follow up
-                                </Button>
-                              </Tooltip>
+                              <Button size="small" type="text"
+                                icon={<SendOutlined />}
+                                loading={resendingId === fu.id}
+                                onClick={() => handleResend(fu)}
+                                style={{ fontSize: 11, padding: '0 4px' }}>
+                                Follow up
+                              </Button>
                             )}
                             <Text type="secondary" style={{ fontSize: 10 }}>
-                              {fu.created_at ? dayjs(fu.created_at).format('MM/DD') : ''}
+                              {fu.created_at ? dayjs(fu.created_at).format('MM/DD HH:mm') : ''}
                             </Text>
                           </Space>
                         </div>
@@ -1301,34 +1431,44 @@ const SupplementDetail: React.FC = () => {
                           </div>
                         )}
 
-                        {/* Response */}
-                        {fu.response_summary && (
-                          <div style={{ fontSize: 11, marginTop: 4, padding: '4px 6px', background: '#e6fffb', borderRadius: 4 }}>
-                            <Text type="secondary" style={{ fontSize: 10 }}>Response: </Text>
-                            {fu.response_summary}
+                        {/* Reply content */}
+                        {hasReply && (
+                          <div style={{ marginTop: 6, padding: '6px 8px', background: '#fff', borderRadius: 4, border: '1px solid #e8e8e8' }}>
+                            <Text type="secondary" style={{ fontSize: 10 }}>
+                              Reply {fu.response_date ? `- ${dayjs(fu.response_date).format('MM/DD HH:mm')}` : ''}
+                            </Text>
+                            {fu.response_summary && (
+                              <div style={{ fontSize: 12, marginTop: 2 }}>{fu.response_summary}</div>
+                            )}
+                            {fu.reply_body_html && (
+                              <div
+                                style={{ fontSize: 12, padding: '4px 6px', background: '#fafafa', borderRadius: 3, marginTop: 4, maxHeight: 200, overflow: 'auto' }}
+                                dangerouslySetInnerHTML={{ __html: fu.reply_body_html }}
+                              />
+                            )}
+                            {(fu.reply_attachment_ids || []).length > 0 && (
+                              <div style={{ marginTop: 4 }}>
+                                <Text type="secondary" style={{ fontSize: 10 }}>Attachments:</Text>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+                                  {fu.reply_attachment_ids!.map((fileId) => (
+                                    <Button key={fileId} size="small" type="text"
+                                      icon={<FileTextOutlined />}
+                                      style={{ fontSize: 11, padding: '0 4px' }}
+                                      onClick={() => window.open(fileService.getDownloadUrl(fileId), '_blank')}>
+                                      Download
+                                    </Button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
 
-                        {/* Mark as responded (inline) */}
-                        {isPending && !fu.response_received && (
+                        {/* Mark as responded */}
+                        {isPending && !hasReply && (
                           <div style={{ marginTop: 4 }}>
-                            <Button size="small" type="link" style={{ fontSize: 11, padding: 0 }}
-                              onClick={() => {
-                                Modal.confirm({
-                                  title: 'Mark as Responded',
-                                  content: (
-                                    <Input.TextArea
-                                      id="response-summary-input"
-                                      rows={2}
-                                      placeholder="Brief summary of the response..."
-                                    />
-                                  ),
-                                  onOk: () => {
-                                    const el = document.getElementById('response-summary-input') as HTMLTextAreaElement;
-                                    handleMarkResponse(fu, el?.value || 'Response received');
-                                  },
-                                });
-                              }}>
+                            <Button size="small" type="text" style={{ fontSize: 11, padding: 0 }}
+                              onClick={() => handleMarkResponse(fu)}>
                               Mark as responded
                             </Button>
                           </div>
@@ -1420,6 +1560,61 @@ const SupplementDetail: React.FC = () => {
                   </Button>
                 </div>
               </Form>
+            </Modal>
+
+            {/* Mark Response Modal */}
+            <Modal
+              title="Record Response"
+              open={responseModalOpen}
+              width={560}
+              onOk={handleSubmitResponse}
+              onCancel={() => setResponseModalOpen(false)}
+              confirmLoading={responseSubmitting}
+              okText="Save Response"
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Summary</Text>
+                  <Input.TextArea
+                    rows={2}
+                    placeholder="Brief summary of the response..."
+                    value={responseSummary}
+                    onChange={(e) => setResponseSummary(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Reply Content (optional)</Text>
+                  <Input.TextArea
+                    rows={4}
+                    placeholder="Paste or type the full reply content here..."
+                    value={responseBodyHtml}
+                    onChange={(e) => setResponseBodyHtml(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Attachments (optional)</Text>
+                  <Upload.Dragger
+                    multiple
+                    beforeUpload={(file) => {
+                      setResponseFiles((prev) => [...prev, file]);
+                      return false;
+                    }}
+                    onRemove={(file) => {
+                      setResponseFiles((prev) => prev.filter((f) => f.name !== file.name));
+                    }}
+                    fileList={responseFiles.map((f, i) => ({
+                      uid: `${i}`,
+                      name: f.name,
+                      status: 'done' as const,
+                    }))}
+                    style={{ padding: '8px 0' }}
+                  >
+                    <p style={{ fontSize: 12, margin: 0 }}>
+                      <UploadOutlined /> Click or drag files to attach
+                    </p>
+                  </Upload.Dragger>
+                </div>
+              </div>
             </Modal>
 
             {/* Follow-ups (general only) */}
@@ -1523,19 +1718,33 @@ const SupplementDetail: React.FC = () => {
             )}
 
             <div style={{ marginBottom: 12 }}>
-              <Text type="secondary" style={{ marginRight: 8 }}>From:</Text>
-              {emailAccounts.length > 0 ? (
+              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>From:</Text>
+              {emailAccounts.length > 0 && (
                 <Select
-                  value={paSelectedAccountId}
-                  onChange={setPaSelectedAccountId}
-                  style={{ width: 320 }}
+                  value={paManualFromEmail ? undefined : paSelectedAccountId}
+                  onChange={(val) => { setPaSelectedAccountId(val); setPaManualFromEmail(''); }}
+                  style={{ width: '100%', marginBottom: 6 }}
+                  placeholder="Select email account..."
+                  allowClear
+                  disabled={!!paManualFromEmail}
                   options={emailAccounts.filter((a: any) => a.is_active).map((a: any) => ({
                     value: a.id,
                     label: `${a.display_name} (${a.email_address})`,
                   }))}
                 />
-              ) : (
-                <Text type="warning">No email accounts configured</Text>
+              )}
+              <Input
+                placeholder="Or type sender email manually..."
+                value={paManualFromEmail}
+                onChange={e => {
+                  setPaManualFromEmail(e.target.value);
+                  if (e.target.value.trim()) setPaSelectedAccountId(undefined);
+                }}
+                allowClear
+                style={{ width: '100%' }}
+              />
+              {!paSelectedAccountId && !paManualFromEmail && (
+                <Text type="warning" style={{ fontSize: 12 }}>Select an account or enter email address</Text>
               )}
             </div>
 
@@ -1602,6 +1811,79 @@ const SupplementDetail: React.FC = () => {
               />
               <Button size="small" type="link" style={{ padding: '4px 0' }} onClick={handleRegenerateEmail}>
                 Apply notes to email
+              </Button>
+            </div>
+
+            {/* AI Description Polish */}
+            <div style={{ marginBottom: 12, background: '#f9f0ff', border: '1px solid #d3adf7', borderRadius: 6, padding: 12 }}>
+              <Text strong style={{ display: 'block', marginBottom: 4 }}>
+                <ThunderboltOutlined style={{ color: '#722ed1', marginRight: 4 }} />
+                AI Scope Description (Xactimate 수정사항 정리)
+              </Text>
+              <Input.TextArea
+                rows={4}
+                placeholder={"e.g.,\n- 1st floor baseboard replacement added (wood floor)\n- Carpet waste added\n- Bathroom Bid item\n- Pack-in/out Bid item"}
+                value={paDescriptionDraft}
+                onChange={e => setPaDescriptionDraft(e.target.value)}
+              />
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                icon={<ThunderboltOutlined />}
+                loading={polishingDescription}
+                disabled={!paDescriptionDraft.trim()}
+                style={{ marginTop: 6 }}
+                onClick={async () => {
+                  setPolishingDescription(true);
+                  try {
+                    const result = await supplementService.polishDescriptionForEmail(paDescriptionDraft);
+                    // Find the Xactimate card (border-left: #1890ff) and replace its description
+                    setPaEmailContent(prev => {
+                      let html = prev.body_html;
+                      // Xactimate card uses border-left:4px solid #1890ff
+                      const xactCardMarker = 'border-left:4px solid #1890ff';
+                      const cardStart = html.indexOf(xactCardMarker);
+                      if (cardStart >= 0) {
+                        // Find the <div> that contains this card
+                        const divStart = html.lastIndexOf('<div', cardStart);
+                        // Find the closing </div> of this card
+                        const afterCard = html.slice(divStart);
+                        // The card ends at the last </div> before the next card or section
+                        const nextCardOrSection = afterCard.indexOf('<div', afterCard.indexOf('</div>'));
+                        const cardEnd = nextCardOrSection > 0
+                          ? divStart + nextCardOrSection
+                          : divStart + afterCard.lastIndexOf('</div>') + 6;
+                        // Extract current card HTML
+                        const cardHtml = html.slice(divStart, cardEnd);
+                        // Find the description area: after </table> inside the card
+                        const tableEnd = cardHtml.indexOf('</table>');
+                        if (tableEnd > 0) {
+                          const beforeDesc = cardHtml.slice(0, tableEnd + 8); // include </table>
+                          const polishedDesc = `<div style="margin:8px 0 0;color:#444;font-size:13px;line-height:1.6;">${result.polished_html}</div>`;
+                          const newCard = beforeDesc + polishedDesc + '</div>';
+                          html = html.slice(0, divStart) + newCard + html.slice(cardEnd);
+                        }
+                      } else {
+                        // No Xactimate card — insert before "Please review..."
+                        const reviewIdx = html.indexOf('<p>Please review');
+                        if (reviewIdx > 0) {
+                          html = html.slice(0, reviewIdx) + result.polished_html + '\n\n' + html.slice(reviewIdx);
+                        } else {
+                          html += '\n\n' + result.polished_html;
+                        }
+                      }
+                      return { ...prev, body_html: html };
+                    });
+                    message.success('Xactimate description polished');
+                  } catch {
+                    message.error('Failed to polish description');
+                  } finally {
+                    setPolishingDescription(false);
+                  }
+                }}
+              >
+                AI로 정리해서 이메일에 추가
               </Button>
             </div>
 

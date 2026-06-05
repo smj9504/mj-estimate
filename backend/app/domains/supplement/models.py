@@ -245,6 +245,19 @@ class SupplementFollowUp(Base, BaseModel):
     response_received = Column(Boolean, default=False)
     response_date = Column(DateTime(timezone=True))
     response_summary = Column(Text)
+    reply_body_html = Column(Text, comment="Full reply email body (HTML)")
+    reply_attachment_ids = Column(
+        JSONB,
+        default=list,
+        comment="List of file IDs attached to the reply"
+    )
+
+    # Link to sent email for auto reply detection
+    sent_email_id = Column(
+        UUIDType(),
+        ForeignKey("sent_emails.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # Follow-up tracking
     follow_up_count = Column(Integer, default=0, server_default='0')

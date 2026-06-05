@@ -177,6 +177,8 @@ class SupplementFollowUpUpdate(BaseModel):
     response_received: Optional[bool] = None
     response_date: Optional[datetime] = None
     response_summary: Optional[str] = None
+    reply_body_html: Optional[str] = None
+    reply_attachment_ids: Optional[List[str]] = None
     items_needed: Optional[List[Dict[str, Any]]] = None
     info_status: Optional[str] = None
     follow_up_count: Optional[int] = None
@@ -197,6 +199,9 @@ class SupplementFollowUpResponse(BaseModel):
     response_received: bool = False
     response_date: Optional[datetime] = None
     response_summary: Optional[str] = None
+    reply_body_html: Optional[str] = None
+    reply_attachment_ids: Optional[List[str]] = None
+    sent_email_id: Optional[UUID] = None
     follow_up_count: int = 0
     last_follow_up_date: Optional[datetime] = None
     created_at: Optional[datetime] = None

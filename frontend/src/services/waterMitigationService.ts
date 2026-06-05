@@ -1366,6 +1366,7 @@ export interface SendToAdjusterPayload {
   subject: string;
   body_html: string;
   email_account_id?: string;
+  from_address?: string;
   selected_documents?: string[];
 }
 

@@ -54,6 +54,7 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
   const [toEmails, setToEmails] = useState<string[]>([]);
   const [bccEmails, setBccEmails] = useState<string[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>();
+  const [manualFromEmail, setManualFromEmail] = useState('');
 
   // Document selection
   const [selectedDocs, setSelectedDocs] = useState<string[]>([...DOC_ORDER]);
@@ -107,6 +108,7 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
       setCustomNotes('');
       setToEmails([]);
       setBccEmails([]);
+      setManualFromEmail('');
       setSelectedDocs([...DOC_ORDER]);
       setEmailContent({ subject: '', body_html: '' });
     }
@@ -136,6 +138,7 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
         subject: emailContent.subject,
         body_html: emailContent.body_html,
         email_account_id: selectedAccountId,
+        from_address: manualFromEmail.trim() || undefined,
         selected_documents: selectedDocs,
       };
 
@@ -305,19 +308,33 @@ const SendToAdjusterModal: React.FC<SendToAdjusterModalProps> = ({
 
           {/* Email Account */}
           <div style={{ marginBottom: 12 }}>
-            <Text type="secondary" style={{ marginRight: 8 }}>From:</Text>
-            {info.email_accounts.length > 0 ? (
+            <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>From:</Text>
+            {info.email_accounts.length > 0 && (
               <Select
-                value={selectedAccountId}
-                onChange={setSelectedAccountId}
-                style={{ width: 320 }}
+                value={manualFromEmail ? undefined : selectedAccountId}
+                onChange={(val) => { setSelectedAccountId(val); setManualFromEmail(''); }}
+                style={{ width: '100%', marginBottom: 6 }}
+                placeholder="Select email account..."
+                allowClear
+                disabled={!!manualFromEmail}
                 options={info.email_accounts.map(a => ({
                   value: a.id,
                   label: `${a.display_name} (${a.email_address})`,
                 }))}
               />
-            ) : (
-              <Text type="warning">No email accounts configured</Text>
+            )}
+            <Input
+              placeholder="Or type sender email manually..."
+              value={manualFromEmail}
+              onChange={e => {
+                setManualFromEmail(e.target.value);
+                if (e.target.value.trim()) setSelectedAccountId(undefined);
+              }}
+              allowClear
+              style={{ width: '100%' }}
+            />
+            {!selectedAccountId && !manualFromEmail && (
+              <Text type="warning" style={{ fontSize: 12 }}>Select an account or enter email address</Text>
             )}
           </div>
 

@@ -647,13 +647,13 @@ class ClaimFollowUpService:
 
             claim_id = str(claim.id)
 
-            # Check if pending review supplement already exists
+            # Check if any active supplement already exists for this claim
             existing = session.query(SupplementRequest).filter(
                 SupplementRequest.claim_id == claim_id,
-                SupplementRequest.status == 'identified',
+                SupplementRequest.status.notin_(['approved', 'denied', 'withdrawn']),
             ).first()
             if existing:
-                logger.info(f"Pending supplement already exists for claim {claim_id}")
+                logger.info(f"Active supplement already exists for claim {claim_id} (status={existing.status})")
                 return
 
             # Get address
@@ -804,9 +804,14 @@ class ClaimFollowUpService:
             existing.deductible = data.get('deductible', 0)
             existing.date_received = datetime.now(timezone.utc)
             existing.received_from = data.get('received_from', 'Insurance Company')
-            existing.document_url = data.get('document_url', '')
-            existing.document_name = data.get('document_name', '')
-            existing.sections_data = data.get('sections_data')
+            # Only overwrite document fields if new data actually provides them;
+            # otherwise preserve the previously uploaded PDF association.
+            if data.get('document_url'):
+                existing.document_url = data['document_url']
+            if data.get('document_name'):
+                existing.document_name = data['document_name']
+            if data.get('sections_data') is not None:
+                existing.sections_data = data['sections_data']
             existing.notes = data.get('notes', '')
             session.flush()
             logger.info(f"Updated {category} negotiation (rev {existing.revision_number}) for claim {claim_id}")
@@ -823,8 +828,8 @@ class ClaimFollowUpService:
                 deductible=data.get('deductible', 0),
                 date_received=datetime.now(timezone.utc),
                 received_from=data.get('received_from', 'Insurance Company'),
-                document_url=data.get('document_url', ''),
-                document_name=data.get('document_name', ''),
+                document_url=data.get('document_url') or None,
+                document_name=data.get('document_name') or None,
                 sections_data=data.get('sections_data'),
                 notes=data.get('notes', ''),
             )
@@ -1287,6 +1292,8 @@ class ClaimFollowUpService:
 
             try:
                 smtp = SmtpService()
+                # Skip signature when using manual from_address without an account
+                manual_from = bool(data.get('from_address')) and not data.get('email_account_id')
                 smtp_result = smtp.send(
                     account_id=data.get('email_account_id'),
                     from_address=from_address,
@@ -1296,6 +1303,7 @@ class ClaimFollowUpService:
                     subject=data['subject'],
                     body_html=data['body_html'],
                     attachments=data.get('attachments', []),
+                    skip_signature=manual_from,
                 )
                 email_repo.mark_sent(email_id, smtp_result.get('message_id'))
             except Exception as smtp_error:
