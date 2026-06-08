@@ -425,48 +425,52 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[STARTUP] Reply scheduler skipped: {e}")
 
-        # Create missing tables + auto-migrate columns in a single DB connection
-        try:
-            from app.core.database_factory import get_database
-            _db = get_database()
-            if hasattr(_db, 'engine'):
-                from sqlalchemy import text, inspect
-                from app.domains.material_order.models import MaterialOrder, MaterialOrderItem
-                from app.core.database_factory import Base
+        # Defer heavy initialization to background thread so port binds quickly
+        # This prevents Render's port scan timeout during deployment
+        def _background_init():
+            """Run DB migration + SQLAdmin + Storage init in background."""
+            try:
+                from app.core.database_factory import get_database
+                _db = get_database()
+                if hasattr(_db, 'engine'):
+                    from sqlalchemy import text, inspect
+                    from app.domains.material_order.models import MaterialOrder, MaterialOrderItem
+                    from app.core.database_factory import Base
 
-                with _db.engine.begin() as conn:
-                    # 1) Check for missing tables using single query
-                    existing = set(inspect(conn).get_table_names())
-                    tables_to_create = [
-                        t for t in Base.metadata.sorted_tables
-                        if t.name not in existing
-                    ]
-                    if tables_to_create:
-                        Base.metadata.create_all(
-                            bind=conn, tables=tables_to_create
-                        )
-                        print(f"[STARTUP] Created {len(tables_to_create)} new tables")
-                    else:
-                        print("[STARTUP] All tables exist")
+                    with _db.engine.begin() as conn:
+                        existing = set(inspect(conn).get_table_names())
+                        tables_to_create = [
+                            t for t in Base.metadata.sorted_tables
+                            if t.name not in existing
+                        ]
+                        if tables_to_create:
+                            Base.metadata.create_all(
+                                bind=conn, tables=tables_to_create
+                            )
+                            print(f"[STARTUP] Created {len(tables_to_create)} new tables")
+                        else:
+                            print("[STARTUP] All tables exist")
 
-                    # 2) Auto-migrate columns in same connection
-                    _auto_add_columns_with_conn(conn)
-                    print("[STARTUP] Column migration done")
+                        _auto_add_columns_with_conn(conn)
+                        print("[STARTUP] Column migration done")
 
-                # Mark tables as initialized so get_session() skips redundant init
-                _db._tables_initialized = True
-        except Exception as e:
-            print(f"[STARTUP] Table/migration skipped: {e}")
+                    _db._tables_initialized = True
+            except Exception as e:
+                print(f"[STARTUP] Table/migration skipped: {e}")
 
-        # Start SQLAdmin in background after DB is ready (avoids connection contention)
-        threading.Thread(target=_init_sqladmin, daemon=True).start()
+            # SQLAdmin init
+            _init_sqladmin()
 
-        # Pre-initialize storage provider to avoid cold start delay on first file request
-        try:
-            initialize_storage()
-            print("[STARTUP] Storage provider initialized")
-        except Exception as e:
-            print(f"[STARTUP] Storage init deferred: {e}")
+            # Storage provider init
+            try:
+                initialize_storage()
+                print("[STARTUP] Storage provider initialized")
+            except Exception as e:
+                print(f"[STARTUP] Storage init deferred: {e}")
+
+            print("[STARTUP] Background initialization complete")
+
+        threading.Thread(target=_background_init, daemon=True).start()
 
         print("[STARTUP] Ready")
         yield
@@ -838,7 +842,7 @@ else:
 
 
 # System information endpoints
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     """Root endpoint with system information"""
     return {
@@ -855,7 +859,7 @@ async def root():
     }
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check(request: Request):
     """
     Lightweight health check endpoint for monitoring systems.
