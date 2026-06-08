@@ -241,6 +241,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   const [editingRoomEdge, setEditingRoomEdge] = useState<{ roomId: string; edgeIdx: number; edge: 'width' | 'depth' } | null>(null);
   const [editingRoomValue, setEditingRoomValue] = useState('');
   const roomInputRef = useRef<HTMLInputElement>(null);
+  const roomEditPosRef = useRef<BEPoint | null>(null); // fixed position during edit
 
   // ── Drawing state ──
   const [drawingWall, setDrawingWall] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
@@ -604,7 +605,13 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     const lenIn = Math.round((calcWallLengthPx(wall) / ppf) * 12);
     setEditingWallId(wallId);
     setEditingWallValue(fmtInches(lenIn));
-    wallEditPosRef.current = wallMidpoint(wall); // capture position at edit start
+    // Capture midpoint in viewport coords at edit start (prevents input jumping)
+    const stage = stageRef.current;
+    const scale = stage?.scaleX() ?? 1;
+    const stageX = stage?.x() ?? 0;
+    const stageY = stage?.y() ?? 0;
+    const mid = wallMidpoint(wall);
+    wallEditPosRef.current = { x: mid.x * scale + stageX, y: mid.y * scale + stageY };
     setTimeout(() => { wallInputRef.current?.focus(); wallInputRef.current?.select(); }, 50);
   }, [walls, ppf]);
 
@@ -658,15 +665,23 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     const inches = Math.round((edgePx / ppf) * 12);
     setEditingRoomEdge({ roomId, edgeIdx, edge });
     setEditingRoomValue(fmtInches(inches));
+    // Capture edge midpoint position at edit start (prevents input jumping)
+    const stage = stageRef.current;
+    const scale = stage?.scaleX() ?? 1;
+    const stageX = stage?.x() ?? 0;
+    const stageY = stage?.y() ?? 0;
+    const mx = (pt.x + npt.x) / 2;
+    const my = (pt.y + npt.y) / 2;
+    roomEditPosRef.current = { x: mx * scale + stageX, y: my * scale + stageY };
     setTimeout(() => { roomInputRef.current?.focus(); roomInputRef.current?.select(); }, 50);
   }, [rooms, ppf]);
 
   const commitRoomEdit = useCallback(() => {
     if (!editingRoomEdge) return;
     const room = rooms.find(r => r.id === editingRoomEdge.roomId);
-    if (!room) { setEditingRoomEdge(null); return; }
+    if (!room) { setEditingRoomEdge(null); roomEditPosRef.current = null; return; }
     const newInches = parseDimension(editingRoomValue);
-    if (!newInches || newInches < 3) { setEditingRoomEdge(null); return; }
+    if (!newInches || newInches < 3) { setEditingRoomEdge(null); roomEditPosRef.current = null; return; }
     const newPx = (newInches / 12) * ppf;
 
     const idx = editingRoomEdge.edgeIdx;
@@ -678,7 +693,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     let dx = npt.x - pt.x;
     let dy = npt.y - pt.y;
     const len = Math.sqrt(dx * dx + dy * dy);
-    if (len < 1) { setEditingRoomEdge(null); return; }
+    if (len < 1) { setEditingRoomEdge(null); roomEditPosRef.current = null; return; }
     // Force horizontal/vertical if close
     const isH = Math.abs(dy) < Math.abs(dx) * 0.2; // nearly horizontal
     const isV = Math.abs(dx) < Math.abs(dy) * 0.2; // nearly vertical
@@ -710,17 +725,13 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     }
 
     updateRoom(room.id, b);
-    setEditingRoomEdge(null);
+    setEditingRoomEdge(null); roomEditPosRef.current = null;
   }, [editingRoomEdge, editingRoomValue, rooms, ppf, updateRoom]);
 
   // Room edit overlay position
   const editingRoom = editingRoomEdge ? rooms.find(r => r.id === editingRoomEdge.roomId) : null;
-  const roomEditOverlayPos = (() => {
-    if (!editingRoom || !editingRoomEdge) return null;
-    const pt = editingRoom.boundary[editingRoomEdge.edgeIdx];
-    const npt = editingRoom.boundary[(editingRoomEdge.edgeIdx + 1) % editingRoom.boundary.length];
-    return { x: (pt.x + npt.x) / 2, y: (pt.y + npt.y) / 2 };
-  })();
+  // Use fixed position captured at edit start (prevents input box jumping)
+  const roomEditOverlayPos = editingRoomEdge ? roomEditPosRef.current : null;
 
   return (
     <div style={{ position: 'relative', cursor, border: '1px solid #d9d9d9', backgroundColor: settings.backgroundColor }}>
@@ -769,7 +780,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             onChange={(e) => setEditingRoomValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') commitRoomEdit();
-              if (e.key === 'Escape') setEditingRoomEdge(null);
+              if (e.key === 'Escape') { setEditingRoomEdge(null); roomEditPosRef.current = null; };
             }}
             onBlur={commitRoomEdit}
             style={{
