@@ -222,14 +222,20 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
   }
   sync.replace_mirror = mirrors.length > 0;
   // Ceiling light → electrical_spec
+  // Electrical spec: lights + default exhaust fan (80 CFM standard for bathroom)
+  const elecSpec: Record<string, any> = {
+    exhaust_fan_cfm: 80,
+    exhaust_fan_switch: 'standard',
+  };
   if (lights.length > 0) {
     const lp = lights[0].properties;
     const lightType = lp.lightType ?? 'standard';
-    sync.electrical_spec = {
-      ceiling_fixture: lightType,
-      ...(lightType === 'recessed_multi' ? { recessed_can_count: lp.lightCount ?? 4 } : {}),
-    };
+    elecSpec.ceiling_fixture = lightType;
+    if (lightType === 'recessed_multi') {
+      elecSpec.recessed_can_count = lp.lightCount ?? 4;
+    }
   }
+  sync.electrical_spec = elecSpec;
   // demo_floor is a user decision — don't auto-set from sketch
   sync.demo_walls = !!(shower || bathtub);
 

@@ -1898,7 +1898,16 @@ const BathroomEstimateDetail: React.FC = () => {
                       </Form.Item>
                       <Col xs={12} sm={8} md={4}>
                         <Form.Item label="Fan CFM" name={['electrical_spec', 'exhaust_fan_cfm']}>
-                          <Select options={numOpts(pricingInfo?.exhaust_fan_cfms)} allowClear />
+                          <Select
+                            options={numOpts(pricingInfo?.exhaust_fan_cfms)}
+                            allowClear
+                            placeholder="None"
+                            onChange={(v) => {
+                              if (v && !form.getFieldValue(['electrical_spec', 'exhaust_fan_switch'])) {
+                                form.setFieldValue(['electrical_spec', 'exhaust_fan_switch'], 'standard');
+                              }
+                            }}
+                          />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={8} md={4}>
