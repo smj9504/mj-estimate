@@ -58,6 +58,11 @@ export interface SketchFixtureSync {
 
   // Demo flags
   demo_walls?: boolean;
+  water_damage?: boolean;
+  repair_drywall_walls?: boolean;
+  repair_drywall_walls_sf?: number;
+  repair_drywall_ceiling?: boolean;
+  repair_drywall_ceiling_sf?: number;
 
   // Specs
   bathtub_spec?: Record<string, any>;
@@ -321,10 +326,21 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
     // Seal & prime: only demo'd (repaired) areas
     const wallDwSF = dwZones.filter(z => z.surface === 'wall').reduce((s, z) => s + z.areaSF, 0);
     const ceilDwSF = dwZones.filter(z => z.surface === 'ceiling').reduce((s, z) => s + z.areaSF, 0);
-
-    // Full paint: if ANY wall/ceiling drywall repair, paint entire area minus tub/shower
     const hasWallDw = wallDwSF > 0;
     const hasCeilDw = ceilDwSF > 0;
+
+    // Auto-set demo scope flags: water damage repair + drywall repair
+    sync.water_damage = true;
+    if (hasWallDw) {
+      sync.repair_drywall_walls = true;
+      sync.repair_drywall_walls_sf = Math.round(wallDwSF * 10) / 10;
+    }
+    if (hasCeilDw) {
+      sync.repair_drywall_ceiling = true;
+      sync.repair_drywall_ceiling_sf = Math.round(ceilDwSF * 10) / 10;
+    }
+
+    // Full paint: if ANY wall/ceiling drywall repair, paint entire area minus tub/shower
 
     // Calculate paintable wall SF: total wall SF minus bathtub/shower wall areas
     let fullPaintWallSF = 0;

@@ -275,6 +275,17 @@ const BathroomEstimateDetail: React.FC = () => {
     syncFixtureAction('mirror', sync.replace_mirror);
     if (sync.demo_walls !== undefined) updates.demo_walls = sync.demo_walls;
 
+    // Water damage repair flags (auto-set from drywall repair zones)
+    if (sync.water_damage) updates.water_damage = true;
+    if (sync.repair_drywall_walls) {
+      updates.repair_drywall_walls = true;
+      if (sync.repair_drywall_walls_sf) updates.repair_drywall_walls_sf = sync.repair_drywall_walls_sf;
+    }
+    if (sync.repair_drywall_ceiling) {
+      updates.repair_drywall_ceiling = true;
+      if (sync.repair_drywall_ceiling_sf) updates.repair_drywall_ceiling_sf = sync.repair_drywall_ceiling_sf;
+    }
+
     // Merge specs (keep existing form values, override with sketch values)
     if (sync.bathtub_spec) {
       updates.bathtub_spec = { ...(current.bathtub_spec || {}), ...sync.bathtub_spec };
