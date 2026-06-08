@@ -1731,8 +1731,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             return (
               <Group key={`wdim-${wall.id}`}>
                 <Rect
-                  x={mid.x - 30} y={mid.y - 24}
-                  width={60} height={20}
+                  x={mid.x - 22} y={mid.y - 22}
+                  width={44} height={18}
                   fill="rgba(255,255,255,0.9)" cornerRadius={3}
                   stroke="#1890ff" strokeWidth={0.5}
                   onMouseDown={(e) => { e.cancelBubble = true; }}
@@ -1745,8 +1745,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                   onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
                 />
                 <Text
-                  x={mid.x - 30} y={mid.y - 21}
-                  width={60} text={fmtInches(lenIn)}
+                  x={mid.x - 22} y={mid.y - 20}
+                  width={44} text={fmtInches(lenIn)}
                   fontSize={11} fill="#1890ff" fontStyle="bold" align="center"
                   listening={false}
                 />
@@ -1775,13 +1775,13 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               const edgeType: 'width' | 'depth' = isH ? 'width' : 'depth';
               const isEditing = editingRoomEdge?.roomId === room.id && editingRoomEdge?.edgeIdx === idx;
               if (isEditing) return null;
-              const lx = isH ? mx - 30 : mx - 46;
-              const ly = isH ? my - 24 : my - 10;
+              const lx = isH ? mx - 22 : mx - 38;
+              const ly = isH ? my - 22 : my - 9;
               return (
                 <Group key={`rdim-${room.id}-${idx}`}>
                   <Rect
                     x={lx} y={ly}
-                    width={60} height={20}
+                    width={44} height={18}
                     fill="rgba(255,255,255,0.9)" cornerRadius={3}
                     stroke="#1890ff" strokeWidth={0.5}
                     onMouseDown={(e) => { e.cancelBubble = true; }}
@@ -1794,8 +1794,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
                   />
                   <Text
-                    x={lx} y={ly + 3}
-                    width={60} text={fmtInches(edgeIn)}
+                    x={lx} y={ly + 2}
+                    width={44} text={fmtInches(edgeIn)}
                     fontSize={11} fill="#1890ff" fontStyle="bold" align="center"
                     listening={false}
                   />
