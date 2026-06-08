@@ -137,6 +137,12 @@ const SupplementDetail: React.FC = () => {
   const [estimateVersions, setEstimateVersions] = useState<(ClaimNegotiation & { file_download_id?: string | null })[]>([]);
   const [estimateVersionsLoading, setEstimateVersionsLoading] = useState(false);
 
+  // Editing sections for a saved estimate version
+  const [editingSectionsVerId, setEditingSectionsVerId] = useState<string | null>(null);
+  const [editingSections, setEditingSections] = useState<any[]>([]);
+  const [editingTotals, setEditingTotals] = useState<{ rcv: number; acv: number; dep: number; ded: number }>({ rcv: 0, acv: 0, dep: 0, ded: 0 });
+  const [savingSections, setSavingSections] = useState(false);
+
   const [editedRequiredEstimates, setEditedRequiredEstimates] = useState<string[]>([]);
   const [requiredEstimatesDirty, setRequiredEstimatesDirty] = useState(false);
 
@@ -173,6 +179,9 @@ const SupplementDetail: React.FC = () => {
   const [infoRequestLoading, setInfoRequestLoading] = useState(false);
   const [infoItems, setInfoItems] = useState<string[]>(['']);
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [replyingToId, setReplyingToId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
   const [infoRequestForm] = Form.useForm();
 
   // Response modal state
@@ -247,6 +256,35 @@ const SupplementDetail: React.FC = () => {
 
   useEffect(() => {
     if (supplement?.id) loadFollowups(supplement.id);
+  }, [supplement?.id, loadFollowups]);
+
+  // Manual IMAP reply check (button only — heavy operation)
+  const [checkingReplies, setCheckingReplies] = useState(false);
+  const triggerReplyCheck = useCallback(async () => {
+    if (!supplement?.id) return;
+    setCheckingReplies(true);
+    try {
+      const result = await claimFollowUpService.checkReplies();
+      if (result.replies_found > 0) {
+        message.success(`${result.replies_found} new reply(s) detected`);
+      }
+    } catch { /* silent */ }
+    finally { setCheckingReplies(false); }
+    loadFollowups(supplement.id);
+  }, [supplement?.id, loadFollowups]);
+
+  // Lightweight DB poll: re-read followups when pending info requests exist
+  // Background scheduler (10min) handles IMAP → DB; this just picks up DB changes
+  const hasPendingRef = React.useRef(false);
+  hasPendingRef.current = followups.some(f =>
+    f.info_status === 'pending' || f.info_status === 'sent' || f.info_status === 'awaiting_response'
+  );
+  useEffect(() => {
+    if (!supplement?.id) return;
+    const interval = setInterval(() => {
+      if (hasPendingRef.current) loadFollowups(supplement.id);
+    }, 120_000); // 2분마다 — 스케줄러 10분 주기 대비 충분
+    return () => clearInterval(interval);
   }, [supplement?.id, loadFollowups]);
 
   const refreshSupplement = () => {
@@ -627,12 +665,11 @@ const SupplementDetail: React.FC = () => {
                           background: idx === 0 ? '#f6fbff' : '#fff',
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div style={{ flex: 1 }}>
-                            <Space size={8} style={{ marginBottom: 4 }}>
-                              <Tag color={idx === 0 ? 'blue' : 'default'}>
-                                Rev #{ver.revision_number}
-                              </Tag>
+                        <div>
+                          {/* Header row: tags + PDF + replace */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+                            <Space size={6} wrap>
+                              <Tag color={idx === 0 ? 'blue' : 'default'}>Rev #{ver.revision_number}</Tag>
                               <Tag color={
                                 ver.revision_type === 'initial' ? 'green' :
                                 ver.revision_type === 'supplement' ? 'orange' :
@@ -644,143 +681,199 @@ const SupplementDetail: React.FC = () => {
                               </Tag>
                               {idx === 0 && <Tag color="processing">LATEST</Tag>}
                             </Space>
-
-                            {(ver.date_received || ver.received_from || ver.notes) && (
-                              <div style={{ fontSize: 11, marginBottom: 6, color: '#888' }}>
-                                {ver.date_received && (
-                                  <span>Received: {dayjs(ver.date_received).format('MM/DD/YYYY')}</span>
-                                )}
-                                {ver.received_from && (
-                                  <span>{ver.date_received ? ' · ' : ''}From: {ver.received_from}</span>
-                                )}
-                                {ver.notes && (
-                                  <span style={{ display: 'block', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }}>{ver.notes}</span>
-                                )}
-                              </div>
-                            )}
-
-                            <div style={{ display: 'flex', gap: 12, fontSize: 12, flexWrap: 'wrap' }}>
-                              <span>
-                                <Text type="secondary">RCV: </Text>
-                                <Text strong>{formatCurrency(ver.rcv_amount)}</Text>
-                              </span>
-                              <span>
-                                <Text type="secondary">ACV: </Text>
-                                <Text strong>{formatCurrency(ver.acv_amount)}</Text>
-                              </span>
-                              <span>
-                                <Text type="secondary">Dep: </Text>
-                                <Text>{formatCurrency(ver.depreciation_amount)}</Text>
-                              </span>
-                              <span>
-                                <Text type="secondary">Ded: </Text>
-                                <Text>{formatCurrency(ver.deductible)}</Text>
-                              </span>
-                            </div>
-                          </div>
-
-                          <div style={{ marginLeft: 12 }}>
-                            <Space size={4} direction="vertical" align="end">
+                            <Space size={4}>
                               {ver.file_download_id ? (
-                                <a
-                                  href={`${fileService.getDownloadUrl(ver.file_download_id)}?inline=true`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <Button size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}
-                                    style={{ maxWidth: 220 }}
-                                  >
-                                    <span style={{ display: 'inline-block', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                                <a href={`${fileService.getDownloadUrl(ver.file_download_id)}?inline=true`} target="_blank" rel="noopener noreferrer">
+                                  <Button size="small" icon={<FilePdfOutlined style={{ color: '#ff4d4f' }} />}>
+                                    <span style={{ display: 'inline-block', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
                                       {ver.document_name || 'View PDF'}
                                     </span>
                                   </Button>
                                 </a>
-                              ) : (
-                                <Text type="secondary" style={{ fontSize: 11 }}>No PDF</Text>
-                              )}
-                              <Upload
-                                accept=".pdf"
-                                maxCount={1}
-                                showUploadList={false}
+                              ) : null}
+                              <Upload accept=".pdf" maxCount={1} showUploadList={false}
                                 disabled={replacingEstimateId === ver.id}
                                 beforeUpload={async (file) => {
                                   if (file.type !== 'application/pdf') { message.error('PDF only'); return Upload.LIST_IGNORE; }
                                   setReplacingEstimateId(ver.id);
                                   try {
-                                    const uploaded = await fileService.uploadFiles(
-                                      [file], 'negotiation', supplement.claim_id, 'insurance_estimate'
-                                    );
+                                    const uploaded = await fileService.uploadFiles([file], 'negotiation', supplement.claim_id, 'insurance_estimate');
                                     if (uploaded.length > 0) {
-                                      await supplementService.replaceInsuranceEstimatePdf(
-                                        supplement.claim_id, ver.id, uploaded[0].id
-                                      );
+                                      await supplementService.replaceInsuranceEstimatePdf(supplement.claim_id, ver.id, uploaded[0].id);
                                       message.success('PDF replaced');
-                                      supplementService.listInsuranceEstimates(supplement.claim_id)
-                                        .then(versions => setEstimateVersions(versions));
+                                      supplementService.listInsuranceEstimates(supplement.claim_id).then(setEstimateVersions);
                                     }
                                   } catch { message.error('Failed to replace PDF'); }
                                   finally { setReplacingEstimateId(null); }
                                   return false;
-                                }}
-                              >
-                                <Button
-                                  type="text" size="small"
+                                }}>
+                                <Button type="text" size="small"
                                   icon={replacingEstimateId === ver.id ? <LoadingOutlined /> : <UploadOutlined />}
-                                  disabled={replacingEstimateId === ver.id}
-                                  style={{ fontSize: 11, padding: '0 4px' }}
-                                >
-                                  {replacingEstimateId === ver.id ? 'Uploading...' : ver.file_download_id ? 'Replace' : 'Upload'}
+                                  disabled={replacingEstimateId === ver.id} style={{ fontSize: 11 }}>
+                                  {replacingEstimateId === ver.id ? '...' : 'Replace'}
                                 </Button>
                               </Upload>
                             </Space>
                           </div>
+
+                          {/* Date / Notes */}
+                          {(ver.date_received || ver.received_from || ver.notes) && (
+                            <div style={{ fontSize: 11, marginBottom: 4, color: '#888' }}>
+                              {ver.date_received && <span>Received: {dayjs(ver.date_received).format('MM/DD/YYYY')}</span>}
+                              {ver.received_from && <span>{ver.date_received ? ' · ' : ''}From: {ver.received_from}</span>}
+                              {ver.notes && <span style={{ display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ver.notes}</span>}
+                            </div>
+                          )}
+
+                          {/* Totals */}
+                          {editingSectionsVerId === ver.id ? (
+                            <Row gutter={[8, 4]} style={{ marginTop: 4 }}>
+                              <Col span={12}>
+                                <Text type="secondary" style={{ fontSize: 10 }}>RCV</Text>
+                                <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                                  value={editingTotals.rcv}
+                                  onChange={v => setEditingTotals(t => ({ ...t, rcv: v || 0, acv: (v || 0) - t.dep }))}
+                                />
+                              </Col>
+                              <Col span={12}>
+                                <Text type="secondary" style={{ fontSize: 10 }}>ACV</Text>
+                                <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                                  value={editingTotals.acv}
+                                  onChange={v => setEditingTotals(t => ({ ...t, acv: v || 0 }))}
+                                />
+                              </Col>
+                              <Col span={12}>
+                                <Text type="secondary" style={{ fontSize: 10 }}>Depreciation</Text>
+                                <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                                  value={editingTotals.dep}
+                                  onChange={v => setEditingTotals(t => ({ ...t, dep: v || 0, acv: t.rcv - (v || 0) }))}
+                                />
+                              </Col>
+                              <Col span={12}>
+                                <Text type="secondary" style={{ fontSize: 10 }}>Deductible</Text>
+                                <InputNumber size="small" prefix="$" style={{ width: '100%' }}
+                                  value={editingTotals.ded}
+                                  onChange={v => setEditingTotals(t => ({ ...t, ded: v || 0 }))}
+                                />
+                              </Col>
+                            </Row>
+                          ) : (
+                            <div style={{ display: 'flex', gap: 12, fontSize: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <span><Text type="secondary">RCV: </Text><Text strong>{formatCurrency(ver.rcv_amount)}</Text></span>
+                              <span><Text type="secondary">ACV: </Text><Text strong>{formatCurrency(ver.acv_amount)}</Text></span>
+                              <span><Text type="secondary">Dep: </Text><Text>{formatCurrency(ver.depreciation_amount)}</Text></span>
+                              <span><Text type="secondary">Ded: </Text><Text>{formatCurrency(ver.deductible)}</Text></span>
+                              <Button type="text" size="small" style={{ fontSize: 11, padding: '0 4px' }}
+                                onClick={() => {
+                                  setEditingSectionsVerId(ver.id);
+                                  setEditingSections((ver.sections_data || []).map((s: any) => ({ ...s })));
+                                  setEditingTotals({ rcv: ver.rcv_amount || 0, acv: ver.acv_amount || 0, dep: ver.depreciation_amount || 0, ded: ver.deductible || 0 });
+                                }}>Edit</Button>
+                            </div>
+                          )}
                         </div>
 
                         {ver.sections_data && ver.sections_data.length > 0 && (() => {
-                          const grouped = groupSectionsByCategory(ver.sections_data);
+                          const isEditing = editingSectionsVerId === ver.id;
                           return (
                             <Collapse size="small" style={{ marginTop: 8 }} items={[{
                               key: 'sections',
-                              label: <Text style={{ fontSize: 11 }}>Section Breakdown ({ver.sections_data.length} sections)</Text>,
-                              children: (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                  {Object.keys(SECTION_CATEGORIES).map(cat => {
-                                    const items = grouped[cat];
-                                    if (!items || items.length === 0) return null;
-                                    const cfg = SECTION_CATEGORIES[cat];
-                                    const catRcv = items.reduce((sum, s) => sum + (s.rcv || 0), 0);
-                                    const catDep = items.reduce((sum, s) => sum + (s.depreciation || 0), 0);
-                                    const catAcv = items.reduce((sum, s) => sum + (s.net_acv || 0), 0);
-                                    return (
-                                      <div key={cat} style={{
-                                        padding: '6px 8px', borderRadius: 4,
-                                        background: cfg.bg, borderLeft: `3px solid ${cfg.border}`,
-                                      }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                                          <Text strong style={{ fontSize: 11, color: cfg.color }}>{cfg.label}</Text>
-                                          <Text style={{ fontSize: 11 }}>
-                                            RCV <Text strong style={{ fontSize: 11 }}>{formatCurrency(catRcv)}</Text>
-                                            <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>Dep {formatCurrency(catDep)}</Text>
-                                            <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>ACV {formatCurrency(catAcv)}</Text>
-                                          </Text>
-                                        </div>
-                                        {items.map((s, sIdx) => (
-                                          <div key={sIdx} style={{
-                                            display: 'flex', justifyContent: 'space-between',
-                                            fontSize: 10, padding: '1px 4px', color: '#666',
-                                          }}>
-                                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                              {s.section_name}
-                                            </span>
-                                            <span style={{ whiteSpace: 'nowrap', marginLeft: 8 }}>
-                                              {formatCurrency(s.rcv || 0)}
-                                              <span style={{ color: '#999', marginLeft: 4 }}>(dep: {formatCurrency(s.depreciation || 0)})</span>
-                                            </span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    );
-                                  })}
+                              label: (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                                  <Text style={{ fontSize: 11 }}>Section Breakdown ({(isEditing ? editingSections : ver.sections_data).length} sections)</Text>
+                                </div>
+                              ),
+                              children: isEditing ? (
+                                <div>
+                                  {editingSections.map((sec: any, idx: number) => (
+                                    <div key={idx} style={{ background: '#fafafa', borderRadius: 6, padding: '8px 10px', marginBottom: 6 }}>
+                                      <Row gutter={8} align="middle">
+                                        <Col flex="auto">
+                                          <Input size="small" placeholder="Section name" value={sec.section_name}
+                                            onChange={e => {
+                                              const u = [...editingSections]; u[idx] = { ...u[idx], section_name: e.target.value }; setEditingSections(u);
+                                            }} />
+                                        </Col>
+                                        <Col flex="none">
+                                          <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => {
+                                            const u = editingSections.filter((_: any, i: number) => i !== idx);
+                                            setEditingSections(u);
+                                            const totRcv = u.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
+                                            const totDep = u.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
+                                            setEditingTotals(t => ({ ...t, rcv: totRcv, dep: totDep, acv: totRcv - totDep }));
+                                          }} />
+                                        </Col>
+                                      </Row>
+                                      <Row gutter={8} style={{ marginTop: 4 }}>
+                                        <Col span={8}>
+                                          <Text type="secondary" style={{ fontSize: 11 }}>RCV</Text>
+                                          <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                                            value={sec.rcv} onChange={v => {
+                                              const u = [...editingSections]; const rcv = v || 0; const dep = u[idx].depreciation || 0;
+                                              u[idx] = { ...u[idx], rcv, net_acv: rcv - dep }; setEditingSections(u);
+                                              const totRcv = u.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
+                                              const totDep = u.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
+                                              setEditingTotals(t => ({ ...t, rcv: totRcv, dep: totDep, acv: totRcv - totDep }));
+                                            }} />
+                                        </Col>
+                                        <Col span={8}>
+                                          <Text type="secondary" style={{ fontSize: 11 }}>Depreciation</Text>
+                                          <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                                            value={sec.depreciation} onChange={v => {
+                                              const u = [...editingSections]; const dep = v || 0; const rcv = u[idx].rcv || 0;
+                                              u[idx] = { ...u[idx], depreciation: dep, net_acv: rcv - dep }; setEditingSections(u);
+                                              const totRcv = u.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
+                                              const totDep = u.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
+                                              setEditingTotals(t => ({ ...t, rcv: totRcv, dep: totDep, acv: totRcv - totDep }));
+                                            }} />
+                                        </Col>
+                                        <Col span={8}>
+                                          <Text type="secondary" style={{ fontSize: 11 }}>Net ACV</Text>
+                                          <InputNumber size="small" prefix="$" style={{ width: '100%' }} value={sec.net_acv} disabled />
+                                        </Col>
+                                      </Row>
+                                    </div>
+                                  ))}
+                                  <Space style={{ marginTop: 4 }}>
+                                    <Button size="small" icon={<PlusOutlined />} onClick={() => {
+                                      setEditingSections([...editingSections, { section_name: '', rcv: 0, depreciation: 0, net_acv: 0 }]);
+                                    }}>Add Section</Button>
+                                    <Button size="small" type="primary" loading={savingSections} onClick={async () => {
+                                      setSavingSections(true);
+                                      try {
+                                        await supplementService.updateInsuranceEstimate(supplement.claim_id, ver.id, {
+                                          sections_data: editingSections.length > 0 ? editingSections : undefined,
+                                          rcv_amount: editingTotals.rcv,
+                                          depreciation_amount: editingTotals.dep,
+                                          acv_amount: editingTotals.acv,
+                                          deductible: editingTotals.ded,
+                                        });
+                                        message.success('Sections saved');
+                                        setEditingSectionsVerId(null);
+                                        supplementService.listInsuranceEstimates(supplement.claim_id).then(setEstimateVersions);
+                                        queryClient.invalidateQueries({ queryKey: ['supplement', id] });
+                                      } catch { message.error('Failed to save'); } finally { setSavingSections(false); }
+                                    }}>Save</Button>
+                                    <Button size="small" onClick={() => setEditingSectionsVerId(null)}>Cancel</Button>
+                                  </Space>
+                                </div>
+                              ) : (
+                                <div>
+                                  {ver.sections_data.map((s: any, sIdx: number) => (
+                                    <div key={sIdx} style={{
+                                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                      padding: '4px 8px', borderRadius: 4, marginBottom: 2,
+                                      background: '#fafafa',
+                                    }}>
+                                      <Text style={{ fontSize: 12 }}>{s.section_name}</Text>
+                                      <Text style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+                                        RCV {formatCurrency(s.rcv || 0)}
+                                        <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>Dep {formatCurrency(s.depreciation || 0)}</Text>
+                                        <Text type="secondary" style={{ fontSize: 11, marginLeft: 8 }}>ACV {formatCurrency(s.net_acv || 0)}</Text>
+                                      </Text>
+                                    </div>
+                                  ))}
+                                  {/* Edit via the Edit button next to totals */}
                                 </div>
                               ),
                             }]} />
@@ -1326,20 +1419,28 @@ const SupplementDetail: React.FC = () => {
                     <Badge count={pendingInfoRequests.length} style={{ backgroundColor: '#fa8c16' }} />
                   )}
                 </Space>
-                <Button size="small" type="primary" ghost icon={<SendOutlined />}
-                  onClick={() => {
-                    setInfoRequestModalOpen(true);
-                    // Pre-fill from PA info if available
-                    if (paDisplayInfo?.pa_email) {
-                      infoRequestForm.setFieldsValue({
-                        to_name: paDisplayInfo.pa_name || '',
-                        to_email: paDisplayInfo.pa_email || '',
-                        request_to_type: 'public_adjuster',
-                      });
-                    }
-                  }}>
-                  Request Info
-                </Button>
+                <Space size={4}>
+                  {pendingInfoRequests.length > 0 && (
+                    <Button size="small" icon={checkingReplies ? <LoadingOutlined /> : <ThunderboltOutlined />}
+                      disabled={checkingReplies}
+                      onClick={triggerReplyCheck}>
+                      {checkingReplies ? 'Checking...' : 'Check Replies'}
+                    </Button>
+                  )}
+                  <Button size="small" type="primary" ghost icon={<SendOutlined />}
+                    onClick={() => {
+                      setInfoRequestModalOpen(true);
+                      if (paDisplayInfo?.pa_email) {
+                        infoRequestForm.setFieldsValue({
+                          to_name: paDisplayInfo.pa_name || '',
+                          to_email: paDisplayInfo.pa_email || '',
+                          request_to_type: 'public_adjuster',
+                        });
+                      }
+                    }}>
+                    Request Info
+                  </Button>
+                </Space>
               </div>
 
               {infoRequests.length === 0 ? (
@@ -1431,48 +1532,126 @@ const SupplementDetail: React.FC = () => {
                           </div>
                         )}
 
-                        {/* Reply content */}
-                        {hasReply && (
-                          <div style={{ marginTop: 6, padding: '6px 8px', background: '#fff', borderRadius: 4, border: '1px solid #e8e8e8' }}>
-                            <Text type="secondary" style={{ fontSize: 10 }}>
-                              Reply {fu.response_date ? `- ${dayjs(fu.response_date).format('MM/DD HH:mm')}` : ''}
-                            </Text>
-                            {fu.response_summary && (
-                              <div style={{ fontSize: 12, marginTop: 2 }}>{fu.response_summary}</div>
-                            )}
-                            {fu.reply_body_html && (
-                              <div
-                                style={{ fontSize: 12, padding: '4px 6px', background: '#fafafa', borderRadius: 3, marginTop: 4, maxHeight: 200, overflow: 'auto' }}
-                                dangerouslySetInnerHTML={{ __html: fu.reply_body_html }}
-                              />
-                            )}
-                            {(fu.reply_attachment_ids || []).length > 0 && (
-                              <div style={{ marginTop: 4 }}>
-                                <Text type="secondary" style={{ fontSize: 10 }}>Attachments:</Text>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
-                                  {fu.reply_attachment_ids!.map((fileId) => (
-                                    <Button key={fileId} size="small" type="text"
-                                      icon={<FileTextOutlined />}
-                                      style={{ fontSize: 11, padding: '0 4px' }}
-                                      onClick={() => window.open(fileService.getDownloadUrl(fileId), '_blank')}>
-                                      Download
-                                    </Button>
-                                  ))}
+                        {/* Conversation thread */}
+                        {(() => {
+                          const conv: Array<{type: string; date: string; sender: string; body_html: string; summary?: string}> = fu.conversation || [];
+                          const showThread = conv.length > 0 || hasReply;
+                          return showThread ? (
+                            <div style={{ marginTop: 6 }}>
+                              {conv.length > 0 ? conv.map((msg, mIdx) => (
+                                <div key={mIdx} style={{
+                                  marginBottom: 4, padding: '6px 8px', borderRadius: 4,
+                                  background: msg.type === 'sent' ? '#e6f7ff' : '#fff',
+                                  border: msg.type === 'sent' ? '1px solid #91d5ff' : '1px solid #e8e8e8',
+                                  marginLeft: msg.type === 'sent' ? 20 : 0,
+                                  marginRight: msg.type === 'received' ? 20 : 0,
+                                }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                                    <Text strong style={{ fontSize: 10, color: msg.type === 'sent' ? '#1677ff' : '#52c41a' }}>
+                                      {msg.type === 'sent' ? 'Sent' : 'Reply'}
+                                      {msg.sender ? ` · ${msg.sender.split('@')[0]}` : ''}
+                                    </Text>
+                                    <Text type="secondary" style={{ fontSize: 10 }}>
+                                      {msg.date ? dayjs(msg.date).format('MM/DD HH:mm') : ''}
+                                    </Text>
+                                  </div>
+                                  {msg.body_html && (
+                                    <div
+                                      style={{ fontSize: 12, maxHeight: 150, overflow: 'auto' }}
+                                      dangerouslySetInnerHTML={{ __html: msg.body_html }}
+                                    />
+                                  )}
+                                  {!msg.body_html && msg.summary && (
+                                    <div style={{ fontSize: 12 }}>{msg.summary}</div>
+                                  )}
                                 </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                              )) : hasReply ? (
+                                /* Fallback for older followups without conversation array */
+                                <div style={{ padding: '6px 8px', background: '#fff', borderRadius: 4, border: '1px solid #e8e8e8' }}>
+                                  <Text type="secondary" style={{ fontSize: 10 }}>
+                                    Reply {fu.response_date ? `- ${dayjs(fu.response_date).format('MM/DD HH:mm')}` : ''}
+                                  </Text>
+                                  {fu.reply_body_html && (
+                                    <div
+                                      style={{ fontSize: 12, padding: '4px 6px', background: '#fafafa', borderRadius: 3, marginTop: 4, maxHeight: 150, overflow: 'auto' }}
+                                      dangerouslySetInnerHTML={{ __html: fu.reply_body_html }}
+                                    />
+                                  )}
+                                </div>
+                              ) : null}
 
-                        {/* Mark as responded */}
-                        {isPending && !hasReply && (
-                          <div style={{ marginTop: 4 }}>
-                            <Button size="small" type="text" style={{ fontSize: 11, padding: 0 }}
-                              onClick={() => handleMarkResponse(fu)}>
-                              Mark as responded
-                            </Button>
-                          </div>
-                        )}
+                              {/* Reply input */}
+                              {isPending && (
+                                <div style={{ marginTop: 4 }}>
+                                  {replyingToId === fu.id ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                      <Input.TextArea
+                                        rows={2}
+                                        placeholder="Type your reply..."
+                                        value={replyText}
+                                        onChange={e => setReplyText(e.target.value)}
+                                        style={{ fontSize: 12 }}
+                                      />
+                                      <Space size={4}>
+                                        <Button size="small" type="primary"
+                                          icon={<SendOutlined />}
+                                          loading={sendingReply}
+                                          disabled={!replyText.trim()}
+                                          onClick={async () => {
+                                            setSendingReply(true);
+                                            try {
+                                              await supplementService.replyToInfoRequest(
+                                                supplement.id, fu.id,
+                                                { body_html: `<p>${replyText.replace(/\n/g, '<br/>')}</p>` }
+                                              );
+                                              message.success('Reply sent');
+                                              setReplyingToId(null);
+                                              setReplyText('');
+                                              loadFollowups(supplement.id);
+                                            } catch { message.error('Failed to send reply'); }
+                                            finally { setSendingReply(false); }
+                                          }}>
+                                          Send
+                                        </Button>
+                                        <Button size="small" onClick={() => { setReplyingToId(null); setReplyText(''); }}>
+                                          Cancel
+                                        </Button>
+                                      </Space>
+                                    </div>
+                                  ) : (
+                                    <Space size={4}>
+                                      <Button size="small" type="text" icon={<SendOutlined />}
+                                        style={{ fontSize: 11, padding: '0 4px' }}
+                                        onClick={() => setReplyingToId(fu.id)}>
+                                        Reply
+                                      </Button>
+                                      {!hasReply && (
+                                        <Button size="small" type="text" style={{ fontSize: 11, padding: '0 4px' }}
+                                          onClick={() => handleMarkResponse(fu)}>
+                                          Mark as responded
+                                        </Button>
+                                      )}
+                                    </Space>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ) : isPending ? (
+                            <div style={{ marginTop: 4 }}>
+                              <Space size={4}>
+                                <Button size="small" type="text" icon={<SendOutlined />}
+                                  style={{ fontSize: 11, padding: '0 4px' }}
+                                  onClick={() => setReplyingToId(fu.id)}>
+                                  Reply
+                                </Button>
+                                <Button size="small" type="text" style={{ fontSize: 11, padding: '0 4px' }}
+                                  onClick={() => handleMarkResponse(fu)}>
+                                  Mark as responded
+                                </Button>
+                              </Space>
+                            </div>
+                          ) : null;
+                        })()}
 
                         {fu.last_follow_up_date && (
                           <Text type="secondary" style={{ fontSize: 10, display: 'block', marginTop: 2 }}>
@@ -2230,38 +2409,170 @@ const SupplementDetail: React.FC = () => {
             ]} />
           </Form.Item>
 
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="rcv_amount" label="RCV Amount">
-                <InputNumber style={{ width: '100%' }} prefix="$" precision={2} min={0}
-                  formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={v => v!.replace(/\$\s?|(,*)/g, '') as any} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="acv_amount" label="ACV Amount">
-                <InputNumber style={{ width: '100%' }} prefix="$" precision={2} min={0}
-                  formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={v => v!.replace(/\$\s?|(,*)/g, '') as any} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="depreciation_amount" label="Depreciation">
-                <InputNumber style={{ width: '100%' }} prefix="$" precision={2} min={0}
-                  formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={v => v!.replace(/\$\s?|(,*)/g, '') as any} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="deductible" label="Deductible">
-                <InputNumber style={{ width: '100%' }} prefix="$" precision={2} min={0}
-                  formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={v => v!.replace(/\$\s?|(,*)/g, '') as any} />
-              </Form.Item>
-            </Col>
-          </Row>
+          {/* PDF Upload */}
+          <Form.Item label="Insurance Estimate PDF">
+            <Space>
+              {uploadEstimateFileId && (
+                <>
+                  <FilePdfOutlined style={{ color: '#ff4d4f' }} />
+                  <Text style={{ fontSize: 12 }}>{uploadEstimateFileName}</Text>
+                  <Button type="text" size="small" danger
+                    onClick={() => { setUploadEstimateFileId(null); setUploadEstimateFileName(null); setUploadEstimateSections([]); }}>
+                    Remove
+                  </Button>
+                </>
+              )}
+              <Upload
+                accept=".pdf"
+                maxCount={1}
+                showUploadList={false}
+                beforeUpload={async (file) => {
+                  if (file.type !== 'application/pdf') { message.error('PDF files only'); return Upload.LIST_IGNORE; }
+                  try {
+                    const uploaded = await fileService.uploadFiles([file], 'negotiation', supplement.claim_id, 'insurance_estimate');
+                    if (uploaded.length > 0) {
+                      const fid = uploaded[0].id;
+                      setUploadEstimateFileId(fid);
+                      setUploadEstimateFileName(file.name);
+                      setUploadEstimateParsing(true);
+                      try {
+                        const result = await supplementService.extractInsuranceEstimatePdf(fid);
+                        if (result.success && result.totals) {
+                          const t = result.totals;
+                          uploadEstimateForm.setFieldsValue({
+                            rcv_amount: t.rcv_amount || 0,
+                            acv_amount: t.acv_amount || 0,
+                            depreciation_amount: t.depreciation_amount || 0,
+                            deductible: t.deductible || 0,
+                          });
+                          if (result.sections && result.sections.length > 0) {
+                            setUploadEstimateSections(result.sections);
+                          }
+                          message.success(`Parsed ${result.sections?.length || 0} sections`);
+                        } else {
+                          message.info('Could not auto-parse. Please fill in manually.');
+                        }
+                      } catch { /* non-critical */ } finally { setUploadEstimateParsing(false); }
+                    }
+                  } catch { message.error('Upload failed'); }
+                  return false;
+                }}
+              >
+                <Button icon={<UploadOutlined />} loading={uploadEstimateParsing}>
+                  {uploadEstimateParsing ? 'Parsing...' : uploadEstimateFileId ? 'Replace PDF' : 'Upload & Parse Estimate PDF'}
+                </Button>
+              </Upload>
+            </Space>
+          </Form.Item>
+
+          {/* Editable Sections */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <Text strong style={{ fontSize: 13 }}>Estimate Sections</Text>
+              <Button size="small" icon={<PlusOutlined />} onClick={() => {
+                setUploadEstimateSections([...uploadEstimateSections, { section_name: '', rcv: 0, depreciation: 0, net_acv: 0 }]);
+              }}>Add Section</Button>
+            </div>
+
+            {uploadEstimateSections.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 12, background: '#fafafa', borderRadius: 6 }}>
+                <Text type="secondary">No sections. Upload PDF to auto-parse or add manually.</Text>
+              </div>
+            ) : (
+              <>
+                {uploadEstimateSections.map((section: any, idx: number) => (
+                  <div key={idx} style={{ background: '#fafafa', borderRadius: 6, padding: '8px 10px', marginBottom: 6 }}>
+                    <Row gutter={8} align="middle">
+                      <Col flex="auto">
+                        <Input size="small" placeholder="Section name" value={section.section_name}
+                          onChange={e => {
+                            const updated = [...uploadEstimateSections];
+                            updated[idx] = { ...updated[idx], section_name: e.target.value };
+                            setUploadEstimateSections(updated);
+                          }} />
+                      </Col>
+                      <Col flex="none">
+                        <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => {
+                          const updated = uploadEstimateSections.filter((_: any, i: number) => i !== idx);
+                          setUploadEstimateSections(updated);
+                          // Recalc totals
+                          const totRcv = updated.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
+                          const totDep = updated.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
+                          uploadEstimateForm.setFieldsValue({ rcv_amount: totRcv, acv_amount: totRcv - totDep, depreciation_amount: totDep });
+                        }} />
+                      </Col>
+                    </Row>
+                    <Row gutter={8} style={{ marginTop: 4 }}>
+                      <Col span={8}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>RCV</Text>
+                        <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                          value={section.rcv} onChange={v => {
+                            const updated = [...uploadEstimateSections];
+                            const rcv = v || 0;
+                            const dep = updated[idx].depreciation || 0;
+                            updated[idx] = { ...updated[idx], rcv, net_acv: rcv - dep };
+                            setUploadEstimateSections(updated);
+                            const totRcv = updated.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
+                            const totDep = updated.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
+                            uploadEstimateForm.setFieldsValue({ rcv_amount: totRcv, acv_amount: totRcv - totDep, depreciation_amount: totDep });
+                          }} />
+                      </Col>
+                      <Col span={8}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>Depreciation</Text>
+                        <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                          value={section.depreciation} onChange={v => {
+                            const updated = [...uploadEstimateSections];
+                            const dep = v || 0;
+                            const rcv = updated[idx].rcv || 0;
+                            updated[idx] = { ...updated[idx], depreciation: dep, net_acv: rcv - dep };
+                            setUploadEstimateSections(updated);
+                            const totRcv = updated.reduce((s: number, x: any) => s + (x.rcv || 0), 0);
+                            const totDep = updated.reduce((s: number, x: any) => s + (x.depreciation || 0), 0);
+                            uploadEstimateForm.setFieldsValue({ rcv_amount: totRcv, acv_amount: totRcv - totDep, depreciation_amount: totDep });
+                          }} />
+                      </Col>
+                      <Col span={8}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>Net ACV</Text>
+                        <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }}
+                          value={section.net_acv} disabled />
+                      </Col>
+                    </Row>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+
+          {/* Totals */}
+          <div style={{ background: '#fafafa', borderRadius: 6, padding: '10px 12px', marginBottom: 12 }}>
+            <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Totals</Text>
+            <Row gutter={[8, 8]}>
+              <Col xs={12} sm={6}>
+                <Text type="secondary" style={{ fontSize: 11 }}>Total RCV</Text>
+                <Form.Item name="rcv_amount" style={{ marginBottom: 0 }}>
+                  <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} sm={6}>
+                <Text type="secondary" style={{ fontSize: 11 }}>Total ACV</Text>
+                <Form.Item name="acv_amount" style={{ marginBottom: 0 }}>
+                  <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} sm={6}>
+                <Text type="secondary" style={{ fontSize: 11 }}>Depreciation</Text>
+                <Form.Item name="depreciation_amount" style={{ marginBottom: 0 }}>
+                  <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col xs={12} sm={6}>
+                <Text type="secondary" style={{ fontSize: 11 }}>Deductible</Text>
+                <Form.Item name="deductible" style={{ marginBottom: 0 }}>
+                  <InputNumber size="small" min={0} step={0.01} prefix="$" style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
+          </div>
 
           <Row gutter={12}>
             <Col span={12}>
@@ -2279,105 +2590,6 @@ const SupplementDetail: React.FC = () => {
           <Form.Item name="notes" label="Notes">
             <TextArea rows={2} placeholder="Optional notes about this estimate version" />
           </Form.Item>
-
-          <Form.Item label="Estimate PDF">
-            {uploadEstimateFileId ? (
-              <Space>
-                <FilePdfOutlined style={{ color: '#ff4d4f' }} />
-                <Text>{uploadEstimateFileName}</Text>
-                <Button type="link" size="small" danger
-                  onClick={() => { setUploadEstimateFileId(null); setUploadEstimateFileName(null); }}>
-                  Remove
-                </Button>
-              </Space>
-            ) : (
-              <Upload
-                accept=".pdf"
-                maxCount={1}
-                showUploadList={false}
-                beforeUpload={async (file) => {
-                  if (file.type !== 'application/pdf') {
-                    message.error('PDF files only');
-                    return Upload.LIST_IGNORE;
-                  }
-                  try {
-                    const uploaded = await fileService.uploadFiles(
-                      [file], 'negotiation', supplement.claim_id, 'insurance_estimate'
-                    );
-                    if (uploaded.length > 0) {
-                      const fid = uploaded[0].id;
-                      setUploadEstimateFileId(fid);
-                      setUploadEstimateFileName(file.name);
-                      message.success('PDF uploaded — parsing...');
-
-                      // Auto-parse PDF to fill form fields
-                      setUploadEstimateParsing(true);
-                      try {
-                        const result = await supplementService.extractInsuranceEstimatePdf(fid);
-                        if (result.success && result.totals) {
-                          const t = result.totals;
-                          const updates: any = {};
-                          if (t.rcv_amount) updates.rcv_amount = t.rcv_amount;
-                          if (t.acv_amount) updates.acv_amount = t.acv_amount;
-                          if (t.depreciation_amount) updates.depreciation_amount = t.depreciation_amount;
-                          if (t.deductible) updates.deductible = t.deductible;
-                          if (Object.keys(updates).length > 0) {
-                            uploadEstimateForm.setFieldsValue(updates);
-                            message.success(`Parsed: RCV $${(t.rcv_amount || 0).toLocaleString()}, ACV $${(t.acv_amount || 0).toLocaleString()}`);
-                          }
-                          if (result.sections && result.sections.length > 0) {
-                            setUploadEstimateSections(result.sections);
-                          }
-                        } else {
-                          message.info('Could not auto-parse this PDF format. Please fill in manually.');
-                        }
-                      } catch {
-                        // Non-critical — user can fill manually
-                      } finally {
-                        setUploadEstimateParsing(false);
-                      }
-                    }
-                  } catch {
-                    message.error('Upload failed');
-                  }
-                  return false;
-                }}
-              >
-                <Button icon={<UploadOutlined />}>Select PDF File</Button>
-              </Upload>
-            )}
-          </Form.Item>
-
-          {uploadEstimateParsing && (
-            <div style={{ textAlign: 'center', padding: '8px 0' }}>
-              <Spin size="small" /> <Text type="secondary" style={{ fontSize: 12 }}>Parsing PDF...</Text>
-            </div>
-          )}
-
-          {uploadEstimateSections.length > 0 && (
-            <Collapse size="small" style={{ marginTop: 4 }} items={[{
-              key: 'sections',
-              label: <Text style={{ fontSize: 12 }}>Section Breakdown ({uploadEstimateSections.length} sections)</Text>,
-              children: (
-                <Table
-                  size="small"
-                  dataSource={uploadEstimateSections}
-                  rowKey={(r: any, i?: number) => `${r.section_name}-${i}`}
-                  pagination={false}
-                  scroll={{ x: 400 }}
-                  columns={[
-                    { title: 'Section', dataIndex: 'section_name', key: 'name', width: 140, ellipsis: true },
-                    { title: 'RCV', dataIndex: 'rcv', key: 'rcv', width: 90, align: 'right' as const,
-                      render: (v: number) => v ? formatCurrency(v) : '—' },
-                    { title: 'Deprec.', dataIndex: 'depreciation', key: 'dep', width: 90, align: 'right' as const,
-                      render: (v: number) => v ? formatCurrency(v) : '—' },
-                    { title: 'ACV', dataIndex: 'net_acv', key: 'acv', width: 90, align: 'right' as const,
-                      render: (v: number) => v ? formatCurrency(v) : '—' },
-                  ]}
-                />
-              ),
-            }]} />
-          )}
         </Form>
       </Modal>
     </div>

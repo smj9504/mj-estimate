@@ -5,7 +5,7 @@
  * room, walls, and common fixtures.
  */
 
-import type { BEPoint, BEFixtureType, BEFixtureProperties } from '../../../../types/bathroomSketch';
+import type { BEPoint, BEFixtureType, BEFixtureProperties, BEDimensions } from '../../../../types/bathroomSketch';
 
 export interface BathroomPreset {
   id: string;
@@ -22,6 +22,8 @@ export interface BathroomPreset {
     relY: number;
     rotation: number;
     properties?: Partial<BEFixtureProperties>;
+    /** Override default fixture dimensions (inches) */
+    dimensions?: BEDimensions;
   }[];
 }
 
@@ -165,6 +167,43 @@ export const BATHROOM_PRESETS: BathroomPreset[] = [
       { type: 'vanity', relX: 4, relY: 8.13, rotation: 0, properties: { vanityWidth: 48, sinkCount: 1, hasBacksplash: true, backsplashHeight: 4 } },
       // Door: bottom area (wider 36" for ADA)
       { type: 'door', relX: 4.67, relY: 7.67, rotation: 0 },
+    ],
+  },
+  {
+    // ┌──────── 6 ft ────────┐
+    // │ TOILET │ NEO-ANGLE   │ ← back wall
+    // │        │  (38x38)  / │
+    // │        │         /   │ ← diagonal glass+door
+    // │ VANITY │       ╱    │
+    // │ (30)   │ DOOR →     │
+    // └────────────────────┘  6 ft
+    id: 'corner_neo_angle',
+    name: 'Corner Neo-Angle (6x6)',
+    description: 'Neo-angle corner shower (38x38), compact layout.',
+    widthFt: 6,
+    depthFt: 6,
+    fixtures: [
+      // Neo-angle shower: 38"x38", flush to back+right corner
+      { type: 'shower', relX: 4.42, relY: 1.58, rotation: 0,
+        dimensions: { width: 38, height: 38 },
+        properties: {
+          showerFloorType: 'tile',
+          showerWallCount: 2,
+          showerTileHeight: 77,
+          showerLayout: 'neo_angle',
+          showerDoorType: 'neo_angle_pivot',
+          nicheCount: 1,
+          curbHeight: 4,
+        },
+      },
+      // Toilet: left side
+      { type: 'toilet', relX: 1.25, relY: 1.71, rotation: 0 },
+      // Vanity: 30"W x 21"D, bottom-left
+      { type: 'vanity', relX: 1.25, relY: 5.13, rotation: 0,
+        properties: { vanityWidth: 30, sinkCount: 1, hasBacksplash: true, backsplashHeight: 4 },
+      },
+      // Door: bottom-right
+      { type: 'door', relX: 4.67, relY: 4.67, rotation: 0 },
     ],
   },
 ];

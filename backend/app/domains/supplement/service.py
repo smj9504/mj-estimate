@@ -1005,6 +1005,9 @@ class SupplementService:
             )
 
             # Create followup record (linked to sent email for auto reply detection)
+            now_iso = __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ).isoformat()
             followup = SupplementFollowUp(
                 supplement_id=sup.id,
                 followup_type="info_request",
@@ -1018,6 +1021,13 @@ class SupplementService:
                 response_received=False,
                 follow_up_count=0,
                 sent_email_id=email_result.get("id"),
+                conversation=[{
+                    "type": "sent",
+                    "date": now_iso,
+                    "sender": email_result.get("from_address", ""),
+                    "body_html": body_html,
+                    "summary": f"Info request: {', '.join(i.get('description', '') for i in items_needed[:3])}",
+                }],
             )
             session.add(followup)
             session.commit()
@@ -1112,6 +1122,16 @@ class SupplementService:
             followup.info_status = "awaiting_response"
             # Update sent_email_id to track latest email for reply detection
             followup.sent_email_id = email_result.get("id")
+            # Append to conversation thread
+            conv = list(followup.conversation or [])
+            conv.append({
+                "type": "sent",
+                "date": now.isoformat(),
+                "sender": email_result.get("from_address", ""),
+                "body_html": body_html,
+                "summary": f"Follow-up #{follow_up_num}",
+            })
+            followup.conversation = conv
             session.commit()
 
             return {

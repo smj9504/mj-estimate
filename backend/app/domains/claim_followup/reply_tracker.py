@@ -18,20 +18,46 @@ logger = logging.getLogger(__name__)
 
 def _extract_reply_body(full_text: str) -> str:
     """Extract only the new reply content, stripping quoted original message."""
-    # Common reply separators
+    # Common reply separators (with or without leading newline)
     separators = [
-        r"\n-{3,}\s*Original Message\s*-{3,}",
-        r"\nOn .+ wrote:",
+        r"\n?-{3,}\s*Original Message\s*-{3,}",
+        r"\n?On .+wrote\s*:",
         r"\n>{2,}",
-        r"\n_{3,}",
-        r"\nFrom:\s+.+\nSent:\s+",
+        r"\n?_{3,}",
+        r"\n?From:\s+.+\nSent:\s+",
+        r"\n?On \d{1,2}/\d{1,2}/\d{2,4}.+wrote\s*:",  # On 06/05/2026 ... wrote:
     ]
     for sep in separators:
         match = re.search(sep, full_text, re.IGNORECASE)
         if match:
-            return full_text[: match.start()].strip()
+            result = full_text[: match.start()].strip()
+            if result:
+                return result
     # If no separator found, return first 500 chars
     return full_text[:500].strip() if len(full_text) > 500 else full_text.strip()
+
+
+def _extract_reply_html(full_html: str) -> str:
+    """Extract only the new reply content from HTML, stripping quoted original."""
+    if not full_html:
+        return ""
+    # Gmail wraps quoted content in <div class="gmail_quote">
+    gmail_quote = re.search(r'<div\s+class="gmail_quote"', full_html, re.IGNORECASE)
+    if gmail_quote:
+        return full_html[: gmail_quote.start()].strip()
+    # Outlook uses <div id="appendonsend"> or <hr> before quoted
+    outlook_sep = re.search(r'<div\s+id="appendonsend"|<hr\s*/?\s*>', full_html, re.IGNORECASE)
+    if outlook_sep:
+        return full_html[: outlook_sep.start()].strip()
+    # Generic: <blockquote> wraps quoted content
+    blockquote = re.search(r'<blockquote', full_html, re.IGNORECASE)
+    if blockquote:
+        return full_html[: blockquote.start()].strip()
+    # Fallback: "On ... wrote:" pattern in HTML
+    on_wrote = re.search(r'On .+wrote\s*:', full_html, re.IGNORECASE)
+    if on_wrote:
+        return full_html[: on_wrote.start()].strip()
+    return full_html
 
 
 def _truncate(text: str, max_len: int = 500) -> str:
@@ -411,8 +437,20 @@ class ReplyTracker:
                 sup_followup.response_received = True
                 sup_followup.response_date = reply_time
                 sup_followup.response_summary = reply_summary
-                sup_followup.reply_body_html = reply.body_html or reply.body_text or ""
-                sup_followup.info_status = "resolved"
+                raw_html = reply.body_html or reply.body_text or ""
+                cleaned_html = _extract_reply_html(raw_html)
+                sup_followup.reply_body_html = cleaned_html
+                sup_followup.info_status = "awaiting_response"  # keep open for continued conversation
+                # Append to conversation thread
+                conv = list(sup_followup.conversation or [])
+                conv.append({
+                    "type": "received",
+                    "date": reply_time.isoformat() if reply_time else "",
+                    "sender": reply.sender or "",
+                    "body_html": cleaned_html,
+                    "summary": reply_summary,
+                })
+                sup_followup.conversation = conv
                 logger.info(
                     f"Auto-updated SupplementFollowUp {sup_followup.id} "
                     f"with reply from {reply.sender}"

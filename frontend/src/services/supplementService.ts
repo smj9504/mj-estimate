@@ -172,6 +172,14 @@ export const supplementService = {
     return data;
   },
 
+  async replyToInfoRequest(supplementId: string, followupId: string, payload: {
+    body_html: string;
+    email_account_id?: string;
+  }): Promise<{ success: boolean; email_id: string }> {
+    const { data } = await api.post(`${BASE_URL}/${supplementId}/followups/${followupId}/reply`, payload);
+    return data;
+  },
+
   // Info Requests
   async sendInfoRequest(supplementId: string, payload: {
     to_email: string;

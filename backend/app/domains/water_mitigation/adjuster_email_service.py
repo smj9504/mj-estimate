@@ -793,13 +793,24 @@ class AdjusterEmailService:
     # ================================================================
 
     def _create_followup_task(self, session, job, adjuster_email: str):
-        """Create a follow-up task after sending documents."""
+        """Create a follow-up task after sending documents (skip if one already exists)."""
         try:
             if not job.claim_id:
                 return
 
             from app.domains.claim_followup.models import FollowUpTask
             from datetime import timedelta
+
+            # Skip if an active wm_docs_sent task already exists for this job
+            existing = session.query(FollowUpTask).filter(
+                FollowUpTask.claim_id == job.claim_id,
+                FollowUpTask.wm_job_id == str(job.id),
+                FollowUpTask.task_type == 'wm_docs_sent',
+                FollowUpTask.status.notin_(['resolved', 'cancelled']),
+            ).first()
+            if existing:
+                logger.info(f"Follow-up task already exists for WM Job {job.id}, skipping")
+                return
 
             sheet_name = job.google_sheet_name or ""
             pa_info = f" | PA: {sheet_name}" if sheet_name else ""

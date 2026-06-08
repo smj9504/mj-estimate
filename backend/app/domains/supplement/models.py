@@ -252,6 +252,13 @@ class SupplementFollowUp(Base, BaseModel):
         comment="List of file IDs attached to the reply"
     )
 
+    # Conversation thread: [{type: "sent"|"received", date: str, body_html: str, sender: str, summary: str}]
+    conversation = Column(
+        JSONB,
+        default=list,
+        comment="Chronological list of sent/received messages in this thread"
+    )
+
     # Link to sent email for auto reply detection
     sent_email_id = Column(
         UUIDType(),

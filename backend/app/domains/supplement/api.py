@@ -177,7 +177,21 @@ async def list_insurance_estimates(claim_id: str):
                 .all()
             )
 
+            # Batch-load file records: collect all document_urls first
+            doc_urls = [neg.document_url for neg in negotiations if neg.document_url]
+            file_map = {}
+            if doc_urls:
+                file_recs = session.query(File).filter(
+                    File.id.in_(doc_urls), File.is_active == True
+                ).all()
+                file_map = {str(f.id): f for f in file_recs}
+
+            # Single fallback query (runs once, not per-negotiation)
+            fallback_file = None
+            fallback_queried = False
+
             results = []
+            healed = False
             for neg in negotiations:
                 item = {}
                 for col in ClaimNegotiation.__table__.columns:
@@ -194,44 +208,42 @@ async def list_insurance_estimates(claim_id: str):
                         val = str(val)
                     item[col.name] = val
 
-                # Resolve file download ID
+                # Resolve file download ID from batch-loaded map
                 item['file_download_id'] = None
                 doc_url = neg.document_url
-                if doc_url:
-                    file_rec = session.query(File).filter(
-                        File.id == doc_url, File.is_active == True
-                    ).first()
-                    if file_rec:
-                        item['file_download_id'] = str(file_rec.id)
+                if doc_url and doc_url in file_map:
+                    item['file_download_id'] = str(file_map[doc_url].id)
 
-                # Fallback: if document_url is empty/null but a file was
-                # previously uploaded for this negotiation, recover the link.
+                # Fallback: lazy-load once for the entire claim
                 if not item['file_download_id']:
-                    fallback = (
-                        session.query(File)
-                        .filter(
-                            File.context == 'negotiation',
-                            File.context_id == claim_id,
-                            File.category == 'insurance_estimate',
-                            File.is_active == True,
+                    if not fallback_queried:
+                        fallback_queried = True
+                        fallback_file = (
+                            session.query(File)
+                            .filter(
+                                File.context == 'negotiation',
+                                File.context_id == claim_id,
+                                File.category == 'insurance_estimate',
+                                File.is_active == True,
+                            )
+                            .order_by(File.created_at.desc())
+                            .first()
                         )
-                        .order_by(File.created_at.desc())
-                        .first()
-                    )
-                    if fallback:
-                        item['file_download_id'] = str(fallback.id)
-                        # Auto-heal: restore the broken link
+                    if fallback_file:
+                        item['file_download_id'] = str(fallback_file.id)
                         if not doc_url:
-                            neg.document_url = str(fallback.id)
-                            neg.document_name = fallback.original_name
+                            neg.document_url = str(fallback_file.id)
+                            neg.document_name = fallback_file.original_name
+                            healed = True
 
                 results.append(item)
 
-            # Persist any auto-healed document links
-            try:
-                session.commit()
-            except Exception:
-                session.rollback()
+            # Persist auto-healed links only if changes were made
+            if healed:
+                try:
+                    session.commit()
+                except Exception:
+                    session.rollback()
 
             # Attach claim-level WM info to each result
             for r in results:
@@ -509,37 +521,90 @@ async def extract_insurance_estimate_pdf(file_id: str):
                 if result.get(k) is not None
             }
 
-            # Build per-section breakdown (field names match NegotiationSectionData schema)
+            # Extract "Summary for <Section>" blocks directly from PDF text
+            # These are the authoritative per-category totals (Dwelling, Water Mitigation, etc.)
+            import re
             sections = []
-            def _build_section(name, totals):
-                dep_raw = totals.get("depreciation", 0) or 0
-                rcv_val = totals.get("rcv") or totals.get("grand_total_rcv") or 0
-                acv_val = totals.get("acv") or 0
-                return {
-                    "section_name": name,
-                    "line_item_total": totals.get("line_item_total") or 0,
-                    "material_sales_tax": totals.get("material_sales_tax") or 0,
-                    "subtotal": totals.get("subtotal") or 0,
-                    "overhead_amount": totals.get("gc_overhead") or 0,
-                    "profit_amount": totals.get("gc_profit") or 0,
+            page_texts = result.get("_page_texts", [])
+            full_text = "\n".join(page_texts) if page_texts else ""
+
+            summary_pattern = re.compile(
+                r"Summary\s+for\s+(.+?)\s*\n"
+                r"(?:.*?\n)*?"
+                r"Line\s+Item\s+Total\s+([\d,]+\.\d+)\s*\n"
+                r"Material\s+Sales\s+Tax\s+([\d,]+\.\d+)\s*\n"
+                r"(?:.*?\n)*?"
+                r"(?:Subtotal\s+([\d,]+\.\d+)\s*\n)?"
+                r"(?:.*?Overhead\s+([\d,]+\.\d+)\s*\n)?"
+                r"(?:.*?Profit\s+([\d,]+\.\d+)\s*\n)?"
+                r"(?:.*?\n)*?"
+                r"Replacement\s+Cost\s+Value\s+\$?([\d,]+\.\d+)",
+                re.IGNORECASE,
+            )
+            dep_pattern = re.compile(
+                r"Less\s+Depreciation\s+\(?([\d,]+\.\d+)\)?",
+                re.IGNORECASE,
+            )
+            acv_pattern = re.compile(
+                r"Actual\s+Cash\s+Value\s+\$?([\d,]+\.\d+)",
+                re.IGNORECASE,
+            )
+
+            def _parse_money(s):
+                return float(s.replace(",", "")) if s else 0.0
+
+            for m in summary_pattern.finditer(full_text):
+                sec_name = m.group(1).strip()
+                rcv_val = _parse_money(m.group(7))
+
+                # Search for depreciation and ACV after this match
+                after = full_text[m.end():m.end() + 500]
+                dep_m = dep_pattern.search(after)
+                acv_m = acv_pattern.search(after)
+                dep_val = _parse_money(dep_m.group(1)) if dep_m else 0.0
+                acv_val = _parse_money(acv_m.group(1)) if acv_m else rcv_val - dep_val
+
+                sections.append({
+                    "section_name": sec_name,
+                    "line_item_total": _parse_money(m.group(2)),
+                    "material_sales_tax": _parse_money(m.group(3)),
+                    "subtotal": _parse_money(m.group(4)) if m.group(4) else 0,
+                    "overhead_amount": _parse_money(m.group(5)) if m.group(5) else 0,
+                    "profit_amount": _parse_money(m.group(6)) if m.group(6) else 0,
                     "rcv": rcv_val,
-                    "depreciation": abs(dep_raw),
-                    "deductible": totals.get("deductible") or 0,
+                    "depreciation": dep_val,
+                    "deductible": 0,
                     "net_acv": acv_val,
-                }
-            for sec_group_key in ("standalone_sections", "levels"):
-                group = result.get(sec_group_key, [])
-                if sec_group_key == "levels":
-                    for lv in group:
-                        for rm in lv.get("rooms", []):
-                            totals = rm.get("room_totals", {})
-                            if totals:
-                                sections.append(_build_section(rm.get("name", "Unknown"), totals))
-                else:
-                    for sec in group:
-                        totals = sec.get("section_totals", {})
-                        if totals:
-                            sections.append(_build_section(sec.get("name", "Unknown"), totals))
+                })
+
+            # Fallback: if no "Summary for" blocks found, aggregate from parser levels
+            if not sections:
+                for sec in result.get("standalone_sections", []):
+                    t = sec.get("totals") or {}
+                    if t:
+                        rcv = float(t.get("rcv") or t.get("grand_total_rcv") or 0)
+                        dep = abs(float(t.get("depreciation") or 0))
+                        acv = float(t.get("acv") or 0)
+                        sections.append({
+                            "section_name": sec.get("name", "Unknown"),
+                            "rcv": rcv, "depreciation": dep, "net_acv": acv,
+                            "line_item_total": 0, "material_sales_tax": 0,
+                            "subtotal": 0, "overhead_amount": 0, "profit_amount": 0, "deductible": 0,
+                        })
+                for lv in result.get("levels", []):
+                    sum_rcv = sum_dep = sum_acv = 0.0
+                    for rm in lv.get("rooms", []):
+                        t = rm.get("totals") or {}
+                        sum_rcv += float(t.get("rcv") or 0)
+                        sum_dep += abs(float(t.get("depreciation") or 0))
+                        sum_acv += float(t.get("acv") or 0)
+                    if sum_rcv or sum_acv:
+                        sections.append({
+                            "section_name": lv.get("name", "Dwelling"),
+                            "rcv": sum_rcv, "depreciation": sum_dep, "net_acv": sum_acv,
+                            "line_item_total": 0, "material_sales_tax": 0,
+                            "subtotal": 0, "overhead_amount": 0, "profit_amount": 0, "deductible": 0,
+                        })
 
             # Build totals from summary
             rcv_amount = summary.get("grand_total_rcv") or summary.get("rcv") or 0
@@ -836,6 +901,95 @@ async def send_to_pa(supplement_id: str, data: dict):
             status_code=500,
             detail=f"Failed to send: {str(e)}",
         )
+
+
+@router.post("/supplements/{supplement_id}/followups/{followup_id}/reply")
+async def reply_to_info_request(supplement_id: str, followup_id: str, data: dict):
+    """Send a reply email in an existing info request conversation thread.
+
+    Request body:
+    - body_html: str (reply message HTML)
+    - email_account_id: str (optional)
+    """
+    body_html = (data.get("body_html") or "").strip()
+    if not body_html:
+        raise HTTPException(status_code=400, detail="body_html is required")
+
+    try:
+        from app.domains.supplement.models import SupplementFollowUp
+        from app.domains.claim_followup.service import ClaimFollowUpService
+        database = get_database()
+        session = database.get_session()
+        try:
+            followup = session.query(SupplementFollowUp).filter(
+                SupplementFollowUp.id == followup_id,
+                SupplementFollowUp.supplement_id == supplement_id,
+            ).first()
+            if not followup:
+                raise HTTPException(status_code=404, detail="Followup not found")
+
+            to_email = followup.contact_email
+            if not to_email:
+                raise HTTPException(status_code=400, detail="No contact email")
+
+            # Build subject (Re: original subject)
+            from app.domains.claim_followup.models import SentEmail
+            subject = "Re: Info Request"
+            if followup.sent_email_id:
+                sent = session.query(SentEmail).filter(
+                    SentEmail.id == followup.sent_email_id
+                ).first()
+                if sent and sent.subject:
+                    subj = sent.subject
+                    if not subj.lower().startswith("re:"):
+                        subj = f"Re: {subj}"
+                    subject = subj
+
+            # Send via SMTP
+            email_service = ClaimFollowUpService()
+            sup = followup.supplement
+            claim_id = str(sup.claim_id) if sup else ""
+            email_result = email_service.send_email({
+                "claim_id": claim_id,
+                "email_account_id": data.get("email_account_id"),
+                "to_addresses": [to_email],
+                "subject": subject,
+                "body_html": body_html,
+                "attachments": [],
+            })
+
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+
+            # Update followup tracking
+            followup.sent_email_id = email_result.get("id")
+            followup.info_status = "awaiting_response"
+            followup.follow_up_count = (followup.follow_up_count or 0) + 1
+            followup.last_follow_up_date = now
+
+            # Append to conversation
+            conv = list(followup.conversation or [])
+            conv.append({
+                "type": "sent",
+                "date": now.isoformat(),
+                "sender": email_result.get("from_address", ""),
+                "body_html": body_html,
+                "summary": "Reply sent",
+            })
+            followup.conversation = conv
+            session.commit()
+
+            return {
+                "success": True,
+                "email_id": str(email_result.get("id", "")),
+            }
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error replying to info request: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/supplements/polish-scope-notes")

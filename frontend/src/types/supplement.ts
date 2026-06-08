@@ -113,6 +113,13 @@ export interface SupplementFollowUp {
   response_summary?: string;
   reply_body_html?: string;
   reply_attachment_ids?: string[];
+  conversation?: Array<{
+    type: 'sent' | 'received';
+    date: string;
+    sender: string;
+    body_html: string;
+    summary?: string;
+  }>;
   sent_email_id?: string;
   follow_up_count?: number;
   last_follow_up_date?: string;

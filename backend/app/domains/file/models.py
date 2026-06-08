@@ -2,7 +2,7 @@
 File management models for handling uploaded files
 """
 
-from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, Index
 from sqlalchemy.sql import func
 import uuid
 
@@ -17,6 +17,10 @@ def generate_uuid():
 class File(Base):
     """File table for tracking uploaded files"""
     __tablename__ = "files"
+    __table_args__ = (
+        Index('ix_files_context_lookup', 'context', 'context_id', 'category', 'is_active'),
+        {'extend_existing': True},
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     filename = Column(String(255), nullable=False)  # Generated filename

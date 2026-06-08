@@ -181,7 +181,7 @@ class WaterMitigationService:
         job: Dict[str, Any],
         job_id: UUID
     ):
-        """Auto-create a follow-up task when WM job is sent to adjuster"""
+        """Auto-create a follow-up task when WM job is sent to adjuster (skip if exists)"""
         try:
             claim_id = job.get('claim_id') if isinstance(job, dict) else getattr(job, 'claim_id', None)
             if not claim_id:
@@ -190,6 +190,17 @@ class WaterMitigationService:
 
             from app.domains.claim_followup.models import FollowUpTask
             from datetime import timedelta, timezone
+
+            # Skip if an active wm_docs_sent task already exists for this job
+            existing = self.session.query(FollowUpTask).filter(
+                FollowUpTask.claim_id == claim_id,
+                FollowUpTask.wm_job_id == str(job_id),
+                FollowUpTask.task_type == 'wm_docs_sent',
+                FollowUpTask.status.notin_(['resolved', 'cancelled']),
+            ).first()
+            if existing:
+                logger.info(f"Follow-up task already exists for WM Job {job_id}, skipping")
+                return
 
             property_address = job.get('property_address', '') if isinstance(job, dict) else getattr(job, 'property_address', '')
             adjuster_name = job.get('adjuster_name', '') if isinstance(job, dict) else getattr(job, 'adjuster_name', '')
