@@ -273,6 +273,7 @@ const BathroomEstimateDetail: React.FC = () => {
     syncFixtureAction('vanity', sync.replace_vanity);
     syncFixtureAction('toilet', sync.replace_toilet);
     syncFixtureAction('mirror', sync.replace_mirror);
+    if (sync.replace_vanity_light) updates.replace_vanity_light = true;
     if (sync.demo_walls !== undefined) updates.demo_walls = sync.demo_walls;
 
     // Water damage repair flags (auto-set from drywall repair zones)

@@ -58,6 +58,7 @@ export interface SketchFixtureSync {
 
   // Demo flags
   demo_walls?: boolean;
+  replace_vanity_light?: boolean;
   water_damage?: boolean;
   repair_drywall_walls?: boolean;
   repair_drywall_walls_sf?: number;
@@ -222,18 +223,24 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
   }
   sync.replace_mirror = mirrors.length > 0;
   // Ceiling light → electrical_spec
-  // Electrical spec: lights + default exhaust fan (80 CFM standard for bathroom)
+  // Electrical spec: lights + defaults (GFCI, exhaust fan)
   const elecSpec: Record<string, any> = {
+    gfci_count: 1,
     exhaust_fan_cfm: 80,
     exhaust_fan_switch: 'standard',
   };
   if (lights.length > 0) {
-    const lp = lights[0].properties;
-    const lightType = lp.lightType ?? 'standard';
-    elecSpec.ceiling_fixture = lightType;
-    if (lightType === 'recessed_multi') {
-      elecSpec.recessed_can_count = lp.lightCount ?? 4;
+    // Non-sibling lights (exclude auto-generated recessed children)
+    const parentLights = lights.filter((l) => !l.properties.recessedParentId);
+    if (parentLights.length > 0) {
+      const lp = parentLights[0].properties;
+      const lightType = lp.lightType ?? 'standard';
+      elecSpec.ceiling_fixture = lightType;
+      if (lightType === 'recessed_multi') {
+        elecSpec.recessed_can_count = lp.lightCount ?? 4;
+      }
     }
+    sync.replace_vanity_light = true;
   }
   sync.electrical_spec = elecSpec;
   // demo_floor is a user decision — don't auto-set from sketch
