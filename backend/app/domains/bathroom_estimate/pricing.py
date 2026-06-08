@@ -26,6 +26,8 @@ DEMO_RATES = {
     "shower_surround": 150,           # prefab surround removal
     "shower_custom_tile": 250,        # custom tile shower tear-out
     "vanity": 85,                     # vanity + top removal
+    "pedestal_sink": 55,              # pedestal sink disconnect + remove
+    "wall_mount_sink": 50,            # wall-mount sink disconnect + remove
     "toilet": 60,                     # toilet disconnect + remove
     "mirror": 35,                     # mirror removal
 
@@ -270,9 +272,13 @@ SHOWER_DOOR_INSTALL = {
 
 SHOWER_DOOR_TYPES = [
     "curtain",
-    "framed_sliding", "semi_frameless_sliding", "frameless_sliding",
-    "framed_pivot", "semi_frameless_pivot", "frameless_pivot",
+    "framed_sliding", "semi_frameless_sliding",
+    "frameless_sliding",
+    "framed_pivot", "semi_frameless_pivot",
+    "frameless_pivot",
     "fixed_panel",
+    "framed_neo_angle", "semi_frameless_neo_angle",
+    "frameless_neo_angle",
 ]
 
 # Legacy compat — still referenced by enclosure dropdown
@@ -290,7 +296,87 @@ SHOWER_INSERT_PRICES = {
     "multi_piece_kit": 950,           # multi-piece kit ($600-$1,500)
 }
 
-SHOWER_INSERT_INSTALL = 575           # prefab shower unit install (set, level, seal, connect)
+# prefab shower unit install (set, level, seal, connect)
+SHOWER_INSERT_INSTALL = 575
+
+# Neo-angle (corner) shower components
+# Sources: Home Depot, Lowe's, Amazon 2025-2026
+# Neo-angle base pan: acrylic/fiberglass, center drain
+NEO_ANGLE_BASE_PRICES = {
+    # By size (inches), material only
+    32: 180,   # 32x32 ($150-$230)
+    36: 220,   # 36x36 ($170-$280)
+    38: 350,   # 38x38 ($270-$490)
+    42: 425,   # 42x42 ($350-$500)
+    48: 550,   # 48x48 ($450-$650)
+}
+
+# pan install: set, level, seal, connect drain
+NEO_ANGLE_BASE_INSTALL = 475
+
+# Neo-angle shower door (3-panel enclosure)
+# door + 2 fixed side panels
+# Higher than regular: precision angles, custom glass
+NEO_ANGLE_DOOR_PRICES = {
+    # Framed (most common, budget) — by size
+    "framed_neo_angle": {
+        32: 350, 36: 425, 38: 500,
+        42: 600, 48: 750,
+    },
+    # Semi-frameless
+    "semi_frameless_neo_angle": {
+        32: 550, 36: 650, 38: 750,
+        42: 900, 48: 1100,
+    },
+    # Frameless ($800-$2,500+ installed)
+    "frameless_neo_angle": {
+        32: 800, 36: 950, 38: 1100,
+        42: 1350, 48: 1650,
+    },
+}
+
+NEO_ANGLE_DOOR_INSTALL = {
+    "framed_neo_angle": 375,
+    "semi_frameless_neo_angle": 475,
+    "frameless_neo_angle": 575,
+}
+
+# Neo-angle prefab wall surround
+# (acrylic/fiberglass, replaces tile)
+# Sources: MAAX, American Standard, Aquatic 2025-2026
+NEO_ANGLE_WALL_SURROUND_PRICES = {
+    # By base size (inches), material only
+    "prefab_acrylic": {
+        32: 250, 36: 325, 38: 400,
+        42: 500, 48: 650,
+    },
+    "prefab_fiberglass": {
+        32: 175, 36: 225, 38: 275,
+        42: 350, 48: 450,
+    },
+    "solid_surface": {
+        32: 600, 36: 750, 38: 900,
+        42: 1100, 48: 1400,
+    },
+}
+
+# surround panel install ($350-$500)
+NEO_ANGLE_WALL_SURROUND_INSTALL = 425
+
+# Complete neo-angle kits (base + walls + door)
+# Budget: MAAX Warren, Aqua Glass, American Std
+NEO_ANGLE_KIT_PRICES = {
+    # base + wall surround + door (material only)
+    "basic_fiberglass": {
+        36: 750, 38: 900, 42: 1150,
+    },
+    "mid_acrylic": {
+        36: 1200, 38: 1400, 42: 1800,
+    },
+}
+
+# full kit install ($650-$850)
+NEO_ANGLE_KIT_INSTALL = 750
 
 SHOWER_CUSTOM_EXTRAS = {
     "niche_each": 185,                # recessed niche (material + labor)
@@ -349,6 +435,22 @@ VANITY_EXTRAS = {
     "faucet_widespread": 350,
     "faucet_wall_mount": 525,         # wall-mount requires rough valve + access
 }
+
+# Pedestal Sink / Wall-Mount Sink (non-vanity options)
+SINK_PRICES = {
+    # Supply (fixture + faucet)
+    "pedestal_sink": 350,             # pedestal sink unit ($250-$500)
+    "wall_mount_sink": 300,           # wall-mount basin ($200-$450)
+}
+SINK_INSTALL = {
+    "pedestal_sink": 375,             # set pedestal, connect plumbing ($300-$450)
+    "wall_mount_sink": 425,           # blocking + bracket + connect ($350-$500)
+}
+SINK_FAUCET = {
+    "centerset": 175,                 # 4" centerset faucet supply
+    "single_hole": 150,               # single hole faucet supply
+}
+SINK_FAUCET_INSTALL = 225             # faucet install labor (same as vanity)
 
 # Mirror / Medicine Cabinet
 MIRROR_PRICES = {
@@ -707,7 +809,11 @@ BUILDING_TYPES = ["sfh", "townhouse", "condo"]
 BATHROOM_DESIGNATIONS = ["master", "hall", "powder", "three_quarter", "jack_jill"]
 BATHROOM_FUNCTIONS = ["full", "three_quarter", "half"]
 
-SHOWER_TYPES = ["tub_combo", "one_piece", "multi_piece_kit", "custom_tile", "curbless"]
+SHOWER_TYPES = [
+    "tub_combo", "one_piece", "multi_piece_kit",
+    "custom_tile", "curbless",
+    "neo_angle_kit", "neo_angle_custom",
+]
 ENCLOSURE_TYPES = ["curtain", "sliding", "pivot", "frameless", "half_wall_glass"]
 SHOWERHEAD_TYPES = ["standard", "rain", "handheld", "combo", "body_spray"]
 TRIM_GRADES = ["builder", "mid", "premium"]
@@ -715,6 +821,7 @@ TRIM_GRADES = ["builder", "mid", "premium"]
 BATHTUB_TYPES = ["alcove", "drop_in", "freestanding", "walk_in", "none"]
 BATHTUB_MATERIALS = ["acrylic", "porcelain_steel", "cast_iron", "fiberglass"]
 
+VANITY_SINK_TYPES = ["cabinet", "pedestal_sink", "wall_mount_sink"]
 VANITY_WIDTHS = [24, 30, 36, 48, 60, 72]
 VANITY_SOURCES = ["stock_rta", "semi_custom", "custom"]
 VANITY_TOP_MATERIALS = ["cultured_marble", "quartz", "granite", "marble", "laminate"]

@@ -30,8 +30,10 @@ import {
 import type {
   BEFixtureType,
   BathtubSubType,
+  VanitySubType,
   ShowerFloorType,
   ShowerDoorType,
+  ShowerWallMaterial,
   BEFixture,
   BEWall,
   BEPoint,
@@ -39,6 +41,7 @@ import type {
 import {
   BE_FIXTURE_DEFAULTS,
   BATHTUB_SURROUND_DEFAULTS,
+  VANITY_SUBTYPE_DEFAULTS,
 } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { BATHROOM_PRESETS, type BathroomPreset } from './utils/bePresets';
@@ -146,7 +149,7 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
           x: offsetX + f.relX * ppf,
           y: offsetY + f.relY * ppf,
         };
-        api.addFixture(f.type, pos, undefined, undefined, f.properties);
+        api.addFixture(f.type, pos, undefined, undefined, f.properties, f.dimensions);
       }
 
       setSelectedId(null);
@@ -623,10 +626,15 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
               size="small"
               value={p.showerLayout ?? 'alcove'}
               onChange={(v: string) => {
-                const wallMap: Record<string, number> = { alcove: 3, corner: 2, corner_right: 2 };
+                const wallMap: Record<string, number> = {
+                  alcove: 3, corner: 2, corner_right: 2,
+                  neo_angle: 2, neo_angle_right: 2,
+                };
+                const isNeo = v === 'neo_angle' || v === 'neo_angle_right';
                 updateFixtureProperties(fixture.id, {
                   showerLayout: v as any,
                   showerWallCount: wallMap[v] ?? 3,
+                  ...(isNeo ? { showerDoorType: 'neo_angle_pivot' as ShowerDoorType } : {}),
                 });
               }}
               style={{ width: '100%', marginTop: 4 }}
@@ -634,6 +642,8 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
               <Option value="alcove">Alcove (3 walls)</Option>
               <Option value="corner">Corner - glass right</Option>
               <Option value="corner_right">Corner - glass left</Option>
+              <Option value="neo_angle">Neo-Angle (walls: back+left)</Option>
+              <Option value="neo_angle_right">Neo-Angle (walls: back+right)</Option>
             </Select>
           </div>
           <div style={{ marginBottom: 6 }}>
@@ -650,6 +660,7 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
               <Option value="swing">Swing (framed)</Option>
               <Option value="frameless_swing">Swing (frameless)</Option>
               <Option value="bi_fold">Bi-fold</Option>
+              <Option value="neo_angle_pivot">Neo-Angle pivot</Option>
             </Select>
           </div>
           {p.showerDoorType && p.showerDoorType !== 'none' && p.showerDoorType !== 'curtain' && (
@@ -679,41 +690,90 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
               <Option value="both">Both sides</Option>
             </Select>
           </div>
+          {/* Wall material - especially relevant for neo-angle/corner */}
+          {(p.showerLayout === 'neo_angle' || p.showerLayout === 'neo_angle_right'
+            || p.showerLayout === 'corner' || p.showerLayout === 'corner_right') && (
+            <div style={{ marginBottom: 6 }}>
+              <Text type="secondary">Wall material:</Text>
+              <Select
+                size="small"
+                value={p.showerWallMaterial ?? 'tile'}
+                onChange={(v: ShowerWallMaterial) => updateFixtureProperties(fixture.id, { showerWallMaterial: v })}
+                style={{ width: '100%', marginTop: 4 }}
+              >
+                <Option value="tile">Custom tile</Option>
+                <Option value="prefab_acrylic">Prefab acrylic</Option>
+                <Option value="prefab_fiberglass">Prefab fiberglass</Option>
+                <Option value="solid_surface">Solid surface</Option>
+              </Select>
+            </div>
+          )}
         </>
       )}
 
-      {/* Vanity-specific */}
+      {/* Vanity / Sink -specific */}
       {fixture.type === 'vanity' && (
         <>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-            <InputNumber
+          <div style={{ marginBottom: 6 }}>
+            <Text type="secondary">Type:</Text>
+            <Select
               size="small"
-              addonBefore="Sinks"
-              value={p.sinkCount ?? 1}
-              min={1}
-              max={2}
-              onChange={(v) => v && updateFixtureProperties(fixture.id, { sinkCount: v })}
-              style={{ width: '50%' }}
-            />
+              value={p.vanitySubType ?? 'cabinet'}
+              onChange={(v: VanitySubType) => {
+                const sd = VANITY_SUBTYPE_DEFAULTS[v];
+                api.updateFixture(fixture.id, { dimensions: { width: sd.width, height: sd.height } });
+                updateFixtureProperties(fixture.id, {
+                  vanitySubType: v,
+                  sinkCount: sd.sinkCount,
+                  hasBacksplash: sd.hasBacksplash,
+                });
+              }}
+              style={{ width: '100%', marginTop: 4 }}
+            >
+              <Option value="cabinet">Cabinet Vanity</Option>
+              <Option value="pedestal_sink">Pedestal Sink</Option>
+              <Option value="wall_mount_sink">Wall-Mount Sink</Option>
+            </Select>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-            <Text type="secondary">Backsplash:</Text>
-            <Switch
-              size="small"
-              checked={p.hasBacksplash ?? false}
-              onChange={(v) => updateFixtureProperties(fixture.id, { hasBacksplash: v })}
-            />
-          </div>
-          {p.hasBacksplash && (
-            <InputNumber
-              size="small"
-              addonBefore="Backsplash H″"
-              value={p.backsplashHeight ?? 4}
-              min={2}
-              max={24}
-              onChange={(v) => v && updateFixtureProperties(fixture.id, { backsplashHeight: v })}
-              style={{ width: '100%' }}
-            />
+
+          {/* Cabinet vanity options */}
+          {(p.vanitySubType ?? 'cabinet') === 'cabinet' && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+              <InputNumber
+                size="small"
+                addonBefore="Sinks"
+                value={p.sinkCount ?? 1}
+                min={1}
+                max={2}
+                onChange={(v) => v && updateFixtureProperties(fixture.id, { sinkCount: v })}
+                style={{ width: '50%' }}
+              />
+            </div>
+          )}
+
+          {/* Backsplash (cabinet vanity only) */}
+          {(p.vanitySubType ?? 'cabinet') === 'cabinet' && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text type="secondary">Backsplash:</Text>
+                <Switch
+                  size="small"
+                  checked={p.hasBacksplash ?? false}
+                  onChange={(v) => updateFixtureProperties(fixture.id, { hasBacksplash: v })}
+                />
+              </div>
+              {p.hasBacksplash && (
+                <InputNumber
+                  size="small"
+                  addonBefore="Backsplash H″"
+                  value={p.backsplashHeight ?? 4}
+                  min={2}
+                  max={24}
+                  onChange={(v) => v && updateFixtureProperties(fixture.id, { backsplashHeight: v })}
+                  style={{ width: '100%' }}
+                />
+              )}
+            </>
           )}
         </>
       )}

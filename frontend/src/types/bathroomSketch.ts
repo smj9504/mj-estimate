@@ -34,7 +34,9 @@ export type BEFixtureType =
   | 'mirror'
   | 'light';
 
-export type ShowerDoorType = 'none' | 'sliding' | 'swing' | 'frameless_swing' | 'bi_fold' | 'curtain';
+export type ShowerDoorType = 'none' | 'sliding' | 'swing' | 'frameless_swing' | 'bi_fold' | 'curtain' | 'neo_angle_pivot';
+
+export type ShowerWallMaterial = 'tile' | 'prefab_acrylic' | 'prefab_fiberglass' | 'solid_surface';
 
 export type BathtubSubType =
   | 'standard_alcove'
@@ -42,6 +44,11 @@ export type BathtubSubType =
   | 'corner_drop_in'
   | 'drop_in'
   | 'freestanding';
+
+export type VanitySubType =
+  | 'cabinet'
+  | 'pedestal_sink'
+  | 'wall_mount_sink';
 
 export type ShowerFloorType = 'tile' | 'fiberglass_pan' | 'acrylic_pan';
 
@@ -181,10 +188,21 @@ export interface BEFixtureProperties {
    * - 'alcove': 3 walls, 1 open front (default for wallCount=3)
    * - 'corner': 2 walls (back+left), right side = fixed glass, front = door (wallCount=2)
    * - 'corner_right': 2 walls (back+right), left side = fixed glass, front = door
+   * - 'neo_angle': 2 walls (back+left), diagonal front with door + 2 glass panels (pentagonal)
+   * - 'neo_angle_right': 2 walls (back+right), diagonal front with door + 2 glass panels
    */
-  showerLayout?: 'alcove' | 'corner' | 'corner_right';
+  showerLayout?: 'alcove' | 'corner' | 'corner_right' | 'neo_angle' | 'neo_angle_right';
+  /**
+   * Shower wall material (relevant for neo-angle / corner showers):
+   * - 'tile': custom tile walls (default for custom_tile / curbless)
+   * - 'prefab_acrylic': prefab acrylic wall surround
+   * - 'prefab_fiberglass': prefab fiberglass wall surround
+   * - 'solid_surface': solid surface panels (e.g., Corian, Onyx)
+   */
+  showerWallMaterial?: ShowerWallMaterial;
 
-  // --- Vanity ---
+  // --- Vanity / Sink ---
+  vanitySubType?: VanitySubType;
   vanityWidth?: number;
   sinkCount?: number;
   /** Has backsplash tile */
@@ -435,6 +453,18 @@ export const BE_FIXTURE_DEFAULTS: Record<BEFixtureType, BEDimensions> = {
   window: { width: 36, height: 6 },     // plan-view wall opening (thin strip)
   mirror: { width: 30, height: 4 },     // plan-view wall-mounted (thin strip)
   light: { width: 8, height: 8 },       // plan-view ceiling/wall light (small square)
+};
+
+// Vanity/sink defaults by subtype
+export const VANITY_SUBTYPE_DEFAULTS: Record<VanitySubType, {
+  width: number;
+  height: number;
+  sinkCount: number;
+  hasBacksplash: boolean;
+}> = {
+  cabinet:         { width: 36, height: 21, sinkCount: 1, hasBacksplash: false },
+  pedestal_sink:   { width: 20, height: 17, sinkCount: 1, hasBacksplash: false },
+  wall_mount_sink: { width: 20, height: 17, sinkCount: 1, hasBacksplash: false },
 };
 
 // Bathtub surround defaults by subtype

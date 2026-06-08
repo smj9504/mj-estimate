@@ -224,6 +224,9 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   // ── Wall body drag ref (move entire wall) ──
   const wallDragRef = useRef<{ wallId: string; rawStart: BEPoint; rawEnd: BEPoint } | null>(null);
 
+  // ── Damage zone body drag ref ──
+  const dmgDragRef = useRef<{ zoneId: string; rawBoundary: BEPoint[] } | null>(null);
+
   // ── Drywall zone body drag ref ──
   const dwDragRef = useRef<{ zoneId: string; rawBoundary: BEPoint[] } | null>(null);
 
@@ -242,6 +245,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   const [drawingWall, setDrawingWall] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
   // Rectangle room (shift+drag)
   const [drawingRoom, setDrawingRoom] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
+  // Damage zone: rectangle drag
+  const [drawingDamageZone, setDrawingDamageZone] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
   // Drywall repair zone: ceiling=rectangle, wall=line
   const [drawingDrywallRepair, setDrawingDrywallRepair] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
   // Polygon room (click-to-place vertices)
@@ -265,8 +270,13 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     (e: Konva.KonvaEventObject<MouseEvent>, applyWallSnap = false): BEPoint => {
       const stage = e.target.getStage();
       const pos = stage?.getPointerPosition();
-      if (!pos) return { x: 0, y: 0 };
-      let p = { x: pos.x, y: pos.y };
+      if (!pos || !stage) return { x: 0, y: 0 };
+      // Transform viewport coords → content coords (account for pan + zoom)
+      const scale = stage.scaleX();
+      let p = {
+        x: (pos.x - stage.x()) / scale,
+        y: (pos.y - stage.y()) / scale,
+      };
       if (settings.snapToGrid) p = snapToGrid(p, snapPx);
       if (applyWallSnap) p = snapToWallEndpoints(p, walls);
       return p;
@@ -279,7 +289,9 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       const pos = getStagePoint(e, activeTool === 'wall');
 
-      if (activeTool === 'drywall_repair') {
+      if (activeTool === 'damage_zone') {
+        setDrawingDamageZone({ start: pos, current: pos });
+      } else if (activeTool === 'drywall_repair') {
         const dwPos = drywallSurface === 'wall'
           ? getStagePoint(e, true)   // wall: snap to wall endpoints
           : pos;                     // ceiling: free rect
@@ -324,11 +336,14 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         if (shiftHeld) pos = constrainAxis(drawingWall.start, pos);
         setDrawingWall((prev) => prev ? { ...prev, current: pos } : null);
 
-        // Show snap indicator
-        const rawPos = e.target.getStage()?.getPointerPosition();
-        if (rawPos) {
-          const snapped = snapToWallEndpoints({ x: rawPos.x, y: rawPos.y }, walls);
-          if (snapped !== rawPos && dist(snapped, { x: rawPos.x, y: rawPos.y }) < WALL_SNAP_RADIUS) {
+        // Show snap indicator (use content coords, not viewport coords)
+        const stage = e.target.getStage();
+        const rawPos = stage?.getPointerPosition();
+        if (rawPos && stage) {
+          const sc = stage.scaleX();
+          const contentPos = { x: (rawPos.x - stage.x()) / sc, y: (rawPos.y - stage.y()) / sc };
+          const snapped = snapToWallEndpoints(contentPos, walls);
+          if (snapped !== contentPos && dist(snapped, contentPos) < WALL_SNAP_RADIUS) {
             setSnapIndicator(snapped);
           } else {
             setSnapIndicator(null);
@@ -337,6 +352,9 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
       } else if (drawingRoom) {
         const pos = getStagePoint(e);
         setDrawingRoom((prev) => prev ? { ...prev, current: pos } : null);
+      } else if (drawingDamageZone) {
+        const pos = getStagePoint(e);
+        setDrawingDamageZone((prev) => prev ? { ...prev, current: pos } : null);
       } else if (drawingDrywallRepair) {
         let pos = drywallSurface === 'wall'
           ? constrainAxis(drawingDrywallRepair.start, getStagePoint(e, true))
@@ -349,7 +367,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         setSnapIndicator(null);
       }
     },
-    [drawingWall, drawingRoom, polyRoom, getStagePoint, walls, shiftHeld],
+    [drawingWall, drawingRoom, drawingDamageZone, polyRoom, getStagePoint, walls, shiftHeld],
   );
 
   const handleMouseUp = useCallback(
@@ -385,6 +403,26 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
           addRoom(boundary, []);
         }
         setDrawingRoom(null);
+      }
+
+      // Damage zone (rectangle drag)
+      if (activeTool === 'damage_zone' && drawingDamageZone) {
+        const pos = getStagePoint(e);
+        const s = drawingDamageZone.start;
+        const dx = Math.abs(pos.x - s.x);
+        const dy = Math.abs(pos.y - s.y);
+        if (dx > 8 && dy > 8) {
+          const boundary: BEPoint[] = [
+            { x: Math.min(s.x, pos.x), y: Math.min(s.y, pos.y) },
+            { x: Math.max(s.x, pos.x), y: Math.min(s.y, pos.y) },
+            { x: Math.max(s.x, pos.x), y: Math.max(s.y, pos.y) },
+            { x: Math.min(s.x, pos.x), y: Math.max(s.y, pos.y) },
+          ];
+          const zoneId = api.addDamageZone(boundary, 'water_damage');
+          setSelectedId(zoneId);
+          api.setActiveTool('select');
+        }
+        setDrawingDamageZone(null);
       }
 
       // Drywall repair zone (drag)
@@ -436,7 +474,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         setDrawingDrywallRepair(null);
       }
     },
-    [activeTool, drawingWall, drawingRoom, drawingDrywallRepair, drywallSurface, addWall, addRoom, api, getStagePoint, shiftHeld, rooms],
+    [activeTool, drawingWall, drawingRoom, drawingDamageZone, drawingDrywallRepair, drywallSurface, addWall, addRoom, api, getStagePoint, shiftHeld, rooms],
   );
 
   // ── Double-click to close polygon ──
@@ -744,7 +782,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         ref={stageRef}
         width={width}
         height={height}
-        draggable={activeTool === 'select' && !drawingWall && !drawingRoom && !polyRoom && !drawingDrywallRepair}
+        draggable={activeTool === 'select' && !drawingWall && !drawingRoom && !polyRoom && !drawingDamageZone && !drawingDrywallRepair}
         onWheel={(e) => {
           e.evt.preventDefault();
           const stage = stageRef.current;
@@ -1107,28 +1145,105 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         )}
 
         {/* ── Damage Zone Overlays ── */}
-        {settings.showDamageZones && damageZones.length > 0 && (
+        {settings.showDamageZones && (damageZones.length > 0 || drawingDamageZone) && (
           <Layer>
             {damageZones.map((zone) => {
               const pts = zone.boundary.flatMap((p) => [p.x, p.y]);
               const cx = zone.boundary.reduce((s, p) => s + p.x, 0) / zone.boundary.length;
               const cy = zone.boundary.reduce((s, p) => s + p.y, 0) / zone.boundary.length;
+              const isSelected = selectedId === zone.id && activeTool === 'select';
+              const canInteract = activeTool === 'select';
               return (
                 <Group key={zone.id}>
                   <Line
                     points={pts}
                     closed
                     fill="rgba(244, 67, 54, 0.15)"
-                    stroke={selectedId === zone.id ? '#d32f2f' : '#ef5350'}
-                    strokeWidth={selectedId === zone.id ? 3 : 2}
+                    stroke={isSelected ? '#d32f2f' : '#ef5350'}
+                    strokeWidth={isSelected ? 3 : 2}
                     dash={[6, 3]}
-                    onClick={() => setSelectedId(zone.id)}
+                    onClick={(e) => { if (canInteract) { e.cancelBubble = true; setSelectedId(zone.id); } }}
                     hitStrokeWidth={8}
                   />
-                  <Text x={cx - 25} y={cy - 6} text={`${zone.damageType.replace(/_/g, ' ')}\n${zone.areaSF} SF`} fontSize={9} fill="#c62828" fontStyle="bold" />
+                  {/* Body drag (selected only) */}
+                  {isSelected && (
+                    <Line
+                      points={pts}
+                      closed
+                      fill="transparent"
+                      stroke="transparent"
+                      hitStrokeWidth={20}
+                      draggable
+                      onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'move'; }}
+                      onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                      onClick={(e) => { e.cancelBubble = true; }}
+                      onDragStart={() => { dmgDragRef.current = { zoneId: zone.id, rawBoundary: zone.boundary.map((p) => ({ ...p })) }; }}
+                      onDragMove={(e) => {
+                        if (!dmgDragRef.current || dmgDragRef.current.zoneId !== zone.id) return;
+                        const dx = e.target.x();
+                        const dy = e.target.y();
+                        const orig = dmgDragRef.current.rawBoundary;
+                        const snap = settings.snapToGrid;
+                        const newB: BEPoint[] = orig.map((pt) => {
+                          const moved = { x: pt.x + dx, y: pt.y + dy };
+                          return snap ? snapToGrid(moved, snapPx) : moved;
+                        });
+                        e.target.position({ x: 0, y: 0 });
+                        api.updateDamageZone(zone.id, { boundary: newB });
+                      }}
+                      onDragEnd={(e) => { e.target.position({ x: 0, y: 0 }); dmgDragRef.current = null; }}
+                    />
+                  )}
+                  {/* Corner handles for resize (selected only) */}
+                  {isSelected && zone.boundary.map((pt, ptIdx) => (
+                    <Rect
+                      key={`dmg-h-${zone.id}-${ptIdx}`}
+                      x={pt.x - 5} y={pt.y - 5}
+                      width={10} height={10}
+                      fill="#fff" stroke="#d32f2f" strokeWidth={2}
+                      draggable
+                      onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'nwse-resize'; }}
+                      onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                      onDragMove={(e) => {
+                        let pos = { x: e.target.x() + 5, y: e.target.y() + 5 };
+                        if (settings.snapToGrid) pos = snapToGrid(pos, snapPx);
+                        e.target.position({ x: pos.x - 5, y: pos.y - 5 });
+                        // For a 4-corner rect, moving one corner adjusts two adjacent corners
+                        const b = zone.boundary.map((p) => ({ ...p }));
+                        const opp = (ptIdx + 2) % 4; // opposite corner stays fixed
+                        b[ptIdx] = pos;
+                        // Adjust adjacent corners to maintain rectangle
+                        b[(ptIdx + 1) % 4] = { x: b[(ptIdx + 1) % 4].x === b[ptIdx === 0 ? 3 : ptIdx - 1].x ? b[(ptIdx + 1) % 4].x : pos.x, y: b[(ptIdx + 1) % 4].y === b[opp].y ? b[opp].y : pos.y };
+                        // Simpler: rebuild rectangle from opposite + dragged corners
+                        const ox = b[opp].x, oy = b[opp].y;
+                        const newB: BEPoint[] = [
+                          { x: Math.min(ox, pos.x), y: Math.min(oy, pos.y) },
+                          { x: Math.max(ox, pos.x), y: Math.min(oy, pos.y) },
+                          { x: Math.max(ox, pos.x), y: Math.max(oy, pos.y) },
+                          { x: Math.min(ox, pos.x), y: Math.max(oy, pos.y) },
+                        ];
+                        api.updateDamageZone(zone.id, { boundary: newB });
+                      }}
+                    />
+                  ))}
+                  <Text x={cx - 25} y={cy - 6} text={`${zone.damageType.replace(/_/g, ' ')}\n${zone.areaSF} SF`} fontSize={9} fill="#c62828" fontStyle="bold" listening={false} />
                 </Group>
               );
             })}
+
+            {/* Drawing preview */}
+            {drawingDamageZone && (() => {
+              const s = drawingDamageZone.start;
+              const c = drawingDamageZone.current;
+              const x = Math.min(s.x, c.x);
+              const y = Math.min(s.y, c.y);
+              const w = Math.abs(c.x - s.x);
+              const h = Math.abs(c.y - s.y);
+              return (
+                <Rect x={x} y={y} width={w} height={h}
+                  fill="rgba(244, 67, 54, 0.12)" stroke="#ef5350" strokeWidth={2} dash={[6, 3]} listening={false} />
+              );
+            })()}
           </Layer>
         )}
 
@@ -1711,6 +1826,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
     fix.properties.showerLayout,
     fix.properties.fixedPanelConfig,
     fix.properties.showerDoorWidth ? fix.properties.showerDoorWidth / fix.dimensions.width : undefined,
+    fix.properties.vanitySubType,
   );
 
   // Attach transformer to the standalone Rect; re-sync on dimension/rotation change

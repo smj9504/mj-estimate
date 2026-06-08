@@ -15,6 +15,7 @@ import type {
   BETileZone,
   BEDamageZone,
   BEDrywallRepairZone,
+  BEDimensions,
   DrywallTextureType,
   BEPoint,
   BEFixtureType,
@@ -397,13 +398,14 @@ export function useBESketchState(initialData?: BESketchData) {
       roomId?: string,
       wallId?: string,
       properties?: Partial<BEFixtureProperties>,
+      overrideDimensions?: BEDimensions,
     ) => {
       const defaults = BE_FIXTURE_DEFAULTS[type];
       const fixture: BEFixture = {
         id: generateId('fix'),
         type,
         position,
-        dimensions: { ...defaults },
+        dimensions: overrideDimensions ? { ...overrideDimensions } : { ...defaults },
         rotation: 0,
         roomId,
         wallId,
@@ -503,6 +505,32 @@ export function useBESketchState(initialData?: BESketchData) {
       };
       mutate((d) => ({ ...d, damageZones: [...d.damageZones, zone] }));
       return zone.id;
+    },
+    [mutate, data.settings.pixelsPerFoot],
+  );
+
+  const updateDamageZone = useCallback(
+    (id: string, updates: Partial<Pick<BEDamageZone, 'boundary' | 'damageType' | 'label' | 'needsDemo' | 'needsReplace'>>) => {
+      const ppf = data.settings.pixelsPerFoot;
+      mutate((d) => ({
+        ...d,
+        damageZones: d.damageZones.map((z) => {
+          if (z.id !== id) return z;
+          const merged = { ...z, ...updates };
+          // Recalculate area if boundary changed
+          if (updates.boundary) {
+            const b = updates.boundary;
+            let area2 = 0;
+            for (let i = 0; i < b.length; i++) {
+              const j = (i + 1) % b.length;
+              area2 += b[i].x * b[j].y;
+              area2 -= b[j].x * b[i].y;
+            }
+            merged.areaSF = Math.round((Math.abs(area2) / 2 / (ppf * ppf)) * 100) / 100;
+          }
+          return merged;
+        }),
+      }));
     },
     [mutate, data.settings.pixelsPerFoot],
   );
@@ -679,6 +707,7 @@ export function useBESketchState(initialData?: BESketchData) {
 
     // Damage zone ops
     addDamageZone,
+    updateDamageZone,
     removeDamageZone,
 
     // Drywall repair zone ops

@@ -5,7 +5,7 @@
  * Stroke color: #444 (dark gray), Fill: #f8f8f8 (near-white) or none.
  */
 
-import type { BEFixtureType, BathtubSubType, ShowerDoorType } from '../../../../types/bathroomSketch';
+import type { BEFixtureType, BathtubSubType, VanitySubType, ShowerDoorType } from '../../../../types/bathroomSketch';
 
 const GLASS = '#d4eaf7'; // light blue for glass panels
 
@@ -116,11 +116,16 @@ const bathtubFreestanding: FixtureShape = {
 type PathEntry = { d: string; fill: string; stroke: string; strokeWidth: number };
 
 function buildShowerShape(
-  layout: 'alcove' | 'corner' | 'corner_right',
+  layout: 'alcove' | 'corner' | 'corner_right' | 'neo_angle' | 'neo_angle_right',
   doorType: ShowerDoorType,
   panelConfig: 'none' | 'left' | 'right' | 'both',
   doorRatio: number, // 0-1, door width as fraction of shower width
 ): FixtureShape {
+  // Neo-angle layouts use a dedicated builder
+  if (layout === 'neo_angle' || layout === 'neo_angle_right') {
+    return buildNeoAngleShowerShape(layout, doorType);
+  }
+
   const paths: PathEntry[] = [];
   const hasLeft = panelConfig === 'left' || panelConfig === 'both';
   const hasRight = panelConfig === 'right' || panelConfig === 'both';
@@ -221,6 +226,124 @@ function buildShowerShape(
   return { label: 'Shower', paths };
 }
 
+/**
+ * Neo-angle (corner) shower shape builder.
+ * Pentagonal footprint: 2 walls (back + one side) + 3 glass panels (2 angled + 1 door).
+ *
+ * Plan view (neo_angle, walls on top + left):
+ *   (0,0)───────(1,0)
+ *     │              \
+ *     │   drain  ⊕    \  ← angled glass panel
+ *     │                 (1,0.5) ← corner point
+ *     │                /
+ *     │              /  ← angled glass panel (with door)
+ *   (0,1)───(0.5,1)
+ *
+ * The diagonal front spans from (1,0.5) down to (0.5,1) — the door is on this segment.
+ * Two side glass panels: right wall (1,0)→(1,0.5) and bottom (0.5,1)→(0,1) are replaced
+ * by the angled front.
+ */
+function buildNeoAngleShowerShape(
+  layout: 'neo_angle' | 'neo_angle_right',
+  doorType: ShowerDoorType,
+): FixtureShape {
+  const paths: PathEntry[] = [];
+  const isRight = layout === 'neo_angle_right';
+
+  // Neo-angle pentagon vertices (normalized 0-1):
+  // neo_angle (walls: top + left):      (0,0), (1,0), (1,0.5), (0.5,1), (0,1)
+  // neo_angle_right (walls: top + right): (0,0), (1,0), (1,1), (0.5,1), (0,0.5)
+  // But to keep it symmetric we use a cleaner geometry:
+  // The "cut corner" is at bottom-right for neo_angle, bottom-left for neo_angle_right.
+
+  // ── Interior details ──
+  // Drain at center of pentagonal area
+  const drainX = isRight ? 0.55 : 0.45;
+  const drainY = 0.45;
+  paths.push(
+    // Showerhead (centered on back wall)
+    { d: 'M0.44,0.03 L0.56,0.03 L0.56,0.08 L0.44,0.08 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
+    // Drain
+    { d: `M${drainX},${drainY} m-0.06,0 a0.06,0.06 0 1,0 0.12,0 a0.06,0.06 0 1,0 -0.12,0`, fill: SL, stroke: S, strokeWidth: 0.8 },
+    // Tile grid lines (adapted for pentagon)
+    { d: 'M0.33,0.05 L0.33,0.85', fill: N, stroke: SL, strokeWidth: 0.3 },
+    { d: 'M0.66,0.05 L0.66,0.85', fill: N, stroke: SL, strokeWidth: 0.3 },
+    { d: 'M0.05,0.33 L0.95,0.33', fill: N, stroke: SL, strokeWidth: 0.3 },
+    { d: 'M0.05,0.66 L0.85,0.66', fill: N, stroke: SL, strokeWidth: 0.3 },
+  );
+
+  if (!isRight) {
+    // neo_angle: walls = top + left, glass = right angled + door + bottom angled
+    // Pentagon: (0,0)→(1,0)→(1,0.5)→(0.5,1)→(0,1)
+
+    // Walls (thick solid)
+    paths.push({ d: 'M0,0 L1,0', fill: N, stroke: S, strokeWidth: 3 });   // back (top)
+    paths.push({ d: 'M0,0 L0,1', fill: N, stroke: S, strokeWidth: 3 });   // left side
+
+    // Glass panel: right side (1,0) → (1,0.5)
+    paths.push(
+      { d: 'M0.97,0.02 L0.97,0.48 L1,0.5 L1,0 Z', fill: GLASS, stroke: '#2196f3', strokeWidth: 1.5 },
+    );
+
+    // Glass panel: bottom side (0,1) → (0.5,1)
+    paths.push(
+      { d: 'M0.02,0.97 L0.48,0.97 L0.5,1 L0,1 Z', fill: GLASS, stroke: '#2196f3', strokeWidth: 1.5 },
+    );
+
+    // Door diagonal: (1,0.5) → (0.5,1)
+    // Draw frame posts at both ends
+    paths.push({ d: 'M1,0.5 L1,0.46', fill: N, stroke: S, strokeWidth: 2 });
+    paths.push({ d: 'M0.5,1 L0.46,1', fill: N, stroke: S, strokeWidth: 2 });
+
+    if (doorType === 'none' || doorType === 'curtain') {
+      paths.push({ d: 'M1,0.5 L0.5,1', fill: N, stroke: SL, strokeWidth: 1 });
+    } else {
+      // Neo-angle pivot door (glass panel along the diagonal)
+      paths.push({ d: 'M0.98,0.52 L0.52,0.98', fill: N, stroke: '#2196f3', strokeWidth: 2 });
+      // Door glass fill (thin parallelogram along diagonal)
+      paths.push({ d: 'M0.99,0.51 L0.97,0.53 L0.51,0.99 L0.53,0.97 Z', fill: GLASS, stroke: '#2196f3', strokeWidth: 1 });
+      // Swing arc (outward)
+      const arcR = 0.35;
+      paths.push({ d: `M${0.5 + arcR * 0.707},${1 - arcR * 0.707} A${arcR},${arcR} 0 0,1 0.5,${1 - arcR}`, fill: N, stroke: SL, strokeWidth: 0.6 });
+      // Hinge dot at (1, 0.5)
+      paths.push({ d: 'M1,0.5 m-0.03,0 a0.03,0.03 0 1,0 0.06,0 a0.03,0.03 0 1,0 -0.06,0', fill: S, stroke: S, strokeWidth: 0.5 });
+    }
+  } else {
+    // neo_angle_right: walls = top + right, glass = left angled + door + bottom angled
+    // Pentagon: (0,0)→(1,0)→(1,1)→(0.5,1)→(0,0.5)
+
+    // Walls (thick solid)
+    paths.push({ d: 'M0,0 L1,0', fill: N, stroke: S, strokeWidth: 3 });   // back (top)
+    paths.push({ d: 'M1,0 L1,1', fill: N, stroke: S, strokeWidth: 3 });   // right side
+
+    // Glass panel: left side (0,0) → (0,0.5)
+    paths.push(
+      { d: 'M0,0 L0,0.5 L0.03,0.48 L0.03,0.02 Z', fill: GLASS, stroke: '#2196f3', strokeWidth: 1.5 },
+    );
+
+    // Glass panel: bottom side (0.5,1) → (1,1)
+    paths.push(
+      { d: 'M0.52,0.97 L0.98,0.97 L1,1 L0.5,1 Z', fill: GLASS, stroke: '#2196f3', strokeWidth: 1.5 },
+    );
+
+    // Door diagonal: (0,0.5) → (0.5,1)
+    paths.push({ d: 'M0,0.5 L0,0.46', fill: N, stroke: S, strokeWidth: 2 });
+    paths.push({ d: 'M0.5,1 L0.54,1', fill: N, stroke: S, strokeWidth: 2 });
+
+    if (doorType === 'none' || doorType === 'curtain') {
+      paths.push({ d: 'M0,0.5 L0.5,1', fill: N, stroke: SL, strokeWidth: 1 });
+    } else {
+      paths.push({ d: 'M0.02,0.52 L0.48,0.98', fill: N, stroke: '#2196f3', strokeWidth: 2 });
+      paths.push({ d: 'M0.01,0.51 L0.03,0.53 L0.49,0.99 L0.47,0.97 Z', fill: GLASS, stroke: '#2196f3', strokeWidth: 1 });
+      const arcR = 0.35;
+      paths.push({ d: `M${0.5 - arcR * 0.707},${1 - arcR * 0.707} A${arcR},${arcR} 0 0,0 0.5,${1 - arcR}`, fill: N, stroke: SL, strokeWidth: 0.6 });
+      paths.push({ d: 'M0,0.5 m-0.03,0 a0.03,0.03 0 1,0 0.06,0 a0.03,0.03 0 1,0 -0.06,0', fill: S, stroke: S, strokeWidth: 0.5 });
+    }
+  }
+
+  return { label: 'Neo-Angle', paths };
+}
+
 // ── Vanity ──
 
 const vanitySingle: FixtureShape = {
@@ -260,6 +383,46 @@ const vanityDouble: FixtureShape = {
     { d: 'M0.36,0.78 L0.44,0.78', fill: N, stroke: S, strokeWidth: 1.2 },
     { d: 'M0.56,0.78 L0.64,0.78', fill: N, stroke: S, strokeWidth: 1.2 },
     { d: 'M0.74,0.78 L0.82,0.78', fill: N, stroke: S, strokeWidth: 1.2 },
+  ],
+};
+
+// ── Pedestal Sink (plan view: semicircular basin on narrow column) ──
+// Standard: ~20"W x 17"D. Round basin at front, thin pedestal column below.
+
+const pedestalSink: FixtureShape = {
+  label: 'Pedestal',
+  paths: [
+    // Basin (semicircular, wider side toward wall/top)
+    { d: 'M0.1,0.08 L0.9,0.08 Q0.95,0.08 0.95,0.2 L0.95,0.45 Q0.95,0.75 0.5,0.75 Q0.05,0.75 0.05,0.45 L0.05,0.2 Q0.05,0.08 0.1,0.08 Z', fill: F, stroke: S, strokeWidth: 2 },
+    // Inner basin rim
+    { d: 'M0.2,0.14 L0.8,0.14 Q0.85,0.14 0.85,0.24 L0.85,0.42 Q0.85,0.66 0.5,0.66 Q0.15,0.66 0.15,0.42 L0.15,0.24 Q0.15,0.14 0.2,0.14 Z', fill: FL, stroke: S, strokeWidth: 1 },
+    // Pedestal column (narrow rectangle centered below basin)
+    { d: 'M0.35,0.65 L0.65,0.65 L0.65,0.98 L0.35,0.98 Z', fill: F, stroke: S, strokeWidth: 1.5 },
+    // Pedestal base (slightly wider)
+    { d: 'M0.3,0.92 L0.7,0.92 L0.7,1 L0.3,1 Z', fill: F, stroke: S, strokeWidth: 1 },
+    // Faucet
+    { d: 'M0.47,0.03 L0.53,0.03 L0.53,0.08 L0.47,0.08 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
+    // Drain
+    { d: 'M0.5,0.45 m-0.035,0 a0.035,0.035 0 1,0 0.07,0 a0.035,0.035 0 1,0 -0.07,0', fill: S, stroke: S, strokeWidth: 0.5 },
+  ],
+};
+
+// ── Wall-Mount Sink (plan view: semicircular basin, no pedestal, mounted to wall) ──
+
+const wallMountSink: FixtureShape = {
+  label: 'Wall Sink',
+  paths: [
+    // Basin (semicircular, flat back against wall/top)
+    { d: 'M0.08,0.05 L0.92,0.05 Q0.98,0.05 0.98,0.2 L0.98,0.5 Q0.98,0.85 0.5,0.85 Q0.02,0.85 0.02,0.5 L0.02,0.2 Q0.02,0.05 0.08,0.05 Z', fill: F, stroke: S, strokeWidth: 2 },
+    // Inner basin rim
+    { d: 'M0.18,0.12 L0.82,0.12 Q0.88,0.12 0.88,0.25 L0.88,0.46 Q0.88,0.75 0.5,0.75 Q0.12,0.75 0.12,0.46 L0.12,0.25 Q0.12,0.12 0.18,0.12 Z', fill: FL, stroke: S, strokeWidth: 1 },
+    // Wall-mount bracket indicators (small lines at back)
+    { d: 'M0.25,0.02 L0.25,0.08', fill: N, stroke: S, strokeWidth: 1.5 },
+    { d: 'M0.75,0.02 L0.75,0.08', fill: N, stroke: S, strokeWidth: 1.5 },
+    // Faucet
+    { d: 'M0.47,0.03 L0.53,0.03 L0.53,0.08 L0.47,0.08 Z', fill: SL, stroke: S, strokeWidth: 0.5 },
+    // Drain
+    { d: 'M0.5,0.48 m-0.035,0 a0.035,0.035 0 1,0 0.07,0 a0.035,0.035 0 1,0 -0.07,0', fill: S, stroke: S, strokeWidth: 0.5 },
   ],
 };
 
@@ -366,9 +529,10 @@ export function getFixtureShape(
   subType?: BathtubSubType,
   sinkCount?: number,
   showerDoorType?: ShowerDoorType,
-  showerLayout?: 'alcove' | 'corner' | 'corner_right',
+  showerLayout?: 'alcove' | 'corner' | 'corner_right' | 'neo_angle' | 'neo_angle_right',
   fixedPanelConfig?: 'none' | 'left' | 'right' | 'both',
   showerDoorRatio?: number,
+  vanitySubType?: VanitySubType,
 ): FixtureShape {
   switch (type) {
     case 'bathtub':
@@ -381,6 +545,8 @@ export function getFixtureShape(
         showerDoorRatio ?? 0.5,
       );
     case 'vanity':
+      if (vanitySubType === 'pedestal_sink') return pedestalSink;
+      if (vanitySubType === 'wall_mount_sink') return wallMountSink;
       return (sinkCount ?? 1) >= 2 ? vanityDouble : vanitySingle;
     case 'toilet':
       return toilet;

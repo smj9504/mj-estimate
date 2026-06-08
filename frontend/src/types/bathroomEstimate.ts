@@ -5,16 +5,17 @@
 // ── Component Spec interfaces ──
 
 export interface ShowerSpec {
-  type?: string;          // tub_combo, one_piece, multi_piece_kit, custom_tile, curbless
+  /** tub_combo, one_piece, multi_piece_kit, custom_tile, curbless, neo_angle_kit, neo_angle_custom */
+  type?: string;
   size?: { width: number; depth: number; height: number };
   enclosure?: string;     // curtain, sliding, pivot, frameless, half_wall_glass
-  /** Door type from sketch: sliding, swing, frameless_swing, bi_fold, curtain, none */
+  /** Door type from sketch: sliding, swing, frameless_swing, bi_fold, curtain, none, neo_angle_pivot */
   door_type?: string;
   /** Door opening width in inches */
   door_width?: number;
   /** Fixed glass panel config: none, left, right, both */
   fixed_panel_config?: string;
-  /** Enclosure layout: alcove, corner, corner_right */
+  /** Enclosure layout: alcove, corner, corner_right, neo_angle, neo_angle_right */
   layout?: string;
   /** Curb height in inches (0 = curbless) */
   curb_height?: number;
@@ -29,6 +30,12 @@ export interface ShowerSpec {
     pattern?: string;
     sf?: number;
   };
+  /** Wall material: tile (default), prefab_acrylic, prefab_fiberglass, solid_surface */
+  wall_material?: string;
+  /** Neo-angle kit grade: basic_fiberglass, mid_acrylic */
+  neo_angle_kit_grade?: string;
+  /** Neo-angle door frame style: framed_neo_angle, semi_frameless_neo_angle, frameless_neo_angle */
+  neo_angle_door_type?: string;
 }
 
 export interface BathtubSpec {
@@ -45,6 +52,8 @@ export interface BathtubSpec {
 }
 
 export interface VanityItemSpec {
+  /** Sink type: cabinet (default), pedestal_sink, wall_mount_sink */
+  sink_type?: string;
   width?: number;
   sinks?: number;
   source?: string;        // stock_rta, semi_custom, custom
