@@ -1167,7 +1167,26 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               const isSelected = selectedId === zone.id && activeTool === 'select';
               const canInteract = activeTool === 'select';
               return (
-                <Group key={zone.id}>
+                <Group
+                  key={zone.id}
+                  draggable={isSelected}
+                  onMouseEnter={(e) => { if (isSelected) e.target.getStage()!.container().style.cursor = 'move'; }}
+                  onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                  onDragStart={() => { dmgDragRef.current = { zoneId: zone.id, rawBoundary: zone.boundary.map((p) => ({ ...p })) }; }}
+                  onDragEnd={(e) => {
+                    const dx = e.target.x();
+                    const dy = e.target.y();
+                    e.target.position({ x: 0, y: 0 });
+                    if (!dmgDragRef.current || dmgDragRef.current.zoneId !== zone.id) return;
+                    const orig = dmgDragRef.current.rawBoundary;
+                    const newB: BEPoint[] = orig.map((pt) => {
+                      const moved = { x: pt.x + dx, y: pt.y + dy };
+                      return settings.snapToGrid ? snapToGrid(moved, snapPx) : moved;
+                    });
+                    api.updateDamageZone(zone.id, { boundary: newB });
+                    dmgDragRef.current = null;
+                  }}
+                >
                   <Line
                     points={pts}
                     closed
@@ -1178,35 +1197,6 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     onClick={(e) => { if (canInteract) { e.cancelBubble = true; setSelectedId(zone.id); } }}
                     hitStrokeWidth={8}
                   />
-                  {/* Body drag (selected only) */}
-                  {isSelected && (
-                    <Line
-                      points={pts}
-                      closed
-                      fill="transparent"
-                      stroke="transparent"
-                      hitStrokeWidth={20}
-                      draggable
-                      onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'move'; }}
-                      onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
-                      onClick={(e) => { e.cancelBubble = true; }}
-                      onDragStart={() => { dmgDragRef.current = { zoneId: zone.id, rawBoundary: zone.boundary.map((p) => ({ ...p })) }; }}
-                      onDragMove={(e) => {
-                        if (!dmgDragRef.current || dmgDragRef.current.zoneId !== zone.id) return;
-                        const dx = e.target.x();
-                        const dy = e.target.y();
-                        const orig = dmgDragRef.current.rawBoundary;
-                        const snap = settings.snapToGrid;
-                        const newB: BEPoint[] = orig.map((pt) => {
-                          const moved = { x: pt.x + dx, y: pt.y + dy };
-                          return snap ? snapToGrid(moved, snapPx) : moved;
-                        });
-                        e.target.position({ x: 0, y: 0 });
-                        api.updateDamageZone(zone.id, { boundary: newB });
-                      }}
-                      onDragEnd={(e) => { e.target.position({ x: 0, y: 0 }); dmgDragRef.current = null; }}
-                    />
-                  )}
                   {/* Corner handles for resize (selected only) */}
                   {isSelected && zone.boundary.map((pt, ptIdx) => (
                     <Rect
@@ -1217,18 +1207,19 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       draggable
                       onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'nwse-resize'; }}
                       onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                      onDragStart={(e) => { e.cancelBubble = true; }}
                       onDragMove={(e) => {
+                        e.cancelBubble = true;
                         let pos = { x: e.target.x() + 5, y: e.target.y() + 5 };
                         if (settings.snapToGrid) pos = snapToGrid(pos, snapPx);
                         e.target.position({ x: pos.x - 5, y: pos.y - 5 });
-                        // For a 4-corner rect, moving one corner adjusts two adjacent corners
-                        const b = zone.boundary.map((p) => ({ ...p }));
-                        const opp = (ptIdx + 2) % 4; // opposite corner stays fixed
-                        b[ptIdx] = pos;
-                        // Adjust adjacent corners to maintain rectangle
-                        b[(ptIdx + 1) % 4] = { x: b[(ptIdx + 1) % 4].x === b[ptIdx === 0 ? 3 : ptIdx - 1].x ? b[(ptIdx + 1) % 4].x : pos.x, y: b[(ptIdx + 1) % 4].y === b[opp].y ? b[opp].y : pos.y };
-                        // Simpler: rebuild rectangle from opposite + dragged corners
-                        const ox = b[opp].x, oy = b[opp].y;
+                      }}
+                      onDragEnd={(e) => {
+                        e.cancelBubble = true;
+                        let pos = { x: e.target.x() + 5, y: e.target.y() + 5 };
+                        if (settings.snapToGrid) pos = snapToGrid(pos, snapPx);
+                        const opp = (ptIdx + 2) % 4;
+                        const ox = zone.boundary[opp].x, oy = zone.boundary[opp].y;
                         const newB: BEPoint[] = [
                           { x: Math.min(ox, pos.x), y: Math.min(oy, pos.y) },
                           { x: Math.max(ox, pos.x), y: Math.min(oy, pos.y) },
@@ -1349,53 +1340,39 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                   </Group>
                 );
               } else {
-                // Ceiling zone: rectangle with body drag + corner handles
+                // Ceiling zone: rectangle — use Group drag for smooth movement
                 const pts = zone.boundary.flatMap((p) => [p.x, p.y]);
                 const cx = zone.boundary.reduce((s, p) => s + p.x, 0) / zone.boundary.length;
                 const cy = zone.boundary.reduce((s, p) => s + p.y, 0) / zone.boundary.length;
                 return (
-                  <Group key={zone.id}>
+                  <Group
+                    key={zone.id}
+                    draggable={isSelected}
+                    onMouseEnter={(e) => { if (isSelected) e.target.getStage()!.container().style.cursor = 'move'; }}
+                    onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                    onDragStart={() => { dwDragRef.current = { zoneId: zone.id, rawBoundary: zone.boundary.map((p) => ({ ...p })) }; }}
+                    onDragEnd={(e) => {
+                      const dx = e.target.x();
+                      const dy = e.target.y();
+                      e.target.position({ x: 0, y: 0 });
+                      if (!dwDragRef.current || dwDragRef.current.zoneId !== zone.id) return;
+                      const orig = dwDragRef.current.rawBoundary;
+                      const newB: BEPoint[] = orig.map((pt) => {
+                        const moved = { x: pt.x + dx, y: pt.y + dy };
+                        return settings.snapToGrid ? snapToGrid(moved, snapPx) : moved;
+                      });
+                      api.updateDrywallRepairZone(zone.id, { boundary: newB });
+                      dwDragRef.current = null;
+                    }}
+                  >
                     {/* Filled polygon */}
                     <Line
                       points={pts} closed
                       fill="rgba(66, 165, 245, 0.18)"
                       stroke={strokeColor} strokeWidth={strokeWidth} dash={[8, 4]}
-                      onClick={(e) => { e.cancelBubble = true; setSelectedId(zone.id); }}
+                      onClick={(e) => { if (canInteract) { e.cancelBubble = true; setSelectedId(zone.id); } }}
                       hitStrokeWidth={8}
                     />
-                    {/* Body drag overlay (selected only) */}
-                    {isSelected && (() => {
-                      // Build a Rect from boundary for reliable hit detection
-                      const xs = zone.boundary.map((p) => p.x);
-                      const ys = zone.boundary.map((p) => p.y);
-                      const rx = Math.min(...xs), ry = Math.min(...ys);
-                      const rw = Math.max(...xs) - rx, rh = Math.max(...ys) - ry;
-                      return (
-                        <Rect
-                          x={rx} y={ry} width={rw} height={rh}
-                          fill="rgba(66,165,245,0.04)"
-                          draggable
-                          onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'move'; }}
-                          onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
-                          onMouseDown={(e) => { e.cancelBubble = true; }}
-                          onClick={(e) => { e.cancelBubble = true; }}
-                          onDragStart={() => { dwDragRef.current = { zoneId: zone.id, rawBoundary: zone.boundary.map((p) => ({ ...p })) }; }}
-                          onDragMove={(e) => {
-                            if (!dwDragRef.current || dwDragRef.current.zoneId !== zone.id) return;
-                            const dx = e.target.x() - rx;
-                            const dy = e.target.y() - ry;
-                            const orig = dwDragRef.current.rawBoundary;
-                            const newB: BEPoint[] = orig.map((pt) => {
-                              const moved = { x: pt.x + dx, y: pt.y + dy };
-                              return settings.snapToGrid ? snapToGrid(moved, snapPx) : moved;
-                            });
-                            e.target.position({ x: rx, y: ry });
-                            api.updateDrywallRepairZone(zone.id, { boundary: newB });
-                          }}
-                          onDragEnd={(e) => { e.target.position({ x: rx, y: ry }); dwDragRef.current = null; }}
-                        />
-                      );
-                    })()}
                     {/* Corner handles (selected only) */}
                     {isSelected && zone.boundary.map((pt, cIdx) => (
                       <Rect
@@ -1406,11 +1383,17 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                         draggable
                         onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'nwse-resize'; }}
                         onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                        onDragStart={(e) => { e.cancelBubble = true; }}
                         onDragMove={(e) => {
+                          e.cancelBubble = true;
                           let pos = { x: e.target.x() + 5, y: e.target.y() + 5 };
                           if (settings.snapToGrid) pos = snapToGrid(pos, snapPx);
                           e.target.position({ x: pos.x - 5, y: pos.y - 5 });
-                          // Rebuild rectangle from opposite + dragged corners
+                        }}
+                        onDragEnd={(e) => {
+                          e.cancelBubble = true;
+                          let pos = { x: e.target.x() + 5, y: e.target.y() + 5 };
+                          if (settings.snapToGrid) pos = snapToGrid(pos, snapPx);
                           const opp = (cIdx + 2) % 4;
                           const ox = zone.boundary[opp].x, oy = zone.boundary[opp].y;
                           const newB: BEPoint[] = [
