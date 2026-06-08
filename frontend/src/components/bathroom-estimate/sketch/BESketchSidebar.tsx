@@ -102,6 +102,7 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
         showerTileHeight: type === 'shower' ? 96 : undefined,
         showerDoorType: type === 'shower' ? 'sliding' : undefined,
         showerDoorSide: type === 'shower' ? 'front' : undefined,
+        lightType: type === 'light' ? 'standard' : undefined,
       });
       setSelectedId(id);
       setActiveTool('select');
@@ -784,6 +785,23 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
             </>
           )}
         </>
+      )}
+
+      {/* Light-specific */}
+      {fixture.type === 'light' && (
+        <div style={{ marginBottom: 6 }}>
+          <Text type="secondary">Light Type:</Text>
+          <Select
+            size="small"
+            value={p.lightType ?? 'standard'}
+            onChange={(v) => updateFixtureProperties(fixture.id, { lightType: v })}
+            style={{ width: '100%', marginTop: 4 }}
+          >
+            <Option value="standard">Standard fixture</Option>
+            <Option value="recessed">Recessed (1 can)</Option>
+            <Option value="recessed_multi">Recessed (multi)</Option>
+          </Select>
+        </div>
       )}
 
       {/* Rotation */}

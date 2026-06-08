@@ -70,6 +70,9 @@ export interface SketchFixtureSync {
   vanity_spec?: Record<string, any>;
   toilet_spec?: Record<string, any>;
 
+  // Electrical
+  electrical_spec?: Record<string, any>;
+
   // Drywall repair (from sketch drywall zones)
   hidden_costs?: Record<string, any>;
 }
@@ -218,6 +221,11 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
     sync.toilet_spec = { type: 'two_piece_standard' };
   }
   sync.replace_mirror = mirrors.length > 0;
+  // Ceiling light → electrical_spec
+  if (lights.length > 0) {
+    const lightType = lights[0].properties.lightType ?? 'standard';
+    sync.electrical_spec = { ceiling_fixture: lightType };
+  }
   // demo_floor is a user decision — don't auto-set from sketch
   sync.demo_walls = !!(shower || bathtub);
 

@@ -209,6 +209,10 @@ export interface BEFixtureProperties {
   hasBacksplash?: boolean;
   backsplashHeight?: number;
 
+  // --- Light ---
+  /** Ceiling light type: standard, recessed, recessed_multi */
+  lightType?: 'standard' | 'recessed' | 'recessed_multi';
+
   // --- Door/Window ---
   swingDirection?: 'in' | 'out';
   handleSide?: 'left' | 'right';

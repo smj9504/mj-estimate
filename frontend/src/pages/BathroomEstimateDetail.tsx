@@ -311,6 +311,9 @@ const BathroomEstimateDetail: React.FC = () => {
     if (sync.toilet_spec) {
       updates.toilet_spec = { ...(current.toilet_spec || {}), ...sync.toilet_spec };
     }
+    if (sync.electrical_spec) {
+      updates.electrical_spec = { ...(current.electrical_spec || {}), ...sync.electrical_spec };
+    }
     if (sync.walls_spec) {
       updates.walls_spec = { ...(current.walls_spec || {}), ...sync.walls_spec };
     }
