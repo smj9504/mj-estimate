@@ -576,7 +576,7 @@ export function useBESketchState(initialData?: BESketchData) {
         areaSF,
         repairHeightInches,
         includeGluing: true,
-        textureType: 'skip_trowel',
+        textureType: 'smooth',
         paintCoats: 2,
         ...DEFAULT_DRYWALL_COSTS,
       };
