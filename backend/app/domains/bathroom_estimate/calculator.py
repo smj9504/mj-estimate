@@ -1648,7 +1648,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             if sketch_paint_sf and sketch_paint_sf > 0:
                 paint_wall_sf = sketch_paint_sf
 
-        if paint_wall_sf > 0:
+        # Only add original wall paint if full_paint_wall_sf not set (drywall repair handles it below)
+        _full_paint_wall_sf = walls.get("full_paint_wall_sf", 0) or 0
+        if paint_wall_sf > 0 and not _full_paint_wall_sf:
             deduct_note = None
             if wall_deductions:
                 parts = [f"Total wall {wall_sf:.0f} SF"]
@@ -1681,8 +1683,50 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  round(tile_wall_sf, 1), "SF", tile_cost, "tile",
                  notes="Bathroom wall tile (non-shower/tub areas)")
 
-    # Ceiling painting (independent from wall painting)
-    if paint_ceiling and paint_grade and floor_sf > 0:
+    # ── Seal & prime (repaired drywall areas only) ──
+    seal_prime_wall_sf = walls.get("seal_prime_wall_sf", 0) or 0
+    seal_prime_ceil_sf = walls.get("seal_prime_ceiling_sf", 0) or 0
+    total_seal_sf = seal_prime_wall_sf + seal_prime_ceil_sf
+    if total_seal_sf > 0:
+        seal_parts = []
+        if seal_prime_wall_sf > 0:
+            seal_parts.append(f"Wall {seal_prime_wall_sf:.0f} SF")
+        if seal_prime_ceil_sf > 0:
+            seal_parts.append(f"Ceiling {seal_prime_ceil_sf:.0f} SF")
+        _add(line_items, 6,
+             "Seal & prime - repaired drywall",
+             round(total_seal_sf, 1), "SF",
+             PAINT_RATES["seal_prime_per_sf"] * labor_mult,
+             "finish",
+             notes=f"PVA primer on new drywall only ({' + '.join(seal_parts)})")
+
+    # ── Full wall painting (entire paintable wall when any drywall repair) ──
+    full_paint_wall_sf = walls.get("full_paint_wall_sf", 0) or 0
+    if full_paint_wall_sf > 0 and paint_grade:
+        _add(line_items, 6,
+             f"Wall painting - 2 coats ({paint_grade} grade)",
+             round(full_paint_wall_sf, 1), "SF",
+             PAINT_RATES["wall_per_sf"] * pg_mult * labor_mult,
+             "finish",
+             notes="Full wall paint (excl. tub/shower areas) — required when any wall drywall repair")
+    elif do_paint and paint_grade and wall_sf > 0:
+        # Fallback: no drywall repair, no full_paint_wall_sf — use wall_sf directly
+        _add(line_items, 6,
+             f"Wall painting ({paint_grade} grade)",
+             wall_sf, "SF",
+             PAINT_RATES["wall_per_sf"] * pg_mult * labor_mult,
+             "finish")
+
+    # ── Ceiling painting ──
+    full_paint_ceil_sf = walls.get("full_paint_ceiling_sf", 0) or 0
+    if full_paint_ceil_sf > 0 and paint_grade:
+        _add(line_items, 6,
+             f"Ceiling painting - 2 coats ({paint_grade} grade)",
+             round(full_paint_ceil_sf, 1), "SF",
+             PAINT_RATES["ceiling_per_sf"] * pg_mult * labor_mult,
+             "finish",
+             notes="Full ceiling paint — required when any ceiling drywall repair")
+    elif paint_ceiling and paint_grade and floor_sf > 0:
         _add(line_items, 6,
              f"Ceiling painting ({paint_grade} grade)",
              floor_sf, "SF",

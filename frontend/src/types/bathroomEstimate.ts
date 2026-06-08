@@ -106,6 +106,12 @@ export interface WallsSpec {
   baseboard_material?: string;
   quarter_round?: boolean;
   colors?: number;
+  /** Seal & prime area SF (drywall repair areas only) */
+  seal_prime_wall_sf?: number;
+  seal_prime_ceiling_sf?: number;
+  /** Full paint area SF (entire wall/ceiling minus tub/shower) — auto-set when any drywall repair exists */
+  full_paint_wall_sf?: number;
+  full_paint_ceiling_sf?: number;
 }
 
 export interface AccessoriesSpec {

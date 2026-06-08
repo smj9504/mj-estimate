@@ -307,7 +307,7 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
     };
   }
 
-  // ── Drywall repair zones → hidden_costs ──
+  // ── Drywall repair zones → hidden_costs + paint sync ──
   const dwZones = data.drywallRepairZones ?? [];
   if (dwZones.length > 0) {
     const totalDwSF = dwZones.reduce((sum, z) => sum + z.areaSF, 0);
@@ -316,6 +316,63 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
       drywall_patch: true,
       drywall_patch_sf: Math.round(totalDwSF * 10) / 10,
       drywall_patch_full: hasFullRepair,
+    };
+
+    // Seal & prime: only demo'd (repaired) areas
+    const wallDwSF = dwZones.filter(z => z.surface === 'wall').reduce((s, z) => s + z.areaSF, 0);
+    const ceilDwSF = dwZones.filter(z => z.surface === 'ceiling').reduce((s, z) => s + z.areaSF, 0);
+
+    // Full paint: if ANY wall/ceiling drywall repair, paint entire area minus tub/shower
+    const hasWallDw = wallDwSF > 0;
+    const hasCeilDw = ceilDwSF > 0;
+
+    // Calculate paintable wall SF: total wall SF minus bathtub/shower wall areas
+    let fullPaintWallSF = 0;
+    if (hasWallDw && bathroom) {
+      let deductSF = 0;
+      // Deduct bathtub surround area
+      const bathtubFix = fixtures.find(f => f.type === 'bathtub');
+      if (bathtubFix) {
+        const wCount = bathtubFix.properties.surroundWallCount ?? 3;
+        const sHeight = bathtubFix.properties.surroundHeight ?? 60;
+        const tubW = bathtubFix.dimensions.width;
+        const tubD = bathtubFix.dimensions.height;
+        let perim = 0;
+        if (wCount >= 1) perim += tubW;
+        if (wCount >= 2) perim += tubD;
+        if (wCount >= 3) perim += tubD;
+        deductSF += (perim * sHeight) / 144;
+      }
+      // Deduct shower wall area
+      const showerFix = fixtures.find(f => f.type === 'shower');
+      if (showerFix) {
+        const sWalls = showerFix.properties.showerWallCount ?? 3;
+        const sTileH = showerFix.properties.showerTileHeight ?? 96;
+        const sW = showerFix.dimensions.width;
+        const sD = showerFix.dimensions.height;
+        let perim = 0;
+        if (sWalls >= 1) perim += sW;
+        if (sWalls >= 2) perim += sD;
+        if (sWalls >= 3) perim += sD;
+        deductSF += (perim * sTileH) / 144;
+      }
+      fullPaintWallSF = Math.max(0, Math.round((bathroom.wallAreaSF - deductSF) * 10) / 10);
+    }
+
+    // Ceiling: use floor SF as ceiling area
+    const fullPaintCeilSF = hasCeilDw && bathroom ? bathroom.floorAreaSF : 0;
+
+    // Merge paint data into walls_spec
+    const existingWallsSpec = sync.walls_spec ?? {};
+    sync.walls_spec = {
+      ...existingWallsSpec,
+      paint_walls: hasWallDw,
+      paint_ceiling: hasCeilDw,
+      paint_grade: existingWallsSpec.paint_grade ?? 'mid',
+      seal_prime_wall_sf: Math.round(wallDwSF * 10) / 10,
+      seal_prime_ceiling_sf: Math.round(ceilDwSF * 10) / 10,
+      full_paint_wall_sf: fullPaintWallSF,
+      full_paint_ceiling_sf: Math.round(fullPaintCeilSF * 10) / 10,
     };
   }
 

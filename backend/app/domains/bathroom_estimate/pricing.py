@@ -485,9 +485,10 @@ TOILET_EXTRAS = {
 # ──────────────────────────────────────────────
 # Sources: Fixr painter $2-$7/SF, HomeGuide baseboard $1-$3.50/LF
 PAINT_RATES = {
+    "seal_prime_per_sf": 1.50,        # seal & prime repaired drywall only (PVA primer, 1 coat)
     "wall_per_sf": 3.25,              # paint walls (prep + 2 coats, sub-contractor rate on remodel)
     "ceiling_per_sf": 3.50,           # ceiling paint (overhead premium)
-    "trim_per_lf": 3.75,              # baseboard/trim paint ($2.30-$4.88/LF, HomeWyse)
+    "trim_per_lf": 3.75,             # baseboard/trim paint ($2.30-$4.88/LF, HomeWyse)
 }
 
 PAINT_GRADE_MULTIPLIER = {
