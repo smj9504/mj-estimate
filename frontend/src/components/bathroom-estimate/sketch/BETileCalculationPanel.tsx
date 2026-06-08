@@ -175,35 +175,13 @@ const BETileCalculationPanel: React.FC<BETileCalculationPanelProps> = ({ api }) 
     <div style={{ padding: '8px 0' }}>
       {/* ── Summary Totals ── */}
       <Card size="small" style={{ marginBottom: 8, backgroundColor: '#f6ffed', border: '1px solid #b7eb8f' }}>
-        <Row gutter={8}>
-          <Col span={8}>
-            <Statistic
-              title={<Text style={{ fontSize: 10 }}>Total Area</Text>}
-              value={totals.areaSF}
-              suffix="SF"
-              valueStyle={{ fontSize: 16 }}
-              precision={1}
-            />
-          </Col>
-          <Col span={8}>
-            <Statistic
-              title={<Text style={{ fontSize: 10 }}>Material</Text>}
-              value={totals.materialCost}
-              prefix="$"
-              valueStyle={{ fontSize: 16 }}
-              precision={0}
-            />
-          </Col>
-          <Col span={8}>
-            <Statistic
-              title={<Text style={{ fontSize: 10 }}>Total</Text>}
-              value={totals.totalCost}
-              prefix="$"
-              valueStyle={{ fontSize: 16, color: '#389e0d' }}
-              precision={0}
-            />
-          </Col>
-        </Row>
+        <Statistic
+          title={<Text style={{ fontSize: 10 }}>Total Area</Text>}
+          value={totals.areaSF}
+          suffix="SF"
+          valueStyle={{ fontSize: 16 }}
+          precision={1}
+        />
       </Card>
 
       {/* ── Per-Zone Details ── */}
@@ -282,46 +260,18 @@ const BETileCalculationPanel: React.FC<BETileCalculationPanelProps> = ({ api }) 
                 </Select>
               </div>
 
-              {/* Costs */}
-              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                <div style={{ flex: 1 }}>
-                  <Text type="secondary" style={{ fontSize: 10 }}>Waste %</Text>
-                  <InputNumber
-                    size="small"
-                    value={zone.tileSpec.wastePct}
-                    min={5}
-                    max={30}
-                    onChange={(v) => v && handleSpecChange(zone.id, 'wastePct', v)}
-                    style={{ width: '100%' }}
-                    suffix="%"
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Text type="secondary" style={{ fontSize: 10 }}>Mat $/SF</Text>
-                  <InputNumber
-                    size="small"
-                    value={zone.tileSpec.materialCostPerSF}
-                    min={1}
-                    max={50}
-                    step={0.5}
-                    onChange={(v) => v && handleSpecChange(zone.id, 'materialCostPerSF', v)}
-                    style={{ width: '100%' }}
-                    prefix="$"
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Text type="secondary" style={{ fontSize: 10 }}>Labor $/SF</Text>
-                  <InputNumber
-                    size="small"
-                    value={zone.tileSpec.laborCostPerSF}
-                    min={1}
-                    max={50}
-                    step={0.5}
-                    onChange={(v) => v && handleSpecChange(zone.id, 'laborCostPerSF', v)}
-                    style={{ width: '100%' }}
-                    prefix="$"
-                  />
-                </div>
+              {/* Waste */}
+              <div style={{ marginBottom: 6 }}>
+                <Text type="secondary">Waste %:</Text>
+                <InputNumber
+                  size="small"
+                  value={zone.tileSpec.wastePct}
+                  min={5}
+                  max={30}
+                  onChange={(v) => v && handleSpecChange(zone.id, 'wastePct', v)}
+                  style={{ width: '100%', marginTop: 2 }}
+                  suffix="%"
+                />
               </div>
 
               <Divider style={{ margin: '6px 0' }} />
@@ -334,12 +284,6 @@ const BETileCalculationPanel: React.FC<BETileCalculationPanelProps> = ({ api }) 
                 <Text strong>{calc.tilesNeeded}</Text>
                 <Text type="secondary">Boxes (~):</Text>
                 <Text strong>{calc.boxesNeeded}</Text>
-                <Text type="secondary">Material:</Text>
-                <Text strong>${calc.materialCost.toFixed(0)}</Text>
-                <Text type="secondary">Labor:</Text>
-                <Text strong>${calc.laborCost.toFixed(0)}</Text>
-                <Text type="secondary">Zone total:</Text>
-                <Text strong style={{ color: '#389e0d' }}>${calc.totalCost.toFixed(0)}</Text>
               </div>
             </div>
           </Panel>

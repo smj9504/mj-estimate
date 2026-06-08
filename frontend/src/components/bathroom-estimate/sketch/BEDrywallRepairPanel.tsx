@@ -8,7 +8,7 @@
  * Summary totals at the top.
  */
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import {
   Card,
   Typography,
@@ -16,11 +16,8 @@ import {
   InputNumber,
   Switch,
   Tag,
-  Space,
   Divider,
   Statistic,
-  Row,
-  Col,
   Collapse,
   Empty,
   Button,
@@ -37,38 +34,6 @@ const { Option } = Select;
 
 interface BEDrywallRepairPanelProps {
   api: BESketchStateAPI;
-}
-
-// ── Cost calculation ──
-
-interface DrywallCalcResult {
-  drywallMaterialCost: number;
-  drywallLaborCost: number;
-  drywallSubtotal: number;
-  textureCost: number;
-  paintCost: number;
-  finishSubtotal: number;
-  totalCost: number;
-}
-
-function calcDrywallRepair(zone: BEDrywallRepairZone): DrywallCalcResult {
-  const sf = zone.areaSF;
-  const drywallMaterialCost = sf * zone.drywallMaterialCostPerSF;
-  const drywallLaborCost = sf * zone.drywallLaborCostPerSF;
-  const drywallSubtotal = drywallMaterialCost + drywallLaborCost;
-  const textureCost = sf * zone.textureCostPerSF;
-  const paintCost = sf * zone.paintCostPerSF * (zone.paintCoats / 2);
-  const finishSubtotal = textureCost + paintCost;
-  const totalCost = drywallSubtotal + finishSubtotal;
-  return {
-    drywallMaterialCost: Math.round(drywallMaterialCost * 100) / 100,
-    drywallLaborCost: Math.round(drywallLaborCost * 100) / 100,
-    drywallSubtotal: Math.round(drywallSubtotal * 100) / 100,
-    textureCost: Math.round(textureCost * 100) / 100,
-    paintCost: Math.round(paintCost * 100) / 100,
-    finishSubtotal: Math.round(finishSubtotal * 100) / 100,
-    totalCost: Math.round(totalCost * 100) / 100,
-  };
 }
 
 const TEXTURE_LABELS: Record<DrywallTextureType, string> = {
@@ -116,21 +81,6 @@ const BEDrywallRepairPanel: React.FC<BEDrywallRepairPanelProps> = ({ api }) => {
   const zones = data.drywallRepairZones ?? [];
   const ppf = data.settings.pixelsPerFoot;
 
-  const calculations = useMemo(() => zones.map((z) => ({ zone: z, calc: calcDrywallRepair(z) })), [zones]);
-
-  const totals = useMemo(
-    () =>
-      calculations.reduce(
-        (acc, { zone, calc }) => ({
-          drywallSubtotal: acc.drywallSubtotal + calc.drywallSubtotal,
-          finishSubtotal: acc.finishSubtotal + calc.finishSubtotal,
-          totalCost: acc.totalCost + calc.totalCost,
-        }),
-        { drywallSubtotal: 0, finishSubtotal: 0, totalCost: 0 },
-      ),
-    [calculations],
-  );
-
   const totalAreaSF = zones.reduce((s, z) => s + z.areaSF, 0);
 
   const handleUpdate = useCallback(
@@ -159,45 +109,12 @@ const BEDrywallRepairPanel: React.FC<BEDrywallRepairPanelProps> = ({ api }) => {
         size="small"
         style={{ marginBottom: 8, backgroundColor: '#fff7e6', border: '1px solid #ffd591' }}
       >
-        <Row gutter={8}>
-          <Col span={8}>
-            <Statistic
-              title={<Text style={{ fontSize: 10 }}>Total Area</Text>}
-              value={Math.round(totalAreaSF * 10) / 10}
-              suffix="SF"
-              valueStyle={{ fontSize: 15 }}
-            />
-          </Col>
-          <Col span={8}>
-            <Statistic
-              title={<Text style={{ fontSize: 10 }}>Install DW</Text>}
-              value={Math.round(totals.drywallSubtotal)}
-              prefix="$"
-              valueStyle={{ fontSize: 15 }}
-            />
-          </Col>
-          <Col span={8}>
-            <Statistic
-              title={<Text style={{ fontSize: 10 }}>Total</Text>}
-              value={Math.round(totals.totalCost)}
-              prefix="$"
-              valueStyle={{ fontSize: 15, color: '#d46b08' }}
-            />
-          </Col>
-        </Row>
-        <Divider style={{ margin: '6px 0' }} />
-        <Row gutter={4}>
-          <Col span={12}>
-            <Text type="secondary" style={{ fontSize: 10 }}>Install Drywall (incl. gluing)</Text>
-            <br />
-            <Text strong style={{ fontSize: 12 }}>${Math.round(totals.drywallSubtotal)}</Text>
-          </Col>
-          <Col span={12}>
-            <Text type="secondary" style={{ fontSize: 10 }}>Texture, Prime & Paint</Text>
-            <br />
-            <Text strong style={{ fontSize: 12 }}>${Math.round(totals.finishSubtotal)}</Text>
-          </Col>
-        </Row>
+        <Statistic
+          title={<Text style={{ fontSize: 10 }}>Total Area</Text>}
+          value={Math.round(totalAreaSF * 10) / 10}
+          suffix="SF"
+          valueStyle={{ fontSize: 15 }}
+        />
       </Card>
 
       {/* Per-zone details */}
@@ -209,7 +126,7 @@ const BEDrywallRepairPanel: React.FC<BEDrywallRepairPanelProps> = ({ api }) => {
         }
         onChange={() => {/* controlled by selectedId; allow collapse by clicking same header */}}
       >
-        {calculations.map(({ zone, calc }, idx) => {
+        {zones.map((zone, idx) => {
           // Wall length + direction for identification
           let lengthFt = 0;
           let dirLabel = '';
@@ -323,88 +240,6 @@ const BEDrywallRepairPanel: React.FC<BEDrywallRepairPanelProps> = ({ api }) => {
                     onChange={(v) => v && handleUpdate(zone.id, { paintCoats: v })}
                     style={{ width: '100%', marginTop: 2 }}
                   />
-                </div>
-
-                <Divider style={{ margin: '6px 0' }}>
-                  <Text style={{ fontSize: 10 }} type="secondary">Unit Costs ($/SF)</Text>
-                </Divider>
-
-                {/* Cost inputs */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 6 }}>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 10 }}>DW Material</Text>
-                    <InputNumber
-                      size="small"
-                      value={zone.drywallMaterialCostPerSF}
-                      min={0.5}
-                      max={20}
-                      step={0.25}
-                      prefix="$"
-                      onChange={(v) => v && handleUpdate(zone.id, { drywallMaterialCostPerSF: v })}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 10 }}>DW Labor</Text>
-                    <InputNumber
-                      size="small"
-                      value={zone.drywallLaborCostPerSF}
-                      min={0.5}
-                      max={30}
-                      step={0.25}
-                      prefix="$"
-                      onChange={(v) => v && handleUpdate(zone.id, { drywallLaborCostPerSF: v })}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 10 }}>Texture</Text>
-                    <InputNumber
-                      size="small"
-                      value={zone.textureCostPerSF}
-                      min={0.25}
-                      max={20}
-                      step={0.25}
-                      prefix="$"
-                      onChange={(v) => v && handleUpdate(zone.id, { textureCostPerSF: v })}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                  <div>
-                    <Text type="secondary" style={{ fontSize: 10 }}>Prime & Paint</Text>
-                    <InputNumber
-                      size="small"
-                      value={zone.paintCostPerSF}
-                      min={0.25}
-                      max={20}
-                      step={0.25}
-                      prefix="$"
-                      onChange={(v) => v && handleUpdate(zone.id, { paintCostPerSF: v })}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                </div>
-
-                <Divider style={{ margin: '6px 0' }} />
-
-                {/* Cost breakdown */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 8px', fontSize: 11 }}>
-                  <Text type="secondary">Area:</Text>
-                  <Text strong>{zone.areaSF} SF</Text>
-                  <Text type="secondary">DW material:</Text>
-                  <Text>${calc.drywallMaterialCost.toFixed(2)}</Text>
-                  <Text type="secondary">DW labor{zone.includeGluing ? ' + glue' : ''}:</Text>
-                  <Text>${calc.drywallLaborCost.toFixed(2)}</Text>
-                  <Text type="secondary" style={{ borderTop: '1px solid #f0f0f0', paddingTop: 2 }}>Install DW:</Text>
-                  <Text strong style={{ borderTop: '1px solid #f0f0f0', paddingTop: 2 }}>${calc.drywallSubtotal.toFixed(2)}</Text>
-                  <Text type="secondary">Texture:</Text>
-                  <Text>${calc.textureCost.toFixed(2)}</Text>
-                  <Text type="secondary">Prime & paint ({zone.paintCoats} coats):</Text>
-                  <Text>${calc.paintCost.toFixed(2)}</Text>
-                  <Text type="secondary" style={{ borderTop: '1px solid #f0f0f0', paddingTop: 2 }}>Finish total:</Text>
-                  <Text strong style={{ borderTop: '1px solid #f0f0f0', paddingTop: 2 }}>${calc.finishSubtotal.toFixed(2)}</Text>
-                  <Text type="secondary" style={{ borderTop: '2px solid #ffd591', paddingTop: 3, fontWeight: 600 }}>Zone total:</Text>
-                  <Text strong style={{ borderTop: '2px solid #ffd591', paddingTop: 3, color: '#d46b08' }}>${calc.totalCost.toFixed(2)}</Text>
                 </div>
 
                 <Divider style={{ margin: '6px 0' }} />
