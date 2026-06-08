@@ -294,6 +294,113 @@ class SupplementService:
     # Helpers
     # ============================================================
 
+    def _generate_linked_estimate_pdf(self, session, item) -> Optional[Dict[str, Any]]:
+        """Generate a PDF on-the-fly for a bid item linked to an existing estimate.
+
+        Returns an attachment dict with raw bytes (data mode) or None if not applicable.
+        """
+        try:
+            if item.bathroom_estimate_id:
+                from app.domains.bathroom_estimate.service import BathroomEstimateService
+                from app.domains.bathroom_estimate.export_service import BathroomExportService
+                svc = BathroomEstimateService(session)
+                estimate = svc.get_estimate(str(item.bathroom_estimate_id))
+                if estimate:
+                    pdf_buf = BathroomExportService().generate_pdf(
+                        estimate, show_signature=False
+                    )
+                    return {
+                        "filename": f"Bathroom_Estimate_{str(item.bathroom_estimate_id)[:8]}.pdf",
+                        "data": pdf_buf.getvalue(),
+                        "mime_type": "application/pdf",
+                    }
+
+            elif item.cabinet_estimate_id:
+                from app.domains.cabinet_estimate.service import CabinetEstimateService
+                from app.domains.cabinet_estimate.export_service import CabinetExportService
+                svc = CabinetEstimateService(session)
+                estimate = svc.get_estimate(str(item.cabinet_estimate_id))
+                if estimate:
+                    pdf_buf = CabinetExportService().generate_pdf(
+                        estimate, show_signature=False
+                    )
+                    return {
+                        "filename": f"Cabinet_Estimate_{str(item.cabinet_estimate_id)[:8]}.pdf",
+                        "data": pdf_buf.getvalue(),
+                        "mime_type": "application/pdf",
+                    }
+
+            elif item.roofing_estimate_id:
+                from app.domains.roofing_estimate.service import RoofingEstimateService
+                from app.domains.roofing_estimate.export_service import RoofingExportService
+                svc = RoofingEstimateService(session)
+                estimate = svc.get_estimate(str(item.roofing_estimate_id))
+                if estimate:
+                    pdf_buf = RoofingExportService().generate_pdf(
+                        estimate, show_signature=False
+                    )
+                    return {
+                        "filename": f"Roofing_Estimate_{str(item.roofing_estimate_id)[:8]}.pdf",
+                        "data": pdf_buf.getvalue(),
+                        "mime_type": "application/pdf",
+                    }
+
+            elif item.pack_calculation_id:
+                from app.domains.pack_calculation.models import PackCalculation
+                from app.domains.pack_calculation.export import (
+                    generate_estimate_pdf as generate_pack_pdf,
+                    build_company_info,
+                )
+                calc = session.query(PackCalculation).filter(
+                    PackCalculation.id == item.pack_calculation_id
+                ).first()
+                if calc:
+                    estimate_data = {
+                        "sections": calc.sections or {},
+                        "section_details": calc.section_details or {},
+                        "materials_summary": calc.materials_summary or {},
+                        "material_details": calc.material_details or [],
+                        "supplements": calc.supplements or [],
+                        "subtotal": calc.subtotal or 0,
+                        "op_amount": calc.op_amount or 0,
+                        "contingency_amount": calc.contingency_amount or 0,
+                        "supplements_total": calc.supplements_total or 0,
+                        "grand_total": calc.grand_total or 0,
+                        "include_op": calc.include_op,
+                        "op_rate": calc.op_rate,
+                        "include_contingency": calc.include_contingency,
+                        "contingency_rate": calc.contingency_rate,
+                        "crew_size": calc.crew_size,
+                        "storage_months": calc.storage_months,
+                        "staging_type": calc.staging_type,
+                        "include_packback": calc.include_packback,
+                        "storage_sf": calc.storage_sf or 0,
+                        "total_hours": calc.total_hours or 0,
+                        "room_summaries": calc.room_summaries or [],
+                        "special_items": calc.special_items or [],
+                        "custom_special_items": calc.custom_special_items or [],
+                    }
+                    client_name = calc.client.display_name if calc.client else None
+                    company_info = build_company_info(calc.company) if calc.company else None
+                    pdf_bytes = generate_pack_pdf(
+                        estimate_data=estimate_data,
+                        client_name=client_name,
+                        property_address=calc.project_address,
+                        company_info=company_info,
+                    )
+                    return {
+                        "filename": f"Packing_Estimate_{str(item.pack_calculation_id)[:8]}.pdf",
+                        "data": pdf_bytes if isinstance(pdf_bytes, bytes) else pdf_bytes.getvalue(),
+                        "mime_type": "application/pdf",
+                    }
+
+        except Exception as e:
+            logger.warning(
+                f"Could not generate PDF for bid item {item.id} "
+                f"(type={item.estimate_type}): {e}"
+            )
+        return None
+
     def _recalculate_supplement_amount(self, session, supplement_id: str):
         """Recalculate supplement_amount from bid items.
 
@@ -586,6 +693,13 @@ class SupplementService:
                         "file_id": item.custom_document_file_id,
                         "mime_type": "application/pdf",
                     })
+                else:
+                    # Generate PDF on-the-fly for linked estimates
+                    pdf_attachment = self._generate_linked_estimate_pdf(
+                        session, item
+                    )
+                    if pdf_attachment:
+                        attachments.append(pdf_attachment)
 
             # Add manually uploaded extra files
             extra_file_ids = data.get("extra_file_ids") or []
@@ -744,7 +858,13 @@ class SupplementService:
             bid_rows = ""
             for item in bid_items:
                 amt = float(item.custom_amount or 0)
-                has_pdf = "&#10003;" if item.custom_document_file_id else "&#8212;"
+                has_pdf = "&#10003;" if (
+                    item.custom_document_file_id
+                    or item.bathroom_estimate_id
+                    or item.cabinet_estimate_id
+                    or item.roofing_estimate_id
+                    or item.pack_calculation_id
+                ) else "&#8212;"
                 in_xact = " (in Xactimate)" if item.included_in_xactimate else ""
                 bid_rows += (
                     f"<tr>"
