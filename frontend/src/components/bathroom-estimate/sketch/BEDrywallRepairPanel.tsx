@@ -79,9 +79,42 @@ const TEXTURE_LABELS: Record<DrywallTextureType, string> = {
   smooth: 'Smooth',
 };
 
+/** Describe wall direction/orientation from two boundary points */
+function wallDirectionLabel(b: { x: number; y: number }[]): string {
+  if (b.length < 2) return '';
+  const dx = b[1].x - b[0].x;
+  const dy = b[1].y - b[0].y;
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  if (absDy < absDx * 0.3) return 'H';  // horizontal
+  if (absDx < absDy * 0.3) return 'V';  // vertical
+  return 'D';  // diagonal
+}
+
+/** Point-in-polygon with tolerance: check both the exact point and 4 offset points */
+function pointNearRoom(px: number, py: number, boundary: { x: number; y: number }[]): boolean {
+  const offsets = [
+    { x: 0, y: 0 },
+    { x: 3, y: 3 }, { x: -3, y: -3 },
+    { x: 3, y: -3 }, { x: -3, y: 3 },
+  ];
+  for (const off of offsets) {
+    const tx = px + off.x, ty = py + off.y;
+    let inside = false;
+    for (let i = 0, j = boundary.length - 1; i < boundary.length; j = i++) {
+      const xi = boundary[i].x, yi = boundary[i].y;
+      const xj = boundary[j].x, yj = boundary[j].y;
+      if ((yi > ty) !== (yj > ty) && tx < (xj - xi) * (ty - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    if (inside) return true;
+  }
+  return false;
+}
+
 const BEDrywallRepairPanel: React.FC<BEDrywallRepairPanelProps> = ({ api }) => {
-  const { data, updateDrywallRepairZone, removeDrywallRepairZone, setSelectedId } = api;
+  const { data, updateDrywallRepairZone, removeDrywallRepairZone, selectedId, setSelectedId } = api;
   const zones = data.drywallRepairZones ?? [];
+  const ppf = data.settings.pixelsPerFoot;
 
   const calculations = useMemo(() => zones.map((z) => ({ zone: z, calc: calcDrywallRepair(z) })), [zones]);
 
@@ -168,29 +201,71 @@ const BEDrywallRepairPanel: React.FC<BEDrywallRepairPanelProps> = ({ api }) => {
       </Card>
 
       {/* Per-zone details */}
-      <Collapse size="small" defaultActiveKey={zones.slice(0, 2).map((z) => z.id)}>
+      <Collapse
+        size="small"
+        activeKey={selectedId && zones.some((z) => z.id === selectedId)
+          ? [selectedId]
+          : zones.slice(0, 2).map((z) => z.id)
+        }
+        onChange={() => {/* controlled by selectedId; allow collapse by clicking same header */}}
+      >
         {calculations.map(({ zone, calc }, idx) => {
-          const roomName = zone.roomId
+          // Room detection: use stored roomId, or re-detect from boundary midpoint with tolerance
+          let roomName = zone.roomId
             ? data.rooms.find((r) => r.id === zone.roomId)?.name
             : undefined;
+          if (!roomName && zone.boundary.length >= 2) {
+            const mx = zone.boundary.reduce((s, p) => s + p.x, 0) / zone.boundary.length;
+            const my = zone.boundary.reduce((s, p) => s + p.y, 0) / zone.boundary.length;
+            const detectedRoom = data.rooms.find((r) => pointNearRoom(mx, my, r.boundary));
+            if (detectedRoom) roomName = detectedRoom.name;
+          }
+
+          // Wall length for identification
+          let lengthLabel = '';
+          let dirLabel = '';
+          if (zone.surface === 'wall' && zone.boundary.length >= 2) {
+            const dx = zone.boundary[1].x - zone.boundary[0].x;
+            const dy = zone.boundary[1].y - zone.boundary[0].y;
+            const lenFt = Math.sqrt(dx * dx + dy * dy) / ppf;
+            lengthLabel = `${lenFt.toFixed(1)}ft`;
+            dirLabel = wallDirectionLabel(zone.boundary);
+          }
+
+          const isZoneSelected = selectedId === zone.id;
+
           return (
             <Collapse.Panel
               key={zone.id}
               header={
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                <div
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%',
+                    cursor: 'pointer',
+                    backgroundColor: isZoneSelected ? 'rgba(255, 152, 0, 0.08)' : undefined,
+                    borderRadius: 4,
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedId(isZoneSelected ? null : zone.id);
+                  }}
+                >
                   <Space size={4}>
                     <div
                       style={{
                         width: 10, height: 10, borderRadius: 2,
-                        backgroundColor: 'rgba(255,152,0,0.6)',
-                        border: '1px solid rgba(0,0,0,0.2)',
+                        backgroundColor: isZoneSelected ? '#ff9800' : 'rgba(255,152,0,0.6)',
+                        border: isZoneSelected ? '2px solid #e65100' : '1px solid rgba(0,0,0,0.2)',
                       }}
                     />
                     <Text strong style={{ fontSize: 11 }}>
-                      {zone.surface === 'wall' ? 'Wall' : 'Ceiling'} {idx + 1}{roomName ? ` — ${roomName}` : ''}
+                      {zone.surface === 'wall' ? 'Wall' : 'Ceiling'} {idx + 1}
+                      {dirLabel ? ` (${dirLabel})` : ''}
+                      {roomName ? ` — ${roomName}` : ''}
                     </Text>
                   </Space>
                   <Space size={4}>
+                    {lengthLabel && <Tag color="geekblue" style={{ fontSize: 9, margin: 0 }}>{lengthLabel}</Tag>}
                     <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>{zone.areaSF} SF</Tag>
                     <Tag color="default" style={{ fontSize: 10, margin: 0 }}>${Math.round(calc.totalCost)}</Tag>
                   </Space>
