@@ -138,7 +138,8 @@ export interface PlumbingSpec {
 export interface ElectricalSpec {
   gfci_count?: number;
   vanity_lights?: number;
-  ceiling_fixture?: boolean;
+  /** Ceiling light type: none, standard, recessed, recessed_multi */
+  ceiling_fixture?: string | boolean;
   exhaust_fan_cfm?: number;
   exhaust_fan_switch?: string;
   heated_floor?: boolean;

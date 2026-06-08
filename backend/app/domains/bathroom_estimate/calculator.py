@@ -1558,9 +1558,22 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         _add(line_items, 2, "Vanity light fixture installation", elec["vanity_lights"], "EA",
              ELECTRICAL_RATES["vanity_light_install"] * labor_mult, "electrical")
 
-    if elec.get("ceiling_fixture"):
-        _add(line_items, 2, "Ceiling light fixture installation", 1, "EA",
-             ELECTRICAL_RATES["ceiling_fixture_install"] * labor_mult, "electrical")
+    ceiling_fix = elec.get("ceiling_fixture")
+    # Support both legacy boolean and new string type
+    if ceiling_fix:
+        if ceiling_fix == 'recessed_multi':
+            # Multiple recessed cans (typical 3-4 in bathroom)
+            can_count = 4
+            _add(line_items, 2, f"Recessed light installation ({can_count} cans)", can_count, "EA",
+                 ELECTRICAL_RATES["recessed_light_multi"] * labor_mult, "electrical",
+                 notes="Cut ceiling, install housing + trim + wire per can")
+        elif ceiling_fix == 'recessed':
+            _add(line_items, 2, "Recessed light installation (1 can)", 1, "EA",
+                 ELECTRICAL_RATES["recessed_light_install"] * labor_mult, "electrical")
+        else:
+            # 'standard' or legacy True
+            _add(line_items, 2, "Ceiling light fixture installation", 1, "EA",
+                 ELECTRICAL_RATES["ceiling_fixture_install"] * labor_mult, "electrical")
 
     fan_cfm = elec.get("exhaust_fan_cfm")
     if fan_cfm:

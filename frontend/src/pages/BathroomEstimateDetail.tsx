@@ -1871,9 +1871,17 @@ const BathroomEstimateDetail: React.FC = () => {
                           <InputNumber style={{ width: '100%' }} min={0} />
                         </Form.Item>
                       </Col>
-                      <Col xs={12} sm={8} md={4}>
-                        <Form.Item name={['electrical_spec', 'ceiling_fixture']} valuePropName="checked">
-                          <Checkbox>Ceiling Light</Checkbox>
+                      <Col xs={12} sm={8} md={6}>
+                        <Form.Item label="Ceiling Light" name={['electrical_spec', 'ceiling_fixture']}>
+                          <Select
+                            allowClear
+                            placeholder="None"
+                            options={[
+                              { label: 'Standard fixture', value: 'standard' },
+                              { label: 'Recessed (1 can)', value: 'recessed' },
+                              { label: 'Recessed (multi)', value: 'recessed_multi' },
+                            ]}
+                          />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={8} md={4}>

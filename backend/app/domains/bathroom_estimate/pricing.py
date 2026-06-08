@@ -73,7 +73,9 @@ ELECTRICAL_RATES = {
     # 1st outlet ~$210 incl. service call; add'l same visit ~$100
     "gfci_outlet_each": 165,          # blended avg (1-3 outlets per bath)
     "vanity_light_install": 185,      # light fixture install (labor)
-    "ceiling_fixture_install": 195,   # ceiling light install
+    "ceiling_fixture_install": 195,   # standard ceiling light install
+    "recessed_light_install": 225,    # recessed can light (cut hole + housing + trim + wire)
+    "recessed_light_multi": 175,      # per-can when installing multiple (reduced per-unit)
     "exhaust_fan": {                  # fan + install by CFM ($250-$950, Angi/HomeGuide)
         50: 325,
         80: 425,
