@@ -756,7 +756,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             }}
             onBlur={commitWallEdit}
             style={{
-              width: 70, height: 24, fontSize: 12, fontWeight: 600,
+              width: 52, height: 22, fontSize: 11, fontWeight: 600,
               textAlign: 'center', border: '2px solid #1890ff',
               borderRadius: 4, outline: 'none', background: '#fff',
             }}
@@ -784,7 +784,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             }}
             onBlur={commitRoomEdit}
             style={{
-              width: 70, height: 24, fontSize: 12, fontWeight: 600,
+              width: 52, height: 22, fontSize: 11, fontWeight: 600,
               textAlign: 'center', border: '2px solid #1890ff',
               borderRadius: 4, outline: 'none', background: '#fff',
             }}
