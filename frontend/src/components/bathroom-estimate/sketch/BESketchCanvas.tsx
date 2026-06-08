@@ -234,6 +234,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   const [editingWallId, setEditingWallId] = useState<string | null>(null);
   const [editingWallValue, setEditingWallValue] = useState('');
   const wallInputRef = useRef<HTMLInputElement>(null);
+  const wallEditPosRef = useRef<BEPoint | null>(null); // fixed position during edit
 
   // ── Room inline edit state ──
   // edgeIdx: index of the first vertex of the edge (edge = boundary[edgeIdx] → boundary[edgeIdx+1])
@@ -603,15 +604,16 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
     const lenIn = Math.round((calcWallLengthPx(wall) / ppf) * 12);
     setEditingWallId(wallId);
     setEditingWallValue(fmtInches(lenIn));
+    wallEditPosRef.current = wallMidpoint(wall); // capture position at edit start
     setTimeout(() => { wallInputRef.current?.focus(); wallInputRef.current?.select(); }, 50);
   }, [walls, ppf]);
 
   const commitWallEdit = useCallback(() => {
     if (!editingWallId) return;
     const wall = walls.find(w => w.id === editingWallId);
-    if (!wall) { setEditingWallId(null); return; }
+    if (!wall) { setEditingWallId(null); wallEditPosRef.current = null; return; }
     const newInches = parseDimension(editingWallValue);
-    if (!newInches || newInches < 1) { setEditingWallId(null); return; }
+    if (!newInches || newInches < 1) { setEditingWallId(null); wallEditPosRef.current = null; return; }
     const dx = wall.end.x - wall.start.x;
     const dy = wall.end.y - wall.start.y;
     let angle = Math.atan2(dy, dx);
@@ -640,11 +642,11 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
       }
     }
     setEditingWallId(null);
+    wallEditPosRef.current = null;
   }, [editingWallId, editingWallValue, walls, rooms, ppf, api, updateRoom]);
 
-  // Compute editing wall overlay position
-  const editingWall = editingWallId ? walls.find(w => w.id === editingWallId) : null;
-  const editOverlayPos = editingWall ? wallMidpoint(editingWall) : null;
+  // Use fixed position captured at edit start (prevents input box jumping)
+  const editOverlayPos = editingWallId ? wallEditPosRef.current : null;
 
   // ── Room inline dimension edit ──
   const handleRoomEdgeEdit = useCallback((roomId: string, edgeIdx: number, edge: 'width' | 'depth') => {
@@ -739,7 +741,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             onChange={(e) => setEditingWallValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') commitWallEdit();
-              if (e.key === 'Escape') setEditingWallId(null);
+              if (e.key === 'Escape') { setEditingWallId(null); wallEditPosRef.current = null; }
             }}
             onBlur={commitWallEdit}
             style={{
