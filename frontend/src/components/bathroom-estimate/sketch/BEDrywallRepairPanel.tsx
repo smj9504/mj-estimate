@@ -245,8 +245,12 @@ const BEDrywallRepairPanel: React.FC<BEDrywallRepairPanelProps> = ({ api }) => {
                     <div
                       style={{
                         width: 8, height: 8, borderRadius: 2, flexShrink: 0,
-                        backgroundColor: isZoneSelected ? '#ff9800' : 'rgba(255,152,0,0.6)',
-                        border: isZoneSelected ? '2px solid #e65100' : '1px solid rgba(0,0,0,0.2)',
+                        backgroundColor: isZoneSelected
+                          ? (zone.surface === 'ceiling' ? '#42a5f5' : '#ff9800')
+                          : (zone.surface === 'ceiling' ? 'rgba(66,165,245,0.6)' : 'rgba(255,152,0,0.6)'),
+                        border: isZoneSelected
+                          ? (zone.surface === 'ceiling' ? '2px solid #1565c0' : '2px solid #e65100')
+                          : '1px solid rgba(0,0,0,0.2)',
                       }}
                     />
                     <Text strong style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{label}</Text>

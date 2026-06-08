@@ -1253,7 +1253,10 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             {drywallRepairZones.map((zone) => {
               const isSelected = selectedId === zone.id && activeTool === 'select';
               const roomName = zone.roomId ? rooms.find((r) => r.id === zone.roomId)?.name : undefined;
-              const strokeColor = isSelected ? '#e65100' : '#ff9800';
+              const isCeiling = zone.surface === 'ceiling';
+              const strokeColor = isSelected
+                ? (isCeiling ? '#1565c0' : '#e65100')
+                : (isCeiling ? '#42a5f5' : '#ff9800');
               const strokeWidth = isSelected ? 3.5 : 2.5;
               const canInteract = activeTool === 'select';
 
@@ -1342,7 +1345,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     {/* Filled polygon */}
                     <Line
                       points={pts} closed
-                      fill="rgba(255, 152, 0, 0.18)"
+                      fill="rgba(66, 165, 245, 0.18)"
                       stroke={strokeColor} strokeWidth={strokeWidth} dash={[8, 4]}
                       onClick={(e) => { e.cancelBubble = true; setSelectedId(zone.id); }}
                       hitStrokeWidth={8}
@@ -1357,7 +1360,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       return (
                         <Rect
                           x={rx} y={ry} width={rw} height={rh}
-                          fill="rgba(255,152,0,0.04)"
+                          fill="rgba(66,165,245,0.04)"
                           draggable
                           onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'move'; }}
                           onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
@@ -1386,7 +1389,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                         key={`dwcr-${zone.id}-${cIdx}`}
                         x={pt.x - 5} y={pt.y - 5}
                         width={10} height={10}
-                        fill="#fff" stroke="#e65100" strokeWidth={2}
+                        fill="#fff" stroke="#1565c0" strokeWidth={2}
                         draggable
                         onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'nwse-resize'; }}
                         onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
@@ -1408,8 +1411,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       />
                     ))}
                     <Text x={cx - 30} y={cy - 14}
-                      text={`Ceiling DW${roomName ? `\n${roomName}` : ''}\n${zone.areaSF} SF`}
-                      fontSize={9} fill="#bf360c" fontStyle="bold" align="center" listening={false} />
+                      text={`Ceiling DW\n${zone.areaSF} SF`}
+                      fontSize={9} fill="#0d47a1" fontStyle="bold" align="center" listening={false} />
                   </Group>
                 );
               }
