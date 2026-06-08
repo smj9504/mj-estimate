@@ -1348,53 +1348,62 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       hitStrokeWidth={8}
                     />
                     {/* Body drag overlay (selected only) */}
-                    {isSelected && (
-                      <Line
-                        points={pts} closed
-                        fill="rgba(0,0,0,0)" stroke="transparent" strokeWidth={0}
-                        draggable
-                        onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'move'; }}
-                        onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
-                        onClick={(e) => { e.cancelBubble = true; }}
-                        onDragStart={() => { dwDragRef.current = { zoneId: zone.id, rawBoundary: zone.boundary.map((p) => ({ ...p })) }; }}
-                        onDragMove={(e) => {
-                          if (!dwDragRef.current || dwDragRef.current.zoneId !== zone.id) return;
-                          const dx = e.target.x();
-                          const dy = e.target.y();
-                          const orig = dwDragRef.current.rawBoundary; // fixed origin from dragStart
-                          const newB: BEPoint[] = orig.map((pt) => {
-                            const moved = { x: pt.x + dx, y: pt.y + dy };
-                            return settings.snapToGrid ? snapToGrid(moved, snapPx) : moved;
-                          });
-                          e.target.position({ x: 0, y: 0 });
-                          // do NOT update rawBoundary – dx/dy are always total delta from dragStart
-                          api.updateDrywallRepairZone(zone.id, { boundary: newB });
-                        }}
-                        onDragEnd={(e) => { e.target.position({ x: 0, y: 0 }); dwDragRef.current = null; }}
-                      />
-                    )}
+                    {isSelected && (() => {
+                      // Build a Rect from boundary for reliable hit detection
+                      const xs = zone.boundary.map((p) => p.x);
+                      const ys = zone.boundary.map((p) => p.y);
+                      const rx = Math.min(...xs), ry = Math.min(...ys);
+                      const rw = Math.max(...xs) - rx, rh = Math.max(...ys) - ry;
+                      return (
+                        <Rect
+                          x={rx} y={ry} width={rw} height={rh}
+                          fill="rgba(255,152,0,0.04)"
+                          draggable
+                          onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'move'; }}
+                          onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
+                          onMouseDown={(e) => { e.cancelBubble = true; }}
+                          onClick={(e) => { e.cancelBubble = true; }}
+                          onDragStart={() => { dwDragRef.current = { zoneId: zone.id, rawBoundary: zone.boundary.map((p) => ({ ...p })) }; }}
+                          onDragMove={(e) => {
+                            if (!dwDragRef.current || dwDragRef.current.zoneId !== zone.id) return;
+                            const dx = e.target.x() - rx;
+                            const dy = e.target.y() - ry;
+                            const orig = dwDragRef.current.rawBoundary;
+                            const newB: BEPoint[] = orig.map((pt) => {
+                              const moved = { x: pt.x + dx, y: pt.y + dy };
+                              return settings.snapToGrid ? snapToGrid(moved, snapPx) : moved;
+                            });
+                            e.target.position({ x: rx, y: ry });
+                            api.updateDrywallRepairZone(zone.id, { boundary: newB });
+                          }}
+                          onDragEnd={(e) => { e.target.position({ x: rx, y: ry }); dwDragRef.current = null; }}
+                        />
+                      );
+                    })()}
                     {/* Corner handles (selected only) */}
                     {isSelected && zone.boundary.map((pt, cIdx) => (
-                      <Circle key={`dwcr-${zone.id}-${cIdx}`}
-                        x={pt.x} y={pt.y} radius={6}
+                      <Rect
+                        key={`dwcr-${zone.id}-${cIdx}`}
+                        x={pt.x - 5} y={pt.y - 5}
+                        width={10} height={10}
                         fill="#fff" stroke="#e65100" strokeWidth={2}
                         draggable
                         onMouseEnter={(e) => { e.target.getStage()!.container().style.cursor = 'nwse-resize'; }}
                         onMouseLeave={(e) => { e.target.getStage()!.container().style.cursor = 'default'; }}
                         onDragMove={(e) => {
-                          let pos = { x: e.target.x(), y: e.target.y() };
+                          let pos = { x: e.target.x() + 5, y: e.target.y() + 5 };
                           if (settings.snapToGrid) pos = snapToGrid(pos, snapPx);
-                          e.target.position(pos);
-                          const b = [...zone.boundary];
-                          b[cIdx] = pos;
-                          // Keep rectangle: propagate to adjacent corners sharing X or Y
-                          const old = zone.boundary[cIdx];
-                          for (let i = 0; i < 4; i++) {
-                            if (i === cIdx) continue;
-                            if (Math.abs(zone.boundary[i].x - old.x) < 2) b[i] = { x: pos.x, y: b[i].y };
-                            if (Math.abs(zone.boundary[i].y - old.y) < 2) b[i] = { x: b[i].x, y: pos.y };
-                          }
-                          api.updateDrywallRepairZone(zone.id, { boundary: b });
+                          e.target.position({ x: pos.x - 5, y: pos.y - 5 });
+                          // Rebuild rectangle from opposite + dragged corners
+                          const opp = (cIdx + 2) % 4;
+                          const ox = zone.boundary[opp].x, oy = zone.boundary[opp].y;
+                          const newB: BEPoint[] = [
+                            { x: Math.min(ox, pos.x), y: Math.min(oy, pos.y) },
+                            { x: Math.max(ox, pos.x), y: Math.min(oy, pos.y) },
+                            { x: Math.max(ox, pos.x), y: Math.max(oy, pos.y) },
+                            { x: Math.min(ox, pos.x), y: Math.max(oy, pos.y) },
+                          ];
+                          api.updateDrywallRepairZone(zone.id, { boundary: newB });
                         }}
                       />
                     ))}
