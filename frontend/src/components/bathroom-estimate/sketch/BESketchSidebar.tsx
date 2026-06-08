@@ -391,11 +391,69 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
 
 // ── Fixture Properties Sub-Panel ──
 
+// ── Recessed light auto-generation helpers ──
+
+/** Remove all auto-generated recessed siblings of a parent light fixture */
+function removeRecessedSiblings(parentId: string, data: BESketchStateAPI['data'], api: BESketchStateAPI) {
+  const siblings = data.fixtures.filter(
+    (f) => f.type === 'light' && f.properties.recessedParentId === parentId
+  );
+  for (const s of siblings) {
+    api.removeFixture(s.id);
+  }
+}
+
+/** Auto-place recessed can lights in a grid pattern across the room */
+function spawnRecessedLights(
+  parentFixture: BEFixture,
+  count: number,
+  data: BESketchStateAPI['data'],
+  api: BESketchStateAPI,
+) {
+  // Remove existing siblings first
+  removeRecessedSiblings(parentFixture.id, data, api);
+
+  // Find room boundary to distribute lights evenly
+  const room = data.rooms.find((r) => r.roomType === 'bathroom') || data.rooms[0];
+  if (!room || room.boundary.length < 3) return;
+
+  const xs = room.boundary.map((p) => p.x);
+  const ys = room.boundary.map((p) => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const roomW = maxX - minX;
+  const roomH = maxY - minY;
+
+  // Calculate grid: try to make it roughly square
+  const cols = Math.ceil(Math.sqrt(count * (roomW / roomH)));
+  const rows = Math.ceil(count / cols);
+
+  const padX = roomW * 0.15;
+  const padY = roomH * 0.15;
+  const stepX = cols > 1 ? (roomW - 2 * padX) / (cols - 1) : 0;
+  const stepY = rows > 1 ? (roomH - 2 * padY) / (rows - 1) : 0;
+
+  let placed = 0;
+  for (let r = 0; r < rows && placed < count; r++) {
+    for (let c = 0; c < cols && placed < count; c++) {
+      const pos = {
+        x: minX + padX + (cols > 1 ? c * stepX : roomW / 2 - padX),
+        y: minY + padY + (rows > 1 ? r * stepY : roomH / 2 - padY),
+      };
+      api.addFixture('light', pos, room.id, undefined, {
+        lightType: 'recessed',
+        recessedParentId: parentFixture.id,
+      }, { width: 6, height: 6 });
+      placed++;
+    }
+  }
+}
+
 const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateAPI }> = ({
   fixture,
   api,
 }) => {
-  const { updateFixtureProperties } = api;
+  const { updateFixtureProperties, data } = api;
   const p = fixture.properties;
 
   return (
@@ -795,7 +853,16 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
             <Select
               size="small"
               value={p.lightType ?? 'standard'}
-              onChange={(v) => updateFixtureProperties(fixture.id, { lightType: v })}
+              onChange={(v) => {
+                updateFixtureProperties(fixture.id, { lightType: v });
+                if (v === 'recessed_multi') {
+                  // Auto-generate recessed cans
+                  spawnRecessedLights(fixture, p.lightCount ?? 4, data, api);
+                } else {
+                  // Remove auto-generated siblings
+                  removeRecessedSiblings(fixture.id, data, api);
+                }
+              }}
               style={{ width: '100%', marginTop: 4 }}
             >
               <Option value="standard">Standard fixture</Option>
@@ -811,7 +878,11 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
                 value={p.lightCount ?? 4}
                 min={2}
                 max={12}
-                onChange={(v) => v && updateFixtureProperties(fixture.id, { lightCount: v })}
+                onChange={(v) => {
+                  if (!v) return;
+                  updateFixtureProperties(fixture.id, { lightCount: v });
+                  spawnRecessedLights(fixture, v, data, api);
+                }}
                 style={{ width: '100%' }}
               />
             </div>

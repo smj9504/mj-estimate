@@ -1835,6 +1835,7 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
     fix.properties.fixedPanelConfig,
     fix.properties.showerDoorWidth ? fix.properties.showerDoorWidth / fix.dimensions.width : undefined,
     fix.properties.vanitySubType,
+    fix.properties.lightType,
   );
 
   // Attach transformer to the standalone Rect; re-sync on dimension/rotation change

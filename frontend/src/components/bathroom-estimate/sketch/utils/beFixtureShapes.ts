@@ -514,6 +514,15 @@ const light: FixtureShape = {
   ],
 };
 
+// ── Recessed can light (small circle with concentric ring) ──
+const recessedCan: FixtureShape = {
+  label: 'Can',
+  paths: [
+    { d: 'M0.5,0.1 A0.4,0.4 0 1,1 0.5,0.9 A0.4,0.4 0 1,1 0.5,0.1 Z', fill: '#f5f5f5', stroke: S, strokeWidth: 1.5 },
+    { d: 'M0.5,0.25 A0.25,0.25 0 1,1 0.5,0.75 A0.25,0.25 0 1,1 0.5,0.25 Z', fill: '#fff', stroke: S, strokeWidth: 1 },
+  ],
+};
+
 // ── Lookup ──
 
 const BATHTUB_SHAPES: Record<BathtubSubType, FixtureShape> = {
@@ -533,6 +542,7 @@ export function getFixtureShape(
   fixedPanelConfig?: 'none' | 'left' | 'right' | 'both',
   showerDoorRatio?: number,
   vanitySubType?: VanitySubType,
+  lightType?: string,
 ): FixtureShape {
   switch (type) {
     case 'bathtub':
@@ -557,7 +567,7 @@ export function getFixtureShape(
     case 'mirror':
       return mirror;
     case 'light':
-      return light;
+      return (lightType === 'recessed' || lightType === 'recessed_multi') ? recessedCan : light;
     default:
       return { label: type, paths: [{ d: 'M0,0 L1,0 L1,1 L0,1 Z', fill: F, stroke: S, strokeWidth: 1.5 }] };
   }
