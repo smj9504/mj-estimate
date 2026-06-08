@@ -152,12 +152,14 @@ class IMAPClient:
         username: str,
         password: str,
         use_ssl: bool = True,
+        oauth_access_token: Optional[str] = None,
     ):
         self.server = server
         self.port = port
         self.username = username
         self.password = password
         self.use_ssl = use_ssl
+        self.oauth_access_token = oauth_access_token
         self._connection: Optional[imaplib.IMAP4] = None
 
     def connect(self) -> None:
@@ -166,7 +168,19 @@ class IMAPClient:
             self._connection = imaplib.IMAP4_SSL(self.server, self.port)
         else:
             self._connection = imaplib.IMAP4(self.server, self.port)
-        self._connection.login(self.username, self.password)
+
+        if self.oauth_access_token:
+            import base64
+            auth_string = (
+                f"user={self.username}\x01"
+                f"auth=Bearer {self.oauth_access_token}\x01\x01"
+            )
+            self._connection.authenticate(
+                "XOAUTH2",
+                lambda x: auth_string.encode(),
+            )
+        else:
+            self._connection.login(self.username, self.password)
 
     def disconnect(self) -> None:
         """Close IMAP connection"""

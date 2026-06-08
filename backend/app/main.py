@@ -344,6 +344,23 @@ _NEEDED_COLUMNS = [
     ("supplement_followups", "sent_email_id", "UUID"),
     ("supplement_followups", "reply_body_html", "TEXT"),
     ("supplement_followups", "reply_attachment_ids", "JSONB"),
+    # Bathroom estimate insulation fields
+    ("bathroom_estimates", "demo_insulation_walls", "BOOLEAN DEFAULT FALSE"),
+    ("bathroom_estimates", "demo_insulation_walls_sf", "DOUBLE PRECISION"),
+    ("bathroom_estimates", "demo_insulation_ceiling", "BOOLEAN DEFAULT FALSE"),
+    ("bathroom_estimates", "demo_insulation_ceiling_sf", "DOUBLE PRECISION"),
+    ("bathroom_estimates", "install_insulation_walls", "BOOLEAN DEFAULT FALSE"),
+    ("bathroom_estimates", "install_insulation_walls_sf", "DOUBLE PRECISION"),
+    ("bathroom_estimates", "install_insulation_ceiling", "BOOLEAN DEFAULT FALSE"),
+    ("bathroom_estimates", "install_insulation_ceiling_sf", "DOUBLE PRECISION"),
+    # WM payment tracking
+    ("water_mitigation_jobs", "payment_status", "VARCHAR(50)"),
+    ("water_mitigation_jobs", "payment_note", "TEXT"),
+    # Email account OAuth fields
+    ("email_accounts", "auth_method", "VARCHAR(20) DEFAULT 'password'"),
+    ("email_accounts", "oauth_access_token", "TEXT"),
+    ("email_accounts", "oauth_refresh_token", "TEXT"),
+    ("email_accounts", "oauth_token_expiry", "TIMESTAMPTZ"),
 ]
 
 

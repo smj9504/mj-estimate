@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.domains.email_ingestion.schemas import (
     BatchPollResponse,
     EmailAccountCreate,
+    EmailAccountOAuthConnect,
     EmailAccountResponse,
     EmailAccountTestResponse,
     EmailAccountUpdate,
@@ -94,6 +95,40 @@ async def test_account(account_id: str):
     """Test IMAP connection for an account"""
     service = _get_service()
     return service.test_account(account_id)
+
+
+# ============================================================
+# OAuth endpoints
+# ============================================================
+
+@router.get("/oauth/authorize")
+async def get_oauth_url():
+    """Get Google OAuth authorization URL for email account"""
+    service = _get_service()
+    try:
+        return service.get_oauth_url()
+    except Exception as e:
+        logger.error(f"Error generating OAuth URL: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/oauth/callback", response_model=EmailAccountResponse)
+async def oauth_callback(data: EmailAccountOAuthConnect):
+    """Complete OAuth flow and create/update email account"""
+    service = _get_service()
+    try:
+        extra = {}
+        if data.company_id:
+            extra["company_id"] = str(data.company_id)
+        if data.sender_name:
+            extra["sender_name"] = data.sender_name
+        if data.sender_phone:
+            extra["sender_phone"] = data.sender_phone
+        result = service.connect_oauth(data.code, extra)
+        return result
+    except Exception as e:
+        logger.error(f"OAuth callback error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ============================================================

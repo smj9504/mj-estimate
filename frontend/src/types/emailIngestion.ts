@@ -11,6 +11,7 @@ export interface EmailAccount {
   imap_port: number;
   use_ssl: boolean;
   username: string;
+  auth_method: 'password' | 'oauth';
   company_id?: string;
   company_name?: string;
   sender_name?: string;
@@ -20,6 +21,13 @@ export interface EmailAccount {
   last_synced_at?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface EmailAccountOAuthConnect {
+  code: string;
+  company_id?: string;
+  sender_name?: string;
+  sender_phone?: string;
 }
 
 export interface EmailAccountCreate {

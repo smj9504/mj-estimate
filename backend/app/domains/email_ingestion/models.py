@@ -51,6 +51,12 @@ class EmailAccount(Base, BaseModel):
     sender_name = Column(String(255), nullable=True, comment="Sender full name for signature")
     sender_phone = Column(String(50), nullable=True, comment="Sender phone for signature")
 
+    # OAuth 2.0 (alternative to password auth)
+    auth_method = Column(String(20), nullable=False, default="password", comment="password | oauth")
+    oauth_access_token = Column(Text, nullable=True, comment="Encrypted OAuth access token")
+    oauth_refresh_token = Column(Text, nullable=True, comment="Encrypted OAuth refresh token")
+    oauth_token_expiry = Column(DateTime(timezone=True), nullable=True)
+
     # State
     is_active = Column(Boolean, nullable=False, default=True)
     last_synced_at = Column(DateTime(timezone=True), nullable=True)

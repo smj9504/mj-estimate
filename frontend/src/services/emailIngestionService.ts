@@ -7,6 +7,7 @@ import type {
   EmailAccount,
   EmailAccountCreate,
   EmailAccountUpdate,
+  EmailAccountOAuthConnect,
   EmailAccountTestResult,
   IngestionLog,
   BatchPollResult,
@@ -50,6 +51,17 @@ export const emailIngestionService = {
   async testAccount(id: string) {
     const { data } = await api.post(`${BASE}/accounts/${id}/test`);
     return data as EmailAccountTestResult;
+  },
+
+  // OAuth
+  async getOAuthUrl() {
+    const { data } = await api.get(`${BASE}/oauth/authorize`);
+    return data as { authorization_url: string; state: string };
+  },
+
+  async connectOAuth(payload: EmailAccountOAuthConnect) {
+    const { data } = await api.post(`${BASE}/oauth/callback`, payload);
+    return data as EmailAccount;
   },
 
   // ============================================================

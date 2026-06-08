@@ -164,6 +164,173 @@ class EmailIngestionService:
             cid = str(a['company_id']) if a.get('company_id') else None
             a['company_name'] = name_map.get(cid) if cid else None
 
+    def connect_oauth(self, code: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Connect an email account via Google OAuth.
+        Creates a new account or updates existing one."""
+        from google.oauth2.credentials import Credentials
+        from google_auth_oauthlib.flow import Flow
+        from googleapiclient.discovery import build
+        from app.core.config import settings
+        from app.core.encryption import encrypt_text
+        from app.domains.email_ingestion.repository import (
+            get_email_account_repository,
+        )
+
+        # Gmail scopes for IMAP + SMTP
+        scopes = [
+            "https://mail.google.com/",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "openid",
+        ]
+
+        client_config = {
+            "web": {
+                "client_id": settings.GOOGLE_OAUTH_CLIENT_ID,
+                "client_secret": settings.GOOGLE_OAUTH_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [
+                    settings.GOOGLE_OAUTH_REDIRECT_URI
+                ],
+            }
+        }
+
+        flow = Flow.from_client_config(
+            client_config,
+            scopes=scopes,
+            redirect_uri=settings.GOOGLE_OAUTH_REDIRECT_URI,
+        )
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+
+        # Get user email
+        svc = build("oauth2", "v2", credentials=creds)
+        userinfo = svc.userinfo().get().execute()
+        email_address = userinfo.get("email", "")
+        display_name = userinfo.get("name", email_address)
+
+        session = self._get_session()
+        try:
+            repo = get_email_account_repository(session)
+
+            # Check if account with this email already exists
+            existing = repo.get_by_email(email_address)
+
+            account_data = {
+                "auth_method": "oauth",
+                "oauth_access_token": encrypt_text(creds.token),
+                "oauth_refresh_token": encrypt_text(
+                    creds.refresh_token
+                ) if creds.refresh_token else None,
+                "oauth_token_expiry": creds.expiry,
+                "encrypted_password": encrypt_password("oauth"),
+                "is_active": True,
+            }
+
+            if existing:
+                # Update existing account to OAuth
+                account_data.update({
+                    k: v for k, v in data.items()
+                    if v is not None and k in (
+                        "company_id", "sender_name", "sender_phone",
+                    )
+                })
+                result = repo.update(str(existing["id"]), account_data)
+            else:
+                # Detect provider
+                domain = email_address.split("@")[1] if "@" in email_address else ""
+                provider = "gmail"
+                if "outlook" in domain or "office" in domain:
+                    provider = "outlook"
+
+                account_data.update({
+                    "display_name": data.get("sender_name") or display_name,
+                    "email_address": email_address,
+                    "provider_type": provider,
+                    "imap_server": "imap.gmail.com",
+                    "imap_port": 993,
+                    "use_ssl": True,
+                    "username": email_address,
+                    "company_id": data.get("company_id"),
+                    "sender_name": data.get("sender_name"),
+                    "sender_phone": data.get("sender_phone"),
+                })
+                result = repo.create(account_data)
+
+            session.commit()
+            self._enrich_with_company_name(session, [result])
+            return result
+        except Exception as e:
+            session.rollback()
+            logger.error(f"OAuth connect failed: {e}")
+            raise
+        finally:
+            session.close()
+
+    def get_oauth_url(self) -> Dict[str, str]:
+        """Generate Google OAuth authorization URL for email access"""
+        from app.core.config import settings
+        from google_auth_oauthlib.flow import Flow
+
+        scopes = [
+            "https://mail.google.com/",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "openid",
+        ]
+
+        client_config = {
+            "web": {
+                "client_id": settings.GOOGLE_OAUTH_CLIENT_ID,
+                "client_secret": settings.GOOGLE_OAUTH_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [
+                    settings.GOOGLE_OAUTH_REDIRECT_URI
+                ],
+            }
+        }
+
+        flow = Flow.from_client_config(
+            client_config,
+            scopes=scopes,
+            redirect_uri=settings.GOOGLE_OAUTH_REDIRECT_URI,
+        )
+
+        auth_url, state = flow.authorization_url(
+            access_type="offline",
+            include_granted_scopes="true",
+            prompt="consent",
+            state="email_account",
+        )
+
+        return {"authorization_url": auth_url, "state": state}
+
+    def _build_imap_client(self, account: Dict[str, Any], session=None):
+        """Build an IMAPClient with proper auth (password or OAuth)"""
+        from app.domains.email_ingestion.email_client import IMAPClient
+
+        auth_method = account.get("auth_method", "password")
+        oauth_token = None
+        password = ""
+
+        if auth_method == "oauth":
+            from app.domains.claim_followup.smtp_service import SmtpService
+            smtp = SmtpService()
+            oauth_token = smtp._get_fresh_oauth_token(
+                account, session
+            )
+        else:
+            password = decrypt_password(account["encrypted_password"])
+
+        return IMAPClient(
+            server=account["imap_server"],
+            port=account["imap_port"],
+            username=account["username"],
+            password=password,
+            use_ssl=account["use_ssl"],
+            oauth_access_token=oauth_token,
+        )
+
     def test_account(self, account_id: str) -> Dict[str, Any]:
         """Test IMAP connection for an account"""
         session = self._get_readonly_session()
@@ -175,16 +342,7 @@ class EmailIngestionService:
             if not account:
                 return {"success": False, "message": "Account not found", "inbox_count": None}
 
-            from app.domains.email_ingestion.email_client import IMAPClient
-            password = decrypt_password(account["encrypted_password"])
-
-            client = IMAPClient(
-                server=account["imap_server"],
-                port=account["imap_port"],
-                username=account["username"],
-                password=password,
-                use_ssl=account["use_ssl"],
-            )
+            client = self._build_imap_client(account, session)
             success, message, inbox_count = client.test_connection()
             return {"success": success, "message": message, "inbox_count": inbox_count}
         except Exception as e:
@@ -212,15 +370,7 @@ class EmailIngestionService:
                 raise ValueError(f"Account {account_id} not found")
 
             # Connect to IMAP
-            from app.domains.email_ingestion.email_client import IMAPClient
-            password = decrypt_password(account["encrypted_password"])
-            imap = IMAPClient(
-                server=account["imap_server"],
-                port=account["imap_port"],
-                username=account["username"],
-                password=password,
-                use_ssl=account["use_ssl"],
-            )
+            imap = self._build_imap_client(account, session)
 
             # Fetch unseen emails with attachments
             emails = imap.fetch_unseen_with_attachments(

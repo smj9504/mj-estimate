@@ -29,6 +29,7 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   SyncOutlined,
+  GoogleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { emailIngestionService } from '../services/emailIngestionService';
@@ -108,6 +109,61 @@ const EmailAccountSettings: React.FC = () => {
     },
   });
 
+  const [oauthLoading, setOauthLoading] = useState(false);
+
+  const handleGoogleConnect = async () => {
+    setOauthLoading(true);
+    try {
+      const { authorization_url } = await emailIngestionService.getOAuthUrl();
+      // Open popup for OAuth
+      const width = 500, height = 600;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+      const popup = window.open(
+        authorization_url,
+        'google-oauth',
+        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+      );
+
+      // Listen for callback from popup
+      const handler = async (event: MessageEvent) => {
+        if (event.data?.type !== 'google-oauth-callback') return;
+        window.removeEventListener('message', handler);
+
+        if (event.data.error) {
+          message.error(`Google sign-in failed: ${event.data.error}`);
+          setOauthLoading(false);
+          return;
+        }
+
+        try {
+          const account = await emailIngestionService.connectOAuth({
+            code: event.data.code,
+          });
+          message.success(`Connected ${account.email_address} via Google OAuth`);
+          queryClient.invalidateQueries({ queryKey: ['email-accounts-all'] });
+        } catch (err: any) {
+          message.error(err?.response?.data?.detail || 'OAuth connection failed');
+        } finally {
+          setOauthLoading(false);
+        }
+      };
+      window.addEventListener('message', handler);
+
+      // Fallback: if popup closed without completing
+      const checkClosed = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(checkClosed);
+          setOauthLoading(false);
+          window.removeEventListener('message', handler);
+        }
+      }, 1000);
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to start OAuth');
+      setOauthLoading(false);
+    }
+  };
+
   const handleProviderChange = (provider: string) => {
     const preset = PRESETS[provider];
     if (preset) {
@@ -181,6 +237,15 @@ const EmailAccountSettings: React.FC = () => {
       render: (v: string) => <Tag>{v.toUpperCase()}</Tag>,
     },
     {
+      title: 'Auth',
+      dataIndex: 'auth_method',
+      key: 'auth_method',
+      width: 80,
+      render: (v: string) => v === 'oauth'
+        ? <Tag color="blue"><GoogleOutlined /> OAuth</Tag>
+        : <Tag>Password</Tag>,
+    },
+    {
       title: 'Status',
       dataIndex: 'is_active',
       key: 'is_active',
@@ -249,17 +314,28 @@ const EmailAccountSettings: React.FC = () => {
       <Card
         title={<><MailOutlined style={{ marginRight: 8 }} />Email Account Settings</>}
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
-            Add Account
-          </Button>
+          <Space>
+            <Button
+              icon={<GoogleOutlined />}
+              loading={oauthLoading}
+              onClick={handleGoogleConnect}
+              style={{ background: '#4285f4', borderColor: '#4285f4', color: '#fff' }}
+            >
+              Connect with Google
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+              Add Account (Manual)
+            </Button>
+          </Space>
         }
       >
         <Alert
-          message="Gmail requires App Password"
+          message="Recommended: Connect with Google"
           description={
             <span>
-              For Gmail accounts, you need to enable 2-Factor Authentication and generate an App Password.
-              Go to Google Account &gt; Security &gt; 2-Step Verification &gt; App passwords.
+              Click <b>"Connect with Google"</b> to link your account with one click (no App Password needed).
+              For manual setup, you need to enable 2-Factor Authentication and generate an App Password
+              (Google Account &gt; Security &gt; 2-Step Verification &gt; App passwords).
             </span>
           }
           type="info"

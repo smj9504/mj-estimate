@@ -65,6 +65,7 @@ class EmailAccountResponse(BaseModel):
     imap_port: int
     use_ssl: bool
     username: str
+    auth_method: str = "password"
     company_id: Optional[UUID] = None
     company_name: Optional[str] = None
     sender_name: Optional[str] = None
@@ -77,6 +78,14 @@ class EmailAccountResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class EmailAccountOAuthConnect(BaseModel):
+    """Request to connect an email account via Google OAuth"""
+    code: str = Field(..., description="OAuth authorization code")
+    company_id: Optional[UUID] = None
+    sender_name: Optional[str] = None
+    sender_phone: Optional[str] = None
 
 
 class EmailAccountTestResponse(BaseModel):
