@@ -210,29 +210,20 @@ const BEDrywallRepairPanel: React.FC<BEDrywallRepairPanelProps> = ({ api }) => {
         onChange={() => {/* controlled by selectedId; allow collapse by clicking same header */}}
       >
         {calculations.map(({ zone, calc }, idx) => {
-          // Room detection: use stored roomId, or re-detect from boundary midpoint with tolerance
-          let roomName = zone.roomId
-            ? data.rooms.find((r) => r.id === zone.roomId)?.name
-            : undefined;
-          if (!roomName && zone.boundary.length >= 2) {
-            const mx = zone.boundary.reduce((s, p) => s + p.x, 0) / zone.boundary.length;
-            const my = zone.boundary.reduce((s, p) => s + p.y, 0) / zone.boundary.length;
-            const detectedRoom = data.rooms.find((r) => pointNearRoom(mx, my, r.boundary));
-            if (detectedRoom) roomName = detectedRoom.name;
-          }
-
-          // Wall length for identification
-          let lengthLabel = '';
+          // Wall length + direction for identification
+          let lengthFt = 0;
           let dirLabel = '';
           if (zone.surface === 'wall' && zone.boundary.length >= 2) {
             const dx = zone.boundary[1].x - zone.boundary[0].x;
             const dy = zone.boundary[1].y - zone.boundary[0].y;
-            const lenFt = Math.sqrt(dx * dx + dy * dy) / ppf;
-            lengthLabel = `${lenFt.toFixed(1)}ft`;
+            lengthFt = Math.sqrt(dx * dx + dy * dy) / ppf;
             dirLabel = wallDirectionLabel(zone.boundary);
           }
 
           const isZoneSelected = selectedId === zone.id;
+          // Compact label: "W1 (V) 2.5ft" or "C1"
+          const typeChar = zone.surface === 'wall' ? 'W' : 'C';
+          const label = `${typeChar}${idx + 1}${dirLabel ? ` ${dirLabel}` : ''}`;
 
           return (
             <Collapse.Panel
@@ -243,32 +234,28 @@ const BEDrywallRepairPanel: React.FC<BEDrywallRepairPanelProps> = ({ api }) => {
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%',
                     cursor: 'pointer',
                     backgroundColor: isZoneSelected ? 'rgba(255, 152, 0, 0.08)' : undefined,
-                    borderRadius: 4,
+                    borderRadius: 4, padding: '0 2px',
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedId(isZoneSelected ? null : zone.id);
                   }}
                 >
-                  <Space size={4}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                     <div
                       style={{
-                        width: 10, height: 10, borderRadius: 2,
+                        width: 8, height: 8, borderRadius: 2, flexShrink: 0,
                         backgroundColor: isZoneSelected ? '#ff9800' : 'rgba(255,152,0,0.6)',
                         border: isZoneSelected ? '2px solid #e65100' : '1px solid rgba(0,0,0,0.2)',
                       }}
                     />
-                    <Text strong style={{ fontSize: 11 }}>
-                      {zone.surface === 'wall' ? 'Wall' : 'Ceiling'} {idx + 1}
-                      {dirLabel ? ` (${dirLabel})` : ''}
-                      {roomName ? ` — ${roomName}` : ''}
-                    </Text>
-                  </Space>
-                  <Space size={4}>
-                    {lengthLabel && <Tag color="geekblue" style={{ fontSize: 9, margin: 0 }}>{lengthLabel}</Tag>}
-                    <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>{zone.areaSF} SF</Tag>
-                    <Tag color="default" style={{ fontSize: 10, margin: 0 }}>${Math.round(calc.totalCost)}</Tag>
-                  </Space>
+                    <Text strong style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{label}</Text>
+                  </div>
+                  <div style={{ display: 'flex', gap: 3, flexShrink: 0, marginLeft: 4 }}>
+                    {lengthFt > 0 && <Tag color="geekblue" style={{ fontSize: 9, margin: 0, padding: '0 4px' }}>{lengthFt.toFixed(1)}ft</Tag>}
+                    <Tag color="orange" style={{ fontSize: 9, margin: 0, padding: '0 4px' }}>{zone.areaSF} SF</Tag>
+                    <Tag style={{ fontSize: 9, margin: 0, padding: '0 4px' }}>${Math.round(calc.totalCost)}</Tag>
+                  </div>
                 </div>
               }
             >
