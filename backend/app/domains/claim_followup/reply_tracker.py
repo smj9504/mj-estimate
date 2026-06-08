@@ -163,13 +163,28 @@ class ReplyTracker:
                 return 0
 
             # Connect to IMAP and search for replies
-            password = decrypt_password(account["encrypted_password"])
+            auth_method = account.get("auth_method", "password")
+            oauth_token = None
+            password = ""
+            if auth_method == "oauth":
+                from app.domains.claim_followup.smtp_service import (
+                    SmtpService,
+                )
+                smtp = SmtpService()
+                oauth_token = smtp._get_fresh_oauth_token(
+                    account, session
+                )
+            else:
+                password = decrypt_password(
+                    account["encrypted_password"]
+                )
             imap = IMAPClient(
                 server=account["imap_server"],
                 port=account["imap_port"],
                 username=account["username"],
                 password=password,
                 use_ssl=account["use_ssl"],
+                oauth_access_token=oauth_token,
             )
 
             # Search within last 30 days

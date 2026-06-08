@@ -82,7 +82,17 @@ class SmtpService:
             else:
                 server = smtplib.SMTP_SSL(smtp_config["server"], smtp_config["port"])
 
-            if smtp_config.get("username") and smtp_config.get("password"):
+            # Authenticate: OAuth XOAUTH2 or password
+            oauth_token = smtp_config.get("oauth_access_token")
+            if oauth_token:
+                auth_string = (
+                    f"user={smtp_config['username']}\x01"
+                    f"auth=Bearer {oauth_token}\x01\x01"
+                )
+                server.docmd("AUTH", "XOAUTH2 " + __import__("base64").b64encode(
+                    auth_string.encode()
+                ).decode())
+            elif smtp_config.get("username") and smtp_config.get("password"):
                 server.login(smtp_config["username"], smtp_config["password"])
 
             server.sendmail(from_address, all_recipients, msg.as_string())
@@ -108,17 +118,21 @@ class SmtpService:
 
         # Fallback to system-level SMTP settings
         return {
-            "server": getattr(settings, "SMTP_SERVER", "smtp.gmail.com"),
+            "server": getattr(settings, "SMTP_HOST", "smtp.gmail.com"),
             "port": int(getattr(settings, "SMTP_PORT", 587)),
-            "use_tls": getattr(settings, "SMTP_USE_TLS", True),
-            "username": getattr(settings, "SMTP_USERNAME", None),
+            "use_tls": True,
+            "username": getattr(settings, "SMTP_USER", None),
             "password": getattr(settings, "SMTP_PASSWORD", None),
+            "display_name": getattr(settings, "SMTP_FROM_NAME", ""),
+            "email_address": getattr(settings, "SMTP_FROM_EMAIL", ""),
         }
 
     def _get_account_smtp_config(self, account_id: str) -> Dict[str, Any]:
         """Get SMTP config from an EmailAccount (reuses IMAP credentials)"""
         from app.core.database_factory import get_database
-        from app.domains.email_ingestion.repository import get_email_account_repository
+        from app.domains.email_ingestion.repository import (
+            get_email_account_repository,
+        )
         from app.domains.email_ingestion.service import decrypt_password
 
         database = get_database()
@@ -127,13 +141,28 @@ class SmtpService:
             repo = get_email_account_repository(session)
             account = repo.get_by_id(account_id)
             if not account:
-                raise ValueError(f"Email account {account_id} not found")
+                raise ValueError(
+                    f"Email account {account_id} not found"
+                )
 
             provider = account.get("provider_type", "gmail")
-            preset = SMTP_PROVIDERS.get(provider, SMTP_PROVIDERS["gmail"])
+            preset = SMTP_PROVIDERS.get(
+                provider, SMTP_PROVIDERS["gmail"]
+            )
 
-            # Decrypt the password
-            password = decrypt_password(account["encrypted_password"])
+            # OAuth or password auth
+            auth_method = account.get("auth_method", "password")
+            oauth_token = None
+            password = None
+
+            if auth_method == "oauth":
+                oauth_token = self._get_fresh_oauth_token(
+                    account, session
+                )
+            else:
+                password = decrypt_password(
+                    account["encrypted_password"]
+                )
 
             # Get company name for signature
             company_name = ""
@@ -154,14 +183,89 @@ class SmtpService:
                 "use_tls": preset["use_tls"],
                 "username": account["username"],
                 "password": password,
+                "oauth_access_token": oauth_token,
                 "display_name": account.get("display_name", ""),
                 "sender_name": account.get("sender_name", ""),
                 "sender_phone": account.get("sender_phone", ""),
-                "email_address": account.get("email_address", ""),
+                "email_address": account.get(
+                    "email_address", ""
+                ),
                 "company_name": company_name,
             }
         finally:
             session.close()
+
+    def _get_fresh_oauth_token(
+        self, account: Dict[str, Any], session
+    ) -> str:
+        """Get a fresh OAuth access token, refreshing if expired"""
+        from app.core.encryption import decrypt_text
+        from datetime import datetime, timezone
+
+        token_expiry = account.get("oauth_token_expiry")
+        access_token_enc = account.get("oauth_access_token")
+        refresh_token_enc = account.get("oauth_refresh_token")
+
+        if not refresh_token_enc:
+            raise ValueError(
+                "OAuth refresh token not found. "
+                "Please reconnect the account."
+            )
+
+        needs_refresh = True
+        if access_token_enc and token_expiry:
+            if isinstance(token_expiry, str):
+                from dateutil.parser import parse
+                token_expiry = parse(token_expiry)
+            now = datetime.now(timezone.utc)
+            if token_expiry.tzinfo is None:
+                from datetime import timezone as tz
+                token_expiry = token_expiry.replace(
+                    tzinfo=tz.utc
+                )
+            needs_refresh = now >= token_expiry
+
+        if not needs_refresh and access_token_enc:
+            return decrypt_text(access_token_enc)
+
+        # Refresh the token
+        from app.core.encryption import encrypt_text
+        from app.core.config import settings
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+
+        refresh_token = decrypt_text(refresh_token_enc)
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=settings.GOOGLE_OAUTH_CLIENT_ID,
+            client_secret=settings.GOOGLE_OAUTH_CLIENT_SECRET,
+        )
+        creds.refresh(Request())
+
+        # Update stored tokens
+        from app.domains.email_ingestion.models import (
+            EmailAccount,
+        )
+        acc_obj = session.query(EmailAccount).filter(
+            EmailAccount.id == account["id"]
+        ).first()
+        if acc_obj:
+            acc_obj.oauth_access_token = encrypt_text(
+                creds.token
+            )
+            if creds.refresh_token:
+                acc_obj.oauth_refresh_token = encrypt_text(
+                    creds.refresh_token
+                )
+            acc_obj.oauth_token_expiry = creds.expiry
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+
+        return creds.token
 
     def _build_message(
         self,
