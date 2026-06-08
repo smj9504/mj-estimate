@@ -180,7 +180,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             label: 'Rebuild Projects',
           },
           {
-            key: '/email-ingestion',
+            key: '/email-ingestion/accounts',
             icon: <MailOutlined />,
             label: 'Email Ingestion',
           },

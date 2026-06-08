@@ -93,6 +93,8 @@ export interface WaterMitigationJob {
   check_number?: string;
   check_date?: string;
   check_amount?: number;
+  payment_status?: string;
+  payment_note?: string;
   notes?: string;
 
   // Metadata
@@ -152,6 +154,8 @@ export interface JobCreateRequest {
   check_number?: string;
   check_date?: string | null;
   check_amount?: number;
+  payment_status?: string;
+  payment_note?: string;
 
   // Integration fields
   companycam_project_id?: string;
@@ -202,6 +206,8 @@ export interface JobUpdate {
   check_number?: string;
   check_date?: string | null;
   check_amount?: number;
+  payment_status?: string;
+  payment_note?: string;
 
   // Integration fields
   companycam_project_id?: string;

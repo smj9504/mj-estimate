@@ -69,6 +69,8 @@ class JobBase(BaseModel):
     check_number: Optional[str] = Field(None, max_length=100)
     check_date: Optional[Union[datetime, date]] = None
     check_amount: Optional[float] = None
+    payment_status: Optional[str] = None
+    payment_note: Optional[str] = None
 
     @validator('date_of_loss', 'mitigation_start_date', 'mitigation_end_date', 'inspection_date', 'documents_sent_date', 'check_date', pre=True)
     def convert_date_to_datetime(cls, v):
@@ -131,6 +133,8 @@ class JobUpdate(BaseModel):
     check_number: Optional[str] = Field(None, max_length=100)
     check_date: Optional[Union[datetime, date]] = None
     check_amount: Optional[float] = None
+    payment_status: Optional[str] = None
+    payment_note: Optional[str] = None
 
     active: Optional[bool] = None
 

@@ -100,6 +100,8 @@ class WaterMitigationJob(Base, BaseModel):
     check_number = Column(String(100))
     check_date = Column(DateTime(timezone=True))
     check_amount = Column(DECIMAL(10, 2))
+    payment_status = Column(String(50), comment="pending | issued | homeowner_holding | lost | reissued | received | partial")
+    payment_note = Column(Text)
 
     # External integration references
     companycam_project_id = Column(String(255), unique=True, index=True)

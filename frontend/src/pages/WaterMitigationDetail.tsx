@@ -151,7 +151,9 @@ const WaterMitigationDetail: React.FC = () => {
     invoice_amount: null as number | null,
     check_number: '',
     check_date: null as string | null,
-    check_amount: null as number | null
+    check_amount: null as number | null,
+    payment_status: '' as string,
+    payment_note: '' as string,
   });
 
   useEffect(() => {
@@ -232,7 +234,9 @@ const WaterMitigationDetail: React.FC = () => {
         invoice_amount: job.invoice_amount || null,
         check_number: job.check_number || '',
         check_date: job.check_date || null,
-        check_amount: job.check_amount || null
+        check_amount: job.check_amount || null,
+        payment_status: job.payment_status || '',
+        payment_note: job.payment_note || '',
       });
     }
   }, [job]);
@@ -339,7 +343,9 @@ const WaterMitigationDetail: React.FC = () => {
       invoice_amount: financialForm.invoice_amount ?? undefined,
       check_number: financialForm.check_number || undefined,
       check_date: formatDateForApi(financialForm.check_date),
-      check_amount: financialForm.check_amount ?? undefined
+      check_amount: financialForm.check_amount ?? undefined,
+      payment_status: financialForm.payment_status || undefined,
+      payment_note: financialForm.payment_note || undefined,
     };
     try {
       await waterMitigationService.updateJob(id, updateData);
@@ -813,6 +819,51 @@ const WaterMitigationDetail: React.FC = () => {
                               />
                             ) : (
                               job.check_amount ? `$${job.check_amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'
+                            )}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="Payment Status">
+                            {isEditing ? (
+                              <Select
+                                value={financialForm.payment_status || undefined}
+                                onChange={(value) => setFinancialForm({ ...financialForm, payment_status: value || '' })}
+                                placeholder="Select status"
+                                allowClear
+                                style={{ width: '100%' }}
+                              >
+                                <Select.Option value="pending">Pending</Select.Option>
+                                <Select.Option value="issued">Issued (Amount Unknown)</Select.Option>
+                                <Select.Option value="homeowner_holding">Homeowner Holding Check</Select.Option>
+                                <Select.Option value="lost">Check Lost in Transit</Select.Option>
+                                <Select.Option value="reissued">Reissued</Select.Option>
+                                <Select.Option value="received">Received</Select.Option>
+                                <Select.Option value="partial">Partial Payment</Select.Option>
+                              </Select>
+                            ) : (
+                              job.payment_status ? (
+                                <Tag color={{
+                                  pending: 'orange', issued: 'blue', homeowner_holding: 'volcano',
+                                  lost: 'red', reissued: 'purple', received: 'green', partial: 'cyan',
+                                }[job.payment_status] || 'default'}>
+                                  {{
+                                    pending: 'Pending', issued: 'Issued (Amt Unknown)',
+                                    homeowner_holding: 'Homeowner Holding', lost: 'Check Lost',
+                                    reissued: 'Reissued', received: 'Received', partial: 'Partial',
+                                  }[job.payment_status] || job.payment_status}
+                                </Tag>
+                              ) : '-'
+                            )}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="Payment Note" span={descColumn}>
+                            {isEditing ? (
+                              <Input.TextArea
+                                value={financialForm.payment_note}
+                                onChange={(e) => setFinancialForm({ ...financialForm, payment_note: e.target.value })}
+                                placeholder="e.g. Homeowner has check, waiting for handoff / Check lost, reissue requested 6/8"
+                                rows={2}
+                                maxLength={500}
+                              />
+                            ) : (
+                              job.payment_note ? <span style={{ whiteSpace: 'pre-wrap' }}>{job.payment_note}</span> : '-'
                             )}
                           </Descriptions.Item>
                         </Descriptions>
