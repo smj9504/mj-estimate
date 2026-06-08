@@ -68,6 +68,7 @@ export interface SketchFixtureSync {
   bathtub_spec?: Record<string, any>;
   shower_spec?: Record<string, any>;
   vanity_spec?: Record<string, any>;
+  toilet_spec?: Record<string, any>;
 
   // Drywall repair (from sketch drywall zones)
   hidden_costs?: Record<string, any>;
@@ -213,6 +214,9 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
   sync.replace_shower = !!shower;
   sync.replace_vanity = vanities.length > 0;
   sync.replace_toilet = !!toilet;
+  if (toilet) {
+    sync.toilet_spec = { type: 'two_piece_standard' };
+  }
   sync.replace_mirror = mirrors.length > 0;
   // demo_floor is a user decision — don't auto-set from sketch
   sync.demo_walls = !!(shower || bathtub);

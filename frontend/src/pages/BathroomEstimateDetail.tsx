@@ -308,6 +308,9 @@ const BathroomEstimateDetail: React.FC = () => {
       updates.vanity_spec = { items: mergedItems };
     }
 
+    if (sync.toilet_spec) {
+      updates.toilet_spec = { ...(current.toilet_spec || {}), ...sync.toilet_spec };
+    }
     if (sync.walls_spec) {
       updates.walls_spec = { ...(current.walls_spec || {}), ...sync.walls_spec };
     }
