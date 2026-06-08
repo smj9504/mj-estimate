@@ -1335,7 +1335,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                       </>
                     )}
                     <Text x={mx - 30} y={my - 20}
-                      text={`Wall DW${roomName ? ` (${roomName})` : ''}\n${lenFt.toFixed(1)}ft × ${zone.repairHeightInches}" = ${zone.areaSF} SF`}
+                      text={`Wall DW\n${zone.areaSF} SF`}
                       fontSize={9} fill="#bf360c" fontStyle="bold" align="center" listening={false} />
                   </Group>
                 );
@@ -1437,7 +1437,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                     {lenPx > 20 && (
                       <Text
                         x={(s.x + c.x) / 2 - 30} y={(s.y + c.y) / 2 - 18}
-                        text={`Wall DW\n${lenFt.toFixed(1)}ft × 8ft = ${areaSF.toFixed(1)} SF`}
+                        text={`Wall DW\n${areaSF.toFixed(1)} SF`}
                         fontSize={10} fill="#e65100" fontStyle="bold"
                         listening={false}
                       />
