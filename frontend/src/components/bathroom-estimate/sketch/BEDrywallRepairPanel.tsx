@@ -258,7 +258,6 @@ const BEDrywallRepairPanel: React.FC<BEDrywallRepairPanelProps> = ({ api }) => {
                   <div style={{ display: 'flex', gap: 3, flexShrink: 0, marginLeft: 4 }}>
                     {lengthFt > 0 && <Tag color="geekblue" style={{ fontSize: 9, margin: 0, padding: '0 4px' }}>{lengthFt.toFixed(1)}ft</Tag>}
                     <Tag color="orange" style={{ fontSize: 9, margin: 0, padding: '0 4px' }}>{zone.areaSF} SF</Tag>
-                    <Tag style={{ fontSize: 9, margin: 0, padding: '0 4px' }}>${Math.round(calc.totalCost)}</Tag>
                   </div>
                 </div>
               }
