@@ -35,6 +35,8 @@ import type {
   ShowerDoorType,
   ShowerWallMaterial,
   BEFixture,
+  BEDamageZone,
+  BERoom,
   BEWall,
   BEPoint,
 } from '../../../types/bathroomSketch';
@@ -319,9 +321,15 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
                       </div>
                     );
                   })()
+                ) : data.damageZones.find((z) => z.id === selectedId) ? (
+                  <DamageZonePropertiesPanel
+                    zone={data.damageZones.find((z) => z.id === selectedId)!}
+                    rooms={data.rooms}
+                    api={api}
+                  />
                 ) : (
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    Damage zone selected.
+                    Select an element to view its properties.
                   </Text>
                 )}
 
@@ -791,6 +799,109 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
         onChange={(v) => v != null && api.updateFixture(fixture.id, { rotation: v })}
         style={{ width: '100%' }}
       />
+    </div>
+  );
+};
+
+// ── Damage Zone Properties Sub-Panel ──
+
+const DamageZonePropertiesPanel: React.FC<{
+  zone: BEDamageZone;
+  rooms: BERoom[];
+  api: BESketchStateAPI;
+}> = ({ zone, rooms, api }) => {
+  // Find which room contains this damage zone (by centroid)
+  const cx = zone.boundary.reduce((s, p) => s + p.x, 0) / zone.boundary.length;
+  const cy = zone.boundary.reduce((s, p) => s + p.y, 0) / zone.boundary.length;
+  const containingRoom = rooms.find((r) => {
+    let inside = false;
+    for (let i = 0, j = r.boundary.length - 1; i < r.boundary.length; j = i++) {
+      const xi = r.boundary[i].x, yi = r.boundary[i].y;
+      const xj = r.boundary[j].x, yj = r.boundary[j].y;
+      if ((yi > cy) !== (yj > cy) && cx < (xj - xi) * (cy - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  });
+
+  const handleCreateDrywallRepair = useCallback(() => {
+    const b = zone.boundary;
+    if (b.length < 4) return;
+
+    // Create wall-type drywall repair zones along each edge of the damage rectangle
+    // Edges: top (0→1), right (1→2), bottom (2→3), left (3→0)
+    const edgeLabels = ['top', 'right', 'bottom', 'left'];
+    let created = 0;
+    for (let i = 0; i < 4; i++) {
+      const p0 = b[i];
+      const p1 = b[(i + 1) % 4];
+      const dx = p1.x - p0.x;
+      const dy = p1.y - p0.y;
+      const lenPx = Math.sqrt(dx * dx + dy * dy);
+      if (lenPx < 5) continue; // skip degenerate edges
+      api.addDrywallRepairZone([p0, p1], containingRoom?.id, 'wall');
+      created++;
+    }
+    if (created > 0) {
+      message.success(`${created} drywall repair zones created from damage area`);
+    }
+  }, [zone.boundary, containingRoom, api]);
+
+  return (
+    <div style={{ fontSize: 12 }}>
+      <Text strong>Damage Zone</Text>
+      {containingRoom && <Tag color="red" style={{ marginLeft: 6 }}>{containingRoom.name}</Tag>}
+      <Tag style={{ marginLeft: 4 }} color="blue">{zone.id.slice(0, 12)}</Tag>
+      <Divider style={{ margin: '6px 0' }} />
+
+      <div style={{ marginBottom: 6 }}>
+        <Text type="secondary">Type:</Text>
+        <Select
+          size="small"
+          value={zone.damageType}
+          onChange={(v) => api.updateDamageZone(zone.id, { damageType: v as BEDamageZone['damageType'] })}
+          style={{ width: '100%', marginTop: 4 }}
+        >
+          <Option value="water_damage">Water Damage</Option>
+          <Option value="mold">Mold</Option>
+          <Option value="cement_board">Cement Board</Option>
+        </Select>
+      </div>
+
+      <div style={{ marginBottom: 6 }}>
+        <div>Area: <strong>{zone.areaSF} SF</strong></div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+        <Text type="secondary">Needs Demo:</Text>
+        <Switch
+          size="small"
+          checked={zone.needsDemo}
+          onChange={(v) => api.updateDamageZone(zone.id, { needsDemo: v })}
+        />
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+        <Text type="secondary">Needs Replace:</Text>
+        <Switch
+          size="small"
+          checked={zone.needsReplace}
+          onChange={(v) => api.updateDamageZone(zone.id, { needsReplace: v })}
+        />
+      </div>
+
+      <Divider style={{ margin: '6px 0' }} />
+      <Button
+        size="small"
+        type="primary"
+        block
+        onClick={handleCreateDrywallRepair}
+        style={{ marginBottom: 4 }}
+      >
+        Create Drywall Repair (4 walls)
+      </Button>
+      <Text type="secondary" style={{ fontSize: 10 }}>
+        Generates wall-type drywall repair zones along each edge of this damage area.
+      </Text>
     </div>
   );
 };
