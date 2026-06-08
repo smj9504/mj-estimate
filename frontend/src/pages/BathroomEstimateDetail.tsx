@@ -1357,78 +1357,91 @@ const BathroomEstimateDetail: React.FC = () => {
           {
             key: 'vanity_toilet',
             forceRender: true,
-            label: 'Vanity & Toilet',
+            label: 'Vanity/Sink & Toilet',
             children: (
               <Card>
                 <Collapse defaultActiveKey={['vanity', 'toilet']}>
-                  <Panel header="Vanity" key="vanity">
-                    <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f6f8fa', borderRadius: 4, fontSize: 11, color: '#666' }}>
-                      <Text strong style={{ fontSize: 12 }}>Vanity Complete includes:</Text>
-                      <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
-                        <span>🪵 Cabinet (source/size)</span>
-                        <span>🪨 Countertop + sink(s)</span>
-                        <span>🚰 Faucet + drain</span>
-                        <span>🪞 Mirror</span>
-                        <span>🔧 Mounting hardware</span>
-                        <span>📐 Supply lines + shutoffs</span>
-                      </div>
-                    </div>
+                  <Panel header="Vanity / Sink" key="vanity">
                     <Form.List name={['vanity_spec', 'items']}>
                       {(fields, { add, remove }) => (
                         <>
-                          {fields.map(({ key, name, ...restField }, idx) => (
-                            <Card
-                              key={key}
-                              size="small"
-                              title={`Vanity ${idx + 1}`}
-                              style={{ marginBottom: 12 }}
-                              extra={fields.length > 1 && (
-                                <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => remove(name)} />
-                              )}
-                            >
-                              <Row gutter={16}>
-                                <Col xs={12} sm={8} md={4}>
-                                  <Form.Item label="Width" {...restField} name={[name, 'width']}>
-                                    <Select options={numOpts(pricingInfo?.vanity_widths)} allowClear />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={12} sm={8} md={4}>
-                                  <Form.Item label="Sinks" {...restField} name={[name, 'sinks']}>
-                                    <Select options={[{ label: '1', value: 1 }, { label: '2', value: 2 }]} />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={12} sm={12} md={6}>
-                                  <Form.Item label="Source" {...restField} name={[name, 'source']}>
-                                    <Select options={selectOpts(pricingInfo?.vanity_sources)} allowClear />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={12} sm={12} md={6}>
-                                  <Form.Item label="Countertop" {...restField} name={[name, 'top_material']}>
-                                    <Select options={selectOpts(pricingInfo?.vanity_top_materials)} allowClear />
-                                  </Form.Item>
-                                </Col>
-                              </Row>
-                              <Row gutter={16}>
-                                <Col xs={12} sm={12} md={6}>
-                                  <Form.Item label="Mounting" {...restField} name={[name, 'mounting']}>
-                                    <Select options={selectOpts(pricingInfo?.vanity_mountings)} allowClear />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={12} sm={12} md={6}>
-                                  <Form.Item label="Faucet Type" {...restField} name={[name, 'faucet_type']}>
-                                    <Select options={selectOpts(pricingInfo?.faucet_types)} allowClear />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={12} sm={12} md={6}>
-                                  <Form.Item label="Mirror" {...restField} name={[name, 'mirror_type']}>
-                                    <Select options={selectOpts(pricingInfo?.mirror_types)} allowClear />
-                                  </Form.Item>
-                                </Col>
-                              </Row>
-                            </Card>
-                          ))}
-                          <Button type="dashed" onClick={() => add({ sinks: 1 })} block icon={<PlusOutlined />}>
-                            Add Vanity
+                          {fields.map(({ key, name, ...restField }, idx) => {
+                            const sinkType = form.getFieldValue(['vanity_spec', 'items', name, 'sink_type']) ?? 'cabinet';
+                            const isCabinet = sinkType === 'cabinet';
+                            const typeLabel = sinkType === 'pedestal_sink' ? 'Pedestal Sink'
+                              : sinkType === 'wall_mount_sink' ? 'Wall-Mount Sink'
+                              : `Vanity`;
+                            return (
+                              <Card
+                                key={key}
+                                size="small"
+                                title={`${typeLabel} ${idx + 1}`}
+                                style={{ marginBottom: 12 }}
+                                extra={fields.length > 1 && (
+                                  <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => remove(name)} />
+                                )}
+                              >
+                                <Row gutter={16}>
+                                  <Col xs={12} sm={8} md={6}>
+                                    <Form.Item label="Type" {...restField} name={[name, 'sink_type']}>
+                                      <Select
+                                        options={[
+                                          { label: 'Cabinet Vanity', value: 'cabinet' },
+                                          { label: 'Pedestal Sink', value: 'pedestal_sink' },
+                                          { label: 'Wall-Mount Sink', value: 'wall_mount_sink' },
+                                        ]}
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                  {isCabinet && (
+                                    <>
+                                      <Col xs={12} sm={8} md={4}>
+                                        <Form.Item label="Width" {...restField} name={[name, 'width']}>
+                                          <Select options={numOpts(pricingInfo?.vanity_widths)} allowClear />
+                                        </Form.Item>
+                                      </Col>
+                                      <Col xs={12} sm={8} md={4}>
+                                        <Form.Item label="Sinks" {...restField} name={[name, 'sinks']}>
+                                          <Select options={[{ label: '1', value: 1 }, { label: '2', value: 2 }]} />
+                                        </Form.Item>
+                                      </Col>
+                                      <Col xs={12} sm={12} md={5}>
+                                        <Form.Item label="Source" {...restField} name={[name, 'source']}>
+                                          <Select options={selectOpts(pricingInfo?.vanity_sources)} allowClear />
+                                        </Form.Item>
+                                      </Col>
+                                      <Col xs={12} sm={12} md={5}>
+                                        <Form.Item label="Countertop" {...restField} name={[name, 'top_material']}>
+                                          <Select options={selectOpts(pricingInfo?.vanity_top_materials)} allowClear />
+                                        </Form.Item>
+                                      </Col>
+                                    </>
+                                  )}
+                                </Row>
+                                <Row gutter={16}>
+                                  {isCabinet && (
+                                    <Col xs={12} sm={12} md={6}>
+                                      <Form.Item label="Mounting" {...restField} name={[name, 'mounting']}>
+                                        <Select options={selectOpts(pricingInfo?.vanity_mountings)} allowClear />
+                                      </Form.Item>
+                                    </Col>
+                                  )}
+                                  <Col xs={12} sm={12} md={6}>
+                                    <Form.Item label="Faucet Type" {...restField} name={[name, 'faucet_type']}>
+                                      <Select options={selectOpts(pricingInfo?.faucet_types)} allowClear />
+                                    </Form.Item>
+                                  </Col>
+                                  <Col xs={12} sm={12} md={6}>
+                                    <Form.Item label="Mirror" {...restField} name={[name, 'mirror_type']}>
+                                      <Select options={selectOpts(pricingInfo?.mirror_types)} allowClear />
+                                    </Form.Item>
+                                  </Col>
+                                </Row>
+                              </Card>
+                            );
+                          })}
+                          <Button type="dashed" onClick={() => add({ sink_type: 'cabinet', sinks: 1 })} block icon={<PlusOutlined />}>
+                            Add Vanity / Sink
                           </Button>
                         </>
                       )}

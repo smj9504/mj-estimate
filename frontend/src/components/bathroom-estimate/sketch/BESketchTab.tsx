@@ -286,9 +286,10 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
   if (vanities.length > 0) {
     sync.vanity_spec = {
       items: vanities.map((v, i) => {
-        // Try to match mirror to vanity (closest mirror or by index)
         const mirrorForVanity = mirrors[i] ?? mirrors[0];
+        const sinkType = v.properties.vanitySubType ?? 'cabinet';
         return {
+          sink_type: sinkType,
           width: v.dimensions.width,
           sinks: v.properties.sinkCount ?? 1,
           mirror_width: mirrorForVanity ? mirrorForVanity.dimensions.width : undefined,
