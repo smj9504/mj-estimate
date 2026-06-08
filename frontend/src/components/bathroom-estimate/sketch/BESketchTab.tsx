@@ -232,15 +232,28 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
   if (lights.length > 0) {
     // Non-sibling lights (exclude auto-generated recessed children)
     const parentLights = lights.filter((l) => !l.properties.recessedParentId);
+    const childLights = lights.filter((l) => !!l.properties.recessedParentId);
     if (parentLights.length > 0) {
       const lp = parentLights[0].properties;
       const lightType = lp.lightType ?? 'standard';
       elecSpec.ceiling_fixture = lightType;
       if (lightType === 'recessed_multi') {
-        elecSpec.recessed_can_count = lp.lightCount ?? 4;
+        // Use actual child count on canvas (user may have deleted some)
+        const actualCount = childLights.filter(
+          (c) => c.properties.recessedParentId === parentLights[0].id
+        ).length;
+        elecSpec.recessed_can_count = actualCount > 0 ? actualCount : (lp.lightCount ?? 4);
       }
+    } else if (childLights.length > 0) {
+      // Parent deleted but children remain — count them as recessed
+      elecSpec.ceiling_fixture = 'recessed_multi';
+      elecSpec.recessed_can_count = childLights.length;
     }
     sync.replace_vanity_light = true;
+  } else {
+    // All lights removed — clear ceiling fixture
+    elecSpec.ceiling_fixture = undefined;
+    sync.replace_vanity_light = false;
   }
   sync.electrical_spec = elecSpec;
   // demo_floor is a user decision — don't auto-set from sketch
