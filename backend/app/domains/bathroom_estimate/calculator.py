@@ -1562,8 +1562,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     # Support both legacy boolean and new string type
     if ceiling_fix:
         if ceiling_fix == 'recessed_multi':
-            # Multiple recessed cans (typical 3-4 in bathroom)
-            can_count = 4
+            can_count = elec.get("recessed_can_count", 4) or 4
             _add(line_items, 2, f"Recessed light installation ({can_count} cans)", can_count, "EA",
                  ELECTRICAL_RATES["recessed_light_multi"] * labor_mult, "electrical",
                  notes="Cut ceiling, install housing + trim + wire per can")

@@ -212,6 +212,8 @@ export interface BEFixtureProperties {
   // --- Light ---
   /** Ceiling light type: standard, recessed, recessed_multi */
   lightType?: 'standard' | 'recessed' | 'recessed_multi';
+  /** Number of recessed cans (for recessed_multi) */
+  lightCount?: number;
 
   // --- Door/Window ---
   swingDirection?: 'in' | 'out';

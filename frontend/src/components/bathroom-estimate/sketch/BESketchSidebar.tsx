@@ -789,19 +789,34 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
 
       {/* Light-specific */}
       {fixture.type === 'light' && (
-        <div style={{ marginBottom: 6 }}>
-          <Text type="secondary">Light Type:</Text>
-          <Select
-            size="small"
-            value={p.lightType ?? 'standard'}
-            onChange={(v) => updateFixtureProperties(fixture.id, { lightType: v })}
-            style={{ width: '100%', marginTop: 4 }}
-          >
-            <Option value="standard">Standard fixture</Option>
-            <Option value="recessed">Recessed (1 can)</Option>
-            <Option value="recessed_multi">Recessed (multi)</Option>
-          </Select>
-        </div>
+        <>
+          <div style={{ marginBottom: 6 }}>
+            <Text type="secondary">Light Type:</Text>
+            <Select
+              size="small"
+              value={p.lightType ?? 'standard'}
+              onChange={(v) => updateFixtureProperties(fixture.id, { lightType: v })}
+              style={{ width: '100%', marginTop: 4 }}
+            >
+              <Option value="standard">Standard fixture</Option>
+              <Option value="recessed">Recessed (1 can)</Option>
+              <Option value="recessed_multi">Recessed (multi)</Option>
+            </Select>
+          </div>
+          {p.lightType === 'recessed_multi' && (
+            <div style={{ marginBottom: 6 }}>
+              <InputNumber
+                size="small"
+                addonBefore="Cans"
+                value={p.lightCount ?? 4}
+                min={2}
+                max={12}
+                onChange={(v) => v && updateFixtureProperties(fixture.id, { lightCount: v })}
+                style={{ width: '100%' }}
+              />
+            </div>
+          )}
+        </>
       )}
 
       {/* Rotation */}
