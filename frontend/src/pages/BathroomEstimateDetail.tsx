@@ -1874,7 +1874,7 @@ const BathroomEstimateDetail: React.FC = () => {
                           <InputNumber style={{ width: '100%' }} min={0} />
                         </Form.Item>
                       </Col>
-                      <Col xs={12} sm={8} md={6}>
+                      <Col xs={12} sm={8} md={5}>
                         <Form.Item label="Ceiling Light" name={['electrical_spec', 'ceiling_fixture']}>
                           <Select
                             allowClear
@@ -1887,6 +1887,15 @@ const BathroomEstimateDetail: React.FC = () => {
                           />
                         </Form.Item>
                       </Col>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) => prev?.electrical_spec?.ceiling_fixture !== cur?.electrical_spec?.ceiling_fixture}>
+                        {() => form.getFieldValue(['electrical_spec', 'ceiling_fixture']) === 'recessed_multi' && (
+                          <Col xs={8} sm={6} md={3}>
+                            <Form.Item label="Cans" name={['electrical_spec', 'recessed_can_count']}>
+                              <InputNumber style={{ width: '100%' }} min={2} max={12} />
+                            </Form.Item>
+                          </Col>
+                        )}
+                      </Form.Item>
                       <Col xs={12} sm={8} md={4}>
                         <Form.Item label="Fan CFM" name={['electrical_spec', 'exhaust_fan_cfm']}>
                           <Select options={numOpts(pricingInfo?.exhaust_fan_cfms)} allowClear />
