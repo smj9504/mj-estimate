@@ -217,6 +217,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   const { settings, walls, rooms, fixtures, tileZones, damageZones } = data;
   const drywallRepairZones = data.drywallRepairZones ?? [];
   const drywallSurface = api.drywallSurface ?? 'wall';
+  const insulationZones = data.insulationZones ?? [];
+  const insulationSurface = api.insulationSurface ?? 'wall';
   const ppf = settings.pixelsPerFoot;
   const gridPx = ppf * settings.gridSizeFt;  // visual minor grid (3")
   const snapPx = ppf * 0.125;                // snap resolution: 1.5" always
@@ -229,6 +231,9 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
 
   // ── Drywall zone body drag ref ──
   const dwDragRef = useRef<{ zoneId: string; rawBoundary: BEPoint[] } | null>(null);
+
+  // ── Insulation zone body drag ref ──
+  const insDragRef = useRef<{ zoneId: string; rawBoundary: BEPoint[] } | null>(null);
 
   // ── Wall inline edit state ──
   const [editingWallId, setEditingWallId] = useState<string | null>(null);
@@ -251,6 +256,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   const [drawingDamageZone, setDrawingDamageZone] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
   // Drywall repair zone: ceiling=rectangle, wall=line
   const [drawingDrywallRepair, setDrawingDrywallRepair] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
+  // Insulation zone: ceiling=rectangle, wall=line (same drawing logic as drywall)
+  const [drawingInsulation, setDrawingInsulation] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
   // Polygon room (click-to-place vertices)
   const [polyRoom, setPolyRoom] = useState<{ vertices: BEPoint[]; current: BEPoint } | null>(null);
   const [snapIndicator, setSnapIndicator] = useState<BEPoint | null>(null);
@@ -298,6 +305,11 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
           ? getStagePoint(e, true)   // wall: snap to wall endpoints
           : pos;                     // ceiling: free rect
         setDrawingDrywallRepair({ start: dwPos, current: dwPos });
+      } else if (activeTool === 'insulation') {
+        const insPos = insulationSurface === 'wall'
+          ? getStagePoint(e, true)
+          : pos;
+        setDrawingInsulation({ start: insPos, current: insPos });
       } else if (activeTool === 'wall') {
         setDrawingWall({ start: pos, current: pos });
       } else if (activeTool === 'room') {
@@ -362,6 +374,11 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
           ? constrainAxis(drawingDrywallRepair.start, getStagePoint(e, true))
           : getStagePoint(e);
         setDrawingDrywallRepair((prev) => prev ? { ...prev, current: pos } : null);
+      } else if (drawingInsulation) {
+        let pos = insulationSurface === 'wall'
+          ? constrainAxis(drawingInsulation.start, getStagePoint(e, true))
+          : getStagePoint(e);
+        setDrawingInsulation((prev) => prev ? { ...prev, current: pos } : null);
       } else if (polyRoom) {
         const pos = getStagePoint(e);
         setPolyRoom((prev) => prev ? { ...prev, current: pos } : null);
@@ -475,8 +492,56 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         }
         setDrawingDrywallRepair(null);
       }
+
+      // Insulation zone (drag)
+      if (activeTool === 'insulation' && drawingInsulation) {
+        const endPos = insulationSurface === 'wall'
+          ? constrainAxis(drawingInsulation.start, getStagePoint(e, true))
+          : getStagePoint(e);
+        const s = drawingInsulation.start;
+
+        const findRoom = (px: number, py: number) =>
+          rooms.find((r) => {
+            let inside = false;
+            for (let i = 0, j = r.boundary.length - 1; i < r.boundary.length; j = i++) {
+              const xi = r.boundary[i].x, yi = r.boundary[i].y;
+              const xj = r.boundary[j].x, yj = r.boundary[j].y;
+              if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
+            }
+            return inside;
+          });
+
+        if (insulationSurface === 'wall') {
+          const dx = endPos.x - s.x;
+          const dy = endPos.y - s.y;
+          const lenPx = Math.sqrt(dx * dx + dy * dy);
+          if (lenPx > 8) {
+            const boundary: BEPoint[] = [s, endPos];
+            const midX = (s.x + endPos.x) / 2;
+            const midY = (s.y + endPos.y) / 2;
+            const containingRoom = findRoom(midX, midY);
+            api.addInsulationZone(boundary, containingRoom?.id, 'wall');
+          }
+        } else {
+          const dx = Math.abs(endPos.x - s.x);
+          const dy = Math.abs(endPos.y - s.y);
+          if (dx > 8 && dy > 8) {
+            const boundary: BEPoint[] = [
+              { x: Math.min(s.x, endPos.x), y: Math.min(s.y, endPos.y) },
+              { x: Math.max(s.x, endPos.x), y: Math.min(s.y, endPos.y) },
+              { x: Math.max(s.x, endPos.x), y: Math.max(s.y, endPos.y) },
+              { x: Math.min(s.x, endPos.x), y: Math.max(s.y, endPos.y) },
+            ];
+            const cx = (s.x + endPos.x) / 2;
+            const cy = (s.y + endPos.y) / 2;
+            const containingRoom = findRoom(cx, cy);
+            api.addInsulationZone(boundary, containingRoom?.id, 'ceiling');
+          }
+        }
+        setDrawingInsulation(null);
+      }
     },
-    [activeTool, drawingWall, drawingRoom, drawingDamageZone, drawingDrywallRepair, drywallSurface, addWall, addRoom, api, getStagePoint, shiftHeld, rooms],
+    [activeTool, drawingWall, drawingRoom, drawingDamageZone, drawingDrywallRepair, drywallSurface, drawingInsulation, insulationSurface, addWall, addRoom, api, getStagePoint, shiftHeld, rooms],
   );
 
   // ── Double-click to close polygon ──
@@ -523,6 +588,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
           else if (rooms.find((r) => r.id === selectedId)) api.removeRoom(selectedId);
           else if (damageZones.find((d) => d.id === selectedId)) api.removeDamageZone(selectedId);
           else if (drywallRepairZones.find((z) => z.id === selectedId)) api.removeDrywallRepairZone(selectedId);
+          else if (insulationZones.find((z) => z.id === selectedId)) api.removeInsulationZone(selectedId);
         }
       } else if (e.key === 'r' || e.key === 'R') {
         // Rotate selected fixture by 90°
@@ -538,6 +604,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         setDrawingWall(null);
         setDrawingRoom(null);
         setDrawingDrywallRepair(null);
+        setDrawingInsulation(null);
         setPolyRoom(null);
         setSelectedId(null);
       }
@@ -795,7 +862,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         ref={stageRef}
         width={width}
         height={height}
-        draggable={activeTool === 'select' && !drawingWall && !drawingRoom && !polyRoom && !drawingDamageZone && !drawingDrywallRepair}
+        draggable={activeTool === 'select' && !drawingWall && !drawingRoom && !polyRoom && !drawingDamageZone && !drawingDrywallRepair && !drawingInsulation}
         onWheel={(e) => {
           e.evt.preventDefault();
           const stage = stageRef.current;
@@ -1465,6 +1532,187 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                         fontSize={10} fill="#e65100" fontStyle="bold"
                         listening={false}
                       />
+                    )}
+                  </Group>
+                );
+              }
+            })()}
+          </Layer>
+        )}
+
+        {/* ── Insulation Zone Layer ── */}
+        {(settings.showInsulationZones ?? true) && (insulationZones.length > 0 || drawingInsulation) && (
+          <Layer>
+            {insulationZones.map((zone) => {
+              const isSelected = selectedId === zone.id && activeTool === 'select';
+              const isCeiling = zone.surface === 'ceiling';
+              const strokeColor = isSelected
+                ? (isCeiling ? '#6a1b9a' : '#ad1457')
+                : (isCeiling ? '#ab47bc' : '#e91e63');
+              const strokeWidth = isSelected ? 3.5 : 2.5;
+              const canInteract = activeTool === 'select';
+
+              if (zone.surface === 'wall') {
+                const [p0, p1] = zone.boundary;
+                const mx = (p0.x + p1.x) / 2;
+                const my = (p0.y + p1.y) / 2;
+                return (
+                  <Group key={zone.id}>
+                    <Line points={[p0.x, p0.y, p1.x, p1.y]}
+                      stroke={strokeColor} strokeWidth={strokeWidth + 4}
+                      lineCap="round" opacity={0.3} listening={false} />
+                    <Line
+                      points={[p0.x, p0.y, p1.x, p1.y]}
+                      stroke={strokeColor} strokeWidth={strokeWidth}
+                      dash={[6, 6]} lineCap="round"
+                      onClick={(e) => { if (canInteract) { e.cancelBubble = true; setSelectedId(zone.id); } }}
+                      hitStrokeWidth={14}
+                    />
+                    {isSelected && (
+                      <Line
+                        points={[p0.x, p0.y, p1.x, p1.y]}
+                        stroke="transparent" strokeWidth={20}
+                        draggable
+                        onDragStart={() => {
+                          insDragRef.current = { zoneId: zone.id, rawBoundary: zone.boundary.map((pt) => ({ ...pt })) };
+                        }}
+                        onDragMove={(e) => {
+                          const dx = e.target.x();
+                          const dy = e.target.y();
+                          if (!insDragRef.current || insDragRef.current.zoneId !== zone.id) return;
+                          const orig = insDragRef.current.rawBoundary;
+                          const newB: BEPoint[] = orig.map((pt) => {
+                            const moved = { x: pt.x + dx, y: pt.y + dy };
+                            return settings.snapToGrid ? snapToGrid(moved, snapPx) : moved;
+                          });
+                          e.target.position({ x: 0, y: 0 });
+                          api.updateInsulationZone(zone.id, { boundary: newB });
+                        }}
+                        onDragEnd={() => { insDragRef.current = null; }}
+                      />
+                    )}
+                    {isSelected && [p0, p1].map((pt, epIdx) => (
+                      <Circle key={`insep-${zone.id}-${epIdx}`}
+                        x={pt.x} y={pt.y} radius={6}
+                        fill="#fff" stroke="#ad1457" strokeWidth={2}
+                        draggable
+                        onDragMove={(e) => {
+                          let pos = { x: e.target.x(), y: e.target.y() };
+                          if (settings.snapToGrid) pos = snapToGrid(pos, snapPx);
+                          e.target.position(pos);
+                          const other = epIdx === 0 ? p1 : p0;
+                          const newB: BEPoint[] = epIdx === 0 ? [pos, { ...other }] : [{ ...other }, pos];
+                          api.updateInsulationZone(zone.id, { boundary: newB });
+                        }}
+                      />
+                    ))}
+                    <Text x={mx - 30} y={my - 20}
+                      text={`Wall INS\n${zone.areaSF} SF`}
+                      fontSize={9} fill="#ad1457" fontStyle="bold" align="center" listening={false} />
+                  </Group>
+                );
+              } else {
+                const pts = zone.boundary.flatMap((p) => [p.x, p.y]);
+                const cx = zone.boundary.reduce((s, p) => s + p.x, 0) / zone.boundary.length;
+                const cy = zone.boundary.reduce((s, p) => s + p.y, 0) / zone.boundary.length;
+                return (
+                  <Group
+                    key={zone.id}
+                    draggable={isSelected}
+                    onDragStart={() => {
+                      insDragRef.current = { zoneId: zone.id, rawBoundary: zone.boundary.map((p) => ({ ...p })) };
+                    }}
+                    onDragEnd={(e) => {
+                      const dx = e.target.x();
+                      const dy = e.target.y();
+                      e.target.position({ x: 0, y: 0 });
+                      if (!insDragRef.current || insDragRef.current.zoneId !== zone.id) return;
+                      const orig = insDragRef.current.rawBoundary;
+                      const newB: BEPoint[] = orig.map((pt) => {
+                        const moved = { x: pt.x + dx, y: pt.y + dy };
+                        return settings.snapToGrid ? snapToGrid(moved, snapPx) : moved;
+                      });
+                      api.updateInsulationZone(zone.id, { boundary: newB });
+                      insDragRef.current = null;
+                    }}
+                  >
+                    <Line
+                      points={pts} closed
+                      fill="rgba(171, 71, 188, 0.18)"
+                      stroke={strokeColor} strokeWidth={strokeWidth} dash={[6, 6]}
+                      onClick={(e) => { if (canInteract) { e.cancelBubble = true; setSelectedId(zone.id); } }}
+                      hitStrokeWidth={8}
+                    />
+                    {isSelected && zone.boundary.map((pt, cIdx) => (
+                      <Rect
+                        key={`inscr-${zone.id}-${cIdx}`}
+                        x={pt.x - 5} y={pt.y - 5}
+                        width={10} height={10}
+                        fill="#fff" stroke="#6a1b9a" strokeWidth={2}
+                        draggable
+                        onDragEnd={(e) => {
+                          let pos = { x: e.target.x() + 5, y: e.target.y() + 5 };
+                          if (settings.snapToGrid) pos = snapToGrid(pos, snapPx);
+                          const opp = (cIdx + 2) % 4;
+                          const ox = zone.boundary[opp].x, oy = zone.boundary[opp].y;
+                          const newB: BEPoint[] = [
+                            { x: Math.min(ox, pos.x), y: Math.min(oy, pos.y) },
+                            { x: Math.max(ox, pos.x), y: Math.min(oy, pos.y) },
+                            { x: Math.max(ox, pos.x), y: Math.max(oy, pos.y) },
+                            { x: Math.min(ox, pos.x), y: Math.max(oy, pos.y) },
+                          ];
+                          api.updateInsulationZone(zone.id, { boundary: newB });
+                        }}
+                      />
+                    ))}
+                    <Text x={cx - 30} y={cy - 14}
+                      text={`Ceiling INS\n${zone.areaSF} SF`}
+                      fontSize={9} fill="#6a1b9a" fontStyle="bold" align="center" listening={false} />
+                  </Group>
+                );
+              }
+            })}
+            {/* Drawing preview */}
+            {drawingInsulation && (() => {
+              const s = drawingInsulation.start;
+              const c = drawingInsulation.current;
+              if (insulationSurface === 'wall') {
+                const lenPx = Math.sqrt((c.x - s.x) ** 2 + (c.y - s.y) ** 2);
+                const lenFt = lenPx / ppf;
+                const areaSF = lenFt * (96 / 12);
+                return (
+                  <Group>
+                    <Line points={[s.x, s.y, c.x, c.y]}
+                      stroke="#e91e63" strokeWidth={7}
+                      lineCap="round" opacity={0.3} listening={false} />
+                    <Line points={[s.x, s.y, c.x, c.y]}
+                      stroke="#e91e63" strokeWidth={2.5}
+                      dash={[6, 6]} lineCap="round" listening={false} />
+                    {lenPx > 20 && (
+                      <Text
+                        x={(s.x + c.x) / 2 - 30} y={(s.y + c.y) / 2 - 18}
+                        text={`Wall INS\n${areaSF.toFixed(1)} SF`}
+                        fontSize={10} fill="#ad1457" fontStyle="bold" listening={false} />
+                    )}
+                  </Group>
+                );
+              } else {
+                const x = Math.min(s.x, c.x);
+                const y = Math.min(s.y, c.y);
+                const w = Math.abs(c.x - s.x);
+                const h = Math.abs(c.y - s.y);
+                const areaSF = (w / ppf) * (h / ppf);
+                return (
+                  <Group>
+                    <Rect x={x} y={y} width={w} height={h}
+                      stroke="#e91e63" strokeWidth={2}
+                      dash={[6, 6]} fill="rgba(233, 30, 99, 0.12)"
+                      listening={false} />
+                    {w > 30 && h > 20 && (
+                      <Text
+                        x={x + w / 2 - 30} y={y + h / 2 - 8}
+                        text={`Ceiling INS\n${areaSF.toFixed(1)} SF`}
+                        fontSize={10} fill="#ad1457" fontStyle="bold" listening={false} />
                     )}
                   </Group>
                 );

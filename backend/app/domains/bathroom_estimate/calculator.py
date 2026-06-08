@@ -579,6 +579,57 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                  SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
                  notes="Plywood replacement per code-compliant installation + fasteners")
 
+    # ── Insulation: Demo + Install ──
+    walls_spec = estimate.walls_spec or {}
+    ins_type = walls_spec.get("insulation_type", "fiberglass_batt")
+    ins_r_value = walls_spec.get("insulation_r_value", 13)
+
+    # Insulation demo - walls
+    if getattr(estimate, 'demo_insulation_walls', False):
+        demo_ins_wall_sf = getattr(estimate, 'demo_insulation_walls_sf', None) or 0
+        if demo_ins_wall_sf > 0:
+            _add(line_items, 1,
+                 "Demo insulation - walls",
+                 demo_ins_wall_sf, "SF",
+                 SUBSTRATE_RATES["insulation_demo_per_sf"] * labor_mult, "demo",
+                 notes="Remove existing wall insulation + disposal")
+
+    # Insulation demo - ceiling
+    if getattr(estimate, 'demo_insulation_ceiling', False):
+        demo_ins_ceil_sf = getattr(estimate, 'demo_insulation_ceiling_sf', None) or 0
+        if demo_ins_ceil_sf > 0:
+            _add(line_items, 1,
+                 "Demo insulation - ceiling",
+                 demo_ins_ceil_sf, "SF",
+                 SUBSTRATE_RATES["insulation_demo_per_sf"] * labor_mult, "demo",
+                 notes="Remove existing ceiling insulation + disposal")
+
+    # Insulation install - walls
+    if getattr(estimate, 'install_insulation_walls', False):
+        inst_wall_sf = getattr(estimate, 'install_insulation_walls_sf', None) or 0
+        if inst_wall_sf > 0:
+            ins_rate_key = f"insulation_{ins_type}_per_sf"
+            ins_rate = SUBSTRATE_RATES.get(ins_rate_key, SUBSTRATE_RATES["insulation_fiberglass_batt_per_sf"])
+            ins_label = ins_type.replace("_", " ").title()
+            _add(line_items, 3,
+                 f"Install insulation - walls ({ins_label}, R-{ins_r_value})",
+                 inst_wall_sf, "SF",
+                 ins_rate * labor_mult, "substrate",
+                 notes=f"{ins_label} R-{ins_r_value} | Supply + install")
+
+    # Insulation install - ceiling
+    if getattr(estimate, 'install_insulation_ceiling', False):
+        inst_ceil_sf = getattr(estimate, 'install_insulation_ceiling_sf', None) or 0
+        if inst_ceil_sf > 0:
+            ins_rate_key = f"insulation_{ins_type}_per_sf"
+            ins_rate = SUBSTRATE_RATES.get(ins_rate_key, SUBSTRATE_RATES["insulation_fiberglass_batt_per_sf"])
+            ins_label = ins_type.replace("_", " ").title()
+            _add(line_items, 3,
+                 f"Install insulation - ceiling ({ins_label}, R-{ins_r_value})",
+                 inst_ceil_sf, "SF",
+                 ins_rate * labor_mult, "substrate",
+                 notes=f"{ins_label} R-{ins_r_value} | Supply + install")
+
     # ────────────────────────────────────────
     # Phase 4: Tile & Flooring
     # ────────────────────────────────────────
@@ -1120,6 +1171,18 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         door_type = shower_spec.get("door_type")
         door_width = shower_spec.get("door_width_in", 0) or 0
         s_w_door = shower_spec.get("width_in", 36) or 36
+
+        # Map sketch door types → pricing keys
+        # Sketch uses simplified names; pricing has grade-specific keys
+        _DOOR_TYPE_MAP = {
+            "sliding": "framed_sliding",
+            "swing": "framed_pivot",
+            "frameless_swing": "frameless_pivot",
+            "bi_fold": "framed_pivot",         # closest equivalent
+            "neo_angle_pivot": "framed_neo_angle",
+        }
+        if door_type and door_type not in SHOWER_DOOR_PRICES and door_type not in NEO_ANGLE_DOOR_PRICES:
+            door_type = _DOOR_TYPE_MAP.get(door_type, door_type)
 
         # Neo-angle door types
         if (door_type

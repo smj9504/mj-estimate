@@ -18,7 +18,8 @@ export type BESketchTool =
   | 'measure'
   | 'tile_zone'
   | 'damage_zone'
-  | 'drywall_repair';
+  | 'drywall_repair'
+  | 'insulation';
 
 // =====================
 // Fixture Types
@@ -339,6 +340,37 @@ export interface BEDrywallRepairZone {
 }
 
 // =====================
+// Insulation Zone
+// =====================
+
+export type InsulationType = 'fiberglass_batt' | 'blown_in' | 'spray_foam' | 'rigid_board';
+
+export interface BEInsulationZone {
+  id: string;
+  roomId?: string;
+  /**
+   * wall  → boundary has 2 points [start, end]; area = lineLengthFt × heightInches/12
+   * ceiling → boundary has 4 points (rectangle); area from polygon
+   */
+  surface: 'wall' | 'ceiling';
+  boundary: BEPoint[];
+  areaSF: number;
+  heightInches: number;
+  label?: string;
+  /** Whether existing insulation needs demolition before install */
+  needsDemo: boolean;
+  insulationType: InsulationType;
+  /** R-value of the insulation */
+  rValue: number;
+  /** Material cost per SF */
+  materialCostPerSF: number;
+  /** Labor cost per SF (install) */
+  laborCostPerSF: number;
+  /** Demo cost per SF (if needsDemo) */
+  demoCostPerSF: number;
+}
+
+// =====================
 // Sketch Document
 // =====================
 
@@ -357,6 +389,8 @@ export interface BESketchData {
   damageZones: BEDamageZone[];
   /** Drywall repair zones */
   drywallRepairZones: BEDrywallRepairZone[];
+  /** Insulation zones */
+  insulationZones: BEInsulationZone[];
   /** Canvas settings */
   settings: BESketchSettings;
 }
@@ -378,6 +412,8 @@ export interface BESketchSettings {
   showDamageZones: boolean;
   /** Show drywall repair zones */
   showDrywallRepairZones: boolean;
+  /** Show insulation zones */
+  showInsulationZones: boolean;
   /** Snap to grid */
   snapToGrid: boolean;
   /** Snap tolerance in pixels */
@@ -399,6 +435,7 @@ export const DEFAULT_BE_SKETCH_SETTINGS: BESketchSettings = {
   showTileZones: true,
   showDamageZones: true,
   showDrywallRepairZones: true,
+  showInsulationZones: true,
   snapToGrid: true,
   snapTolerance: 8,
   backgroundColor: '#ffffff',
@@ -412,6 +449,7 @@ export const EMPTY_BE_SKETCH: BESketchData = {
   tileZones: [],
   damageZones: [],
   drywallRepairZones: [],
+  insulationZones: [],
   settings: { ...DEFAULT_BE_SKETCH_SETTINGS },
 };
 
@@ -421,6 +459,13 @@ export const DEFAULT_DRYWALL_COSTS = {
   drywallLaborCostPerSF: 3.50,
   textureCostPerSF: 1.50,
   paintCostPerSF: 2.20,
+};
+
+/** Default cost rates for insulation */
+export const DEFAULT_INSULATION_COSTS = {
+  materialCostPerSF: 1.20,
+  laborCostPerSF: 2.00,
+  demoCostPerSF: 1.00,
 };
 
 export const DEFAULT_TILE_SPEC: BETileSpec = {

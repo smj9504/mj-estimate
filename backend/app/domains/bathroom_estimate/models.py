@@ -109,6 +109,16 @@ class BathroomEstimate(Base, BaseModel):
     replace_cement_board = Column(Boolean, default=False)
     replace_cement_board_sf = Column(Float, nullable=True)
 
+    # Insulation flags
+    demo_insulation_walls = Column(Boolean, default=False)
+    demo_insulation_walls_sf = Column(Float, nullable=True)
+    demo_insulation_ceiling = Column(Boolean, default=False)
+    demo_insulation_ceiling_sf = Column(Float, nullable=True)
+    install_insulation_walls = Column(Boolean, default=False)
+    install_insulation_walls_sf = Column(Float, nullable=True)
+    install_insulation_ceiling = Column(Boolean, default=False)
+    install_insulation_ceiling_sf = Column(Float, nullable=True)
+
     # ── Shower Spec (JSONB for flexibility) ──
     shower_spec = Column(JSONB, nullable=True)
     # { type, size{w,d,h}, enclosure, niches, bench, showerhead_type,

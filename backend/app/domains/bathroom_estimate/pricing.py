@@ -116,6 +116,13 @@ SUBSTRATE_RATES = {
     # Drywall repair (full replacement: hang + tape + mud + sand + prime)
     "drywall_replace_per_sf": 5.75,   # standard 1/2" drywall ($4-$7/SF installed)
     "drywall_replace_moisture_per_sf": 6.50,  # greenboard/moisture-resistant ($5-$8/SF)
+
+    # Insulation (demo + install)
+    "insulation_demo_per_sf": 1.50,             # tear-out existing insulation ($1-$2/SF)
+    "insulation_fiberglass_batt_per_sf": 2.50,  # R-13 fiberglass batt supply + install ($1.50-$3.50/SF)
+    "insulation_blown_in_per_sf": 3.00,         # blown-in cellulose/fiberglass ($2-$4/SF)
+    "insulation_spray_foam_per_sf": 5.50,       # closed-cell spray foam ($4-$7/SF)
+    "insulation_rigid_board_per_sf": 4.00,      # rigid foam board supply + install ($3-$5/SF)
 }
 
 # ──────────────────────────────────────────────

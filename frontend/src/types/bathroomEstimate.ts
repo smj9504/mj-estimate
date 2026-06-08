@@ -112,6 +112,13 @@ export interface WallsSpec {
   /** Full paint area SF (entire wall/ceiling minus tub/shower) — auto-set when any drywall repair exists */
   full_paint_wall_sf?: number;
   full_paint_ceiling_sf?: number;
+  /** Insulation install */
+  insulation_walls?: boolean;
+  insulation_walls_sf?: number;
+  insulation_ceiling?: boolean;
+  insulation_ceiling_sf?: number;
+  insulation_type?: string;
+  insulation_r_value?: number;
 }
 
 export interface AccessoriesSpec {
@@ -258,6 +265,15 @@ export interface BathroomEstimate {
   existing_tub_material?: string;
   demo_cement_board?: boolean;
   demo_cement_board_sf?: number;
+  /** Insulation demo & install flags */
+  demo_insulation_walls?: boolean;
+  demo_insulation_walls_sf?: number;
+  demo_insulation_ceiling?: boolean;
+  demo_insulation_ceiling_sf?: number;
+  install_insulation_walls?: boolean;
+  install_insulation_walls_sf?: number;
+  install_insulation_ceiling?: boolean;
+  install_insulation_ceiling_sf?: number;
 
   // Component specs (JSONB)
   shower_spec?: ShowerSpec;

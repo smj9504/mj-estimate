@@ -15,6 +15,7 @@ import type {
   BETileZone,
   BEDamageZone,
   BEDrywallRepairZone,
+  BEInsulationZone,
   BEDimensions,
   DrywallTextureType,
   BEPoint,
@@ -30,6 +31,7 @@ import {
   DEFAULT_TILE_SPEC,
   TILE_ZONE_COLORS,
   DEFAULT_DRYWALL_COSTS,
+  DEFAULT_INSULATION_COSTS,
 } from '../../../../types/bathroomSketch';
 import { generateTileZones } from '../utils/beTileZoneGenerator';
 import { findClosedWallLoop } from '../utils/beWallLoop';
@@ -108,6 +110,7 @@ export function useBESketchState(initialData?: BESketchData) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [drywallSurface, setDrywallSurface] = useState<'wall' | 'ceiling'>('wall');
+  const [insulationSurface, setInsulationSurface] = useState<'wall' | 'ceiling'>('wall');
 
   const historyRef = useRef<HistoryState>({ past: [], future: [] });
 
@@ -634,6 +637,94 @@ export function useBESketchState(initialData?: BESketchData) {
     [mutate, selectedId],
   );
 
+  // ── Insulation Zone CRUD ──
+
+  const addInsulationZone = useCallback(
+    (boundary: BEPoint[], roomId?: string, surface: 'wall' | 'ceiling' = 'wall') => {
+      const ppf = data.settings.pixelsPerFoot;
+      const heightInches = 96;
+
+      let areaSF: number;
+      if (surface === 'wall') {
+        const dx = boundary[1].x - boundary[0].x;
+        const dy = boundary[1].y - boundary[0].y;
+        const lineLengthFt = Math.sqrt(dx * dx + dy * dy) / ppf;
+        areaSF = Math.round(lineLengthFt * (heightInches / 12) * 100) / 100;
+      } else {
+        let areaPx2 = 0;
+        for (let i = 0; i < boundary.length; i++) {
+          const j = (i + 1) % boundary.length;
+          areaPx2 += boundary[i].x * boundary[j].y;
+          areaPx2 -= boundary[j].x * boundary[i].y;
+        }
+        areaSF = Math.round((Math.abs(areaPx2) / 2 / (ppf * ppf)) * 100) / 100;
+      }
+
+      const zone: BEInsulationZone = {
+        id: generateId('ins'),
+        roomId,
+        surface,
+        boundary,
+        areaSF,
+        heightInches,
+        needsDemo: false,
+        insulationType: 'fiberglass_batt',
+        rValue: 13,
+        ...DEFAULT_INSULATION_COSTS,
+      };
+      mutate((d) => ({
+        ...d,
+        insulationZones: [...(d.insulationZones ?? []), zone],
+      }));
+      return zone.id;
+    },
+    [mutate, data.settings.pixelsPerFoot],
+  );
+
+  const updateInsulationZone = useCallback(
+    (id: string, updates: Partial<BEInsulationZone>) => {
+      mutate((d) => {
+        const ppf = d.settings.pixelsPerFoot;
+        return {
+          ...d,
+          insulationZones: (d.insulationZones ?? []).map((z) => {
+            if (z.id !== id) return z;
+            const merged = { ...z, ...updates };
+            if (updates.boundary !== undefined || updates.heightInches !== undefined) {
+              if (merged.surface === 'wall') {
+                const dx = merged.boundary[1].x - merged.boundary[0].x;
+                const dy = merged.boundary[1].y - merged.boundary[0].y;
+                const lineLengthFt = Math.sqrt(dx * dx + dy * dy) / ppf;
+                merged.areaSF = Math.round(lineLengthFt * (merged.heightInches / 12) * 100) / 100;
+              } else {
+                let areaPx2 = 0;
+                for (let i = 0; i < merged.boundary.length; i++) {
+                  const j = (i + 1) % merged.boundary.length;
+                  areaPx2 += merged.boundary[i].x * merged.boundary[j].y;
+                  areaPx2 -= merged.boundary[j].x * merged.boundary[i].y;
+                }
+                merged.areaSF = Math.round((Math.abs(areaPx2) / 2 / (ppf * ppf)) * 100) / 100;
+              }
+            }
+            return merged;
+          }),
+        };
+      });
+    },
+    [mutate],
+  );
+
+  const removeInsulationZone = useCallback(
+    (id: string) => {
+      mutate((d) => ({
+        ...d,
+        insulationZones: (d.insulationZones ?? []).filter((z) => z.id !== id),
+      }));
+      if (selectedId === id) setSelectedId(null);
+    },
+    [mutate, selectedId],
+  );
+
   // ── Settings ──
 
   const updateSettings = useCallback(
@@ -716,6 +807,13 @@ export function useBESketchState(initialData?: BESketchData) {
     removeDrywallRepairZone,
     drywallSurface,
     setDrywallSurface,
+
+    // Insulation zone ops
+    addInsulationZone,
+    updateInsulationZone,
+    removeInsulationZone,
+    insulationSurface,
+    setInsulationSurface,
 
     // Settings
     updateSettings,

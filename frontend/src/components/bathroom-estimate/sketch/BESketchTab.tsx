@@ -76,6 +76,16 @@ export interface SketchFixtureSync {
 
   // Drywall repair (from sketch drywall zones)
   hidden_costs?: Record<string, any>;
+
+  // Insulation (from sketch insulation zones)
+  demo_insulation_walls?: boolean;
+  demo_insulation_walls_sf?: number;
+  demo_insulation_ceiling?: boolean;
+  demo_insulation_ceiling_sf?: number;
+  install_insulation_walls?: boolean;
+  install_insulation_walls_sf?: number;
+  install_insulation_ceiling?: boolean;
+  install_insulation_ceiling_sf?: number;
 }
 
 export interface BESketchTabProps {
@@ -327,6 +337,7 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
       door_width_in: p.showerDoorWidth ?? Math.round(shower.dimensions.width * 0.5),
       fixed_panel_config: p.fixedPanelConfig ?? 'none',
       layout: p.showerLayout ?? 'alcove',
+      wall_material: p.showerWallMaterial ?? 'tile',
     };
   }
 
@@ -431,6 +442,49 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
       seal_prime_ceiling_sf: Math.round(ceilDwSF * 10) / 10,
       full_paint_wall_sf: fullPaintWallSF,
       full_paint_ceiling_sf: Math.round(fullPaintCeilSF * 10) / 10,
+    };
+  }
+
+  // ── Insulation zones → demo & install sync ──
+  const insZones = data.insulationZones ?? [];
+  if (insZones.length > 0) {
+    const wallInsSF = insZones.filter(z => z.surface === 'wall').reduce((s, z) => s + z.areaSF, 0);
+    const ceilInsSF = insZones.filter(z => z.surface === 'ceiling').reduce((s, z) => s + z.areaSF, 0);
+    const demoWallInsSF = insZones.filter(z => z.surface === 'wall' && z.needsDemo).reduce((s, z) => s + z.areaSF, 0);
+    const demoCeilInsSF = insZones.filter(z => z.surface === 'ceiling' && z.needsDemo).reduce((s, z) => s + z.areaSF, 0);
+
+    // Demo flags
+    if (demoWallInsSF > 0) {
+      sync.demo_insulation_walls = true;
+      sync.demo_insulation_walls_sf = Math.round(demoWallInsSF * 10) / 10;
+    }
+    if (demoCeilInsSF > 0) {
+      sync.demo_insulation_ceiling = true;
+      sync.demo_insulation_ceiling_sf = Math.round(demoCeilInsSF * 10) / 10;
+    }
+
+    // Install flags
+    if (wallInsSF > 0) {
+      sync.install_insulation_walls = true;
+      sync.install_insulation_walls_sf = Math.round(wallInsSF * 10) / 10;
+    }
+    if (ceilInsSF > 0) {
+      sync.install_insulation_ceiling = true;
+      sync.install_insulation_ceiling_sf = Math.round(ceilInsSF * 10) / 10;
+    }
+
+    // Merge insulation info into walls_spec
+    const existingWallsSpec = sync.walls_spec ?? {};
+    const primaryType = insZones[0]?.insulationType ?? 'fiberglass_batt';
+    const primaryRValue = insZones[0]?.rValue ?? 13;
+    sync.walls_spec = {
+      ...existingWallsSpec,
+      insulation_walls: wallInsSF > 0,
+      insulation_walls_sf: Math.round(wallInsSF * 10) / 10,
+      insulation_ceiling: ceilInsSF > 0,
+      insulation_ceiling_sf: Math.round(ceilInsSF * 10) / 10,
+      insulation_type: primaryType,
+      insulation_r_value: primaryRValue,
     };
   }
 
@@ -729,6 +783,9 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         <span>F:{api.data.fixtures.length}</span>
         {(api.data.drywallRepairZones ?? []).length > 0 && (
           <span style={{ color: '#d46b08' }}>DW:{api.data.drywallRepairZones.length}</span>
+        )}
+        {(api.data.insulationZones ?? []).length > 0 && (
+          <span style={{ color: '#ad1457' }}>INS:{api.data.insulationZones.length}</span>
         )}
         {!isMobile && <span>Scale: {api.data.settings.pixelsPerFoot} px/ft</span>}
         {api.selectedId && !isMobile && <span>Selected: {api.selectedId.slice(0, 15)}</span>}

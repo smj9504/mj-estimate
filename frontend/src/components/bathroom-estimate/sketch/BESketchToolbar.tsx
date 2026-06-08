@@ -23,6 +23,7 @@ import {
   ZoomOutOutlined,
   CompressOutlined,
   BuildOutlined,
+  FireOutlined,
 } from '@ant-design/icons';
 import type { BESketchTool } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
@@ -47,10 +48,11 @@ const TOOLS: { key: BESketchTool; icon: React.ReactNode; label: string; tooltip:
   { key: 'tile_zone', icon: <CalculatorOutlined />, label: 'Tile', tooltip: 'View and configure tile zones' },
   { key: 'damage_zone', icon: <WarningOutlined />, label: 'Damage', tooltip: 'Mark water damage / cement board areas' },
   { key: 'drywall_repair', icon: <BuildOutlined />, label: 'Drywall', tooltip: 'Mark drywall repair areas (install drywall + texture, prime & paint)' },
+  { key: 'insulation', icon: <FireOutlined />, label: 'Insulation', tooltip: 'Mark insulation areas (demo + install insulation on walls/ceiling)' },
 ];
 
 const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoomOut, onZoomFit, zoomLevel }) => {
-  const { activeTool, setActiveTool, undo, redo, canUndo, canRedo, data, updateSettings, drywallSurface, setDrywallSurface } = api;
+  const { activeTool, setActiveTool, undo, redo, canUndo, canRedo, data, updateSettings, drywallSurface, setDrywallSurface, insulationSurface, setInsulationSurface } = api;
   const screens = useBreakpoint();
   const isMobile = !screens.md;
 
@@ -106,6 +108,36 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoom
                 size="small"
                 type={drywallSurface === 'ceiling' ? 'primary' : 'default'}
                 onClick={() => setDrywallSurface('ceiling')}
+                style={{ fontSize: 11, padding: '0 8px' }}
+              >
+                Ceiling
+              </Button>
+            </Tooltip>
+          </Space>
+        </>
+      )}
+
+      {/* Insulation surface toggle — shown only when insulation tool is active */}
+      {activeTool === 'insulation' && (
+        <>
+          <Divider type="vertical" style={{ margin: '0 2px' }} />
+          <Space size={2} style={{ flexShrink: 0 }}>
+            <Text style={{ fontSize: 11, color: '#888', marginRight: 2 }}>Surface:</Text>
+            <Tooltip title="Wall — draw a line; area = length × height">
+              <Button
+                size="small"
+                type={insulationSurface === 'wall' ? 'primary' : 'default'}
+                onClick={() => setInsulationSurface('wall')}
+                style={{ fontSize: 11, padding: '0 8px' }}
+              >
+                Wall
+              </Button>
+            </Tooltip>
+            <Tooltip title="Ceiling — drag a rectangle area">
+              <Button
+                size="small"
+                type={insulationSurface === 'ceiling' ? 'primary' : 'default'}
+                onClick={() => setInsulationSurface('ceiling')}
                 style={{ fontSize: 11, padding: '0 8px' }}
               >
                 Ceiling

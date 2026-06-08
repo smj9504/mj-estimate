@@ -142,6 +142,10 @@ def _generate_template_note(estimate) -> str:
         repair_areas.append("ceiling drywall")
     if getattr(estimate, 'repair_subfloor', False):
         repair_areas.append("subfloor")
+    if getattr(estimate, 'install_insulation_walls', False):
+        repair_areas.append("wall insulation")
+    if getattr(estimate, 'install_insulation_ceiling', False):
+        repair_areas.append("ceiling insulation")
     if repair_areas:
         specials.append(
             f"repair/replacement of {', '.join(repair_areas)}"
@@ -252,6 +256,12 @@ def _build_context(estimate) -> str:
     if getattr(estimate, 'repair_subfloor', False):
         sf = getattr(estimate, 'repair_subfloor_sf', 0) or 0
         repair_items.append(f"subfloor{f' {sf}SF' if sf else ''}")
+    if getattr(estimate, 'install_insulation_walls', False):
+        sf = getattr(estimate, 'install_insulation_walls_sf', 0) or 0
+        repair_items.append(f"wall insulation{f' {sf}SF' if sf else ''}")
+    if getattr(estimate, 'install_insulation_ceiling', False):
+        sf = getattr(estimate, 'install_insulation_ceiling_sf', 0) or 0
+        repair_items.append(f"ceiling insulation{f' {sf}SF' if sf else ''}")
     if repair_items:
         lines.append(f"REPAIR: {', '.join(repair_items)}")
     if getattr(estimate, 'demo_cement_board', False):

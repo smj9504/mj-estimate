@@ -65,6 +65,16 @@ class BathroomEstimateBase(BaseModel):
     demo_cement_board: bool = False
     demo_cement_board_sf: Optional[float] = None
 
+    # Insulation flags
+    demo_insulation_walls: bool = False
+    demo_insulation_walls_sf: Optional[float] = None
+    demo_insulation_ceiling: bool = False
+    demo_insulation_ceiling_sf: Optional[float] = None
+    install_insulation_walls: bool = False
+    install_insulation_walls_sf: Optional[float] = None
+    install_insulation_ceiling: bool = False
+    install_insulation_ceiling_sf: Optional[float] = None
+
     # Component specs (JSONB)
     shower_spec: Optional[Dict[str, Any]] = None
     bathtub_spec: Optional[Dict[str, Any]] = None
@@ -143,6 +153,14 @@ class BathroomEstimateUpdate(BaseModel):
     repair_subfloor_sf: Optional[float] = None
     demo_cement_board: Optional[bool] = None
     demo_cement_board_sf: Optional[float] = None
+    demo_insulation_walls: Optional[bool] = None
+    demo_insulation_walls_sf: Optional[float] = None
+    demo_insulation_ceiling: Optional[bool] = None
+    demo_insulation_ceiling_sf: Optional[float] = None
+    install_insulation_walls: Optional[bool] = None
+    install_insulation_walls_sf: Optional[float] = None
+    install_insulation_ceiling: Optional[bool] = None
+    install_insulation_ceiling_sf: Optional[float] = None
     shower_spec: Optional[Dict[str, Any]] = None
     bathtub_spec: Optional[Dict[str, Any]] = None
     vanity_spec: Optional[Dict[str, Any]] = None
@@ -261,6 +279,16 @@ class BathroomEstimateResponse(BaseModel):
     repair_subfloor_sf: Optional[float] = None
     demo_cement_board: bool = False
     demo_cement_board_sf: Optional[float] = None
+
+    # Insulation flags (Optional to handle NULL in existing rows)
+    demo_insulation_walls: Optional[bool] = False
+    demo_insulation_walls_sf: Optional[float] = None
+    demo_insulation_ceiling: Optional[bool] = False
+    demo_insulation_ceiling_sf: Optional[float] = None
+    install_insulation_walls: Optional[bool] = False
+    install_insulation_walls_sf: Optional[float] = None
+    install_insulation_ceiling: Optional[bool] = False
+    install_insulation_ceiling_sf: Optional[float] = None
 
     # Component specs
     shower_spec: Optional[Dict[str, Any]] = None

@@ -49,6 +49,7 @@ import type { BESketchStateAPI } from './hooks/useBESketchState';
 import { BATHROOM_PRESETS, type BathroomPreset } from './utils/bePresets';
 import BETileCalculationPanel from './BETileCalculationPanel';
 import BEDrywallRepairPanel from './BEDrywallRepairPanel';
+import BEInsulationPanel from './BEInsulationPanel';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -85,6 +86,7 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
     removeWall,
     removeDamageZone,
     removeDrywallRepairZone,
+    removeInsulationZone,
   } = api;
 
   const selectedFixture = data.fixtures.find((f) => f.id === selectedId);
@@ -124,8 +126,10 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
       removeDamageZone(selectedId);
     } else if ((data.drywallRepairZones ?? []).find((z) => z.id === selectedId)) {
       removeDrywallRepairZone(selectedId);
+    } else if ((data.insulationZones ?? []).find((z) => z.id === selectedId)) {
+      removeInsulationZone(selectedId);
     }
-  }, [selectedId, selectedFixture, selectedRoom, data.walls, data.damageZones, data.drywallRepairZones, removeFixture, removeRoom, removeWall, removeDamageZone, removeDrywallRepairZone]);
+  }, [selectedId, selectedFixture, selectedRoom, data.walls, data.damageZones, data.drywallRepairZones, data.insulationZones, removeFixture, removeRoom, removeWall, removeDamageZone, removeDrywallRepairZone, removeInsulationZone]);
 
   // ── Apply preset template ──
   const handleApplyPreset = useCallback(
@@ -322,6 +326,26 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
                       </div>
                     );
                   })()
+                ) : (data.insulationZones ?? []).find((z) => z.id === selectedId) ? (
+                  (() => {
+                    const zone = (data.insulationZones ?? []).find((z) => z.id === selectedId)!;
+                    const roomName = zone.roomId ? data.rooms.find((r) => r.id === zone.roomId)?.name : undefined;
+                    return (
+                      <div style={{ fontSize: 12 }}>
+                        <Text strong>Insulation Zone</Text>
+                        {roomName && <Tag color="magenta" style={{ marginLeft: 6 }}>{roomName}</Tag>}
+                        <Divider style={{ margin: '6px 0' }} />
+                        <div>Area: <strong>{zone.areaSF} SF</strong></div>
+                        <div>Height: <strong>{zone.heightInches}"</strong></div>
+                        <div>Type: <strong>{zone.insulationType.replace(/_/g, ' ')}</strong></div>
+                        <div>R-Value: <strong>R-{zone.rValue}</strong></div>
+                        {zone.needsDemo && <Tag color="red" style={{ marginTop: 4 }}>Needs Demo</Tag>}
+                        <div style={{ marginTop: 4, color: '#888', fontSize: 11 }}>
+                          Edit details in the Insulation panel below.
+                        </div>
+                      </div>
+                    );
+                  })()
                 ) : data.damageZones.find((z) => z.id === selectedId) ? (
                   <DamageZonePropertiesPanel
                     zone={data.damageZones.find((z) => z.id === selectedId)!}
@@ -370,6 +394,19 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
             children: <BEDrywallRepairPanel api={api} />,
           },
           {
+            key: 'insulation',
+            label: (
+              <Text strong>
+                Insulation{(data.insulationZones ?? []).length > 0 && (
+                  <Tag color="magenta" style={{ marginLeft: 6, fontSize: 10 }}>
+                    {(data.insulationZones ?? []).length}
+                  </Tag>
+                )}
+              </Text>
+            ),
+            children: <BEInsulationPanel api={api} />,
+          },
+          {
             key: 'summary',
             label: <Text strong>Summary</Text>,
             children: (
@@ -380,6 +417,7 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
                 <div>Tile Zones: <Tag>{data.tileZones.length}</Tag></div>
                 <div>Damage Zones: <Tag>{data.damageZones.length}</Tag></div>
                 <div>Drywall Repair: <Tag color="orange">{(data.drywallRepairZones ?? []).length}</Tag></div>
+                <div>Insulation: <Tag color="magenta">{(data.insulationZones ?? []).length}</Tag></div>
               </div>
             ),
           },

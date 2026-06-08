@@ -289,6 +289,24 @@ const BathroomEstimateDetail: React.FC = () => {
       if (sync.repair_drywall_ceiling_sf) updates.repair_drywall_ceiling_sf = sync.repair_drywall_ceiling_sf;
     }
 
+    // Insulation flags (auto-set from insulation zones)
+    if (sync.demo_insulation_walls) {
+      updates.demo_insulation_walls = true;
+      if (sync.demo_insulation_walls_sf) updates.demo_insulation_walls_sf = sync.demo_insulation_walls_sf;
+    }
+    if (sync.demo_insulation_ceiling) {
+      updates.demo_insulation_ceiling = true;
+      if (sync.demo_insulation_ceiling_sf) updates.demo_insulation_ceiling_sf = sync.demo_insulation_ceiling_sf;
+    }
+    if (sync.install_insulation_walls) {
+      updates.install_insulation_walls = true;
+      if (sync.install_insulation_walls_sf) updates.install_insulation_walls_sf = sync.install_insulation_walls_sf;
+    }
+    if (sync.install_insulation_ceiling) {
+      updates.install_insulation_ceiling = true;
+      if (sync.install_insulation_ceiling_sf) updates.install_insulation_ceiling_sf = sync.install_insulation_ceiling_sf;
+    }
+
     // Merge specs (keep existing form values, override with sketch values)
     if (sync.bathtub_spec) {
       updates.bathtub_spec = { ...(current.bathtub_spec || {}), ...sync.bathtub_spec };
@@ -1034,7 +1052,11 @@ const BathroomEstimateDetail: React.FC = () => {
                   prev.repair_drywall_walls !== cur.repair_drywall_walls ||
                   prev.repair_drywall_ceiling !== cur.repair_drywall_ceiling ||
                   prev.repair_subfloor !== cur.repair_subfloor ||
-                  prev.demo_cement_board !== cur.demo_cement_board
+                  prev.demo_cement_board !== cur.demo_cement_board ||
+                  prev.install_insulation_walls !== cur.install_insulation_walls ||
+                  prev.install_insulation_ceiling !== cur.install_insulation_ceiling ||
+                  prev.demo_insulation_walls !== cur.demo_insulation_walls ||
+                  prev.demo_insulation_ceiling !== cur.demo_insulation_ceiling
                 }>
                   {() => form.getFieldValue('water_damage') ? (
                     <>
@@ -1124,6 +1146,55 @@ const BathroomEstimateDetail: React.FC = () => {
                           </Text>
                         </Col>
                       </Row>
+
+                      <Divider orientation="left" plain style={{ marginTop: 12, marginBottom: 8 }}>Insulation</Divider>
+                      <Row gutter={16} align="middle">
+                        <Col xs={12} sm={8} md={5}>
+                          <Form.Item name="install_insulation_walls" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Install Wall Insulation</Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={8} sm={6} md={3} style={{ display: form.getFieldValue('install_insulation_walls') ? undefined : 'none' }}>
+                          <Form.Item label="SF" name="install_insulation_walls_sf" style={{ marginBottom: 8 }}>
+                            <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                          </Form.Item>
+                        </Col>
+                        <Col xs={8} sm={6} md={3} style={{ display: form.getFieldValue('install_insulation_walls') ? undefined : 'none' }}>
+                          <Form.Item name="demo_insulation_walls" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Demo Existing</Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={8} sm={6} md={3} style={{ display: form.getFieldValue('demo_insulation_walls') ? undefined : 'none' }}>
+                          <Form.Item label="Demo SF" name="demo_insulation_walls_sf" style={{ marginBottom: 8 }}>
+                            <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                      <Row gutter={16} align="middle">
+                        <Col xs={12} sm={8} md={5}>
+                          <Form.Item name="install_insulation_ceiling" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Install Ceiling Insulation</Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={8} sm={6} md={3} style={{ display: form.getFieldValue('install_insulation_ceiling') ? undefined : 'none' }}>
+                          <Form.Item label="SF" name="install_insulation_ceiling_sf" style={{ marginBottom: 8 }}>
+                            <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                          </Form.Item>
+                        </Col>
+                        <Col xs={8} sm={6} md={3} style={{ display: form.getFieldValue('install_insulation_ceiling') ? undefined : 'none' }}>
+                          <Form.Item name="demo_insulation_ceiling" valuePropName="checked" style={{ marginBottom: 8 }}>
+                            <Checkbox>Demo Existing</Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={8} sm={6} md={3} style={{ display: form.getFieldValue('demo_insulation_ceiling') ? undefined : 'none' }}>
+                          <Form.Item label="Demo SF" name="demo_insulation_ceiling_sf" style={{ marginBottom: 8 }}>
+                            <InputNumber style={{ width: '100%' }} min={0} placeholder="auto" />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                        Check "Demo Existing" if old insulation must be removed before installing new. Insulation type & R-value are set in the Floor & Walls tab.
+                      </Text>
                     </>
                   ) : null}
                 </Form.Item>
@@ -1703,6 +1774,110 @@ const BathroomEstimateDetail: React.FC = () => {
                           </Form.Item>
                         </Col>
                       </Row>
+                    </div>
+                    <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
+                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Insulation</Text>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                        prev?.install_insulation_walls !== cur?.install_insulation_walls ||
+                        prev?.install_insulation_walls_sf !== cur?.install_insulation_walls_sf ||
+                        prev?.install_insulation_ceiling !== cur?.install_insulation_ceiling ||
+                        prev?.install_insulation_ceiling_sf !== cur?.install_insulation_ceiling_sf ||
+                        prev?.demo_insulation_walls !== cur?.demo_insulation_walls ||
+                        prev?.demo_insulation_walls_sf !== cur?.demo_insulation_walls_sf ||
+                        prev?.demo_insulation_ceiling !== cur?.demo_insulation_ceiling ||
+                        prev?.demo_insulation_ceiling_sf !== cur?.demo_insulation_ceiling_sf ||
+                        prev?.walls_spec?.insulation_type !== cur?.walls_spec?.insulation_type ||
+                        prev?.walls_spec?.insulation_r_value !== cur?.walls_spec?.insulation_r_value
+                      }>
+                        {({ getFieldValue }) => {
+                          const hasWallIns = getFieldValue('install_insulation_walls');
+                          const hasCeilIns = getFieldValue('install_insulation_ceiling');
+                          const hasDemoWall = getFieldValue('demo_insulation_walls');
+                          const hasDemoCeil = getFieldValue('demo_insulation_ceiling');
+                          const hasAnyFromSketch = hasWallIns || hasCeilIns;
+
+                          return hasAnyFromSketch ? (
+                            <>
+                              <Row gutter={16} style={{ marginBottom: 4 }}>
+                                <Col span={24}>
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    <AuditOutlined style={{ color: '#ad1457', marginRight: 4 }} />
+                                    Insulation from Sketch
+                                    {hasWallIns && ` | Wall: ${getFieldValue('install_insulation_walls_sf') || 0} SF`}
+                                    {hasCeilIns && ` | Ceiling: ${getFieldValue('install_insulation_ceiling_sf') || 0} SF`}
+                                  </Text>
+                                </Col>
+                              </Row>
+                              {(hasDemoWall || hasDemoCeil) && (
+                                <Row gutter={16} style={{ marginBottom: 4 }}>
+                                  <Col span={24}>
+                                    <Text type="secondary" style={{ fontSize: 12, color: '#c62828' }}>
+                                      Demo insulation
+                                      {hasDemoWall && ` | Wall: ${getFieldValue('demo_insulation_walls_sf') || 0} SF`}
+                                      {hasDemoCeil && ` | Ceiling: ${getFieldValue('demo_insulation_ceiling_sf') || 0} SF`}
+                                    </Text>
+                                  </Col>
+                                </Row>
+                              )}
+                              <Row gutter={16} style={{ marginBottom: 8 }}>
+                                <Col xs={12} sm={8} md={6}>
+                                  <Form.Item label="Type" name={['walls_spec', 'insulation_type']} style={{ marginBottom: 4 }}>
+                                    <Select size="small" allowClear options={[
+                                      { label: 'Fiberglass Batt', value: 'fiberglass_batt' },
+                                      { label: 'Blown-in', value: 'blown_in' },
+                                      { label: 'Spray Foam', value: 'spray_foam' },
+                                      { label: 'Rigid Board', value: 'rigid_board' },
+                                    ]} />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={8} sm={6} md={4}>
+                                  <Form.Item label="R-Value" name={['walls_spec', 'insulation_r_value']} style={{ marginBottom: 4 }}>
+                                    <InputNumber size="small" style={{ width: '100%' }} min={1} max={60} />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            </>
+                          ) : (
+                            <Row gutter={16}>
+                              <Col xs={12} sm={8} md={6}>
+                                <Form.Item name={['walls_spec', 'insulation_walls']} valuePropName="checked" style={{ marginBottom: 4 }}>
+                                  <Checkbox>Wall Insulation</Checkbox>
+                                </Form.Item>
+                              </Col>
+                              <Col xs={8} sm={6} md={4}>
+                                <Form.Item label="SF" name={['walls_spec', 'insulation_walls_sf']} style={{ marginBottom: 4 }}>
+                                  <InputNumber size="small" style={{ width: '100%' }} min={0} />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={12} sm={8} md={6}>
+                                <Form.Item name={['walls_spec', 'insulation_ceiling']} valuePropName="checked" style={{ marginBottom: 4 }}>
+                                  <Checkbox>Ceiling Insulation</Checkbox>
+                                </Form.Item>
+                              </Col>
+                              <Col xs={8} sm={6} md={4}>
+                                <Form.Item label="SF" name={['walls_spec', 'insulation_ceiling_sf']} style={{ marginBottom: 4 }}>
+                                  <InputNumber size="small" style={{ width: '100%' }} min={0} />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={12} sm={8} md={6}>
+                                <Form.Item label="Type" name={['walls_spec', 'insulation_type']} style={{ marginBottom: 4 }}>
+                                  <Select size="small" allowClear options={[
+                                    { label: 'Fiberglass Batt', value: 'fiberglass_batt' },
+                                    { label: 'Blown-in', value: 'blown_in' },
+                                    { label: 'Spray Foam', value: 'spray_foam' },
+                                    { label: 'Rigid Board', value: 'rigid_board' },
+                                  ]} />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={8} sm={6} md={4}>
+                                <Form.Item label="R-Value" name={['walls_spec', 'insulation_r_value']} style={{ marginBottom: 4 }}>
+                                  <InputNumber size="small" style={{ width: '100%' }} min={1} max={60} />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          );
+                        }}
+                      </Form.Item>
                     </div>
                     <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
                       <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Auto-include (uncheck to disable)</Text>
