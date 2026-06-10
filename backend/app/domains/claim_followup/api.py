@@ -327,6 +327,8 @@ async def resolve_task(
     wm_cost_status: Optional[str] = Form(None),
     wm_estimate_amount: Optional[float] = Form(None),
     sections_data: Optional[str] = Form(None),
+    payment_status: Optional[str] = Form(None),
+    payment_note: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
     wm_estimate_file: Optional[UploadFile] = File(None),
 ):
@@ -474,6 +476,8 @@ async def resolve_task(
         outcome=outcome,
         estimate_data=estimate_data,
         denied_action=denied_action,
+        payment_status=payment_status,
+        payment_note=payment_note,
     )
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")

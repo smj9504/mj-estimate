@@ -469,7 +469,8 @@ class InvoiceSQLAlchemyRepository(SQLAlchemyRepository, InvoiceRepositoryMixin):
                     # Section/Group fields
                     'primary_group': item_data.get('primary_group'),
                     'secondary_group': item_data.get('secondary_group'),
-                    'sort_order': item_data.get('sort_order', 0)
+                    'sort_order': item_data.get('sort_order', 0),
+                    'images': item_data.get('images', [])
                 }
 
                 # Remove None values except for nullable fields (note, description, etc.)

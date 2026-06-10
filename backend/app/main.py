@@ -356,6 +356,9 @@ _NEEDED_COLUMNS = [
     # WM payment tracking
     ("water_mitigation_jobs", "payment_status", "VARCHAR(50)"),
     ("water_mitigation_jobs", "payment_note", "TEXT"),
+    # Follow-up payment tracking
+    ("followup_tasks", "payment_status", "VARCHAR(50)"),
+    ("followup_tasks", "payment_note", "TEXT"),
     # Email account OAuth fields
     ("email_accounts", "auth_method", "VARCHAR(20) DEFAULT 'password'"),
     ("email_accounts", "oauth_access_token", "TEXT"),

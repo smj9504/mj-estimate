@@ -31,6 +31,8 @@ export interface FollowUpTask {
   assigned_to_role: AssignedRole;
   resolved_at?: string;
   resolution_notes?: string;
+  payment_status?: string;
+  payment_note?: string;
   created_at?: string;
   updated_at?: string;
   // Enriched fields
@@ -158,6 +160,9 @@ export interface SendEmailRequest {
   template_id?: string;
   template_variables?: Record<string, string>;
   scheduled_at?: string;
+  // Water mitigation document re-attachment for follow-up emails
+  wm_job_id?: string;
+  wm_documents?: string[];
 }
 
 export interface SendFromTemplateRequest {

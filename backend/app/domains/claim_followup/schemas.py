@@ -62,6 +62,8 @@ class FollowUpTaskUpdate(BaseModel):
     followup_interval_days: Optional[int] = None
     max_followup_count: Optional[int] = None
     resolution_notes: Optional[str] = None
+    payment_status: Optional[str] = None
+    payment_note: Optional[str] = None
 
     @validator('status')
     def validate_status(cls, v):
@@ -82,8 +84,8 @@ class FollowUpTaskResolve(BaseModel):
     def validate_outcome(cls, v):
         if v is not None:
             allowed = [
-                'estimate_received', 'denied',
-                'estimate_requested', 'other',
+                'estimate_received', 'wm_estimate_only',
+                'denied', 'estimate_requested', 'other',
             ]
             if v not in allowed:
                 raise ValueError(
@@ -115,6 +117,8 @@ class FollowUpTaskResponse(FollowUpTaskBase):
     contact_count: int = 0
     resolved_at: Optional[datetime] = None
     resolution_notes: Optional[str] = None
+    payment_status: Optional[str] = None
+    payment_note: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -239,6 +243,12 @@ class SendEmailRequest(BaseModel):
     template_id: Optional[UUID] = None
     template_variables: Optional[Dict[str, Any]] = None
     scheduled_at: Optional[datetime] = None
+    # Water mitigation document re-attachment for follow-up emails
+    wm_job_id: Optional[UUID] = Field(None, description="WM job ID to attach documents from")
+    wm_documents: Optional[List[str]] = Field(
+        None,
+        description="WM document types to attach: photo_report, invoice, w9, cos, ewa, sketch"
+    )
 
 
 class SendFromTemplateRequest(BaseModel):

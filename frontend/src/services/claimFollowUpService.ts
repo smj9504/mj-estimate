@@ -74,6 +74,8 @@ export const claimFollowUpService = {
       wm_cost_status?: string;
       wm_estimate_amount?: number;
       sections_data?: any;
+      payment_status?: string;
+      payment_note?: string;
       file?: File;
       wm_estimate_file?: File;
     }
@@ -89,6 +91,8 @@ export const claimFollowUpService = {
     if (body?.wm_cost_status) formData.append('wm_cost_status', body.wm_cost_status);
     if (body?.wm_estimate_amount != null) formData.append('wm_estimate_amount', String(body.wm_estimate_amount));
     if (body?.sections_data) formData.append('sections_data', JSON.stringify(body.sections_data));
+    if (body?.payment_status) formData.append('payment_status', body.payment_status);
+    if (body?.payment_note) formData.append('payment_note', body.payment_note);
     if (body?.file) formData.append('file', body.file);
     if (body?.wm_estimate_file) formData.append('wm_estimate_file', body.wm_estimate_file);
 

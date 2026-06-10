@@ -868,6 +868,7 @@ async def update_invoice(
                 secondary_group=item.get('secondary_group'),
                 sort_order=item.get('sort_order'),
                 order_index=item.get('order_index'),
+                note=item.get('note'),
                 images=item.get('images', []),
                 created_at=item.get('created_at'),
                 updated_at=item.get('updated_at')
@@ -1632,6 +1633,7 @@ async def get_invoice(invoice_id: str, service: InvoiceService = Depends(get_inv
                     secondary_group=item.get('secondary_group'),
                     sort_order=item.get('sort_order'),
                     order_index=item.get('order_index'),
+                    images=item.get('images', []),
                     created_at=item.get('created_at'),
                     updated_at=item.get('updated_at')
                 )

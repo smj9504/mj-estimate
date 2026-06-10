@@ -67,6 +67,11 @@ class ClaimFollowUpService:
                 data['resolved_at'] = datetime.now(timezone.utc)
 
             result = repo.update(task_id, data)
+
+            # Sync payment status to WM job if applicable
+            if result and ('payment_status' in data or 'payment_note' in data):
+                self._sync_payment_to_wm(session, result, data)
+
             session.commit()
             return result
         except Exception as e:
@@ -197,6 +202,8 @@ class ClaimFollowUpService:
         outcome: Optional[str] = None,
         estimate_data: Optional[Dict[str, Any]] = None,
         denied_action: Optional[str] = None,
+        payment_status: Optional[str] = None,
+        payment_note: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Mark a task as resolved and process outcome.
 
@@ -224,6 +231,17 @@ class ClaimFollowUpService:
             result = repo.resolve_task(task_id, resolution_notes)
             if not result:
                 return None
+
+            # Save payment info on the task and sync to WM job
+            if payment_status or payment_note:
+                update_data = {}
+                if payment_status:
+                    update_data['payment_status'] = payment_status
+                if payment_note:
+                    update_data['payment_note'] = payment_note
+                repo.update(task_id, update_data)
+                result.update(update_data)
+                self._sync_payment_to_wm(session, result, update_data)
 
             claim_id = result.get('claim_id')
 
@@ -451,7 +469,7 @@ class ClaimFollowUpService:
             # Always create rebuild payment task when estimate is received
             self._auto_create_payment_task(
                 session, claim_id, task, 'payment_check',
-                title=f'Rebuild Payment - {property_address}',
+                title='Rebuild Payment',
                 description='Insurance estimate received. Follow up for rebuild payment check.',
             )
 
@@ -459,12 +477,45 @@ class ClaimFollowUpService:
                 # WM costs are separate → need independent WM payment tracking
                 self._auto_create_payment_task(
                     session, claim_id, task, 'wm_payment_check',
-                    title=f'WM Payment - {property_address}',
+                    title='WM Payment',
                     description='Water mitigation estimate received separately. Follow up for WM payment check.',
                 )
             elif wm_cost_status == 'not_received':
                 # WM costs not included → follow up to request coverage
                 self._auto_create_wm_followup(session, claim_id, task, claim)
+
+        elif outcome == 'wm_estimate_only':
+            # WM estimate received but rebuild estimate not yet available
+            wm_est_amount = None
+            if estimate_data:
+                wm_est_amount = estimate_data.get('wm_estimate_amount')
+                if estimate_data.get('wm_file_id'):
+                    claim.wm_estimate_file_id = estimate_data['wm_file_id']
+                    claim.wm_estimate_file_name = estimate_data.get('wm_file_name', '')
+                if wm_est_amount:
+                    claim.wm_estimate_amount = wm_est_amount
+
+            claim.wm_cost_status = 'separate_estimate'
+
+            # Update WM job status
+            self._update_wm_jobs_paperwork_received(session, claim_id)
+
+            # Auto-create WM payment task
+            self._auto_create_payment_task(
+                session, claim_id, task, 'wm_payment_check',
+                title='WM Payment',
+                description='WM estimate received. Follow up for WM payment check.',
+            )
+
+            wm_amount_info = f" WM Amount: ${wm_est_amount:,.2f}" if wm_est_amount else ''
+            session.add(ClaimActivity(
+                claim_id=claim_id,
+                activity_type='wm_estimate_received',
+                title='WM estimate received (rebuild pending)',
+                description=(notes or 'Water mitigation estimate received. Rebuild estimate not yet available.') + wm_amount_info,
+                related_entity_type='followup_task',
+                related_entity_id=task.get('id'),
+            ))
 
         elif outcome == 'estimate_requested':
             # Insurance asked us to provide the estimate
@@ -498,6 +549,40 @@ class ClaimFollowUpService:
             ))
 
         session.flush()
+
+    def _sync_payment_to_wm(
+        self, session, task: Dict[str, Any], data: Dict[str, Any]
+    ):
+        """Sync payment_status/payment_note from follow-up task to WM job"""
+        try:
+            task_type = task.get('task_type', '')
+            if task_type not in ('payment_check', 'wm_payment_check'):
+                return
+
+            claim_id = task.get('claim_id')
+            if not claim_id:
+                return
+
+            from app.domains.water_mitigation.models import (
+                WaterMitigationJob,
+            )
+            wm_job = session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.claim_id == claim_id
+            ).first()
+            if not wm_job:
+                return
+
+            if 'payment_status' in data and data['payment_status']:
+                wm_job.payment_status = data['payment_status']
+            if 'payment_note' in data and data['payment_note']:
+                wm_job.payment_note = data['payment_note']
+
+            logger.info(
+                f"Synced payment status to WM job {wm_job.id}: "
+                f"{data.get('payment_status')}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to sync payment to WM: {e}")
 
     def _auto_create_payment_task(
         self,
@@ -664,7 +749,7 @@ class ClaimFollowUpService:
 
             supplement = SupplementRequest(
                 claim_id=claim_id,
-                title=f"Review Insurance Estimate - {address}" if address else "Review Insurance Estimate",
+                title="Review Insurance Estimate",
                 reason="Insurance estimate received. Review and compare with our estimate to identify supplement needs.",
                 original_amount=insurance_rcv,
                 supplement_amount=0,
@@ -1250,8 +1335,32 @@ class ClaimFollowUpService:
             if not from_address:
                 from_address = getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@example.com')
 
+            # Collect WM document attachments if requested (for follow-up emails)
+            raw_attachments = list(data.get('attachments', []))
+            wm_job_id = data.get('wm_job_id')
+            wm_documents = data.get('wm_documents')
+            if wm_job_id and wm_documents:
+                try:
+                    from app.domains.water_mitigation.adjuster_email_service import AdjusterEmailService
+                    from app.domains.water_mitigation.models import WaterMitigationJob
+
+                    wm_service = AdjusterEmailService(self.database)
+                    job = session.query(WaterMitigationJob).filter(
+                        WaterMitigationJob.id == str(wm_job_id)
+                    ).first()
+                    if job:
+                        wm_attachments = wm_service._collect_attachments(
+                            session, job, wm_documents
+                        )
+                        raw_attachments.extend(wm_attachments)
+                        logger.info(
+                            f"Attached {len(wm_attachments)} WM documents "
+                            f"from job {wm_job_id} for follow-up email"
+                        )
+                except Exception as e:
+                    logger.error(f"Error collecting WM attachments: {e}")
+
             # Separate binary attachment data from metadata for DB storage
-            raw_attachments = data.get('attachments', [])
             # Store only JSON-safe metadata in the DB (strip binary 'data' field)
             attachments_metadata = [
                 {k: v for k, v in att.items() if k != 'data'}
@@ -1302,7 +1411,7 @@ class ClaimFollowUpService:
                     bcc_addresses=data.get('bcc_addresses', []),
                     subject=data['subject'],
                     body_html=data['body_html'],
-                    attachments=data.get('attachments', []),
+                    attachments=raw_attachments,
                     skip_signature=manual_from,
                 )
                 email_repo.mark_sent(email_id, smtp_result.get('message_id'))
@@ -1370,13 +1479,19 @@ class ClaimFollowUpService:
         # Gather claim context
         claim_context = self._get_claim_context(data['claim_id'])
 
+        # Enrich with follow-up task context if available
+        task_id = data.get('followup_task_id')
+        if task_id:
+            task_context = self._get_task_context(task_id)
+            claim_context.update(task_context)
+
         return generate_email_content(
             context_type=data['context_type'],
             claim_context=claim_context,
             tone=data.get('tone', 'professional'),
             language=data.get('language', 'en'),
             additional_context=data.get('additional_context'),
-            followup_task_id=data.get('followup_task_id'),
+            followup_task_id=task_id,
         )
 
     def _get_claim_context(self, claim_id: str) -> Dict[str, Any]:
@@ -1404,6 +1519,63 @@ class ClaimFollowUpService:
             if client:
                 context['homeowner_name'] = client.display_name or ''
                 context['property_address'] = client.address or ''
+
+            return context
+        finally:
+            session.close()
+
+    def _get_task_context(self, task_id: str) -> Dict[str, Any]:
+        """Gather follow-up task context for AI email generation"""
+        session = self._get_readonly_session()
+        try:
+            from app.domains.claim_followup.models import FollowUpTask
+
+            task = session.query(FollowUpTask).filter(
+                FollowUpTask.id == task_id
+            ).first()
+            if not task:
+                return {}
+
+            context: Dict[str, Any] = {
+                'task_type': task.task_type,
+                'contact_count': task.contact_count or 0,
+                'assigned_to_name': task.assigned_to_name or '',
+            }
+
+            # Calculate days since last contact and since creation
+            now = datetime.now(timezone.utc)
+            if task.last_contacted_at:
+                delta = now - task.last_contacted_at
+                context['days_since_last_contact'] = delta.days
+            if task.created_at:
+                delta = now - task.created_at
+                context['days_since_created'] = delta.days
+
+            # Get WM job context if linked
+            if task.wm_job_id:
+                from app.domains.water_mitigation.models import WaterMitigationJob
+                wm_job = session.query(WaterMitigationJob).filter(
+                    WaterMitigationJob.id == str(task.wm_job_id)
+                ).first()
+                if wm_job:
+                    context['wm_property_address'] = wm_job.property_address or ''
+                    context['wm_homeowner_name'] = wm_job.homeowner_name or ''
+                    if wm_job.documents_sent_date:
+                        context['documents_sent_date'] = wm_job.documents_sent_date.strftime('%m/%d/%Y')
+                        days_since_sent = (now - wm_job.documents_sent_date).days
+                        context['days_since_docs_sent'] = days_since_sent
+
+            # Determine follow-up stage for WM tasks
+            contact_count = context.get('contact_count', 0)
+            if task.task_type == 'wm_docs_sent':
+                if contact_count == 0:
+                    context['followup_stage'] = 'first'
+                elif contact_count == 1:
+                    context['followup_stage'] = 'second'
+                elif contact_count == 2:
+                    context['followup_stage'] = 'third'
+                else:
+                    context['followup_stage'] = 'escalated'
 
             return context
         finally:

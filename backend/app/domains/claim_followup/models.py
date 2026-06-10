@@ -101,6 +101,10 @@ class FollowUpTask(Base, BaseModel):
     resolved_at = Column(DateTime(timezone=True))
     resolution_notes = Column(Text)
 
+    # Payment tracking (for payment_check / wm_payment_check tasks)
+    payment_status = Column(String(50), comment="pending | issued | homeowner_holding | lost | reissued | received | partial")
+    payment_note = Column(Text)
+
     # Audit
     created_by_id = Column(UUIDType(), ForeignKey("staff.id"))
 

@@ -323,6 +323,35 @@ export interface ClientCreate {
   notes?: string;
 }
 
+// ─── All-Documents aggregation ───
+
+export type ClientDocType =
+  | 'email' | 'invoice' | 'estimate' | 'contract'
+  | 'insurance_estimate' | 'work_order' | 'wm_job'
+  | 'cabinet_estimate' | 'plumber_report' | 'packing_estimate';
+
+export interface ClientDocument {
+  id: string;
+  doc_type: ClientDocType;
+  title: string;
+  description?: string;
+  status: string;
+  claim_id?: string;
+  claim_number?: string;
+  date?: string;
+  amount?: number | null;
+  file_id?: string;
+  link?: string | null;
+  reply_received?: boolean;
+}
+
+export interface ClientAllDocumentsResponse {
+  client_id: string;
+  total: number;
+  documents: ClientDocument[];
+  claims: { id: string; claim_number: string }[];
+}
+
 export interface ClientListItem {
   id: string;
   display_name: string;

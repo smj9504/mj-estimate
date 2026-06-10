@@ -51,6 +51,7 @@ import {
   HistoryOutlined,
   UserOutlined,
   PhoneOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -984,6 +985,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
       const deniedAction = variables.body?.denied_action;
       if (outcome === 'estimate_received') {
         message.success('Task resolved - Insurance estimate received. Rebuild project created.');
+      } else if (outcome === 'wm_estimate_only') {
+        message.success('Task resolved - WM estimate recorded. WM Payment task created.');
       } else if (outcome === 'estimate_requested') {
         message.success('Task resolved - Estimate request created. Check Estimates page.');
       } else if (outcome === 'denied' && deniedAction && deniedAction !== 'complete') {
@@ -1271,6 +1274,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
                       auto_followup_enabled: task.auto_followup_enabled,
                       followup_interval_days: task.followup_interval_days,
                       max_followup_count: task.max_followup_count,
+                      payment_status: task.payment_status,
+                      payment_note: task.payment_note,
                     });
                     setEditEstimateFile(undefined);
                     setEditWmFile(undefined);
@@ -1372,51 +1377,170 @@ const ClaimFollowUpDashboard: React.FC = () => {
 
     if (relevantStages.length === 0) return null;
 
+    // Payment status labels for display
+    const PAYMENT_STATUS_LABELS: Record<string, string> = {
+      received: 'Received',
+      issued: 'Issued',
+      homeowner_holding: 'HO Holding',
+      lost: 'Lost',
+      reissued: 'Reissued',
+      partial: 'Partial',
+      pending: 'Pending',
+    };
+
+    // Determine overall claim progress summary
+    // Count what's done vs what's still active/pending
+    const hasActiveOrPending = relevantStages.some(
+      s => activeTypes.has(s) || virtualPending.has(s)
+    );
+    const allResolved = !hasActiveOrPending;
+
+    // Summary tag for WM Docs only claims that are waiting for estimate
+    const onlyWmDocs = relevantStages.length === 1 && relevantStages[0] === 'wm_docs_sent';
+    const wmDocsResolved = resolvedTypes.has('wm_docs_sent') && !activeTypes.has('wm_docs_sent');
+
+    if (onlyWmDocs && wmDocsResolved) {
+      // WM Docs sent & resolved, but no estimate/payment stage yet → Waiting for Estimate
+      return (
+        <Space size={4}>
+          <Tag style={{ backgroundColor: 'transparent', color: '#b7b7b7', border: '1px solid #e8e8e8', fontSize: 10, margin: 0, lineHeight: '20px', opacity: 0.7 }}>
+            <CheckCircleOutlined style={{ marginRight: 3, fontSize: 9 }} />Docs Sent
+          </Tag>
+          <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />
+          <Tag style={{ backgroundColor: '#fff7e6', color: '#d48806', border: '1px dashed #ffc069', fontSize: 11, margin: 0, lineHeight: '20px' }}>
+            <ClockCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />Waiting for Estimate
+          </Tag>
+        </Space>
+      );
+    }
+
+    if (onlyWmDocs && activeTypes.has('wm_docs_sent')) {
+      // WM Docs still active (not resolved)
+      return (
+        <Tag style={{ backgroundColor: '#1890ff', color: '#fff', border: 'none', fontSize: 11, margin: 0, lineHeight: '20px' }}>
+          Docs Sent - Awaiting Response
+        </Tag>
+      );
+    }
+
     return (
       <Space size={4} wrap>
         {relevantStages.map((stage, idx) => {
           const isResolved = resolvedTypes.has(stage);
           const isActive = activeTypes.has(stage);
           const stageTask = group.tasks.find(t => t.task_type === stage && !['resolved', 'cancelled'].includes(t.status));
+          const resolvedTask = group.tasks.find(t => t.task_type === stage && t.status === 'resolved');
+          const anyTask = stageTask || resolvedTask;
           const isStageOverdue = stageTask ? isOverdue(stageTask) : false;
 
           const isVirtualResolved = virtualResolved.has(stage);
           const isVirtualPending = virtualPending.has(stage);
           const resolved = (isResolved && !isActive) || isVirtualResolved;
-          let color = '#d9d9d9';
-          let textColor = '#999';
-          if (resolved) {
+
+          // Is this a past completed stage (has active/pending stages after it)?
+          const laterStagesExist = relevantStages.slice(idx + 1).some(
+            s => activeTypes.has(s) || virtualPending.has(s) || resolvedTypes.has(s) || virtualResolved.has(s)
+          );
+          const isPastStage = resolved && laterStagesExist;
+
+          // Payment-specific
+          const isPaymentStage = stage === 'payment_check' || stage === 'wm_payment_check';
+          const paymentStatus = anyTask?.payment_status;
+          const paymentNeedsAttention = isPaymentStage && paymentStatus
+            && ['homeowner_holding', 'lost', 'partial'].includes(paymentStatus);
+
+          let color: string;
+          let textColor: string;
+          let borderStyle: string;
+
+          if (paymentNeedsAttention) {
+            color = '#fff7e6';
+            textColor = '#d48806';
+            borderStyle = '1px solid #ffc069';
+          } else if (isPastStage) {
+            // Past completed stage - subtle
+            color = 'transparent';
+            textColor = '#b7b7b7';
+            borderStyle = '1px solid #e8e8e8';
+          } else if (resolved && allResolved) {
+            // All done - final green
             color = '#f6ffed';
             textColor = '#52c41a';
+            borderStyle = '1px solid #b7eb8f';
+          } else if (resolved) {
+            color = '#f6ffed';
+            textColor = '#52c41a';
+            borderStyle = '1px solid #b7eb8f';
           } else if (isStageOverdue) {
             color = '#ff4d4f';
             textColor = '#fff';
+            borderStyle = 'none';
           } else if (isActive) {
             color = '#1890ff';
             textColor = '#fff';
+            borderStyle = 'none';
           } else if (isVirtualPending) {
             color = '#fff7e6';
             textColor = '#fa8c16';
+            borderStyle = '1px dashed #ffc069';
+          } else {
+            color = '#d9d9d9';
+            textColor = '#999';
+            borderStyle = 'none';
           }
+
+          // Build label
+          let label = STAGE_LABELS[stage];
+          // For past stages, use shorter labels
+          if (isPastStage) {
+            const SHORT_LABELS: Record<string, string> = {
+              wm_docs_sent: 'Docs',
+              payment_check: 'Rebuild $',
+              wm_payment_check: 'WM $',
+            };
+            label = SHORT_LABELS[stage] || label;
+          }
+          if (isPaymentStage && paymentStatus && paymentStatus !== 'pending') {
+            const statusLabel = PAYMENT_STATUS_LABELS[paymentStatus] || paymentStatus;
+            if (isPastStage) {
+              label = `${label}: ${statusLabel}`;
+            } else {
+              label = `${STAGE_LABELS[stage]}: ${statusLabel}`;
+            }
+          }
+
+          // Tooltip
+          const paymentNote = anyTask?.payment_note;
+          const tooltipText = paymentNote
+            || (isPastStage ? `${STAGE_LABELS[stage]} - Done` : '');
+
+          const tagElement = (
+            <Tag
+              style={{
+                backgroundColor: color,
+                color: textColor,
+                border: borderStyle,
+                fontSize: isPastStage ? 10 : 11,
+                margin: 0,
+                whiteSpace: 'nowrap',
+                lineHeight: '20px',
+                opacity: isPastStage ? 0.7 : 1,
+              }}
+            >
+              {isPastStage && <CheckCircleOutlined style={{ marginRight: 3, fontSize: 9 }} />}
+              {resolved && !isPastStage && !paymentNeedsAttention && <CheckCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
+              {paymentNeedsAttention && <ExclamationCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
+              {isVirtualPending && <ClockCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
+              {label}
+            </Tag>
+          );
 
           return (
             <React.Fragment key={stage}>
               {idx > 0 && <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />}
-              <Tag
-                style={{
-                  backgroundColor: color,
-                  color: textColor,
-                  border: resolved ? '1px solid #b7eb8f' : isVirtualPending ? '1px dashed #ffc069' : 'none',
-                  fontSize: 11,
-                  margin: 0,
-                  whiteSpace: 'nowrap',
-                  lineHeight: '20px',
-                }}
-              >
-                {resolved && <CheckCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
-                {isVirtualPending && <ClockCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
-                {STAGE_LABELS[stage]}
-              </Tag>
+              {tooltipText ? (
+                <Tooltip title={tooltipText}>{tagElement}</Tooltip>
+              ) : tagElement}
             </React.Fragment>
           );
         })}
@@ -1851,6 +1975,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
                   wm_cost_status: values.wm_cost_status,
                   wm_estimate_amount: parsedWmAmount ?? values.wm_estimate_amount,
                   sections_data: parsedSections,
+                  payment_status: values.payment_status,
+                  payment_note: values.payment_note,
                   file: resolveFile,
                   wm_estimate_file: resolveWmFile,
                 },
@@ -1879,6 +2005,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
           <Form.Item name="outcome" label="Outcome" rules={[{ required: true, message: 'Select an outcome' }]}>
             <Select placeholder="What was the result?" onChange={(v) => { setResolveOutcome(v); setResolveDeniedAction(undefined); resolveForm.setFieldsValue({ denied_action: undefined }); }}>
               <Select.Option value="estimate_received">Insurance Estimate Received</Select.Option>
+              <Select.Option value="wm_estimate_only">WM Estimate Only (Rebuild Unknown)</Select.Option>
               <Select.Option value="estimate_requested">Insurance Requested Our Estimate</Select.Option>
               <Select.Option value="denied">Claim Denied</Select.Option>
               <Select.Option value="other">Other</Select.Option>
@@ -2170,6 +2297,56 @@ const ClaimFollowUpDashboard: React.FC = () => {
             </>
           )}
 
+          {/* WM Estimate Only - just WM amount, no rebuild info needed */}
+          {resolveOutcome === 'wm_estimate_only' && (
+            <div style={{ background: '#f6ffed', borderRadius: 6, padding: '10px 12px', marginBottom: 12, border: '1px solid #b7eb8f' }}>
+              <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Water Mitigation Estimate</Text>
+              <Form.Item name="wm_estimate_amount" label="WM Amount (if known)">
+                <InputNumber min={0} step={0.01} prefix="$" style={{ width: '100%' }} placeholder="Enter if known" />
+              </Form.Item>
+              <Form.Item label="WM Estimate PDF (Optional)" style={{ marginBottom: 0 }}>
+                <Upload
+                  maxCount={1}
+                  accept=".pdf"
+                  beforeUpload={(file) => {
+                    setResolveWmFile(file);
+                    return false;
+                  }}
+                  onRemove={() => setResolveWmFile(undefined)}
+                  fileList={resolveWmFile ? [{ uid: '-2', name: resolveWmFile.name, status: 'done' as const }] : []}
+                >
+                  <Button icon={<UploadOutlined />} size="small">Upload WM PDF</Button>
+                </Upload>
+              </Form.Item>
+              <div style={{ marginTop: 8, padding: '6px 8px', background: '#e6f7ff', borderRadius: 4, border: '1px solid #91d5ff' }}>
+                <Text style={{ fontSize: 12, color: '#1890ff' }}>
+                  Amount and PDF are both optional. Rebuild estimate can be added later.
+                </Text>
+              </div>
+            </div>
+          )}
+
+          {/* Payment Status for payment tasks */}
+          {selectedTask && ['payment_check', 'wm_payment_check'].includes(selectedTask.task_type) && (
+            <div style={{ background: '#e6f7ff', borderRadius: 6, padding: '10px 12px', marginBottom: 12, border: '1px solid #91d5ff' }}>
+              <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Payment Status</Text>
+              <Form.Item name="payment_status" style={{ marginBottom: 8 }} rules={[{ required: true, message: 'Select payment status' }]}>
+                <Select placeholder="What is the payment status?">
+                  <Select.Option value="received">Received</Select.Option>
+                  <Select.Option value="issued">Issued (Amount Unknown)</Select.Option>
+                  <Select.Option value="homeowner_holding">Homeowner Holding Check</Select.Option>
+                  <Select.Option value="lost">Check Lost in Transit</Select.Option>
+                  <Select.Option value="reissued">Reissued</Select.Option>
+                  <Select.Option value="partial">Partial Payment</Select.Option>
+                  <Select.Option value="pending">Still Pending</Select.Option>
+                </Select>
+              </Form.Item>
+              <Form.Item name="payment_note" label="Payment Note" style={{ marginBottom: 0 }}>
+                <TextArea rows={2} placeholder="e.g. Homeowner has check since 6/1 / Check lost, reissue requested to State Farm" />
+              </Form.Item>
+            </div>
+          )}
+
           <Form.Item name="resolution_notes" label="Resolution Notes">
             <TextArea rows={3} placeholder="Additional details..." />
           </Form.Item>
@@ -2272,6 +2449,27 @@ const ClaimFollowUpDashboard: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+
+          {/* Payment Status for payment tasks */}
+          {selectedTask && ['payment_check', 'wm_payment_check'].includes(selectedTask.task_type) && (
+            <div style={{ background: '#e6f7ff', borderRadius: 6, padding: '10px 12px', marginTop: 8, border: '1px solid #91d5ff' }}>
+              <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Payment Status</Text>
+              <Form.Item name="payment_status" style={{ marginBottom: 8 }}>
+                <Select placeholder="Payment status" allowClear>
+                  <Select.Option value="pending">Pending</Select.Option>
+                  <Select.Option value="issued">Issued (Amount Unknown)</Select.Option>
+                  <Select.Option value="homeowner_holding">Homeowner Holding Check</Select.Option>
+                  <Select.Option value="lost">Check Lost in Transit</Select.Option>
+                  <Select.Option value="reissued">Reissued</Select.Option>
+                  <Select.Option value="received">Received</Select.Option>
+                  <Select.Option value="partial">Partial Payment</Select.Option>
+                </Select>
+              </Form.Item>
+              <Form.Item name="payment_note" label="Payment Note" style={{ marginBottom: 0 }}>
+                <TextArea rows={2} placeholder="e.g. Homeowner has check / Check lost, reissue requested" />
+              </Form.Item>
+            </div>
+          )}
         </Form>
 
         {/* Estimate Data Section */}
@@ -2657,6 +2855,8 @@ const ClaimFollowUpDashboard: React.FC = () => {
                         claimId={group.claim_id}
                         followupTaskId={drawerEmailTaskId}
                         taskType={group.tasks.find(t => t.id === drawerEmailTaskId)?.task_type}
+                        wmJobId={group.tasks.find(t => t.id === drawerEmailTaskId)?.wm_job_id}
+                        contactCount={group.tasks.find(t => t.id === drawerEmailTaskId)?.contact_count || 0}
                         defaultTo={
                           (() => {
                             const task = group.tasks.find(t => t.id === drawerEmailTaskId);

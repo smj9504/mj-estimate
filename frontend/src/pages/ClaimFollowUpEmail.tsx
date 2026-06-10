@@ -95,6 +95,8 @@ const ClaimFollowUpEmail: React.FC = () => {
             claimId={task.claim_id}
             followupTaskId={task.id}
             taskType={task.task_type}
+            wmJobId={task.wm_job_id}
+            contactCount={task.contact_count || 0}
             defaultTo={task.assigned_to_email || ''}
             onSent={() => navigate('/claim-followup')}
             onCancel={() => navigate('/claim-followup')}

@@ -1581,9 +1581,6 @@ const InvoiceCreation: React.FC = () => {
       client_email: invoiceData.client_email,
       tax_rate: invoiceData.tax_rate || 0,
       discount: invoiceData.discount_amount || invoiceData.discount || 0,
-      notes: invoiceData.notes,
-      terms: invoiceData.terms,
-      payment_terms: invoiceData.payment_terms,
     });
     
     // Also update local state for Select component
@@ -1641,6 +1638,12 @@ const InvoiceCreation: React.FC = () => {
   const handleEditItem = (item: InvoiceItem, index: number) => {
     setEditingItem(item);
     setEditingIndex(index);
+    itemForm.setFieldsValue({
+      ...item,
+      rate: typeof item.rate === 'string' ? parseFloat(item.rate) || 0 : item.rate,
+      quantity: typeof item.quantity === 'string' ? parseFloat(item.quantity) || 1 : item.quantity,
+    });
+    setItemImages(item.images || []);
     setItemModalVisible(true);
   };
 
@@ -3868,22 +3871,7 @@ const InvoiceCreation: React.FC = () => {
         }}
         afterOpenChange={(open) => {
           if (open) {
-            // Modal이 완전히 열린 후에 form 값 설정
-            if (editingItem) {
-              // Ensure rate and quantity are numbers
-              const formValues = {
-                ...editingItem,
-                rate: typeof editingItem.rate === 'string'
-                  ? parseFloat(editingItem.rate) || 0
-                  : editingItem.rate,
-                quantity: typeof editingItem.quantity === 'string'
-                  ? parseFloat(editingItem.quantity) || 1
-                  : editingItem.quantity,
-              };
-              itemForm.setFieldsValue(formValues);
-              // Load existing images when editing
-              setItemImages(editingItem.images || []);
-            } else {
+            if (!editingItem) {
               itemForm.resetFields();
               setItemImages([]);
             }

@@ -8,12 +8,14 @@ import {
   Input,
   Select,
   Tag,
+  Checkbox,
   message,
   Typography,
   Row,
   Col,
   Divider,
   Alert,
+  Spin,
 } from 'antd';
 import {
   SendOutlined,
@@ -21,9 +23,13 @@ import {
   FileTextOutlined,
   EyeOutlined,
   UserOutlined,
+  PaperClipOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
 } from '@ant-design/icons';
 import { claimFollowUpService } from '../../services/claimFollowUpService';
 import { emailIngestionService } from '../../services/emailIngestionService';
+import { adjusterEmailService, type DocumentReadiness } from '../../services/waterMitigationService';
 import RichTextEditor from '../editor/RichTextEditor';
 import type {
   EmailTemplate,
@@ -52,10 +58,38 @@ const REBUILD_TASK_TYPES = [
   'payment_check', 'supplement_sent',
 ];
 
+const WM_DOC_LABELS: Record<string, string> = {
+  photo_report: 'Photo Report',
+  invoice: 'Invoice',
+  w9: 'Company W-9',
+  cos: 'Certificate of Satisfaction (COS)',
+  ewa: 'Emergency Work Authorization (EWA)',
+  sketch: 'Sketch',
+};
+
+const WM_DOC_ORDER = ['photo_report', 'invoice', 'w9', 'cos', 'ewa', 'sketch'];
+
+// Follow-up stage labels
+const WM_STAGE_CONFIG: Record<string, { label: string; color: string; description: string }> = {
+  first:     { label: '1st Follow-up',  color: 'blue',    description: 'Confirm receipt of documents' },
+  second:    { label: '2nd Follow-up',  color: 'orange',  description: 'Ask about review status or payment' },
+  third:     { label: '3rd Follow-up',  color: 'red',     description: 'Request status of endorsement' },
+  escalated: { label: '4th+ Follow-up', color: 'volcano',  description: 'Direct payment status inquiry' },
+};
+
+function getFollowupStage(contactCount: number): string {
+  if (contactCount === 0) return 'first';
+  if (contactCount === 1) return 'second';
+  if (contactCount === 2) return 'third';
+  return 'escalated';
+}
+
 interface EmailComposerProps {
   claimId: string;
   followupTaskId?: string;
   taskType?: string;
+  wmJobId?: string;
+  contactCount?: number;
   defaultTo?: string;
   defaultSubject?: string;
   onSent?: () => void;
@@ -66,6 +100,8 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
   claimId,
   followupTaskId,
   taskType,
+  wmJobId,
+  contactCount = 0,
   defaultTo,
   defaultSubject,
   onSent,
@@ -76,6 +112,33 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
   const [selectedTemplate, setSelectedTemplate] = useState<string | undefined>();
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>();
   const [previewMode, setPreviewMode] = useState(false);
+  const [selectedWmDocs, setSelectedWmDocs] = useState<string[]>([]);
+
+  // Determine if this is a WM follow-up that can attach documents
+  const isWmFollowUp = !!wmJobId && taskType === 'wm_docs_sent';
+  const wmFollowupStage = isWmFollowUp ? getFollowupStage(contactCount) : null;
+  const stageConfig = wmFollowupStage ? WM_STAGE_CONFIG[wmFollowupStage] : null;
+
+  // Load WM document readiness when this is a WM follow-up
+  const { data: wmDocReadiness, isLoading: wmDocsLoading } = useQuery({
+    queryKey: ['wm-doc-readiness', wmJobId],
+    queryFn: async () => {
+      const info = await adjusterEmailService.getInfo(wmJobId!);
+      return info.documents;
+    },
+    enabled: isWmFollowUp,
+  });
+
+  // Auto-select all ready documents when readiness data loads
+  useEffect(() => {
+    if (wmDocReadiness) {
+      const readyDocs = WM_DOC_ORDER.filter(
+        key => wmDocReadiness[key as keyof DocumentReadiness] &&
+               (wmDocReadiness[key as keyof DocumentReadiness] as any)?.ready
+      );
+      setSelectedWmDocs(readyDocs);
+    }
+  }, [wmDocReadiness]);
 
   // Load email accounts (from addresses)
   const { data: accounts = [] } = useQuery({
@@ -205,8 +268,20 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
         template_id: selectedTemplate,
       };
 
+      // Attach WM documents if selected
+      if (isWmFollowUp && selectedWmDocs.length > 0) {
+        payload.wm_job_id = wmJobId;
+        payload.wm_documents = selectedWmDocs;
+      }
+
       sendMutation.mutate(payload);
     });
+  };
+
+  const handleWmDocToggle = (docKey: string, checked: boolean) => {
+    setSelectedWmDocs(prev =>
+      checked ? [...prev, docKey] : prev.filter(d => d !== docKey)
+    );
   };
 
   const selectedAccount = accounts.find(a => a.id === selectedAccountId);
@@ -229,7 +304,9 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
             onClick={handleSend}
             loading={sendMutation.isPending}
           >
-            Send
+            Send{isWmFollowUp && selectedWmDocs.length > 0
+              ? ` (${selectedWmDocs.length} docs)`
+              : ''}
           </Button>
         </Space>
       }
@@ -265,6 +342,119 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
           </Text>
         )}
       </div>
+
+      {/* WM Document Attachments */}
+      {isWmFollowUp && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 4 }}>
+            <Space>
+              <PaperClipOutlined />
+              <Text type="secondary">WM Documents to Attach:</Text>
+              {selectedWmDocs.length > 0 && (
+                <Tag color="blue">{selectedWmDocs.length} selected</Tag>
+              )}
+            </Space>
+          </div>
+          {wmDocsLoading ? (
+            <Spin size="small" />
+          ) : wmDocReadiness ? (
+            <div
+              style={{
+                border: '1px solid #f0f0f0',
+                borderRadius: 6,
+                padding: '8px 12px',
+                background: '#fafafa',
+              }}
+            >
+              <Row gutter={[8, 4]}>
+                {WM_DOC_ORDER.map(docKey => {
+                  const docInfo = wmDocReadiness[docKey as keyof DocumentReadiness] as any;
+                  const isReady = docInfo?.ready;
+                  return (
+                    <Col xs={24} sm={12} key={docKey}>
+                      <Checkbox
+                        checked={selectedWmDocs.includes(docKey)}
+                        disabled={!isReady}
+                        onChange={e => handleWmDocToggle(docKey, e.target.checked)}
+                      >
+                        <Space size={4}>
+                          {isReady ? (
+                            <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 12 }} />
+                          ) : (
+                            <CloseCircleOutlined style={{ color: '#ff4d4f', fontSize: 12 }} />
+                          )}
+                          <span style={{ fontSize: 13 }}>
+                            {WM_DOC_LABELS[docKey] || docKey}
+                          </span>
+                          {!isReady && (
+                            <Text type="secondary" style={{ fontSize: 11 }}>(not ready)</Text>
+                          )}
+                        </Space>
+                      </Checkbox>
+                    </Col>
+                  );
+                })}
+              </Row>
+              <div style={{ marginTop: 6 }}>
+                <Space size={8}>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0, fontSize: 12 }}
+                    onClick={() => {
+                      const allReady = WM_DOC_ORDER.filter(
+                        key => (wmDocReadiness[key as keyof DocumentReadiness] as any)?.ready
+                      );
+                      setSelectedWmDocs(allReady);
+                    }}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ padding: 0, fontSize: 12 }}
+                    onClick={() => setSelectedWmDocs([])}
+                  >
+                    Clear All
+                  </Button>
+                </Space>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* Follow-up Stage Indicator */}
+      {isWmFollowUp && stageConfig && (
+        <Alert
+          message={
+            <Space>
+              <Tag color={stageConfig.color} style={{ margin: 0 }}>{stageConfig.label}</Tag>
+              <Text style={{ fontSize: 13 }}>{stageConfig.description}</Text>
+              {contactCount > 0 && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  ({contactCount} email{contactCount !== 1 ? 's' : ''} sent previously)
+                </Text>
+              )}
+            </Space>
+          }
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          action={
+            <Button
+              size="small"
+              type="primary"
+              icon={<RobotOutlined />}
+              onClick={() => handleAIGenerate('followup')}
+              loading={aiMutation.isPending}
+            >
+              Generate
+            </Button>
+          }
+        />
+      )}
 
       {/* AI Quick Actions */}
       <div style={{ marginBottom: 12 }}>
@@ -379,6 +569,16 @@ const EmailComposer: React.FC<EmailComposerProps> = ({
           )}
         </Form.Item>
       </Form>
+
+      {isWmFollowUp && selectedWmDocs.length > 0 && (
+        <Alert
+          message={`${selectedWmDocs.length} WM document(s) will be attached to this email`}
+          type="info"
+          showIcon
+          icon={<PaperClipOutlined />}
+          style={{ marginTop: 8 }}
+        />
+      )}
 
       {aiMutation.isSuccess && (
         <Alert

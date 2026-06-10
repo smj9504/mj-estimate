@@ -7,6 +7,7 @@ import type {
   Client,
   ClientCreate,
   ClientListItem,
+  ClientAllDocumentsResponse,
   Claim,
   ClaimCreate,
   ClaimNegotiation,
@@ -38,6 +39,14 @@ export const clientService = {
   async getById(id: string) {
     const { data } = await api.get(`/api/clients/${id}`);
     return data as Client;
+  },
+
+  async getAllDocuments(
+    clientId: string,
+    params?: { doc_type?: string; claim_id?: string }
+  ): Promise<ClientAllDocumentsResponse> {
+    const { data } = await api.get(`/api/clients/${clientId}/all-documents`, { params });
+    return data;
   },
 
   async create(payload: ClientCreate) {

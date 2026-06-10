@@ -58,6 +58,7 @@ import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { clientService, claimService, negotiationService, claimActivityService } from '../services/clientService';
 import { fileService } from '../services/fileService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
+import ClientDocumentHub from '../components/client/ClientDocumentHub';
 import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory } from '../components/claim-followup';
 import type {
   Client,
@@ -2047,11 +2048,21 @@ const ClientDetail: React.FC = () => {
       children: <ClaimsTab client={client} />,
     },
     {
+      key: 'document-hub',
+      label: (
+        <Space>
+          <FilePdfOutlined />
+          Document Hub
+        </Space>
+      ),
+      children: <ClientDocumentHub clientId={client.id} />,
+    },
+    {
       key: 'documents',
       label: (
         <Space>
           <FileTextOutlined />
-          All Documents
+          Specialty Documents
         </Space>
       ),
       children: <AllDocumentsTab client={client} />,

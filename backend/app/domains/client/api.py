@@ -724,3 +724,247 @@ async def get_claim_activities(client_id: str, claim_id: str):
         ]
     finally:
         session.close()
+
+
+# ────────────────────────────────────────
+# Client All-Documents Aggregation
+# ────────────────────────────────────────
+
+@router.get("/clients/{client_id}/all-documents")
+async def get_all_documents(
+    client_id: str,
+    doc_type: Optional[str] = None,
+    claim_id: Optional[str] = None,
+):
+    """
+    Aggregate all documents for a client across all claims.
+
+    Returns a unified list of: emails, invoices, estimates, contracts,
+    insurance_estimates, work_orders, wm_jobs, cabinet_estimates,
+    plumber_reports, packing_estimates.
+    """
+    from app.core.database_factory import get_database
+    from app.domains.client.models import Client, Claim, ClaimNegotiation
+
+    database = get_database()
+    session = database.get_readonly_session()
+    try:
+        # Verify client exists
+        client = session.query(Client).filter(Client.id == client_id).first()
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        # Get all claim IDs for this client
+        claims = session.query(Claim).filter(Claim.client_id == client_id).all()
+        claim_map = {str(c.id): c.claim_number or "N/A" for c in claims}
+        claim_ids = list(claim_map.keys())
+
+        # Apply claim filter if specified
+        if claim_id:
+            if claim_id not in claim_ids:
+                raise HTTPException(status_code=404, detail="Claim not found for client")
+            claim_ids = [claim_id]
+
+        docs = []
+
+        def _iso(dt):
+            return dt.isoformat() if dt else None
+
+        # 1. Sent Emails
+        if not doc_type or doc_type == 'email':
+            from app.domains.claim_followup.models import SentEmail
+            emails = session.query(SentEmail).filter(
+                SentEmail.claim_id.in_(claim_ids),
+                SentEmail.status.in_(['sent', 'sending']),
+            ).order_by(SentEmail.sent_at.desc()).all()
+            for e in emails:
+                to_str = ", ".join(e.to_addresses or [])
+                att_count = len(e.attachments or [])
+                docs.append({
+                    "id": str(e.id),
+                    "doc_type": "email",
+                    "title": e.subject or "(No subject)",
+                    "description": f"To: {to_str}" + (f" ({att_count} attachment{'s' if att_count != 1 else ''})" if att_count else ""),
+                    "status": e.status,
+                    "claim_id": str(e.claim_id) if e.claim_id else None,
+                    "claim_number": claim_map.get(str(e.claim_id), ""),
+                    "date": _iso(e.sent_at or e.created_at),
+                    "amount": None,
+                    "reply_received": e.reply_received,
+                    "link": None,
+                })
+
+        # 2. Invoices
+        if not doc_type or doc_type == 'invoice':
+            from app.domains.invoice.models import Invoice
+            invoices = session.query(Invoice).filter(
+                Invoice.client_id == client_id,
+            ).order_by(Invoice.created_at.desc()).all()
+            if claim_id:
+                invoices = [i for i in invoices if str(i.claim_id) == claim_id]
+            for inv in invoices:
+                docs.append({
+                    "id": str(inv.id),
+                    "doc_type": "invoice",
+                    "title": f"Invoice #{inv.invoice_number or '—'}",
+                    "description": inv.client_name or "",
+                    "status": inv.status or "draft",
+                    "claim_id": str(inv.claim_id) if inv.claim_id else None,
+                    "claim_number": claim_map.get(str(inv.claim_id), "") if inv.claim_id else "",
+                    "date": _iso(inv.invoice_date or inv.created_at),
+                    "amount": float(inv.total_amount or 0),
+                    "link": f"/invoices/{inv.id}",
+                })
+
+        # 3. Estimates
+        if not doc_type or doc_type == 'estimate':
+            from app.domains.estimate.models import Estimate
+            estimates = session.query(Estimate).filter(
+                Estimate.client_id == client_id,
+            ).order_by(Estimate.created_at.desc()).all()
+            if claim_id:
+                estimates = [e for e in estimates if str(e.claim_id) == claim_id]
+            for est in estimates:
+                total = float(est.rcv_amount or est.total_amount or 0)
+                docs.append({
+                    "id": str(est.id),
+                    "doc_type": "estimate",
+                    "title": f"Estimate #{est.estimate_number or '—'}"
+                             + (f" ({est.estimate_type})" if est.estimate_type else ""),
+                    "description": est.client_name or "",
+                    "status": est.status or "draft",
+                    "claim_id": str(est.claim_id) if est.claim_id else None,
+                    "claim_number": claim_map.get(str(est.claim_id), "") if est.claim_id else "",
+                    "date": _iso(est.estimate_date or est.created_at),
+                    "amount": total,
+                    "link": f"/estimates/{est.id}",
+                })
+
+        # 4. Contracts
+        if not doc_type or doc_type == 'contract':
+            from app.domains.contract.models import ContractInstance
+            contracts = session.query(ContractInstance).filter(
+                ContractInstance.client_id == client_id,
+            ).order_by(ContractInstance.created_at.desc()).all()
+            if claim_id:
+                contracts = [c for c in contracts if str(c.claim_id) == claim_id]
+            for ct in contracts:
+                docs.append({
+                    "id": str(ct.id),
+                    "doc_type": "contract",
+                    "title": ct.title or f"Contract #{ct.contract_number or '—'}",
+                    "description": "",
+                    "status": ct.status or "draft",
+                    "claim_id": str(ct.claim_id) if ct.claim_id else None,
+                    "claim_number": claim_map.get(str(ct.claim_id), "") if ct.claim_id else "",
+                    "date": _iso(ct.signed_at or ct.sent_at or ct.created_at),
+                    "amount": None,
+                    "link": None,
+                })
+
+        # 5. Insurance Estimates (Negotiations with files)
+        if not doc_type or doc_type == 'insurance_estimate':
+            negotiations = session.query(ClaimNegotiation).filter(
+                ClaimNegotiation.claim_id.in_(claim_ids),
+            ).order_by(ClaimNegotiation.date_received.desc()).all()
+            for neg in negotiations:
+                file_id = neg.file_id or getattr(neg, 'document_url', None)
+                if not file_id and not neg.document_name:
+                    continue
+                total = float(neg.rcv_amount or 0)
+                docs.append({
+                    "id": str(neg.id),
+                    "doc_type": "insurance_estimate",
+                    "title": f"Insurance Est. Rev.{neg.revision_number}"
+                             + (f" ({neg.revision_type})" if neg.revision_type else ""),
+                    "description": neg.received_from or "",
+                    "status": neg.extraction_status or "uploaded",
+                    "claim_id": str(neg.claim_id),
+                    "claim_number": claim_map.get(str(neg.claim_id), ""),
+                    "date": _iso(neg.date_received or neg.created_at),
+                    "amount": total,
+                    "file_id": str(file_id) if file_id else None,
+                    "link": None,
+                })
+
+        # 6. Work Orders
+        if not doc_type or doc_type == 'work_order':
+            from app.domains.work_order.models import WorkOrder
+            wos = session.query(WorkOrder).filter(
+                WorkOrder.client_id == client_id,
+            ).order_by(WorkOrder.created_at.desc()).all()
+            if claim_id:
+                wos = [w for w in wos if str(w.claim_id) == claim_id]
+            for wo in wos:
+                docs.append({
+                    "id": str(wo.id),
+                    "doc_type": "work_order",
+                    "title": f"Work Order #{wo.work_order_number or '—'}",
+                    "description": wo.work_description or "",
+                    "status": wo.status or "draft",
+                    "claim_id": str(wo.claim_id) if wo.claim_id else None,
+                    "claim_number": claim_map.get(str(wo.claim_id), "") if wo.claim_id else "",
+                    "date": _iso(wo.scheduled_start_date or wo.created_at),
+                    "amount": float(wo.estimated_cost or 0) if wo.estimated_cost else None,
+                    "link": f"/work-orders/{wo.id}",
+                })
+
+        # 7. WM Jobs
+        if not doc_type or doc_type == 'wm_job':
+            from app.domains.water_mitigation.models import WaterMitigationJob
+            wm_jobs = session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.claim_id.in_(claim_ids),
+            ).order_by(WaterMitigationJob.created_at.desc()).all()
+            for wm in wm_jobs:
+                docs.append({
+                    "id": str(wm.id),
+                    "doc_type": "wm_job",
+                    "title": f"WM Job - {wm.property_address or '—'}",
+                    "description": f"Status: {wm.status or '—'}",
+                    "status": wm.status or "Lead",
+                    "claim_id": str(wm.claim_id) if wm.claim_id else None,
+                    "claim_number": claim_map.get(str(wm.claim_id), "") if wm.claim_id else "",
+                    "date": _iso(wm.mitigation_start_date or wm.created_at),
+                    "amount": float(wm.invoice_amount or 0) if wm.invoice_amount else None,
+                    "link": f"/water-mitigation/{wm.id}",
+                })
+
+        # 8. Cabinet Estimates
+        if not doc_type or doc_type == 'cabinet_estimate':
+            try:
+                from app.domains.cabinet_estimate.models import CabinetEstimate
+                cab_ests = session.query(CabinetEstimate).filter(
+                    CabinetEstimate.claim_id.in_(claim_ids),
+                ).order_by(CabinetEstimate.created_at.desc()).all()
+                for ce in cab_ests:
+                    docs.append({
+                        "id": str(ce.id),
+                        "doc_type": "cabinet_estimate",
+                        "title": f"Cabinet Est. - {getattr(ce, 'property_address', '') or '—'}",
+                        "description": "",
+                        "status": getattr(ce, 'status', 'draft') or "draft",
+                        "claim_id": str(ce.claim_id) if ce.claim_id else None,
+                        "claim_number": claim_map.get(str(ce.claim_id), "") if ce.claim_id else "",
+                        "date": _iso(ce.created_at),
+                        "amount": float(getattr(ce, 'total', 0) or 0),
+                        "link": f"/cabinet-estimates/{ce.id}",
+                    })
+            except Exception:
+                pass
+
+        # Sort all docs by date descending
+        docs.sort(key=lambda d: d.get("date") or "", reverse=True)
+
+        return {
+            "client_id": client_id,
+            "total": len(docs),
+            "documents": docs,
+            "claims": [{"id": cid, "claim_number": cnum} for cid, cnum in claim_map.items()],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting all documents for client {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
