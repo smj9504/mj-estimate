@@ -297,8 +297,7 @@ class BathroomExportService:
         # ══════ SKETCH + PHASE SUMMARY (side by side) ══════
         sketch_element = None
 
-        sketch_col_w = usable_w * 0.46
-        sketch_max_h = 4.5 * inch
+        sketch_aspect_ratio = 1.0  # width / height
 
         # Try client-captured PNG first
         if sketch_image_base64:
@@ -309,8 +308,10 @@ class BathroomExportService:
                 img_stream = io.BytesIO(img_data)
                 img = Image(img_stream)
                 iw, ih = img.drawWidth, img.drawHeight
-                # Scale to fill column, constrain by height
-                s = min(sketch_col_w / iw, sketch_max_h / ih)
+                sketch_aspect_ratio = iw / ih if ih > 0 else 1.0
+                # Scale to fit column width (height follows aspect ratio)
+                sketch_col_w = usable_w * 0.46
+                s = sketch_col_w / iw
                 img.drawWidth = iw * s
                 img.drawHeight = ih * s
                 img.hAlign = 'CENTER'
@@ -323,9 +324,12 @@ class BathroomExportService:
             sketch_data = estimate.get("sketch_data")
             if sketch_data and (sketch_data.get("rooms") or sketch_data.get("fixtures")):
                 try:
-                    drawing = self._render_sketch_drawing(sketch_data, sketch_col_w, sketch_max_h)
+                    fb_w = usable_w * 0.46
+                    fb_max_h = 6 * inch
+                    drawing = self._render_sketch_drawing(sketch_data, fb_w, fb_max_h)
                     if drawing:
                         sketch_element = drawing
+                        sketch_aspect_ratio = drawing.width / drawing.height if drawing.height > 0 else 1.0
                 except Exception as e:
                     logger.warning(f"Failed to render sketch drawing: {e}")
 
@@ -333,7 +337,8 @@ class BathroomExportService:
         line_items = estimate.get("line_items", [])
         sections = _group_line_items_by_phase(line_items)
 
-        if sketch_element:
+        sketch_is_tall = sketch_element and sketch_aspect_ratio < 0.85
+        if sketch_element and not sketch_is_tall:
             summary_col_w = usable_w * 0.50
         else:
             summary_col_w = usable_w
@@ -391,37 +396,53 @@ class BathroomExportService:
         summary_table.setStyle(TableStyle(table_style))
 
         if sketch_element:
-            # Side by side: Floor Plan (left) | Estimate Summary (right)
             sketch_title = Paragraph("Floor Plan", section_title_style)
             summary_title = Paragraph("Estimate Summary", section_title_style)
 
-            # Stack title + content in each cell
-            left_cell = Table([[sketch_title], [sketch_element]], colWidths=[usable_w * 0.48])
-            left_cell.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (0, 0), 12),
-            ]))
-            right_cell = Table([[summary_title], [summary_table]], colWidths=[usable_w * 0.50])
-            right_cell.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (0, 0), 12),
-            ]))
+            # Tall sketch (portrait): stack vertically
+            if sketch_aspect_ratio < 0.85:
+                # Re-scale sketch to full width
+                if sketch_image_base64 and hasattr(sketch_element, 'drawWidth'):
+                    full_s = usable_w * 0.6 / (sketch_element.drawWidth / (usable_w * 0.46 / sketch_element.drawWidth * sketch_element.drawWidth) if sketch_element.drawWidth else 1)
+                    # Simpler: just scale to 60% of page width
+                    ratio = sketch_element.drawHeight / sketch_element.drawWidth
+                    sketch_element.drawWidth = usable_w * 0.55
+                    sketch_element.drawHeight = usable_w * 0.55 * ratio
 
-            side_by_side = Table([[left_cell, right_cell]], colWidths=[usable_w * 0.48, usable_w * 0.52])
-            side_by_side.setStyle(TableStyle([
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ]))
-            elements.append(side_by_side)
+                elements.append(sketch_title)
+                elements.append(Spacer(1, 4))
+                elements.append(sketch_element)
+                elements.append(Spacer(1, 12))
+                elements.append(summary_title)
+                elements.append(summary_table)
+            else:
+                # Wide sketch (landscape): side by side
+                left_cell = Table([[sketch_title], [sketch_element]], colWidths=[usable_w * 0.48])
+                left_cell.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (0, 0), 12),
+                ]))
+                right_cell = Table([[summary_title], [summary_table]], colWidths=[usable_w * 0.50])
+                right_cell.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (0, 0), 12),
+                ]))
+
+                side_by_side = Table([[left_cell, right_cell]], colWidths=[usable_w * 0.48, usable_w * 0.52])
+                side_by_side.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ]))
+                elements.append(side_by_side)
         else:
             elements.append(Paragraph("Estimate Summary", section_title_style))
             elements.append(summary_table)

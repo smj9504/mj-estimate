@@ -734,6 +734,46 @@ export function useBESketchState(initialData?: BESketchData) {
     [mutate],
   );
 
+  // ── Move All Elements ──
+
+  const moveAll = useCallback(
+    (dx: number, dy: number) => {
+      mutate((d) => ({
+        ...d,
+        walls: d.walls.map((w) => ({
+          ...w,
+          start: { x: w.start.x + dx, y: w.start.y + dy },
+          end: { x: w.end.x + dx, y: w.end.y + dy },
+        })),
+        rooms: d.rooms.map((r) => ({
+          ...r,
+          boundary: r.boundary.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+        })),
+        fixtures: d.fixtures.map((f) => ({
+          ...f,
+          position: { x: f.position.x + dx, y: f.position.y + dy },
+        })),
+        tileZones: (d.tileZones ?? []).map((z) => ({
+          ...z,
+          boundary: z.boundary.map((p: BEPoint) => ({ x: p.x + dx, y: p.y + dy })),
+        })),
+        damageZones: (d.damageZones ?? []).map((z) => ({
+          ...z,
+          boundary: z.boundary.map((p: BEPoint) => ({ x: p.x + dx, y: p.y + dy })),
+        })),
+        drywallRepairZones: (d.drywallRepairZones ?? []).map((z) => ({
+          ...z,
+          boundary: z.boundary.map((p: BEPoint) => ({ x: p.x + dx, y: p.y + dy })),
+        })),
+        insulationZones: (d.insulationZones ?? []).map((z) => ({
+          ...z,
+          boundary: z.boundary.map((p: BEPoint) => ({ x: p.x + dx, y: p.y + dy })),
+        })),
+      }));
+    },
+    [mutate],
+  );
+
   // ── Reset ──
 
   const resetSketch = useCallback(() => {
@@ -823,6 +863,9 @@ export function useBESketchState(initialData?: BESketchData) {
     redo,
     canUndo,
     canRedo,
+
+    // Bulk ops
+    moveAll,
 
     // Lifecycle
     resetSketch,

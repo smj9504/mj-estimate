@@ -262,6 +262,9 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
   const [polyRoom, setPolyRoom] = useState<{ vertices: BEPoint[]; current: BEPoint } | null>(null);
   const [snapIndicator, setSnapIndicator] = useState<BEPoint | null>(null);
   const [shiftHeld, setShiftHeld] = useState(false);
+  // ── Marquee (drag) select + bulk move ──
+  const [marquee, setMarquee] = useState<{ start: BEPoint; current: BEPoint } | null>(null);
+  const [bulkMoving, setBulkMoving] = useState<{ startPos: BEPoint } | null>(null);
 
   const CLOSE_THRESHOLD = 15; // px to snap-close polygon
 
@@ -337,6 +340,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         if (e.target === e.target.getStage()) {
           setSelectedId(null);
           setEditingWallId(null);
+          // Start marquee selection
+          setMarquee({ start: pos, current: pos });
         }
       }
     },
@@ -382,11 +387,23 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
       } else if (polyRoom) {
         const pos = getStagePoint(e);
         setPolyRoom((prev) => prev ? { ...prev, current: pos } : null);
+      } else if (marquee) {
+        const pos = getStagePoint(e);
+        setMarquee((prev) => prev ? { ...prev, current: pos } : null);
+      } else if (bulkMoving) {
+        // Bulk move all elements
+        const pos = getStagePoint(e);
+        const dx = pos.x - bulkMoving.startPos.x;
+        const dy = pos.y - bulkMoving.startPos.y;
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+          api.moveAll(dx, dy);
+          setBulkMoving({ startPos: pos });
+        }
       } else {
         setSnapIndicator(null);
       }
     },
-    [drawingWall, drawingRoom, drawingDamageZone, polyRoom, getStagePoint, walls, shiftHeld],
+    [drawingWall, drawingRoom, drawingDamageZone, polyRoom, marquee, bulkMoving, getStagePoint, walls, shiftHeld, api],
   );
 
   const handleMouseUp = useCallback(
@@ -540,8 +557,27 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         }
         setDrawingInsulation(null);
       }
+
+      // Marquee select → check if any content was enclosed
+      if (activeTool === 'select' && marquee) {
+        const s = marquee.start;
+        const c = marquee.current;
+        const dx = Math.abs(c.x - s.x);
+        const dy = Math.abs(c.y - s.y);
+        if (dx > 10 && dy > 10) {
+          // User drew a selection rectangle — enter bulk move mode
+          const pos = getStagePoint(e);
+          setBulkMoving({ startPos: pos });
+        }
+        setMarquee(null);
+      }
+
+      // End bulk move
+      if (bulkMoving) {
+        setBulkMoving(null);
+      }
     },
-    [activeTool, drawingWall, drawingRoom, drawingDamageZone, drawingDrywallRepair, drywallSurface, drawingInsulation, insulationSurface, addWall, addRoom, api, getStagePoint, shiftHeld, rooms],
+    [activeTool, drawingWall, drawingRoom, drawingDamageZone, drawingDrywallRepair, drywallSurface, drawingInsulation, insulationSurface, marquee, bulkMoving, addWall, addRoom, api, getStagePoint, shiftHeld, rooms],
   );
 
   // ── Double-click to close polygon ──
@@ -606,6 +642,8 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
         setDrawingDrywallRepair(null);
         setDrawingInsulation(null);
         setPolyRoom(null);
+        setMarquee(null);
+        setBulkMoving(null);
         setSelectedId(null);
       }
     };
@@ -615,6 +653,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
 
   // ── Cursor ──
   const cursor = useMemo(() => {
+    if (bulkMoving) return 'move';
     switch (activeTool) {
       case 'wall': return 'crosshair';
       case 'room': return 'crosshair';
@@ -624,7 +663,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
       case 'drywall_repair': return 'crosshair';
       default: return 'default';
     }
-  }, [activeTool]);
+  }, [activeTool, bulkMoving]);
 
   // ── Drawing preview wall length ──
   const previewWallLabel = useMemo(() => {
@@ -903,34 +942,46 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
           // Grid: minor = 3" (gridPx), major = 1 ft (ppf)
           const majorPx = ppf;    // 1 foot intervals (bold lines)
           const minorPx = gridPx; // 3 inch intervals (each visible square = 3")
+          // Extend grid to cover all content (beyond canvas viewport)
+          const allPx: number[] = [width];
+          const allPy: number[] = [height];
+          rooms.forEach(r => r.boundary.forEach(p => { allPx.push(p.x); allPy.push(p.y); }));
+          walls.forEach(w => { allPx.push(w.start.x, w.end.x); allPy.push(w.start.y, w.end.y); });
+          fixtures.forEach(f => {
+            const hw = (f.dimensions.width / 12) * ppf / 2;
+            const hh = (f.dimensions.height / 12) * ppf / 2;
+            allPx.push(f.position.x + hw); allPy.push(f.position.y + hh);
+          });
+          const gridW = Math.max(width, ...allPx) + ppf * 2;
+          const gridH = Math.max(height, ...allPy) + ppf * 2;
           return (
           <Layer listening={false}>
             {/* 3-level grid: sub (1.5"), minor (3" = gridPx), major (1ft = ppf) */}
             {/* Sub-grid lines (halfway between minor lines) */}
-            {Array.from({ length: Math.ceil(width / minorPx) }, (_, i) => (
-              <Line key={`gsv${i}`} points={[i * minorPx + minorPx / 2, 0, i * minorPx + minorPx / 2, height]} stroke="#f0f0f0" strokeWidth={0.3} />
+            {Array.from({ length: Math.ceil(gridW / minorPx) }, (_, i) => (
+              <Line key={`gsv${i}`} points={[i * minorPx + minorPx / 2, 0, i * minorPx + minorPx / 2, gridH]} stroke="#f0f0f0" strokeWidth={0.3} />
             ))}
-            {Array.from({ length: Math.ceil(height / minorPx) }, (_, i) => (
-              <Line key={`gsh${i}`} points={[0, i * minorPx + minorPx / 2, width, i * minorPx + minorPx / 2]} stroke="#f0f0f0" strokeWidth={0.3} />
+            {Array.from({ length: Math.ceil(gridH / minorPx) }, (_, i) => (
+              <Line key={`gsh${i}`} points={[0, i * minorPx + minorPx / 2, gridW, i * minorPx + minorPx / 2]} stroke="#f0f0f0" strokeWidth={0.3} />
             ))}
             {/* Minor (3") + Major (1ft) grid lines */}
-            {Array.from({ length: Math.ceil(width / minorPx) + 1 }, (_, i) => {
+            {Array.from({ length: Math.ceil(gridW / minorPx) + 1 }, (_, i) => {
               const isMajor = Math.abs(i * minorPx - Math.round(i * minorPx / majorPx) * majorPx) < 1;
               return (
                 <Line
                   key={`gv${i}`}
-                  points={[i * minorPx, 0, i * minorPx, height]}
+                  points={[i * minorPx, 0, i * minorPx, gridH]}
                   stroke={isMajor ? '#ccc' : '#e8e8e8'}
                   strokeWidth={isMajor ? 1 : 0.5}
                 />
               );
             })}
-            {Array.from({ length: Math.ceil(height / minorPx) + 1 }, (_, i) => {
+            {Array.from({ length: Math.ceil(gridH / minorPx) + 1 }, (_, i) => {
               const isMajor = Math.abs(i * minorPx - Math.round(i * minorPx / majorPx) * majorPx) < 1;
               return (
                 <Line
                   key={`gh${i}`}
-                  points={[0, i * minorPx, width, i * minorPx]}
+                  points={[0, i * minorPx, gridW, i * minorPx]}
                   stroke={isMajor ? '#ccc' : '#e8e8e8'}
                   strokeWidth={isMajor ? 1 : 0.5}
                 />
@@ -1928,6 +1979,36 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
               stroke="#52c41a"
               strokeWidth={2}
               fill="rgba(82, 196, 26, 0.2)"
+              listening={false}
+            />
+          )}
+
+          {/* Marquee selection rectangle */}
+          {marquee && (() => {
+            const x = Math.min(marquee.start.x, marquee.current.x);
+            const y = Math.min(marquee.start.y, marquee.current.y);
+            const w = Math.abs(marquee.current.x - marquee.start.x);
+            const h = Math.abs(marquee.current.y - marquee.start.y);
+            return w > 5 && h > 5 ? (
+              <Rect
+                x={x} y={y} width={w} height={h}
+                stroke="#722ed1"
+                strokeWidth={1.5}
+                dash={[6, 3]}
+                fill="rgba(114, 46, 209, 0.06)"
+                listening={false}
+              />
+            ) : null;
+          })()}
+
+          {/* Bulk move indicator */}
+          {bulkMoving && (
+            <Text
+              x={10} y={10}
+              text="Drag to move all elements"
+              fontSize={13}
+              fill="#722ed1"
+              fontStyle="bold"
               listening={false}
             />
           )}

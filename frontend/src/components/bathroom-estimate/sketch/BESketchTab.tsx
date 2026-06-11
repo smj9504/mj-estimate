@@ -576,8 +576,11 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
           allX.push(f.position.x - hw, f.position.x + hw);
           allY.push(f.position.y - hh, f.position.y + hh);
         });
+        // Include tile zones and damage zones in bounding box
+        (d.tileZones ?? []).forEach((z: any) => (z.boundary ?? []).forEach((p: any) => { allX.push(p.x); allY.push(p.y); }));
+        (d.damageZones ?? []).forEach((z: any) => (z.boundary ?? []).forEach((p: any) => { allX.push(p.x); allY.push(p.y); }));
         if (!allX.length) return undefined;
-        const pad = 20;
+        const pad = 40;
         const minX = Math.max(0, Math.min(...allX) - pad);
         const minY = Math.max(0, Math.min(...allY) - pad);
         const maxX = Math.max(...allX) + pad;
@@ -585,19 +588,19 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         const cropW = maxX - minX;
         const cropH = maxY - minY;
 
-        // Save current zoom/pan transform and stage size
+        // Save current state
         const oldScale = { x: stage.scaleX(), y: stage.scaleY() };
         const oldPos = { x: stage.x(), y: stage.y() };
         const oldW = stage.width();
         const oldH = stage.height();
 
-        // Reset to identity so content coords match capture coords
+        // Expand stage to cover all content
+        const needW = Math.max(oldW, maxX + pad);
+        const needH = Math.max(oldH, maxY + pad);
         stage.scale({ x: 1, y: 1 });
         stage.position({ x: 0, y: 0 });
-
-        // Temporarily expand stage to cover all content
-        stage.width(Math.max(oldW, maxX + pad));
-        stage.height(Math.max(oldH, maxY + pad));
+        stage.width(needW);
+        stage.height(needH);
 
         // Hide grid layer (first) and dimension labels layer (last)
         const layers = stage.getLayers();
@@ -612,9 +615,11 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
         });
         const overlays = document.querySelectorAll<HTMLElement>('[data-sketch-overlay]');
         overlays.forEach(el => { el.style.display = 'none'; });
-        stage.batchDraw();
 
-        // Capture only the content region
+        // Synchronous full redraw at new size
+        stage.draw();
+
+        // Capture content region
         const dataUrl = stage.toDataURL({
           pixelRatio: 2,
           x: minX,
@@ -622,15 +627,16 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
           width: cropW,
           height: cropH,
         });
+        console.log('[SketchCapture]', { minX, minY, cropW, cropH, needW, needH, oldW, oldH });
 
-        // Restore zoom/pan, size, and visibility
+        // Restore everything
         stage.width(oldW);
         stage.height(oldH);
         stage.scale(oldScale);
         stage.position(oldPos);
         hiddenLayers.forEach(l => l.visible(true));
         overlays.forEach(el => { el.style.display = ''; });
-        stage.batchDraw();
+        stage.draw();
         return dataUrl.replace(/^data:image\/png;base64,/, '');
       } catch (e) {
         return undefined;
@@ -711,6 +717,7 @@ const BESketchTab: React.FC<BESketchTabProps> = ({
             onZoomOut={() => handleZoom('out')}
             onZoomFit={() => handleZoom('fit')}
             zoomLevel={zoomLevel}
+            canvasSize={canvasSize}
           />
         </div>
         <Space size={4} style={{ padding: '4px 8px', flexShrink: 0 }}>

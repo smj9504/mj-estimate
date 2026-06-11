@@ -24,6 +24,7 @@ import {
   CompressOutlined,
   BuildOutlined,
   FireOutlined,
+  DragOutlined,
 } from '@ant-design/icons';
 import type { BESketchTool } from '../../../types/bathroomSketch';
 import type { BESketchStateAPI } from './hooks/useBESketchState';
@@ -37,6 +38,7 @@ interface BESketchToolbarProps {
   onZoomOut?: () => void;
   onZoomFit?: () => void;
   zoomLevel?: number;
+  canvasSize?: { width: number; height: number };
 }
 
 const TOOLS: { key: BESketchTool; icon: React.ReactNode; label: string; tooltip: string }[] = [
@@ -51,8 +53,8 @@ const TOOLS: { key: BESketchTool; icon: React.ReactNode; label: string; tooltip:
   { key: 'insulation', icon: <FireOutlined />, label: 'Insulation', tooltip: 'Mark insulation areas (demo + install insulation on walls/ceiling)' },
 ];
 
-const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoomOut, onZoomFit, zoomLevel }) => {
-  const { activeTool, setActiveTool, undo, redo, canUndo, canRedo, data, updateSettings, drywallSurface, setDrywallSurface, insulationSurface, setInsulationSurface } = api;
+const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoomOut, onZoomFit, zoomLevel, canvasSize }) => {
+  const { activeTool, setActiveTool, undo, redo, canUndo, canRedo, data, updateSettings, drywallSurface, setDrywallSurface, insulationSurface, setInsulationSurface, moveAll } = api;
   const screens = useBreakpoint();
   const isMobile = !screens.md;
 
@@ -195,6 +197,33 @@ const BESketchToolbar: React.FC<BESketchToolbarProps> = ({ api, onZoomIn, onZoom
         </Tooltip>
         <Tooltip title={isMobile ? undefined : 'Fit to view'}>
           <Button size="small" icon={<CompressOutlined />} onClick={onZoomFit} />
+        </Tooltip>
+
+        <Divider type="vertical" style={{ margin: '0 2px' }} />
+
+        <Tooltip title={isMobile ? undefined : 'Center sketch on canvas (move all elements)'}>
+          <Button size="small" icon={<DragOutlined />} onClick={() => {
+            const d = data;
+            const ppf = d.settings.pixelsPerFoot;
+            const allX: number[] = [];
+            const allY: number[] = [];
+            d.rooms.forEach(r => r.boundary.forEach(p => { allX.push(p.x); allY.push(p.y); }));
+            d.walls.forEach(w => { allX.push(w.start.x, w.end.x); allY.push(w.start.y, w.end.y); });
+            d.fixtures.forEach(f => {
+              const hw = (f.dimensions.width / 12) * ppf / 2;
+              const hh = (f.dimensions.height / 12) * ppf / 2;
+              allX.push(f.position.x - hw, f.position.x + hw);
+              allY.push(f.position.y - hh, f.position.y + hh);
+            });
+            if (!allX.length) return;
+            const contentCx = (Math.min(...allX) + Math.max(...allX)) / 2;
+            const contentCy = (Math.min(...allY) + Math.max(...allY)) / 2;
+            const cw = canvasSize?.width ?? 800;
+            const ch = canvasSize?.height ?? 600;
+            const dx = Math.round(cw / 2 - contentCx);
+            const dy = Math.round(ch / 2 - contentCy);
+            if (Math.abs(dx) > 2 || Math.abs(dy) > 2) moveAll(dx, dy);
+          }} />
         </Tooltip>
       </Space>
     </div>
