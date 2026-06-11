@@ -1763,7 +1763,31 @@ const RoofingEstimateDetail: React.FC = () => {
                   style={{ marginBottom: 16 }}
                 />
                 <Row gutter={16} align="middle">
-                  <Col xs={24} sm={12} md={6}>
+                  <Col xs={12} sm={8} md={5}>
+                    <Form.Item label="Price per SQ ($)" style={{ marginBottom: 8 }}>
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        min={0}
+                        step={50}
+                        placeholder="e.g. 850"
+                        value={(() => {
+                          const tt = form.getFieldValue('target_total');
+                          const sq = form.getFieldValue('squares') || estimate?.squares || 0;
+                          return tt && sq > 0 ? Math.round(tt / sq) : undefined;
+                        })()}
+                        onChange={(v) => {
+                          const sq = form.getFieldValue('squares') || estimate?.squares || 0;
+                          if (v && sq > 0) {
+                            form.setFieldsValue({ target_total: Math.round((v as number) * sq) });
+                          }
+                        }}
+                      />
+                    </Form.Item>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {(form.getFieldValue('squares') || estimate?.squares || 0).toFixed(1)} SQ (excl. waste)
+                    </Text>
+                  </Col>
+                  <Col xs={12} sm={8} md={5}>
                     <Form.Item label="Target Total ($)" name="target_total">
                       <InputNumber
                         style={{ width: '100%' }}
@@ -1775,10 +1799,10 @@ const RoofingEstimateDetail: React.FC = () => {
                       />
                     </Form.Item>
                   </Col>
-                  <Col xs={12} sm={8} md={4}>
+                  <Col xs={8} sm={6} md={4}>
                     {estimate.adjustment_factor && (
                       <Statistic
-                        title="Adjustment Factor"
+                        title="Factor"
                         value={estimate.adjustment_factor}
                         precision={4}
                         suffix="x"
@@ -1789,7 +1813,7 @@ const RoofingEstimateDetail: React.FC = () => {
                       />
                     )}
                   </Col>
-                  <Col xs={12} sm={12} md={6}>
+                  <Col xs={8} sm={6} md={4}>
                     <Button
                       type="dashed"
                       onClick={() => {
@@ -1947,12 +1971,13 @@ const RoofingEstimateDetail: React.FC = () => {
                   };
 
                   if (isMulti) {
+                    const allGutterItems = estimate.line_items.filter((li: any) => li.phase === 7);
                     return (
                       <>
                         {structIndices.map((sIdx) => {
                           const info = getStructInfo(sIdx);
                           const structItems = estimate.line_items.filter(
-                            li => (li.structure_index ?? 0) === sIdx
+                            li => (li.structure_index ?? 0) === sIdx && li.phase !== 7
                           );
                           if (!info.included || structItems.length === 0) return null;
                           const structSubtotal = structItems.reduce((sum, li) => sum + li.total, 0);
@@ -1989,18 +2014,32 @@ const RoofingEstimateDetail: React.FC = () => {
                             </div>
                           );
                         })}
-                        <Divider />
-                        <Row justify="end">
-                          <Col>
-                            <Statistic
-                              title="Combined Subtotal"
-                              value={estimate.line_items.reduce((sum: number, li: any) => sum + (li.total || 0), 0)}
-                              prefix="$"
-                              precision={2}
-                              valueStyle={{ fontWeight: 'bold' }}
+                        {allGutterItems.length > 0 && (
+                          <>
+                            <Divider orientation="left" style={{ fontSize: 13 }}>Gutter (Optional Add-on)</Divider>
+                            <Table
+                              columns={lineItemColumns}
+                              dataSource={allGutterItems}
+                              rowKey="id"
+                              pagination={false}
+                              size="small"
+                              scroll={{ x: 800 }}
+                              summary={() => (
+                                <Table.Summary.Row>
+                                  <Table.Summary.Cell index={0} colSpan={5}>
+                                    <Text strong>Gutter Subtotal</Text>
+                                  </Table.Summary.Cell>
+                                  <Table.Summary.Cell index={5} align="right">
+                                    <Text strong>
+                                      ${allGutterItems.reduce((sum: number, li: any) => sum + (li.total || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                    </Text>
+                                  </Table.Summary.Cell>
+                                  <Table.Summary.Cell index={6} />
+                                </Table.Summary.Row>
+                              )}
                             />
-                          </Col>
-                        </Row>
+                          </>
+                        )}
                       </>
                     );
                   }

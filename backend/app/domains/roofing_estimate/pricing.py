@@ -142,25 +142,27 @@ RIDGE_VENT_TYPES = ["shingle_over", "aluminum"]
 # ── Phase 7: Gutter ──
 
 GUTTER_RATES = {
-    # K-style aluminum seamless (installed)
-    "k_style_5": 15.0,
-    "k_style_6": 18.0,
-    "half_round_5": 20.0,
-    "half_round_6": 24.0,
+    # K-style aluminum seamless (material + labor, ref +8%)
+    "k_style_5": 5.70,
+    "k_style_6": 6.80,
+    "half_round_5": 8.50,
+    "half_round_6": 10.00,
     # Copper
-    "copper_k_style_5": 40.0,
-    "copper_k_style_6": 48.0,
-    # Downspouts
-    "downspout_2x3": 9.0,
-    "downspout_3x4": 11.0,
+    "copper_k_style_5": 28.00,
+    "copper_k_style_6": 34.00,
+    # Downspouts (ref $5.15 +8%)
+    "downspout_2x3": 5.55,
+    "downspout_3x4": 7.00,
+    # Hidden hanger (ref $0.35 +10%, included per LF)
+    "hidden_hanger": 0.40,
     "splash_block": 12.0,
     # Removal
     "removal_per_lf": 2.50,
-    # Guards
-    "guard_mesh": 14.0,
-    "guard_micro_mesh": 25.0,
-    "guard_foam": 10.0,
-    "guard_reverse_curve": 22.0,
+    # Guards / Screens (ref drop-in $2.45 +10%)
+    "guard_mesh": 2.70,
+    "guard_micro_mesh": 8.00,
+    "guard_foam": 2.00,
+    "guard_reverse_curve": 6.50,
 }
 
 # ── Phase 8: Cleanup & Misc ──

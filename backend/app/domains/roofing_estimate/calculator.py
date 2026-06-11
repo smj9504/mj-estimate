@@ -198,6 +198,7 @@ def _calculate_manual_multi_structure(
         }
 
         struct_config = dict(config)
+        struct_config["_is_multi_structure"] = True
 
         # Main structure: use combined squares for dumpster
         if s_idx == 0:
@@ -375,6 +376,7 @@ def _calculate_multi_structure(
         }
 
         struct_config = dict(config)
+        struct_config["_is_multi_structure"] = True
 
         # Main structure: use combined squares for dumpster
         if s_idx == 0:
@@ -485,10 +487,14 @@ def _generate_line_items(
     hidden = config["hidden_costs"]
     all_penetrations = config.get("roof_penetrations") or []
     # Filter penetrations for this structure
+    # If structure_index is None/missing: single-structure mode → include all;
+    # multi-structure mode → assign to structure 0 only
+    is_multi = config.get("_is_multi_structure", False)
     roof_penetrations = [
         p for p in all_penetrations
-        if p.get("structure_index") is None  # unassigned = all structures (single-structure mode)
-        or p.get("structure_index") == structure_index
+        if p.get("structure_index") == structure_index
+        or (p.get("structure_index") is None
+            and (not is_multi or structure_index == 0))
     ]
 
     def _add(phase, desc, qty, unit, rate, cost, cat, xact=None):

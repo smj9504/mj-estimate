@@ -542,7 +542,11 @@ class RoofingExportService:
                     ))
 
                     display_items = (
-                        [i for i in s_items if i.get("phase") != 7]
+                        [i for i in s_items
+                         if i.get("phase") != 7
+                         and i.get("phase") != "7"
+                         and not (i.get("category") or "")
+                         .startswith("gutter")]
                         if gutter_separate else s_items
                     )
                     self._build_line_table(
@@ -571,7 +575,11 @@ class RoofingExportService:
             else:
                 # Single structure: flat table
                 display_items = (
-                    [i for i in line_items if i.get("phase") != 7]
+                    [i for i in line_items
+                     if i.get("phase") != 7
+                     and i.get("phase") != "7"
+                     and not (i.get("category") or "")
+                     .startswith("gutter")]
                     if gutter_separate else line_items
                 )
                 self._build_line_table(
@@ -595,20 +603,113 @@ class RoofingExportService:
         # ────────────────────────────────────────────────
         if gutter_separate and line_items:
             gutter_items = [
-                i for i in line_items if i.get("phase") == 7
+                i for i in line_items
+                if i.get("phase") == 7
+                or i.get("phase") == "7"
+                or (i.get("category") or "").startswith("gutter")
             ]
             if gutter_items:
                 elements.append(Spacer(1, 10))
                 elements.append(Paragraph(
-                    "GUTTER (OPTIONAL)",
-                    s_section,
+                    "GUTTER", s_section,
                 ))
-                self._build_line_table(
-                    elements, gutter_items,
-                    content_w, is_lumpsum,
-                    colors, TA_RIGHT,
-                    TA_CENTER,
+
+                # Group by structure
+                g_struct_indices = sorted(set(
+                    i.get("structure_index", 0)
+                    for i in gutter_items
+                ))
+
+                if len(g_struct_indices) > 1:
+                    ev_structs = (
+                        estimate.get("eagleview_data", {})
+                        or {}
+                    ).get("structures", [])
+                    ms_list = estimate.get(
+                        "manual_structures") or []
+
+                    for g_idx in g_struct_indices:
+                        g_s_items = [
+                            i for i in gutter_items
+                            if i.get("structure_index", 0)
+                            == g_idx
+                        ]
+                        if not g_s_items:
+                            continue
+                        # Resolve label
+                        sr = next(
+                            (r for r in struct_results
+                             if r.get("structure_index")
+                             == g_idx),
+                            None,
+                        )
+                        ev = next(
+                            (e for e in ev_structs
+                             if e.get("index") == g_idx),
+                            None,
+                        )
+                        ms = next(
+                            (m for m in ms_list
+                             if m.get("index") == g_idx),
+                            None,
+                        )
+                        g_label = (
+                            (sr or {}).get("label")
+                            or (ev or {}).get("label")
+                            or (ms or {}).get("label")
+                            or f"Structure #{g_idx + 1}"
+                        )
+                        g_sub = sum(
+                            i.get("total", 0)
+                            for i in g_s_items
+                        )
+                        elements.append(Paragraph(
+                            f"<b>{g_label}</b>"
+                            f"&nbsp;&nbsp;"
+                            f"<font size=8"
+                            f" color='{COLOR_MEDIUM}'>"
+                            f"Subtotal: ${g_sub:,.2f}"
+                            f"</font>",
+                            ParagraphStyle(
+                                "GStructH",
+                                fontName="Helvetica-Bold",
+                                fontSize=10,
+                                textColor=colors.HexColor(
+                                    COLOR_SECONDARY),
+                                spaceBefore=6,
+                                spaceAfter=4,
+                            ),
+                        ))
+                        self._build_line_table(
+                            elements, g_s_items,
+                            content_w, is_lumpsum,
+                            colors, TA_RIGHT,
+                            TA_CENTER,
+                        )
+                else:
+                    self._build_line_table(
+                        elements, gutter_items,
+                        content_w, is_lumpsum,
+                        colors, TA_RIGHT,
+                        TA_CENTER,
+                    )
+
+                # Gutter subtotal
+                g_total = sum(
+                    i.get("total", 0) for i in gutter_items
                 )
+                elements.append(Spacer(1, 3))
+                elements.append(Paragraph(
+                    f"Gutter Total: ${g_total:,.2f}",
+                    ParagraphStyle(
+                        "GSub",
+                        fontName="Helvetica-Bold",
+                        fontSize=9,
+                        textColor=colors.HexColor(
+                            COLOR_MEDIUM),
+                        alignment=TA_RIGHT,
+                    ),
+                ))
 
         # ────────────────────────────────────────────────
         #  TOTALS SUMMARY BOX
@@ -636,7 +737,7 @@ class RoofingExportService:
         if not is_lumpsum:
             gutter_sub = estimate.get("gutter_subtotal", 0) or 0
             roofing_sub = estimate.get("roofing_subtotal", 0) or estimate.get("subtotal", 0)
-            if gutter_sub > 0:
+            if gutter_separate and gutter_sub > 0:
                 totals_rows.append([
                     Paragraph("Roofing Subtotal", s_tot_label),
                     Paragraph(f"${roofing_sub:,.2f}", s_tot_value),
@@ -1057,6 +1158,12 @@ class RoofingExportService:
         row_idx = 1
         current_phase = None
 
+        # Skip phase headers if all items are same phase
+        unique_phases = set(
+            li.get("phase", 0) for li in items
+        )
+        skip_phase_header = len(unique_phases) <= 1
+
         # Phase totals
         phase_totals: Dict[int, float] = {}
         sorted_items = sorted(
@@ -1075,7 +1182,7 @@ class RoofingExportService:
 
         for li in sorted_items:
             phase = li.get("phase", 0)
-            if phase != current_phase:
+            if phase != current_phase and not skip_phase_header:
                 current_phase = phase
                 label = PHASE_LABELS.get(
                     phase, f"Phase {phase}")
