@@ -13,6 +13,7 @@ import {
   Input,
   InputNumber,
   message,
+  Modal,
   Row,
   Select,
   Space,
@@ -30,8 +31,10 @@ import {
   BankOutlined,
   CalculatorOutlined,
   CloudUploadOutlined,
+  DeleteOutlined,
   DollarOutlined,
   FilePdfOutlined,
+  PlusOutlined,
   SafetyCertificateOutlined,
   SaveOutlined,
   UploadOutlined,
@@ -47,9 +50,12 @@ import type {
   RoofingPricingInfo,
   EagleViewFace,
   EagleViewParseResult,
+  ManualStructure,
+  RoofPenetration,
+  SkylightReplacement,
   WarrantyInfo,
 } from '../types/roofingEstimate';
-import { PHASE_LABELS, STATUS_COLORS } from '../types/roofingEstimate';
+import { PHASE_LABELS, STATUS_COLORS, PENETRATION_TYPE_OPTIONS } from '../types/roofingEstimate';
 import type { Company } from '../types';
 import RoofDiagram from '../components/roofing-estimate/RoofDiagram';
 
@@ -153,6 +159,16 @@ const RoofingEstimateDetail: React.FC = () => {
   const [selectedFaces, setSelectedFaces] = useState<string[]>([]);
   const [selectedStructures, setSelectedStructures] = useState<number[]>([]);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [manualStructures, setManualStructures] = useState<ManualStructure[]>([]);
+  const [skylightReplacements, setSkylightReplacements] = useState<SkylightReplacement[]>([]);
+  const [roofPenetrations, setRoofPenetrations] = useState<RoofPenetration[]>([]);
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [pdfOptions, setPdfOptions] = useState({
+    docType: 'estimate' as 'estimate' | 'invoice' | 'warranty',
+    pricingMode: 'detailed' as 'detailed' | 'lumpsum',
+    showSignature: true,
+    gutterSeparate: false,
+  });
 
   const { data: estimate, isLoading } = useQuery({
     queryKey: ['roofing-estimate', id],
@@ -190,6 +206,7 @@ const RoofingEstimateDetail: React.FC = () => {
         decking_estimated: estimate.decking_spec?.estimated_sheets_needed ?? 0,
         underlayment_type: estimate.underlayment_spec?.type || 'synthetic',
         pipe_boot_type: estimate.flashing_spec?.pipe_boot_type || 'lifetime',
+        ridge_vent_type: (estimate as any).ventilation_spec?.ridge_vent_type || 'shingle_over',
         gutter_included: estimate.gutter_spec?.included ?? false,
         gutter_style: estimate.gutter_spec?.style || 'k_style',
         gutter_size: estimate.gutter_spec?.size || 5,
@@ -220,6 +237,16 @@ const RoofingEstimateDetail: React.FC = () => {
             : estimate.warranty_info!.labor_warranty_text!,
         warranty_exclusions: estimate.warranty_info?.warranty_exclusions || DEFAULT_WARRANTY_EXCLUSIONS,
       });
+      // Restore manual structures
+      if (estimate.manual_structures?.length) {
+        setManualStructures(estimate.manual_structures);
+      }
+      if (estimate.skylight_replacements?.length) {
+        setSkylightReplacements(estimate.skylight_replacements);
+      }
+      if (estimate.roof_penetrations?.length) {
+        setRoofPenetrations(estimate.roof_penetrations);
+      }
       if (estimate.eagleview_data) {
         const evFaces = estimate.eagleview_data.faces || [];
         const evLines = estimate.eagleview_data.lines || [];
@@ -282,6 +309,9 @@ const RoofingEstimateDetail: React.FC = () => {
       chimney_count: values.chimney_count,
       waste_factor: values.waste_factor,
       roof_complexity: values.roof_complexity,
+      manual_structures: manualStructures.length > 1 ? manualStructures : undefined,
+      roof_penetrations: roofPenetrations.length > 0 ? roofPenetrations : undefined,
+      skylight_replacements: skylightReplacements.length > 0 ? skylightReplacements : undefined,
       full_tearoff: values.full_tearoff,
       layer_count: values.layer_count,
       overlay: values.overlay,
@@ -309,8 +339,7 @@ const RoofingEstimateDetail: React.FC = () => {
         skylight_flashing_kits: values.skylight_count,
       },
       ventilation_spec: {
-        ridge_vent: values.ridge_vent ?? true,
-        static_vents: values.static_vents ?? 0,
+        ridge_vent_type: values.ridge_vent_type || 'shingle_over',
       },
       gutter_spec: values.gutter_included ? (() => {
         const base: any = {
@@ -322,10 +351,16 @@ const RoofingEstimateDetail: React.FC = () => {
           gutter_guards: values.gutter_guards,
           guard_type: values.gutter_guard_type,
         };
-        // Multi-structure: per_structure gutter config
+        // Multi-structure: per_structure gutter config (EagleView or Manual)
         const evStructures = eagleViewResult?.structures;
-        if (evStructures && evStructures.length > 1) {
-          base.per_structure = evStructures.map((s) => {
+        const multiStructList = (evStructures && evStructures.length > 1)
+          ? evStructures.map((s) => ({ index: s.index }))
+          : manualStructures.length > 1
+            ? manualStructures.map((ms) => ({ index: ms.index }))
+            : null;
+
+        if (multiStructList) {
+          base.per_structure = multiStructList.map((s) => {
             const p = `gutter_struct_${s.index}`;
             return {
               structure_index: s.index,
@@ -337,7 +372,6 @@ const RoofingEstimateDetail: React.FC = () => {
               remove_existing: values[`${p}_remove`] || false,
             };
           });
-          // Aggregate totals for backward compat
           const included = base.per_structure.filter((ps: any) => ps.included);
           base.total_lf = included.reduce((s: number, ps: any) => s + (ps.total_lf || 0), 0);
           base.downspout_count = included.reduce((s: number, ps: any) => s + (ps.downspout_count || 0), 0);
@@ -390,7 +424,7 @@ const RoofingEstimateDetail: React.FC = () => {
         selected_faces: selectedFaces.length > 0 ? selectedFaces : undefined,
       } : {}),
     };
-  }, [form, pricingInfo, eagleViewResult, selectedFaces]);
+  }, [form, pricingInfo, eagleViewResult, selectedFaces, manualStructures, roofPenetrations, skylightReplacements]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -584,47 +618,13 @@ const RoofingEstimateDetail: React.FC = () => {
             >
               Calculate
             </Button>
-            <Dropdown
+            <Button
+              icon={<FilePdfOutlined />}
               disabled={estimate.status === 'draft'}
-              menu={{
-                items: [
-                  { key: 'detailed', icon: <FilePdfOutlined />, label: 'Estimate — Detailed (with pricing)' },
-                  { key: 'lumpsum', icon: <FilePdfOutlined />, label: 'Estimate — Lump Sum (no pricing)' },
-                  { type: 'divider' },
-                  { key: 'detailed-nosig', label: 'Estimate — Detailed (no signature)' },
-                  { key: 'lumpsum-nosig', label: 'Estimate — Lump Sum (no signature)' },
-                  { type: 'divider' },
-                  { key: 'invoice-detailed', icon: <DollarOutlined />, label: 'Invoice — Detailed' },
-                  { key: 'invoice-lumpsum', icon: <DollarOutlined />, label: 'Invoice — Lump Sum' },
-                  { type: 'divider' },
-                  { key: 'warranty-cert', icon: <SafetyCertificateOutlined />, label: 'Warranty Certificate' },
-                ],
-                onClick: ({ key }) => {
-                  if (key.startsWith('invoice-')) {
-                    roofingEstimateService.exportInvoice(id!, {
-                      pricing_mode: key === 'invoice-lumpsum' ? 'lumpsum' : 'detailed',
-                      address: estimate.property_address,
-                    });
-                    return;
-                  }
-                  if (key === 'warranty-cert') {
-                    roofingEstimateService.exportWarrantyCert(id!, {
-                      address: estimate.property_address,
-                    });
-                    return;
-                  }
-                  const isLumpsum = key.startsWith('lumpsum');
-                  const showSig = !key.endsWith('-nosig');
-                  roofingEstimateService.exportPdf(id!, {
-                    pricing_mode: isLumpsum ? 'lumpsum' : 'detailed',
-                    show_signature: showSig,
-                    address: estimate.property_address,
-                  });
-                },
-              }}
+              onClick={() => setPdfModalOpen(true)}
             >
-              <Button icon={<FilePdfOutlined />}>PDF</Button>
-            </Dropdown>
+              PDF
+            </Button>
           </Space>
         </Col>
       </Row>
@@ -797,7 +797,33 @@ const RoofingEstimateDetail: React.FC = () => {
                   </Col>
                 </Row>
                 <Row gutter={16}>
-                  <Col xs={24} sm={12} md={8}><Form.Item label="Notes" name="notes"><Input.TextArea rows={3} /></Form.Item></Col>
+                  <Col xs={24} sm={12} md={8}>
+                    <Form.Item label="Notes" name="notes">
+                      <Input.TextArea rows={3} />
+                    </Form.Item>
+                    <div style={{ marginTop: -16, marginBottom: 8 }}>
+                      {[
+                        'Shed/detached structure not included',
+                        'Gutter not included',
+                        'Skylight not included',
+                        'Chimney flashing not included',
+                        'Satellite dish removal not included',
+                        'Permit fee not included',
+                      ].map((snippet) => (
+                        <Tag
+                          key={snippet}
+                          style={{ cursor: 'pointer', marginBottom: 4 }}
+                          onClick={() => {
+                            const prev = (form.getFieldValue('notes') || '').trim();
+                            const next = prev ? `${prev}\n${snippet}` : snippet;
+                            form.setFieldsValue({ notes: next });
+                          }}
+                        >
+                          + {snippet}
+                        </Tag>
+                      ))}
+                    </div>
+                  </Col>
                   <Col xs={12} sm={8} md={4}><Form.Item label="Insurance Job" name="insurance_job" valuePropName="checked"><Switch /></Form.Item></Col>
                 </Row>
               </Card>
@@ -948,29 +974,231 @@ const RoofingEstimateDetail: React.FC = () => {
                 })()}
 
                 <Divider orientation="left">Measurements</Divider>
-                <Row gutter={16}>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Total SF" name="total_sf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Squares" name="squares"><InputNumber style={{ width: '100%' }} step={0.1} /></Form.Item></Col>
-                  <Col xs={12} sm={8} md={4}>
-                    <Form.Item label="Predominant Pitch" name="predominant_pitch">
-                      <Select options={Object.keys(pricingInfo?.pitch_multipliers || {}).map(p => ({ label: p, value: p }))} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Waste Factor" name="waste_factor"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={0.3} /></Form.Item></Col>
-                </Row>
-                <Row gutter={16}>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Ridge (LF)" name="ridge_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Hip (LF)" name="hip_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Valley (LF)" name="valley_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Eave (LF)" name="eave_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Rake (LF)" name="rake_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Step Flash (LF)" name="step_flashing_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
-                </Row>
-                <Row gutter={16}>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Penetrations" name="penetration_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Skylights" name="skylight_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Chimneys" name="chimney_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
-                </Row>
+
+                {/* Show manual multi-structure UI only when no EagleView multi-structure */}
+                {!(eagleViewResult && eagleViewResult.structures.length > 1) && manualStructures.length > 0 ? (
+                  <>
+                    {manualStructures.map((ms, idx) => (
+                      <Card
+                        key={ms.index}
+                        style={{ marginBottom: 12, background: '#fafbfc' }}
+                        title={
+                          <Text type="secondary">
+                            {ms.total_sf ? `${ms.total_sf.toLocaleString()} SF (${(ms.total_sf / 100).toFixed(1)} SQ)` : '0 SF'}
+                          </Text>
+                        }
+                        extra={
+                          <Button
+                            type="text" danger size="small"
+                            icon={<DeleteOutlined />}
+                            onClick={() => {
+                              const updated = manualStructures.filter((_, i) => i !== idx)
+                                .map((s, i) => ({ ...s, index: i }));
+                              setManualStructures(updated);
+                              if (updated.length === 0) {
+                                form.setFieldsValue({ total_sf: 0, squares: 0 });
+                              } else {
+                                const totalSf = updated.reduce((sum, s) => sum + (s.total_sf || 0), 0);
+                                form.setFieldsValue({ total_sf: totalSf, squares: Math.round(totalSf / 10) / 10 });
+                              }
+                            }}
+                          />
+                        }
+                      >
+                        <Row gutter={16}>
+                          <Col xs={12} sm={8} md={4}>
+                            <Form.Item label="Name" style={{ marginBottom: 8 }}>
+                              <Input
+                                value={ms.label}
+                                style={{ width: '100%' }}
+                                onChange={(e) => {
+                                  const updated = [...manualStructures];
+                                  updated[idx] = { ...ms, label: e.target.value };
+                                  setManualStructures(updated);
+                                }}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col xs={12} sm={8} md={4}>
+                            <Form.Item label="Total SF" style={{ marginBottom: 8 }}>
+                              <InputNumber
+                                style={{ width: '100%' }}
+                                value={ms.total_sf}
+                                onChange={(v) => {
+                                  const updated = [...manualStructures];
+                                  updated[idx] = { ...ms, total_sf: (v as number) || 0 };
+                                  setManualStructures(updated);
+                                  const totalSf = updated.reduce((sum, s) => sum + (s.total_sf || 0), 0);
+                                  form.setFieldsValue({ total_sf: totalSf, squares: Math.round(totalSf / 10) / 10 });
+                                }}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col xs={12} sm={8} md={4}>
+                            <Form.Item label="Pitch" style={{ marginBottom: 8 }}>
+                              <Select
+                                value={ms.predominant_pitch}
+                                options={Object.keys(pricingInfo?.pitch_multipliers || {}).map(p => ({ label: p, value: p }))}
+                                onChange={(v) => {
+                                  const updated = [...manualStructures];
+                                  updated[idx] = { ...ms, predominant_pitch: v };
+                                  setManualStructures(updated);
+                                }}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col xs={12} sm={8} md={4}>
+                            <Form.Item label="Complexity" style={{ marginBottom: 8 }}>
+                              <Select
+                                value={ms.roof_complexity}
+                                options={pricingInfo?.roof_complexities?.map(c => ({
+                                  label: c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()), value: c,
+                                })) || []}
+                                onChange={(v) => {
+                                  const updated = [...manualStructures];
+                                  updated[idx] = { ...ms, roof_complexity: v, waste_factor: pricingInfo?.waste_factors?.[v] };
+                                  setManualStructures(updated);
+                                }}
+                              />
+                            </Form.Item>
+                          </Col>
+                          <Col xs={12} sm={8} md={4}>
+                            <Form.Item label="Waste" style={{ marginBottom: 8 }}>
+                              <InputNumber
+                                style={{ width: '100%' }} step={0.01} min={0} max={0.3}
+                                value={ms.waste_factor}
+                                onChange={(v) => {
+                                  const updated = [...manualStructures];
+                                  updated[idx] = { ...ms, waste_factor: (v as number) || 0.12 };
+                                  setManualStructures(updated);
+                                }}
+                              />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                        <Row gutter={16}>
+                          {(['ridge_lf', 'hip_lf', 'valley_lf', 'eave_lf', 'rake_lf', 'step_flashing_lf'] as const).map(field => (
+                            <Col key={field} xs={12} sm={8} md={4}>
+                              <Form.Item label={field.replace(/_lf$/, '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) + ' (LF)'} style={{ marginBottom: 8 }}>
+                                <InputNumber
+                                  style={{ width: '100%' }}
+                                  value={ms[field] || 0}
+                                  onChange={(v) => {
+                                    const updated = [...manualStructures];
+                                    updated[idx] = { ...ms, [field]: (v as number) || 0 };
+                                    setManualStructures(updated);
+                                  }}
+                                />
+                              </Form.Item>
+                            </Col>
+                          ))}
+                        </Row>
+                        <Row gutter={16}>
+                          {(['skylight_count', 'chimney_count'] as const).map(field => (
+                            <Col key={field} xs={12} sm={8} md={4}>
+                              <Form.Item label={field.replace(/_count$/, '').replace(/\b\w/g, l => l.toUpperCase()) + 's'} style={{ marginBottom: 8 }}>
+                                <InputNumber
+                                  style={{ width: '100%' }} min={0}
+                                  value={ms[field] || 0}
+                                  onChange={(v) => {
+                                    const updated = [...manualStructures];
+                                    updated[idx] = { ...ms, [field]: (v as number) || 0 };
+                                    setManualStructures(updated);
+                                  }}
+                                />
+                              </Form.Item>
+                            </Col>
+                          ))}
+                        </Row>
+                      </Card>
+                    ))}
+                    <Button
+                      type="dashed" block
+                      icon={<PlusOutlined />}
+                      style={{ marginBottom: 16 }}
+                      onClick={() => {
+                        const nextIdx = manualStructures.length;
+                        setManualStructures([...manualStructures, {
+                          index: nextIdx,
+                          label: `Structure #${nextIdx + 1}`,
+                          total_sf: 0,
+                          predominant_pitch: form.getFieldValue('predominant_pitch') || '6/12',
+                          roof_complexity: form.getFieldValue('roof_complexity') || 'hip',
+                          waste_factor: form.getFieldValue('waste_factor') || 0.12,
+                        }]);
+                      }}
+                    >
+                      Add Structure
+                    </Button>
+                  </>
+                ) : !(eagleViewResult && eagleViewResult.structures.length > 1) ? (
+                  <>
+                    <Row gutter={16}>
+                      <Col xs={12} sm={8} md={4}>
+                        <Form.Item label="Total SF" name="total_sf">
+                          <InputNumber style={{ width: '100%' }} onChange={(v) => {
+                            form.setFieldsValue({ squares: v ? Math.round((v as number) / 10) / 10 : 0 });
+                          }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={4}>
+                        <Form.Item label="Predominant Pitch" name="predominant_pitch">
+                          <Select options={Object.keys(pricingInfo?.pitch_multipliers || {}).map(p => ({ label: p, value: p }))} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={4}><Form.Item label="Waste Factor" name="waste_factor"><InputNumber style={{ width: '100%' }} step={0.01} min={0} max={0.3} /></Form.Item></Col>
+                    </Row>
+                    <Row gutter={16}>
+                      <Col xs={12} sm={8} md={4}><Form.Item label="Ridge (LF)" name="ridge_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                      <Col xs={12} sm={8} md={4}><Form.Item label="Hip (LF)" name="hip_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                      <Col xs={12} sm={8} md={4}><Form.Item label="Valley (LF)" name="valley_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                      <Col xs={12} sm={8} md={4}><Form.Item label="Eave (LF)" name="eave_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                      <Col xs={12} sm={8} md={4}><Form.Item label="Rake (LF)" name="rake_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                      <Col xs={12} sm={8} md={4}><Form.Item label="Step Flash (LF)" name="step_flashing_lf"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+                    </Row>
+                    <Row gutter={16}>
+                      <Col xs={12} sm={8} md={4}><Form.Item label="Skylights" name="skylight_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+                      <Col xs={12} sm={8} md={4}><Form.Item label="Chimneys" name="chimney_count"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
+                    </Row>
+
+                    <Button
+                      type="dashed" size="small"
+                      icon={<PlusOutlined />}
+                      style={{ marginBottom: 16 }}
+                      onClick={() => {
+                        const currentSf = form.getFieldValue('total_sf') || 0;
+                        const first: ManualStructure = {
+                          index: 0,
+                          label: 'Main House',
+                          total_sf: currentSf,
+                          predominant_pitch: form.getFieldValue('predominant_pitch') || '6/12',
+                          roof_complexity: form.getFieldValue('roof_complexity') || 'hip',
+                          waste_factor: form.getFieldValue('waste_factor') || 0.12,
+                          ridge_lf: form.getFieldValue('ridge_lf') || 0,
+                          hip_lf: form.getFieldValue('hip_lf') || 0,
+                          valley_lf: form.getFieldValue('valley_lf') || 0,
+                          eave_lf: form.getFieldValue('eave_lf') || 0,
+                          rake_lf: form.getFieldValue('rake_lf') || 0,
+                          step_flashing_lf: form.getFieldValue('step_flashing_lf') || 0,
+                          penetration_count: form.getFieldValue('penetration_count') || 0,
+                          skylight_count: form.getFieldValue('skylight_count') || 0,
+                          chimney_count: form.getFieldValue('chimney_count') || 0,
+                        };
+                        const second: ManualStructure = {
+                          index: 1,
+                          label: 'Detached Structure',
+                          total_sf: 0,
+                          predominant_pitch: '6/12',
+                          roof_complexity: 'simple_gable',
+                          waste_factor: 0.10,
+                        };
+                        setManualStructures([first, second]);
+                      }}
+                    >
+                      Add Structure (Multi-Structure Mode)
+                    </Button>
+                  </>
+                ) : null}
               </Card>
             ),
           },
@@ -1037,17 +1265,166 @@ const RoofingEstimateDetail: React.FC = () => {
 
                 <Divider orientation="left">Flashing & Penetrations</Divider>
                 <Row gutter={16}>
-                  <Col xs={12} sm={12} md={6}>
-                    <Form.Item label="Pipe Boot Type" name="pipe_boot_type">
-                      <Select options={pricingInfo?.pipe_boot_types?.map(t => ({
-                        label: t.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-                        value: t,
-                      })) || []} />
+                  <Col xs={12} sm={8} md={6}>
+                    <Form.Item label="Ridge Vent Type" name="ridge_vent_type" initialValue="shingle_over">
+                      <Select options={[
+                        { label: 'Shingle-Over', value: 'shingle_over' },
+                        { label: 'Aluminum', value: 'aluminum' },
+                      ]} />
                     </Form.Item>
                   </Col>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Ridge Vent" name="ridge_vent" valuePropName="checked"><Switch defaultChecked /></Form.Item></Col>
-                  <Col xs={12} sm={8} md={4}><Form.Item label="Static Vents" name="static_vents"><InputNumber style={{ width: '100%' }} min={0} /></Form.Item></Col>
                 </Row>
+
+                <Divider orientation="left">Roof Penetrations</Divider>
+                {(() => {
+                  const evStructs = eagleViewResult?.structures;
+                  const structOptions = (evStructs && evStructs.length > 1)
+                    ? evStructs.map(s => ({ label: s.label, value: s.index }))
+                    : manualStructures.length > 1
+                      ? manualStructures.map(ms => ({ label: ms.label, value: ms.index }))
+                      : null;
+                  return (
+                    <>
+                      {roofPenetrations.map((pen, idx) => (
+                        <Row key={idx} gutter={16} align="middle" style={{ marginBottom: 8 }}>
+                          {structOptions && (
+                            <Col xs={8} sm={6} md={4}>
+                              <Select
+                                value={pen.structure_index ?? 0}
+                                style={{ width: '100%' }}
+                                options={structOptions}
+                                onChange={(v) => {
+                                  const updated = [...roofPenetrations];
+                                  updated[idx] = { ...pen, structure_index: v };
+                                  setRoofPenetrations(updated);
+                                }}
+                              />
+                            </Col>
+                          )}
+                          <Col xs={12} sm={8} md={structOptions ? 5 : 6}>
+                            <Select
+                              value={pen.type}
+                              style={{ width: '100%' }}
+                              options={PENETRATION_TYPE_OPTIONS}
+                              onChange={(v) => {
+                                const updated = [...roofPenetrations];
+                                updated[idx] = { ...pen, type: v };
+                                setRoofPenetrations(updated);
+                              }}
+                            />
+                          </Col>
+                          <Col xs={6} sm={4} md={2}>
+                            <InputNumber
+                              style={{ width: '100%' }}
+                              min={1}
+                              value={pen.quantity}
+                              onChange={(v) => {
+                                const updated = [...roofPenetrations];
+                                updated[idx] = { ...pen, quantity: (v as number) || 1 };
+                                setRoofPenetrations(updated);
+                              }}
+                            />
+                          </Col>
+                          <Col xs={10} sm={6} md={4}>
+                            <Input
+                              placeholder="Notes"
+                              value={pen.notes}
+                              onChange={(e) => {
+                                const updated = [...roofPenetrations];
+                                updated[idx] = { ...pen, notes: e.target.value };
+                                setRoofPenetrations(updated);
+                              }}
+                            />
+                          </Col>
+                          <Col>
+                            <Button
+                              type="text" danger
+                              icon={<DeleteOutlined />}
+                              onClick={() => setRoofPenetrations(roofPenetrations.filter((_, i) => i !== idx))}
+                            />
+                          </Col>
+                        </Row>
+                      ))}
+                      <Button
+                        type="dashed"
+                        icon={<PlusOutlined />}
+                        onClick={() => setRoofPenetrations([...roofPenetrations, {
+                          type: 'pipe_boot_lifetime', quantity: 1,
+                          ...(structOptions ? { structure_index: 0 } : {}),
+                        }])}
+                      >
+                        Add Penetration
+                      </Button>
+                    </>
+                  );
+                })()}
+
+                <Divider orientation="left">Skylight Replacement (Add-on Quote)</Divider>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+                  Skylight flashing is included in the base estimate. Skylight unit replacement is quoted separately.
+                </Text>
+                {skylightReplacements.map((sky, idx) => (
+                  <Row key={idx} gutter={16} align="middle" style={{ marginBottom: 8 }}>
+                    <Col xs={12} sm={8} md={6}>
+                      <Select
+                        value={sky.type}
+                        style={{ width: '100%' }}
+                        options={[
+                          { label: 'Small Fixed (14×14 ~ 21×26)', value: 'small_fixed' },
+                          { label: 'Medium Fixed (21×38 ~ 30×38)', value: 'medium_fixed' },
+                          { label: 'Large Fixed (30×46 ~ 44×46)', value: 'large_fixed' },
+                          { label: 'Small Venting (21×26 ~ 21×38)', value: 'small_venting' },
+                          { label: 'Medium Venting (30×38)', value: 'medium_venting' },
+                          { label: 'Large Venting (30×46 ~ 44×46)', value: 'large_venting' },
+                          { label: 'Tubular 10"', value: 'tube_10' },
+                          { label: 'Tubular 14"', value: 'tube_14' },
+                        ]}
+                        onChange={(v) => {
+                          const updated = [...skylightReplacements];
+                          updated[idx] = { ...sky, type: v };
+                          setSkylightReplacements(updated);
+                        }}
+                      />
+                    </Col>
+                    <Col xs={6} sm={4} md={3}>
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        min={1}
+                        value={sky.quantity}
+                        onChange={(v) => {
+                          const updated = [...skylightReplacements];
+                          updated[idx] = { ...sky, quantity: (v as number) || 1 };
+                          setSkylightReplacements(updated);
+                        }}
+                      />
+                    </Col>
+                    <Col xs={10} sm={6} md={5}>
+                      <Input
+                        placeholder="Location (e.g. Master bedroom)"
+                        value={sky.location}
+                        onChange={(e) => {
+                          const updated = [...skylightReplacements];
+                          updated[idx] = { ...sky, location: e.target.value };
+                          setSkylightReplacements(updated);
+                        }}
+                      />
+                    </Col>
+                    <Col>
+                      <Button
+                        type="text" danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => setSkylightReplacements(skylightReplacements.filter((_, i) => i !== idx))}
+                      />
+                    </Col>
+                  </Row>
+                ))}
+                <Button
+                  type="dashed"
+                  icon={<PlusOutlined />}
+                  onClick={() => setSkylightReplacements([...skylightReplacements, { type: 'medium_fixed', quantity: 1 }])}
+                >
+                  Add Skylight Replacement
+                </Button>
               </Card>
             ),
           },
@@ -1077,7 +1454,7 @@ const RoofingEstimateDetail: React.FC = () => {
                 <Row gutter={16}>
                   <Col xs={12} sm={8} md={4}><Form.Item label="Include Gutter" name="gutter_included" valuePropName="checked"><Switch /></Form.Item></Col>
                 </Row>
-                <Form.Item noStyle shouldUpdate={(prev, cur) => prev.gutter_included !== cur.gutter_included}>
+                <Form.Item noStyle shouldUpdate={(prev, cur) => prev.gutter_included !== cur.gutter_included || prev.gutter_guards !== cur.gutter_guards}>
                   {({ getFieldValue }) => getFieldValue('gutter_included') && (
                     <>
                       <Row gutter={16}>
@@ -1095,22 +1472,25 @@ const RoofingEstimateDetail: React.FC = () => {
                           </Form.Item>
                         </Col>
                         <Col xs={12} sm={8} md={4}><Form.Item label="Gutter Guards" name="gutter_guards" valuePropName="checked"><Switch /></Form.Item></Col>
-                        <Form.Item noStyle shouldUpdate={(prev, cur) => prev.gutter_guards !== cur.gutter_guards}>
-                          {({ getFieldValue: gfv }) => gfv('gutter_guards') && (
-                            <Col xs={12} sm={12} md={6}>
-                              <Form.Item label="Guard Type" name="gutter_guard_type">
-                                <Select options={pricingInfo?.gutter_guard_types?.map(t => ({
-                                  label: t.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-                                  value: t,
-                                })) || []} />
-                              </Form.Item>
-                            </Col>
-                          )}
-                        </Form.Item>
+                        {getFieldValue('gutter_guards') && (
+                          <Col xs={12} sm={12} md={6}>
+                            <Form.Item label="Guard Type" name="gutter_guard_type">
+                              <Select options={pricingInfo?.gutter_guard_types?.map(t => ({
+                                label: t.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                                value: t,
+                              })) || []} />
+                            </Form.Item>
+                          </Col>
+                        )}
                       </Row>
+                    </>
+                  )}
+                </Form.Item>
 
-                      {/* Per-structure gutter when multi-structure */}
-                      {eagleViewResult && eagleViewResult.structures.length > 1 ? (
+                {/* Per-structure gutter — rendered directly (not inside shouldUpdate) to react to manualStructures state */}
+                {form.getFieldValue('gutter_included') && (
+                  <>
+                    {eagleViewResult && eagleViewResult.structures.length > 1 ? (
                         <>
                           <Divider orientation="left" plain style={{ fontSize: 12 }}>Per-Structure Gutter</Divider>
                           {eagleViewResult.structures.map((s) => {
@@ -1159,7 +1539,6 @@ const RoofingEstimateDetail: React.FC = () => {
                                             const evFaces = eagleViewResult.all_faces.filter(
                                               f => f.structure_index === s.index && !f.is_accessory
                                                 && selectedFaces.includes(f.id));
-                                            // Get eave lines for this structure
                                             const sLines = eagleViewResult.lines?.filter(
                                               ln => ln.structure_index === s.index && ln.type === 'EAVE') || [];
                                             const eaveLf = sLines.reduce((sum, ln) => sum + ln.length, 0);
@@ -1178,6 +1557,80 @@ const RoofingEstimateDetail: React.FC = () => {
                                             message.success(`${s.label}: ${Math.round(eaveLf)} LF gutter, ${dsCount} DS`);
                                           }}>
                                             Auto-Calc
+                                          </Button>
+                                        </Col>
+                                      </>
+                                    )}
+                                  </Form.Item>
+                                </Row>
+                              </Card>
+                            );
+                          })}
+                        </>
+                      ) : manualStructures.length > 1 ? (
+                        <>
+                          <Divider orientation="left" plain style={{ fontSize: 12 }}>Per-Structure Gutter</Divider>
+                          {manualStructures.map((ms) => {
+                            const fieldPrefix = `gutter_struct_${ms.index}`;
+                            return (
+                              <Card key={ms.index} size="small" style={{ marginBottom: 12, background: '#fafbfc' }}
+                                title={<Text strong>{ms.label} <Text type="secondary">({(ms.total_sf || 0).toLocaleString()} SF)</Text></Text>}>
+                                <Row gutter={16} align="middle">
+                                  <Col xs={8} sm={6} md={3}>
+                                    <Form.Item label="Include" name={`${fieldPrefix}_included`} valuePropName="checked"
+                                      initialValue={ms.index === 0}>
+                                      <Switch size="small" />
+                                    </Form.Item>
+                                  </Col>
+                                  <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                                    prev[`${fieldPrefix}_included`] !== cur[`${fieldPrefix}_included`]}>
+                                    {({ getFieldValue: gfv2 }) => gfv2(`${fieldPrefix}_included`) && (
+                                      <>
+                                        <Col xs={8} sm={6} md={3}>
+                                          <Form.Item label="Gutter LF" name={`${fieldPrefix}_total_lf`}>
+                                            <InputNumber style={{ width: '100%' }} min={0} />
+                                          </Form.Item>
+                                        </Col>
+                                        <Col xs={8} sm={6} md={3}>
+                                          <Form.Item label="DS Count" name={`${fieldPrefix}_ds_count`}>
+                                            <InputNumber style={{ width: '100%' }} min={0} />
+                                          </Form.Item>
+                                        </Col>
+                                        <Col xs={8} sm={6} md={3}>
+                                          <Form.Item label="DS (LF)" name={`${fieldPrefix}_ds_lf`}>
+                                            <InputNumber style={{ width: '100%' }} min={0} />
+                                          </Form.Item>
+                                        </Col>
+                                        <Col xs={8} sm={6} md={3}>
+                                          <Form.Item label="Splash" name={`${fieldPrefix}_splash`}>
+                                            <InputNumber style={{ width: '100%' }} min={0} />
+                                          </Form.Item>
+                                        </Col>
+                                        <Col xs={8} sm={6} md={3}>
+                                          <Form.Item label="Detach & Reset" name={`${fieldPrefix}_remove`} valuePropName="checked">
+                                            <Switch size="small" />
+                                          </Form.Item>
+                                        </Col>
+                                        <Col xs={12} sm={8} md={4} style={{ display: 'flex', alignItems: 'end', paddingBottom: 24 }}>
+                                          <Button size="small" type="dashed" block onClick={() => {
+                                            const eaveLf = ms.eave_lf || 0;
+                                            const stories = form.getFieldValue('stories') || 1;
+                                            const spacing = form.getFieldValue('downspout_spacing') || 40;
+                                            const heightPerStory = form.getFieldValue('downspout_height_per_story') || 10;
+                                            if (eaveLf <= 0) {
+                                              message.warning(`${ms.label}: Eave LF is 0. Enter eave measurement first.`);
+                                              return;
+                                            }
+                                            const dsCount = Math.ceil(eaveLf / spacing);
+                                            form.setFieldsValue({
+                                              [`${fieldPrefix}_total_lf`]: Math.round(eaveLf),
+                                              [`${fieldPrefix}_ds_count`]: dsCount,
+                                              [`${fieldPrefix}_ds_lf`]: Math.round(dsCount * stories * heightPerStory),
+                                              [`${fieldPrefix}_splash`]: dsCount,
+                                            });
+                                            message.success(`${ms.label}: ${Math.round(eaveLf)} LF gutter, ${dsCount} DS`);
+                                          }}>
+                                            Auto-Calc from Eave
                                           </Button>
                                         </Col>
                                       </>
@@ -1242,9 +1695,9 @@ const RoofingEstimateDetail: React.FC = () => {
                           </Row>
                         </>
                       )}
-                    </>
-                  )}
-                </Form.Item>
+                  </>
+                )}
+
               </Card>
             ),
           },
@@ -1551,28 +2004,76 @@ const RoofingEstimateDetail: React.FC = () => {
                       </>
                     );
                   }
+                  const roofItems = estimate.line_items.filter((li: any) => li.phase !== 7);
+                  const gutterItems = estimate.line_items.filter((li: any) => li.phase === 7);
                   return (
-                    <Table
-                      columns={lineItemColumns}
-                      dataSource={estimate.line_items}
-                      rowKey="id"
-                      pagination={false}
-                      size="small"
-                      scroll={{ x: 800 }}
-                      summary={() => (
-                        <Table.Summary.Row>
-                          <Table.Summary.Cell index={0} colSpan={5}>
-                            <Text strong>Subtotal</Text>
-                          </Table.Summary.Cell>
-                          <Table.Summary.Cell index={5} align="right">
-                            <Text strong>
-                              ${estimate.line_items.reduce((sum: number, li: any) => sum + (li.total || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                            </Text>
-                          </Table.Summary.Cell>
-                          <Table.Summary.Cell index={6} />
-                        </Table.Summary.Row>
+                    <>
+                      <Table
+                        columns={lineItemColumns}
+                        dataSource={roofItems}
+                        rowKey="id"
+                        pagination={false}
+                        size="small"
+                        scroll={{ x: 800 }}
+                        summary={() => (
+                          <Table.Summary.Row>
+                            <Table.Summary.Cell index={0} colSpan={5}>
+                              <Text strong>Roofing Subtotal</Text>
+                            </Table.Summary.Cell>
+                            <Table.Summary.Cell index={5} align="right">
+                              <Text strong>
+                                ${roofItems.reduce((sum: number, li: any) => sum + (li.total || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                              </Text>
+                            </Table.Summary.Cell>
+                            <Table.Summary.Cell index={6} />
+                          </Table.Summary.Row>
+                        )}
+                      />
+                      {gutterItems.length > 0 && (
+                        <>
+                          <Divider orientation="left" style={{ fontSize: 13 }}>Gutter (Optional Add-on)</Divider>
+                          <Table
+                            columns={lineItemColumns}
+                            dataSource={gutterItems}
+                            rowKey="id"
+                            pagination={false}
+                            size="small"
+                            scroll={{ x: 800 }}
+                            summary={() => (
+                              <Table.Summary.Row>
+                                <Table.Summary.Cell index={0} colSpan={5}>
+                                  <Text strong>Gutter Subtotal</Text>
+                                </Table.Summary.Cell>
+                                <Table.Summary.Cell index={5} align="right">
+                                  <Text strong>
+                                    ${gutterItems.reduce((sum: number, li: any) => sum + (li.total || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  </Text>
+                                </Table.Summary.Cell>
+                                <Table.Summary.Cell index={6} />
+                              </Table.Summary.Row>
+                            )}
+                          />
+                        </>
                       )}
-                    />
+                      {estimate.add_ons && estimate.add_ons.length > 0 && (
+                        <>
+                          <Divider orientation="left" style={{ fontSize: 13 }}>Add-on Quotes (Separate from Estimate)</Divider>
+                          <Table
+                            columns={[
+                              { title: 'Description', dataIndex: 'description', key: 'description' },
+                              { title: 'Qty', dataIndex: 'quantity', key: 'qty', width: 60, align: 'right' as const },
+                              { title: 'Unit', dataIndex: 'unit', key: 'unit', width: 50 },
+                              { title: 'Unit Price', dataIndex: 'unit_price', key: 'up', width: 100, align: 'right' as const, render: (v: number) => `$${v?.toFixed(2)}` },
+                              { title: 'Total', dataIndex: 'total', key: 'total', width: 110, align: 'right' as const, render: (v: number) => `$${v?.toLocaleString('en-US', { minimumFractionDigits: 2 })}` },
+                            ]}
+                            dataSource={estimate.add_ons}
+                            rowKey="description"
+                            pagination={false}
+                            size="small"
+                          />
+                        </>
+                      )}
+                    </>
                   );
                 })() : (
                   <Alert
@@ -1582,11 +2083,148 @@ const RoofingEstimateDetail: React.FC = () => {
                     showIcon
                   />
                 )}
+
+                {/* Totals Breakdown */}
+                {estimate.line_items?.length > 0 && (
+                  <>
+                    <Divider />
+                    <Row justify="end">
+                      <Col xs={24} sm={16} md={10}>
+                        <div style={{ background: '#fafbfc', borderRadius: 8, padding: '12px 16px' }}>
+                          {(estimate.gutter_subtotal || 0) > 0 ? (
+                            <>
+                              <Row justify="space-between" style={{ marginBottom: 4 }}>
+                                <Text>Roofing Subtotal</Text>
+                                <Text>${(estimate.roofing_subtotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                              </Row>
+                              <Row justify="space-between" style={{ marginBottom: 4 }}>
+                                <Text>Gutter Subtotal</Text>
+                                <Text>${(estimate.gutter_subtotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                              </Row>
+                            </>
+                          ) : (
+                            <Row justify="space-between" style={{ marginBottom: 4 }}>
+                              <Text>Subtotal</Text>
+                              <Text>${(estimate.subtotal || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                            </Row>
+                          )}
+                          {(estimate.tax_amount || 0) > 0 && (
+                            <Row justify="space-between" style={{ marginBottom: 4 }}>
+                              <Text>Sales Tax</Text>
+                              <Text>${(estimate.tax_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                            </Row>
+                          )}
+                          {(estimate.permit_fee || 0) > 0 && (
+                            <Row justify="space-between" style={{ marginBottom: 4 }}>
+                              <Text>Permit Fee</Text>
+                              <Text>${(estimate.permit_fee || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</Text>
+                            </Row>
+                          )}
+                          <Divider style={{ margin: '8px 0' }} />
+                          <Row justify="space-between">
+                            <Text strong style={{ fontSize: 15 }}>Total</Text>
+                            <Text strong style={{ fontSize: 15 }}>
+                              ${(estimate.total || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </Text>
+                          </Row>
+                        </div>
+                      </Col>
+                    </Row>
+                  </>
+                )}
               </Card>
             ),
           },
         ]} />
       </Form>
+
+      {/* PDF Export Modal */}
+      <Modal
+        title="PDF Export Options"
+        open={pdfModalOpen}
+        onCancel={() => setPdfModalOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setPdfModalOpen(false)}>Cancel</Button>,
+          <Button
+            key="export"
+            type="primary"
+            icon={<FilePdfOutlined />}
+            onClick={() => {
+              const { docType, pricingMode, showSignature, gutterSeparate } = pdfOptions;
+              if (docType === 'warranty') {
+                roofingEstimateService.exportWarrantyCert(id!, {
+                  address: estimate?.property_address,
+                });
+              } else if (docType === 'invoice') {
+                roofingEstimateService.exportInvoice(id!, {
+                  pricing_mode: pricingMode,
+                  address: estimate?.property_address,
+                });
+              } else {
+                roofingEstimateService.exportPdf(id!, {
+                  pricing_mode: pricingMode,
+                  show_signature: showSignature,
+                  gutter_separate: gutterSeparate,
+                  address: estimate?.property_address,
+                });
+              }
+              setPdfModalOpen(false);
+            }}
+          >
+            Export PDF
+          </Button>,
+        ]}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Text strong style={{ display: 'block', marginBottom: 8 }}>Document Type</Text>
+          <Select
+            value={pdfOptions.docType}
+            style={{ width: '100%' }}
+            onChange={(v) => setPdfOptions({ ...pdfOptions, docType: v })}
+            options={[
+              { label: 'Estimate', value: 'estimate' },
+              { label: 'Invoice', value: 'invoice' },
+              { label: 'Warranty Certificate', value: 'warranty' },
+            ]}
+          />
+        </div>
+
+        {pdfOptions.docType !== 'warranty' && (
+          <div style={{ marginBottom: 16 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>Pricing Mode</Text>
+            <Select
+              value={pdfOptions.pricingMode}
+              style={{ width: '100%' }}
+              onChange={(v) => setPdfOptions({ ...pdfOptions, pricingMode: v })}
+              options={[
+                { label: 'Detailed (with unit prices)', value: 'detailed' },
+                { label: 'Lump Sum (scope only, single total)', value: 'lumpsum' },
+              ]}
+            />
+          </div>
+        )}
+
+        {pdfOptions.docType === 'estimate' && (
+          <>
+            <Divider style={{ margin: '12px 0' }} />
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>Options</Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Checkbox
+                checked={pdfOptions.showSignature}
+                onChange={(e) => setPdfOptions({ ...pdfOptions, showSignature: e.target.checked })}
+              >
+                Include signature block
+              </Checkbox>
+              <Checkbox
+                checked={pdfOptions.gutterSeparate}
+                onChange={(e) => setPdfOptions({ ...pdfOptions, gutterSeparate: e.target.checked })}
+              >
+                Show gutter as separate section
+              </Checkbox>
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
   );
 };

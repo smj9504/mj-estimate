@@ -84,6 +84,9 @@ class RoofingEstimate(Base, BaseModel):
     eagleview_data = Column(JSONB, nullable=True)     # parsed full roof data
     selected_faces = Column(JSONB, nullable=True)     # selected face IDs for partial
 
+    # ── Manual Multi-Structure ──
+    manual_structures = Column(JSONB, nullable=True)  # list of manual structure measurements
+
     # ── Scope Flags ──
     full_tearoff = Column(Boolean, default=True)
     layer_count = Column(Integer, default=1)   # 1, 2, 3
@@ -117,6 +120,9 @@ class RoofingEstimate(Base, BaseModel):
     #   chimney_cricket[], pipe_boots, pipe_boot_type,
     #   skylight_flashing_kits }
 
+    roof_penetrations = Column(JSONB, nullable=True)
+    # [ { type, quantity, notes }, ... ]
+
     ridge_cap_spec = Column(JSONB, nullable=True)
     # { product, rate_per_lf }
 
@@ -125,6 +131,10 @@ class RoofingEstimate(Base, BaseModel):
     #   total_lf, downspout_count, downspout_lf, downspout_size,
     #   splash_blocks, gutter_guards, guard_type, guard_lf,
     #   remove_existing, remove_existing_lf }
+
+    # ── Skylight Replacement (add-on quotes) ──
+    skylight_replacements = Column(JSONB, nullable=True)
+    # [ { type, quantity, location }, ... ]
 
     # ── Hidden Costs ──
     hidden_costs = Column(JSONB, nullable=True)
@@ -153,6 +163,8 @@ class RoofingEstimate(Base, BaseModel):
     adjustment_factor = Column(Float, nullable=True)    # multiplier applied to line items
 
     # ── Calculated Totals ──
+    roofing_subtotal = Column(Float, default=0)
+    gutter_subtotal = Column(Float, default=0)
     subtotal = Column(Float, default=0)
     markup_amount = Column(Float, default=0)
     overhead_amount = Column(Float, default=0)
@@ -160,6 +172,10 @@ class RoofingEstimate(Base, BaseModel):
     tax_amount = Column(Float, default=0)
     permit_fee = Column(Float, default=0)
     total = Column(Float, default=0)
+
+    # ── Add-on Quotes ──
+    add_ons = Column(JSONB, nullable=True)
+    # [ { description, quantity, unit, unit_price, total, category }, ... ]
 
     # ── Per-Structure Results ──
     structure_results = Column(JSONB, nullable=True)

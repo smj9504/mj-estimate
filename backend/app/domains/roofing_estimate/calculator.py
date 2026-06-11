@@ -25,9 +25,11 @@ from .pricing import (
     ICE_WATER_SHIELD_RATE,
     MATERIAL_PORTION,
     MISC_RATES,
+    PENETRATION_RATES,
     PIPE_BOOT_RATES,
     RIDGE_CAP_RATE,
     SHINGLE_RATES,
+    SKYLIGHT_REPLACEMENT_RATES,
     TEAROFF_RATES,
     UNDERLAYMENT_RATES,
     VENTILATION_RATES,
@@ -70,12 +72,19 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     ev_faces = ev_data.get("faces", [])
     ev_lines = ev_data.get("lines", [])
 
+    # Manual multi-structure
+    manual_structures = estimate.manual_structures or []
+
     # Common estimate-level config
     config = _build_config(estimate)
 
     if len(structures) > 1:
         return _calculate_multi_structure(
             estimate, structures, ev_faces, ev_lines, config,
+        )
+    elif len(manual_structures) > 1:
+        return _calculate_manual_multi_structure(
+            estimate, manual_structures, config,
         )
     else:
         return _calculate_single_structure(estimate, config)
@@ -108,6 +117,8 @@ def _build_config(estimate) -> Dict[str, Any]:
         "profit_pct": estimate.profit_pct or 0.10,
         "contingency_pct": estimate.contingency_pct or 0.05,
         "target_total": getattr(estimate, "target_total", None),
+        "roof_penetrations": getattr(estimate, "roof_penetrations", None) or [],
+        "skylight_replacements": getattr(estimate, "skylight_replacements", None) or [],
     }
 
 
@@ -137,6 +148,116 @@ def _calculate_single_structure(estimate, config: Dict) -> Dict[str, Any]:
     )
     return _finalize_totals(items, warnings, config,
                             structure_results=None)
+
+
+def _calculate_manual_multi_structure(
+    estimate, manual_structures: List[Dict], config: Dict,
+) -> Dict[str, Any]:
+    """Calculate per-structure from manually entered measurements."""
+    all_items: List[Dict] = []
+    all_warnings: List[str] = []
+    structure_results: List[Dict] = []
+
+    # Pre-calc combined squares for dumpster
+    total_all_sf = sum(s.get("total_sf", 0) for s in manual_structures)
+    combined_squares = round(total_all_sf / 100, 2)
+
+    for s in manual_structures:
+        s_idx = s.get("index", 0)
+        s_label = s.get("label", f"Structure #{s_idx + 1}")
+        total_sf = s.get("total_sf", 0)
+        if total_sf <= 0:
+            structure_results.append({
+                "structure_index": s_idx,
+                "label": s_label,
+                "included": False,
+                "total_sf": 0,
+                "subtotal": 0,
+                "total": 0,
+            })
+            continue
+
+        complexity = s.get("roof_complexity", estimate.roof_complexity or "hip")
+        waste = s.get("waste_factor", estimate.waste_factor or get_waste_factor(complexity))
+
+        measurements = {
+            "total_sf": round(total_sf, 1),
+            "squares": round(total_sf / 100, 2),
+            "predominant_pitch": s.get("predominant_pitch", estimate.predominant_pitch or "6/12"),
+            "ridge_lf": s.get("ridge_lf", 0),
+            "hip_lf": s.get("hip_lf", 0),
+            "valley_lf": s.get("valley_lf", 0),
+            "eave_lf": s.get("eave_lf", 0),
+            "rake_lf": s.get("rake_lf", 0),
+            "step_flashing_lf": s.get("step_flashing_lf", 0),
+            "penetration_count": s.get("penetration_count", 0),
+            "skylight_count": s.get("skylight_count", 0),
+            "chimney_count": s.get("chimney_count", 0),
+            "waste_factor": waste,
+            "roof_complexity": complexity,
+        }
+
+        struct_config = dict(config)
+
+        # Main structure: use combined squares for dumpster
+        if s_idx == 0:
+            struct_config["_dumpster_squares"] = combined_squares
+
+        # Per-structure gutter config
+        gutter_base = config["gutter_spec"]
+        per_struct = gutter_base.get("per_structure", [])
+        ps_cfg = next(
+            (ps for ps in per_struct
+             if ps.get("structure_index") == s_idx),
+            None,
+        )
+        if ps_cfg is not None:
+            struct_config["gutter_spec"] = {
+                "included": ps_cfg.get("included", False),
+                "style": gutter_base.get("style", "k_style"),
+                "size": gutter_base.get("size", 5),
+                "material": gutter_base.get("material", "aluminum"),
+                "total_lf": ps_cfg.get("total_lf", 0),
+                "downspout_count": ps_cfg.get("downspout_count", 0),
+                "downspout_lf": ps_cfg.get("downspout_lf", 0),
+                "downspout_size": gutter_base.get("downspout_size", "2x3"),
+                "splash_blocks": ps_cfg.get("splash_blocks", 0),
+                "remove_existing": ps_cfg.get("remove_existing", False),
+                "gutter_guards": gutter_base.get("gutter_guards", False),
+                "guard_type": gutter_base.get("guard_type", "mesh"),
+            }
+        elif s_idx > 0:
+            struct_config["gutter_spec"] = {"included": False}
+
+        # Secondary: skip permit/lead/dumpster
+        if s_idx > 0:
+            struct_config["hidden_costs"] = {
+                "permit_option": "none",
+                "lead_rrp": False,
+                "dumpster": False,
+            }
+
+        items, warnings = _generate_line_items(
+            measurements, struct_config, structure_index=s_idx)
+
+        struct_subtotal = sum(it["total"] for it in items)
+
+        structure_results.append({
+            "structure_index": s_idx,
+            "label": s_label,
+            "included": True,
+            "total_sf": measurements["total_sf"],
+            "squares": measurements["squares"],
+            "predominant_pitch": measurements["predominant_pitch"],
+            "subtotal": round(struct_subtotal, 2),
+            "total": round(struct_subtotal, 2),
+        })
+
+        all_items.extend(items)
+        all_warnings.extend(warnings)
+
+    return _finalize_totals(all_items, all_warnings, config,
+                            structure_results=structure_results)
 
 
 def _calculate_multi_structure(
@@ -362,6 +483,13 @@ def _generate_line_items(
     vent = config["ventilation_spec"]
     gutter = config["gutter_spec"]
     hidden = config["hidden_costs"]
+    all_penetrations = config.get("roof_penetrations") or []
+    # Filter penetrations for this structure
+    roof_penetrations = [
+        p for p in all_penetrations
+        if p.get("structure_index") is None  # unassigned = all structures (single-structure mode)
+        or p.get("structure_index") == structure_index
+    ]
 
     def _add(phase, desc, qty, unit, rate, cost, cat, xact=None):
         nonlocal order
@@ -466,12 +594,29 @@ def _generate_line_items(
         _add(4, "Skylight flashing kit", sky_ct, "EA", rate,
              sky_ct * rate, "flashing")
 
-    pipe_ct = flash.get("pipe_boots", penetrations)
-    boot_type = flash.get("pipe_boot_type", "lifetime")
-    if pipe_ct > 0:
-        rate = PIPE_BOOT_RATES.get(boot_type, 65.0)
-        _add(4, f"Pipe boots ({boot_type})", pipe_ct, "EA", rate,
-             pipe_ct * rate, "flashing", "RFG VENTPIPE")
+    # Itemized penetrations (new) or legacy pipe boot fallback
+    if roof_penetrations:
+        for pen in roof_penetrations:
+            p_type = pen.get("type", "other")
+            p_qty = pen.get("quantity", 1)
+            if p_qty <= 0:
+                continue
+            rate = PENETRATION_RATES.get(p_type, 65.0)
+            label = p_type.replace("_", " ").title()
+            notes = pen.get("notes", "")
+            desc = f"{label}"
+            if notes:
+                desc += f" ({notes})"
+            _add(4, desc, p_qty, "EA", rate,
+                 p_qty * rate, "penetration", "RFG VENTPIPE")
+    else:
+        # Legacy: simple pipe boot count
+        pipe_ct = flash.get("pipe_boots", penetrations)
+        boot_type = flash.get("pipe_boot_type", "lifetime")
+        if pipe_ct > 0:
+            rate = PIPE_BOOT_RATES.get(boot_type, 65.0)
+            _add(4, f"Pipe boots ({boot_type})", pipe_ct, "EA",
+                 rate, pipe_ct * rate, "flashing", "RFG VENTPIPE")
 
     # ── PHASE 5: Shingle Install ──
 
@@ -488,9 +633,11 @@ def _generate_line_items(
 
     product = shingle.get("product", "")
     brand = shingle.get("brand", "")
+    waste_pct = round(waste * 100)
     desc = f"Shingle install - {shingle_type.replace('_', ' ').title()}"
     if product:
         desc += f" ({brand} {product})".strip()
+    desc += f" [{round(squares, 1)} SQ + {waste_pct}% waste]"
 
     _add(5, desc, round(squares_with_waste, 2), "SQ",
          round(adjusted_rate, 2), cost, "shingle", "RFG 300")
@@ -502,11 +649,14 @@ def _generate_line_items(
 
     # ── PHASE 6: Ventilation & Penetrations ──
 
-    if vent.get("ridge_vent", True) and ridge_lf > 0:
+    if ridge_lf > 0:
         vent_lf = vent.get("ridge_vent_lf", ridge_lf)
-        rate = VENTILATION_RATES["ridge_vent_per_lf"]
-        _add(6, "Continuous ridge vent", vent_lf, "LF", rate,
-             vent_lf * rate, "ventilation", "RFG RVENT")
+        rv_type = vent.get("ridge_vent_type", "shingle_over")
+        rate_key = f"ridge_vent_{rv_type}_per_lf"
+        rate = VENTILATION_RATES.get(rate_key, 11.0)
+        rv_label = rv_type.replace("_", " ").title()
+        _add(6, f"Continuous ridge vent — {rv_label}", vent_lf,
+             "LF", rate, vent_lf * rate, "ventilation", "RFG RVENT")
 
     static_ct = vent.get("static_vents", 0)
     if static_ct > 0:
@@ -615,7 +765,14 @@ def _finalize_totals(
     state = config["state"]
     hidden = config["hidden_costs"]
 
-    subtotal = sum(item["total"] for item in line_items)
+    # Separate gutter (phase 7) from main roofing subtotal
+    roofing_subtotal = sum(
+        item["total"] for item in line_items if item.get("phase") != 7
+    )
+    gutter_subtotal = sum(
+        item["total"] for item in line_items if item.get("phase") == 7
+    )
+    subtotal = roofing_subtotal + gutter_subtotal
 
     avg_markup = (
         config["material_markup_pct"] * MATERIAL_PORTION
@@ -661,68 +818,108 @@ def _finalize_totals(
     grand_total = (subtotal + markup_amount + overhead_amount
                    + profit_amount + contingency + tax_amount + permit_fee)
 
-    # Target total adjustment
+    # Target total adjustment (excludes gutter — gutter priced separately)
     adjustment_factor = None
     target_total = config.get("target_total")
-    if target_total and target_total > 0 and subtotal > 0:
+    if target_total and target_total > 0 and roofing_subtotal > 0:
+        # Calculate roofing-only grand total (exclude gutter)
+        roofing_markup = roofing_subtotal * avg_markup
+        roofing_overhead = (
+            roofing_subtotal * config["overhead_pct"]
+            if config["include_overhead_profit"] else 0
+        )
+        roofing_profit = (
+            roofing_subtotal * config["profit_pct"]
+            if config["include_overhead_profit"] else 0
+        )
+        roofing_contingency = roofing_subtotal * config["contingency_pct"]
+        roofing_tax = roofing_subtotal * MATERIAL_PORTION * tax_rate
+        roofing_grand = (roofing_subtotal + roofing_markup
+                         + roofing_overhead + roofing_profit
+                         + roofing_contingency + roofing_tax + permit_fee)
+
         fixed_costs = permit_fee
         adjustable_target = target_total - fixed_costs
-        adjustable_current = grand_total - fixed_costs
+        adjustable_current = roofing_grand - fixed_costs
         if adjustable_current > 0:
             adjustment_factor = adjustable_target / adjustable_current
+            # Only adjust non-gutter, non-permit items
             for item in line_items:
+                if item.get("phase") == 7:
+                    continue
                 if item["description"].startswith("Building permit"):
                     continue
                 item["unit_price"] = round(
                     item["unit_price"] * adjustment_factor, 2,
                 )
-                item["total"] = round(item["quantity"] * item["unit_price"], 2)
+                item["total"] = round(
+                    item["quantity"] * item["unit_price"], 2)
 
-            subtotal = sum(
+            # Recalculate roofing subtotal after adjustment
+            roofing_subtotal = sum(
                 item["total"] for item in line_items
-                if not item["description"].startswith("Building permit")
+                if item.get("phase") != 7
+                and not item["description"].startswith("Building permit")
             )
-            markup_amount = subtotal * avg_markup
-            if config["include_overhead_profit"]:
-                overhead_amount = subtotal * config["overhead_pct"]
-                profit_amount = subtotal * config["profit_pct"]
-            contingency = subtotal * config["contingency_pct"]
-            tax_amount = subtotal * MATERIAL_PORTION * tax_rate
-            grand_total = (subtotal + markup_amount + overhead_amount
-                + profit_amount + contingency
-                + tax_amount + permit_fee)
 
-            # Fix rounding drift: adjust largest line item to hit target exactly
-            rounding_diff = round(target_total - grand_total, 2)
+            # Fix rounding drift on roofing items
+            roofing_markup = roofing_subtotal * avg_markup
+            roofing_overhead = (
+                roofing_subtotal * config["overhead_pct"]
+                if config["include_overhead_profit"] else 0
+            )
+            roofing_profit = (
+                roofing_subtotal * config["profit_pct"]
+                if config["include_overhead_profit"] else 0
+            )
+            roofing_contingency = roofing_subtotal * config["contingency_pct"]
+            roofing_tax = roofing_subtotal * MATERIAL_PORTION * tax_rate
+            roofing_grand = (roofing_subtotal + roofing_markup
+                             + roofing_overhead + roofing_profit
+                             + roofing_contingency + roofing_tax + permit_fee)
+
+            rounding_diff = round(target_total - roofing_grand, 2)
             if rounding_diff != 0:
                 adjustable = [
                     it for it in line_items
-                    if not it["description"].startswith("Building permit")
+                    if it.get("phase") != 7
+                    and not it["description"].startswith("Building permit")
                 ]
                 if adjustable:
                     largest = max(adjustable, key=lambda x: x["total"])
-                    largest["total"] = round(largest["total"] + rounding_diff, 2)
+                    largest["total"] = round(
+                        largest["total"] + rounding_diff, 2)
                     if largest["quantity"]:
                         largest["unit_price"] = round(
                             largest["total"] / largest["quantity"], 2
                         )
-                    subtotal = sum(
+                    roofing_subtotal = sum(
                         it["total"] for it in line_items
-                        if not it["description"].startswith("Building permit")
+                        if it.get("phase") != 7
+                        and not it["description"].startswith(
+                            "Building permit")
                     )
-                    markup_amount = subtotal * avg_markup
-                    if config["include_overhead_profit"]:
-                        overhead_amount = subtotal * config["overhead_pct"]
-                        profit_amount = subtotal * config["profit_pct"]
-                    contingency = subtotal * config["contingency_pct"]
-                    tax_amount = subtotal * MATERIAL_PORTION * tax_rate
-                    grand_total = (subtotal + markup_amount + overhead_amount
-                        + profit_amount + contingency
-                        + tax_amount + permit_fee)
 
             warnings.append(
                 f"Target total applied: ${target_total:,.2f} "
-                f"(adjustment factor: {adjustment_factor:.4f})")
+                f"(adjustment factor: {adjustment_factor:.4f})"
+                f" — Gutter excluded from target")
+
+        # Recalculate combined totals
+        gutter_subtotal = sum(
+            item["total"] for item in line_items
+            if item.get("phase") == 7
+        )
+        subtotal = roofing_subtotal + gutter_subtotal
+        markup_amount = subtotal * avg_markup
+        if config["include_overhead_profit"]:
+            overhead_amount = subtotal * config["overhead_pct"]
+            profit_amount = subtotal * config["profit_pct"]
+        contingency = subtotal * config["contingency_pct"]
+        tax_amount = subtotal * MATERIAL_PORTION * tax_rate
+        grand_total = (subtotal + markup_amount + overhead_amount
+                       + profit_amount + contingency
+                       + tax_amount + permit_fee)
 
     # Update structure_results subtotals after adjustment
     if structure_results:
@@ -741,6 +938,8 @@ def _finalize_totals(
     return {
         "line_items": line_items,
         "structure_results": structure_results,
+        "roofing_subtotal": round(roofing_subtotal, 2),
+        "gutter_subtotal": round(gutter_subtotal, 2),
         "subtotal": round(subtotal, 2),
         "markup_amount": round(markup_amount, 2),
         "overhead_amount": round(overhead_amount, 2),
@@ -754,6 +953,7 @@ def _finalize_totals(
         ),
         "warnings": warnings,
         "phase_summary": _build_phase_summary(line_items),
+        "add_ons": _build_skylight_addons(config),
     }
 
 
@@ -773,6 +973,30 @@ def _item(phase: int, description: str, quantity: float, unit: str,
         "display_order": display_order,
         "structure_index": structure_index,
     }
+
+
+def _build_skylight_addons(config: Dict) -> List[Dict]:
+    """Generate skylight replacement add-on quotes (not in base estimate)."""
+    skylight_spec = config.get("skylight_replacements") or []
+    addons = []
+    for sky in skylight_spec:
+        sky_type = sky.get("type", "medium_fixed")
+        qty = sky.get("quantity", 1)
+        rate = SKYLIGHT_REPLACEMENT_RATES.get(sky_type, 850.0)
+        label = sky_type.replace("_", " ").title()
+        location = sky.get("location", "")
+        desc = f"Skylight replacement — {label}"
+        if location:
+            desc += f" ({location})"
+        addons.append({
+            "description": desc,
+            "quantity": qty,
+            "unit": "EA",
+            "unit_price": round(rate, 2),
+            "total": round(qty * rate, 2),
+            "category": "skylight_replacement",
+        })
+    return addons
 
 
 def _build_phase_summary(line_items: List[Dict]) -> Dict[str, float]:

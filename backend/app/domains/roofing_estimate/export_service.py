@@ -135,12 +135,16 @@ class RoofingExportService:
     def generate_pdf(
         self, estimate: Dict[str, Any], show_signature: bool = True,
         pricing_mode: str = "detailed",
+        gutter_separate: bool = False,
     ) -> io.BytesIO:
         """Generate professional PDF from estimate data.
 
         pricing_mode:
             "detailed" - full breakdown with unit prices and line totals
             "lumpsum"  - scope of work only (description + qty/unit), single total
+        gutter_separate:
+            True  - show gutter as separate section with its own subtotal
+            False - include gutter within structure line items
         """
         try:
             from reportlab.lib import colors
@@ -231,9 +235,9 @@ class RoofingExportService:
             spaceAfter=0,
         )
         s_company = ParagraphStyle(
-            "S_Company", fontName="Helvetica-Bold", fontSize=13,
+            "S_Company", fontName="Helvetica-Bold", fontSize=9,
             textColor=colors.HexColor(COLOR_PRIMARY), alignment=TA_RIGHT,
-            spaceAfter=2,
+            spaceAfter=4,
         )
         s_company_detail = ParagraphStyle(
             "S_CompanyDetail", fontName="Helvetica", fontSize=9,
@@ -417,7 +421,7 @@ class RoofingExportService:
         if shingle.get("color"):
             scope_items.append(_info_pair("Color", shingle["color"]))
 
-        elements.append(Paragraph("SCOPE OF WORK", s_section))
+        elements.append(Paragraph("SCOPE SUMMARY", s_section))
         scope_rows = []
         for i in range(0, len(scope_items), 2):
             row = scope_items[i]
@@ -516,11 +520,10 @@ class RoofingExportService:
                     s_info = f"{s_sf:,.0f} SF"
                     if s_pitch:
                         s_info += f" | {s_pitch}"
-                    if not is_lumpsum:
-                        s_info += (
-                            f" | Subtotal:"
-                            f" ${s_sub:,.2f}"
-                        )
+                    s_info += (
+                        f" | Subtotal:"
+                        f" ${s_sub:,.2f}"
+                    )
                     elements.append(Paragraph(
                         f"<b>{s_label}</b>"
                         f"&nbsp;&nbsp;"
@@ -538,8 +541,12 @@ class RoofingExportService:
                         ),
                     ))
 
+                    display_items = (
+                        [i for i in s_items if i.get("phase") != 7]
+                        if gutter_separate else s_items
+                    )
                     self._build_line_table(
-                        elements, s_items,
+                        elements, display_items,
                         content_w, is_lumpsum,
                         colors, TA_RIGHT,
                         TA_CENTER,
@@ -563,8 +570,12 @@ class RoofingExportService:
 
             else:
                 # Single structure: flat table
+                display_items = (
+                    [i for i in line_items if i.get("phase") != 7]
+                    if gutter_separate else line_items
+                )
                 self._build_line_table(
-                    elements, line_items,
+                    elements, display_items,
                     content_w, is_lumpsum,
                     colors, TA_RIGHT,
                     TA_CENTER,
@@ -577,6 +588,26 @@ class RoofingExportService:
                 self._add_waste_note(
                     elements, colors, w_pct,
                     w_sq, w_sq_w,
+                )
+
+        # ────────────────────────────────────────────────
+        #  GUTTER (separate section when gutter_separate)
+        # ────────────────────────────────────────────────
+        if gutter_separate and line_items:
+            gutter_items = [
+                i for i in line_items if i.get("phase") == 7
+            ]
+            if gutter_items:
+                elements.append(Spacer(1, 10))
+                elements.append(Paragraph(
+                    "GUTTER (OPTIONAL)",
+                    s_section,
+                ))
+                self._build_line_table(
+                    elements, gutter_items,
+                    content_w, is_lumpsum,
+                    colors, TA_RIGHT,
+                    TA_CENTER,
                 )
 
         # ────────────────────────────────────────────────
@@ -603,16 +634,23 @@ class RoofingExportService:
 
         totals_rows = []
         if not is_lumpsum:
-            totals_rows.append([
-                Paragraph("Subtotal", s_tot_label),
-                Paragraph(f"${estimate.get('subtotal', 0):,.2f}", s_tot_value),
-            ])
-            if estimate.get("markup_amount", 0) > 0:
+            gutter_sub = estimate.get("gutter_subtotal", 0) or 0
+            roofing_sub = estimate.get("roofing_subtotal", 0) or estimate.get("subtotal", 0)
+            if gutter_sub > 0:
                 totals_rows.append([
-                    Paragraph("Markup", s_tot_label),
-                    Paragraph(f"${estimate.get('markup_amount', 0):,.2f}",
-                              s_tot_value),
+                    Paragraph("Roofing Subtotal", s_tot_label),
+                    Paragraph(f"${roofing_sub:,.2f}", s_tot_value),
                 ])
+                totals_rows.append([
+                    Paragraph("Gutter Subtotal", s_tot_label),
+                    Paragraph(f"${gutter_sub:,.2f}", s_tot_value),
+                ])
+            else:
+                totals_rows.append([
+                    Paragraph("Subtotal", s_tot_label),
+                    Paragraph(f"${estimate.get('subtotal', 0):,.2f}", s_tot_value),
+                ])
+            # Markup is included in unit prices — not shown separately
             if estimate.get("include_overhead_profit"):
                 totals_rows.append([
                     Paragraph("Overhead", s_tot_label),
@@ -675,6 +713,90 @@ class RoofingExportService:
             ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ]))
         elements.append(outer)
+
+        # ────────────────────────────────────────────────
+        #  ADD-ON QUOTES (skylight replacement, etc.)
+        # ────────────────────────────────────────────────
+        add_ons = estimate.get("add_ons") or []
+        if add_ons:
+            elements.append(Spacer(1, 12))
+            elements.append(Paragraph(
+                "ADDITIONAL QUOTES (not included in estimate total)",
+                ParagraphStyle(
+                    "AOHead", fontName="Helvetica-Bold",
+                    fontSize=10,
+                    textColor=colors.HexColor(COLOR_SECONDARY),
+                    spaceAfter=4,
+                ),
+            ))
+
+            ao_header = [[
+                Paragraph("<b>Description</b>", ParagraphStyle(
+                    "AOH", fontName="Helvetica-Bold", fontSize=8.5,
+                    textColor=colors.white)),
+                Paragraph("<b>Qty</b>", ParagraphStyle(
+                    "AOHR", fontName="Helvetica-Bold", fontSize=8.5,
+                    textColor=colors.white, alignment=TA_RIGHT)),
+                Paragraph("<b>Unit Price</b>", ParagraphStyle(
+                    "AOHP", fontName="Helvetica-Bold", fontSize=8.5,
+                    textColor=colors.white, alignment=TA_RIGHT)),
+                Paragraph("<b>Total</b>", ParagraphStyle(
+                    "AOHT", fontName="Helvetica-Bold", fontSize=8.5,
+                    textColor=colors.white, alignment=TA_RIGHT)),
+            ]]
+            ao_data = list(ao_header)
+            ao_td = ParagraphStyle(
+                "AOD", fontName="Helvetica", fontSize=8.5,
+                textColor=colors.HexColor(COLOR_DARK))
+            ao_tdr = ParagraphStyle(
+                "AODR", fontName="Helvetica", fontSize=8.5,
+                textColor=colors.HexColor(COLOR_DARK),
+                alignment=TA_RIGHT)
+            for ao in add_ons:
+                ao_data.append([
+                    Paragraph(ao.get("description", ""), ao_td),
+                    Paragraph(str(ao.get("quantity", 1)), ao_tdr),
+                    Paragraph(f"${ao.get('unit_price', 0):,.2f}", ao_tdr),
+                    Paragraph(f"${ao.get('total', 0):,.2f}", ao_tdr),
+                ])
+
+            ao_cw = [content_w * 0.50, content_w * 0.10,
+                      content_w * 0.20, content_w * 0.20]
+            ao_tbl = Table(ao_data, colWidths=ao_cw)
+            ao_tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0),
+                 colors.HexColor(COLOR_SECONDARY)),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("LINEBELOW", (0, 0), (-1, -1), 0.3,
+                 colors.HexColor(COLOR_BORDER)),
+                ("BOX", (0, 0), (-1, -1), 0.5,
+                 colors.HexColor(COLOR_BORDER)),
+            ]))
+            elements.append(ao_tbl)
+
+        # ────────────────────────────────────────────────
+        #  NOTES (if any)
+        # ────────────────────────────────────────────────
+        est_notes = (estimate.get("notes") or "").strip()
+        if est_notes:
+            elements.append(Spacer(1, 10))
+            elements.append(Paragraph("NOTES", s_section))
+            for line in est_notes.split("\n"):
+                line = line.strip()
+                if line:
+                    elements.append(Paragraph(
+                        f"\u2022 {line}",
+                        ParagraphStyle(
+                            "NoteItem", fontName="Helvetica",
+                            fontSize=9,
+                            textColor=colors.HexColor(COLOR_DARK),
+                            leading=12, leftIndent=10,
+                        ),
+                    ))
 
         # ────────────────────────────────────────────────
         #  TERMS & CONDITIONS + WARRANTY

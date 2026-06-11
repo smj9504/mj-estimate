@@ -46,6 +46,7 @@ class RoofingEstimateBase(BaseModel):
     # EagleView
     eagleview_data: Optional[Dict[str, Any]] = None
     selected_faces: Optional[List[str]] = None
+    manual_structures: Optional[List[Dict[str, Any]]] = None
 
     # Scope
     full_tearoff: bool = True
@@ -64,6 +65,8 @@ class RoofingEstimateBase(BaseModel):
     flashing_spec: Optional[Dict[str, Any]] = None
     ridge_cap_spec: Optional[Dict[str, Any]] = None
     gutter_spec: Optional[Dict[str, Any]] = None
+    roof_penetrations: Optional[List[Dict[str, Any]]] = None
+    skylight_replacements: Optional[List[Dict[str, Any]]] = None
     hidden_costs: Optional[Dict[str, Any]] = None
     insurance_info: Optional[Dict[str, Any]] = None
 
@@ -123,6 +126,7 @@ class RoofingEstimateUpdate(BaseModel):
 
     eagleview_data: Optional[Dict[str, Any]] = None
     selected_faces: Optional[List[str]] = None
+    manual_structures: Optional[List[Dict[str, Any]]] = None
 
     full_tearoff: Optional[bool] = None
     layer_count: Optional[int] = None
@@ -139,6 +143,8 @@ class RoofingEstimateUpdate(BaseModel):
     flashing_spec: Optional[Dict[str, Any]] = None
     ridge_cap_spec: Optional[Dict[str, Any]] = None
     gutter_spec: Optional[Dict[str, Any]] = None
+    roof_penetrations: Optional[List[Dict[str, Any]]] = None
+    skylight_replacements: Optional[List[Dict[str, Any]]] = None
     hidden_costs: Optional[Dict[str, Any]] = None
     insurance_info: Optional[Dict[str, Any]] = None
 
@@ -221,6 +227,7 @@ class RoofingEstimateResponse(BaseModel):
     # EagleView
     eagleview_data: Optional[Dict[str, Any]] = None
     selected_faces: Optional[List[str]] = None
+    manual_structures: Optional[List[Dict[str, Any]]] = None
 
     # Scope
     full_tearoff: bool = True
@@ -239,6 +246,8 @@ class RoofingEstimateResponse(BaseModel):
     flashing_spec: Optional[Dict[str, Any]] = None
     ridge_cap_spec: Optional[Dict[str, Any]] = None
     gutter_spec: Optional[Dict[str, Any]] = None
+    roof_penetrations: Optional[List[Dict[str, Any]]] = None
+    skylight_replacements: Optional[List[Dict[str, Any]]] = None
     hidden_costs: Optional[Dict[str, Any]] = None
     insurance_info: Optional[Dict[str, Any]] = None
 
@@ -259,6 +268,8 @@ class RoofingEstimateResponse(BaseModel):
     adjustment_factor: Optional[float] = None
 
     # Totals
+    roofing_subtotal: float = 0
+    gutter_subtotal: float = 0
     subtotal: float = 0
     markup_amount: float = 0
     overhead_amount: float = 0
@@ -266,6 +277,9 @@ class RoofingEstimateResponse(BaseModel):
     tax_amount: float = 0
     permit_fee: float = 0
     total: float = 0
+
+    # Add-on quotes
+    add_ons: Optional[List[Dict[str, Any]]] = None
 
     # Per-structure results
     structure_results: Optional[List[Dict[str, Any]]] = None

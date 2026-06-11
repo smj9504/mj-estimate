@@ -122,13 +122,16 @@ export const roofingEstimateService = {
 
   // ── Export ──
 
-  async exportPdf(id: string, options?: { show_signature?: boolean; pricing_mode?: string; address?: string }) {
+  async exportPdf(id: string, options?: { show_signature?: boolean; pricing_mode?: string; gutter_separate?: boolean; address?: string }) {
     const params: Record<string, any> = {};
     if (options?.show_signature === false) {
       params.show_signature = false;
     }
     if (options?.pricing_mode) {
       params.pricing_mode = options.pricing_mode;
+    }
+    if (options?.gutter_separate) {
+      params.gutter_separate = true;
     }
     const response = await api.get(`${BASE_URL}/${id}/export/pdf`, {
       responseType: 'blob',

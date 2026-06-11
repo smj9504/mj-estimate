@@ -39,113 +39,148 @@ GUTTER_SCOPES = ["full_replace", "partial", "new_install", "remove_only"]
 # ── Phase 1: Setup & Tear-off ──
 
 TEAROFF_RATES = {
-    "1_layer_per_sq": 60.0,
-    "2_layer_per_sq": 110.0,
-    "3_layer_per_sq": 150.0,
-    "cedar_shake_per_sq": 155.0,
-    "dumpster_20yard": 575.0,
+    "1_layer_per_sq": 100.0,
+    "2_layer_per_sq": 150.0,
+    "3_layer_per_sq": 200.0,
+    "cedar_shake_per_sq": 200.0,
+    "dumpster_20yard": 750.0,
 }
 
 # ── Phase 2: Decking ──
 
 DECKING_RATES = {
-    "osb_716": 90.0,    # per 4x8 sheet installed
-    "osb_12": 102.0,
-    "cdx_12": 110.0,
-    "cdx_58": 127.0,
-    "re_nail_per_sf": 0.18,
+    "osb_716": 110.0,    # per 4x8 sheet installed
+    "osb_12": 125.0,
+    "cdx_12": 135.0,
+    "cdx_58": 155.0,
+    "re_nail_per_sf": 0.25,
 }
 
 # ── Phase 3: Underlayment & Ice Barrier ──
 
 UNDERLAYMENT_RATES = {
-    "felt_15": 0.35,     # per SF installed
-    "felt_30": 0.45,
-    "synthetic": 0.65,
+    "felt_15": 0.45,     # per SF installed
+    "felt_30": 0.55,
+    "synthetic": 0.75,
 }
 
-ICE_WATER_SHIELD_RATE = 2.00   # per SF installed
+ICE_WATER_SHIELD_RATE = 3.00   # per SF installed
 
 # ── Phase 4: Drip Edge & Flashing ──
 
-DRIP_EDGE_RATE = 2.75          # per LF installed
+DRIP_EDGE_RATE = 4.00          # per LF installed
 
 FLASHING_RATES = {
-    "step_flashing_per_lf": 11.0,
-    "chimney_small": 550.0,      # per chimney (< 30" wide)
-    "chimney_large": 800.0,      # per chimney (>= 30", includes cricket)
-    "apron_flashing": 175.0,     # per unit
-    "skylight_flashing_kit": 325.0,  # per skylight
+    "step_flashing_per_lf": 14.0,
+    "chimney_small": 700.0,      # per chimney (< 30" wide)
+    "chimney_large": 1050.0,     # per chimney (>= 30", includes cricket)
+    "apron_flashing": 225.0,     # per unit
+    "skylight_flashing_kit": 425.0,  # per skylight
 }
 
 PIPE_BOOT_RATES = {
-    "rubber": 35.0,
-    "lead": 90.0,
-    "lifetime": 65.0,
+    "rubber": 45.0,
+    "lead": 110.0,
+    "lifetime": 85.0,
+}
+
+# ── Roof Penetration Rates (per unit, installed) ──
+
+PENETRATION_RATES = {
+    "pipe_boot_rubber": 45.0,
+    "pipe_boot_lead": 110.0,
+    "pipe_boot_lifetime": 85.0,
+    "pipe_jack": 110.0,
+    "turtle_vent": 95.0,
+    "turbine_vent": 185.0,
+    "kitchen_exhaust": 115.0,
+    "bath_exhaust": 95.0,
+    "dryer_vent": 85.0,
+    "radon_pipe": 90.0,
+    "satellite_mount": 60.0,
+    "other": 85.0,
+}
+
+PENETRATION_TYPES = list(PENETRATION_RATES.keys())
+
+# ── Skylight Replacement (add-on, not included in base estimate) ──
+
+SKYLIGHT_REPLACEMENT_RATES = {
+    "small_fixed": 650.0,        # 14x14 ~ 21x26 fixed
+    "medium_fixed": 850.0,       # 21x38 ~ 30x38 fixed
+    "large_fixed": 1200.0,       # 30x46 ~ 44x46 fixed
+    "small_venting": 950.0,      # 21x26 ~ 21x38 venting
+    "medium_venting": 1250.0,    # 30x38 venting
+    "large_venting": 1650.0,     # 30x46 ~ 44x46 venting
+    "tube_10": 550.0,            # 10" tubular
+    "tube_14": 650.0,            # 14" tubular
 }
 
 # ── Phase 5: Shingle Install ──
 
 SHINGLE_RATES = {
-    "three_tab": 425.0,              # per square installed
-    "architectural_std": 550.0,
-    "architectural_premium": 675.0,
-    "designer": 950.0,
-    "impact_resistant": 775.0,
+    "three_tab": 525.0,              # per square installed
+    "architectural_std": 750.0,
+    "architectural_premium": 950.0,
+    "designer": 1250.0,
+    "impact_resistant": 1000.0,
 }
 
-RIDGE_CAP_RATE = 11.0   # per LF installed
+RIDGE_CAP_RATE = 15.0   # per LF installed
 
 # ── Phase 6: Ventilation ──
 
 VENTILATION_RATES = {
-    "ridge_vent_per_lf": 11.0,
-    "static_vent_each": 70.0,
-    "exhaust_vent_cap_each": 55.0,
+    "ridge_vent_shingle_over_per_lf": 15.0,
+    "ridge_vent_aluminum_per_lf": 19.0,
+    "static_vent_each": 90.0,
+    "exhaust_vent_cap_each": 70.0,
 }
+
+RIDGE_VENT_TYPES = ["shingle_over", "aluminum"]
 
 # ── Phase 7: Gutter ──
 
 GUTTER_RATES = {
     # K-style aluminum seamless (installed)
-    "k_style_5": 12.0,
-    "k_style_6": 14.5,
-    "half_round_5": 16.0,
-    "half_round_6": 19.0,
+    "k_style_5": 15.0,
+    "k_style_6": 18.0,
+    "half_round_5": 20.0,
+    "half_round_6": 24.0,
     # Copper
-    "copper_k_style_5": 32.0,
-    "copper_k_style_6": 38.0,
+    "copper_k_style_5": 40.0,
+    "copper_k_style_6": 48.0,
     # Downspouts
-    "downspout_2x3": 6.5,
-    "downspout_3x4": 8.5,
-    "splash_block": 10.0,
+    "downspout_2x3": 9.0,
+    "downspout_3x4": 11.0,
+    "splash_block": 12.0,
     # Removal
-    "removal_per_lf": 1.50,
+    "removal_per_lf": 2.50,
     # Guards
-    "guard_mesh": 11.0,
-    "guard_micro_mesh": 20.0,
-    "guard_foam": 8.0,
-    "guard_reverse_curve": 18.0,
+    "guard_mesh": 14.0,
+    "guard_micro_mesh": 25.0,
+    "guard_foam": 10.0,
+    "guard_reverse_curve": 22.0,
 }
 
 # ── Phase 8: Cleanup & Misc ──
 
 MISC_RATES = {
-    "magnetic_sweep": 75.0,
-    "driveway_protection": 225.0,
-    "landscape_protection": 200.0,
-    "lead_rrp": 350.0,
-    "vent_cap_replace_each": 55.0,
-    "satellite_removal": 125.0,
-    "hoa_review_fee": 150.0,
+    "magnetic_sweep": 100.0,
+    "driveway_protection": 300.0,
+    "landscape_protection": 250.0,
+    "lead_rrp": 450.0,
+    "vent_cap_replace_each": 70.0,
+    "satellite_removal": 175.0,
+    "hoa_review_fee": 200.0,
 }
 
 # ── Permit Fees (approximate by jurisdiction) ──
 
 PERMIT_FEES = {
-    "MD": 275.0,
-    "VA": 250.0,
-    "DC": 350.0,
+    "MD": 350.0,
+    "VA": 300.0,
+    "DC": 425.0,
 }
 
 # ── Pitch / Slope Multipliers ──

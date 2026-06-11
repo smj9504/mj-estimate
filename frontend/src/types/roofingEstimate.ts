@@ -45,9 +45,8 @@ export interface DripEdgeSpec {
 }
 
 export interface VentilationSpec {
-  ridge_vent?: boolean;
+  ridge_vent_type?: string;  // shingle_over | aluminum
   ridge_vent_lf?: number;
-  static_vents?: number;
   exhaust_vents?: number;
 }
 
@@ -132,6 +131,67 @@ export interface InsuranceInfo {
   xactimate_provided?: boolean;
 }
 
+// ── Roof Penetration ──
+
+export interface RoofPenetration {
+  type: string;
+  quantity: number;
+  structure_index?: number;  // which structure this belongs to (multi-structure)
+  notes?: string;
+}
+
+export const PENETRATION_TYPE_OPTIONS = [
+  { label: 'Pipe Boot — Rubber', value: 'pipe_boot_rubber' },
+  { label: 'Pipe Boot — Lead', value: 'pipe_boot_lead' },
+  { label: 'Pipe Boot — Lifetime', value: 'pipe_boot_lifetime' },
+  { label: 'Pipe Jack', value: 'pipe_jack' },
+  { label: 'Turtle Vent (Static)', value: 'turtle_vent' },
+  { label: 'Turbine Vent', value: 'turbine_vent' },
+  { label: 'Kitchen Exhaust', value: 'kitchen_exhaust' },
+  { label: 'Bath Exhaust', value: 'bath_exhaust' },
+  { label: 'Dryer Vent', value: 'dryer_vent' },
+  { label: 'Radon Pipe', value: 'radon_pipe' },
+  { label: 'Satellite Mount', value: 'satellite_mount' },
+  { label: 'Other', value: 'other' },
+];
+
+// ── Skylight Replacement (add-on) ──
+
+export interface SkylightReplacement {
+  type: string;       // small_fixed, medium_fixed, large_fixed, small_venting, medium_venting, large_venting, tube_10, tube_14
+  quantity: number;
+  location?: string;  // e.g. "master bedroom", "kitchen"
+}
+
+export interface AddOnQuote {
+  description: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  total: number;
+  category: string;
+}
+
+// ── Manual Structure ──
+
+export interface ManualStructure {
+  index: number;
+  label: string;
+  total_sf: number;
+  predominant_pitch?: string;
+  roof_complexity?: string;
+  waste_factor?: number;
+  ridge_lf?: number;
+  hip_lf?: number;
+  valley_lf?: number;
+  eave_lf?: number;
+  rake_lf?: number;
+  step_flashing_lf?: number;
+  penetration_count?: number;
+  skylight_count?: number;
+  chimney_count?: number;
+}
+
 // ── Line Item ──
 
 export interface StructureResult {
@@ -203,6 +263,7 @@ export interface RoofingEstimate {
   // EagleView
   eagleview_data?: any;
   selected_faces?: string[];
+  manual_structures?: ManualStructure[];
 
   // Scope
   full_tearoff: boolean;
@@ -221,6 +282,8 @@ export interface RoofingEstimate {
   flashing_spec?: FlashingSpec;
   ridge_cap_spec?: RidgeCapSpec;
   gutter_spec?: GutterSpec;
+  roof_penetrations?: RoofPenetration[];
+  skylight_replacements?: SkylightReplacement[];
   hidden_costs?: HiddenCosts;
   insurance_info?: InsuranceInfo;
   warranty_info?: WarrantyInfo;
@@ -239,6 +302,8 @@ export interface RoofingEstimate {
   contingency_pct: number;
 
   // Totals
+  roofing_subtotal: number;
+  gutter_subtotal: number;
   subtotal: number;
   markup_amount: number;
   overhead_amount: number;
@@ -246,6 +311,9 @@ export interface RoofingEstimate {
   tax_amount: number;
   permit_fee: number;
   total: number;
+
+  // Add-on quotes
+  add_ons?: AddOnQuote[];
 
   // Per-structure results
   structure_results?: StructureResult[];
@@ -268,8 +336,10 @@ export interface RoofingEstimate {
 }
 
 export type RoofingEstimateCreate = Partial<Omit<RoofingEstimate,
-  'id' | 'status' | 'subtotal' | 'markup_amount' | 'overhead_amount' |
-  'profit_amount' | 'tax_amount' | 'permit_fee' | 'total' | 'line_items' |
+  'id' | 'status' | 'roofing_subtotal' | 'gutter_subtotal' |
+  'subtotal' | 'markup_amount' | 'overhead_amount' |
+  'profit_amount' | 'tax_amount' | 'permit_fee' | 'total' |
+  'add_ons' | 'line_items' |
   'claim_number' | 'client_name' | 'created_at' | 'updated_at' |
   'methodology_notes' | 'warning_flags'
 >>;

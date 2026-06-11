@@ -306,6 +306,7 @@ def export_pdf(
     estimate_id: str,
     show_signature: bool = Query(True),
     pricing_mode: str = Query("detailed"),  # detailed | lumpsum
+    gutter_separate: bool = Query(False),
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
@@ -321,6 +322,7 @@ def export_pdf(
         estimate,
         show_signature=show_signature,
         pricing_mode=pricing_mode,
+        gutter_separate=gutter_separate,
     )
 
     return StreamingResponse(
