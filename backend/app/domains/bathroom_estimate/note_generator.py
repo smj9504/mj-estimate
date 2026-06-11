@@ -77,6 +77,14 @@ def _generate_template_note(estimate) -> str:
         if tub_spec.get("surround_tile"):
             tub_desc += " with tiled surround"
         scope_items.append(tub_desc)
+    elif getattr(estimate, 'detach_reset_tub', False):
+        tub_spec = estimate.bathtub_spec or {}
+        tub_type = (tub_spec.get("type", "alcove")).replace("_", " ")
+        tub_mat = (tub_spec.get("material", "acrylic")).replace("_", " ")
+        tub_desc = f"bathtub D&R ({tub_type}, {tub_mat})"
+        if tub_spec.get("surround_tile"):
+            tub_desc += " — surround tile replaced"
+        scope_items.append(tub_desc)
     if estimate.replace_shower:
         shower_spec = estimate.shower_spec or {}
         s_type = (shower_spec.get("type", "")).replace("_", " ")
@@ -213,6 +221,7 @@ def _build_context(estimate) -> str:
     # What's being replaced
     replacements = []
     if estimate.replace_tub: replacements.append("bathtub")
+    elif getattr(estimate, 'detach_reset_tub', False): replacements.append("bathtub (D&R)")
     if estimate.replace_shower: replacements.append("shower")
     if estimate.replace_vanity: replacements.append("vanity")
     if estimate.replace_toilet: replacements.append("toilet")

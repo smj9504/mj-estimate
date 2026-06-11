@@ -194,6 +194,7 @@ class GoogleSheetsSyncService:
                             stats["skipped"] += 1
                         stats["processed"] += 1
                 except Exception as e:
+                    self.db.rollback()
                     logger.error(f"Failed to sync row {row_idx} in sheet {sheet_name}: {str(e)}", exc_info=True)
                     stats["failed"] += 1
                     stats["errors"].append({

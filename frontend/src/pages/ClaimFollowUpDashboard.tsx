@@ -117,13 +117,13 @@ const TASK_TYPE_ICONS: Record<TaskType, React.ReactNode> = {
 // Ordered stages for the pipeline view
 const STAGE_ORDER: TaskType[] = [
   'wm_docs_sent',
+  'wm_payment_check',    // WM Payment first
+  'payment_check',       // Rebuild Payment second
+  'supplement_sent',     // Supplement after initial payments
   'estimate_request',
   'dispute',
   'appraisal',
   'attorney_referral',
-  'supplement_sent',
-  'payment_check',
-  'wm_payment_check',
   'depreciation_recovery',
   'docs_sent',
   'general',
@@ -265,6 +265,7 @@ interface ClaimGroup {
   hasOverdue: boolean;
   hasUrgent: boolean;
   wmCostStatus: string;
+  hasInsuranceEstimate: boolean;
   nextFollowupDate: string | null;
   supplementStatuses: Record<string, number>;
   pendingInfoRequests: number;
@@ -889,6 +890,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
           hasOverdue: false,
           hasUrgent: false,
           wmCostStatus: '',
+          hasInsuranceEstimate: false,
           nextFollowupDate: null,
           supplementStatuses: {},
           pendingInfoRequests: 0,
@@ -921,6 +923,10 @@ const ClaimFollowUpDashboard: React.FC = () => {
       // Track WM cost status from claim
       if ((task as any).wm_cost_status && !group.wmCostStatus) {
         group.wmCostStatus = (task as any).wm_cost_status;
+      }
+      // Track insurance estimate status
+      if ((task as any).has_insurance_estimate) {
+        group.hasInsuranceEstimate = true;
       }
 
       // Check urgent priority on active tasks
@@ -1345,6 +1351,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
       group.tasks.filter(t => t.status === 'resolved').map(t => t.task_type)
     );
     const activeTypes = group.activeStages;
+    const hasSupplementTasks = resolvedTypes.has('supplement_sent') || activeTypes.has('supplement_sent');
 
     // Virtual resolved stages based on claim data (no task needed)
     const virtualResolved = new Set<TaskType>();
@@ -1388,19 +1395,40 @@ const ClaimFollowUpDashboard: React.FC = () => {
       pending: 'Pending',
     };
 
-    // Determine overall claim progress summary
-    // Count what's done vs what's still active/pending
+    // Supplement status summary from group data
+    const suppStatuses = group.supplementStatuses;
+    const suppTotal = Object.values(suppStatuses).reduce((a, b) => a + b, 0);
+    const suppApproved = suppStatuses['approved'] || 0;
+    const suppDenied = suppStatuses['denied'] || 0;
+    const suppSubmitted = suppStatuses['submitted'] || suppStatuses['under_review'] || 0;
+    const suppInProgress = suppStatuses['in_progress'] || suppStatuses['identified'] || 0;
+
+    // Determine overall claim progress
     const hasActiveOrPending = relevantStages.some(
       s => activeTypes.has(s) || virtualPending.has(s)
     );
     const allResolved = !hasActiveOrPending;
 
-    // Summary tag for WM Docs only claims that are waiting for estimate
+    // --- Special case: WM Docs only ---
     const onlyWmDocs = relevantStages.length === 1 && relevantStages[0] === 'wm_docs_sent';
     const wmDocsResolved = resolvedTypes.has('wm_docs_sent') && !activeTypes.has('wm_docs_sent');
 
     if (onlyWmDocs && wmDocsResolved) {
-      // WM Docs sent & resolved, but no estimate/payment stage yet → Waiting for Estimate
+      // Estimate already exists (uploaded PDF or amounts entered) → show that
+      if (group.hasInsuranceEstimate) {
+        return (
+          <Space size={4}>
+            <Tag style={{ backgroundColor: 'transparent', color: '#b7b7b7', border: '1px solid #e8e8e8', fontSize: 10, margin: 0, lineHeight: '20px', opacity: 0.7 }}>
+              <CheckCircleOutlined style={{ marginRight: 3, fontSize: 9 }} />Docs Sent
+            </Tag>
+            <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />
+            <Tag style={{ backgroundColor: '#f6ffed', color: '#52c41a', border: '1px solid #b7eb8f', fontSize: 11, margin: 0, lineHeight: '20px' }}>
+              <CheckCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />Estimate Received
+            </Tag>
+          </Space>
+        );
+      }
+      // No estimate data yet → waiting
       return (
         <Space size={4}>
           <Tag style={{ backgroundColor: 'transparent', color: '#b7b7b7', border: '1px solid #e8e8e8', fontSize: 10, margin: 0, lineHeight: '20px', opacity: 0.7 }}>
@@ -1408,14 +1436,13 @@ const ClaimFollowUpDashboard: React.FC = () => {
           </Tag>
           <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />
           <Tag style={{ backgroundColor: '#fff7e6', color: '#d48806', border: '1px dashed #ffc069', fontSize: 11, margin: 0, lineHeight: '20px' }}>
-            <ClockCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />Waiting for Estimate
+            <ClockCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />Awaiting Initial Estimate
           </Tag>
         </Space>
       );
     }
 
     if (onlyWmDocs && activeTypes.has('wm_docs_sent')) {
-      // WM Docs still active (not resolved)
       return (
         <Tag style={{ backgroundColor: '#1890ff', color: '#fff', border: 'none', fontSize: 11, margin: 0, lineHeight: '20px' }}>
           Docs Sent - Awaiting Response
@@ -1423,129 +1450,142 @@ const ClaimFollowUpDashboard: React.FC = () => {
       );
     }
 
-    return (
-      <Space size={4} wrap>
-        {relevantStages.map((stage, idx) => {
-          const isResolved = resolvedTypes.has(stage);
-          const isActive = activeTypes.has(stage);
-          const stageTask = group.tasks.find(t => t.task_type === stage && !['resolved', 'cancelled'].includes(t.status));
-          const resolvedTask = group.tasks.find(t => t.task_type === stage && t.status === 'resolved');
-          const anyTask = stageTask || resolvedTask;
-          const isStageOverdue = stageTask ? isOverdue(stageTask) : false;
+    // --- Build pipeline tags ---
+    const tags: React.ReactNode[] = [];
 
-          const isVirtualResolved = virtualResolved.has(stage);
-          const isVirtualPending = virtualPending.has(stage);
-          const resolved = (isResolved && !isActive) || isVirtualResolved;
+    relevantStages.forEach((stage, idx) => {
+      const isResolved = resolvedTypes.has(stage);
+      const isActive = activeTypes.has(stage);
+      const stageTask = group.tasks.find(t => t.task_type === stage && !['resolved', 'cancelled'].includes(t.status));
+      const resolvedTask = group.tasks.find(t => t.task_type === stage && t.status === 'resolved');
+      const anyTask = stageTask || resolvedTask;
+      const isStageOverdue = stageTask ? isOverdue(stageTask) : false;
 
-          // Is this a past completed stage (has active/pending stages after it)?
-          const laterStagesExist = relevantStages.slice(idx + 1).some(
-            s => activeTypes.has(s) || virtualPending.has(s) || resolvedTypes.has(s) || virtualResolved.has(s)
-          );
-          const isPastStage = resolved && laterStagesExist;
+      const isVirtualResolved = virtualResolved.has(stage);
+      const isVirtualPending = virtualPending.has(stage);
+      const resolved = (isResolved && !isActive) || isVirtualResolved;
 
-          // Payment-specific
-          const isPaymentStage = stage === 'payment_check' || stage === 'wm_payment_check';
-          const paymentStatus = anyTask?.payment_status;
-          const paymentNeedsAttention = isPaymentStage && paymentStatus
-            && ['homeowner_holding', 'lost', 'partial'].includes(paymentStatus);
+      const laterStagesExist = relevantStages.slice(idx + 1).some(
+        s => activeTypes.has(s) || virtualPending.has(s) || resolvedTypes.has(s) || virtualResolved.has(s)
+      );
+      const isPastStage = resolved && laterStagesExist;
 
-          let color: string;
-          let textColor: string;
-          let borderStyle: string;
+      // Payment-specific
+      const isPaymentStage = stage === 'payment_check' || stage === 'wm_payment_check';
+      const paymentStatus = anyTask?.payment_status;
+      const paymentNeedsAttention = isPaymentStage && paymentStatus
+        && ['homeowner_holding', 'lost', 'partial'].includes(paymentStatus);
 
-          if (paymentNeedsAttention) {
-            color = '#fff7e6';
-            textColor = '#d48806';
-            borderStyle = '1px solid #ffc069';
-          } else if (isPastStage) {
-            // Past completed stage - subtle
-            color = 'transparent';
-            textColor = '#b7b7b7';
-            borderStyle = '1px solid #e8e8e8';
-          } else if (resolved && allResolved) {
-            // All done - final green
-            color = '#f6ffed';
-            textColor = '#52c41a';
-            borderStyle = '1px solid #b7eb8f';
-          } else if (resolved) {
-            color = '#f6ffed';
-            textColor = '#52c41a';
-            borderStyle = '1px solid #b7eb8f';
-          } else if (isStageOverdue) {
-            color = '#ff4d4f';
-            textColor = '#fff';
-            borderStyle = 'none';
-          } else if (isActive) {
-            color = '#1890ff';
-            textColor = '#fff';
-            borderStyle = 'none';
-          } else if (isVirtualPending) {
-            color = '#fff7e6';
-            textColor = '#fa8c16';
-            borderStyle = '1px dashed #ffc069';
-          } else {
-            color = '#d9d9d9';
-            textColor = '#999';
-            borderStyle = 'none';
-          }
+      let bgColor: string;
+      let txtColor: string;
+      let border: string;
 
-          // Build label
-          let label = STAGE_LABELS[stage];
-          // For past stages, use shorter labels
-          if (isPastStage) {
-            const SHORT_LABELS: Record<string, string> = {
-              wm_docs_sent: 'Docs',
-              payment_check: 'Rebuild $',
-              wm_payment_check: 'WM $',
-            };
-            label = SHORT_LABELS[stage] || label;
-          }
-          if (isPaymentStage && paymentStatus && paymentStatus !== 'pending') {
-            const statusLabel = PAYMENT_STATUS_LABELS[paymentStatus] || paymentStatus;
-            if (isPastStage) {
-              label = `${label}: ${statusLabel}`;
-            } else {
-              label = `${STAGE_LABELS[stage]}: ${statusLabel}`;
-            }
-          }
+      if (paymentNeedsAttention) {
+        bgColor = '#fff7e6'; txtColor = '#d48806'; border = '1px solid #ffc069';
+      } else if (isPastStage || (resolved && allResolved && isPaymentStage)) {
+        // Past or final resolved payment → subtle gray
+        bgColor = 'transparent'; txtColor = '#b7b7b7'; border = '1px solid #e8e8e8';
+      } else if (resolved && allResolved) {
+        bgColor = '#f6ffed'; txtColor = '#52c41a'; border = '1px solid #b7eb8f';
+      } else if (resolved) {
+        bgColor = '#f6ffed'; txtColor = '#52c41a'; border = '1px solid #b7eb8f';
+      } else if (isStageOverdue) {
+        bgColor = '#ff4d4f'; txtColor = '#fff'; border = 'none';
+      } else if (isActive) {
+        bgColor = '#1890ff'; txtColor = '#fff'; border = 'none';
+      } else if (isVirtualPending) {
+        bgColor = '#fff7e6'; txtColor = '#fa8c16'; border = '1px dashed #ffc069';
+      } else {
+        bgColor = '#d9d9d9'; txtColor = '#999'; border = 'none';
+      }
 
-          // Tooltip
-          const paymentNote = anyTask?.payment_note;
-          const tooltipText = paymentNote
-            || (isPastStage ? `${STAGE_LABELS[stage]} - Done` : '');
+      // Build label
+      let label = STAGE_LABELS[stage];
+      const SHORT_LABELS: Record<string, string> = {
+        wm_docs_sent: 'Docs',
+        payment_check: 'Rebuild $',
+        wm_payment_check: 'WM $',
+      };
+      if (isPastStage) {
+        label = SHORT_LABELS[stage] || label;
+      }
+      if (isPaymentStage && paymentStatus && paymentStatus !== 'pending') {
+        const statusLabel = PAYMENT_STATUS_LABELS[paymentStatus] || paymentStatus;
+        label = isPastStage
+          ? `${SHORT_LABELS[stage] || label}: ${statusLabel}`
+          : `${STAGE_LABELS[stage]}: ${statusLabel}`;
+      }
 
-          const tagElement = (
-            <Tag
-              style={{
-                backgroundColor: color,
-                color: textColor,
-                border: borderStyle,
-                fontSize: isPastStage ? 10 : 11,
-                margin: 0,
-                whiteSpace: 'nowrap',
-                lineHeight: '20px',
-                opacity: isPastStage ? 0.7 : 1,
-              }}
-            >
-              {isPastStage && <CheckCircleOutlined style={{ marginRight: 3, fontSize: 9 }} />}
-              {resolved && !isPastStage && !paymentNeedsAttention && <CheckCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
-              {paymentNeedsAttention && <ExclamationCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
-              {isVirtualPending && <ClockCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />}
-              {label}
+      // Supplement stage: show detailed status
+      if (stage === 'supplement_sent' && suppTotal > 0) {
+        if (suppApproved > 0 && suppApproved === suppTotal) {
+          label = resolved ? 'Supp: Approved' : `Supplement: Approved (${suppApproved})`;
+        } else if (suppDenied > 0 && suppDenied === suppTotal) {
+          label = 'Supp: Denied';
+        } else if (suppSubmitted > 0) {
+          label = resolved ? 'Supp: Under Review' : 'Supplement: Under Review';
+        } else if (suppInProgress > 0) {
+          label = 'Supplement: Estimating';
+        } else {
+          label = `Supplement (${suppTotal})`;
+        }
+      }
+
+      const paymentNote = anyTask?.payment_note;
+      const tooltipText = paymentNote
+        || (isPastStage ? `${STAGE_LABELS[stage]} - Done` : '');
+
+      const icon = paymentNeedsAttention
+        ? <ExclamationCircleOutlined style={{ marginRight: 3, fontSize: isPastStage ? 9 : 10 }} />
+        : isVirtualPending
+        ? <ClockCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />
+        : (resolved || isPastStage)
+        ? <CheckCircleOutlined style={{ marginRight: 3, fontSize: isPastStage ? 9 : 10 }} />
+        : null;
+
+      const tagEl = (
+        <Tag
+          style={{
+            backgroundColor: bgColor,
+            color: txtColor,
+            border,
+            fontSize: isPastStage ? 10 : 11,
+            margin: 0,
+            whiteSpace: 'nowrap',
+            lineHeight: '20px',
+            opacity: isPastStage ? 0.7 : 1,
+          }}
+        >
+          {icon}{label}
+        </Tag>
+      );
+
+      tags.push(
+        <React.Fragment key={stage}>
+          {idx > 0 && <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />}
+          {tooltipText ? <Tooltip title={tooltipText}>{tagEl}</Tooltip> : tagEl}
+        </React.Fragment>
+      );
+    });
+
+    // --- Add "Awaiting Supplement Estimate" hint after payments if no supplement task exists ---
+    if (!hasSupplementTasks && suppTotal === 0
+        && (resolvedTypes.has('payment_check') || activeTypes.has('payment_check'))
+        && !resolvedTypes.has('supplement_sent') && !activeTypes.has('supplement_sent')) {
+      // Has payment stage but no supplement → show hint
+      tags.push(
+        <React.Fragment key="supp-hint">
+          <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />
+          <Tooltip title="Supplement estimate may be needed after comparing our estimate vs insurance">
+            <Tag style={{ backgroundColor: 'transparent', color: '#b7b7b7', border: '1px dashed #d9d9d9', fontSize: 10, margin: 0, lineHeight: '20px' }}>
+              Supplement?
             </Tag>
-          );
+          </Tooltip>
+        </React.Fragment>
+      );
+    }
 
-          return (
-            <React.Fragment key={stage}>
-              {idx > 0 && <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />}
-              {tooltipText ? (
-                <Tooltip title={tooltipText}>{tagElement}</Tooltip>
-              ) : tagElement}
-            </React.Fragment>
-          );
-        })}
-      </Space>
-    );
+    return <Space size={4} wrap>{tags}</Space>;
   };
 
   return (

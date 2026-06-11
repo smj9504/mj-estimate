@@ -81,7 +81,7 @@ class WaterMitigationJob(Base, BaseModel):
     mitigation_end_date = Column(DateTime(timezone=True))
 
     adjuster_name = Column(String(255))
-    adjuster_phone = Column(String(50))
+    adjuster_phone = Column(String(100))
     adjuster_email = Column(String(255))
 
     inspection_date = Column(DateTime(timezone=True))

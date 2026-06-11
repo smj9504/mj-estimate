@@ -48,6 +48,7 @@ export interface FollowUpTask {
   pa_company?: string;
   pa_email?: string;
   pa_phone?: string;
+  has_insurance_estimate?: boolean;
 }
 
 export interface FollowUpTaskCreate {

@@ -54,7 +54,7 @@ class JobBase(BaseModel):
     mitigation_end_date: Optional[Union[datetime, date]] = None
 
     adjuster_name: Optional[str] = Field(None, max_length=255)
-    adjuster_phone: Optional[str] = Field(None, max_length=50)
+    adjuster_phone: Optional[str] = Field(None, max_length=100)
     adjuster_email: Optional[str] = Field(None, max_length=255)
 
     inspection_date: Optional[Union[datetime, date]] = None
@@ -118,7 +118,7 @@ class JobUpdate(BaseModel):
     mitigation_end_date: Optional[Union[datetime, date]] = None
 
     adjuster_name: Optional[str] = Field(None, max_length=255)
-    adjuster_phone: Optional[str] = Field(None, max_length=50)
+    adjuster_phone: Optional[str] = Field(None, max_length=100)
     adjuster_email: Optional[str] = Field(None, max_length=255)
 
     inspection_date: Optional[Union[datetime, date]] = None

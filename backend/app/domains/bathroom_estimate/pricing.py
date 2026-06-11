@@ -571,7 +571,16 @@ DETACH_RESET_COSTS = {
     # Toilet: disconnect water, remove wax ring, store, reinstall w/ new wax ring
     "toilet": 185,                    # ~1.5 hrs plumber ($125-$250)
     # Vanity + sink: disconnect plumbing, remove, store, reinstall & reconnect
-    "vanity": 275,                    # ~2.5 hrs ($200-$350)
+    # Larger vanities need 2-person crew, more time, bigger storage footprint
+    # Sources: Xactimate D&R, Angi 2025-2026, HomeGuide
+    "vanity": {
+        24: 200,                      # small single vanity, ~1.5 hrs ($150-$250)
+        30: 225,                      # standard single, ~1.75 hrs ($175-$275)
+        36: 275,                      # standard single, ~2.5 hrs ($200-$350)
+        48: 350,                      # large single, ~3 hrs, may need 2 ppl ($275-$425)
+        60: 425,                      # double vanity, 2-person crew, ~3.5 hrs ($350-$500)
+        72: 500,                      # large double, 2-person crew, ~4 hrs ($400-$600)
+    },
     # Bathtub: disconnect plumbing, remove, store, reinstall
     "bathtub_standard": 450,          # ~4 hrs ($350-$550)
     "bathtub_cast_iron": 650,         # ~6 hrs, heavy ($500-$800)
@@ -583,6 +592,10 @@ DETACH_RESET_COSTS = {
     "mirror": 95,                     # ~0.75 hrs ($65-$125)
     # Vanity light: disconnect, remove, store, reinstall
     "vanity_light": 85,              # ~0.5-0.75 hrs ($65-$110)
+    # Accessories (towel bars, tp holders, etc.): remove all, store, reinstall
+    # Per-piece: unscrew/pull anchors, label, bag, reinstall w/ new anchors
+    # Sources: Xactimate D&R, Angi 2025-2026
+    "accessory_per_piece": 35,       # ~15-20 min each ($25-$45)
 }
 
 # ──────────────────────────────────────────────

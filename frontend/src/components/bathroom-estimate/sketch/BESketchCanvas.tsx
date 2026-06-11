@@ -974,14 +974,15 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
             }
             return (
               <Group key={room.id}>
-                {/* Room fill (interior click → select room) */}
+                {/* Room fill (interior click → select room; transparent to drawing tools) */}
                 <Line
                   points={pts}
                   closed
                   fill={room.parentRoomId ? 'rgba(255, 235, 200, 0.3)' : 'rgba(200, 230, 255, 0.25)'}
                   stroke="transparent"
                   strokeWidth={0}
-                  onClick={() => { setSelectedId(room.id); if (activeTool !== 'select') api.setActiveTool('select'); }}
+                  listening={activeTool === 'select'}
+                  onClick={() => { setSelectedId(room.id); }}
                 />
                 {/* Room boundary edges: click each edge → select corresponding wall */}
                 {room.boundary.map((pt, idx) => {
@@ -1009,6 +1010,7 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                         strokeWidth={edgeWidth}
                         lineCap="round"
                         hitStrokeWidth={12}
+                        listening={activeTool === 'select'}
                         onClick={(e) => {
                           e.cancelBubble = true;
                           if (matchWall) {
@@ -1016,7 +1018,6 @@ const BESketchCanvas: React.FC<BESketchCanvasProps> = ({ api, width, height, sta
                           } else {
                             setSelectedId(room.id);
                           }
-                          if (activeTool !== 'select') api.setActiveTool('select');
                         }}
                         onDblClick={(e) => {
                           if (matchWall) {

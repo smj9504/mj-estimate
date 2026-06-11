@@ -1325,7 +1325,7 @@ const BathroomEstimateDetail: React.FC = () => {
                       </Col>
                       <Col xs={12} sm={8} md={4}>
                         <Form.Item label="Tile Size" name={['shower_spec', 'tile_spec', 'size']}>
-                          <Select options={selectOpts(pricingInfo?.tile_sizes)} allowClear placeholder="12x24" />
+                          <Select options={selectOpts(pricingInfo?.tile_sizes)} allowClear placeholder="12x12" />
                         </Form.Item>
                       </Col>
                     </Row>
@@ -1357,7 +1357,7 @@ const BathroomEstimateDetail: React.FC = () => {
                       prev?.bathtub_spec?.type !== cur?.bathtub_spec?.type ||
                       prev?.bathtub_spec?.surround_tile !== cur?.bathtub_spec?.surround_tile
                     }>
-                      {() => form.getFieldValue(['bathtub_spec', 'type']) === 'drop_in' && (
+                      {() => ['alcove', 'drop_in'].includes(form.getFieldValue(['bathtub_spec', 'type'])) && (
                         <>
                           <Divider orientation="left" plain style={{ margin: '8px 0' }}>Surround Tile</Divider>
                           <Row gutter={16} align="middle">
@@ -1430,7 +1430,7 @@ const BathroomEstimateDetail: React.FC = () => {
                                 </Col>
                                 <Col xs={12} sm={8} md={4}>
                                   <Form.Item label="Tile Size" name={['bathtub_spec', 'surround_tile_size']} style={{ marginBottom: 8 }}>
-                                    <Select options={selectOpts(pricingInfo?.tile_sizes)} allowClear placeholder="12x24" />
+                                    <Select options={selectOpts(pricingInfo?.tile_sizes)} allowClear placeholder="12x12" />
                                   </Form.Item>
                                 </Col>
                               </Row>
@@ -1584,7 +1584,7 @@ const BathroomEstimateDetail: React.FC = () => {
                       </Col>
                       <Col xs={12} sm={8} md={4}>
                         <Form.Item label="Tile Size" name={['floor_spec', 'size']}>
-                          <Select options={selectOpts(pricingInfo?.tile_sizes)} allowClear placeholder="12x24" />
+                          <Select options={selectOpts(pricingInfo?.tile_sizes)} allowClear placeholder="12x12" />
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={8} md={4}>
@@ -2104,12 +2104,32 @@ const BathroomEstimateDetail: React.FC = () => {
                       <Row gutter={[16, 4]}>
                         <Col xs={12} sm={8} md={6}>
                           <Form.Item name={['hidden_costs', 'auto_gfci']} valuePropName="checked" style={{ marginBottom: 2 }}>
-                            <Checkbox><Text style={{ fontSize: 12 }}>GFCI outlet</Text></Checkbox>
+                            <Checkbox onChange={(e) => {
+                              if (e.target.checked) {
+                                if (!form.getFieldValue(['electrical_spec', 'gfci_count'])) {
+                                  form.setFieldValue(['electrical_spec', 'gfci_count'], 1);
+                                }
+                              } else {
+                                form.setFieldValue(['electrical_spec', 'gfci_count'], undefined);
+                              }
+                            }}><Text style={{ fontSize: 12 }}>GFCI outlet</Text></Checkbox>
                           </Form.Item>
                         </Col>
                         <Col xs={12} sm={8} md={6}>
                           <Form.Item name={['hidden_costs', 'auto_exhaust_fan']} valuePropName="checked" style={{ marginBottom: 2 }}>
-                            <Checkbox><Text style={{ fontSize: 12 }}>Exhaust fan</Text></Checkbox>
+                            <Checkbox onChange={(e) => {
+                              if (e.target.checked) {
+                                if (!form.getFieldValue(['electrical_spec', 'exhaust_fan_cfm'])) {
+                                  form.setFieldValue(['electrical_spec', 'exhaust_fan_cfm'], 80);
+                                }
+                                if (!form.getFieldValue(['electrical_spec', 'exhaust_fan_switch'])) {
+                                  form.setFieldValue(['electrical_spec', 'exhaust_fan_switch'], 'standard');
+                                }
+                              } else {
+                                form.setFieldValue(['electrical_spec', 'exhaust_fan_cfm'], undefined);
+                                form.setFieldValue(['electrical_spec', 'exhaust_fan_switch'], undefined);
+                              }
+                            }}><Text style={{ fontSize: 12 }}>Exhaust fan</Text></Checkbox>
                           </Form.Item>
                         </Col>
                       </Row>
@@ -2148,34 +2168,68 @@ const BathroomEstimateDetail: React.FC = () => {
               <Card>
                 <Collapse defaultActiveKey={['acc', 'hidden', 'overview']}>
                   <Panel header="Accessories" key="acc">
-                    <Row gutter={16}>
-                      <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Finish" name={['accessories_spec', 'finish']}>
-                          <Select options={selectOpts(pricingInfo?.accessory_finishes)} allowClear />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={12} md={6}>
-                        <Form.Item label="Grade" name={['accessories_spec', 'grade']}>
-                          <Select options={selectOpts(pricingInfo?.accessory_grades)} allowClear />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                    <Row gutter={16}>
-                      {[
-                        ['towel_bars', 'Towel Bars'],
-                        ['hand_towel_rings', 'Hand Towel Rings'],
-                        ['tp_holders', 'TP Holders'],
-                        ['robe_hooks', 'Robe Hooks'],
-                        ['grab_bars', 'Grab Bars'],
-                        ['corner_shelves', 'Corner Shelves'],
-                      ].map(([key, label]) => (
-                        <Col xs={12} sm={8} md={4} key={key}>
-                          <Form.Item label={label} name={['accessories_spec', key]}>
-                            <InputNumber style={{ width: '100%' }} min={0} max={10} />
-                          </Form.Item>
-                        </Col>
-                      ))}
-                    </Row>
+                    <Form.Item noStyle shouldUpdate={(prev: any, cur: any) =>
+                      prev?.accessories_spec?.action !== cur?.accessories_spec?.action
+                    }>
+                      {() => {
+                        const accAction = form.getFieldValue(['accessories_spec', 'action']) || 'replace';
+                        return (
+                          <>
+                            <Row gutter={16} align="middle" style={{ marginBottom: 12 }}>
+                              <Col xs={24} sm={12} md={8}>
+                                <Text strong style={{ marginRight: 8 }}>Action:</Text>
+                                <Radio.Group
+                                  value={accAction}
+                                  onChange={(e) => form.setFieldsValue({
+                                    accessories_spec: { ...form.getFieldValue('accessories_spec'), action: e.target.value }
+                                  })}
+                                  size="small"
+                                >
+                                  <Radio.Button value="replace">Replace (New)</Radio.Button>
+                                  <Radio.Button value="detach_reset">D&R</Radio.Button>
+                                  <Radio.Button value="none">None</Radio.Button>
+                                </Radio.Group>
+                              </Col>
+                              {accAction === 'replace' && (
+                                <>
+                                  <Col xs={12} sm={6} md={4}>
+                                    <Form.Item label="Finish" name={['accessories_spec', 'finish']} style={{ marginBottom: 0 }}>
+                                      <Select options={selectOpts(pricingInfo?.accessory_finishes)} allowClear />
+                                    </Form.Item>
+                                  </Col>
+                                  <Col xs={12} sm={6} md={4}>
+                                    <Form.Item label="Grade" name={['accessories_spec', 'grade']} style={{ marginBottom: 0 }}>
+                                      <Select options={selectOpts(pricingInfo?.accessory_grades)} allowClear />
+                                    </Form.Item>
+                                  </Col>
+                                </>
+                              )}
+                            </Row>
+                            <Row gutter={16}>
+                              {[
+                                ['towel_bars', 'Towel Bars'],
+                                ['hand_towel_rings', 'Hand Towel Rings'],
+                                ['tp_holders', 'TP Holders'],
+                                ['robe_hooks', 'Robe Hooks'],
+                                ['grab_bars', 'Grab Bars'],
+                                ['corner_shelves', 'Corner Shelves'],
+                              ].map(([key, label]) => (
+                                <Col xs={12} sm={8} md={4} key={key}>
+                                  <Form.Item label={label} name={['accessories_spec', key]}>
+                                    <InputNumber style={{ width: '100%' }} min={0} max={10} />
+                                  </Form.Item>
+                                </Col>
+                              ))}
+                            </Row>
+                            {accAction === 'detach_reset' && (
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                D&R: Remove existing accessories, store during work, reinstall. Labor only, no new material.
+                              </Text>
+                            )}
+                          </>
+                        );
+                      }}
+                    </Form.Item>
                   </Panel>
                   <Panel header="Optional Costs" key="optional-costs">
                     <Row gutter={[16, 8]}>

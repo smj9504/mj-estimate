@@ -216,6 +216,25 @@ class BathroomEstimateService:
         result = self.estimate_repo.create(new_data)
         new_id = result["id"]
         self.session.flush()
+
+        # Clone line items
+        for li in source.line_items:
+            self.line_item_repo.create({
+                "estimate_id": new_id,
+                "phase": li.phase,
+                "description": li.description,
+                "quantity": li.quantity,
+                "unit": li.unit,
+                "unit_price": li.unit_price,
+                "total": li.total,
+                "category": li.category,
+                "notes": li.notes,
+                "display_order": li.display_order,
+            })
+        self.session.flush()
+
+        # Recalculate totals for cloned estimate
+        self._recalc_estimate_totals(new_id)
         return self._get_full_estimate(new_id)
 
     # ── Line Item CRUD ──

@@ -298,7 +298,7 @@ class BathroomExportService:
         sketch_element = None
 
         sketch_col_w = usable_w * 0.46
-        sketch_max_h = 3.2 * inch
+        sketch_max_h = 4.5 * inch
 
         # Try client-captured PNG first
         if sketch_image_base64:

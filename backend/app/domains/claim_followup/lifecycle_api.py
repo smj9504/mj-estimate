@@ -47,41 +47,59 @@ async def get_overdue_items():
 
 
 @router.get("/lifecycle/payment-gaps")
-async def get_payment_gaps(min_difference: float = Query(500, ge=0)):
-    """Get claims with significant payment differences (invoice > paid)"""
+async def get_payment_gaps(min_difference: float = Query(0, ge=0)):
+    """Get claims where insurance estimate was received but payment not fully collected"""
     from app.core.database_factory import get_database
     from app.domains.client.models import Claim, Client
-    from sqlalchemy import and_
+    from sqlalchemy import and_, or_
 
     database = get_database()
     session = database.get_readonly_session()
     try:
+        # Find claims that have received insurance estimate but payment is not complete
         claims = session.query(Claim).filter(
-            and_(
-                Claim.payment_status.in_(['unpaid', 'partial']),
-                Claim.status.in_(['open', 'negotiating', 'settled']),
-            )
+            Claim.status.in_(['open', 'negotiating', 'settled']),
+            Claim.payment_status.in_(['unpaid', 'partial']),
+            # Must have some estimated amount (insurance gave us numbers)
+            or_(
+                Claim.current_acv > 0,
+                Claim.current_rcv > 0,
+                Claim.final_invoice_amount > 0,
+                Claim.our_estimate_amount > 0,
+            ),
         ).all()
 
         gaps = []
         for claim in claims:
-            invoice = float(claim.final_invoice_amount or claim.our_estimate_amount or 0)
+            # Use best available amount: final invoice > our estimate > insurance ACV
+            expected = float(
+                claim.final_invoice_amount
+                or claim.our_estimate_amount
+                or claim.current_acv
+                or 0
+            )
             paid = float(claim.total_insurance_paid or 0)
-            diff = invoice - paid
-            if diff >= min_difference:
-                # Get client address
-                client = session.query(Client).filter(Client.id == claim.client_id).first()
-                gaps.append({
-                    "claim_id": str(claim.id),
-                    "claim_number": claim.claim_number,
-                    "insurance_company": claim.insurance_company,
-                    "property_address": client.address if client else None,
-                    "invoice_amount": invoice,
-                    "insurance_paid": paid,
-                    "difference": diff,
-                    "payment_status": claim.payment_status,
-                    "needs_supplement": claim.needs_supplement or False,
-                })
+            deductible = float(claim.insurance_deductible or 0)
+            # Actual owed = expected - deductible - paid
+            diff = expected - deductible - paid
+            if diff < min_difference:
+                continue
+
+            client = session.query(Client).filter(
+                Client.id == claim.client_id
+            ).first()
+            gaps.append({
+                "claim_id": str(claim.id),
+                "claim_number": claim.claim_number,
+                "insurance_company": claim.insurance_company,
+                "property_address": client.address if client else None,
+                "expected_amount": expected,
+                "deductible": deductible,
+                "insurance_paid": paid,
+                "difference": diff,
+                "payment_status": claim.payment_status,
+                "needs_supplement": claim.needs_supplement or False,
+            })
         gaps.sort(key=lambda x: x["difference"], reverse=True)
         return gaps
     finally:

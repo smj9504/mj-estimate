@@ -42,7 +42,8 @@ export interface PaymentGap {
   claim_number: string;
   insurance_company?: string;
   property_address?: string;
-  invoice_amount: number;
+  expected_amount: number;
+  deductible: number;
   insurance_paid: number;
   difference: number;
   payment_status: string;

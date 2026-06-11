@@ -88,13 +88,21 @@ const BathroomEstimateList: React.FC = () => {
   const columns = [
     {
       title: 'Address',
-      dataIndex: 'property_address',
       key: 'address',
-      render: (addr: string, record: BathroomEstimate) => (
-        <a onClick={() => navigate(`/bathroom-estimates/${record.id}`)}>
-          {addr || 'No address'}
-        </a>
-      ),
+      render: (_: any, record: BathroomEstimate) => {
+        const parts = [record.property_address];
+        const cityStateZip = [
+          record.city,
+          record.state ? (record.zip_code ? `${record.state} ${record.zip_code}` : record.state) : record.zip_code,
+        ].filter(Boolean).join(', ');
+        if (cityStateZip) parts.push(cityStateZip);
+        const full = parts.filter(Boolean).join(', ');
+        return (
+          <a onClick={() => navigate(`/bathroom-estimates/${record.id}`)}>
+            {full || 'No address'}
+          </a>
+        );
+      },
     },
     {
       title: 'Bathroom',
@@ -219,7 +227,10 @@ const BathroomEstimateList: React.FC = () => {
             {bathLabel && <Text type="secondary" style={{ fontSize: 12 }}>{bathLabel}</Text>}
           </div>
           <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 2 }}>
-            {record.property_address || 'No address'}
+            {[
+              record.property_address,
+              [record.city, record.state ? (record.zip_code ? `${record.state} ${record.zip_code}` : record.state) : record.zip_code].filter(Boolean).join(', '),
+            ].filter(Boolean).join(', ') || 'No address'}
           </Text>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
             {record.client_name && (

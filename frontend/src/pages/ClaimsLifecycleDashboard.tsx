@@ -41,7 +41,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
 
   const { data: paymentGaps = [], isLoading: gapsLoading } = useQuery({
     queryKey: ['lifecycle-payment-gaps'],
-    queryFn: () => lifecycleService.getPaymentGaps(100),
+    queryFn: () => lifecycleService.getPaymentGaps(0),
   });
 
   const { data: pendingEstimates = [], isLoading: estimatesLoading } = useQuery({
@@ -70,48 +70,48 @@ const ClaimsLifecycleDashboard: React.FC = () => {
 
   const paymentGapColumns: ColumnsType<PaymentGap> = [
     {
-      title: 'Claim #', dataIndex: 'claim_number', width: 110,
+      title: 'Claim #', dataIndex: 'claim_number', width: 120, fixed: 'left',
       render: (v: string) => <Text strong>{v}</Text>,
     },
     {
-      title: 'Property', dataIndex: 'property_address', ellipsis: true,
+      title: 'Property', dataIndex: 'property_address', width: 160, ellipsis: true,
       render: (v?: string) => v || '-',
     },
     {
-      title: 'Invoice', dataIndex: 'invoice_amount', width: 110, align: 'right',
+      title: 'Expected', dataIndex: 'expected_amount', width: 100, align: 'right',
       render: formatCurrency,
     },
     {
-      title: 'Paid', dataIndex: 'insurance_paid', width: 110, align: 'right',
+      title: 'Deduct.', dataIndex: 'deductible', width: 90, align: 'right',
+      render: (v: number) => v > 0 ? formatCurrency(v) : '-',
+    },
+    {
+      title: 'Paid', dataIndex: 'insurance_paid', width: 90, align: 'right',
       render: (v: number) => <Text type={v > 0 ? 'success' : undefined}>{formatCurrency(v)}</Text>,
     },
     {
-      title: 'Gap', dataIndex: 'difference', width: 110, align: 'right',
+      title: 'Gap', dataIndex: 'difference', width: 100, align: 'right',
       render: (v: number) => <Text type="danger" strong>{formatCurrency(v)}</Text>,
       sorter: (a, b) => b.difference - a.difference,
       defaultSortOrder: 'descend',
-    },
-    {
-      title: 'Supplement', dataIndex: 'needs_supplement', width: 90, align: 'center',
-      render: (v: boolean) => v ? <Tag color="warning">Needed</Tag> : '-',
     },
   ];
 
   const pendingEstimateColumns: ColumnsType<PendingEstimate> = [
     {
-      title: 'Claim #', dataIndex: 'claim_number', width: 110,
+      title: 'Claim #', dataIndex: 'claim_number', width: 120, fixed: 'left',
       render: (v: string) => <Text strong>{v || '-'}</Text>,
     },
     {
-      title: 'Property', dataIndex: 'property_address', ellipsis: true,
+      title: 'Property', dataIndex: 'property_address', width: 150, ellipsis: true,
       render: (v?: string) => v || '-',
     },
     {
-      title: 'Adjuster', dataIndex: 'adjuster_name', width: 120,
+      title: 'Adjuster', dataIndex: 'adjuster_name', width: 130,
       render: (v?: string) => v || '-',
     },
     {
-      title: 'Docs Sent', dataIndex: 'documents_sent_date', width: 110,
+      title: 'Docs Sent', dataIndex: 'documents_sent_date', width: 100,
       render: (v?: string) => v ? (
         <Tooltip title={dayjs(v).format('MM/DD/YYYY')}>
           <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>{dayjs(v).fromNow()}</Text>
@@ -122,7 +122,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
 
   const wmDocPrepColumns: ColumnsType<WMDocPrep> = [
     {
-      title: 'Property', dataIndex: 'property_address', ellipsis: true,
+      title: 'Property', dataIndex: 'property_address', width: 160, fixed: 'left', ellipsis: true,
       render: (v?: string) => <Text strong>{v || '-'}</Text>,
     },
     {
@@ -312,18 +312,19 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 rowKey="id"
                 size="small"
                 pagination={false}
+                scroll={{ x: 500 }}
                 columns={[
                   {
-                    title: 'Task', dataIndex: 'title', ellipsis: true,
+                    title: 'Task', dataIndex: 'title', width: 140, fixed: 'left' as const, ellipsis: true,
                     render: (t: string) => <Text strong>{t}</Text>,
                   },
                   {
-                    title: 'Address', dataIndex: 'property_address', ellipsis: true,
+                    title: 'Address', dataIndex: 'property_address', width: 160, ellipsis: true,
                     render: (v: string) => v || '-',
                   },
                   {
-                    title: 'Type', dataIndex: 'task_type', width: 100,
-                    render: (t: string) => <Tag>{t.replace('_', ' ')}</Tag>,
+                    title: 'Type', dataIndex: 'task_type', width: 120,
+                    render: (t: string) => <Tag>{t.replace(/_/g, ' ')}</Tag>,
                   },
                   {
                     title: 'Due', dataIndex: 'due_date', width: 110,
@@ -371,6 +372,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 rowKey="job_id"
                 size="small"
                 pagination={false}
+                scroll={{ x: 550 }}
                 columns={wmDocPrepColumns}
               />
             )}
@@ -398,6 +400,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 rowKey="job_id"
                 size="small"
                 pagination={false}
+                scroll={{ x: 500 }}
                 columns={pendingEstimateColumns}
               />
             )}
@@ -430,6 +433,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 rowKey="claim_id"
                 size="small"
                 pagination={false}
+                scroll={{ x: 660 }}
                 columns={paymentGapColumns}
               />
             )}
@@ -460,6 +464,7 @@ const ClaimsLifecycleDashboard: React.FC = () => {
                 rowKey="supplement_id"
                 size="small"
                 pagination={false}
+                scroll={{ x: 520 }}
                 columns={supplementWorkColumns}
               />
             )}

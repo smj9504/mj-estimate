@@ -79,7 +79,20 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
         claim_ids = list(set(str(t.claim_id) for t in tasks if t.claim_id))
         supplement_map = {}
         info_request_map = {}
+        negotiation_claim_ids: set = set()
         if claim_ids:
+            try:
+                from app.domains.client.models import ClaimNegotiation
+                neg_rows = self.db_session.query(
+                    ClaimNegotiation.claim_id
+                ).filter(
+                    ClaimNegotiation.claim_id.in_(claim_ids)
+                ).distinct().all()
+                negotiation_claim_ids = {
+                    str(r[0]) for r in neg_rows
+                }
+            except Exception:
+                pass
             try:
                 from app.domains.supplement.models import SupplementRequest, SupplementFollowUp
                 from sqlalchemy import func as sqlfunc
@@ -136,6 +149,13 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                     d['pa_email'] = t.claim.pa_email or ''
                     d['pa_phone'] = t.claim.pa_phone or ''
                     d['wm_cost_status'] = t.claim.wm_cost_status or ''
+                    d['has_insurance_estimate'] = bool(
+                        t.claim.insurance_estimate_received
+                        or t.claim.current_acv
+                        or t.claim.current_rcv
+                        or t.claim.insurance_estimate_file_id
+                        or str(t.claim_id) in negotiation_claim_ids
+                    )
                     # Address is on the Client model
                     if hasattr(t.claim, 'client') and t.claim.client:
                         client = t.claim.client
