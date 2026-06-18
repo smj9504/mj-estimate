@@ -230,11 +230,42 @@ class PlumberReportService:
         )
         
         db.add(db_report)
+        db.flush()  # Get db_report.id before commit
+
+        # Link to Claim if claim_id provided
+        claim_id = getattr(report_data, 'claim_id', None)
+        if claim_id:
+            PlumberReportService._link_to_claim(db, db_report.id, claim_id)
+
         db.commit()
         db.refresh(db_report)
-        
+
         return db_report
     
+    @staticmethod
+    def _link_to_claim(db: Session, report_id, claim_id: str):
+        """Set Claim.plumber_report_id to link the report."""
+        try:
+            from app.domains.client.models import Claim
+            claim = db.query(Claim).filter(Claim.id == claim_id).first()
+            if claim:
+                claim.plumber_report_id = report_id
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to link plumber report to claim: {e}")
+
+    @staticmethod
+    def get_claim_id_for_report(db: Session, report_id) -> Optional[str]:
+        """Find the Claim linked to this report."""
+        try:
+            from app.domains.client.models import Claim
+            claim = db.query(Claim).filter(
+                Claim.plumber_report_id == str(report_id)
+            ).first()
+            return str(claim.id) if claim else None
+        except Exception:
+            return None
+
     @staticmethod
     def get_report(db: Session, report_id: UUID) -> Optional[PlumberReport]:
         """Get a single plumber report by ID"""

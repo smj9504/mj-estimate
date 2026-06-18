@@ -90,11 +90,12 @@ class PlumberReport(Base):
     # Relationships
     company = relationship("Company", back_populates="plumber_reports")
     
-    def to_dict(self):
+    def to_dict(self, claim_id: str = None):
         """Convert model to dictionary"""
         return {
             "id": str(self.id),
             "report_number": self.report_number,
+            "claim_id": claim_id,
             "template_type": self.template_type,
             "status": self.status,
             "company_id": str(self.company_id) if self.company_id else None,

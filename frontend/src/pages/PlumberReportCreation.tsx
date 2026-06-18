@@ -33,6 +33,8 @@ import {
   CopyOutlined,
   RobotOutlined,
   CalendarOutlined,
+  SendOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -41,13 +43,14 @@ import {
   PlumberReport,
   InvoiceItem,
   PaymentRecord,
-  PhotoRecord
+  PhotoRecord,
+  PAEmailInfo,
 } from '../services/plumberReportService';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { companyService } from '../services/companyService';
-import { clientService } from '../services/clientService';
+import { clientService, claimService } from '../services/clientService';
 import { Company } from '../types';
-import type { ClientListItem } from '../types/client';
+import type { ClientListItem, Claim } from '../types/client';
 import RichTextEditor from '../components/editor/RichTextEditor';
 import UnitSelect from '../components/common/UnitSelect';
 import DraggableTable from '../components/common/DraggableTable';
@@ -118,6 +121,17 @@ const PlumberReportCreation: React.FC = () => {
   const [clientSearch, setClientSearch] = useState('');
   const [clientSearchResults, setClientSearchResults] = useState<ClientListItem[]>([]);
   const [isClientSearching, setIsClientSearching] = useState(false);
+
+  // Claim linking
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [clientClaims, setClientClaims] = useState<Claim[]>([]);
+  const [selectedClaimId, setSelectedClaimId] = useState<string | null>(null);
+
+  // Send to PA
+  const [sendPAVisible, setSendPAVisible] = useState(false);
+  const [sendPALoading, setSendPALoading] = useState(false);
+  const [paEmailInfo, setPaEmailInfo] = useState<PAEmailInfo | null>(null);
+  const [paForm] = Form.useForm();
 
   // Property same as client toggle
   const [propertyDifferent, setPropertyDifferent] = useState(false);
@@ -231,6 +245,21 @@ const PlumberReportCreation: React.FC = () => {
         email: client.email || '',
       });
 
+      // Fetch claims for this client
+      setSelectedClientId(clientId);
+      setSelectedClaimId(null);
+      setClientClaims([]);
+      try {
+        const result = await claimService.listByClient(clientId);
+        const claims = result.claims || [];
+        setClientClaims(claims);
+        // Auto-select if only one claim
+        if (claims.length === 1) {
+          setSelectedClaimId(claims[0].id);
+        }
+      } catch {
+        // Client may not have claims yet
+      }
     }
   }, [clientSearchResults, form]);
 
@@ -325,6 +354,11 @@ const PlumberReportCreation: React.FC = () => {
           if (company) {
             setSelectedCompany(company);
           }
+        }
+
+        // Restore claim link
+        if (report.claim_id) {
+          setSelectedClaimId(report.claim_id);
         }
       } catch (error) {
         message.error('Failed to load report');
@@ -504,6 +538,7 @@ const PlumberReportCreation: React.FC = () => {
         template_type: templateType,
         status: 'final',
         company_id: values.company_id,
+        claim_id: selectedClaimId || undefined,
         client: {
           name: values.name,
           address: values.address,
@@ -793,6 +828,22 @@ const PlumberReportCreation: React.FC = () => {
                     />
                   </Form.Item>
                 </Col>
+                {clientClaims.length > 0 && (
+                  <Col xs={24} md={12}>
+                    <Form.Item label="Link to Claim (for PA email)" style={{ marginBottom: 0 }}>
+                      <Select
+                        allowClear
+                        placeholder="Select claim to link..."
+                        value={selectedClaimId || undefined}
+                        onChange={(val) => setSelectedClaimId(val || null)}
+                        options={clientClaims.map((c) => ({
+                          label: `${c.claim_number} — ${c.insurance_company || 'N/A'}${c.date_of_loss ? ` (DOL: ${dayjs(c.date_of_loss).format('MM/DD/YYYY')})` : ''}`,
+                          value: c.id,
+                        }))}
+                      />
+                    </Form.Item>
+                  </Col>
+                )}
               </Row>
               <Row gutter={16}>
                 {/* Client Name, Email, Phone in one row */}
@@ -1307,6 +1358,42 @@ const PlumberReportCreation: React.FC = () => {
             >
               Preview PDF
             </Button>
+            {id && (
+              <Button
+                icon={<SendOutlined />}
+                onClick={async () => {
+                  try {
+                    setSendPALoading(true);
+                    const info = await plumberReportService.getPAEmailInfo(id);
+                    setPaEmailInfo(info);
+                    if (info.message && info.to.length === 0) {
+                      message.warning(info.message);
+                      return;
+                    }
+                    const address = form.getFieldValue('address') || '';
+                    paForm.setFieldsValue({
+                      to_addresses: info.to.map((t) => t.email),
+                      cc_addresses: info.cc.map((c) => c.email),
+                      subject: `Plumber's Report — ${address}`,
+                      body_html:
+                        `<p>Please find attached the Plumber's Report for ${address}.</p>` +
+                        `<p>If you have any questions, please don't hesitate to reach out.</p>` +
+                        `<p>Thank you.</p>`,
+                      email_account_id: info.email_accounts?.[0]?.id || undefined,
+                    });
+                    setSendPAVisible(true);
+                  } catch (err: any) {
+                    message.error('Failed to load PA info');
+                  } finally {
+                    setSendPALoading(false);
+                  }
+                }}
+                loading={sendPALoading}
+                disabled={isSaving || isPreviewing}
+              >
+                Send to PA
+              </Button>
+            )}
             <Button
               onClick={() => navigate('/plumber-reports')}
               disabled={isSaving || isPreviewing}
@@ -1515,64 +1602,71 @@ const PlumberReportCreation: React.FC = () => {
           }}
         >{`You are an experienced licensed master plumber in the DMV area (DC, Maryland, Virginia).
 Write a professional plumber's service report for an emergency repair call.
-
 ---
-
 JOB DETAILS (fill in before sending):
 - Incident type: [e.g. burst shower valve, broken supply line, etc.]
 - Location in home: [e.g. master bathroom shower]
 - State: [MD / VA / DC] (for tax rate)
 - Total invoice amount: [$X,XXX]
-
 - Work performed: Based on the incident type and location provided above,
   infer the most realistic and typical scope of work a licensed plumber
   would perform for this type of emergency repair in the DMV area.
-
 - Materials used: Infer the most commonly used, code-compliant materials
   for this type of repair.
-
 - Labor hours: Estimate realistic labor hours by phase based on the scope
   of work inferred above. Total hours should be consistent with the
   specified invoice amount.
-
 ---
-
 REPORT REQUIREMENTS:
-
 1. SITE FINDINGS & ASSESSMENT (→ site_findings)
    - Describe the failure as sudden and unexpected
    - State that no prior signs of leakage were reported by the homeowner
    - Use factual, field technician language — not legal or overly formal
    - Do NOT mention age of components, wear and tear, or maintenance history
+   - Do NOT describe the water supply as "still pressurized," "still on,"
+     or otherwise note how long water ran before shut-off — avoid any
+     phrasing that implies the leak was left active or that shut-off was
+     delayed. Focus only on what was observed (active discharge, location,
+     affected area).
+   - Do NOT estimate or describe how long the leak had been running, how
+     much water escaped, or the duration of the event in any form
+     ("ran for some time," "significant water had escaped," "had been
+     leaking for a while," etc.). Describe only the condition observed
+     at the moment of arrival.
+   - Do NOT imply any fault, delay, or omission on the homeowner's part —
+     no suggestion that the leak was noticed late, reported late, could
+     have been caught earlier, or that the homeowner should have acted
+     sooner. The homeowner's only stated role is that no prior signs of
+     leakage were reported.
    - Use "sudden burst" or "sudden failure" once naturally — do not repeat excessively
-
 2. WORK PERFORMED (→ work_performed)
    - Written as a narrative paragraph describing the full scope of work
    - Group related tasks together
+   - Frame the water shut-off as an immediate action taken upon arrival
+     (e.g. "technician immediately isolated and shut off the main supply
+     to stop the active discharge") rather than a static condition found
    - Keep it concise but clear
    - Written as a field technician would describe it
-
 3. INVOICE (→ invoice_items)
    - 5 line items maximum
    - Include: Emergency Dispatch Fee, Labor (broken into 2-3 phases), Materials (grouped)
    - tax_amount and total must match the specified invoice amount
-
 4. WARRANTY & NOTES (→ warranty_info, notes)
    - warranty_info: 30-day labor warranty statement (1 sentence)
    - notes: Brief technician notes — 2-3 sentences max with follow-up advisory
-
 TONE: Professional field report. Written as a licensed technician, not a lawyer.
 Avoid: wear and tear, deterioration, age-related, neglect, deferred maintenance,
-       excessive repetition of "sudden", overly legal or defensive phrasing.
-
+       excessive repetition of "sudden," overly legal or defensive phrasing,
+       any note on water pressure state at arrival, any phrasing that
+       suggests the leak ran unattended or that shut-off was delayed,
+       any estimate of leak duration or volume of water escaped, and any
+       language implying homeowner fault, late discovery, or delayed reporting.
 ---
-
 OUTPUT FORMAT: Return ONLY a valid JSON object (no markdown, no code fences).
 Use the exact structure below:
-
 {
   "site_findings": "Upon arrival at the property, technician observed...",
-  "work_performed": "Emergency shut-off of main water supply was performed...",
+  "work_performed": "Upon arrival, technician immediately isolated and shut off the main water supply to stop the active discharge...",
   "invoice_items": [
     {
       "name": "Emergency Dispatch Fee",
@@ -1650,6 +1744,101 @@ Use the exact structure below:
           placeholder='Paste JSON here... e.g. { "site_findings": "...", "work_performed": "...", ... }'
           style={{ fontFamily: 'monospace', fontSize: 12 }}
         />
+      </Modal>
+
+      {/* Send to PA Modal */}
+      <Modal
+        title={
+          <Space>
+            <MailOutlined />
+            <span>Send Plumber&apos;s Report to PA</span>
+          </Space>
+        }
+        open={sendPAVisible}
+        onCancel={() => setSendPAVisible(false)}
+        width={700}
+        okText="Send Email"
+        okButtonProps={{ icon: <SendOutlined />, loading: sendPALoading }}
+        onOk={async () => {
+          try {
+            const values = await paForm.validateFields();
+            if (!values.to_addresses?.length) {
+              message.error('At least one recipient is required');
+              return;
+            }
+            setSendPALoading(true);
+            await plumberReportService.sendToPA(id!, {
+              to_addresses: values.to_addresses,
+              cc_addresses: values.cc_addresses || [],
+              subject: values.subject,
+              body_html: values.body_html,
+              email_account_id: values.email_account_id || undefined,
+            });
+            message.success('Plumber\'s Report sent to PA successfully!');
+            setSendPAVisible(false);
+          } catch (err: any) {
+            message.error(err?.response?.data?.detail || 'Failed to send email');
+          } finally {
+            setSendPALoading(false);
+          }
+        }}
+      >
+        {paEmailInfo && (
+          <Form form={paForm} layout="vertical">
+            {paEmailInfo.pa_company && (
+              <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+                PA Company: <strong>{paEmailInfo.pa_company}</strong>
+                {paEmailInfo.job && (
+                  <> | Claim: <strong>{paEmailInfo.job.claim_number}</strong></>
+                )}
+              </Text>
+            )}
+            {paEmailInfo.email_accounts.length > 0 && (
+              <Form.Item name="email_account_id" label="Send From">
+                <Select
+                  allowClear
+                  placeholder="Select sender account"
+                  options={paEmailInfo.email_accounts.map((a) => ({
+                    label: a.display_name || a.email_address,
+                    value: a.id,
+                  }))}
+                />
+              </Form.Item>
+            )}
+            <Form.Item
+              name="to_addresses"
+              label="To (PA)"
+              rules={[{ required: true, message: 'At least one recipient' }]}
+            >
+              <Select
+                mode="tags"
+                placeholder="Recipient email(s)"
+                tokenSeparators={[',', ';']}
+              />
+            </Form.Item>
+            <Form.Item name="cc_addresses" label="CC (Same Company PAs)">
+              <Select
+                mode="tags"
+                placeholder="CC email(s)"
+                tokenSeparators={[',', ';']}
+              />
+            </Form.Item>
+            <Form.Item
+              name="subject"
+              label="Subject"
+              rules={[{ required: true }]}
+            >
+              <Input />
+            </Form.Item>
+            <Form.Item
+              name="body_html"
+              label="Message"
+              rules={[{ required: true }]}
+            >
+              <TextArea rows={5} />
+            </Form.Item>
+          </Form>
+        )}
       </Modal>
     </div>
   );

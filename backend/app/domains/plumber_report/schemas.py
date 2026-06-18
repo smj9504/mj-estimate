@@ -97,6 +97,7 @@ class PlumberReportBase(BaseModel):
 class PlumberReportCreate(PlumberReportBase):
     """Schema for creating a Plumber Report"""
     company_id: Optional[UUID] = None
+    claim_id: Optional[str] = None  # Link to Claim → auto-sets Claim.plumber_report_id
     invoice_items: List[InvoiceItem] = []
     payments: List[PaymentRecord] = []
     show_payment_dates: bool = True
@@ -138,13 +139,14 @@ class PlumberReportResponse(PlumberReportBase):
     id: UUID
     company_id: Optional[UUID] = None
     company_data: Optional[Dict[str, Any]] = None
-    
+    claim_id: Optional[str] = None
+
     invoice_items: List[InvoiceItem] = []
     payments: List[PaymentRecord] = []
     show_payment_dates: bool = True
     photos: List[PhotoRecord] = []
     financial: FinancialSummary
-    
+
     created_at: datetime
     updated_at: Optional[datetime] = None
     created_by: Optional[str] = None

@@ -1662,35 +1662,22 @@ print(os.path.getsize(output_path))
         .print-btn:hover { background: #374151; }
         """
 
-        # Running footer for print using table-footer-group (repeats on every page).
-        # To push the footer to the physical page bottom we make the wrapping
-        # table fill the entire page height via height:100vh in print context,
-        # so the tfoot is forced to the bottom even when content is short.
+        # Print footer: use flexbox on .page-wrapper to push footer to page bottom.
+        # min-height uses calc to match the exact content area height
+        # (letter=11in minus top 0.4in minus bottom 0.45in).
         print_hf_css = """
-        /* Screen: hide the print layout scaffolding */
-        .print-table { display: contents; }
-        .print-table > thead,
-        .print-table > tfoot { display: none; }
+        /* Screen: hide print-only footer */
         .print-running-footer { display: none; }
 
         @media print {
-            /* Force the table to fill the full page height */
-            .print-table {
-                display: table;
-                width: 100%;
-                height: 100vh;
+            .page-wrapper {
+                display: flex;
+                flex-direction: column;
+                min-height: calc(11in - 0.4in - 0.45in);
             }
-            .print-table > thead { display: table-header-group; }
-            .print-table > tfoot { display: table-footer-group; }
-            .print-table > tbody { display: table-row-group; }
-            .print-table > tbody > tr { display: table-row; }
-            .print-table > tbody > tr > td {
-                display: table-cell;
-                vertical-align: top;
-                padding: 0;
+            .page-wrapper-spacer {
+                flex: 1;
             }
-            .print-table > tfoot td { padding: 0; }
-
             .print-running-footer {
                 display: flex;
                 justify-content: space-between;
@@ -1698,12 +1685,15 @@ print(os.path.getsize(output_path))
                 border-top: 0.5pt solid #ccc;
                 font-size: 8pt;
                 color: #666;
+                margin-top: auto;
             }
+            /* Hide the original template footer */
+            .report-footer { display: none !important; }
         }
 
         @page {
             size: letter;
-            margin: 0.4in 0.3in 0.5in 0.3in;
+            margin: 0.4in 0.3in 0.45in 0.3in;
         }
         @page :first {
             margin-top: 0.15in;
@@ -1722,34 +1712,20 @@ print(os.path.getsize(output_path))
             '<button class="print-btn" onclick="window.print()">&#128438; Print / Save as PDF</button>'
         )
 
-        # Wrap .page-wrapper in a table with tfoot for repeating page-bottom footer.
-        # height:100vh on the table (in @media print) ensures the tfoot is pushed
-        # to the physical page bottom even when content is shorter than one page.
-        table_open = (
-            '<table class="print-table">'
-            '<tfoot><tr><td>'
+        # Insert spacer + print footer inside .page-wrapper (before closing </div>).
+        # Flexbox min-height on .page-wrapper pushes the footer to page bottom.
+        footer_block = (
+            f'<div class="page-wrapper-spacer"></div>'
             f'<div class="print-running-footer">'
             f'<span>{report_label_safe}</span>'
             f'<span class="print-page-num"></span>'
             f'<span>{property_address_safe}</span>'
             f'</div>'
-            '</td></tr></tfoot>'
-            '<tbody><tr><td>'
         )
+        # Insert before the original .report-footer (which is inside .page-wrapper)
         html_content = html_content.replace(
-            '<div class="page-wrapper">',
-            f'{table_open}<div class="page-wrapper">'
-        )
-        html_content = html_content.replace(
-            '</body>',
-            '</td></tr></tbody></table>'
-            '<script>'
-            'window.addEventListener("beforeprint",function(){'
-            'var el=document.querySelector(".print-page-num");'
-            'if(el) el.textContent="Page 1";'
-            '});'
-            '</script>'
-            '</body>'
+            '<div class="report-footer">',
+            f'{footer_block}<div class="report-footer">'
         )
 
         # Sanitize surrogate characters that Windows file paths/fonts can introduce

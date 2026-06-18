@@ -4157,7 +4157,7 @@ def list_sheet_pa_mappings(db: DatabaseSession = Depends(get_db_session)):
     Also returns all sheet names seen in existing WM jobs for easy discovery.
     """
     from sqlalchemy import select, distinct
-    from app.domains.water_mitigation.models import WMSheetPAMapping
+    from app.domains.water_mitigation.models import WMSheetPAMapping, WaterMitigationJob
     from app.domains.company.models import CompanyContact, Company
 
     # Current mappings

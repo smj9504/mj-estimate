@@ -268,26 +268,28 @@ ANGEL_HEADER_MAPPING = {
     16: "plumbers_report",          # Q: Plumber's Report
 }
 
-# Vanessa sheet mapping (original layout, mitigation_flag removed)
-# A: Property Address | B: Insured | C: Phone | D: Email | E: Insurance |
-# F: Policy # | G: Claim # | H: DOL | I: WM | J: Ins. Adjuster |
-# K: Phone | L: Email | M: Inspection Date | N: Inspection Time | O: Plumber's Report
+# Vanessa sheet mapping
+# A: Property Address | B: Insured | C: (empty) | D: Phone | E: Email |
+# F: Insurance | G: Policy # | H: Claim # | I: DOL | J: WM |
+# K: Ins. Adjuster | L: Phone | M: Email | N: Inspection Date |
+# O: Inspection Time | P: Plumber's Report
 VANESSA_HEADER_MAPPING = {
     0: "property_address",          # A: Property Address
     1: "homeowner_name",            # B: Insured
-    2: "homeowner_phone",           # C: Phone
-    3: "homeowner_email",           # D: Email
-    4: "insurance_company",         # E: Insurance
-    5: "insurance_policy_number",   # F: Policy #
-    6: "claim_number",              # G: Claim #
-    7: "date_of_loss",              # H: DOL
-    8: "mitigation_period",         # I: WM
-    9: "adjuster_name",             # J: Ins. Adjuster
-    10: "adjuster_phone",           # K: Phone (Adjuster)
-    11: "adjuster_email",           # L: Email (Adjuster)
-    12: "inspection_date",          # M: Inspection Date
-    13: "inspection_time",          # N: Inspection Time
-    14: "plumbers_report",          # O: Plumber's Report
+    # 2: (empty column C)
+    3: "homeowner_phone",           # D: Phone
+    4: "homeowner_email",           # E: Email
+    5: "insurance_company",         # F: Insurance
+    6: "insurance_policy_number",   # G: Policy #
+    7: "claim_number",              # H: Claim #
+    8: "date_of_loss",              # I: DOL
+    9: "mitigation_period",         # J: WM
+    10: "adjuster_name",            # K: Ins. Adjuster
+    11: "adjuster_phone",           # L: Phone (Adjuster)
+    12: "adjuster_email",           # M: Email (Adjuster)
+    13: "inspection_date",          # N: Inspection Date
+    14: "inspection_time",          # O: Inspection Time
+    15: "plumbers_report",          # P: Plumber's Report
 }
 
 # Default mapping (uses Vanessa layout for backward compatibility)

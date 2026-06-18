@@ -61,6 +61,7 @@ export interface PlumberReport {
   status?: string;
   company_id?: string;
   company_data?: any;
+  claim_id?: string;
   client: ClientInfo;
   property: PropertyInfo;
   service_date: string;
@@ -80,6 +81,39 @@ export interface PlumberReport {
   notes?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface PAEmailContact {
+  name: string;
+  email: string;
+  title?: string;
+}
+
+export interface PAEmailInfo {
+  to: PAEmailContact[];
+  cc: PAEmailContact[];
+  pa_company?: string;
+  job?: {
+    id: string;
+    property_address: string;
+    homeowner_name: string;
+    claim_number: string;
+    insurance_company: string;
+  } | null;
+  claim_id?: string;
+  email_accounts: Array<{
+    id: string;
+    email_address: string;
+    display_name: string;
+    company_id?: string;
+  }>;
+  report?: {
+    id: string;
+    report_number: string;
+    property_address: string;
+    client_name: string;
+  };
+  message?: string;
 }
 
 class PlumberReportService {
@@ -173,6 +207,23 @@ class PlumberReportService {
 
   async duplicateReport(reportId: string): Promise<PlumberReport> {
     const response = await api.get(`${this.baseUrl}/${reportId}/duplicate`);
+    return response.data;
+  }
+
+  async getPAEmailInfo(reportId: string): Promise<PAEmailInfo> {
+    const response = await api.get(`${this.baseUrl}/${reportId}/pa-email-info`);
+    return response.data;
+  }
+
+  async sendToPA(reportId: string, data: {
+    to_addresses: string[];
+    cc_addresses?: string[];
+    subject: string;
+    body_html: string;
+    email_account_id?: string;
+    from_address?: string;
+  }): Promise<{ success: boolean; email_id: string }> {
+    const response = await api.post(`${this.baseUrl}/${reportId}/send-to-pa`, data);
     return response.data;
   }
 

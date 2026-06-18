@@ -126,11 +126,12 @@ async def get_plumber_report(
 ):
     """Get a single plumber report"""
     report = PlumberReportService.get_report(db, report_id)
-    
+
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    
-    return PlumberReportResponse.model_validate(report.to_dict())
+
+    claim_id = PlumberReportService.get_claim_id_for_report(db, report_id)
+    return PlumberReportResponse.model_validate(report.to_dict(claim_id=claim_id))
 
 
 @router.put("/{report_id}", response_model=PlumberReportResponse)
@@ -290,3 +291,246 @@ async def duplicate_report(
     )
     
     return PlumberReportResponse.model_validate(new_report.to_dict())
+
+
+# ================================================================
+# Send Plumber Report to PA
+# ================================================================
+
+@router.get("/{report_id}/pa-email-info")
+async def get_pa_email_info(
+    report_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Get PA contact info for sending plumber report.
+    Resolves PA via: Claim → pa_contact_id → CompanyContact → same-company contacts for CC.
+    Falls back to WM Job sheet mapping if no claim-level PA.
+    """
+    from app.domains.client.models import Claim
+    from app.domains.company.models import CompanyContact, Company
+    from app.domains.water_mitigation.models import (
+        WaterMitigationJob, WMSheetPAMapping,
+    )
+
+    report = PlumberReportService.get_report(db, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    claim_id = PlumberReportService.get_claim_id_for_report(db, report_id)
+    if not claim_id:
+        return {
+            "to": [], "cc": [], "job": None, "claim_id": None,
+            "email_accounts": [],
+            "message": "No claim linked to this report. Link a claim first.",
+        }
+
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        return {"to": [], "cc": [], "job": None, "claim_id": claim_id,
+                "email_accounts": [], "message": "Claim not found."}
+
+    # Find WM Job via claim
+    wm_job = db.query(WaterMitigationJob).filter(
+        WaterMitigationJob.claim_id == claim_id,
+        WaterMitigationJob.active == True,
+    ).first()
+
+    # Resolve PA contact (same priority as AdjusterEmailService)
+    pa_contact = None
+    pa_company_id = None
+
+    # Priority 1: Claim.pa_contact_id
+    if claim.pa_contact_id:
+        pa_contact = db.query(CompanyContact).filter(
+            CompanyContact.id == claim.pa_contact_id,
+        ).first()
+
+    # Priority 2: WM Job sheet mapping
+    if not pa_contact and wm_job and wm_job.google_sheet_name:
+        mapping = db.query(WMSheetPAMapping).filter(
+            WMSheetPAMapping.sheet_name == wm_job.google_sheet_name,
+        ).first()
+        if mapping and mapping.pa_contact_id:
+            pa_contact = db.query(CompanyContact).filter(
+                CompanyContact.id == mapping.pa_contact_id,
+            ).first()
+
+    # Build TO list (primary PA)
+    to_list = []
+    cc_list = []
+    if pa_contact and pa_contact.email:
+        pa_company_id = pa_contact.company_id
+        to_list.append({
+            "name": pa_contact.name or "",
+            "email": pa_contact.email,
+            "title": pa_contact.title or "",
+        })
+
+        # CC: all other active contacts from the same company
+        if pa_company_id:
+            siblings = db.query(CompanyContact).filter(
+                CompanyContact.company_id == pa_company_id,
+                CompanyContact.is_active == True,
+                CompanyContact.id != pa_contact.id,
+                CompanyContact.email.isnot(None),
+                CompanyContact.email != "",
+            ).all()
+            for s in siblings:
+                cc_list.append({
+                    "name": s.name or "",
+                    "email": s.email,
+                    "title": s.title or "",
+                })
+
+    # Priority 3: Claim freetext PA fields
+    if not to_list:
+        pa_email = getattr(claim, 'pa_email', '') or ''
+        pa_name = getattr(claim, 'pa_name', '') or ''
+        if pa_email:
+            to_list.append({"name": pa_name, "email": pa_email, "title": ""})
+
+    # Email accounts for sender selection
+    email_accounts = []
+    try:
+        from app.domains.email_ingestion.models import EmailAccount
+        company_id = wm_job.company_id if wm_job else None
+        accounts = db.query(EmailAccount).filter(
+            EmailAccount.is_active == True,
+        ).all()
+        for a in accounts:
+            email_accounts.append({
+                "id": str(a.id),
+                "email_address": a.email_address,
+                "display_name": getattr(a, 'display_name', '') or a.email_address,
+                "company_id": str(a.company_id) if a.company_id else None,
+            })
+        if company_id:
+            cid = str(company_id)
+            email_accounts.sort(
+                key=lambda x: (0 if x.get("company_id") == cid else 1)
+            )
+    except Exception:
+        pass
+
+    # Job context
+    job_info = None
+    if wm_job:
+        job_info = {
+            "id": str(wm_job.id),
+            "property_address": wm_job.property_address or "",
+            "homeowner_name": wm_job.homeowner_name or "",
+            "claim_number": wm_job.claim_number or "",
+            "insurance_company": wm_job.insurance_company or "",
+        }
+
+    # PA company name
+    pa_company_name = ""
+    if pa_company_id:
+        co = db.query(Company).filter(Company.id == pa_company_id).first()
+        if co:
+            pa_company_name = co.name or ""
+
+    return {
+        "to": to_list,
+        "cc": cc_list,
+        "pa_company": pa_company_name,
+        "job": job_info,
+        "claim_id": claim_id,
+        "email_accounts": email_accounts,
+        "report": {
+            "id": str(report.id),
+            "report_number": report.report_number,
+            "property_address": report.property_address or "",
+            "client_name": report.client_name or "",
+        },
+    }
+
+
+from pydantic import BaseModel as PydanticBaseModel
+
+
+class SendPlumberReportRequest(PydanticBaseModel):
+    """Request schema for sending plumber report to PA."""
+    to_addresses: List[str]
+    cc_addresses: List[str] = []
+    subject: str
+    body_html: str
+    email_account_id: Optional[str] = None
+    from_address: Optional[str] = None
+
+
+@router.post("/{report_id}/send-to-pa")
+async def send_plumber_report_to_pa(
+    report_id: UUID,
+    request: SendPlumberReportRequest,
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff),
+):
+    """Send plumber report PDF to PA via email."""
+    report = PlumberReportService.get_report(db, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    if not request.to_addresses:
+        raise HTTPException(status_code=400, detail="No recipients")
+
+    # Generate PDF
+    try:
+        report_dict = report.to_dict()
+        pdf_bytes = PDFService.generate_plumber_report_pdf(report_dict)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"PDF generation failed: {e}"
+        )
+
+    address_short = (
+        report.property_address or "property"
+    ).split(",")[0].strip()
+
+    attachments = [{
+        "filename": f"Plumber Report {report.report_number} - {address_short}.pdf",
+        "data": pdf_bytes,
+        "mime_type": "application/pdf",
+    }]
+
+    # Send via claim_followup email service
+    try:
+        from app.domains.claim_followup.service import ClaimFollowUpService
+        email_service = ClaimFollowUpService()
+
+        claim_id = PlumberReportService.get_claim_id_for_report(
+            db, report_id
+        )
+
+        send_payload = {
+            "claim_id": claim_id,
+            "email_account_id": request.email_account_id,
+            "to_addresses": request.to_addresses,
+            "cc_addresses": request.cc_addresses,
+            "bcc_addresses": [],
+            "subject": request.subject,
+            "body_html": request.body_html,
+            "attachments": attachments,
+        }
+        if request.from_address:
+            send_payload["from_address"] = request.from_address
+
+        email_result = email_service.send_email(send_payload)
+
+        # Update report status to 'sent'
+        if report.status != 'sent':
+            report.status = 'sent'
+            db.commit()
+
+        return {
+            "success": True,
+            "email_id": str(email_result.get("id", "")),
+            "recipients": request.to_addresses,
+            "cc": request.cc_addresses,
+        }
+    except Exception as e:
+        logger.error(f"Failed to send plumber report email: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Email send failed: {e}"
+        )
