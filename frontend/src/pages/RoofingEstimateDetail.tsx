@@ -24,6 +24,7 @@ import {
   Tag,
   Typography,
   Upload,
+  Spin,
 } from 'antd';
 import {
   AimOutlined,
@@ -587,7 +588,11 @@ const RoofingEstimateDetail: React.FC = () => {
     },
   ];
 
-  if (isLoading) return <div style={{ padding: 24 }}>Loading...</div>;
+  if (isLoading) return (
+    <div style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+      <Spin size="large" tip="Loading estimate..." />
+    </div>
+  );
   if (!estimate) return <div style={{ padding: 24 }}>Estimate not found</div>;
 
   return (
