@@ -1662,54 +1662,51 @@ print(os.path.getsize(output_path))
         .print-btn:hover { background: #374151; }
         """
 
-        # Repeating print header/footer via <thead>/<tfoot> table layout.
-        # Browsers repeat table-header-group/table-footer-group on every
-        # printed page — the only reliable cross-browser technique.
+        # Running footer for print using table-footer-group (repeats on every page).
+        # To push the footer to the physical page bottom we make the wrapping
+        # table fill the entire page height via height:100vh in print context,
+        # so the tfoot is forced to the bottom even when content is short.
         print_hf_css = """
-        /* Table wrapper: invisible on screen */
-        .print-layout { width: 100%; border-collapse: collapse; }
-        .print-layout,
-        .print-layout > tbody,
-        .print-layout > tbody > tr,
-        .print-layout > tbody > tr > td { display: block; padding: 0; margin: 0; border: none; }
-        .print-layout > thead,
-        .print-layout > tfoot { display: none; }
+        /* Screen: hide the print layout scaffolding */
+        .print-table { display: contents; }
+        .print-table > thead,
+        .print-table > tfoot { display: none; }
+        .print-running-footer { display: none; }
 
         @media print {
-            .print-layout          { display: table; width: 100%; }
-            .print-layout > thead  { display: table-header-group; }
-            .print-layout > tfoot  { display: table-footer-group; }
-            .print-layout > tbody  { display: table-row-group; }
-            .print-layout > tbody > tr { display: table-row; }
-            .print-layout > tbody > tr > td { display: table-cell; vertical-align: top; padding: 0; }
-            .print-layout > thead td,
-            .print-layout > tfoot td { padding: 0; }
-
-            .print-running-header {
-                display: flex;
-                justify-content: space-between;
-                padding: 4px 0;
-                border-bottom: 1px solid #ccc;
-                font-size: 9pt;
-                color: #444;
+            /* Force the table to fill the full page height */
+            .print-table {
+                display: table;
+                width: 100%;
+                height: 100vh;
             }
+            .print-table > thead { display: table-header-group; }
+            .print-table > tfoot { display: table-footer-group; }
+            .print-table > tbody { display: table-row-group; }
+            .print-table > tbody > tr { display: table-row; }
+            .print-table > tbody > tr > td {
+                display: table-cell;
+                vertical-align: top;
+                padding: 0;
+            }
+            .print-table > tfoot td { padding: 0; }
+
             .print-running-footer {
                 display: flex;
                 justify-content: space-between;
-                padding: 2px 0;
-                border-top: 1px solid #ccc;
+                padding: 4px 0;
+                border-top: 0.5pt solid #ccc;
                 font-size: 8pt;
                 color: #666;
             }
-            .print-page-counter::before {
-                content: "Page " counter(page);
-            }
         }
 
-        /* Wider page margins to accommodate repeating header/footer */
         @page {
             size: letter;
-            margin: 0.4in 0.3in;
+            margin: 0.4in 0.3in 0.5in 0.3in;
+        }
+        @page :first {
+            margin-top: 0.15in;
         }
         """
 
@@ -1718,26 +1715,26 @@ print(os.path.getsize(output_path))
             f'<style>{css_content}\n{print_btn_style}\n{print_hf_css}</style>'
         )
 
-        # Inject print button (outside the table wrapper)
+        # Inject print button
         html_content = html_content.replace(
             '<body>',
             '<body>'
             '<button class="print-btn" onclick="window.print()">&#128438; Print / Save as PDF</button>'
         )
 
-        # Wrap .page-wrapper in a table for repeating print header/footer
+        # Wrap .page-wrapper in a table with tfoot for repeating page-bottom footer.
+        # height:100vh on the table (in @media print) ensures the tfoot is pushed
+        # to the physical page bottom even when content is shorter than one page.
         table_open = (
-            f'<table class="print-layout"><thead><tr><td>'
-            f'<div class="print-running-header">'
-            f'<span>{report_label_safe}</span><span>{property_address_safe}</span>'
-            f'</div></td></tr></thead>'
-            f'<tfoot><tr><td>'
+            '<table class="print-table">'
+            '<tfoot><tr><td>'
             f'<div class="print-running-footer">'
             f'<span>{report_label_safe}</span>'
-            f'<span class="print-page-counter"></span>'
+            f'<span class="print-page-num"></span>'
             f'<span>{property_address_safe}</span>'
-            f'</div></td></tr></tfoot>'
-            f'<tbody><tr><td>'
+            f'</div>'
+            '</td></tr></tfoot>'
+            '<tbody><tr><td>'
         )
         html_content = html_content.replace(
             '<div class="page-wrapper">',
@@ -1745,7 +1742,14 @@ print(os.path.getsize(output_path))
         )
         html_content = html_content.replace(
             '</body>',
-            '</td></tr></tbody></table></body>'
+            '</td></tr></tbody></table>'
+            '<script>'
+            'window.addEventListener("beforeprint",function(){'
+            'var el=document.querySelector(".print-page-num");'
+            'if(el) el.textContent="Page 1";'
+            '});'
+            '</script>'
+            '</body>'
         )
 
         # Sanitize surrogate characters that Windows file paths/fonts can introduce

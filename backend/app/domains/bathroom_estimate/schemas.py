@@ -51,7 +51,7 @@ class BathroomEstimateBase(BaseModel):
     replace_vanity_light: bool = False
     detach_reset_vanity_light: bool = False
     water_damage: bool = False
-    water_damage_source: Optional[str] = Field(None, max_length=30)
+    water_damage_source: Optional[str] = Field(None, max_length=100)
     mold_suspected: bool = False
     existing_tub_material: Optional[str] = None
     demo_already_done: bool = False
@@ -267,7 +267,7 @@ class BathroomEstimateResponse(BaseModel):
     replace_vanity_light: bool = False
     detach_reset_vanity_light: bool = False
     water_damage: bool = False
-    water_damage_source: Optional[str] = Field(None, max_length=30)
+    water_damage_source: Optional[str] = Field(None, max_length=100)
     mold_suspected: bool = False
     existing_tub_material: Optional[str] = None
     demo_already_done: bool = False

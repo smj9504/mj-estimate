@@ -219,6 +219,8 @@ const BathroomEstimateDetail: React.FC = () => {
         subfloor_allowance: hc.subfloor_allowance ?? true,
         auto_gfci: hc.auto_gfci ?? false,
         auto_exhaust_fan: hc.auto_exhaust_fan ?? false,
+        auto_tub_valve: hc.auto_tub_valve ?? true,
+        auto_shower_valve: hc.auto_shower_valve ?? true,
         auto_ceiling_paint: hc.auto_ceiling_paint ?? true,
         mold_resistant_drywall: hc.mold_resistant_drywall ?? true,
       };
@@ -1066,16 +1068,23 @@ const BathroomEstimateDetail: React.FC = () => {
                             name="water_damage_source"
                             label="Damage Source (plumber already repaired)"
                             style={{ marginBottom: 8 }}
-                            tooltip="Plumbing for this fixture is excluded from the estimate"
+                            tooltip="Plumbing for selected fixtures is excluded from the estimate"
+                            getValueFromEvent={(vals: string[]) => vals?.length ? vals.join(',') : null}
+                            getValueProps={(val: string) => ({ value: val ? val.split(',') : [] })}
                           >
-                            <Select allowClear placeholder="Select damage source">
-                              <Select.Option value="shower">Shower</Select.Option>
-                              <Select.Option value="bathtub">Bathtub</Select.Option>
-                              <Select.Option value="vanity">Vanity / Sink</Select.Option>
-                              <Select.Option value="toilet">Toilet</Select.Option>
-                              <Select.Option value="supply_line">Supply Line</Select.Option>
-                              <Select.Option value="other">Other</Select.Option>
-                            </Select>
+                            <Select
+                              mode="multiple"
+                              allowClear
+                              placeholder="Select damage source(s)"
+                              options={[
+                                { label: 'Shower', value: 'shower' },
+                                { label: 'Bathtub', value: 'bathtub' },
+                                { label: 'Vanity / Sink', value: 'vanity' },
+                                { label: 'Toilet', value: 'toilet' },
+                                { label: 'Supply Line', value: 'supply_line' },
+                                { label: 'Other', value: 'other' },
+                              ]}
+                            />
                           </Form.Item>
                         </Col>
                       </Row>
@@ -2017,25 +2026,28 @@ const BathroomEstimateDetail: React.FC = () => {
               <Card>
                 <Collapse defaultActiveKey={['plumbing', 'electrical']}>
                   <Panel header="Plumbing" key="plumbing">
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+                      Shutoff valve, supply line은 Replace/D&R fixture에서 자동 계산됩니다.
+                    </Text>
                     <Row gutter={16}>
-                      <Col xs={12} sm={8} md={4}>
-                        <Form.Item label="Shutoff Valves" name={['plumbing_spec', 'valve_replace_count']}>
-                          <InputNumber style={{ width: '100%' }} min={0} />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={8} md={4}>
-                        <Form.Item label="Supply Lines" name={['plumbing_spec', 'supply_line_count']}>
-                          <InputNumber style={{ width: '100%' }} min={0} />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={12} sm={8} md={4}>
+                      <Col xs={12} sm={8} md={6}>
                         <Form.Item name={['plumbing_spec', 'drain_modification']} valuePropName="checked">
-                          <Checkbox>Drain Mod</Checkbox>
+                          <Checkbox>
+                            Drain Mod{' '}
+                            <Tooltip title="배수관 위치 변경이 필요할 때 체크하세요. 예: 욕조→샤워 전환, fixture 위치 이동, 기존 배수관 크기 변경 등. 기존 위치 그대로 교체하는 경우에는 불필요합니다.">
+                              <QuestionCircleOutlined style={{ color: '#999' }} />
+                            </Tooltip>
+                          </Checkbox>
                         </Form.Item>
                       </Col>
-                      <Col xs={12} sm={8} md={4}>
+                      <Col xs={12} sm={8} md={6}>
                         <Form.Item name={['plumbing_spec', 'pressure_balance_valve']} valuePropName="checked">
-                          <Checkbox>Pressure Balance</Checkbox>
+                          <Checkbox>
+                            Pressure Balance{' '}
+                            <Tooltip title="온수/냉수 압력 균형 밸브 (코드 요구사항). 다른 곳에서 물을 사용할 때 샤워 온도가 급변하는 것을 방지합니다. 기존 밸브가 없거나 노후된 경우, 또는 코드 업데이트가 필요한 경우 체크하세요.">
+                              <QuestionCircleOutlined style={{ color: '#999' }} />
+                            </Tooltip>
+                          </Checkbox>
                         </Form.Item>
                       </Col>
                       <Col xs={12} sm={8} md={4}>
@@ -2044,6 +2056,24 @@ const BathroomEstimateDetail: React.FC = () => {
                         </Form.Item>
                       </Col>
                     </Row>
+                    <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
+                      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Auto-include (uncheck to disable)</Text>
+                      <Row gutter={[16, 4]}>
+                        <Col xs={24} sm={16} md={12}>
+                          <Form.Item name={['hidden_costs', 'auto_tub_valve']} valuePropName="checked" style={{ marginBottom: 2 }}>
+                            <Checkbox><Text style={{ fontSize: 12 }}>Bathtub valve + trim (tub surround tile 작업 시)</Text></Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={16} md={12}>
+                          <Form.Item name={['hidden_costs', 'auto_shower_valve']} valuePropName="checked" style={{ marginBottom: 2 }}>
+                            <Checkbox><Text style={{ fontSize: 12 }}>Shower valve + trim (standalone shower)</Text></Checkbox>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                        D&R fixture가 있으면 shutoff valve, supply line이 자동 추가됩니다. 위 필드에 수동 입력 시 자동 계산이 무시됩니다.
+                      </Text>
+                    </div>
                   </Panel>
                   <Panel header="Electrical" key="electrical">
                     <Row gutter={16}>

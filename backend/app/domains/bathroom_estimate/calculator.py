@@ -165,11 +165,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     tile_floor_sf = max(round(tile_floor_sf, 1), 0)
 
     # Water damage source — plumber already repaired this fixture's plumbing
-    wd_source = getattr(estimate, 'water_damage_source', None) or ""
-    plumber_fixed_shower = wd_source in ("shower", "bathtub")
-    plumber_fixed_tub = wd_source in ("bathtub",)
-    plumber_fixed_vanity = wd_source in ("vanity",)
-    plumber_fixed_toilet = wd_source in ("toilet",)
+    # Supports multiple sources: "shower,bathtub" or single "shower"
+    _wd_raw = getattr(estimate, 'water_damage_source', None) or ""
+    wd_sources = [s.strip() for s in _wd_raw.split(",") if s.strip()]
+    wd_source = _wd_raw  # keep original for display
+    plumber_fixed_shower = "shower" in wd_sources
+    plumber_fixed_tub = "bathtub" in wd_sources
+    plumber_fixed_vanity = "vanity" in wd_sources
+    plumber_fixed_toilet = "toilet" in wd_sources
 
     # ── Auto-derive demo flags from scope ──
     # demo_floor: new floor tile requires removing old tile first
@@ -463,15 +466,48 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     # ────────────────────────────────────────
     plumb = estimate.plumbing_spec or {}
 
-    valve_count = plumb.get("valve_replace_count") or 0
-    if valve_count > 0:
-        _add(line_items, 2, "Shut-off valve replacement", valve_count, "EA",
-             PLUMBING_RATES["shutoff_valve_each"] * labor_mult, "plumbing")
+    # Auto-calculate shutoff valves & supply lines from ALL plumbing fixtures
+    # (both Replace and D&R). Each fixture has valves & supply lines that
+    # should be replaced when disconnected to prevent future leaks.
+    _plumb_fixtures = []
+    _auto_valve_count = 0
+    _auto_supply_count = 0
 
-    supply_count = plumb.get("supply_line_count") or 0
-    if supply_count > 0:
-        _add(line_items, 2, "Supply line replacement (braided SS)", supply_count, "EA",
-             PLUMBING_RATES["supply_line_each"] * labor_mult, "plumbing")
+    # Vanity: 2 valves (hot/cold) per vanity
+    if estimate.replace_vanity or getattr(estimate, 'detach_reset_vanity', False):
+        _van_items = (estimate.vanity_spec or {}).get("items") or [estimate.vanity_spec or {}]
+        _van_count = len([v for v in _van_items if v and isinstance(v, dict)])
+        _auto_valve_count += _van_count * 2
+        _auto_supply_count += _van_count * 2
+        _plumb_fixtures.append(f"vanity x{_van_count}")
+    # Bathtub: 2 valves (hot/cold)
+    if estimate.replace_tub or getattr(estimate, 'detach_reset_tub', False):
+        _auto_valve_count += 2
+        _auto_supply_count += 2
+        _plumb_fixtures.append("bathtub")
+    # Standalone shower: 2 valves (hot/cold)
+    if estimate.replace_shower or getattr(estimate, 'detach_reset_shower', False):
+        _auto_valve_count += 2
+        _auto_supply_count += 2
+        _plumb_fixtures.append("shower")
+    # Toilet: 1 valve (cold only)
+    if estimate.replace_toilet or getattr(estimate, 'detach_reset_toilet', False):
+        _auto_valve_count += 1
+        _auto_supply_count += 1
+        _plumb_fixtures.append("toilet")
+
+    if _auto_valve_count > 0:
+        _fix_list = ", ".join(_plumb_fixtures)
+        _add(line_items, 2, "Shut-off valve replacement",
+             _auto_valve_count, "EA",
+             PLUMBING_RATES["shutoff_valve_each"] * labor_mult, "plumbing",
+             notes=f"Quarter-turn ball valve | {_fix_list}")
+
+    if _auto_supply_count > 0:
+        _add(line_items, 2, "Supply line replacement (braided SS)",
+             _auto_supply_count, "EA",
+             PLUMBING_RATES["supply_line_each"] * labor_mult, "plumbing",
+             notes="Braided stainless steel | replace while disconnected")
 
     p_trap_count = plumb.get("p_trap_count") or 0
     if p_trap_count > 0:
@@ -1029,9 +1065,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              1, "EA", tub_combined, "fixture",
              notes=" | ".join(tub_parts))
 
-    # Shower valve & trim — auto-include when tub has surround tile
-    # Applies to both Replace and D&R: walls are open for surround work
-    # Skip if plumber already fixed shower/tub valve (water damage source)
+    # ── Tub/shower combo valve (surround tile → wall open) ──
+    # Controllable via hidden_costs.auto_tub_valve (default: True)
     _tub_action = estimate.replace_tub or getattr(estimate, 'detach_reset_tub', False)
     if _tub_action:
         _tub_type_v = tub_spec.get("type", "alcove")
@@ -1039,22 +1074,32 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         if not _has_tub_surround and sk_tub:
             _has_tub_surround = sk_tub.get("properties", {}).get("hasSurround", False)
 
-        if _has_tub_surround and _tub_type_v not in ("freestanding", "none", None):
-            if not plumber_fixed_shower:
-                valve_cost = round(BATHTUB_EXTRAS["shower_valve_body_trim"] * labor_mult, 2)
-                sh_head_cost = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
-                valve_total = valve_cost + sh_head_cost
-                _add(line_items, 5,
-                     "Shower valve + trim kit replacement (tub/shower combo)",
-                     1, "EA", valve_total, "plumbing",
-                     notes=f"Pressure-balance valve body + trim ${valve_cost:,.2f} | "
-                           f"Shower head + arm ${sh_head_cost:,.2f} | "
-                           f"Replace while wall is open to prevent future leak")
-            else:
-                warnings.append(
-                    f"Shower valve excluded — plumber already repaired "
-                    f"(water damage source: {wd_source})"
-                )
+        _valve_eligible = (_has_tub_surround
+                           and _tub_type_v not in ("freestanding", "none", None))
+        _valve_enabled = hc.get("auto_tub_valve", True)
+
+        if _valve_eligible and plumber_fixed_tub:
+            warnings.append(
+                "Tub/shower combo valve: plumber already replaced "
+                "(water damage repair) — excluded from estimate"
+            )
+        elif _valve_eligible and _valve_enabled:
+            valve_cost = round(BATHTUB_EXTRAS["shower_valve_body_trim"] * labor_mult, 2)
+            sh_head_cost = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
+            valve_total = valve_cost + sh_head_cost
+            _add(line_items, 5,
+                 "Shower valve + trim kit replacement (tub/shower combo)",
+                 1, "EA", valve_total, "plumbing",
+                 notes=f"Pressure-balance valve body + trim ${valve_cost:,.2f} | "
+                       f"Shower head + arm ${sh_head_cost:,.2f} | "
+                       f"Replace while wall is open to prevent future leak")
+        elif _valve_eligible and not _valve_enabled:
+            warnings.append(
+                "Tub/shower combo valve excluded by user — "
+                "trim only (valve body retained). "
+                "⚠ Strongly recommend replacing valve body while wall is open; "
+                "future leak would require removing new tile."
+            )
 
     # Shower (consolidated: body → 1 item, door → 1 item, max 2 items)
     if estimate.replace_shower:
@@ -1196,8 +1241,25 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         shower_parts.append(f"Showerhead: {sh_type} ${sh_cost:,.2f}")
 
         # --- Valve (skip if plumber already repaired shower plumbing) ---
+        _sh_valve_enabled = hc.get("auto_shower_valve", True)
         if plumber_fixed_shower:
-            shower_parts.append("Valve/trim: plumber completed (excluded)")
+            shower_parts.append("Valve/trim: plumber already replaced (excluded)")
+        elif not _sh_valve_enabled:
+            # User disabled shower valve — trim only
+            if stype in ("custom_tile", "curbless"):
+                trim_cost = round(
+                    PLUMBING_RATES["shower_valve_trim"] * labor_mult, 2
+                )
+                shower_total += trim_cost
+                shower_parts.append(
+                    f"Trim only (valve body retained): ${trim_cost:,.2f}"
+                )
+            warnings.append(
+                "Shower valve excluded by user — "
+                "trim only (valve body retained). "
+                "⚠ Strongly recommend replacing valve body while wall is open; "
+                "future leak would require removing new tile."
+            )
         elif shower_spec.get("valve_replace"):
             valve_type = (
                 "thermostatic"
@@ -1688,8 +1750,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     # ────────────────────────────────────────
     elec = estimate.electrical_spec or {}
 
+    # GFCI: only include if auto_gfci is enabled (or if explicitly set with count)
     gfci_count = elec.get("gfci_count") or 0
-    if gfci_count > 0:
+    if gfci_count > 0 and hc.get("auto_gfci", False):
         _add(line_items, 2, "GFCI outlet installation", gfci_count, "EA",
              ELECTRICAL_RATES["gfci_outlet_each"] * labor_mult, "electrical")
 
@@ -1723,8 +1786,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             _add(line_items, 2, "Ceiling light fixture installation", 1, "EA",
                  ELECTRICAL_RATES["ceiling_fixture_install"] * labor_mult, "electrical")
 
+    # Exhaust fan: only include if auto_exhaust_fan is enabled
     fan_cfm = elec.get("exhaust_fan_cfm")
-    if fan_cfm:
+    if fan_cfm and hc.get("auto_exhaust_fan", False):
         fan_prices = ELECTRICAL_RATES["exhaust_fan"]
         fan_price = fan_prices.get(fan_cfm, fan_prices.get(80, 425))
         _add(line_items, 2, f"Exhaust fan ({fan_cfm} CFM) + installation", 1, "EA",

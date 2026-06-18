@@ -509,7 +509,8 @@ class BathroomExportService:
 
         # ══════ WARNINGS ══════
         # Filter out internal-only fields from client-facing PDF
-        _internal_keywords = {"adjustment factor", "target total", "factor:", "multiplier:"}
+        _internal_keywords = {"adjustment factor", "target total", "factor:", "multiplier:",
+                               "strongly recommend replacing valve"}
         warnings = [
             w for w in (estimate.get("warning_flags") or [])
             if not any(kw in w.lower() for kw in _internal_keywords)

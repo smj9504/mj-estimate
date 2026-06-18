@@ -179,6 +179,8 @@ export interface HiddenCostFlags {
   subfloor_allowance?: boolean;
   auto_gfci?: boolean;
   auto_exhaust_fan?: boolean;
+  auto_tub_valve?: boolean;
+  auto_shower_valve?: boolean;
   auto_vanity_light?: boolean;
   auto_ceiling_paint?: boolean;
   mold_resistant_drywall?: boolean;
