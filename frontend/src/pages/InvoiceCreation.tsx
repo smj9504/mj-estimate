@@ -18,6 +18,7 @@ import {
   Typography,
   Tooltip,
   Popconfirm,
+  Spin,
 } from 'antd';
 import {
   PlusOutlined,
@@ -2945,6 +2946,15 @@ const InvoiceCreation: React.FC = () => {
       return { discount: 0, taxRate: 0 };
     }
   }, [form, formMounted, formFieldsChanged]);
+
+  // Show loading spinner when editing an existing invoice
+  if (isEditMode && invoiceLoading) {
+    return (
+      <div style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+        <Spin size="large" tip="Loading invoice..." />
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: '24px' }}>

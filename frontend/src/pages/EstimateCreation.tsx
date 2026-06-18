@@ -18,6 +18,7 @@ import {
   Collapse,
   Switch,
   Checkbox,
+  Spin,
 } from 'antd';
 import {
   PlusOutlined,
@@ -1351,6 +1352,15 @@ const EstimateCreation: React.FC<EstimateCreationProps> = ({ initialEstimate }) 
       )
     }
   ];
+
+  // Show loading spinner when editing an existing estimate
+  if (isEditMode && isDataLoading) {
+    return (
+      <div style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+        <Spin size="large" tip="Loading estimate..." />
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>

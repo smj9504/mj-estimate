@@ -689,6 +689,15 @@ const PlumberReportCreation: React.FC = () => {
 
   const totals = calculateTotals();
 
+  // Show loading spinner when editing an existing report
+  if (id && isDataLoading) {
+    return (
+      <div style={{ padding: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+        <Spin size="large" tip="Loading report..." />
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
