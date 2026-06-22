@@ -339,6 +339,10 @@ def export_invoice(
     estimate_id: str,
     completion_date: str = Query(""),
     pricing_mode: str = Query("detailed"),
+    invoice_date: str = Query(""),
+    due_date: str = Query(""),
+    payment_amount: float = Query(0),
+    payment_date: str = Query(""),
     session: DatabaseSession = Depends(get_db_session),
     current_user: dict = Depends(get_current_user),
 ):
@@ -356,6 +360,10 @@ def export_invoice(
         estimate,
         completion_date=completion_date,
         pricing_mode=pricing_mode,
+        invoice_date=invoice_date,
+        due_date=due_date,
+        payment_amount=payment_amount,
+        payment_date=payment_date,
     )
 
     return StreamingResponse(

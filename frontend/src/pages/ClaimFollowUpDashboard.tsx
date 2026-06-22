@@ -268,6 +268,7 @@ interface ClaimGroup {
   hasInsuranceEstimate: boolean;
   nextFollowupDate: string | null;
   supplementStatuses: Record<string, number>;
+  bidEstimateSummary: Record<string, number>;
   pendingInfoRequests: number;
   pa_name: string;
   pa_company: string;
@@ -893,6 +894,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
           hasInsuranceEstimate: false,
           nextFollowupDate: null,
           supplementStatuses: {},
+          bidEstimateSummary: {},
           pendingInfoRequests: 0,
           pa_name: task.pa_name || '',
           pa_company: task.pa_company || '',
@@ -921,12 +923,18 @@ const ClaimFollowUpDashboard: React.FC = () => {
       }
 
       // Track WM cost status from claim
-      if ((task as any).wm_cost_status && !group.wmCostStatus) {
-        group.wmCostStatus = (task as any).wm_cost_status;
+      if (task.wm_cost_status && !group.wmCostStatus) {
+        group.wmCostStatus = task.wm_cost_status;
       }
       // Track insurance estimate status
-      if ((task as any).has_insurance_estimate) {
+      if (task.has_insurance_estimate) {
         group.hasInsuranceEstimate = true;
+      }
+      // Merge bid estimate summary
+      if (task.bid_estimate_summary) {
+        Object.entries(task.bid_estimate_summary).forEach(([st, cnt]) => {
+          group.bidEstimateSummary[st] = cnt as number;
+        });
       }
 
       // Check urgent priority on active tasks
@@ -1351,7 +1359,6 @@ const ClaimFollowUpDashboard: React.FC = () => {
       group.tasks.filter(t => t.status === 'resolved').map(t => t.task_type)
     );
     const activeTypes = group.activeStages;
-    const hasSupplementTasks = resolvedTypes.has('supplement_sent') || activeTypes.has('supplement_sent');
 
     // Virtual resolved stages based on claim data (no task needed)
     const virtualResolved = new Set<TaskType>();
@@ -1376,6 +1383,37 @@ const ClaimFollowUpDashboard: React.FC = () => {
       virtualPending.add('payment_check');
     }
 
+    // Supplement status summary from group data
+    const suppStatuses = group.supplementStatuses;
+    const suppTotal = Object.values(suppStatuses).reduce((a, b) => a + b, 0);
+    const suppApproved = suppStatuses['approved'] || 0;
+    const suppDenied = suppStatuses['denied'] || 0;
+    const suppSubmitted = suppStatuses['submitted'] || suppStatuses['under_review'] || 0;
+    const suppInProgress = suppStatuses['in_progress'] || suppStatuses['identified'] || 0;
+
+    // Bid estimate summary
+    const bidSummary = group.bidEstimateSummary;
+    const bidTotal = Object.values(bidSummary).reduce((a, b) => a + b, 0);
+    const bidDraft = bidSummary['draft'] || 0;
+    const bidSent = bidSummary['sent'] || 0;
+
+    // Virtual supplement stage: show when estimate received but no supplement task
+    if (group.hasInsuranceEstimate
+        && !resolvedTypes.has('supplement_sent')
+        && !activeTypes.has('supplement_sent')) {
+      if (suppTotal > 0 || bidTotal > 0) {
+        // Supplement work exists but no follow-up task → show as virtual
+        if (suppApproved > 0 && suppApproved === suppTotal) {
+          virtualResolved.add('supplement_sent');
+        } else {
+          virtualPending.add('supplement_sent');
+        }
+      } else {
+        // No supplement work at all → show as pending hint
+        virtualPending.add('supplement_sent');
+      }
+    }
+
     // Only show stages that this claim actually has tasks for (or virtual)
     const relevantStages = STAGE_ORDER.filter(
       stage => resolvedTypes.has(stage) || activeTypes.has(stage)
@@ -1395,14 +1433,6 @@ const ClaimFollowUpDashboard: React.FC = () => {
       pending: 'Pending',
     };
 
-    // Supplement status summary from group data
-    const suppStatuses = group.supplementStatuses;
-    const suppTotal = Object.values(suppStatuses).reduce((a, b) => a + b, 0);
-    const suppApproved = suppStatuses['approved'] || 0;
-    const suppDenied = suppStatuses['denied'] || 0;
-    const suppSubmitted = suppStatuses['submitted'] || suppStatuses['under_review'] || 0;
-    const suppInProgress = suppStatuses['in_progress'] || suppStatuses['identified'] || 0;
-
     // Determine overall claim progress
     const hasActiveOrPending = relevantStages.some(
       s => activeTypes.has(s) || virtualPending.has(s)
@@ -1414,21 +1444,7 @@ const ClaimFollowUpDashboard: React.FC = () => {
     const wmDocsResolved = resolvedTypes.has('wm_docs_sent') && !activeTypes.has('wm_docs_sent');
 
     if (onlyWmDocs && wmDocsResolved) {
-      // Estimate already exists (uploaded PDF or amounts entered) → show that
-      if (group.hasInsuranceEstimate) {
-        return (
-          <Space size={4}>
-            <Tag style={{ backgroundColor: 'transparent', color: '#b7b7b7', border: '1px solid #e8e8e8', fontSize: 10, margin: 0, lineHeight: '20px', opacity: 0.7 }}>
-              <CheckCircleOutlined style={{ marginRight: 3, fontSize: 9 }} />Docs Sent
-            </Tag>
-            <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />
-            <Tag style={{ backgroundColor: '#f6ffed', color: '#52c41a', border: '1px solid #b7eb8f', fontSize: 11, margin: 0, lineHeight: '20px' }}>
-              <CheckCircleOutlined style={{ marginRight: 3, fontSize: 10 }} />Estimate Received
-            </Tag>
-          </Space>
-        );
-      }
-      // No estimate data yet → waiting
+      // No estimate yet, only WM docs resolved → waiting
       return (
         <Space size={4}>
           <Tag style={{ backgroundColor: 'transparent', color: '#b7b7b7', border: '1px solid #e8e8e8', fontSize: 10, margin: 0, lineHeight: '20px', opacity: 0.7 }}>
@@ -1516,24 +1532,42 @@ const ClaimFollowUpDashboard: React.FC = () => {
           : `${STAGE_LABELS[stage]}: ${statusLabel}`;
       }
 
-      // Supplement stage: show detailed status
-      if (stage === 'supplement_sent' && suppTotal > 0) {
+      // Supplement stage: show detailed status (tasks or virtual)
+      if (stage === 'supplement_sent') {
         if (suppApproved > 0 && suppApproved === suppTotal) {
-          label = resolved ? 'Supp: Approved' : `Supplement: Approved (${suppApproved})`;
+          label = isPastStage ? 'Supp: Approved' : `Supplement: Approved (${suppApproved})`;
         } else if (suppDenied > 0 && suppDenied === suppTotal) {
           label = 'Supp: Denied';
+          bgColor = '#fff1f0'; txtColor = '#cf1322'; border = '1px solid #ffa39e';
         } else if (suppSubmitted > 0) {
-          label = resolved ? 'Supp: Under Review' : 'Supplement: Under Review';
-        } else if (suppInProgress > 0) {
-          label = 'Supplement: Estimating';
-        } else {
+          label = isPastStage ? 'Supp: Under Review' : 'Supplement: Under Review';
+          bgColor = '#1890ff'; txtColor = '#fff'; border = 'none';
+        } else if (bidSent > 0) {
+          label = isPastStage
+            ? 'Sent to PA'
+            : `Sent to PA${bidDraft > 0 ? ` (${bidSent}/${bidTotal})` : ''}`;
+          bgColor = '#1890ff'; txtColor = '#fff'; border = 'none';
+        } else if (suppInProgress > 0 || bidDraft > 0) {
+          label = `Estimating${bidTotal > 0 ? ` (${bidTotal})` : ''}`;
+          bgColor = '#1890ff'; txtColor = '#fff'; border = 'none';
+        } else if (suppTotal > 0) {
           label = `Supplement (${suppTotal})`;
+        } else if (isVirtualPending && group.hasInsuranceEstimate) {
+          label = 'Need Supplement';
         }
       }
 
       const paymentNote = anyTask?.payment_note;
-      const tooltipText = paymentNote
+      let tooltipText = paymentNote
         || (isPastStage ? `${STAGE_LABELS[stage]} - Done` : '');
+      // Supplement tooltip with bid item detail
+      if (stage === 'supplement_sent' && !tooltipText) {
+        if (bidSent > 0) tooltipText = `${bidSent} bid item(s) sent to PA`;
+        else if (bidDraft > 0) tooltipText = `${bidDraft} bid item(s) in draft`;
+        else if (isVirtualPending && group.hasInsuranceEstimate) {
+          tooltipText = 'Create supplement estimate to compare with insurance estimate';
+        }
+      }
 
       const icon = paymentNeedsAttention
         ? <ExclamationCircleOutlined style={{ marginRight: 3, fontSize: isPastStage ? 9 : 10 }} />
@@ -1566,24 +1600,22 @@ const ClaimFollowUpDashboard: React.FC = () => {
           {tooltipText ? <Tooltip title={tooltipText}>{tagEl}</Tooltip> : tagEl}
         </React.Fragment>
       );
+
+      // Insert "Estimate Received" indicator between wm_docs and supplement
+      if (stage === 'wm_docs_sent' && resolved && group.hasInsuranceEstimate
+          && relevantStages.includes('supplement_sent')) {
+        tags.push(
+          <React.Fragment key="est-received">
+            <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />
+            <Tag style={{ backgroundColor: 'transparent', color: '#b7b7b7', border: '1px solid #e8e8e8', fontSize: 10, margin: 0, lineHeight: '20px', opacity: 0.7 }}>
+              <CheckCircleOutlined style={{ marginRight: 3, fontSize: 9 }} />Est. Received
+            </Tag>
+          </React.Fragment>
+        );
+      }
     });
 
-    // --- Add "Awaiting Supplement Estimate" hint after payments if no supplement task exists ---
-    if (!hasSupplementTasks && suppTotal === 0
-        && (resolvedTypes.has('payment_check') || activeTypes.has('payment_check'))
-        && !resolvedTypes.has('supplement_sent') && !activeTypes.has('supplement_sent')) {
-      // Has payment stage but no supplement → show hint
-      tags.push(
-        <React.Fragment key="supp-hint">
-          <RightOutlined style={{ fontSize: 10, color: '#d9d9d9' }} />
-          <Tooltip title="Supplement estimate may be needed after comparing our estimate vs insurance">
-            <Tag style={{ backgroundColor: 'transparent', color: '#b7b7b7', border: '1px dashed #d9d9d9', fontSize: 10, margin: 0, lineHeight: '20px' }}>
-              Supplement?
-            </Tag>
-          </Tooltip>
-        </React.Fragment>
-      );
-    }
+    // (virtual supplement stage is now handled above via virtualPending/virtualResolved)
 
     return <Space size={4} wrap>{tags}</Space>;
   };

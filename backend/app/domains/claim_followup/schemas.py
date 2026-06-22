@@ -129,6 +129,18 @@ class FollowUpTaskResponse(FollowUpTaskBase):
     property_address: Optional[str] = None
     insurance_company: Optional[str] = None
 
+    # Enrichment fields from claim data
+    supplement_statuses: Optional[Dict[str, Any]] = None
+    pending_info_requests: Optional[int] = None
+    has_public_adjuster: Optional[bool] = None
+    pa_name: Optional[str] = None
+    pa_company: Optional[str] = None
+    pa_email: Optional[str] = None
+    pa_phone: Optional[str] = None
+    wm_cost_status: Optional[str] = None
+    has_insurance_estimate: Optional[bool] = None
+    bid_estimate_summary: Optional[Dict[str, Any]] = None
+
     class Config:
         from_attributes = True
 

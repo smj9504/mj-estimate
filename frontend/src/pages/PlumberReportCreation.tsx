@@ -208,10 +208,11 @@ const PlumberReportCreation: React.FC = () => {
       let zipcode = client.zipcode || '';
 
       // Parse address string if city/state/zipcode are empty
-      // e.g. "5213 Ashcroft Ct, Fairfax, VA 22032"
+      // Supports: "Street, City, State Zip" or "Street, City State Zip"
       if (street && !city && !state && !zipcode) {
         const parts = street.split(',').map((p) => p.trim());
         if (parts.length >= 3) {
+          // "5213 Ashcroft Ct, Fairfax, VA 22032"
           street = parts[0];
           city = parts[1];
           const lastPart = parts[parts.length - 1];
@@ -223,14 +224,24 @@ const PlumberReportCreation: React.FC = () => {
             state = lastPart;
           }
         } else if (parts.length === 2) {
+          // "9512 Ash Hollow Pl, Gaithersburg MD 20886-1239"
           street = parts[0];
           const lastPart = parts[1];
-          const stateZipMatch = lastPart.match(/^([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/);
-          if (stateZipMatch) {
-            state = stateZipMatch[1];
-            zipcode = stateZipMatch[2];
+          // Try "State Zip" first (e.g. "VA 22032")
+          const stateZipOnly = lastPart.match(/^([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+          if (stateZipOnly) {
+            state = stateZipOnly[1];
+            zipcode = stateZipOnly[2];
           } else {
-            city = lastPart;
+            // Try "City State Zip" (e.g. "Gaithersburg MD 20886-1239")
+            const cityStateZip = lastPart.match(/^(.+?)\s+([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+            if (cityStateZip) {
+              city = cityStateZip[1];
+              state = cityStateZip[2];
+              zipcode = cityStateZip[3];
+            } else {
+              city = lastPart;
+            }
           }
         }
       }

@@ -25,6 +25,7 @@ import {
   Typography,
   Upload,
   Spin,
+  DatePicker,
 } from 'antd';
 import {
   AimOutlined,
@@ -59,6 +60,7 @@ import type {
 import { PHASE_LABELS, STATUS_COLORS, PENETRATION_TYPE_OPTIONS } from '../types/roofingEstimate';
 import type { Company } from '../types';
 import RoofDiagram from '../components/roofing-estimate/RoofDiagram';
+import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
@@ -169,6 +171,10 @@ const RoofingEstimateDetail: React.FC = () => {
     pricingMode: 'detailed' as 'detailed' | 'lumpsum',
     showSignature: true,
     gutterSeparate: false,
+    invoiceDate: dayjs().format('YYYY-MM-DD'),
+    dueDate: dayjs().format('YYYY-MM-DD'),
+    paymentAmount: 0,
+    paymentDate: '',
   });
 
   const { data: estimate, isLoading } = useQuery({
@@ -2203,6 +2209,10 @@ const RoofingEstimateDetail: React.FC = () => {
                 roofingEstimateService.exportInvoice(id!, {
                   pricing_mode: pricingMode,
                   address: estimate?.property_address,
+                  invoice_date: pdfOptions.invoiceDate,
+                  due_date: pdfOptions.dueDate,
+                  payment_amount: pdfOptions.paymentAmount || undefined,
+                  payment_date: pdfOptions.paymentDate || undefined,
                 });
               } else {
                 roofingEstimateService.exportPdf(id!, {
@@ -2246,6 +2256,55 @@ const RoofingEstimateDetail: React.FC = () => {
               ]}
             />
           </div>
+        )}
+
+        {pdfOptions.docType === 'invoice' && (
+          <>
+            <Divider style={{ margin: '12px 0' }} />
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>Invoice Details</Text>
+            <Row gutter={12} style={{ marginBottom: 12 }}>
+              <Col span={12}>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>Invoice Date</Text>
+                <DatePicker
+                  value={dayjs(pdfOptions.invoiceDate)}
+                  onChange={(d) => setPdfOptions({ ...pdfOptions, invoiceDate: d ? d.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD') })}
+                  style={{ width: '100%' }}
+                />
+              </Col>
+              <Col span={12}>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>Due Date</Text>
+                <DatePicker
+                  value={dayjs(pdfOptions.dueDate)}
+                  onChange={(d) => setPdfOptions({ ...pdfOptions, dueDate: d ? d.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD') })}
+                  style={{ width: '100%' }}
+                />
+              </Col>
+            </Row>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>Payment (optional)</Text>
+            <Row gutter={12}>
+              <Col span={12}>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>Payment Amount</Text>
+                <InputNumber
+                  value={pdfOptions.paymentAmount}
+                  onChange={(v) => setPdfOptions({ ...pdfOptions, paymentAmount: v || 0 })}
+                  min={0}
+                  prefix="$"
+                  style={{ width: '100%' }}
+                  formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={(v) => Number(v?.replace(/,/g, '') || 0)}
+                />
+              </Col>
+              <Col span={12}>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>Payment Date</Text>
+                <DatePicker
+                  value={pdfOptions.paymentDate ? dayjs(pdfOptions.paymentDate) : null}
+                  onChange={(d) => setPdfOptions({ ...pdfOptions, paymentDate: d ? d.format('YYYY-MM-DD') : '' })}
+                  style={{ width: '100%' }}
+                  placeholder="Select date"
+                />
+              </Col>
+            </Row>
+          </>
         )}
 
         {pdfOptions.docType === 'estimate' && (

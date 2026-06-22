@@ -154,10 +154,22 @@ export const roofingEstimateService = {
     window.URL.revokeObjectURL(url);
   },
 
-  async exportInvoice(id: string, options?: { completion_date?: string; address?: string; pricing_mode?: string }) {
+  async exportInvoice(id: string, options?: {
+    completion_date?: string;
+    address?: string;
+    pricing_mode?: string;
+    invoice_date?: string;
+    due_date?: string;
+    payment_amount?: number;
+    payment_date?: string;
+  }) {
     const params: Record<string, any> = {};
     if (options?.completion_date) params.completion_date = options.completion_date;
     if (options?.pricing_mode) params.pricing_mode = options.pricing_mode;
+    if (options?.invoice_date) params.invoice_date = options.invoice_date;
+    if (options?.due_date) params.due_date = options.due_date;
+    if (options?.payment_amount) params.payment_amount = options.payment_amount;
+    if (options?.payment_date) params.payment_date = options.payment_date;
 
     const response = await api.get(`${BASE_URL}/${id}/export/invoice`, {
       responseType: 'blob',

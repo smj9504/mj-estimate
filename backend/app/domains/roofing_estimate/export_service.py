@@ -1361,6 +1361,10 @@ class RoofingExportService:
         estimate: Dict[str, Any],
         completion_date: str = "",
         pricing_mode: str = "detailed",
+        invoice_date: str = "",
+        due_date: str = "",
+        payment_amount: float = 0,
+        payment_date: str = "",
     ) -> io.BytesIO:
         """Generate invoice PDF using the existing invoice
         template system (WeasyPrint + Jinja2).
@@ -1389,8 +1393,13 @@ class RoofingExportService:
         co = estimate.get("company_info") or {}
         est_id = (estimate.get("id") or "")[:8].upper()
         inv_number = f"INV-{est_id}" if est_id else "DRAFT"
-        today = completion_date or datetime.now().strftime(
-            "%Y-%m-%d"
+        today = (
+            invoice_date
+            or completion_date
+            or datetime.now().strftime("%Y-%m-%d")
+        )
+        invoice_due_date = (
+            due_date or today
         )
 
         client_name = estimate.get("client_name") or ""
@@ -1527,7 +1536,7 @@ class RoofingExportService:
         pdf_data = {
             "invoice_number": inv_number,
             "date": today,
-            "due_date": today,
+            "due_date": invoice_due_date,
             "company": {
                 "name": co.get("name") or "",
                 "address": co.get("address") or "",
@@ -1550,9 +1559,17 @@ class RoofingExportService:
             "items_subtotal": items_subtotal,
             "adjustments": adjustments,
             "tax_rate": 0,
+            "tax_method": "fixed",
             "tax_amount": tax,
             "total": total,
-            "payments": [],
+            "payments": (
+                [{
+                    "amount": payment_amount,
+                    "date": payment_date or today,
+                    "method": "Payment",
+                }] if payment_amount and payment_amount > 0
+                else []
+            ),
             "payment_terms": (
                 "Payment is due upon receipt of invoice. "
                 "Accepted methods: check, credit card, "

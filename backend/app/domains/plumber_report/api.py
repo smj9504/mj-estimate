@@ -241,6 +241,7 @@ async def preview_pdf(
             }
         )
     except Exception as e:
+        logger.exception("PDF preview failed")
         raise HTTPException(status_code=500, detail=f"PDF preview failed: {str(e)}")
 
 

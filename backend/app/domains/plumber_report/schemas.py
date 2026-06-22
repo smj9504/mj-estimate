@@ -110,6 +110,7 @@ class PlumberReportUpdate(BaseModel):
     report_number: Optional[str] = None
     template_type: Optional[str] = None
     status: Optional[str] = None
+    claim_id: Optional[str] = None
     
     client: Optional[ClientInfo] = None
     property: Optional[PropertyInfo] = None

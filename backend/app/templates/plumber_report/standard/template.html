@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Plumber's Report{% if report_number %} #{{ report_number }}{% endif %}</title>
+  <title>Plumber's Report{% if report_number %} #{{ report_number }}{% endif %}{% if property and property.address %} - {{ property.address }}{% endif %}</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>

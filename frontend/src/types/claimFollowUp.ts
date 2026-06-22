@@ -48,7 +48,9 @@ export interface FollowUpTask {
   pa_company?: string;
   pa_email?: string;
   pa_phone?: string;
+  wm_cost_status?: string;
   has_insurance_estimate?: boolean;
+  bid_estimate_summary?: Record<string, number>;
 }
 
 export interface FollowUpTaskCreate {

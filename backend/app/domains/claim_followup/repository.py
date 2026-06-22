@@ -133,6 +133,37 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
             except Exception:
                 pass
 
+        # Pre-fetch bid item estimate summary per claim
+        bid_summary_map: dict = {}
+        if claim_ids:
+            try:
+                from app.domains.supplement.models import (
+                    BidItemEstimate,
+                    SupplementRequest as SuppReq,
+                )
+                from sqlalchemy import func as bidfunc
+                bid_rows = (
+                    self.db_session.query(
+                        SuppReq.claim_id,
+                        BidItemEstimate.status,
+                        bidfunc.count(BidItemEstimate.id),
+                    )
+                    .join(
+                        BidItemEstimate,
+                        BidItemEstimate.supplement_id == SuppReq.id,
+                    )
+                    .filter(SuppReq.claim_id.in_(claim_ids))
+                    .group_by(SuppReq.claim_id, BidItemEstimate.status)
+                    .all()
+                )
+                for cid, bstatus, cnt in bid_rows:
+                    key = str(cid)
+                    if key not in bid_summary_map:
+                        bid_summary_map[key] = {}
+                    bid_summary_map[key][bstatus or 'draft'] = cnt
+            except Exception:
+                pass
+
         results = []
         for t in tasks:
             d = self._convert_to_dict(t)
@@ -155,6 +186,9 @@ class FollowUpTaskRepository(SQLAlchemyRepository):
                         or t.claim.current_rcv
                         or t.claim.insurance_estimate_file_id
                         or str(t.claim_id) in negotiation_claim_ids
+                    )
+                    d['bid_estimate_summary'] = bid_summary_map.get(
+                        str(t.claim_id), {}
                     )
                     # Address is on the Client model
                     if hasattr(t.claim, 'client') and t.claim.client:

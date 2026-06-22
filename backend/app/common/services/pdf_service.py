@@ -900,10 +900,24 @@ print(os.path.getsize(output_path))
         
         # Calculate totals - matching frontend logic
         items = context.get('items', [])
-        items_subtotal = sum(
-            float(item.get('quantity', 0)) * float(item.get('rate', 0))
-            for item in items
-        )
+        sections = context.get('sections', [])
+        if items:
+            items_subtotal = sum(
+                float(item.get('quantity', 0)) * float(item.get('rate', 0))
+                for item in items
+            )
+        elif sections:
+            # When items is empty but sections exist (e.g. roofing invoice),
+            # calculate subtotal from sections
+            items_subtotal = sum(
+                float(s.get('subtotal', 0)) or sum(
+                    float(i.get('quantity', 0)) * float(i.get('rate', 0))
+                    for i in s.get('items', [])
+                )
+                for s in sections
+            )
+        else:
+            items_subtotal = 0
 
         # Process adjustments if provided (new flexible system)
         adjustments = context.get('adjustments', [])
@@ -1396,7 +1410,7 @@ print(os.path.getsize(output_path))
             }}
 
             @bottom-center {{
-                content: "Page " counter(page) " of " counter(pages);
+                content: "Page " counter(page) "/" counter(pages);
                 font-family: Arial, sans-serif;
                 font-size: 9pt;
             }}
@@ -1446,6 +1460,7 @@ print(os.path.getsize(output_path))
         include_financial: bool = True
     ) -> bytes:
         """Generate PDF for Plumber's Report"""
+        _ensure_weasyprint()
         if not WEASYPRINT_AVAILABLE:
             raise RuntimeError("WeasyPrint is not available")
         
@@ -1518,13 +1533,13 @@ print(os.path.getsize(output_path))
         else:
             property_address = ''
 
-        # Page CSS for header/footer - follows same pattern as invoice PDF
-        # First page: no header, no footer
-        # Pages 2+: no header, footer only
+        # Page CSS for footer (WeasyPrint PDF)
+        # First page: no footer
+        # Pages 2+: footer with report#, page number, address
         page_css = f"""
         @page {{
             size: letter;
-            margin: 0.3in 0.3in 0.6in 0.3in;
+            margin: 0.4in 0.4in 0.7in 0.4in;
 
             @bottom-left {{
                 content: "{report_label}";
@@ -1535,7 +1550,7 @@ print(os.path.getsize(output_path))
             }}
 
             @bottom-center {{
-                content: "Page " counter(page) " of " counter(pages);
+                content: "Page " counter(page) "/" counter(pages);
                 font-size: 8pt;
                 color: #666;
                 border-top: 0.5pt solid #ccc;
@@ -1552,22 +1567,10 @@ print(os.path.getsize(output_path))
         }}
 
         @page :first {{
-            margin: 0.1in 0.3in 0.3in 0.3in;
-            @top-left {{
-                content: none;
-            }}
-            @top-right {{
-                content: none;
-            }}
-            @bottom-left {{
-                content: none;
-            }}
-            @bottom-center {{
-                content: none;
-            }}
-            @bottom-right {{
-                content: none;
-            }}
+            margin: 0.35in 0.4in 0.4in 0.4in;
+            @bottom-left {{ content: none; }}
+            @bottom-center {{ content: none; }}
+            @bottom-right {{ content: none; }}
         }}
 
         .report-footer {{
@@ -1662,30 +1665,30 @@ print(os.path.getsize(output_path))
         .print-btn:hover { background: #374151; }
         """
 
-        # Print footer: use flexbox on .page-wrapper to push footer to page bottom.
-        # min-height uses calc to match the exact content area height
-        # (letter=11in minus top 0.4in minus bottom 0.45in).
+        # Print footer using position:fixed (repeats on every printed page).
+        # Browser print does not support @page margin boxes (@bottom-center etc.),
+        # and counter(page) only works inside @page content — not in DOM elements.
+        # So we show Report# + Page counter + Address using position:fixed footer
+        # with counter(page) in a ::before pseudo-element won't work either.
+        # Best approach: show report# and address; page numbering not possible
+        # in browser print without @page margin box support.
         print_hf_css = """
         /* Screen: hide print-only footer */
         .print-running-footer { display: none; }
 
         @media print {
-            .page-wrapper {
-                display: flex;
-                flex-direction: column;
-                min-height: calc(11in - 0.4in - 0.45in);
-            }
-            .page-wrapper-spacer {
-                flex: 1;
-            }
             .print-running-footer {
                 display: flex;
                 justify-content: space-between;
-                padding: 4px 0;
+                align-items: center;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                padding: 4px 0 0 0;
                 border-top: 0.5pt solid #ccc;
                 font-size: 8pt;
                 color: #666;
-                margin-top: auto;
             }
             /* Hide the original template footer */
             .report-footer { display: none !important; }
@@ -1693,10 +1696,7 @@ print(os.path.getsize(output_path))
 
         @page {
             size: letter;
-            margin: 0.4in 0.3in 0.45in 0.3in;
-        }
-        @page :first {
-            margin-top: 0.15in;
+            margin: 0.4in 0.4in 0.6in 0.4in;
         }
         """
 
@@ -1712,20 +1712,17 @@ print(os.path.getsize(output_path))
             '<button class="print-btn" onclick="window.print()">&#128438; Print / Save as PDF</button>'
         )
 
-        # Insert spacer + print footer inside .page-wrapper (before closing </div>).
-        # Flexbox min-height on .page-wrapper pushes the footer to page bottom.
-        footer_block = (
-            f'<div class="page-wrapper-spacer"></div>'
+        # Insert fixed footer (position:fixed in print CSS
+        # renders on every page, anchored to page bottom).
+        footer_div = (
             f'<div class="print-running-footer">'
             f'<span>{report_label_safe}</span>'
-            f'<span class="print-page-num"></span>'
             f'<span>{property_address_safe}</span>'
             f'</div>'
         )
-        # Insert before the original .report-footer (which is inside .page-wrapper)
         html_content = html_content.replace(
-            '<div class="report-footer">',
-            f'{footer_block}<div class="report-footer">'
+            '<div class="page-wrapper">',
+            f'{footer_div}<div class="page-wrapper">'
         )
 
         # Sanitize surrogate characters that Windows file paths/fonts can introduce

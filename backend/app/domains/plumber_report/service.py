@@ -309,7 +309,12 @@ class PlumberReportService:
             return None
         
         update_data = report_update.dict(exclude_unset=True)
-        
+
+        # Handle claim linking
+        claim_id = update_data.pop("claim_id", None)
+        if claim_id:
+            PlumberReportService._link_to_claim(db, report_id, claim_id)
+
         # Handle nested objects
         if "client" in update_data:
             client_data = update_data.pop("client")
