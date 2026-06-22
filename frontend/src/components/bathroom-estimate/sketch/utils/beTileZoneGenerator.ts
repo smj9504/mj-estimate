@@ -586,28 +586,57 @@ function generateShowerNicheZone(fix: BEFixture, ppf: number): BETileZone | null
 }
 
 function generateShowerBenchZone(fix: BEFixture, ppf: number): BETileZone | null {
-  const benchWidth = fix.properties.benchWidth ?? 16; // inches
-  const benchDepth = fix.properties.benchDepth ?? 14; // inches
-  // Bench tile: top + front + sides ≈ (W*D + W*18 + 2*D*18) / 144
+  const benchPos = fix.properties.benchPosition ?? 'left';
+  const benchLength = fix.properties.benchLength ?? 36; // along the wall, inches
+  const benchWidthFixed = 16; // fixed standard seat depth, inches
   const benchHeight = 18; // standard bench height in inches
-  const areaSF = (benchWidth * benchDepth + benchWidth * benchHeight + 2 * benchDepth * benchHeight) / 144;
+
+  // Tile area: top + front + sides
+  const areaSF = (benchLength * benchWidthFixed + benchLength * benchHeight + 2 * benchWidthFixed * benchHeight) / 144;
 
   const wPx = (fix.dimensions.width / 12) * ppf;
   const hPx = (fix.dimensions.height / 12) * ppf;
-  const bW = (benchWidth / 12) * ppf;
-  const bD = (benchDepth / 12) * ppf;
-  const rawBoundary: BEPoint[] = [
-    { x: fix.position.x - wPx / 2 + 3, y: fix.position.y + hPx / 2 - bD },
-    { x: fix.position.x - wPx / 2 + 3 + bW, y: fix.position.y + hPx / 2 - bD },
-    { x: fix.position.x - wPx / 2 + 3 + bW, y: fix.position.y + hPx / 2 },
-    { x: fix.position.x - wPx / 2 + 3, y: fix.position.y + hPx / 2 },
-  ];
+  const cx = fix.position.x;
+  const cy = fix.position.y;
+
+  let rawBoundary: BEPoint[];
+  if (benchPos === 'back') {
+    // back wall = top edge
+    const bLenPx = Math.min((benchLength / 12) * ppf, wPx - 6);
+    const bWPx = (benchWidthFixed / 12) * ppf;
+    rawBoundary = [
+      { x: cx - wPx / 2 + 3, y: cy - hPx / 2 + 3 },
+      { x: cx - wPx / 2 + 3 + bLenPx, y: cy - hPx / 2 + 3 },
+      { x: cx - wPx / 2 + 3 + bLenPx, y: cy - hPx / 2 + 3 + bWPx },
+      { x: cx - wPx / 2 + 3, y: cy - hPx / 2 + 3 + bWPx },
+    ];
+  } else if (benchPos === 'right') {
+    // right wall
+    const bLenPx = Math.min((benchLength / 12) * ppf, hPx - 6);
+    const bWPx = (benchWidthFixed / 12) * ppf;
+    rawBoundary = [
+      { x: cx + wPx / 2 - 3 - bWPx, y: cy - hPx / 2 + 3 },
+      { x: cx + wPx / 2 - 3, y: cy - hPx / 2 + 3 },
+      { x: cx + wPx / 2 - 3, y: cy - hPx / 2 + 3 + bLenPx },
+      { x: cx + wPx / 2 - 3 - bWPx, y: cy - hPx / 2 + 3 + bLenPx },
+    ];
+  } else {
+    // left wall (default)
+    const bLenPx = Math.min((benchLength / 12) * ppf, hPx - 6);
+    const bWPx = (benchWidthFixed / 12) * ppf;
+    rawBoundary = [
+      { x: cx - wPx / 2 + 3, y: cy - hPx / 2 + 3 },
+      { x: cx - wPx / 2 + 3 + bWPx, y: cy - hPx / 2 + 3 },
+      { x: cx - wPx / 2 + 3 + bWPx, y: cy - hPx / 2 + 3 + bLenPx },
+      { x: cx - wPx / 2 + 3, y: cy - hPx / 2 + 3 + bLenPx },
+    ];
+  }
   const boundary = rotateBoundary(rawBoundary, fix.position, fix.rotation);
 
   return {
     id: zoneId(),
     type: 'shower_bench',
-    label: 'Bench',
+    label: `Bench (${benchPos})`,
     boundary,
     areaSF: Math.round(areaSF * 100) / 100,
     fixtureId: fix.id,

@@ -332,6 +332,8 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
       tile_height_in: p.showerTileHeight ?? 84,
       niches: p.nicheCount ?? 0,
       bench: !!p.hasBench,
+      bench_position: p.benchPosition ?? 'left',
+      bench_length: p.benchLength ?? 36,
       curb_height: p.curbHeight ?? 4,
       door_type: p.showerDoorType ?? 'none',
       door_width_in: p.showerDoorWidth ?? Math.round(shower.dimensions.width * 0.5),

@@ -1187,12 +1187,16 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 shower_parts.append(
                     f"Niche x{niches}: ${niche_cost:,.2f}")
             if shower_spec.get("bench"):
+                bench_len = shower_spec.get("bench_length", 36)
+                bench_pos = shower_spec.get("bench_position", "left")
                 bench_cost = round(
                     SHOWER_CUSTOM_EXTRAS["bench"]
+                    * (bench_len / 36)
                     * labor_mult, 2)
                 shower_total += bench_cost
                 shower_parts.append(
-                    f"Bench: ${bench_cost:,.2f}")
+                    f"Bench {bench_len}″ ({bench_pos}): "
+                    f"${bench_cost:,.2f}")
             curb_cost = round(
                 SHOWER_CUSTOM_EXTRAS["curb"]
                 * labor_mult, 2)
@@ -1211,12 +1215,16 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 shower_parts.append(
                     f"Niche x{niches}: ${niche_cost:,.2f}")
             if shower_spec.get("bench"):
+                bench_len = shower_spec.get("bench_length", 36)
+                bench_pos = shower_spec.get("bench_position", "left")
                 bench_cost = round(
                     SHOWER_CUSTOM_EXTRAS["bench"]
+                    * (bench_len / 36)
                     * labor_mult, 2)
                 shower_total += bench_cost
                 shower_parts.append(
-                    f"Bench: ${bench_cost:,.2f}")
+                    f"Bench {bench_len}″ ({bench_pos}): "
+                    f"${bench_cost:,.2f}")
             if stype == "curbless":
                 drain_cost = round(
                     SHOWER_CUSTOM_EXTRAS["curbless_drain"]
@@ -2275,19 +2283,50 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                      + (f" | Area: {skim_note_area}" if skim_note_area else "")
                  ))
 
-    # 2) Subfloor allowance when water damage is reported.
+    # 2) Subfloor allowance when fixture replacement exposes subfloor.
     #    Skip when demo_floor=True — Phase 3 auto-30% already covers it.
+    #    Skip when explicit repair_subfloor or substrate_spec.subfloor_repair is set.
     sub_spec = estimate.substrate_spec or {}
-    if (estimate.water_damage
-            and not sub_spec.get("subfloor_repair")
-            and not demo_floor  # Phase 3 auto-30% already covers
-            and hc.get("subfloor_allowance") is True):
-        allowance_sf = min(floor_sf, 20)  # conservative 20 SF allowance
-        if allowance_sf > 0:
+    _has_explicit_subfloor = (
+        getattr(estimate, 'repair_subfloor', False)
+        or sub_spec.get("subfloor_repair")
+    )
+    if not _has_explicit_subfloor and not demo_floor and hc.get("subfloor_allowance") is True:
+        _tub_spec_hc = estimate.bathtub_spec or {}
+        _shower_spec_hc = estimate.shower_spec or {}
+        _fixture_subfloor_sf = 0
+        _fixture_notes = []
+
+        # Tub replacement: footprint = tub_length × tub_depth
+        if estimate.replace_tub:
+            _tub_l = (_tub_spec_hc.get("tub_length_in") or 60) / 12
+            _tub_d = (_tub_spec_hc.get("tub_depth_in") or 32) / 12
+            _tub_fp = round(_tub_l * _tub_d, 1)
+            _fixture_subfloor_sf += _tub_fp
+            _fixture_notes.append(f"tub footprint ~{_tub_fp}SF")
+
+        # Shower replacement: footprint = width × depth
+        if estimate.replace_shower:
+            _sh_w = (_shower_spec_hc.get("width_in") or 36) / 12
+            _sh_d = (_shower_spec_hc.get("depth_in") or 36) / 12
+            _sh_fp = round(_sh_w * _sh_d, 1)
+            _fixture_subfloor_sf += _sh_fp
+            _fixture_notes.append(f"shower footprint ~{_sh_fp}SF")
+
+        if _fixture_subfloor_sf > 0:
             _add(line_items, 3, "Subfloor repair allowance (plywood)",
-                 allowance_sf, "SF",
+                 _fixture_subfloor_sf, "SF",
                  SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
-                 notes="Allowance for subfloor condition verification upon demo")
+                 notes=f"Subfloor verification upon fixture removal ({', '.join(_fixture_notes)}) — "
+                       "repair as needed per actual findings")
+        elif estimate.water_damage:
+            # No fixture replacement but water damage reported — conservative allowance
+            allowance_sf = min(floor_sf, 20)
+            if allowance_sf > 0:
+                _add(line_items, 3, "Subfloor repair allowance (plywood)",
+                     allowance_sf, "SF",
+                     SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
+                     notes="Allowance for subfloor condition verification upon demo")
 
     # 3) Auto-include GFCI if not explicitly specified (code requirement)
     elec_spec = estimate.electrical_spec or {}

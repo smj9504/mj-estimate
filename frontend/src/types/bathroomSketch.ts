@@ -169,7 +169,11 @@ export interface BEFixtureProperties {
   nicheCount?: number;
   /** Has bench */
   hasBench?: boolean;
-  /** Bench dimensions in inches */
+  /** Bench position: left, right, back */
+  benchPosition?: 'left' | 'right' | 'back';
+  /** Bench length along wall in inches (default 36) */
+  benchLength?: number;
+  /** Bench dimensions in inches (derived — width fixed at 16″) */
   benchWidth?: number;
   benchDepth?: number;
   /** Curb height in inches (0 = curbless) */

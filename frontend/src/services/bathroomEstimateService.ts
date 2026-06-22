@@ -118,9 +118,9 @@ export const bathroomEstimateService = {
       .replace(/[^a-zA-Z0-9\s-]/g, '')
       .trim()
       .replace(/\s+/g, '_');
-    const filename = sanitized
-      ? `bathroom_estimate_${sanitized}.pdf`
-      : `bathroom_estimate_${id.substring(0, 8)}.pdf`;
+    const type = options?.show_breakdown_prices === false ? 'clean' : 'detail';
+    const base = sanitized || id.substring(0, 8);
+    const filename = `bathroom_estimate_${base}_${type}.pdf`;
 
     const downloadBlob = (data: any) => {
       const url = window.URL.createObjectURL(new Blob([data]));

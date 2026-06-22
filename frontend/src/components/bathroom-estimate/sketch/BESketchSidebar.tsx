@@ -710,6 +710,31 @@ const FixturePropertiesPanel: React.FC<{ fixture: BEFixture; api: BESketchStateA
               />
             </div>
           </div>
+          {p.hasBench && (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+            <Select
+              size="small"
+              value={p.benchPosition ?? 'left'}
+              onChange={(v) => updateFixtureProperties(fixture.id, { benchPosition: v })}
+              style={{ width: '50%' }}
+              options={[
+                { label: 'Left', value: 'left' },
+                { label: 'Right', value: 'right' },
+                { label: 'Back', value: 'back' },
+              ]}
+            />
+            <InputNumber
+              size="small"
+              addonBefore="L″"
+              value={p.benchLength ?? 36}
+              min={12}
+              max={60}
+              step={1}
+              onChange={(v) => updateFixtureProperties(fixture.id, { benchLength: v ?? 36 })}
+              style={{ width: '50%' }}
+            />
+          </div>
+          )}
 
           <div style={{ marginBottom: 6 }}>
             <InputNumber

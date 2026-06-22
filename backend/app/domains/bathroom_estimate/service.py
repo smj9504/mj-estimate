@@ -451,16 +451,19 @@ class BathroomEstimateService:
     def _enrich_claim_info(
         self, estimate: BathroomEstimate, result: Dict[str, Any],
     ):
-        """Add claim_number and client_name."""
+        """Add claim_number, client_name, and client_id."""
         if estimate.claim_ref:
             result["claim_number"] = estimate.claim_ref.claim_number
             if estimate.claim_ref.client:
                 result["client_name"] = estimate.claim_ref.client.display_name
+                result["client_id"] = str(estimate.claim_ref.client.id)
             else:
                 result["client_name"] = None
+                result["client_id"] = None
         else:
             result["claim_number"] = None
             result["client_name"] = None
+            result["client_id"] = None
 
     def _enrich_company_info(
         self, estimate: BathroomEstimate, result: Dict[str, Any],

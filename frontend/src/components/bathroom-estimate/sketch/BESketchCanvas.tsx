@@ -2284,19 +2284,48 @@ const FixtureNode: React.FC<FixtureNodeProps> = React.memo(({
       )}
 
       {/* Bench indicator for shower */}
-      {fix.type === 'shower' && fix.properties.hasBench && (
-        <Rect
-          x={-wPx / 2 + 2}
-          y={hPx / 2 - hPx * 0.25}
-          width={wPx - 4}
-          height={hPx * 0.2}
-          fill="rgba(0, 0, 0, 0.08)"
-          stroke="#888"
-          strokeWidth={1}
-          cornerRadius={2}
-          listening={false}
-        />
-      )}
+      {fix.type === 'shower' && fix.properties.hasBench && (() => {
+        const pos = fix.properties.benchPosition ?? 'left';
+        const benchLenIn = fix.properties.benchLength ?? 36;
+        const benchWidthIn = 16; // fixed standard width
+        const showerWIn = fix.dimensions.width;
+        const showerHIn = fix.dimensions.height;
+        const bLenPx = (benchLenIn / showerWIn) * wPx;
+        const bWidPx = (benchWidthIn / showerHIn) * hPx;
+        let bx: number, by: number, bw: number, bh: number;
+        if (pos === 'back') {
+          // back wall = top of shower box
+          bw = Math.min((benchLenIn / showerWIn) * wPx, wPx - 4);
+          bh = (benchWidthIn / showerHIn) * hPx;
+          bx = -wPx / 2 + 2;
+          by = -hPx / 2 + 2;
+        } else if (pos === 'right') {
+          // right wall
+          bw = (benchWidthIn / showerWIn) * wPx;
+          bh = Math.min((benchLenIn / showerHIn) * hPx, hPx - 4);
+          bx = wPx / 2 - bw - 2;
+          by = -hPx / 2 + 2;
+        } else {
+          // left wall (default)
+          bw = (benchWidthIn / showerWIn) * wPx;
+          bh = Math.min((benchLenIn / showerHIn) * hPx, hPx - 4);
+          bx = -wPx / 2 + 2;
+          by = -hPx / 2 + 2;
+        }
+        return (
+          <Rect
+            x={bx}
+            y={by}
+            width={bw}
+            height={bh}
+            fill="rgba(0, 0, 0, 0.08)"
+            stroke="#888"
+            strokeWidth={1}
+            cornerRadius={2}
+            listening={false}
+          />
+        );
+      })()}
 
       {/* Selection border (non-resizable mode) */}
       {isSelected && !isResizable && (

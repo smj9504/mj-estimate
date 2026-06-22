@@ -121,7 +121,8 @@ class BathroomExportService:
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import inch
         from reportlab.platypus import (
-            HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+            HRFlowable, KeepInFrame, Paragraph, SimpleDocTemplate, Spacer,
+            Table, TableStyle,
         )
 
         buffer = io.BytesIO()
@@ -295,9 +296,11 @@ class BathroomExportService:
             elements.append(Spacer(1, 8))
 
         # ══════ SKETCH + PHASE SUMMARY (side by side) ══════
-        sketch_element = None
+        left_col_w = usable_w * 0.48
+        right_col_w = usable_w * 0.52
+        max_sketch_h = 5.0 * inch
 
-        sketch_aspect_ratio = 1.0  # width / height
+        sketch_element = None
 
         # Try client-captured PNG first
         if sketch_image_base64:
@@ -308,14 +311,16 @@ class BathroomExportService:
                 img_stream = io.BytesIO(img_data)
                 img = Image(img_stream)
                 iw, ih = img.drawWidth, img.drawHeight
-                sketch_aspect_ratio = iw / ih if ih > 0 else 1.0
-                # Scale to fit column width (height follows aspect ratio)
-                sketch_col_w = usable_w * 0.46
-                s = sketch_col_w / iw
-                img.drawWidth = iw * s
-                img.drawHeight = ih * s
-                img.hAlign = 'CENTER'
-                sketch_element = img
+                if iw > 0 and ih > 0:
+                    fit_w = left_col_w - 8
+                    fit_h = fit_w * (ih / iw)
+                    if fit_h > max_sketch_h:
+                        fit_h = max_sketch_h
+                        fit_w = fit_h * (iw / ih)
+                    img.drawWidth = fit_w
+                    img.drawHeight = fit_h
+                    img.hAlign = 'CENTER'
+                    sketch_element = img
             except Exception as e:
                 logger.warning(f"Failed to embed sketch image in PDF: {e}")
 
@@ -324,12 +329,10 @@ class BathroomExportService:
             sketch_data = estimate.get("sketch_data")
             if sketch_data and (sketch_data.get("rooms") or sketch_data.get("fixtures")):
                 try:
-                    fb_w = usable_w * 0.46
-                    fb_max_h = 6 * inch
-                    drawing = self._render_sketch_drawing(sketch_data, fb_w, fb_max_h)
+                    drawing = self._render_sketch_drawing(
+                        sketch_data, left_col_w - 8, max_sketch_h)
                     if drawing:
                         sketch_element = drawing
-                        sketch_aspect_ratio = drawing.width / drawing.height if drawing.height > 0 else 1.0
                 except Exception as e:
                     logger.warning(f"Failed to render sketch drawing: {e}")
 
@@ -337,12 +340,7 @@ class BathroomExportService:
         line_items = estimate.get("line_items", [])
         sections = _group_line_items_by_phase(line_items)
 
-        sketch_is_tall = sketch_element and sketch_aspect_ratio < 0.85
-        if sketch_element and not sketch_is_tall:
-            summary_col_w = usable_w * 0.50
-        else:
-            summary_col_w = usable_w
-
+        summary_col_w = right_col_w - 8 if sketch_element else usable_w
         s_col_widths = [summary_col_w * 0.10, summary_col_w * 0.64, summary_col_w * 0.26]
         summary_data = [["Phase", "Description", "Amount"]]
         for sec in sections:
@@ -372,9 +370,10 @@ class BathroomExportService:
 
         summary_table = Table(summary_data, colWidths=s_col_widths)
 
+        font_sz = 9 if sketch_element else 9.5
         table_style = [
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9 if sketch_element else 9.5),
+            ("FONTSIZE", (0, 0), (-1, -1), font_sz),
             ("TEXTCOLOR", (0, 0), (-1, -1), brand_dark),
             ("BACKGROUND", (0, 0), (-1, 0), section_bg),
             ("LINEBELOW", (0, 0), (-1, 0), 1, border_grey),
@@ -399,50 +398,30 @@ class BathroomExportService:
             sketch_title = Paragraph("Floor Plan", section_title_style)
             summary_title = Paragraph("Estimate Summary", section_title_style)
 
-            # Tall sketch (portrait): stack vertically
-            if sketch_aspect_ratio < 0.85:
-                # Re-scale sketch to full width
-                if sketch_image_base64 and hasattr(sketch_element, 'drawWidth'):
-                    full_s = usable_w * 0.6 / (sketch_element.drawWidth / (usable_w * 0.46 / sketch_element.drawWidth * sketch_element.drawWidth) if sketch_element.drawWidth else 1)
-                    # Simpler: just scale to 60% of page width
-                    ratio = sketch_element.drawHeight / sketch_element.drawWidth
-                    sketch_element.drawWidth = usable_w * 0.55
-                    sketch_element.drawHeight = usable_w * 0.55 * ratio
+            # Wrap sketch in KeepInFrame to force size constraint
+            sketch_block = KeepInFrame(
+                left_col_w, max_sketch_h + 30,
+                [sketch_title, Spacer(1, 8), sketch_element],
+                mode='shrink',
+            )
+            summary_block = KeepInFrame(
+                right_col_w, max_sketch_h + 30,
+                [summary_title, summary_table],
+                mode='truncate',
+            )
 
-                elements.append(sketch_title)
-                elements.append(Spacer(1, 4))
-                elements.append(sketch_element)
-                elements.append(Spacer(1, 12))
-                elements.append(summary_title)
-                elements.append(summary_table)
-            else:
-                # Wide sketch (landscape): side by side
-                left_cell = Table([[sketch_title], [sketch_element]], colWidths=[usable_w * 0.48])
-                left_cell.setStyle(TableStyle([
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (0, 0), 12),
-                ]))
-                right_cell = Table([[summary_title], [summary_table]], colWidths=[usable_w * 0.50])
-                right_cell.setStyle(TableStyle([
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                    ("TOPPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                    ("BOTTOMPADDING", (0, 0), (0, 0), 12),
-                ]))
-
-                side_by_side = Table([[left_cell, right_cell]], colWidths=[usable_w * 0.48, usable_w * 0.52])
-                side_by_side.setStyle(TableStyle([
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ]))
-                elements.append(side_by_side)
+            side_by_side = Table(
+                [[sketch_block, summary_block]],
+                colWidths=[left_col_w, right_col_w],
+            )
+            side_by_side.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]))
+            elements.append(side_by_side)
         else:
             elements.append(Paragraph("Estimate Summary", section_title_style))
             elements.append(summary_table)

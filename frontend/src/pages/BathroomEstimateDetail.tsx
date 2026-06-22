@@ -47,7 +47,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import AddressAutocomplete from '../components/common/AddressAutocomplete';
 import { bathroomEstimateService } from '../services/bathroomEstimateService';
-import { clientService } from '../services/clientService';
+import { clientService, claimService } from '../services/clientService';
 import { companyService } from '../services/companyService';
 import type {
   BathroomEstimate,
@@ -97,7 +97,9 @@ const BathroomEstimateDetail: React.FC = () => {
 
   // ── Client search ──
   const [clientSearch, setClientSearch] = useState('');
-  const { data: clientResults } = useQuery({
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [claims, setClaims] = useState<any[]>([]);
+  const { data: clientResults, isLoading: isSearching } = useQuery({
     queryKey: ['clients-search', clientSearch],
     queryFn: () => clientService.list({ search: clientSearch, limit: 10 }),
     enabled: clientSearch.length >= 2,
@@ -109,19 +111,20 @@ const BathroomEstimateDetail: React.FC = () => {
     queryFn: () => companyService.getCompanies(),
   });
 
-  // Auto-fill address when client/claim is selected
-  const handleClaimSelect = useCallback((claimId: string | null) => {
-    if (!clientResults?.clients) return;
-    let client: any = null;
-    if (claimId) {
-      // Find client by claim id
-      client = (clientResults.clients as any[]).find((c: any) =>
-        (c.claims || []).some((cl: any) => cl.id === claimId)
-      );
-    } else {
-      // "No claim" selected — use first client in results (most recently searched)
-      client = (clientResults.clients as any[])[0];
+  // Load claims when client is selected
+  const loadClaimsForClient = useCallback(async (clientId: string) => {
+    try {
+      const result = await claimService.listByClient(clientId);
+      setClaims(result.claims || []);
+    } catch {
+      setClaims([]);
     }
+  }, []);
+
+  // Auto-fill address when client is selected
+  const handleClientSelect = useCallback(async (clientId: string) => {
+    setSelectedClientId(clientId);
+    const client = (clientResults?.clients as any[])?.find((c: any) => c.id === clientId);
     if (client) {
       form.setFieldsValue({
         property_address: client.address || '',
@@ -130,7 +133,12 @@ const BathroomEstimateDetail: React.FC = () => {
         zip_code: client.zipcode || '',
       });
     }
-  }, [clientResults, form]);
+    await loadClaimsForClient(clientId);
+  }, [clientResults, form, loadClaimsForClient]);
+
+  const handleClaimSelect = useCallback((claimId: string) => {
+    form.setFieldsValue({ claim_id: claimId });
+  }, [form]);
 
   // ── Mutations ──
   const saveMutation = useMutation({
@@ -225,8 +233,16 @@ const BathroomEstimateDetail: React.FC = () => {
         mold_resistant_drywall: hc.mold_resistant_drywall ?? true,
       };
       form.setFieldsValue(estimate);
+      // Load claims for the linked client and trigger search so client appears in dropdown
+      if (estimate.client_id) {
+        setSelectedClientId(estimate.client_id);
+        loadClaimsForClient(estimate.client_id);
+        if (estimate.client_name) {
+          setClientSearch(estimate.client_name);
+        }
+      }
     }
-  }, [estimate, form]);
+  }, [estimate, form, loadClaimsForClient]);
 
   const handleSave = useCallback(() => {
     const values = form.getFieldsValue(true);
@@ -739,31 +755,52 @@ const BathroomEstimateDetail: React.FC = () => {
                 <Divider orientation="left">Client / Claim</Divider>
                 <Row gutter={16}>
                   <Col xs={24} sm={12} md={8}>
-                    <Form.Item label="Client" name="claim_id">
+                    <Form.Item label="Client">
                       <Select
                         showSearch
                         filterOption={false}
                         onSearch={setClientSearch}
-                        onChange={handleClaimSelect}
+                        onSelect={(val: string) => handleClientSelect(val)}
+                        onClear={() => {
+                          setSelectedClientId(null);
+                          setClaims([]);
+                          form.setFieldsValue({ claim_id: null });
+                        }}
+                        value={selectedClientId}
                         placeholder="Search client..."
                         allowClear
-                        options={(clientResults?.clients || []).flatMap((c: any) =>
-                          (c.claims || [{ id: null, claim_number: 'No claim' }]).map((cl: any) => ({
-                            label: `${c.display_name} — ${cl.claim_number || 'N/A'}`,
-                            value: cl.id,
-                          }))
-                        )}
+                        loading={isSearching}
+                        notFoundContent={
+                          clientSearch.length < 2
+                            ? <Text type="secondary">Type 2+ characters</Text>
+                            : isSearching
+                              ? <Spin size="small" />
+                              : <Text type="secondary">No clients found</Text>
+                        }
+                        options={(clientResults?.clients || []).map((c: any) => ({
+                          label: `${c.display_name}${c.address ? ` — ${c.address}` : ''}`,
+                          value: c.id,
+                        }))}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} sm={12} md={8}>
+                    <Form.Item label="Claim" name="claim_id">
+                      <Select
+                        allowClear
+                        placeholder={claims.length ? 'Select a claim...' : 'Select client first'}
+                        disabled={!claims.length}
+                        onSelect={(val: string) => handleClaimSelect(val)}
+                        options={claims.map((c: any) => ({
+                          label: `${c.claim_number}${c.insurance_company ? ` (${c.insurance_company})` : ''} — ${c.status || 'N/A'}`,
+                          value: c.id,
+                        }))}
                       />
                     </Form.Item>
                   </Col>
                   <Col xs={24} sm={12} md={8}>
                     <Form.Item label="Client Name">
                       <Input value={estimate?.client_name || ''} disabled />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} sm={12} md={8}>
-                    <Form.Item label="Claim #">
-                      <Input value={estimate?.claim_number || ''} disabled />
                     </Form.Item>
                   </Col>
                 </Row>
@@ -1291,6 +1328,30 @@ const BathroomEstimateDetail: React.FC = () => {
                           <Checkbox>Bench</Checkbox>
                         </Form.Item>
                       </Col>
+                      <Form.Item noStyle shouldUpdate={(prev: any, cur: any) =>
+                        prev?.shower_spec?.bench !== cur?.shower_spec?.bench}>
+                        {({ getFieldValue }: any) => getFieldValue(['shower_spec', 'bench']) ? (
+                          <>
+                            <Col xs={12} sm={8} md={4}>
+                              <Form.Item label="Bench Position" name={['shower_spec', 'bench_position']}>
+                                <Select
+                                  options={[
+                                    { label: 'Left Wall', value: 'left' },
+                                    { label: 'Right Wall', value: 'right' },
+                                    { label: 'Back Wall', value: 'back' },
+                                  ]}
+                                  placeholder="left"
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col xs={12} sm={8} md={4}>
+                              <Form.Item label="Bench Length (in)" name={['shower_spec', 'bench_length']}>
+                                <InputNumber style={{ width: '100%' }} min={12} max={60} placeholder="36" />
+                              </Form.Item>
+                            </Col>
+                          </>
+                        ) : null}
+                      </Form.Item>
                       <Col xs={12} sm={8} md={4}>
                         <Form.Item name={['shower_spec', 'valve_replace']} valuePropName="checked">
                           <Checkbox>Replace Valve</Checkbox>

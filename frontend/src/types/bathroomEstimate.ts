@@ -21,6 +21,10 @@ export interface ShowerSpec {
   curb_height?: number;
   niches?: number;
   bench?: boolean;
+  /** Bench position: left, right, back */
+  bench_position?: 'left' | 'right' | 'back';
+  /** Bench length along the wall in inches (width is fixed at 16″) */
+  bench_length?: number;
   showerhead_type?: string;
   valve_replace?: boolean;
   trim_grade?: string;
@@ -321,6 +325,7 @@ export interface BathroomEstimate {
   // Enriched
   claim_number?: string;
   client_name?: string;
+  client_id?: string;
 
   created_at?: string;
   updated_at?: string;

@@ -358,7 +358,7 @@ def export_pdf(
         pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}_get.pdf"'
+            "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}_{"detail" if show_breakdown_prices else "clean"}.pdf"'
         },
     )
 
@@ -394,7 +394,7 @@ def export_pdf_with_sketch(
         pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}.pdf"'
+            "Content-Disposition": f'attachment; filename="bathroom_estimate_{estimate_id[:8]}_{"detail" if show_breakdown_prices else "clean"}.pdf"'
         },
     )
 
