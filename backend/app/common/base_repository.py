@@ -297,19 +297,13 @@ class SQLAlchemyRepository(BaseRepository[T, ID]):
     def get_by_id(self, entity_id: ID) -> Optional[T]:
         """Get entity by ID using SQLAlchemy"""
         try:
-            # Try both UUID and string representations to avoid type mismatch issues
-            candidates = [entity_id]
-            try:
-                candidates.append(str(entity_id))
-            except Exception:
-                pass
             entity = self.db_session.query(self.model_class).filter(
-                self.model_class.id.in_(candidates)
+                self.model_class.id == entity_id
             ).first()
 
             if entity is None:
                 logger.debug(
-                    f"[{self.table_name}] get_by_id not found for candidates={candidates}"
+                    f"[{self.table_name}] get_by_id not found for id={entity_id}"
                 )
                 return None
 

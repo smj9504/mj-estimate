@@ -25,6 +25,7 @@ Cost optimization:
 import io
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -163,6 +164,35 @@ def _resize_image(image_data: bytes, max_size: int = 1024) -> tuple[bytes, str]:
     except Exception as e:
         logger.warning(f"Image resize failed, using original: {e}")
         return image_data, "image/jpeg"
+
+
+def _parse_json_response(response_text: str) -> dict:
+    """
+    Parse JSON from Gemini response with robust cleanup.
+    Handles markdown code blocks, trailing commas, and other common issues.
+    """
+    text = response_text.strip()
+
+    # Remove markdown code blocks
+    if text.startswith("```"):
+        text = re.sub(r'^```(?:json)?\s*\n?', '', text)
+        text = re.sub(r'\n?```\s*$', '', text)
+
+    # Extract JSON object if there's extra text around it
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        text = match.group(0)
+
+    # Remove trailing commas before } or ]
+    text = re.sub(r',\s*([}\]])', r'\1', text)
+
+    # Try parsing
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Replace single quotes with double quotes as last resort
+        fixed = text.replace("'", '"')
+        return json.loads(fixed)
 
 
 # Phase 2: Meter-focused verification prompt (higher accuracy)
@@ -515,19 +545,7 @@ class AIClassificationService:
             # Parse response
             response_text = response.text.strip()
 
-            # Clean up JSON response (remove markdown code blocks if present)
-            if response_text.startswith("```"):
-                lines = response_text.split("\n")
-                # Remove first line (```json) and last line (```)
-                json_lines = []
-                for line in lines:
-                    stripped = line.strip()
-                    if stripped.startswith("```"):
-                        continue
-                    json_lines.append(line)
-                response_text = "\n".join(json_lines)
-
-            ai_result = json.loads(response_text)
+            ai_result = _parse_json_response(response_text)
 
             # Log raw AI response for debugging meter reading issues
             meta = ai_result.get("metadata", {})
@@ -645,16 +663,7 @@ class AIClassificationService:
 
             response_text = response.text.strip()
 
-            # Clean markdown code blocks
-            if response_text.startswith("```"):
-                lines = response_text.split("\n")
-                json_lines = [
-                    line for line in lines
-                    if not line.strip().startswith("```")
-                ]
-                response_text = "\n".join(json_lines)
-
-            return json.loads(response_text)
+            return _parse_json_response(response_text)
 
         except Exception as e:
             logger.warning(

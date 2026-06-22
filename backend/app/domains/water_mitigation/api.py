@@ -3361,7 +3361,7 @@ async def ai_classify_photos(
 
                     for provider in providers_to_try:
                         try:
-                            storage = StorageFactory.create(provider)
+                            storage = StorageFactory.get_instance(provider)
                             if hasattr(storage, 'download'):
                                 image_data = storage.download(
                                     storage_file_id
@@ -3999,7 +3999,7 @@ async def _load_photo_image_data(photo_dict: dict) -> bytes | None:
 
             for provider in providers_to_try:
                 try:
-                    storage = StorageFactory.create(provider)
+                    storage = StorageFactory.get_instance(provider)
                     if hasattr(storage, 'download'):
                         image_data = storage.download(storage_file_id)
                         break
