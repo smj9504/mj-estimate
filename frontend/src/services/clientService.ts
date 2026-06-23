@@ -19,6 +19,11 @@ import type {
   PaymentSummary,
   ProfitabilitySummary,
   PdfExtractionResult,
+  ClaimNote,
+  ClaimNoteCreate,
+  ClaimTodo,
+  ClaimTodoCreate,
+  ClaimTodoDashboard,
 } from '../types/client';
 
 // ============================================================
@@ -240,5 +245,85 @@ export const claimActivityService = {
       `/api/clients/${clientId}/claims/${claimId}/activities`
     );
     return data;
+  },
+};
+
+// ============================================================
+// Claim Note API
+// ============================================================
+
+export const claimNoteService = {
+  async list(clientId: string, claimId: string) {
+    const { data } = await api.get(
+      `/api/clients/${clientId}/claims/${claimId}/notes`
+    );
+    return data as ClaimNote[];
+  },
+
+  async create(clientId: string, claimId: string, payload: ClaimNoteCreate) {
+    const { data } = await api.post(
+      `/api/clients/${clientId}/claims/${claimId}/notes`,
+      payload
+    );
+    return data as ClaimNote;
+  },
+
+  async update(clientId: string, claimId: string, noteId: string, payload: Partial<ClaimNoteCreate>) {
+    const { data } = await api.patch(
+      `/api/clients/${clientId}/claims/${claimId}/notes/${noteId}`,
+      payload
+    );
+    return data as ClaimNote;
+  },
+
+  async delete(clientId: string, claimId: string, noteId: string) {
+    await api.delete(
+      `/api/clients/${clientId}/claims/${claimId}/notes/${noteId}`
+    );
+  },
+};
+
+// ============================================================
+// Claim Todo API
+// ============================================================
+
+export const claimTodoService = {
+  async list(clientId: string, claimId: string) {
+    const { data } = await api.get(
+      `/api/clients/${clientId}/claims/${claimId}/todos`
+    );
+    return data as ClaimTodo[];
+  },
+
+  async create(clientId: string, claimId: string, payload: ClaimTodoCreate) {
+    const { data } = await api.post(
+      `/api/clients/${clientId}/claims/${claimId}/todos`,
+      payload
+    );
+    return data as ClaimTodo;
+  },
+
+  async update(
+    clientId: string, claimId: string, todoId: string,
+    payload: Partial<ClaimTodoCreate & { is_completed?: boolean }>
+  ) {
+    const { data } = await api.patch(
+      `/api/clients/${clientId}/claims/${claimId}/todos/${todoId}`,
+      payload
+    );
+    return data as ClaimTodo;
+  },
+
+  async delete(clientId: string, claimId: string, todoId: string) {
+    await api.delete(
+      `/api/clients/${clientId}/claims/${claimId}/todos/${todoId}`
+    );
+  },
+
+  async getActiveTodos(includeCompleted = false) {
+    const { data } = await api.get('/api/claim-todos/active', {
+      params: { include_completed: includeCompleted },
+    });
+    return data as ClaimTodoDashboard[];
   },
 };

@@ -69,7 +69,7 @@ from app.domains.water_mitigation.models import (
 from app.domains.company.models import Company, CompanyContact
 
 # Client management system models
-from app.domains.client.models import Client, Claim, ClaimNegotiation, ClaimPayment, ClaimExpense
+from app.domains.client.models import Client, Claim, ClaimNegotiation, ClaimPayment, ClaimExpense, ClaimNote, ClaimTodo
 
 # Contract system models
 from app.domains.contract.models import (
@@ -171,7 +171,7 @@ from app.domains.water_mitigation.sketch_models import (
     WMContainmentZone,
     WMFloorProtection,
 )
-from app.domains.client.api import router as client_router
+from app.domains.client.api import router as client_router, todo_dashboard_router
 from app.domains.contract.api import router as contract_router
 from app.domains.contract.signing_api import router as signing_router
 from app.domains.material_order.api import router as material_order_router
@@ -731,6 +731,7 @@ app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 # New domain-driven endpoints
 app.include_router(company_router, prefix="/api/companies", tags=["Companies"])
 app.include_router(client_router, prefix="/api/clients", tags=["Clients"])
+app.include_router(todo_dashboard_router, prefix="/api/claim-todos", tags=["Claim Todos"])
 app.include_router(contract_router, prefix="/api/contracts", tags=["Contracts"])
 app.include_router(signing_router, prefix="/api/sign", tags=["Contract Signing (Public)"])
 app.include_router(invoice_router, prefix="/api/invoices", tags=["Invoices"])

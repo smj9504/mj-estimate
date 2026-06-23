@@ -447,6 +447,213 @@ class ClaimPaymentService:
         return result
 
 
+class ClaimNoteService:
+    """Service for claim notes"""
+
+    def __init__(self, database=None):
+        from app.core.database_factory import get_database
+        self.database = database or get_database()
+
+    def _to_dict(self, obj) -> Dict[str, Any]:
+        result = {}
+        for column in obj.__table__.columns:
+            value = getattr(obj, column.name, None)
+            if hasattr(value, 'isoformat'):
+                value = value.isoformat()
+            elif hasattr(value, '__str__') and not isinstance(value, (str, int, float, bool, type(None))):
+                value = str(value)
+            result[column.name] = value
+        return result
+
+    def get_notes_by_claim(self, claim_id: str) -> List[Dict[str, Any]]:
+        session = self.database.get_readonly_session()
+        try:
+            from app.domains.client.models import ClaimNote
+            notes = session.query(ClaimNote).filter(
+                ClaimNote.claim_id == claim_id
+            ).order_by(ClaimNote.pinned.desc(), ClaimNote.created_at.desc()).all()
+            return [self._to_dict(n) for n in notes]
+        finally:
+            session.close()
+
+    def create_note(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimNote
+            note = ClaimNote(**data)
+            session.add(note)
+            session.flush()
+            result = self._to_dict(note)
+            session.commit()
+            return result
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def update_note(self, note_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimNote
+            note = session.query(ClaimNote).filter(ClaimNote.id == note_id).first()
+            if not note:
+                return None
+            for key, value in data.items():
+                if hasattr(note, key) and value is not None:
+                    setattr(note, key, value)
+            session.flush()
+            result = self._to_dict(note)
+            session.commit()
+            return result
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def delete_note(self, note_id: str) -> bool:
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimNote
+            note = session.query(ClaimNote).filter(ClaimNote.id == note_id).first()
+            if not note:
+                return False
+            session.delete(note)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+
+class ClaimTodoService:
+    """Service for claim todos"""
+
+    def __init__(self, database=None):
+        from app.core.database_factory import get_database
+        self.database = database or get_database()
+
+    def _to_dict(self, obj) -> Dict[str, Any]:
+        result = {}
+        for column in obj.__table__.columns:
+            value = getattr(obj, column.name, None)
+            if hasattr(value, 'isoformat'):
+                value = value.isoformat()
+            elif hasattr(value, '__str__') and not isinstance(value, (str, int, float, bool, type(None))):
+                value = str(value)
+            result[column.name] = value
+        return result
+
+    def get_todos_by_claim(self, claim_id: str) -> List[Dict[str, Any]]:
+        session = self.database.get_readonly_session()
+        try:
+            from app.domains.client.models import ClaimTodo
+            todos = session.query(ClaimTodo).filter(
+                ClaimTodo.claim_id == claim_id
+            ).order_by(ClaimTodo.is_completed, ClaimTodo.created_at.desc()).all()
+            return [self._to_dict(t) for t in todos]
+        finally:
+            session.close()
+
+    def create_todo(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimTodo
+            todo = ClaimTodo(**data)
+            session.add(todo)
+            session.flush()
+            result = self._to_dict(todo)
+            session.commit()
+            return result
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def update_todo(self, todo_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimTodo
+            from datetime import datetime, timezone
+            todo = session.query(ClaimTodo).filter(ClaimTodo.id == todo_id).first()
+            if not todo:
+                return None
+
+            # Handle completion toggle
+            if 'is_completed' in data:
+                if data['is_completed'] and not todo.is_completed:
+                    data['completed_at'] = datetime.now(timezone.utc)
+                elif not data['is_completed']:
+                    data['completed_at'] = None
+
+            for key, value in data.items():
+                if hasattr(todo, key):
+                    setattr(todo, key, value)
+
+            session.flush()
+            result = self._to_dict(todo)
+            session.commit()
+            return result
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def delete_todo(self, todo_id: str) -> bool:
+        session = self.database.get_session()
+        try:
+            from app.domains.client.models import ClaimTodo
+            todo = session.query(ClaimTodo).filter(ClaimTodo.id == todo_id).first()
+            if not todo:
+                return False
+            session.delete(todo)
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_active_todos(self, include_completed: bool = False) -> List[Dict[str, Any]]:
+        """Get all todos across all claims, with client/claim context for dashboard"""
+        session = self.database.get_readonly_session()
+        try:
+            from app.domains.client.models import ClaimTodo, Claim, Client
+
+            query = session.query(ClaimTodo, Claim, Client).join(
+                Claim, ClaimTodo.claim_id == Claim.id
+            ).join(
+                Client, Claim.client_id == Client.id
+            )
+
+            if not include_completed:
+                query = query.filter(ClaimTodo.is_completed == False)
+
+            query = query.order_by(
+                ClaimTodo.is_completed,
+                ClaimTodo.due_date.asc().nulls_last(),
+                ClaimTodo.created_at.desc(),
+            )
+
+            results = query.all()
+            todos = []
+            for todo, claim, client in results:
+                todo_dict = self._to_dict(todo)
+                todo_dict['client_id'] = str(client.id)
+                todo_dict['client_name'] = client.display_name
+                todo_dict['claim_number'] = claim.claim_number
+                todos.append(todo_dict)
+            return todos
+        finally:
+            session.close()
+
+
 class ClaimExpenseService:
     """Service for claim expense tracking and profitability analysis"""
 

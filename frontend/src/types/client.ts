@@ -239,6 +239,65 @@ export const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
   other: 'Other',
 };
 
+// ============================================================
+// ClaimNote
+// ============================================================
+
+export interface ClaimNote {
+  id: string;
+  claim_id: string;
+  content: string;
+  created_by_name?: string;
+  pinned: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ClaimNoteCreate {
+  content: string;
+  created_by_name?: string;
+  pinned?: boolean;
+}
+
+// ============================================================
+// ClaimTodo
+// ============================================================
+
+export type TodoPriority = 'low' | 'normal' | 'high' | 'urgent';
+
+export interface ClaimTodo {
+  id: string;
+  claim_id: string;
+  title: string;
+  description?: string;
+  priority: TodoPriority;
+  due_date?: string;
+  is_completed: boolean;
+  completed_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ClaimTodoCreate {
+  title: string;
+  description?: string;
+  priority?: TodoPriority;
+  due_date?: string;
+}
+
+export interface ClaimTodoDashboard extends ClaimTodo {
+  client_id?: string;
+  client_name?: string;
+  claim_number?: string;
+}
+
+export const TODO_PRIORITY_COLORS: Record<TodoPriority, string> = {
+  low: 'default',
+  normal: 'blue',
+  high: 'orange',
+  urgent: 'red',
+};
+
 export interface ClaimCreate {
   client_id: string;
   claim_number: string;

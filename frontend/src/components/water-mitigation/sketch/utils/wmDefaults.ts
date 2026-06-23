@@ -42,6 +42,13 @@ export const DEFAULT_FLOOR_PROTECTION_COLOR = '#FFD700';
 export const DEFAULT_CONTENT_PROTECTION_COLOR = '#8B5CF6';
 
 // ============================================================================
+// Content Manipulation Defaults
+// ============================================================================
+
+/** Default fill/stroke color for content manipulation overlays */
+export const DEFAULT_CONTENT_MANIPULATION_COLOR = '#F97316';
+
+// ============================================================================
 // Containment Defaults
 // ============================================================================
 

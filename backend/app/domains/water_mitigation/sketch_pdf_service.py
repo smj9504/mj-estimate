@@ -1270,7 +1270,8 @@ class SketchPdfService:
         demo_by_material: Dict[str, Dict] = {}
         carpet_pad_sqft: float = 0.0
         insulation_sqft: float = 0.0
-        glue_down_sqft: float = 0.0
+        glue_down_carpet_sqft: float = 0.0
+        glue_down_floor_sqft: float = 0.0
         total_demo_sf: float = 0.0
         total_demo_lf: float = 0.0
         total_demo_ea: float = 0.0
@@ -1326,7 +1327,10 @@ class SketchPdfService:
             if getattr(zone, "include_insulation", False) and qty > 0:
                 insulation_sqft += qty
             if getattr(zone, "glue_down", False) and qty > 0:
-                glue_down_sqft += qty
+                if mt == "carpet":
+                    glue_down_carpet_sqft += qty
+                else:
+                    glue_down_floor_sqft += qty
 
         equip_counts: Dict[str, int] = {}
         for equip in (floor.equipment_placements or []):
@@ -1359,7 +1363,8 @@ class SketchPdfService:
             "total_demo_ea": total_demo_ea,
             "carpet_pad_sqft": carpet_pad_sqft,
             "insulation_sqft": insulation_sqft,
-            "glue_down_sqft": glue_down_sqft,
+            "glue_down_carpet_sqft": glue_down_carpet_sqft,
+            "glue_down_floor_sqft": glue_down_floor_sqft,
         }
 
     # ──────────────────────────────────────────────────────────────────────

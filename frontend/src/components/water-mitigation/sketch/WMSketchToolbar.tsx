@@ -55,6 +55,7 @@ import {
   GatewayOutlined,
   ScissorOutlined,
   AppstoreOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import type {
   WMSketchTool,
@@ -553,6 +554,20 @@ const WMSketchToolbar: React.FC<WMSketchToolbarProps> = ({
             onClick={() => onToolChange('content_protection')}
           >
             Content Prot
+          </Button>
+        </Tooltip>
+      </SpaceCompact>
+
+      {/* Group 6b — Content Manipulation */}
+      <SpaceCompact>
+        <Tooltip title="Draw content manipulation area (move out / move back)">
+          <Button
+            type={toolButtonType('content_manipulation')}
+            icon={<SwapOutlined />}
+            size="small"
+            onClick={() => onToolChange('content_manipulation')}
+          >
+            Content Move
           </Button>
         </Tooltip>
       </SpaceCompact>

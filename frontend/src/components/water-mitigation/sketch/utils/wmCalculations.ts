@@ -193,6 +193,14 @@ export function calcContentProtectionSqft(widthFt: number, lengthFt: number): nu
   return Math.round(widthFt * lengthFt * 100) / 100;
 }
 
+/**
+ * Calculate square footage for a content manipulation area: widthFt × lengthFt.
+ * Rounds to 2 decimal places.
+ */
+export function calcContentManipulationSqft(widthFt: number, lengthFt: number): number {
+  return Math.round(widthFt * lengthFt * 100) / 100;
+}
+
 // ============================================================================
 // Scale Conversions
 // ============================================================================
@@ -322,6 +330,15 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
     0
   );
 
+  // ------------------------------------------------------------------
+  // Content manipulation totals
+  // ------------------------------------------------------------------
+  const contentManipulations = overlayData.content_manipulations ?? [];
+  const contentManipulationTotalSqft = contentManipulations.reduce(
+    (sum, cm) => Math.round((sum + cm.calculated_sqft) * 100) / 100,
+    0
+  );
+
   return {
     demolition_by_type,
     containment: {
@@ -335,6 +352,10 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
     content_protection: {
       count: contentProtections.length,
       total_sqft: contentProtectionTotalSqft,
+    },
+    content_manipulation: {
+      count: contentManipulations.length,
+      total_sqft: contentManipulationTotalSqft,
     },
     equipment_counts,
   };

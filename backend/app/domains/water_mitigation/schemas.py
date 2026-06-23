@@ -716,6 +716,7 @@ class CreateConfigFromTemplateRequest(BaseModel):
 STANDARD_SCOPE_ITEMS = [
     {"name": "Floor Protection", "item_type": "standard", "unit": "SF"},
     {"name": "Content Protection", "item_type": "standard", "unit": "SF"},
+    {"name": "Content Manipulation", "item_type": "standard", "unit": "SF"},
     {"name": "Containment", "item_type": "standard", "unit": "SF"},
     {"name": "Air Mover", "item_type": "standard", "unit": "EA"},
     {"name": "Dehumidifier", "item_type": "standard", "unit": "EA"},

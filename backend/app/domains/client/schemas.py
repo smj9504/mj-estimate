@@ -364,6 +364,83 @@ class ProfitabilitySummary(BaseModel):
 
 
 # ============================================================
+# ClaimNote schemas
+# ============================================================
+
+class ClaimNoteCreate(BaseModel):
+    content: str
+    created_by_name: Optional[str] = None
+    pinned: bool = False
+
+
+class ClaimNoteUpdate(BaseModel):
+    content: Optional[str] = None
+    pinned: Optional[bool] = None
+
+
+class ClaimNoteResponse(BaseModel):
+    id: UUID
+    claim_id: UUID
+    content: str
+    created_by_name: Optional[str] = None
+    pinned: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ============================================================
+# ClaimTodo schemas
+# ============================================================
+
+class ClaimTodoCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    priority: str = "normal"
+    due_date: Optional[datetime] = None
+
+    @validator('priority')
+    def validate_priority(cls, v):
+        allowed = ['low', 'normal', 'high', 'urgent']
+        if v not in allowed:
+            raise ValueError(f"priority must be one of {allowed}")
+        return v
+
+
+class ClaimTodoUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    due_date: Optional[datetime] = None
+    is_completed: Optional[bool] = None
+
+
+class ClaimTodoResponse(BaseModel):
+    id: UUID
+    claim_id: UUID
+    title: str
+    description: Optional[str] = None
+    priority: str = "normal"
+    due_date: Optional[datetime] = None
+    is_completed: bool = False
+    completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ClaimTodoDashboardResponse(ClaimTodoResponse):
+    """Extended todo for dashboard view with client/claim context"""
+    client_id: Optional[UUID] = None
+    client_name: Optional[str] = None
+    claim_number: Optional[str] = None
+
+
+# ============================================================
 # Client schemas
 # ============================================================
 

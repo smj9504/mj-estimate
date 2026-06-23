@@ -1539,14 +1539,14 @@ print(os.path.getsize(output_path))
         page_css = f"""
         @page {{
             size: letter;
-            margin: 0.4in 0.4in 0.7in 0.4in;
+            margin: 0.2in 0.4in 0.5in 0.4in;
 
             @bottom-left {{
                 content: "{report_label}";
                 font-size: 8pt;
                 color: #666;
                 border-top: 0.5pt solid #ccc;
-                padding-top: 4px;
+                padding-top: 3px;
             }}
 
             @bottom-center {{
@@ -1554,7 +1554,7 @@ print(os.path.getsize(output_path))
                 font-size: 8pt;
                 color: #666;
                 border-top: 0.5pt solid #ccc;
-                padding-top: 4px;
+                padding-top: 3px;
             }}
 
             @bottom-right {{
@@ -1562,12 +1562,12 @@ print(os.path.getsize(output_path))
                 font-size: 8pt;
                 color: #666;
                 border-top: 0.5pt solid #ccc;
-                padding-top: 4px;
+                padding-top: 3px;
             }}
         }}
 
         @page :first {{
-            margin: 0.35in 0.4in 0.4in 0.4in;
+            margin: 0.2in 0.4in 0.3in 0.4in;
             @bottom-left {{ content: none; }}
             @bottom-center {{ content: none; }}
             @bottom-right {{ content: none; }}
@@ -1683,8 +1683,8 @@ print(os.path.getsize(output_path))
                 align-items: center;
                 position: fixed;
                 bottom: 0;
-                left: 0;
-                right: 0;
+                left: 0.3in;
+                right: 0.3in;
                 padding: 4px 0 0 0;
                 border-top: 0.5pt solid #ccc;
                 font-size: 8pt;
@@ -1692,11 +1692,16 @@ print(os.path.getsize(output_path))
             }
             /* Hide the original template footer */
             .report-footer { display: none !important; }
+
+            /* Override browser default margins — control spacing via page-wrapper padding */
+            .page-wrapper {
+                padding: 0.05in 0.3in 0.15in 0.3in !important;
+            }
         }
 
         @page {
             size: letter;
-            margin: 0.4in 0.4in 0.6in 0.4in;
+            margin: 0 !important;
         }
         """
 

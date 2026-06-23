@@ -543,7 +543,8 @@ class SketchService:
             demo_groups: dict[tuple[str, str], float] = {}
             carpet_pad_sqft: float = 0.0
             insulation_sqft: float = 0.0
-            glue_down_sqft: float = 0.0
+            glue_down_carpet_sqft: float = 0.0
+            glue_down_floor_sqft: float = 0.0
             # Baseboard/trim LF accumulated from wall drywall zones with baseboard_type
             baseboard_lf: dict[str, float] = {}  # key = baseboard_type, value = total LF
             for zone in _jsonb_demo_zones:
@@ -566,9 +567,12 @@ class SketchService:
                 # Accumulate insulation area (from wall/ceiling checkbox)
                 if zone.get("include_insulation") and sqft > 0:
                     insulation_sqft += sqft
-                # Accumulate glue down area (floor SF materials)
+                # Accumulate glue down area — split by carpet vs other floor materials
                 if zone.get("glue_down") and sqft > 0:
-                    glue_down_sqft += sqft
+                    if mt == "carpet":
+                        glue_down_carpet_sqft += sqft
+                    else:
+                        glue_down_floor_sqft += sqft
                 # Accumulate baseboard/trim LF from wall drywall zones
                 bb_type = zone.get("baseboard_type")
                 if bb_type and float(zone.get("dimension1_ft") or 0) > 0:
@@ -683,23 +687,43 @@ class SketchService:
                     floor_label=floor_label,
                 ))
 
-            # Glue Down Removal — separate add-on line item
-            if glue_down_sqft > 0:
-                gd_item = WMScopeItem(
+            # Glue Down Carpet Removal — separate add-on line item
+            if glue_down_carpet_sqft > 0:
+                gd_carpet_item = WMScopeItem(
                     location_id=location.id,
                     item_type="demolition",
-                    name="Glue Down Floor Removal",
-                    quantity=Decimal(str(round(glue_down_sqft, 2))),
+                    name="Glue Down Carpet Removal",
+                    quantity=Decimal(str(round(glue_down_carpet_sqft, 2))),
                     unit="SF",
                     include_in_debris=False,
                     display_order=item_order,
                 )
-                self.db.add(gd_item)
+                self.db.add(gd_carpet_item)
+                items_created += 1
+                item_order += 1
+                all_items.append(GeneratedScopeItemSummary(
+                    name="Glue Down Carpet Removal", item_type="demolition",
+                    quantity=round(glue_down_carpet_sqft, 2), unit="SF",
+                    floor_label=floor_label,
+                ))
+
+            # Glue Down Floor Removal — separate add-on line item (wood, tile, etc.)
+            if glue_down_floor_sqft > 0:
+                gd_floor_item = WMScopeItem(
+                    location_id=location.id,
+                    item_type="demolition",
+                    name="Glue Down Floor Removal",
+                    quantity=Decimal(str(round(glue_down_floor_sqft, 2))),
+                    unit="SF",
+                    include_in_debris=False,
+                    display_order=item_order,
+                )
+                self.db.add(gd_floor_item)
                 items_created += 1
                 item_order += 1
                 all_items.append(GeneratedScopeItemSummary(
                     name="Glue Down Floor Removal", item_type="demolition",
-                    quantity=round(glue_down_sqft, 2), unit="SF",
+                    quantity=round(glue_down_floor_sqft, 2), unit="SF",
                     floor_label=floor_label,
                 ))
 
@@ -873,13 +897,38 @@ class SketchService:
                     floor_label=floor_label,
                 ))
 
+            # --- Content manipulation: total SF ---
+            total_content_manip = 0.0
+            for cm in (sketch.content_manipulations or []):
+                total_content_manip += float(cm.calculated_sqft or 0)
+
+            if total_content_manip > 0:
+                item = WMScopeItem(
+                    location_id=location.id,
+                    item_type="standard",
+                    name="Content Manipulation",
+                    quantity=Decimal(str(round(total_content_manip, 2))),
+                    unit="SF",
+                    include_in_debris=False,
+                    display_order=item_order,
+                )
+                self.db.add(item)
+                items_created += 1
+                item_order += 1
+                all_items.append(GeneratedScopeItemSummary(
+                    name="Content Manipulation", item_type="standard",
+                    quantity=round(total_content_manip, 2), unit="SF",
+                    floor_label=floor_label,
+                ))
+
             # Warn if floor has no overlay data at all
             has_data = (
                 len(sketch.demolition_zones or []) +
                 len(sketch.equipment_placements or []) +
                 len(sketch.containment_zones or []) +
                 len(sketch.floor_protections or []) +
-                len(sketch.content_protections or [])
+                len(sketch.content_protections or []) +
+                len(sketch.content_manipulations or [])
             )
             if has_data == 0:
                 warnings.append(

@@ -209,6 +209,16 @@ class Claim(Base, BaseModel):
         cascade="all, delete-orphan", lazy='select',
         order_by="ClaimActivity.created_at.desc()"
     )
+    claim_notes = relationship(
+        "ClaimNote", back_populates="claim",
+        cascade="all, delete-orphan", lazy='select',
+        order_by="ClaimNote.created_at.desc()"
+    )
+    claim_todos = relationship(
+        "ClaimTodo", back_populates="claim",
+        cascade="all, delete-orphan", lazy='select',
+        order_by="ClaimTodo.created_at.desc()"
+    )
 
 
 class ClaimNegotiation(Base, BaseModel):
@@ -334,6 +344,44 @@ class ClaimExpense(Base, BaseModel):
 
     # Relationship
     claim = relationship("Claim", back_populates="expenses")
+
+
+class ClaimNote(Base, BaseModel):
+    """Note/memo attached to a claim"""
+    __tablename__ = "claim_notes"
+    __table_args__ = (
+        Index('ix_claim_notes_claim_id', 'claim_id'),
+        {'extend_existing': True}
+    )
+
+    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=False)
+    content = Column(Text, nullable=False)
+    created_by_name = Column(String(255))
+    pinned = Column(Boolean, default=False)
+
+    # Relationship
+    claim = relationship("Claim", back_populates="claim_notes")
+
+
+class ClaimTodo(Base, BaseModel):
+    """Todo/task item attached to a claim"""
+    __tablename__ = "claim_todos"
+    __table_args__ = (
+        Index('ix_claim_todos_claim_id', 'claim_id'),
+        Index('ix_claim_todos_is_completed', 'is_completed'),
+        {'extend_existing': True}
+    )
+
+    claim_id = Column(UUIDType(), ForeignKey("claims.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String(500), nullable=False)
+    description = Column(Text)
+    priority = Column(String(20), default="normal")  # low | normal | high | urgent
+    due_date = Column(DateTime(timezone=True))
+    is_completed = Column(Boolean, default=False)
+    completed_at = Column(DateTime(timezone=True))
+
+    # Relationship
+    claim = relationship("Claim", back_populates="claim_todos")
 
 
 class ClaimActivity(Base, BaseModel):

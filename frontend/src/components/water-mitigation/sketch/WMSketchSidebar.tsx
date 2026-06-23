@@ -41,6 +41,7 @@ import {
   BarChartOutlined,
   BorderOutlined,
   GatewayOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import type {
   WMOverlayData,
@@ -52,6 +53,7 @@ import type {
   WMContainmentZone,
   WMFloorProtection,
   WMContentProtection,
+  WMContentManipulation,
   WMWall,
   WMRoom,
 } from '../../../types/wmSketch';
@@ -60,6 +62,7 @@ import WMEquipmentPanel from './panels/WMEquipmentPanel';
 import WMContainmentPanel from './panels/WMContainmentPanel';
 import WMFloorProtectionPanel from './panels/WMFloorProtectionPanel';
 import WMContentProtectionPanel from './panels/WMContentProtectionPanel';
+import WMContentManipulationPanel from './panels/WMContentManipulationPanel';
 import WMFloorSummaryPanel from './panels/WMFloorSummaryPanel';
 import WMMaterialTypeManager from './panels/WMMaterialTypeManager';
 
@@ -83,6 +86,8 @@ export interface WMSketchSidebarProps {
   onDeleteProtection: (id: string) => void;
   onUpdateContentProtection: (id: string, updates: Partial<WMContentProtection>) => void;
   onDeleteContentProtection: (id: string) => void;
+  onUpdateContentManipulation: (id: string, updates: Partial<WMContentManipulation>) => void;
+  onDeleteContentManipulation: (id: string) => void;
   onUpdateWall?: (id: string, updates: Partial<WMWall>) => void;
   onDeleteWall?: (id: string) => void;
   onUpdateRoom?: (id: string, updates: Partial<WMRoom>) => void;
@@ -102,6 +107,7 @@ const SELECTION_PANEL_MAP: Record<string, string> = {
   containment: 'containment',
   floor_protection: 'floor_protection',
   content_protection: 'content_protection',
+  content_manipulation: 'content_manipulation',
   wall: 'floor_plan',
   room: 'floor_plan',
 };
@@ -170,6 +176,8 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
   onDeleteProtection,
   onUpdateContentProtection,
   onDeleteContentProtection,
+  onUpdateContentManipulation,
+  onDeleteContentManipulation,
   onUpdateWall,
   onDeleteWall,
   onUpdateRoom,
@@ -197,6 +205,7 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
   const containCount = overlayData.containment_zones.length;
   const protCount = overlayData.floor_protections.length;
   const contentProtCount = (overlayData.content_protections ?? []).length;
+  const contentManipCount = (overlayData.content_manipulations ?? []).length;
   const demoTotalSqft = useMemo(
     () => summary.demolition_by_type.reduce((s, d) => s + d.total_sqft, 0),
     [summary.demolition_by_type]
@@ -213,6 +222,8 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
     selection?.element_type === 'floor_protection' ? selection.element_id : null;
   const selectedContentProtId =
     selection?.element_type === 'content_protection' ? selection.element_id : null;
+  const selectedContentManipId =
+    selection?.element_type === 'content_manipulation' ? selection.element_id : null;
   const selectedWallId =
     selection?.element_type === 'wall' ? selection.element_id : null;
   const selectedRoomId =
@@ -345,6 +356,30 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
           onUpdateProtection={onUpdateContentProtection}
           onDeleteProtection={onDeleteContentProtection}
           onSelectProtection={(id) => onSelectElement(id, 'content_protection')}
+        />
+      ),
+    },
+    {
+      key: 'content_manipulation',
+      label: (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <SwapOutlined style={{ color: '#F97316', fontSize: 13 }} />
+          <Text style={{ fontSize: 13, fontWeight: 500 }}>Content Manipulation</Text>
+          <div style={{ flex: 1 }} />
+          {summary.content_manipulation.total_sqft > 0 ? (
+            <AreaBadge sqft={summary.content_manipulation.total_sqft} color="#F97316" />
+          ) : (
+            <CountBadge count={contentManipCount} color="#F97316" />
+          )}
+        </div>
+      ),
+      children: (
+        <WMContentManipulationPanel
+          manipulations={overlayData.content_manipulations ?? []}
+          selectedManipulationId={selectedContentManipId}
+          onUpdateManipulation={onUpdateContentManipulation}
+          onDeleteManipulation={onDeleteContentManipulation}
+          onSelectManipulation={(id) => onSelectElement(id, 'content_manipulation')}
         />
       ),
     },

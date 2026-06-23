@@ -111,6 +111,11 @@ class WMFloorSketch(Base, BaseModel):
         back_populates="floor_sketch",
         cascade="all, delete-orphan",
     )
+    content_manipulations = relationship(
+        "WMContentManipulation",
+        back_populates="floor_sketch",
+        cascade="all, delete-orphan",
+    )
 
 
 class WMDemolitionZone(Base, BaseModel):
@@ -344,3 +349,42 @@ class WMContentProtection(Base, BaseModel):
 
     # Relationships
     floor_sketch = relationship("WMFloorSketch", back_populates="content_protections")
+
+
+class WMContentManipulation(Base, BaseModel):
+    """
+    Content Manipulation overlay element on a floor sketch.
+
+    Represents an area where room contents (furniture, belongings) need to be
+    moved before demolition or equipment setup can proceed.
+    Drawn as a rectangle on the canvas.
+    """
+
+    __tablename__ = "wm_content_manipulations"
+    __table_args__ = (
+        Index("ix_wm_content_manipulations_floor_sketch", "floor_sketch_id"),
+        {"extend_existing": True},
+    )
+
+    floor_sketch_id = Column(
+        UUIDType(),
+        ForeignKey("wm_floor_sketches.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    manipulation_type = Column(String(100), default="Move out", nullable=False)
+
+    # Canvas position
+    x = Column(Float, nullable=False)
+    y = Column(Float, nullable=False)
+
+    # Dimensions in decimal feet
+    width_ft = Column(DECIMAL(10, 4), nullable=False)
+    length_ft = Column(DECIMAL(10, 4), nullable=False)
+    rotation = Column(Float, default=0.0, nullable=False)
+
+    calculated_sqft = Column(DECIMAL(12, 2), nullable=False)
+    color = Column(String(7), default="#F97316", nullable=False)
+
+    # Relationships
+    floor_sketch = relationship("WMFloorSketch", back_populates="content_manipulations")

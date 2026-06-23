@@ -39,6 +39,7 @@ import {
   WMTextAnnotation,
   WMShapeAnnotation,
   WMWall,
+  WMContentManipulation,
 } from '../../../../types/wmSketch';
 import { DEFAULT_DEMO_MATERIAL_TYPES, getEffectiveRenderMode } from '../../../../types/wmSketch';
 import WMDemolitionRenderer from './WMDemolitionRenderer';
@@ -48,6 +49,7 @@ import WMEquipmentRenderer from './WMEquipmentRenderer';
 import WMContainmentRenderer from './WMContainmentRenderer';
 import WMFloorProtectionRenderer from './WMFloorProtectionRenderer';
 import WMContentProtectionRenderer from './WMContentProtectionRenderer';
+import WMContentManipulationRenderer from './WMContentManipulationRenderer';
 import WMWallLineRenderer from './WMWallLineRenderer';
 import WMTextRenderer from './WMTextRenderer';
 import WMShapeRenderer from './WMShapeRenderer';
@@ -204,6 +206,10 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   const dragContentProtHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'content_protection', x, y), [onDragEnd]);
   const transformContentProtHandler = useCallback((id: string, w: number, h: number, rotation?: number) => onTransformEnd?.(id, 'content_protection', w, h, rotation), [onTransformEnd]);
 
+  const selectContentManipHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'content_manipulation', ctrlKey), [onSelectElement]);
+  const dragContentManipHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'content_manipulation', x, y), [onDragEnd]);
+  const transformContentManipHandler = useCallback((id: string, w: number, h: number, rotation?: number) => onTransformEnd?.(id, 'content_manipulation', w, h, rotation), [onTransformEnd]);
+
   const selectTextHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'text', ctrlKey), [onSelectElement]);
   const dragTextHandler = useCallback((id: string, x: number, y: number) => onDragEnd(id, 'text', x, y), [onDragEnd]);
   const updateTextHandler = useCallback((id: string, patch: Partial<WMTextAnnotation>) => onUpdateTextAnnotation?.(id, patch), [onUpdateTextAnnotation]);
@@ -258,6 +264,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
     activeTool === 'containment' ||
     activeTool === 'floor_protection' ||
     activeTool === 'content_protection' ||
+    activeTool === 'content_manipulation' ||
     activeTool === 'equipment' ||
     activeTool === 'text' ||
     activeTool === 'shape' ||
@@ -279,6 +286,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   type OverlayItem =
     | { kind: 'floor_protection'; id: string }
     | { kind: 'content_protection'; id: string }
+    | { kind: 'content_manipulation'; id: string }
     | { kind: 'containment'; id: string }
     | { kind: 'demo_rect'; id: string }
     | { kind: 'demo_polygon'; id: string }
@@ -293,6 +301,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
     const items: OverlayItem[] = [];
     for (const fp of overlayData.floor_protections) items.push({ kind: 'floor_protection', id: fp.id });
     for (const cp of overlayData.content_protections ?? []) items.push({ kind: 'content_protection', id: cp.id });
+    for (const cm of overlayData.content_manipulations ?? []) items.push({ kind: 'content_manipulation', id: cm.id });
     for (const c of overlayData.containment_zones) items.push({ kind: 'containment', id: c.id });
     for (const z of overlayData.demolition_zones) {
       if (isPolygonZone(z)) items.push({ kind: 'demo_polygon', id: z.id });
@@ -323,6 +332,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   const containMap = useMemo(() => new Map(overlayData.containment_zones.map((c) => [c.id, c])), [overlayData.containment_zones]);
   const fpMap = useMemo(() => new Map(overlayData.floor_protections.map((f) => [f.id, f])), [overlayData.floor_protections]);
   const cpMap = useMemo(() => new Map((overlayData.content_protections ?? []).map((c) => [c.id, c])), [overlayData.content_protections]);
+  const cmManipMap = useMemo(() => new Map((overlayData.content_manipulations ?? []).map((c) => [c.id, c])), [overlayData.content_manipulations]);
   const shapeMap = useMemo(() => new Map((overlayData.shapes ?? []).map((s) => [s.id, s])), [overlayData.shapes]);
   const textMap = useMemo(() => new Map((overlayData.text_annotations ?? []).map((t) => [t.id, t])), [overlayData.text_annotations]);
 
@@ -365,6 +375,12 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
             const cp = cpMap.get(item.id);
             return cp ? (
               <WMContentProtectionRenderer key={cp.id} protection={cp} isSelected={isSelected(cp.id)} scalePixelsPerFoot={scalePixelsPerFoot} onSelect={selectContentProtHandler} onDragEnd={dragContentProtHandler} onTransformEnd={transformContentProtHandler} />
+            ) : null;
+          }
+          case 'content_manipulation': {
+            const cm = cmManipMap.get(item.id);
+            return cm ? (
+              <WMContentManipulationRenderer key={cm.id} manipulation={cm} isSelected={isSelected(cm.id)} scalePixelsPerFoot={scalePixelsPerFoot} onSelect={selectContentManipHandler} onDragEnd={dragContentManipHandler} onTransformEnd={transformContentManipHandler} />
             ) : null;
           }
           case 'containment': {

@@ -64,6 +64,7 @@ import type {
   WMContainmentZone,
   WMFloorProtection,
   WMContentProtection,
+  WMContentManipulation,
   WMTextAnnotation,
   WMShapeAnnotation,
   WMWall,
@@ -94,12 +95,14 @@ import {
   calcContainmentSqft,
   calcFloorProtectionSqft,
   calcContentProtectionSqft,
+  calcContentManipulationSqft,
 } from './utils/wmCalculations';
 import {
   DEFAULT_CONTAINMENT_COLOR,
   DEFAULT_CONTAINMENT_HEIGHT_FT,
   DEFAULT_FLOOR_PROTECTION_COLOR,
   DEFAULT_CONTENT_PROTECTION_COLOR,
+  DEFAULT_CONTENT_MANIPULATION_COLOR,
   DEFAULT_PAPER_WIDTH_FT,
 } from './utils/wmDefaults';
 import WMFloorPlanSource from './WMFloorPlanSource';
@@ -431,6 +434,10 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     updateFloorProtection,
     addContentProtection,
     updateContentProtection,
+    removeContentProtection,
+    addContentManipulation,
+    updateContentManipulation,
+    removeContentManipulation,
     addTextAnnotation,
     updateTextAnnotation,
     removeTextAnnotation,
@@ -438,7 +445,6 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     removeEquipment,
     removeContainment,
     removeFloorProtection,
-    removeContentProtection,
     addShape,
     updateShape,
     removeShape,
@@ -1334,6 +1340,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
               else if (element_type === 'containment') removeContainment(element_id);
               else if (element_type === 'floor_protection') removeFloorProtection(element_id);
               else if (element_type === 'content_protection') removeContentProtection(element_id);
+              else if (element_type === 'content_manipulation') removeContentManipulation(element_id);
               else if (element_type === 'text') removeTextAnnotation(element_id);
               else if (element_type === 'shape') removeShape(element_id);
               else if (element_type === 'wall') removeWall(element_id);
@@ -1380,7 +1387,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         activeTool === 'demolition_line' ||
         activeTool === 'containment' ||
         activeTool === 'floor_protection' ||
-        activeTool === 'content_protection'
+        activeTool === 'content_protection' ||
+        activeTool === 'content_manipulation'
       ) {
         // Wall and baseboard (LF-unit) demo types cannot be drawn on the 2D canvas.
         // They are added via the sidebar "Add" button only.
@@ -1914,12 +1922,28 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         };
         addContentProtection(contentProt);
         selectNewElement(cpId, 'content_protection');
+      } else if (activeTool === 'content_manipulation') {
+        const cmId = generateOverlayId();
+        const contentManip: WMContentManipulation = {
+          id: cmId,
+          floor_sketch_id: fs.id,
+          manipulation_type: 'Move out',
+          width_ft: dim1Ft,
+          length_ft: dim2Ft,
+          x,
+          y,
+          rotation: 0,
+          calculated_sqft: calcContentManipulationSqft(dim1Ft, dim2Ft),
+          color: DEFAULT_CONTENT_MANIPULATION_COLOR,
+        };
+        addContentManipulation(contentManip);
+        selectNewElement(cmId, 'content_manipulation');
       }
 
       setDrawStateSync(INITIAL_DRAW_STATE);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addDemolitionZone, addContainment, addFloorProtection, addContentProtection, selectNewElement, setDrawStateSync]
+    [addDemolitionZone, addContainment, addFloorProtection, addContentProtection, addContentManipulation, selectNewElement, setDrawStateSync]
   );
 
   // ------------------------------------------------------------------
@@ -1941,6 +1965,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
       else if (type === 'containment') updateContainment({ id, x, y });
       else if (type === 'floor_protection') updateFloorProtection({ id, x, y });
       else if (type === 'content_protection') updateContentProtection({ id, x, y });
+      else if (type === 'content_manipulation') updateContentManipulation({ id, x, y });
       else if (type === 'text') updateTextAnnotation({ id, x, y });
       else if (type === 'shape') updateShape({ id, x, y });
     },
@@ -2034,6 +2059,14 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           rotation: rotation ?? 0,
           calculated_sqft: calcContentProtectionSqft(widthFt, heightFt),
         });
+      } else if (type === 'content_manipulation') {
+        updateContentManipulation({
+          id,
+          width_ft: widthFt,
+          length_ft: heightFt,
+          rotation: rotation ?? 0,
+          calculated_sqft: calcContentManipulationSqft(widthFt, heightFt),
+        });
       } else if (type === 'shape') {
         // widthFt/heightFt are actually pixel dimensions for shapes
         updateShape({
@@ -2054,7 +2087,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     (id: string, type: string, ctrlKey?: boolean) => {
       const sel: import('../../../types/wmSketch').WMSketchSelection = {
         element_id: id,
-        element_type: type as 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection' | 'text' | 'shape',
+        element_type: type as 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection' | 'content_manipulation' | 'text' | 'shape',
       };
       if (ctrlKey) {
         toggleSelectElement(sel);
@@ -2112,6 +2145,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           else if (element_type === 'containment') found = state.overlayData.containment_zones.find((c) => c.id === element_id) as unknown as Record<string, unknown>;
           else if (element_type === 'floor_protection') found = state.overlayData.floor_protections.find((fp) => fp.id === element_id) as unknown as Record<string, unknown>;
           else if (element_type === 'content_protection') found = (state.overlayData.content_protections ?? []).find((cp) => cp.id === element_id) as unknown as Record<string, unknown>;
+          else if (element_type === 'content_manipulation') found = (state.overlayData.content_manipulations ?? []).find((cm) => cm.id === element_id) as unknown as Record<string, unknown>;
           else if (element_type === 'text') found = (state.overlayData.text_annotations ?? []).find((t) => t.id === element_id) as unknown as Record<string, unknown>;
           else if (element_type === 'shape') found = (state.overlayData.shapes ?? []).find((s) => s.id === element_id) as unknown as Record<string, unknown>;
           if (found) items.push({ type: element_type, data: { ...found } });
@@ -2136,6 +2170,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           else if (item.type === 'containment') addContainment(cloned as unknown as WMContainmentZone);
           else if (item.type === 'floor_protection') addFloorProtection(cloned as unknown as WMFloorProtection);
           else if (item.type === 'content_protection') addContentProtection(cloned as unknown as WMContentProtection);
+          else if (item.type === 'content_manipulation') addContentManipulation(cloned as unknown as WMContentManipulation);
           else if (item.type === 'text') addTextAnnotation(cloned as unknown as WMTextAnnotation);
           else if (item.type === 'shape') addShape(cloned as unknown as WMShapeAnnotation);
           newSelections.push({ element_id: newId, element_type: item.type as WMSketchSelection['element_type'] });
@@ -2202,6 +2237,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           else if (element_type === 'containment') removeContainment(element_id);
           else if (element_type === 'floor_protection') removeFloorProtection(element_id);
           else if (element_type === 'content_protection') removeContentProtection(element_id);
+          else if (element_type === 'content_manipulation') removeContentManipulation(element_id);
           else if (element_type === 'text') removeTextAnnotation(element_id);
           else if (element_type === 'shape') removeShape(element_id);
           else if (element_type === 'wall') removeWall(element_id);
@@ -2231,6 +2267,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     removeContainment,
     removeFloorProtection,
     removeContentProtection,
+    removeContentManipulation,
     removeTextAnnotation,
     removeShape,
     removeWall,
@@ -2242,6 +2279,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     addContainment,
     addFloorProtection,
     addContentProtection,
+    addContentManipulation,
     addTextAnnotation,
     addShape,
     selectElement,
@@ -2337,6 +2375,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     if (state.activeTool === 'containment') return DEFAULT_CONTAINMENT_COLOR;
     if (state.activeTool === 'floor_protection') return DEFAULT_FLOOR_PROTECTION_COLOR;
     if (state.activeTool === 'content_protection') return DEFAULT_CONTENT_PROTECTION_COLOR;
+    if (state.activeTool === 'content_manipulation') return DEFAULT_CONTENT_MANIPULATION_COLOR;
     const mat =
       materialTypes.find((m) => m.id === state.activeMaterialTypeId) ??
       DEFAULT_DEMO_MATERIAL_TYPES.find((m) => m.id === state.activeMaterialTypeId);
@@ -2689,6 +2728,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           onDeleteProtection={removeFloorProtection}
           onUpdateContentProtection={(id, updates) => updateContentProtection({ id, ...updates })}
           onDeleteContentProtection={removeContentProtection}
+          onUpdateContentManipulation={(id, updates) => updateContentManipulation({ id, ...updates })}
+          onDeleteContentManipulation={removeContentManipulation}
           onUpdateWall={(id, updates) => updateWall({ id, ...updates })}
           onDeleteWall={removeWall}
           onUpdateRoom={(id, updates) => updateRoom({ id, ...updates })}

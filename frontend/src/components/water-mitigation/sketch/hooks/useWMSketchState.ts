@@ -14,6 +14,7 @@ import type {
   WMContainmentZone,
   WMFloorProtection,
   WMContentProtection,
+  WMContentManipulation,
   WMTextAnnotation,
   WMShapeAnnotation,
   WMWall,
@@ -95,6 +96,11 @@ type WMSketchAction =
   | { type: 'UPDATE_CONTENT_PROTECTION'; payload: Partial<WMContentProtection> & { id: string } }
   | { type: 'REMOVE_CONTENT_PROTECTION'; payload: string }
 
+  // Content manipulation
+  | { type: 'ADD_CONTENT_MANIPULATION'; payload: WMContentManipulation }
+  | { type: 'UPDATE_CONTENT_MANIPULATION'; payload: Partial<WMContentManipulation> & { id: string } }
+  | { type: 'REMOVE_CONTENT_MANIPULATION'; payload: string }
+
   // Text annotations
   | { type: 'ADD_TEXT_ANNOTATION'; payload: WMTextAnnotation }
   | { type: 'UPDATE_TEXT_ANNOTATION'; payload: Partial<WMTextAnnotation> & { id: string } }
@@ -155,6 +161,7 @@ function buildDefaultOrder(data: WMOverlayData): string[] {
   return [
     ...data.floor_protections.map((e) => e.id),
     ...(data.content_protections ?? []).map((e) => e.id),
+    ...(data.content_manipulations ?? []).map((e) => e.id),
     ...data.containment_zones.map((e) => e.id),
     ...data.demolition_zones.map((e) => e.id),
     ...data.equipment_placements.map((e) => e.id),
@@ -614,6 +621,60 @@ function wmSketchReducer(
     }
 
     // ------------------------------------------------------------------
+    // Content manipulation
+    // ------------------------------------------------------------------
+    case 'ADD_CONTENT_MANIPULATION': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const existing = state.overlayData.content_manipulations ?? [];
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          content_manipulations: [...existing, action.payload],
+        },
+      };
+    }
+
+    case 'UPDATE_CONTENT_MANIPULATION': {
+      const { undoStack, redoStack } = pushUndo(state);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        overlayData: {
+          ...state.overlayData,
+          content_manipulations: updateById(
+            state.overlayData.content_manipulations ?? [],
+            action.payload
+          ),
+        },
+      };
+    }
+
+    case 'REMOVE_CONTENT_MANIPULATION': {
+      const { undoStack, redoStack } = pushUndo(state);
+      const newSelections = state.selections.filter((s) => s.element_id !== action.payload);
+      return {
+        ...state,
+        undoStack,
+        redoStack,
+        isDirty: true,
+        selections: newSelections,
+        selection: newSelections.length > 0 ? newSelections[newSelections.length - 1] : null,
+        overlayData: {
+          ...state.overlayData,
+          content_manipulations: (state.overlayData.content_manipulations ?? []).filter(
+            (cm) => cm.id !== action.payload
+          ),
+        },
+      };
+    }
+
+    // ------------------------------------------------------------------
     // Text annotations
     // ------------------------------------------------------------------
     case 'ADD_TEXT_ANNOTATION': {
@@ -824,6 +885,7 @@ function wmSketchReducer(
         ...state.overlayData.containment_zones,
         ...state.overlayData.floor_protections,
         ...(state.overlayData.content_protections ?? []),
+        ...(state.overlayData.content_manipulations ?? []),
         ...(state.overlayData.text_annotations ?? []),
         ...(state.overlayData.shapes ?? []),
       ];
@@ -857,6 +919,7 @@ function wmSketchReducer(
           containment_zones: moveIfSelected(state.overlayData.containment_zones),
           floor_protections: moveIfSelected(state.overlayData.floor_protections),
           content_protections: moveIfSelected(state.overlayData.content_protections ?? []),
+          content_manipulations: moveIfSelected(state.overlayData.content_manipulations ?? []),
           text_annotations: moveIfSelected(state.overlayData.text_annotations ?? []),
           shapes: moveIfSelected(state.overlayData.shapes ?? []),
         },
@@ -1034,6 +1097,11 @@ export interface WMSketchStateReturn {
   addContentProtection: (cp: WMContentProtection) => void;
   updateContentProtection: (patch: Partial<WMContentProtection> & { id: string }) => void;
   removeContentProtection: (id: string) => void;
+
+  // Content manipulation
+  addContentManipulation: (cm: WMContentManipulation) => void;
+  updateContentManipulation: (patch: Partial<WMContentManipulation> & { id: string }) => void;
+  removeContentManipulation: (id: string) => void;
 
   // Text annotations
   addTextAnnotation: (annotation: WMTextAnnotation) => void;
@@ -1262,6 +1330,24 @@ export function useWMSketchState(
     []
   );
 
+  // Content manipulation
+  const addContentManipulation = useCallback(
+    (cm: WMContentManipulation) =>
+      dispatch({ type: 'ADD_CONTENT_MANIPULATION', payload: cm }),
+    []
+  );
+
+  const updateContentManipulation = useCallback(
+    (patch: Partial<WMContentManipulation> & { id: string }) =>
+      dispatch({ type: 'UPDATE_CONTENT_MANIPULATION', payload: patch }),
+    []
+  );
+
+  const removeContentManipulation = useCallback(
+    (id: string) => dispatch({ type: 'REMOVE_CONTENT_MANIPULATION', payload: id }),
+    []
+  );
+
   // Text annotations
   const addTextAnnotation = useCallback(
     (annotation: WMTextAnnotation) =>
@@ -1399,6 +1485,9 @@ export function useWMSketchState(
     addContentProtection,
     updateContentProtection,
     removeContentProtection,
+    addContentManipulation,
+    updateContentManipulation,
+    removeContentManipulation,
     addTextAnnotation,
     updateTextAnnotation,
     removeTextAnnotation,

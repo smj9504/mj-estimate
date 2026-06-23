@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.domains.water_mitigation.sketch_models import (
     WMContainmentZone,
+    WMContentManipulation,
     WMContentProtection,
     WMDemolitionZone,
     WMEquipmentPlacement,
@@ -46,6 +47,7 @@ class SketchRepository:
                 selectinload(WMFloorSketch.containment_zones),
                 selectinload(WMFloorSketch.floor_protections),
                 selectinload(WMFloorSketch.content_protections),
+                selectinload(WMFloorSketch.content_manipulations),
             )
         )
         result = self.db.execute(query)
@@ -62,6 +64,7 @@ class SketchRepository:
                 selectinload(WMFloorSketch.containment_zones),
                 selectinload(WMFloorSketch.floor_protections),
                 selectinload(WMFloorSketch.content_protections),
+                selectinload(WMFloorSketch.content_manipulations),
             )
         )
         result = self.db.execute(query)
@@ -135,6 +138,11 @@ class SketchRepository:
                 WMContentProtection.floor_sketch_id == floor_sketch_id
             )
         )
+        self.db.execute(
+            delete(WMContentManipulation).where(
+                WMContentManipulation.floor_sketch_id == floor_sketch_id
+            )
+        )
 
         # Fields that exist only on the frontend / JSONB, not in the DB table
         _DEMO_ZONE_SKIP = {"pixel_width", "pixel_height", "polygon_points", "combined_from", "group_id", "baseboard_type"}
@@ -171,6 +179,12 @@ class SketchRepository:
             self.db.add(WMContentProtection(
                 floor_sketch_id=floor_sketch_id,
                 **content_data.dict(),
+            ))
+
+        for manip_data in overlay_data.content_manipulations:
+            self.db.add(WMContentManipulation(
+                floor_sketch_id=floor_sketch_id,
+                **manip_data.dict(),
             ))
 
         self.db.flush()
@@ -218,6 +232,10 @@ class SketchRepository:
                 {**_pydantic_to_dict(cp), "floor_sketch_id": fsi}
                 for cp in overlay_data.content_protections
             ],
+            "content_manipulations": [
+                {**_pydantic_to_dict(cm), "floor_sketch_id": fsi}
+                for cm in (overlay_data.content_manipulations or [])
+            ],
             "text_annotations": [
                 {**_pydantic_to_dict(ta), "floor_sketch_id": fsi}
                 for ta in (overlay_data.text_annotations or [])
@@ -247,6 +265,7 @@ class SketchRepository:
                 selectinload(WMFloorSketch.containment_zones),
                 selectinload(WMFloorSketch.floor_protections),
                 selectinload(WMFloorSketch.content_protections),
+                selectinload(WMFloorSketch.content_manipulations),
             )
         ).scalar_one_or_none()
         if sketch is None:

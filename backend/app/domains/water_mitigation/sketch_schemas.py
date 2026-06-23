@@ -189,6 +189,36 @@ class WMContentProtectionSchema(WMContentProtectionBase):
 
 
 # =============================================================================
+# Content Manipulation Schemas
+# =============================================================================
+
+class WMContentManipulationBase(PydanticBaseModel):
+    """Shared fields for content manipulation create/update"""
+    manipulation_type: str = Field("Move out", max_length=100)
+    x: float
+    y: float
+    width_ft: Decimal = Field(..., ge=0)
+    length_ft: Decimal = Field(..., ge=0)
+    rotation: float = 0.0
+    calculated_sqft: Decimal = Field(..., ge=0)
+    color: str = Field("#F97316", max_length=7)
+
+
+class WMContentManipulationCreate(WMContentManipulationBase):
+    """Create a content manipulation area"""
+    pass
+
+
+class WMContentManipulationSchema(WMContentManipulationBase):
+    """Full content manipulation representation"""
+    id: UUID
+    floor_sketch_id: UUID
+
+    class Config:
+        from_attributes = True
+
+
+# =============================================================================
 # Text Annotation Schemas
 # =============================================================================
 
@@ -279,6 +309,7 @@ class WMOverlayData(PydanticBaseModel):
     containment_zones: List[WMContainmentZoneCreate] = Field(default_factory=list)
     floor_protections: List[WMFloorProtectionCreate] = Field(default_factory=list)
     content_protections: List[WMContentProtectionCreate] = Field(default_factory=list)
+    content_manipulations: List[WMContentManipulationCreate] = Field(default_factory=list)
     text_annotations: List[WMTextAnnotationCreate] = Field(default_factory=list)
     shapes: List[WMShapeAnnotationCreate] = Field(default_factory=list)
     walls: List[WMWallCreate] = Field(default_factory=list)

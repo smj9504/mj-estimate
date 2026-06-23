@@ -51,6 +51,8 @@ import {
   MailOutlined,
   SendOutlined,
   LoadingOutlined,
+  FormOutlined,
+  CheckSquareOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -59,6 +61,8 @@ import { clientService, claimService, negotiationService, claimActivityService }
 import { fileService } from '../services/fileService';
 import ClaimContractDashboard from '../components/contract/ClaimContractDashboard';
 import ClientDocumentHub from '../components/client/ClientDocumentHub';
+import ClaimNotes from '../components/client/ClaimNotes';
+import ClaimTodos from '../components/client/ClaimTodos';
 import { PaymentTracker, ProfitabilityTracker, EmailComposer, EmailHistory } from '../components/claim-followup';
 import type { ClaimContact } from '../components/claim-followup/EmailComposer';
 import type {
@@ -1670,6 +1674,22 @@ const ClaimsTab: React.FC<ClaimsTabProps> = ({ client }) => {
                   </Button>
                 </div>
                 <EmailHistory claimId={claim.id} />
+
+                {/* Claim Todos */}
+                <Divider style={{ margin: '16px 0 12px' }} />
+                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+                  <CheckSquareOutlined style={{ marginRight: 6 }} />
+                  Todos
+                </Text>
+                <ClaimTodos clientId={client.id} claimId={claim.id} />
+
+                {/* Claim Notes */}
+                <Divider style={{ margin: '16px 0 12px' }} />
+                <Text strong style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+                  <FormOutlined style={{ marginRight: 6 }} />
+                  Notes
+                </Text>
+                <ClaimNotes clientId={client.id} claimId={claim.id} />
 
                 {/* Claim Activity Timeline */}
                 <Divider style={{ margin: '16px 0 12px' }} />

@@ -32,6 +32,7 @@ export type WMSketchTool =
   | 'containment'
   | 'floor_protection'
   | 'content_protection'
+  | 'content_manipulation'
   | 'text'
   | 'shape'
   | 'pan'
@@ -513,6 +514,36 @@ export interface WMContentProtection {
   color: string;
 }
 
+/** Content manipulation type — describes how contents were moved */
+export type ContentManipulationType =
+  | 'move_out'
+  | 'move_within'
+  | 'move_back';
+
+/**
+ * A content manipulation area drawn on the canvas as a rectangle.
+ * Used when room contents (furniture, belongings) need to be moved
+ * before demolition or equipment setup can proceed.
+ * Measured in SF — represents the floor area whose contents were manipulated.
+ */
+export interface WMContentManipulation {
+  id: string;
+  floor_sketch_id: string;
+  /** E.g. "Move out", "Move within room", "Move back" */
+  manipulation_type: string;
+  x: number;
+  y: number;
+  /** Width of the affected area in feet */
+  width_ft: number;
+  /** Length of the affected area in feet */
+  length_ft: number;
+  /** Rotation angle in degrees */
+  rotation: number;
+  /** Computed: width_ft * length_ft */
+  calculated_sqft: number;
+  color: string;
+}
+
 /**
  * A free-form text annotation placed on the canvas.
  * Used for notes, labels, room names, or any descriptive text.
@@ -679,6 +710,7 @@ export interface WMOverlayData {
   containment_zones: WMContainmentZone[];
   floor_protections: WMFloorProtection[];
   content_protections: WMContentProtection[];
+  content_manipulations: WMContentManipulation[];
   text_annotations: WMTextAnnotation[];
   /** Shape annotations — doors, cabinets, fixtures, etc. (optional — absent in legacy data) */
   shapes?: WMShapeAnnotation[];
@@ -701,6 +733,7 @@ export const EMPTY_OVERLAY_DATA: WMOverlayData = {
   containment_zones: [],
   floor_protections: [],
   content_protections: [],
+  content_manipulations: [],
   text_annotations: [],
   shapes: [],
   walls: [],
@@ -805,6 +838,10 @@ export interface WMFloorSummary {
     count: number;
     total_sqft: number;
   };
+  content_manipulation: {
+    count: number;
+    total_sqft: number;
+  };
   /** Count of each equipment type placed on this floor */
   equipment_counts: Record<EquipmentType, number>;
 }
@@ -819,5 +856,5 @@ export interface WMFloorSummary {
  */
 export interface WMSketchSelection {
   element_id: string;
-  element_type: 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection' | 'text' | 'shape' | 'wall' | 'room';
+  element_type: 'demolition' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection' | 'content_manipulation' | 'text' | 'shape' | 'wall' | 'room';
 }

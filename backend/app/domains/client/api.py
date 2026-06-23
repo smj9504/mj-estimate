@@ -30,8 +30,16 @@ from app.domains.client.schemas import (
     ClaimExpenseUpdate,
     ClaimExpenseResponse,
     ProfitabilitySummary,
+    ClaimNoteCreate,
+    ClaimNoteUpdate,
+    ClaimTodoCreate,
+    ClaimTodoUpdate,
 )
-from app.domains.client.service import ClientService, ClaimService, ClaimNegotiationService, ClaimPaymentService, ClaimExpenseService
+from app.domains.client.service import (
+    ClientService, ClaimService, ClaimNegotiationService,
+    ClaimPaymentService, ClaimExpenseService,
+    ClaimNoteService, ClaimTodoService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +69,16 @@ def _get_payment_service():
 def _get_expense_service():
     from app.core.database_factory import get_database
     return ClaimExpenseService(get_database())
+
+
+def _get_note_service():
+    from app.core.database_factory import get_database
+    return ClaimNoteService(get_database())
+
+
+def _get_todo_service():
+    from app.core.database_factory import get_database
+    return ClaimTodoService(get_database())
 
 
 # ============================================================
@@ -968,3 +986,119 @@ async def get_all_documents(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         session.close()
+
+
+# ============================================================
+# Claim Note endpoints
+# ============================================================
+
+@router.get("/{client_id}/claims/{claim_id}/notes", response_model=None)
+async def get_notes(
+    client_id: str, claim_id: str,
+    service: ClaimNoteService = Depends(_get_note_service),
+):
+    """Get all notes for a claim"""
+    return service.get_notes_by_claim(claim_id)
+
+
+@router.post("/{client_id}/claims/{claim_id}/notes", response_model=None)
+async def create_note(
+    client_id: str, claim_id: str, data: ClaimNoteCreate,
+    service: ClaimNoteService = Depends(_get_note_service),
+):
+    """Create a note"""
+    note_data = data.dict()
+    note_data['claim_id'] = claim_id
+    try:
+        return service.create_note(note_data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/{client_id}/claims/{claim_id}/notes/{note_id}", response_model=None)
+async def update_note(
+    client_id: str, claim_id: str, note_id: str, data: ClaimNoteUpdate,
+    service: ClaimNoteService = Depends(_get_note_service),
+):
+    """Update a note"""
+    result = service.update_note(note_id, data.dict(exclude_unset=True))
+    if not result:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return result
+
+
+@router.delete("/{client_id}/claims/{claim_id}/notes/{note_id}")
+async def delete_note(
+    client_id: str, claim_id: str, note_id: str,
+    service: ClaimNoteService = Depends(_get_note_service),
+):
+    """Delete a note"""
+    if not service.delete_note(note_id):
+        raise HTTPException(status_code=404, detail="Note not found")
+    return {"message": "Note deleted"}
+
+
+# ============================================================
+# Claim Todo endpoints
+# ============================================================
+
+@router.get("/{client_id}/claims/{claim_id}/todos", response_model=None)
+async def get_todos(
+    client_id: str, claim_id: str,
+    service: ClaimTodoService = Depends(_get_todo_service),
+):
+    """Get all todos for a claim"""
+    return service.get_todos_by_claim(claim_id)
+
+
+@router.post("/{client_id}/claims/{claim_id}/todos", response_model=None)
+async def create_todo(
+    client_id: str, claim_id: str, data: ClaimTodoCreate,
+    service: ClaimTodoService = Depends(_get_todo_service),
+):
+    """Create a todo"""
+    todo_data = data.dict()
+    todo_data['claim_id'] = claim_id
+    try:
+        return service.create_todo(todo_data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/{client_id}/claims/{claim_id}/todos/{todo_id}", response_model=None)
+async def update_todo(
+    client_id: str, claim_id: str, todo_id: str, data: ClaimTodoUpdate,
+    service: ClaimTodoService = Depends(_get_todo_service),
+):
+    """Update a todo (including completion toggle)"""
+    result = service.update_todo(todo_id, data.dict(exclude_unset=True))
+    if not result:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return result
+
+
+@router.delete("/{client_id}/claims/{claim_id}/todos/{todo_id}")
+async def delete_todo(
+    client_id: str, claim_id: str, todo_id: str,
+    service: ClaimTodoService = Depends(_get_todo_service),
+):
+    """Delete a todo"""
+    if not service.delete_todo(todo_id):
+        raise HTTPException(status_code=404, detail="Todo not found")
+    return {"message": "Todo deleted"}
+
+
+# ============================================================
+# Dashboard: Active Todos (global)
+# ============================================================
+
+todo_dashboard_router = APIRouter()
+
+
+@todo_dashboard_router.get("/active", response_model=None)
+async def get_active_todos(
+    include_completed: bool = False,
+    service: ClaimTodoService = Depends(_get_todo_service),
+):
+    """Get all active (uncompleted) todos across all claims for the dashboard"""
+    return service.get_active_todos(include_completed=include_completed)
