@@ -1367,9 +1367,29 @@ class ClaimFollowUpService:
                 for att in raw_attachments
             ]
 
+            claim_id = data.get('claim_id')
+            manual_from = bool(data.get('from_address')) and not data.get('email_account_id')
+
+            # If no claim is linked, send via SMTP directly (no DB record)
+            if claim_id is None:
+                smtp = SmtpService()
+                smtp_result = smtp.send(
+                    account_id=data.get('email_account_id'),
+                    from_address=from_address,
+                    to_addresses=data['to_addresses'],
+                    cc_addresses=data.get('cc_addresses', []),
+                    bcc_addresses=data.get('bcc_addresses', []),
+                    subject=data['subject'],
+                    body_html=data['body_html'],
+                    attachments=raw_attachments,
+                    skip_signature=manual_from,
+                )
+                session.commit()
+                return {'id': None, 'status': 'sent', 'smtp_message_id': smtp_result.get('message_id')}
+
             # Create sent email record
             email_data = {
-                'claim_id': data['claim_id'],
+                'claim_id': claim_id,
                 'followup_task_id': data.get('followup_task_id'),
                 'email_account_id': data.get('email_account_id'),
                 'from_address': from_address,
@@ -1401,8 +1421,6 @@ class ClaimFollowUpService:
 
             try:
                 smtp = SmtpService()
-                # Skip signature when using manual from_address without an account
-                manual_from = bool(data.get('from_address')) and not data.get('email_account_id')
                 smtp_result = smtp.send(
                     account_id=data.get('email_account_id'),
                     from_address=from_address,

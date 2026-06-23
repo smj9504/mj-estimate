@@ -526,7 +526,7 @@ async def send_plumber_report_to_pa(
 
         return {
             "success": True,
-            "email_id": str(email_result.get("id", "")),
+            "email_id": str(email_result.get("id") or ""),
             "recipients": request.to_addresses,
             "cc": request.cc_addresses,
         }
