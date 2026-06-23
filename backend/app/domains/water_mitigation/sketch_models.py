@@ -383,7 +383,7 @@ class WMContentManipulation(Base, BaseModel):
     length_ft = Column(DECIMAL(10, 4), nullable=False)
     rotation = Column(Float, default=0.0, nullable=False)
 
-    calculated_sqft = Column(DECIMAL(12, 2), nullable=False)
+    hours = Column(DECIMAL(10, 2), nullable=False, default=1.0)
     color = Column(String(7), default="#F97316", nullable=False)
 
     # Relationships

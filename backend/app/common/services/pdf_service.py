@@ -1665,19 +1665,22 @@ print(os.path.getsize(output_path))
         .print-btn:hover { background: #374151; }
         """
 
-        # Print footer using position:fixed (repeats on every printed page).
-        # Browser print does not support @page margin boxes (@bottom-center etc.),
-        # and counter(page) only works inside @page content — not in DOM elements.
-        # So we show Report# + Page counter + Address using position:fixed footer
-        # with counter(page) in a ::before pseudo-element won't work either.
-        # Best approach: show report# and address; page numbering not possible
-        # in browser print without @page margin box support.
+        # Print footer: hidden on first page / single-page reports.
+        # JS (onbeforeprint) detects multi-page content and adds .footer-active
+        # so the footer only appears starting from page 2 onwards.
+        # Browser @page margin boxes are not supported in Chrome/Edge, so we use
+        # position:fixed which repeats on every page — hidden by default until JS enables it.
         print_hf_css = """
         /* Screen: hide print-only footer */
         .print-running-footer { display: none; }
 
         @media print {
+            /* Default: footer hidden (no footer on first page or single-page reports) */
             .print-running-footer {
+                display: none;
+            }
+            /* JS adds .footer-active when content spans multiple pages */
+            .print-running-footer.footer-active {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
@@ -1685,7 +1688,7 @@ print(os.path.getsize(output_path))
                 bottom: 0;
                 left: 0.3in;
                 right: 0.3in;
-                padding: 4px 0 0 0;
+                padding: 4px 0 0.2in 0;
                 border-top: 0.5pt solid #ccc;
                 font-size: 8pt;
                 color: #666;
@@ -1693,9 +1696,9 @@ print(os.path.getsize(output_path))
             /* Hide the original template footer */
             .report-footer { display: none !important; }
 
-            /* Override browser default margins — control spacing via page-wrapper padding */
+            /* Top/bottom margins with extra bottom room for footer */
             .page-wrapper {
-                padding: 0.05in 0.3in 0.15in 0.3in !important;
+                padding: 0.25in 0.4in 0.45in 0.4in !important;
             }
         }
 
@@ -1729,6 +1732,33 @@ print(os.path.getsize(output_path))
             '<div class="page-wrapper">',
             f'{footer_div}<div class="page-wrapper">'
         )
+
+        # Inject JS: show footer only when content spans multiple pages.
+        # onbeforeprint fires before print layout; scrollHeight in screen units
+        # approximates page count (letter = 11in = 1056px at 96dpi).
+        js_snippet = (
+            '<script>'
+            '(function(){'
+            'var PH=1056;'  # letter height at 96dpi
+            'function rf(){'
+            'var f=document.querySelector(".print-running-footer");'
+            'var w=document.querySelector(".page-wrapper");'
+            'if(!f||!w)return;'
+            'if(w.scrollHeight>PH*0.9){'
+            'f.classList.add("footer-active");'
+            '}else{'
+            'f.classList.remove("footer-active");'
+            '}'
+            '}'
+            'window.onbeforeprint=rf;'
+            'window.onafterprint=function(){'
+            'var f=document.querySelector(".print-running-footer");'
+            'if(f)f.classList.remove("footer-active");'
+            '};'
+            '})();'
+            '</script>'
+        )
+        html_content = html_content.replace('</body>', js_snippet + '</body>')
 
         # Sanitize surrogate characters that Windows file paths/fonts can introduce
         html_content = html_content.encode('utf-8', errors='replace').decode('utf-8')

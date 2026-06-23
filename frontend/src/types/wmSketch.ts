@@ -524,23 +524,23 @@ export type ContentManipulationType =
  * A content manipulation area drawn on the canvas as a rectangle.
  * Used when room contents (furniture, belongings) need to be moved
  * before demolition or equipment setup can proceed.
- * Measured in SF — represents the floor area whose contents were manipulated.
+ * Measured in HR (hours) — "Move back" is excluded from scope billing.
  */
 export interface WMContentManipulation {
   id: string;
   floor_sketch_id: string;
-  /** E.g. "Move out", "Move within room", "Move back" */
+  /** "Move out" | "Move within room" | "Move back" */
   manipulation_type: string;
   x: number;
   y: number;
-  /** Width of the affected area in feet */
+  /** Width of the affected area in feet (canvas visual only) */
   width_ft: number;
-  /** Length of the affected area in feet */
+  /** Length of the affected area in feet (canvas visual only) */
   length_ft: number;
   /** Rotation angle in degrees */
   rotation: number;
-  /** Computed: width_ft * length_ft */
-  calculated_sqft: number;
+  /** Labor hours for this manipulation (billed; "Move back" excluded from scope) */
+  hours: number;
   color: string;
 }
 
@@ -840,7 +840,7 @@ export interface WMFloorSummary {
   };
   content_manipulation: {
     count: number;
-    total_sqft: number;
+    total_hours: number;
   };
   /** Count of each equipment type placed on this floor */
   equipment_counts: Record<EquipmentType, number>;

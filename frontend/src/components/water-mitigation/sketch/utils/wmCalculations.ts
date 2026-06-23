@@ -193,13 +193,6 @@ export function calcContentProtectionSqft(widthFt: number, lengthFt: number): nu
   return Math.round(widthFt * lengthFt * 100) / 100;
 }
 
-/**
- * Calculate square footage for a content manipulation area: widthFt × lengthFt.
- * Rounds to 2 decimal places.
- */
-export function calcContentManipulationSqft(widthFt: number, lengthFt: number): number {
-  return Math.round(widthFt * lengthFt * 100) / 100;
-}
 
 // ============================================================================
 // Scale Conversions
@@ -331,11 +324,11 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
   );
 
   // ------------------------------------------------------------------
-  // Content manipulation totals
+  // Content manipulation totals (hours; Move back excluded from scope but still counted)
   // ------------------------------------------------------------------
   const contentManipulations = overlayData.content_manipulations ?? [];
-  const contentManipulationTotalSqft = contentManipulations.reduce(
-    (sum, cm) => Math.round((sum + cm.calculated_sqft) * 100) / 100,
+  const contentManipulationTotalHours = contentManipulations.reduce(
+    (sum, cm) => Math.round((sum + (cm.hours ?? 0)) * 100) / 100,
     0
   );
 
@@ -355,7 +348,7 @@ export function calcFloorTotals(overlayData: WMOverlayData): WMFloorSummary {
     },
     content_manipulation: {
       count: contentManipulations.length,
-      total_sqft: contentManipulationTotalSqft,
+      total_hours: contentManipulationTotalHours,
     },
     equipment_counts,
   };

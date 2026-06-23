@@ -6,10 +6,9 @@
  * Click an item to select it on the canvas.
  */
 import React, { useMemo } from 'react';
-import { Button, Select, Space, Typography, Divider, Popconfirm, Tooltip } from 'antd';
+import { Button, Select, Space, Typography, Divider, Popconfirm, Tooltip, InputNumber } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
 import type { WMContentManipulation } from '../../../../types/wmSketch';
-import DimensionInput from './DimensionInput';
 
 const { Text } = Typography;
 
@@ -47,11 +46,6 @@ const ManipEditForm: React.FC<{
   onUpdate: (updates: Partial<WMContentManipulation>) => void;
   onDelete: () => void;
 }> = ({ manipulation, onUpdate, onDelete }) => {
-  const calculatedSqft = useMemo(
-    () => manipulation.width_ft * manipulation.length_ft,
-    [manipulation.width_ft, manipulation.length_ft]
-  );
-
   return (
     <Space direction="vertical" size={10} style={{ width: '100%' }}>
       {/* Manipulation type */}
@@ -70,46 +64,37 @@ const ManipEditForm: React.FC<{
         />
       </div>
 
-      {/* Width / Length */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <DimensionInput
-          label="Width"
-          value={manipulation.width_ft}
-          onChange={(ft) =>
-            onUpdate({
-              width_ft: ft,
-              calculated_sqft: ft * manipulation.length_ft,
-            })
-          }
-        />
-        <DimensionInput
-          label="Length"
-          value={manipulation.length_ft}
-          onChange={(ft) =>
-            onUpdate({
-              length_ft: ft,
-              calculated_sqft: manipulation.width_ft * ft,
-            })
-          }
+      {/* Hours input */}
+      <div>
+        <Text style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>
+          Labor Hours
+        </Text>
+        <InputNumber
+          size="small"
+          min={0}
+          step={0.5}
+          precision={1}
+          value={manipulation.hours}
+          onChange={(val) => onUpdate({ hours: val ?? 0 })}
+          addonAfter="hr"
+          style={{ width: '100%' }}
         />
       </div>
 
-      {/* Calculated sqft */}
-      <div
-        style={{
-          backgroundColor: '#fff7ed',
-          borderRadius: 4,
-          padding: '4px 8px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <Text style={{ fontSize: 12, color: '#666' }}>Area</Text>
-        <Text strong style={{ fontVariantNumeric: 'tabular-nums' }}>
-          {calculatedSqft.toFixed(2)} SF
-        </Text>
-      </div>
+      {manipulation.manipulation_type === 'Move back' && (
+        <div
+          style={{
+            backgroundColor: '#fff7ed',
+            border: '1px solid #fed7aa',
+            borderRadius: 4,
+            padding: '4px 8px',
+            fontSize: 11,
+            color: '#92400e',
+          }}
+        >
+          "Move back" is not billed in scope — hours are recorded only.
+        </div>
+      )}
 
       {/* Delete */}
       <Popconfirm
@@ -138,8 +123,8 @@ const WMContentManipulationPanel: React.FC<WMContentManipulationPanelProps> = ({
     ? manipulations.find((m) => m.id === selectedManipulationId)
     : null;
 
-  const totalSqft = useMemo(
-    () => manipulations.reduce((sum, m) => sum + m.calculated_sqft, 0),
+  const totalHours = useMemo(
+    () => manipulations.reduce((sum, m) => sum + (m.hours ?? 0), 0),
     [manipulations]
   );
 
@@ -196,11 +181,11 @@ const WMContentManipulationPanel: React.FC<WMContentManipulationPanelProps> = ({
               strong
               style={{ fontSize: 20, fontVariantNumeric: 'tabular-nums', lineHeight: 1.3 }}
             >
-              {Math.round(totalSqft)} SF
+              {totalHours.toFixed(1)} hr
             </Text>
             <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>
-              {totalSqft.toFixed(2)} exact — {manipulations.length} area
-              {manipulations.length !== 1 ? 's' : ''}
+              {manipulations.length} area{manipulations.length !== 1 ? 's' : ''}
+              {' · '}Move back excluded from scope
             </Text>
           </div>
           <Divider style={{ margin: '0 0 8px 0' }} />
@@ -243,15 +228,17 @@ const WMContentManipulationPanel: React.FC<WMContentManipulationPanelProps> = ({
                   <Text style={{ fontSize: 12 }}>
                     {manip.manipulation_type || `Area ${i + 1}`}
                   </Text>
-                  <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>
-                    {manip.width_ft.toFixed(1)}′ × {manip.length_ft.toFixed(1)}′
-                  </Text>
+                  {manip.manipulation_type === 'Move back' && (
+                    <Text type="secondary" style={{ fontSize: 10, display: 'block', color: '#d97706' }}>
+                      not billed
+                    </Text>
+                  )}
                 </div>
                 <Text
                   type="secondary"
                   style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}
                 >
-                  {manip.calculated_sqft.toFixed(1)} SF
+                  {(manip.hours ?? 0).toFixed(1)} hr
                 </Text>
               </div>
             );

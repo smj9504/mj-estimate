@@ -95,7 +95,6 @@ import {
   calcContainmentSqft,
   calcFloorProtectionSqft,
   calcContentProtectionSqft,
-  calcContentManipulationSqft,
 } from './utils/wmCalculations';
 import {
   DEFAULT_CONTAINMENT_COLOR,
@@ -300,12 +299,14 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
 
   const { containment_zones, floor_protections, equipment_placements } = overlayData;
   const contentProtections = overlayData.content_protections ?? [];
+  const contentManipulations = overlayData.content_manipulations ?? [];
   const containTotal = containment_zones.reduce((s, c) => s + c.calculated_sqft, 0);
   const protTotal = floor_protections.reduce((s, p) => s + p.calculated_sqft, 0);
   const contentProtTotal = contentProtections.reduce((s, cp) => s + cp.calculated_sqft, 0);
+  const contentManipTotal = contentManipulations.reduce((s, cm) => s + (cm.hours ?? 0), 0);
   const eqCount = equipment_placements.length;
 
-  if (byType.length === 0 && containment_zones.length === 0 && floor_protections.length === 0 && contentProtections.length === 0 && eqCount === 0) {
+  if (byType.length === 0 && containment_zones.length === 0 && floor_protections.length === 0 && contentProtections.length === 0 && contentManipulations.length === 0 && eqCount === 0) {
     return (
       <div
         style={{
@@ -362,6 +363,11 @@ const StatusBar: React.FC<{ overlayData: WMOverlayData; materialTypes: DemoMater
       {contentProtections.length > 0 && (
         <Tag color="#8B5CF6" style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}>
           Content Prot: {contentProtTotal.toFixed(1)} SF
+        </Tag>
+      )}
+      {contentManipulations.length > 0 && (
+        <Tag color="#F97316" style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}>
+          Content Move: {contentManipTotal.toFixed(1)} hr
         </Tag>
       )}
       {eqCount > 0 && (
@@ -1933,7 +1939,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           x,
           y,
           rotation: 0,
-          calculated_sqft: calcContentManipulationSqft(dim1Ft, dim2Ft),
+          hours: 1.0,
           color: DEFAULT_CONTENT_MANIPULATION_COLOR,
         };
         addContentManipulation(contentManip);
@@ -2065,7 +2071,6 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           width_ft: widthFt,
           length_ft: heightFt,
           rotation: rotation ?? 0,
-          calculated_sqft: calcContentManipulationSqft(widthFt, heightFt),
         });
       } else if (type === 'shape') {
         // widthFt/heightFt are actually pixel dimensions for shapes

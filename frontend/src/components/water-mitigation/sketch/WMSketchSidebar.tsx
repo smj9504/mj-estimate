@@ -366,8 +366,8 @@ const WMSketchSidebar: React.FC<WMSketchSidebarProps> = ({
           <SwapOutlined style={{ color: '#F97316', fontSize: 13 }} />
           <Text style={{ fontSize: 13, fontWeight: 500 }}>Content Manipulation</Text>
           <div style={{ flex: 1 }} />
-          {summary.content_manipulation.total_sqft > 0 ? (
-            <AreaBadge sqft={summary.content_manipulation.total_sqft} color="#F97316" />
+          {summary.content_manipulation.total_hours > 0 ? (
+            <AreaBadge sqft={summary.content_manipulation.total_hours} unit="hr" color="#F97316" />
           ) : (
             <CountBadge count={contentManipCount} color="#F97316" />
           )}

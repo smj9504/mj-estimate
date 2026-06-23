@@ -57,7 +57,7 @@ const SHADOW_OFFSET = 2;
 // ---------------------------------------------------------------------------
 
 interface LegendRow {
-  kind: 'material' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection';
+  kind: 'material' | 'equipment' | 'containment' | 'floor_protection' | 'content_protection' | 'content_manipulation';
   color: string;
   label: string;
   renderMode?: DemoRenderMode;
@@ -150,6 +150,16 @@ function buildRows(
     });
   }
 
+  // Content manipulation
+  const contentManipulations = overlayData.content_manipulations ?? [];
+  if (contentManipulations.length > 0) {
+    rows.push({
+      kind: 'content_manipulation',
+      color: '#F97316',
+      label: `Content Manipulation (${contentManipulations.length})`,
+    });
+  }
+
   return rows;
 }
 
@@ -234,6 +244,20 @@ const WMLegendRenderer: React.FC<WMLegendRendererProps> = ({
                 opacity={0.4}
                 stroke={row.color}
                 strokeWidth={1}
+                cornerRadius={1}
+              />
+            ) : row.kind === 'content_manipulation' ? (
+              // Content manipulation: orange dashed rect swatch
+              <Rect
+                x={PADDING}
+                y={swatchY}
+                width={SWATCH_SIZE}
+                height={SWATCH_SIZE}
+                fill={row.color}
+                opacity={0.15}
+                stroke={row.color}
+                strokeWidth={1.5}
+                dash={[4, 2]}
                 cornerRadius={1}
               />
             ) : row.kind === 'floor_protection' ? (

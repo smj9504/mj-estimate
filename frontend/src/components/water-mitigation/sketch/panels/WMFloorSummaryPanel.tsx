@@ -70,6 +70,7 @@ const WMFloorSummaryPanel: React.FC<WMFloorSummaryProps> = ({ summary }) => {
   const hasContainment = summary.containment.count > 0;
   const hasFloorProtection = summary.floor_protection.count > 0;
   const hasContentProtection = summary.content_protection.count > 0;
+  const hasContentManipulation = summary.content_manipulation.count > 0;
   const equipmentTypes = Object.entries(summary.equipment_counts) as [EquipmentType, number][];
   const hasEquipment = equipmentTypes.some(([, count]) => count > 0);
 
@@ -193,10 +194,27 @@ const WMFloorSummaryPanel: React.FC<WMFloorSummaryProps> = ({ summary }) => {
           </>
         )}
 
+        {hasContentManipulation && (
+          <>
+            <SummaryRow
+              label={
+                <Text style={{ fontSize: 12 }}>
+                  Content Manipulation
+                  <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
+                    {summary.content_manipulation.count}x
+                  </Text>
+                </Text>
+              }
+              value={`${summary.content_manipulation.total_hours.toFixed(1)} hr`}
+              secondary="Move back excluded from scope"
+            />
+          </>
+        )}
+
         {/* Equipment section */}
         {hasEquipment && (
           <>
-            {(hasDemolition || hasContainment || hasFloorProtection || hasContentProtection) && (
+            {(hasDemolition || hasContainment || hasFloorProtection || hasContentProtection || hasContentManipulation) && (
               <Divider style={{ margin: '6px 0' }} />
             )}
             <Text

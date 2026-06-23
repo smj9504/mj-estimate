@@ -897,10 +897,11 @@ class SketchService:
                     floor_label=floor_label,
                 ))
 
-            # --- Content manipulation: total SF ---
+            # --- Content manipulation: total HR (Move back excluded) ---
             total_content_manip = 0.0
             for cm in (sketch.content_manipulations or []):
-                total_content_manip += float(cm.calculated_sqft or 0)
+                if (cm.manipulation_type or "").strip() != "Move back":
+                    total_content_manip += float(cm.hours or 0)
 
             if total_content_manip > 0:
                 item = WMScopeItem(
@@ -908,7 +909,7 @@ class SketchService:
                     item_type="standard",
                     name="Content Manipulation",
                     quantity=Decimal(str(round(total_content_manip, 2))),
-                    unit="SF",
+                    unit="HR",
                     include_in_debris=False,
                     display_order=item_order,
                 )
@@ -917,7 +918,7 @@ class SketchService:
                 item_order += 1
                 all_items.append(GeneratedScopeItemSummary(
                     name="Content Manipulation", item_type="standard",
-                    quantity=round(total_content_manip, 2), unit="SF",
+                    quantity=round(total_content_manip, 2), unit="HR",
                     floor_label=floor_label,
                 ))
 

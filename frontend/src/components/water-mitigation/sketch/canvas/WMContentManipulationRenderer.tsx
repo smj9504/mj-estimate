@@ -37,7 +37,8 @@ const WMContentManipulationRenderer: React.FC<WMContentManipulationRendererProps
   const widthPx = manipulation.width_ft * scalePixelsPerFoot;
   const lengthPx = manipulation.length_ft * scalePixelsPerFoot;
 
-  const labelText = `${Math.round(manipulation.calculated_sqft)} SF`;
+  const labelText = `${(manipulation.hours ?? 0).toFixed(1)} hr · ${manipulation.manipulation_type || 'Move'}`;
+
 
   // Reset Konva node transform state when dimensions change from props
   useEffect(() => {

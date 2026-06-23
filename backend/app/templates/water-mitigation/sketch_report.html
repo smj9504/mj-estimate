@@ -435,6 +435,12 @@
         <span>Content Protection</span>
       </div>
       {% endif %}
+      {% if item.summary.content_manipulation_hours > 0 %}
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#F97316;opacity:0.4;border:1.5px dashed #F97316;box-sizing:border-box;"></div>
+        <span>Content Manipulation</span>
+      </div>
+      {% endif %}
     </div>
 
     <!-- Summary Tables -->
@@ -546,7 +552,7 @@
         <div class="no-data">No equipment placed.</div>
         {% endif %}
 
-        {% if item.summary.containment_sqft > 0 or item.summary.protection_sqft > 0 or item.summary.content_protection_sqft > 0 %}
+        {% if item.summary.containment_sqft > 0 or item.summary.protection_sqft > 0 or item.summary.content_protection_sqft > 0 or item.summary.content_manipulation_hours > 0 %}
         <div style="margin-top:10px;">
           <div class="summary-block-title">Additional Areas</div>
           <table class="other-summary-table">
@@ -566,6 +572,12 @@
             <tr>
               <td>Content Protection</td>
               <td class="text-right">{{ "%.1f"|format(item.summary.content_protection_sqft) }} SF</td>
+            </tr>
+            {% endif %}
+            {% if item.summary.content_manipulation_hours > 0 %}
+            <tr>
+              <td>Content Manipulation</td>
+              <td class="text-right">{{ "%.1f"|format(item.summary.content_manipulation_hours) }} HR</td>
             </tr>
             {% endif %}
           </table>

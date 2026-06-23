@@ -200,7 +200,7 @@ class WMContentManipulationBase(PydanticBaseModel):
     width_ft: Decimal = Field(..., ge=0)
     length_ft: Decimal = Field(..., ge=0)
     rotation: float = 0.0
-    calculated_sqft: Decimal = Field(..., ge=0)
+    hours: Decimal = Field(Decimal("1.0"), ge=0)
     color: str = Field("#F97316", max_length=7)
 
 

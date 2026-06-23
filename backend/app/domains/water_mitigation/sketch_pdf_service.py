@@ -404,6 +404,10 @@ class SketchPdfService:
         for cp in overlay.get("content_protections", []):
             parts.extend(self._render_content_protection_from_dict(cp, scale))
 
+        # Content manipulation areas
+        for cm in overlay.get("content_manipulations", []):
+            parts.extend(self._render_content_manipulation_from_dict(cm, scale))
+
         # Containment zones (dashed lines)
         for zone in overlay.get("containment_zones", []):
             parts.extend(self._render_containment_from_dict(zone, scale))
@@ -990,6 +994,37 @@ class SketchPdfService:
             f'fill="{color}" fill-opacity="0.2" stroke="{color}" stroke-width="1.5" rx="1"/></g>'
         ]
 
+    def _render_content_manipulation_from_dict(self, cm: Dict[str, Any], scale: float) -> List[str]:
+        """SVG for a content manipulation area from JSONB dict."""
+        cm_w = float(cm.get("width_ft", 0)) * scale
+        cm_h = float(cm.get("length_ft", 0)) * scale
+        if cm_w <= 0 or cm_h <= 0:
+            return []
+        color = cm.get("color", "#F97316")
+        rotation = float(cm.get("rotation", 0))
+        x, y = float(cm.get("x", 0)), float(cm.get("y", 0))
+        hours = float(cm.get("hours", 0))
+        manip_type = cm.get("manipulation_type", "")
+        rot_part = f" rotate({rotation:.1f})" if abs(rotation) > 0.0001 else ""
+        label = f"{hours:.1f} hr · {manip_type}" if manip_type else f"{hours:.1f} hr"
+        label_esc = html_lib.escape(label)
+        cx, cy = cm_w / 2, cm_h / 2
+        parts = [
+            f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">',
+            f'<rect x="0" y="0" width="{cm_w:.1f}" height="{cm_h:.1f}" '
+            f'fill="{color}" fill-opacity="0.15" stroke="{color}" stroke-width="1.5" '
+            f'stroke-dasharray="6,3" rx="1"/>',
+        ]
+        if cm_w >= 40 and cm_h >= 20:
+            parts += [
+                f'<rect x="{cx - 28:.1f}" y="{cy - 8:.1f}" width="56" height="14" '
+                f'fill="rgba(255,255,255,0.85)" rx="2"/>',
+                f'<text x="{cx:.1f}" y="{cy + 3:.1f}" text-anchor="middle" '
+                f'font-size="9" font-family="Arial" fill="#C2410C">{label_esc}</text>',
+            ]
+        parts.append('</g>')
+        return parts
+
     def _render_equipment_from_dict(self, equip: Dict[str, Any]) -> List[str]:
         """SVG for an equipment icon from JSONB dict."""
         eq_type = equip.get("equipment_type", "air_mover")
@@ -1350,6 +1385,11 @@ class SketchPdfService:
             float(cp.calculated_sqft or 0)
             for cp in (floor.content_protections or [])
         )
+        content_manip_hours = sum(
+            float(cm.hours or 0)
+            for cm in (floor.content_manipulations or [])
+            if (cm.manipulation_type or "").strip() != "Move back"
+        )
 
         return {
             "demo_by_material": list(demo_by_material.values()),
@@ -1357,6 +1397,7 @@ class SketchPdfService:
             "containment_sqft": containment_sqft,
             "protection_sqft": protection_sqft,
             "content_protection_sqft": content_prot_sqft,
+            "content_manipulation_hours": content_manip_hours,
             "total_demo_sqft": total_demo_sf,
             "total_demo_sf": total_demo_sf,
             "total_demo_lf": total_demo_lf,
