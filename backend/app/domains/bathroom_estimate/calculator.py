@@ -24,6 +24,7 @@ from .pricing import (
     MIRROR_INSTALL,
     MIRROR_PRICES,
     PAINT_GRADE_MULTIPLIER,
+    PAINT_PREP,
     PAINT_RATES,
     PLUMBING_RATES,
     NEO_ANGLE_BASE_INSTALL,
@@ -590,12 +591,15 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              SUBSTRATE_RATES["greenboard_per_sf"] * labor_mult, "substrate")
 
     # Waterproofing: use manual value if provided, else same as durock (wet areas)
-    wp_type = sub.get("waterproof_type", "redgard")
+    wp_type = sub.get("waterproof_type", "paint_on")
+    # Backward compat: map old brand names to generic types
+    _wp_migrate = {"redgard": "paint_on", "hydroban": "paint_on", "kerdi": "sheet"}
+    wp_type = _wp_migrate.get(wp_type, wp_type)
     wp_sf = sub.get("waterproof_sf", 0) or durock_sf
     if wp_sf > 0 and wp_type != "none":
-        wp_rate = SUBSTRATE_RATES.get(f"{wp_type}_per_sf", SUBSTRATE_RATES["redgard_per_sf"])
-        wp_label = {"redgard": "RedGard", "kerdi": "Schluter Kerdi", "hydroban": "HydroBan"}.get(wp_type, wp_type)
-        _add(line_items, 3, f"Waterproofing membrane - {wp_label}", wp_sf, "SF",
+        wp_rate = SUBSTRATE_RATES.get(f"{wp_type}_per_sf", SUBSTRATE_RATES["paint_on_per_sf"])
+        wp_label = {"paint_on": "Paint-on membrane", "sheet": "Sheet membrane"}.get(wp_type, wp_type)
+        _add(line_items, 3, f"Waterproofing - {wp_label}", wp_sf, "SF",
              wp_rate * labor_mult, "substrate")
 
     # Subfloor repair — manual SF if specified, else auto-include when demo floor
@@ -608,13 +612,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         _add(line_items, 3, "Subfloor repair allowance (plywood)", subfloor_repair_sf, "SF",
              SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
              notes="Subfloor integrity verification + replacement as needed per industry standard")
-    elif not has_explicit_repair_subfloor and subfloor_explicit is not False and demo_floor and floor_sf > 0:
-        # Auto-include: demo floor → standard allowance for subfloor condition verification
-        auto_repair_sf = round(floor_sf * 0.3, 1)
-        _add(line_items, 3, "Subfloor repair allowance (plywood)", auto_repair_sf, "SF",
-             SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
-             notes=f"Standard allowance ~30% of {floor_sf:.0f}SF — "
-                   f"subfloor condition to be verified upon demo; adjust per actual findings")
+    # Auto-include removed — subfloor repair only when explicitly checked
 
     # Self-leveling compound — auto-include when demo floor + tile install
     leveling_explicit = sub.get("self_leveling", None)
@@ -1084,15 +1082,30 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 "(water damage repair) — excluded from estimate"
             )
         elif _valve_eligible and _valve_enabled:
-            valve_cost = round(BATHTUB_EXTRAS["shower_valve_body_trim"] * labor_mult, 2)
-            sh_head_cost = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
-            valve_total = valve_cost + sh_head_cost
-            _add(line_items, 5,
-                 "Shower valve + trim kit replacement (tub/shower combo)",
-                 1, "EA", valve_total, "plumbing",
-                 notes=f"Pressure-balance valve body + trim ${valve_cost:,.2f} | "
-                       f"Shower head + arm ${sh_head_cost:,.2f} | "
-                       f"Replace while wall is open to prevent future leak")
+            _excl_trim = hc.get("exclude_trim_kit", False)
+            if _excl_trim:
+                # Valve body only — trim kit excluded (insurance denial)
+                _body_only = (BATHTUB_EXTRAS["shower_valve_body_trim"]
+                              - BATHTUB_EXTRAS["shower_valve_trim_only"])
+                valve_cost = round(_body_only * labor_mult, 2)
+                sh_head_cost = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
+                valve_total = valve_cost + sh_head_cost
+                _add(line_items, 5,
+                     "Shower valve replacement (tub/shower combo)",
+                     1, "EA", valve_total, "plumbing",
+                     notes=f"Valve body only ${valve_cost:,.2f} (trim kit excluded) | "
+                           f"Shower head + arm ${sh_head_cost:,.2f} | "
+                           f"Replace while wall is open to prevent future leak")
+            else:
+                valve_cost = round(BATHTUB_EXTRAS["shower_valve_body_trim"] * labor_mult, 2)
+                sh_head_cost = round(BATHTUB_EXTRAS["showerhead_install"] * labor_mult, 2)
+                valve_total = valve_cost + sh_head_cost
+                _add(line_items, 5,
+                     "Shower valve + trim kit replacement (tub/shower combo)",
+                     1, "EA", valve_total, "plumbing",
+                     notes=f"Pressure-balance valve body + trim ${valve_cost:,.2f} | "
+                           f"Shower head + arm ${sh_head_cost:,.2f} | "
+                           f"Replace while wall is open to prevent future leak")
         elif _valve_eligible and not _valve_enabled:
             warnings.append(
                 "Tub/shower combo valve excluded by user — "
@@ -1250,11 +1263,12 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
         # --- Valve (skip if plumber already repaired shower plumbing) ---
         _sh_valve_enabled = hc.get("auto_shower_valve", True)
+        _excl_trim_sh = hc.get("exclude_trim_kit", False)
         if plumber_fixed_shower:
             shower_parts.append("Valve/trim: plumber already replaced (excluded)")
         elif not _sh_valve_enabled:
-            # User disabled shower valve — trim only
-            if stype in ("custom_tile", "curbless"):
+            # User disabled shower valve — trim only (skip if trim excluded)
+            if stype in ("custom_tile", "curbless") and not _excl_trim_sh:
                 trim_cost = round(
                     PLUMBING_RATES["shower_valve_trim"] * labor_mult, 2
                 )
@@ -1279,10 +1293,15 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             )
             shower_total += valve_cost
             vt_label = valve_type.replace('_', ' ')
-            shower_parts.append(
-                f"Valve body + trim: {vt_label} ${valve_cost:,.2f}"
-            )
-        elif stype in ("custom_tile", "curbless"):
+            if _excl_trim_sh:
+                shower_parts.append(
+                    f"Valve body: {vt_label} ${valve_cost:,.2f} (trim kit excluded)"
+                )
+            else:
+                shower_parts.append(
+                    f"Valve body + trim: {vt_label} ${valve_cost:,.2f}"
+                )
+        elif stype in ("custom_tile", "curbless") and not _excl_trim_sh:
             # Trim-only (retain existing valve body)
             trim_cost = round(
                 PLUMBING_RATES["shower_valve_trim"] * labor_mult, 2
@@ -1293,8 +1312,8 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 f"${trim_cost:,.2f}"
             )
 
-        # --- Trim install (when valve replaced) ---
-        if shower_spec.get("valve_replace"):
+        # --- Trim install (when valve replaced, skip if trim excluded) ---
+        if shower_spec.get("valve_replace") and not _excl_trim_sh:
             trim_cost = round(
                 PLUMBING_RATES["shower_valve_trim"] * labor_mult, 2
             )
@@ -1563,10 +1582,19 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 mirror_total = round(
                     mirror_price + MIRROR_INSTALL * labor_mult, 2)
 
+            # --- Toe kick (freestanding cabinet vanity) ---
+            toe_kick_price = 0
+            _v_mounting = van.get("mounting", "freestanding")
+            if _v_mounting == "freestanding":
+                toe_kick_lf = round(v_width / 12, 1)  # width in inches → LF
+                toe_kick_price = round(
+                    toe_kick_lf * VANITY_EXTRAS["toe_kick_per_lf"] * labor_mult, 2)
+
             # --- Combined total ---
             combined = (
                 v_price + top_total + install_price
                 + wall_mount_price + faucet_total + mirror_total
+                + toe_kick_price
             )
 
             # Build breakdown note with allowance info
@@ -1577,6 +1605,11 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 f"${top_total:,.2f}",
                 f"Install: ${install_price:,.2f}",
             ]
+            if toe_kick_price:
+                parts.append(
+                    f"Toe kick: {toe_kick_lf}LF "
+                    f"${toe_kick_price:,.2f}"
+                )
             if wall_mount_price:
                 parts.append(
                     f"Wall-mount blocking: "
@@ -1713,11 +1746,21 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 "pedestal_sink": "Detach & Reset - Pedestal sink",
                 "wall_mount_sink": "Detach & Reset - Wall-mount sink",
             }.get(_dr_sink_t, f"Detach & Reset - Vanity & sink ({_dr_v_width}\")")
+            # Toe kick for freestanding cabinet vanity D&R
+            _dr_mounting = _dv.get("mounting", "freestanding")
+            _dr_toe_kick = 0
+            _dr_notes = "Labor only: disconnect, remove, reinstall"
+            if (_dr_sink_t == "cabinet"
+                    and _dr_mounting == "freestanding"):
+                _dr_tk_lf = round(_dr_v_width / 12, 1)
+                _dr_toe_kick = round(
+                    _dr_tk_lf * VANITY_EXTRAS["toe_kick_per_lf"] * labor_mult, 2)
+                _dr_notes += f" | Toe kick: {_dr_tk_lf}LF ${_dr_toe_kick:,.2f}"
             _add(line_items, 5, _dr_label,
                  1, "EA",
-                 round(_dr_v_cost * labor_mult, 2),
+                 round(_dr_v_cost * labor_mult + _dr_toe_kick, 2),
                  "fixture",
-                 notes="Labor only: disconnect, remove, reinstall")
+                 notes=_dr_notes)
 
     if getattr(estimate, 'detach_reset_toilet', False):
         _add(line_items, 5, "Detach & Reset - Toilet",
@@ -1976,6 +2019,20 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
              floor_sf, "SF",
              PAINT_RATES["ceiling_per_sf"] * pg_mult * labor_mult,
              "finish")
+
+    # ── Paint prep: masking + floor protection ──
+    _any_paint = _wall_paint_added or paint_ceiling or (full_paint_ceil_sf > 0)
+    if _any_paint and floor_sf > 0:
+        mask_cost = round(
+            floor_sf * PAINT_PREP["masking_per_sf"] * labor_mult, 2)
+        fp_cost = round(
+            floor_sf * PAINT_PREP["floor_protection_per_sf"] * labor_mult, 2)
+        prep_total = mask_cost + fp_cost
+        _add(line_items, 6,
+             "Paint prep - masking & floor protection",
+             floor_sf, "SF", round(prep_total / floor_sf, 2), "finish",
+             notes=f"Masking (tape, plastic) ${mask_cost:,.2f} | "
+                   f"Floor protection (drop cloth) ${fp_cost:,.2f}")
 
     # Baseboard — perimeter minus fixture wall-contact widths from sketch
     # Auto-default to PVC when replacing floor (baseboard must be removed/replaced)
@@ -2291,42 +2348,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         getattr(estimate, 'repair_subfloor', False)
         or sub_spec.get("subfloor_repair")
     )
-    if not _has_explicit_subfloor and not demo_floor and hc.get("subfloor_allowance") is True:
-        _tub_spec_hc = estimate.bathtub_spec or {}
-        _shower_spec_hc = estimate.shower_spec or {}
-        _fixture_subfloor_sf = 0
-        _fixture_notes = []
-
-        # Tub replacement: footprint = tub_length × tub_depth
-        if estimate.replace_tub:
-            _tub_l = (_tub_spec_hc.get("tub_length_in") or 60) / 12
-            _tub_d = (_tub_spec_hc.get("tub_depth_in") or 32) / 12
-            _tub_fp = round(_tub_l * _tub_d, 1)
-            _fixture_subfloor_sf += _tub_fp
-            _fixture_notes.append(f"tub footprint ~{_tub_fp}SF")
-
-        # Shower replacement: footprint = width × depth
-        if estimate.replace_shower:
-            _sh_w = (_shower_spec_hc.get("width_in") or 36) / 12
-            _sh_d = (_shower_spec_hc.get("depth_in") or 36) / 12
-            _sh_fp = round(_sh_w * _sh_d, 1)
-            _fixture_subfloor_sf += _sh_fp
-            _fixture_notes.append(f"shower footprint ~{_sh_fp}SF")
-
-        if _fixture_subfloor_sf > 0:
-            _add(line_items, 3, "Subfloor repair allowance (plywood)",
-                 _fixture_subfloor_sf, "SF",
-                 SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
-                 notes=f"Subfloor verification upon fixture removal ({', '.join(_fixture_notes)}) — "
-                       "repair as needed per actual findings")
-        elif estimate.water_damage:
-            # No fixture replacement but water damage reported — conservative allowance
-            allowance_sf = min(floor_sf, 20)
-            if allowance_sf > 0:
-                _add(line_items, 3, "Subfloor repair allowance (plywood)",
-                     allowance_sf, "SF",
-                     SUBSTRATE_RATES["subfloor_repair_per_sf"] * labor_mult, "substrate",
-                     notes="Allowance for subfloor condition verification upon demo")
+    # Subfloor allowance auto-include removed — only explicit repair_subfloor triggers this
 
     # 3) Auto-include GFCI if not explicitly specified (code requirement)
     elec_spec = estimate.electrical_spec or {}

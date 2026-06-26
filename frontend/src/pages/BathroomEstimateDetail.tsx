@@ -224,11 +224,12 @@ const BathroomEstimateDetail: React.FC = () => {
         ...hc,
         // Auto-include items
         drywall_skim_coat: hc.drywall_skim_coat ?? true,
-        subfloor_allowance: hc.subfloor_allowance ?? true,
+        subfloor_allowance: hc.subfloor_allowance ?? false,
         auto_gfci: hc.auto_gfci ?? false,
         auto_exhaust_fan: hc.auto_exhaust_fan ?? false,
         auto_tub_valve: hc.auto_tub_valve ?? true,
         auto_shower_valve: hc.auto_shower_valve ?? true,
+        exclude_trim_kit: hc.exclude_trim_kit ?? false,
         auto_ceiling_paint: hc.auto_ceiling_paint ?? true,
         mold_resistant_drywall: hc.mold_resistant_drywall ?? true,
       };
@@ -396,7 +397,7 @@ const BathroomEstimateDetail: React.FC = () => {
       updates.substrate_spec = {
         ...curSub,
         durock_sf: wetSF,
-        waterproof_type: curSub.waterproof_type || 'redgard',
+        waterproof_type: curSub.waterproof_type || 'paint_on',
         waterproof_sf: wetSF,
       };
     }
@@ -2044,9 +2045,13 @@ const BathroomEstimateDetail: React.FC = () => {
                               <Col xs={12} sm={12} md={6}>
                                 <Form.Item label="Waterproofing" name={['substrate_spec', 'waterproof_type']}>
                                   <Select
-                                    options={selectOpts(pricingInfo?.waterproof_types)}
+                                    options={[
+                                      { label: 'Paint-on Membrane', value: 'paint_on' },
+                                      { label: 'Sheet Membrane', value: 'sheet' },
+                                      { label: 'None', value: 'none' },
+                                    ]}
                                     allowClear
-                                    placeholder="RedGard (default)"
+                                    placeholder="Paint-on (default)"
                                   />
                                 </Form.Item>
                               </Col>
@@ -2128,6 +2133,11 @@ const BathroomEstimateDetail: React.FC = () => {
                         <Col xs={24} sm={16} md={12}>
                           <Form.Item name={['hidden_costs', 'auto_shower_valve']} valuePropName="checked" style={{ marginBottom: 2 }}>
                             <Checkbox><Text style={{ fontSize: 12 }}>Shower valve + trim (standalone shower)</Text></Checkbox>
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={16} md={12}>
+                          <Form.Item name={['hidden_costs', 'exclude_trim_kit']} valuePropName="checked" style={{ marginBottom: 2 }}>
+                            <Checkbox><Text style={{ fontSize: 12 }}>Exclude trim kit (보험사 불인정 시)</Text></Checkbox>
                           </Form.Item>
                         </Col>
                       </Row>

@@ -49,6 +49,7 @@ Requirements:
 - Mention the specific scope of work (what's being replaced/remodeled)
 - Note any special considerations (water damage, lead paint, cast iron tub, mold, etc.)
 - Mention the finish quality level if applicable
+- If subfloor repair is NOT included and floor demo or water damage is involved, add a note that subfloor repair may be required upon demolition at additional cost via change order
 - End with a brief note about exclusions (structural changes, HVAC, etc.)
 - Use professional contractor language
 - Do NOT include pricing or dollar amounts
@@ -125,11 +126,18 @@ def _generate_template_note(estimate) -> str:
     # Substrate & waterproofing
     sub = estimate.substrate_spec or {}
     wp_type = sub.get("waterproof_type", "none")
+    # Backward compat: map old brand names to generic types
+    _wp_migrate = {"redgard": "paint_on", "hydroban": "paint_on", "kerdi": "sheet"}
+    wp_type = _wp_migrate.get(wp_type, wp_type)
     if wp_type != "none":
-        wp_names = {"redgard": "RedGard", "kerdi": "Schluter Kerdi", "hydroban": "HydroBan"}
+        wp_names = {"paint_on": "paint-on", "sheet": "sheet"}
         parts.append(
             f"Wet area substrate will be cement board with {wp_names.get(wp_type, wp_type)} "
-            f"waterproofing membrane applied per manufacturer specifications."
+            f"waterproofing membrane applied per manufacturer specifications. "
+            f"Waterproofing is required per IRC Section R702.4 (water-resistant barriers "
+            f"in shower/tub wet areas) and TCNA Handbook standards. "
+            f"Failure to install waterproofing membrane voids tile and substrate "
+            f"manufacturer warranties and risks moisture intrusion and structural damage."
         )
 
     # Special considerations
@@ -185,6 +193,19 @@ def _generate_template_note(estimate) -> str:
     if acc_finish:
         parts.append(
             f"All bathroom accessories will be {acc_grade} grade in {acc_finish} finish."
+        )
+
+    # Subfloor repair advisory (when not included in estimate)
+    has_subfloor_repair = getattr(estimate, 'repair_subfloor', False)
+    sub_spec = estimate.substrate_spec or {}
+    has_subfloor_in_substrate = sub_spec.get("subfloor_repair", False)
+    if not has_subfloor_repair and not has_subfloor_in_substrate and (estimate.demo_floor or estimate.water_damage):
+        parts.append(
+            "Note: Subfloor repair is not included in this estimate. "
+            "Upon demolition, if the subfloor is found to be damaged, "
+            "deteriorated, or otherwise compromised, subfloor repair or "
+            "replacement may be required at additional cost. A change "
+            "order will be issued upon discovery for homeowner/adjuster approval."
         )
 
     # Exclusions
@@ -276,6 +297,13 @@ def _build_context(estimate) -> str:
     if getattr(estimate, 'demo_cement_board', False):
         cb_sf = getattr(estimate, 'demo_cement_board_sf', 0) or 0
         lines.append(f"REPAIR: Cement board — partial removal and replacement {cb_sf}SF")
+    # Flag subfloor repair not included
+    _has_subfloor = (
+        getattr(estimate, 'repair_subfloor', False)
+        or (estimate.substrate_spec or {}).get("subfloor_repair", False)
+    )
+    if not _has_subfloor and (estimate.demo_floor or estimate.water_damage):
+        lines.append("IMPORTANT: Subfloor repair is NOT included in this estimate — may be needed upon demo")
     if estimate.mold_suspected: lines.append("SCOPE: Moisture conditions identified")
     if (estimate.year_built or 2000) < 1978: lines.append("CONDITION: Pre-1978 (lead paint risk)")
     if (estimate.bathtub_spec or {}).get("material") == "cast_iron": lines.append("CONDITION: Cast iron tub")
