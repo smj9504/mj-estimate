@@ -104,10 +104,9 @@ SUBSTRATE_RATES = {
     "mold_resistant_drywall_per_sf": 5.25,  # mold-resistant ceiling drywall
 
     # Waterproofing membrane
-    "redgard_per_sf": 2.25,           # paint-on membrane ($1-$3/SF)
-    # Schluter Kerdi: material ~$2.25/SF + thinset + labor → $7-$12/SF
-    "kerdi_per_sf": 9.00,
-    "hydroban_per_sf": 2.75,          # Laticrete HydroBan
+    "paint_on_per_sf": 2.25,          # paint-on membrane: RedGard, HydroBan ($1-$3/SF)
+    # Sheet membrane: Schluter Kerdi — material ~$2.25/SF + thinset + labor → $7-$12/SF
+    "sheet_per_sf": 9.00,
 
     # Subfloor repair
     "subfloor_repair_per_sf": 8.50,   # plywood + install ($6-$12/SF)
@@ -443,6 +442,7 @@ VANITY_EXTRAS = {
     "faucet_centerset": 275,
     "faucet_widespread": 350,
     "faucet_wall_mount": 525,         # wall-mount requires rough valve + access
+    "toe_kick_per_lf": 12,            # toe kick board (supply + install, freestanding vanity)
 }
 
 # Pedestal Sink / Wall-Mount Sink (non-vanity options)
@@ -498,6 +498,11 @@ PAINT_RATES = {
     "wall_per_sf": 3.25,              # paint walls (prep + 2 coats, sub-contractor rate on remodel)
     "ceiling_per_sf": 3.50,           # ceiling paint (overhead premium)
     "trim_per_lf": 3.75,             # baseboard/trim paint ($2.30-$4.88/LF, HomeWyse)
+}
+
+PAINT_PREP = {
+    "masking_per_sf": 0.75,               # tape, plastic sheeting on fixtures/trim ($0.50-$1.00/SF)
+    "floor_protection_per_sf": 0.50,      # drop cloth / ram board for paint work ($0.35-$0.65/SF)
 }
 
 PAINT_GRADE_MULTIPLIER = {
@@ -857,7 +862,7 @@ TOILET_TYPES = ["two_piece_standard", "two_piece_comfort", "one_piece_standard",
 TILE_MATERIALS = ["ceramic", "porcelain", "natural_stone", "glass_mosaic", "lvt_spc"]
 TILE_PATTERNS = ["straight", "diagonal", "herringbone", "versailles"]
 
-WATERPROOF_TYPES = ["redgard", "kerdi", "hydroban", "none"]
+WATERPROOF_TYPES = ["paint_on", "sheet", "none"]
 
 ACCESSORY_FINISHES = ["chrome", "brushed_nickel", "matte_black", "brass", "mixed"]
 ACCESSORY_GRADES = ["builder", "mid", "premium"]

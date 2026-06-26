@@ -346,6 +346,105 @@ class AdjusterEmailService:
             session.close()
 
     # ================================================================
+    # Follow-Up Email Generation
+    # ================================================================
+
+    def generate_followup_email(
+        self, job_id: str, custom_notes: str = ""
+    ) -> Dict[str, Any]:
+        """Generate follow-up email template when adjuster hasn't responded."""
+        session = self._get_readonly_session()
+        try:
+            from .models import WaterMitigationJob
+            from app.domains.claim_followup.models import SentEmail
+
+            job = session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.id == job_id
+            ).first()
+            if not job:
+                return {"subject": "", "body_html": "", "followup_count": 0}
+
+            subject = f"Follow Up - {job.claim_number or 'N/A'}"
+
+            # Count previous follow-up emails for this job
+            followup_count = 0
+            if job.claim_id:
+                followup_count = session.query(SentEmail).filter(
+                    SentEmail.claim_id == job.claim_id,
+                    SentEmail.subject.ilike(f"%follow%up%{job.claim_number}%"),
+                ).count()
+
+            # Calculate days since documents were sent
+            days_since_sent = None
+            sent_date_str = ""
+            if job.documents_sent_date:
+                delta = datetime.now(timezone.utc) - job.documents_sent_date.replace(
+                    tzinfo=timezone.utc
+                ) if job.documents_sent_date.tzinfo is None else (
+                    datetime.now(timezone.utc) - job.documents_sent_date
+                )
+                days_since_sent = delta.days
+                sent_date_str = job.documents_sent_date.strftime("%m/%d/%Y")
+
+            # Determine greeting based on US Eastern time
+            eastern_now = datetime.now(ZoneInfo("America/New_York"))
+            greeting_time = "Good morning" if eastern_now.hour < 12 else "Good afternoon"
+
+            # Adjuster first name
+            adjuster_name = (job.adjuster_name or "").strip()
+            adjuster_first = adjuster_name.split()[0] if adjuster_name else ""
+
+            address = job.property_address or ""
+
+            if adjuster_first:
+                greeting = f"{greeting_time} {adjuster_first},"
+            else:
+                greeting = f"{greeting_time},"
+
+            # Build context-aware follow-up body
+            if days_since_sent is not None and sent_date_str:
+                sent_context = (
+                    f"I am following up on the water mitigation documentation "
+                    f"that was submitted on {sent_date_str}"
+                    f"{f' for the property at {address}' if address else ''}."
+                )
+            else:
+                sent_context = (
+                    f"I am following up on the water mitigation documentation "
+                    f"previously submitted"
+                    f"{f' for the property at {address}' if address else ''}."
+                )
+
+            custom_section = ""
+            if custom_notes:
+                custom_section = (
+                    f"<p style='color:#444;font-size:14px;line-height:1.6;'>{custom_notes}</p>"
+                )
+
+            body_html = f"""
+<p>{greeting} I hope this message finds you well.</p>
+
+<p>{sent_context}</p>
+
+<p>I wanted to check in to see if you had a chance to review the documents and if there is anything else you may need from our end.</p>
+
+{custom_section}
+
+<p>Please let me know if you have any questions or need any additional information. I look forward to hearing from you.</p>
+
+<p>Thank you.</p>
+"""
+            return {
+                "subject": subject,
+                "body_html": body_html.strip(),
+                "followup_count": followup_count,
+                "days_since_sent": days_since_sent,
+                "documents_sent_date": sent_date_str,
+            }
+        finally:
+            session.close()
+
+    # ================================================================
     # Send Email
     # ================================================================
 
@@ -452,6 +551,89 @@ class AdjusterEmailService:
         except Exception as e:
             session.rollback()
             logger.error(f"Error sending to adjuster: {e}")
+            raise
+        finally:
+            session.close()
+
+    # ================================================================
+    # Send Follow-Up Email
+    # ================================================================
+
+    def send_followup(self, job_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Send follow-up email to adjuster (does NOT update documents_sent_date)."""
+        session = self._get_session()
+        try:
+            from .models import WaterMitigationJob
+            from app.domains.client.models import ClaimActivity
+
+            job = session.query(WaterMitigationJob).filter(
+                WaterMitigationJob.id == job_id
+            ).first()
+            if not job:
+                raise ValueError("Job not found")
+
+            to_addresses = data.get("to_addresses", [])
+            cc_addresses = data.get("cc_addresses", [])
+            bcc_addresses = data.get("bcc_addresses", [])
+            subject = data.get("subject", "")
+            body_html = data.get("body_html", "")
+            email_account_id = data.get("email_account_id")
+            selected_docs = data.get("selected_documents", [])
+
+            if not to_addresses:
+                raise ValueError("No recipient email address provided")
+
+            # Collect attachments only if user selected documents to re-attach
+            attachments = []
+            if selected_docs:
+                attachments = self._collect_attachments(session, job, selected_docs)
+
+            # Send via claim_followup email service
+            from app.domains.claim_followup.service import ClaimFollowUpService
+            email_service = ClaimFollowUpService()
+
+            claim_id = str(job.claim_id) if job.claim_id else None
+
+            send_payload = {
+                "claim_id": claim_id,
+                "email_account_id": email_account_id,
+                "to_addresses": to_addresses,
+                "cc_addresses": cc_addresses,
+                "bcc_addresses": bcc_addresses,
+                "subject": subject,
+                "body_html": body_html,
+                "attachments": attachments,
+            }
+            if data.get("from_address"):
+                send_payload["from_address"] = data["from_address"]
+            email_result = email_service.send_email(send_payload)
+
+            # Log claim activity (but do NOT update documents_sent_date or status)
+            if job.claim_id:
+                activity = ClaimActivity(
+                    claim_id=job.claim_id,
+                    activity_type='wm_followup_sent',
+                    title=f"WM Follow-up email sent to adjuster ({to_addresses[0]})",
+                    description=(
+                        f"Follow-up email sent for water mitigation job at "
+                        f"{job.property_address}."
+                        f"{f' {len(attachments)} document(s) re-attached.' if attachments else ''}"
+                    ),
+                    related_entity_type='wm_job',
+                    related_entity_id=str(job.id),
+                )
+                session.add(activity)
+
+            session.commit()
+
+            return {
+                "success": True,
+                "email_id": str(email_result.get("id", "")),
+                "attachments_count": len(attachments),
+            }
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error sending follow-up: {e}")
             raise
         finally:
             session.close()

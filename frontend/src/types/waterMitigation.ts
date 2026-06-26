@@ -327,6 +327,7 @@ export interface GenerateReportRequest {
   config?: ReportConfigCreate;
   compress?: boolean;  // Compress PDF (reduce image quality for smaller file size)
   report_date?: string;  // Custom report date (ISO format: YYYY-MM-DD)
+  template_variant?: string;  // Template variant: 'a' (default), 'b' (formal), 'c' (modern)
 }
 
 export interface GenerateReportResponse {

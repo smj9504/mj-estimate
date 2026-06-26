@@ -139,22 +139,165 @@ _DEMO_MATERIAL_UNITS: Dict[str, str] = {
 }
 
 
+def _get_svg_style(variant: str = "a") -> Dict[str, Any]:
+    """Return SVG drawing style configuration for a sketch variant.
+
+    Each variant produces a visually distinct floor plan so that reports
+    from different companies do not look identical.
+
+    Variants:
+        a (default) - Clean, modern: Arial, thin lines, light grid
+        b           - Classical: serif fonts, thicker walls, dotted grid
+        c           - Blue-accent: bold borders, colored scale bar, sans-serif
+    """
+    return {
+        "a": {
+            "font_primary": "Arial",
+            "font_label": "Inter, Segoe UI, Arial, sans-serif",
+            "canvas_bg": "#fafafa",
+            "canvas_border_color": "#d0d0d0",
+            "canvas_border_width": "1.5",
+            "canvas_border_rx": "2",
+            # ── structural rendering modes ──
+            "grid_mode": "lines",        # lines | dots | crosshairs
+            "scale_mode": "ticks",       # ticks | blocks | arrow_box
+            "equip_mode": "filled",      # filled | outline | badge
+            "wall_label_mode": "plain",  # plain | boxed | offset
+            "demo_fill_mode": "solid",   # solid | hatch | dotted
+            # ── colors/sizes ──
+            "grid_color": "#888",
+            "grid_opacity_major": "0.18",
+            "grid_opacity_minor": "0.07",
+            "grid_stroke_width": "0.5",
+            "wall_default_color": "#333333",
+            "wall_label_color": "#595959",
+            "wall_label_size": "10",
+            "room_stroke_color": "#0066cc",
+            "room_stroke_width": "1",
+            "room_opacity": "0.6",
+            "room_name_size": "13",
+            "room_name_color": "#333",
+            "room_area_size": "11",
+            "room_area_color": "#666",
+            "equip_radius": 11,
+            "equip_stroke": "#fff",
+            "equip_stroke_width": "1.5",
+            "equip_font_size": "10",
+            "scale_bar_color": "#888",
+            "scale_bar_width": "1.5",
+            "scale_text_color": "#777",
+            "scale_font_size": "10",
+            "demo_label_size": "10",
+            "demo_dim_color": "#555",
+            "demo_sqft_color": "#666",
+        },
+        "b": {
+            "font_primary": "Palatino Linotype, Book Antiqua, Palatino, serif",
+            "font_label": "Palatino Linotype, Book Antiqua, Palatino, serif",
+            "canvas_bg": "#f5f4f0",
+            "canvas_border_color": "#999",
+            "canvas_border_width": "2",
+            "canvas_border_rx": "0",
+            # ── structural rendering modes ──
+            "grid_mode": "dots",
+            "scale_mode": "blocks",
+            "equip_mode": "outline",
+            "wall_label_mode": "boxed",
+            "demo_fill_mode": "hatch",
+            # ── colors/sizes ──
+            "grid_color": "#aaa",
+            "grid_opacity_major": "0.25",
+            "grid_opacity_minor": "0.10",
+            "grid_stroke_width": "0.4",
+            "wall_default_color": "#1a1a1a",
+            "wall_label_color": "#444",
+            "wall_label_size": "11",
+            "room_stroke_color": "#556B2F",
+            "room_stroke_width": "1.5",
+            "room_opacity": "0.5",
+            "room_name_size": "14",
+            "room_name_color": "#2c2c2c",
+            "room_area_size": "11",
+            "room_area_color": "#555",
+            "equip_radius": 12,
+            "equip_stroke": "#f5f4f0",
+            "equip_stroke_width": "2",
+            "equip_font_size": "9",
+            "scale_bar_color": "#555",
+            "scale_bar_width": "2",
+            "scale_text_color": "#444",
+            "scale_font_size": "11",
+            "demo_label_size": "11",
+            "demo_dim_color": "#444",
+            "demo_sqft_color": "#555",
+        },
+        "c": {
+            "font_primary": "Trebuchet MS, Calibri, sans-serif",
+            "font_label": "Trebuchet MS, Calibri, sans-serif",
+            "canvas_bg": "#fafafa",
+            "canvas_border_color": "#555",
+            "canvas_border_width": "1.5",
+            "canvas_border_rx": "0",
+            # ── structural rendering modes ──
+            "grid_mode": "crosshairs",
+            "scale_mode": "arrow_box",
+            "equip_mode": "badge",
+            "wall_label_mode": "offset",
+            "demo_fill_mode": "dotted",
+            # ── colors/sizes ──
+            "grid_color": "#bbb",
+            "grid_opacity_major": "0.3",
+            "grid_opacity_minor": "0.1",
+            "grid_stroke_width": "0.5",
+            "wall_default_color": "#2c2c2c",
+            "wall_label_color": "#444",
+            "wall_label_size": "10",
+            "room_stroke_color": "#666",
+            "room_stroke_width": "1.5",
+            "room_opacity": "0.4",
+            "room_name_size": "13",
+            "room_name_color": "#333",
+            "room_area_size": "11",
+            "room_area_color": "#666",
+            "equip_radius": 11,
+            "equip_stroke": "#e0e0e0",
+            "equip_stroke_width": "2",
+            "equip_font_size": "10",
+            "scale_bar_color": "#555",
+            "scale_bar_width": "2",
+            "scale_text_color": "#444",
+            "scale_font_size": "10",
+            "demo_label_size": "10",
+            "demo_dim_color": "#444",
+            "demo_sqft_color": "#666",
+        },
+    }.get(variant, {})  # Falls back to empty dict → code uses defaults
+
+
 class SketchPdfService:
     """Generates PDF sketch reports for water mitigation jobs."""
 
     def __init__(self, db: Session):
         self.db = db
+        self._svg = _get_svg_style("a")
+        self._template_variant = "a"
 
     # ──────────────────────────────────────────────────────────────────────
     # Public API
     # ──────────────────────────────────────────────────────────────────────
 
-    def generate_sketch_report(self, job_id: UUID) -> bytes:
+    def generate_sketch_report(self, job_id: UUID, template_variant: str = "a") -> bytes:
         """
         Generate a PDF report for all floor sketches belonging to a WM job.
 
+        Args:
+            job_id: UUID of the water mitigation job
+            template_variant: Template variant to use ('a', 'b', or 'c')
+
         Returns raw PDF bytes suitable for streaming to the client.
         """
+        self._template_variant = template_variant
+        self._svg = _get_svg_style(template_variant)
         # Load the job
         job: Optional[WaterMitigationJob] = (
             self.db.query(WaterMitigationJob)
@@ -346,8 +489,11 @@ class SketchPdfService:
                 f'preserveAspectRatio="none"/>'
             )
         else:
+            s = self._svg
             parts.append(
-                f'<rect width="{canvas_w}" height="{canvas_h}" fill="#fafafa" rx="4"/>'
+                f'<rect width="{canvas_w}" height="{canvas_h}" '
+                f'fill="{s.get("canvas_bg", "#fafafa")}" '
+                f'rx="{s.get("canvas_border_rx", "4")}"/>'
             )
 
         # Subtle grid (only when no background image)
@@ -355,9 +501,12 @@ class SketchPdfService:
             parts.extend(self._build_grid(canvas_w, canvas_h, scale))
 
         # Canvas border
+        s = self._svg
         parts.append(
             f'<rect width="{canvas_w}" height="{canvas_h}" fill="none" '
-            f'stroke="#d0d0d0" stroke-width="1.5" rx="2"/>'
+            f'stroke="{s.get("canvas_border_color", "#d0d0d0")}" '
+            f'stroke-width="{s.get("canvas_border_width", "1.5")}" '
+            f'rx="{s.get("canvas_border_rx", "2")}"/>'
         )
 
         # ── DEBUG: log overlay_data source for troubleshooting ──
@@ -431,55 +580,225 @@ class SketchPdfService:
         # Scale indicator (bottom-right)
         parts.extend(self._build_scale_indicator(canvas_w, canvas_h, scale))
 
+        # Build SVG defs (hatch patterns for variant B)
+        defs = ""
+        demo_mode = self._svg.get("demo_fill_mode", "solid")
+        if demo_mode == "hatch":
+            defs = (
+                '<defs>'
+                '<pattern id="hatch" width="6" height="6" '
+                'patternUnits="userSpaceOnUse" '
+                'patternTransform="rotate(45)">'
+                '<line x1="0" y1="0" x2="0" y2="6" '
+                'stroke="currentColor" stroke-width="1.2"/>'
+                '</pattern>'
+                '</defs>'
+            )
+
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" '
             f'xmlns:xlink="http://www.w3.org/1999/xlink" '
             f'viewBox="0 0 {canvas_w:.0f} {canvas_h:.0f}" '
             f'width="{canvas_w:.0f}" height="{canvas_h:.0f}" '
             f'style="max-width:100%;height:auto;display:block;">'
+            + defs
             + "".join(parts)
             + "</svg>"
         )
 
     def _build_grid(self, w: float, h: float, scale: float) -> List[str]:
+        s = self._svg
+        mode = s.get("grid_mode", "lines")
+        g_color = s.get("grid_color", "#888")
+        g_sw = s.get("grid_stroke_width", "0.5")
+        g_major = s.get("grid_opacity_major", "0.18")
+        g_minor = s.get("grid_opacity_minor", "0.07")
+
+        if mode == "dots":
+            # ── Dot grid: small circles at intersections ──
+            parts: List[str] = []
+            x = scale
+            col = 1
+            while x < w:
+                y = scale
+                row = 1
+                while y < h:
+                    is_major = col % 5 == 0 and row % 5 == 0
+                    r = "1.8" if is_major else "0.8"
+                    op = g_major if is_major else g_minor
+                    parts.append(
+                        f'<circle cx="{x:.1f}" cy="{y:.1f}" '
+                        f'r="{r}" fill="{g_color}" '
+                        f'opacity="{op}"/>'
+                    )
+                    y += scale
+                    row += 1
+                x += scale
+                col += 1
+            return parts
+
+        if mode == "crosshairs":
+            # ── Corner crosshairs only (no full grid) ──
+            ch_len = scale * 2
+            parts = []
+            for cx, cy in [
+                (0, 0), (w, 0), (0, h), (w, h),
+                (w / 2, 0), (w / 2, h),
+                (0, h / 2), (w, h / 2),
+            ]:
+                x1 = max(0, cx - ch_len / 2)
+                x2 = min(w, cx + ch_len / 2)
+                y1 = max(0, cy - ch_len / 2)
+                y2 = min(h, cy + ch_len / 2)
+                parts.append(
+                    f'<line x1="{x1:.1f}" y1="{cy:.1f}" '
+                    f'x2="{x2:.1f}" y2="{cy:.1f}" '
+                    f'stroke="{g_color}" stroke-width="1" '
+                    f'opacity="{g_major}"/>'
+                )
+                parts.append(
+                    f'<line x1="{cx:.1f}" y1="{y1:.1f}" '
+                    f'x2="{cx:.1f}" y2="{y2:.1f}" '
+                    f'stroke="{g_color}" stroke-width="1" '
+                    f'opacity="{g_major}"/>'
+                )
+            return parts
+
+        # ── Default: line grid ──
         lines: List[str] = []
         x = scale
         col = 1
         while x < w:
-            opacity = "0.18" if col % 5 == 0 else "0.07"
+            opacity = g_major if col % 5 == 0 else g_minor
             lines.append(
-                f'<line x1="{x:.1f}" y1="0" x2="{x:.1f}" y2="{h:.0f}" '
-                f'stroke="#888" stroke-width="0.5" opacity="{opacity}"/>'
+                f'<line x1="{x:.1f}" y1="0" '
+                f'x2="{x:.1f}" y2="{h:.0f}" '
+                f'stroke="{g_color}" stroke-width="{g_sw}" '
+                f'opacity="{opacity}"/>'
             )
             x += scale
             col += 1
         y = scale
         row = 1
         while y < h:
-            opacity = "0.18" if row % 5 == 0 else "0.07"
+            opacity = g_major if row % 5 == 0 else g_minor
             lines.append(
-                f'<line x1="0" y1="{y:.1f}" x2="{w:.0f}" y2="{y:.1f}" '
-                f'stroke="#888" stroke-width="0.5" opacity="{opacity}"/>'
+                f'<line x1="0" y1="{y:.1f}" '
+                f'x2="{w:.0f}" y2="{y:.1f}" '
+                f'stroke="{g_color}" stroke-width="{g_sw}" '
+                f'opacity="{opacity}"/>'
             )
             y += scale
             row += 1
         return lines
 
-    def _build_scale_indicator(self, w: float, h: float, scale: float) -> List[str]:
+    def _build_scale_indicator(
+        self, w: float, h: float, scale: float
+    ) -> List[str]:
         """Draw a '10 ft' scale bar in the bottom-right corner."""
+        s = self._svg
+        mode = s.get("scale_mode", "ticks")
+        sc = s.get("scale_bar_color", "#888")
+        sw = s.get("scale_bar_width", "1.5")
+        tc = s.get("scale_text_color", "#777")
+        fs = s.get("scale_font_size", "10")
+        ff = s.get("font_primary", "Arial")
         bar_px = scale * 10  # 10 feet
         margin = 14.0
         bx = w - margin - bar_px
         by = h - margin - 6
+
+        if mode == "blocks":
+            # ── Alternating black/white blocks (surveyor style) ──
+            seg = bar_px / 5
+            parts = []
+            for i in range(5):
+                fill = sc if i % 2 == 0 else "#ffffff"
+                stroke_attr = (
+                    f'stroke="{sc}" stroke-width="0.5"'
+                    if i % 2 != 0 else ""
+                )
+                parts.append(
+                    f'<rect x="{bx + i * seg:.1f}" '
+                    f'y="{by - 3:.1f}" '
+                    f'width="{seg:.1f}" height="6" '
+                    f'fill="{fill}" {stroke_attr}/>'
+                )
+            # Border around all blocks
+            parts.append(
+                f'<rect x="{bx:.1f}" y="{by - 3:.1f}" '
+                f'width="{bar_px:.1f}" height="6" '
+                f'fill="none" stroke="{sc}" '
+                f'stroke-width="0.8"/>'
+            )
+            # Labels at 0 and 10
+            parts.append(
+                f'<text x="{bx:.1f}" y="{by - 7:.1f}" '
+                f'text-anchor="middle" font-size="{fs}" '
+                f'font-family="{ff}" fill="{tc}">0</text>'
+            )
+            parts.append(
+                f'<text x="{bx + bar_px:.1f}" '
+                f'y="{by - 7:.1f}" '
+                f'text-anchor="middle" font-size="{fs}" '
+                f'font-family="{ff}" fill="{tc}">'
+                f'10 ft</text>'
+            )
+            return parts
+
+        if mode == "arrow_box":
+            # ── Arrow-ended line with background box ──
+            arr = 6  # arrowhead size
+            parts = [
+                # Background box behind label
+                f'<rect x="{bx + bar_px / 2 - 22:.1f}" '
+                f'y="{by - 20:.1f}" '
+                f'width="44" height="15" rx="3" '
+                f'fill="{sc}" fill-opacity="0.12"/>',
+                # Label
+                f'<text x="{bx + bar_px / 2:.1f}" '
+                f'y="{by - 9:.1f}" '
+                f'text-anchor="middle" font-size="{fs}" '
+                f'font-family="{ff}" fill="{tc}" '
+                f'font-weight="600">10 ft</text>',
+                # Main line
+                f'<line x1="{bx + arr:.1f}" '
+                f'y1="{by:.1f}" '
+                f'x2="{bx + bar_px - arr:.1f}" '
+                f'y2="{by:.1f}" '
+                f'stroke="{sc}" stroke-width="{sw}"/>',
+                # Left arrowhead
+                f'<polygon points="'
+                f'{bx:.1f},{by:.1f} '
+                f'{bx + arr:.1f},{by - arr / 2:.1f} '
+                f'{bx + arr:.1f},{by + arr / 2:.1f}" '
+                f'fill="{sc}"/>',
+                # Right arrowhead
+                f'<polygon points="'
+                f'{bx + bar_px:.1f},{by:.1f} '
+                f'{bx + bar_px - arr:.1f},{by - arr / 2:.1f} '
+                f'{bx + bar_px - arr:.1f},{by + arr / 2:.1f}" '
+                f'fill="{sc}"/>',
+            ]
+            return parts
+
+        # ── Default: simple ticks ──
         return [
-            f'<line x1="{bx:.1f}" y1="{by:.1f}" x2="{bx + bar_px:.1f}" y2="{by:.1f}" '
-            f'stroke="#888" stroke-width="1.5"/>',
-            f'<line x1="{bx:.1f}" y1="{by - 4:.1f}" x2="{bx:.1f}" y2="{by + 4:.1f}" '
-            f'stroke="#888" stroke-width="1.5"/>',
-            f'<line x1="{bx + bar_px:.1f}" y1="{by - 4:.1f}" '
-            f'x2="{bx + bar_px:.1f}" y2="{by + 4:.1f}" stroke="#888" stroke-width="1.5"/>',
-            f'<text x="{bx + bar_px / 2:.1f}" y="{by - 7:.1f}" '
-            f'text-anchor="middle" font-size="10" font-family="Arial" fill="#777">10 ft</text>',
+            f'<line x1="{bx:.1f}" y1="{by:.1f}" '
+            f'x2="{bx + bar_px:.1f}" y2="{by:.1f}" '
+            f'stroke="{sc}" stroke-width="{sw}"/>',
+            f'<line x1="{bx:.1f}" y1="{by - 4:.1f}" '
+            f'x2="{bx:.1f}" y2="{by + 4:.1f}" '
+            f'stroke="{sc}" stroke-width="{sw}"/>',
+            f'<line x1="{bx + bar_px:.1f}" '
+            f'y1="{by - 4:.1f}" '
+            f'x2="{bx + bar_px:.1f}" '
+            f'y2="{by + 4:.1f}" '
+            f'stroke="{sc}" stroke-width="{sw}"/>',
+            f'<text x="{bx + bar_px / 2:.1f}" '
+            f'y="{by - 7:.1f}" '
+            f'text-anchor="middle" font-size="{fs}" '
+            f'font-family="{ff}" fill="{tc}">10 ft</text>',
         ]
 
     @staticmethod
@@ -529,14 +848,19 @@ class SketchPdfService:
             label_esc = html_lib.escape(label)
             unit = "LF" if is_lf else "SF"
             qty = float(zone.calculated_sqft or 0)
+            _ff = self._svg.get("font_primary", "Arial")
             parts.append(
                 f'<text x="{mx:.1f}" y="{my - 6:.1f}" '
-                f'text-anchor="middle" font-size="10" font-family="Arial" '
-                f'fill="{color}" font-weight="600">{label_esc}</text>'
+                f'text-anchor="middle" font-size="10" '
+                f'font-family="{_ff}" '
+                f'fill="{color}" font-weight="600">'
+                f'{label_esc}</text>'
             )
             parts.append(
                 f'<text x="{mx:.1f}" y="{my + 6:.1f}" '
-                f'text-anchor="middle" font-size="10" font-family="Arial" fill="#555">'
+                f'text-anchor="middle" font-size="10" '
+                f'font-family="{_ff}" '
+                f'fill="{self._svg.get("demo_dim_color", "#555")}">'
                 f"{length_ft:.1f}&apos; · {qty:.1f} {unit}</text>"
             )
 
@@ -580,22 +904,25 @@ class SketchPdfService:
             label = html_lib.escape(base_label)
             dim = f'{float(zone.dimension1_ft):.1f}\'×{float(zone.dimension2_ft):.1f}\''
             sqft = f'{float(zone.calculated_sqft):.0f} SF'
+            _ff = self._svg.get("font_primary", "Arial")
             parts.append(
                 f'<text x="{cx:.1f}" y="{cy - 9:.1f}" '
-                f'text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="{color}" font-weight="600">'
-                f'{label}</text>'
+                f'text-anchor="middle" font-size="10" '
+                f'font-family="{_ff}" fill="{color}" '
+                f'font-weight="600">{label}</text>'
             )
             parts.append(
                 f'<text x="{cx:.1f}" y="{cy + 3:.1f}" '
-                f'text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="#555">'
+                f'text-anchor="middle" font-size="10" '
+                f'font-family="{_ff}" '
+                f'fill="{self._svg.get("demo_dim_color", "#555")}">'
                 f'{dim}</text>'
             )
             parts.append(
                 f'<text x="{cx:.1f}" y="{cy + 14:.1f}" '
-                f'text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="#666">'
+                f'text-anchor="middle" font-size="10" '
+                f'font-family="{_ff}" '
+                f'fill="{self._svg.get("demo_sqft_color", "#666")}">'
                 f'{sqft}</text>'
             )
 
@@ -629,14 +956,17 @@ class SketchPdfService:
         ]
 
         # Label at midpoint
-        label = zone.label or _containment_type_display(zone.containment_type)
+        label = zone.label or _containment_type_display(
+            zone.containment_type
+        )
         if label and length_px > 40:
             mx = (x1 + x2) / 2
             my = (y1 + y2) / 2
+            _ff = self._svg.get("font_primary", "Arial")
             parts.append(
                 f'<text x="{mx:.1f}" y="{my - 8:.1f}" '
                 f'text-anchor="middle" font-size="10" '
-                f'font-family="Arial" fill="{color}">'
+                f'font-family="{_ff}" fill="{color}">'
                 f'{html_lib.escape(label)}</text>'
             )
         return parts
@@ -685,7 +1015,14 @@ class SketchPdfService:
             f"</g>"
         ]
 
-    def _render_equipment(self, equip: WMEquipmentPlacement) -> List[str]:
+    def _render_equipment(
+        self, equip: WMEquipmentPlacement
+    ) -> List[str]:
+        sv = self._svg
+        _ff = sv.get("font_primary", "Arial")
+        _es = sv.get("equip_stroke", "#fff")
+        _esw = sv.get("equip_stroke_width", "1.5")
+        _r = sv.get("equip_radius", 11)
         cfg = EQUIPMENT_CONFIG.get(equip.equipment_type, {})
         color = equip.color or cfg.get("color", "#999999")
         shape = equip.icon_shape or cfg.get("shape", "circle")
@@ -694,31 +1031,45 @@ class SketchPdfService:
 
         if shape == "circle":
             parts += [
-                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="11" '
-                f'fill="{color}" fill-opacity="0.88" stroke="#fff" stroke-width="1.5"/>',
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{_r}" '
+                f'fill="{color}" fill-opacity="0.88" '
+                f'stroke="{_es}" stroke-width="{_esw}"/>',
                 f'<text x="{x:.1f}" y="{y + 4:.1f}" '
-                f'text-anchor="middle" font-size="10" font-family="Arial" '
+                f'text-anchor="middle" font-size="10" '
+                f'font-family="{_ff}" '
                 f'fill="#fff" font-weight="700">AM</text>',
             ]
         elif shape == "triangle":
-            pts = f"{x:.1f},{y - 11:.1f} {x - 10:.1f},{y + 8:.1f} {x + 10:.1f},{y + 8:.1f}"
+            pts = (
+                f"{x:.1f},{y - _r:.1f} "
+                f"{x - _r + 1:.1f},{y + _r - 3:.1f} "
+                f"{x + _r - 1:.1f},{y + _r - 3:.1f}"
+            )
             parts += [
-                f'<polygon points="{pts}" fill="{color}" fill-opacity="0.88" '
-                f'stroke="#fff" stroke-width="1.5"/>',
+                f'<polygon points="{pts}" '
+                f'fill="{color}" fill-opacity="0.88" '
+                f'stroke="{_es}" stroke-width="{_esw}"/>',
                 f'<text x="{x:.1f}" y="{y + 6:.1f}" '
-                f'text-anchor="middle" font-size="10" font-family="Arial" '
+                f'text-anchor="middle" font-size="10" '
+                f'font-family="{_ff}" '
                 f'fill="#fff" font-weight="700">AS</text>',
             ]
         else:  # cylinder (dehumidifier)
             parts += [
-                f'<rect x="{x - 10:.1f}" y="{y - 8:.1f}" width="20" height="14" '
+                f'<rect x="{x - 10:.1f}" y="{y - 8:.1f}" '
+                f'width="20" height="14" '
                 f'fill="{color}" fill-opacity="0.88"/>',
-                f'<ellipse cx="{x:.1f}" cy="{y - 8:.1f}" rx="10" ry="4" '
-                f'fill="{color}" fill-opacity="0.7" stroke="#fff" stroke-width="1"/>',
-                f'<ellipse cx="{x:.1f}" cy="{y + 6:.1f}" rx="10" ry="4" '
-                f'fill="{color}" fill-opacity="0.95" stroke="#fff" stroke-width="1"/>',
+                f'<ellipse cx="{x:.1f}" cy="{y - 8:.1f}" '
+                f'rx="10" ry="4" fill="{color}" '
+                f'fill-opacity="0.7" stroke="{_es}" '
+                f'stroke-width="1"/>',
+                f'<ellipse cx="{x:.1f}" cy="{y + 6:.1f}" '
+                f'rx="10" ry="4" fill="{color}" '
+                f'fill-opacity="0.95" stroke="{_es}" '
+                f'stroke-width="1"/>',
                 f'<text x="{x:.1f}" y="{y + 3:.1f}" '
-                f'text-anchor="middle" font-size="10" font-family="Arial" '
+                f'text-anchor="middle" font-size="10" '
+                f'font-family="{_ff}" '
                 f'fill="#fff" font-weight="700">DH</text>',
             ]
 
@@ -726,7 +1077,9 @@ class SketchPdfService:
         if equip.label:
             parts.append(
                 f'<text x="{x:.1f}" y="{y + 24:.1f}" '
-                f'text-anchor="middle" font-size="10" font-family="Arial" fill="#555">'
+                f'text-anchor="middle" font-size="10" '
+                f'font-family="{_ff}" '
+                f'fill="{sv.get("demo_dim_color", "#555")}">'
                 f'{html_lib.escape(equip.label)}</text>'
             )
         return parts
@@ -747,9 +1100,17 @@ class SketchPdfService:
             return ' stroke-dasharray="8 4"'
         return ""
 
-    def _render_demo_zone_from_dict(self, z: Dict[str, Any], scale: float) -> List[str]:
-        """SVG for a demolition zone read from the JSONB overlay_data dict."""
+    def _render_demo_zone_from_dict(
+        self, z: Dict[str, Any], scale: float
+    ) -> List[str]:
+        """SVG for a demolition zone from JSONB overlay_data."""
         import math
+
+        sv = self._svg
+        ff = sv.get("font_primary", "Arial")
+        dls = sv.get("demo_label_size", "10")
+        ddc = sv.get("demo_dim_color", "#555")
+        dsc = sv.get("demo_sqft_color", "#666")
 
         mt = z.get("material_type", "")
         d1 = float(z.get("dimension1_ft", 0))
@@ -779,8 +1140,9 @@ class SketchPdfService:
                 f'<rect x="-4" y="-2" width="{text_w}" height="22" rx="4" '
                 f'fill="{color}" fill-opacity="{opacity:.2f}" '
                 f'stroke="{color}" stroke-width="1"/>',
-                f'<text x="0" y="14" font-size="13" font-weight="bold" '
-                f'font-family="Arial" fill="{color}">{escaped}</text>',
+                f'<text x="0" y="14" font-size="13" '
+                f'font-weight="bold" font-family="{ff}" '
+                f'fill="{color}">{escaped}</text>',
                 '</g>',
             ]
             return parts
@@ -811,13 +1173,16 @@ class SketchPdfService:
                 qty = float(z.get("calculated_sqft", 0))
                 unit = "LF" if is_lf else "SF"
                 parts.append(
-                    f'<text x="{mx:.1f}" y="{my - 6:.1f}" text-anchor="middle" '
-                    f'font-size="10" font-family="Arial" fill="{color}" font-weight="600">'
+                    f'<text x="{mx:.1f}" y="{my - 6:.1f}" '
+                    f'text-anchor="middle" font-size="{dls}" '
+                    f'font-family="{ff}" fill="{color}" '
+                    f'font-weight="600">'
                     f'{html_lib.escape(label)}</text>'
                 )
                 parts.append(
-                    f'<text x="{mx:.1f}" y="{my + 6:.1f}" text-anchor="middle" '
-                    f'font-size="10" font-family="Arial" fill="#555">'
+                    f'<text x="{mx:.1f}" y="{my + 6:.1f}" '
+                    f'text-anchor="middle" font-size="{dls}" '
+                    f'font-family="{ff}" fill="{ddc}">'
                     f'{d1:.1f}&apos; · {qty:.1f} {unit}</text>'
                 )
             return parts
@@ -856,14 +1221,16 @@ class SketchPdfService:
                 base_lbl = f"{base_lbl} ({st_lbl})"
             label = html_lib.escape(base_lbl)
             parts.append(
-                f'<text x="{cx:.1f}" y="{cy - 4:.1f}" text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="{color}" font-weight="600">'
-                f'{label}</text>'
+                f'<text x="{cx:.1f}" y="{cy - 4:.1f}" '
+                f'text-anchor="middle" font-size="{dls}" '
+                f'font-family="{ff}" fill="{color}" '
+                f'font-weight="600">{label}</text>'
             )
             if sqft > 0:
                 parts.append(
-                    f'<text x="{cx:.1f}" y="{cy + 8:.1f}" text-anchor="middle" '
-                    f'font-size="10" font-family="Arial" fill="#555">'
+                    f'<text x="{cx:.1f}" y="{cy + 8:.1f}" '
+                    f'text-anchor="middle" font-size="{dls}" '
+                    f'font-family="{ff}" fill="{ddc}">'
                     f'{sqft:.1f} SF</text>'
                 )
             parts.append("</g>")
@@ -894,13 +1261,44 @@ class SketchPdfService:
         else:
             fill_opacity = "0.22" if has_dims else "0.15"
 
+        demo_mode = sv.get("demo_fill_mode", "solid")
         parts = [
             f'<g transform="translate({x:.1f},{y:.1f}){rot_part}">'
-            f'<rect x="0" y="0" '
-            f'width="{zone_w:.1f}" height="{zone_h:.1f}" '
-            f'fill="{color}" fill-opacity="{fill_opacity}" '
-            f'stroke="{color}" stroke-width="1.5" rx="1"{stroke_dash}/>'
         ]
+
+        if demo_mode == "hatch":
+            # ── Diagonal hatch pattern fill ──
+            parts.append(
+                f'<rect x="0" y="0" '
+                f'width="{zone_w:.1f}" '
+                f'height="{zone_h:.1f}" '
+                f'fill="url(#hatch)" '
+                f'style="color:{color}" '
+                f'fill-opacity="0.35" '
+                f'stroke="{color}" stroke-width="2" '
+                f'rx="0"{stroke_dash}/>'
+            )
+        elif demo_mode == "dotted":
+            # ── Dotted border, minimal fill ──
+            parts.append(
+                f'<rect x="0" y="0" '
+                f'width="{zone_w:.1f}" '
+                f'height="{zone_h:.1f}" '
+                f'fill="{color}" fill-opacity="0.06" '
+                f'stroke="{color}" stroke-width="2" '
+                f'stroke-dasharray="3 3" rx="3"/>'
+            )
+        else:
+            # ── Default: solid semi-transparent fill ──
+            parts.append(
+                f'<rect x="0" y="0" '
+                f'width="{zone_w:.1f}" '
+                f'height="{zone_h:.1f}" '
+                f'fill="{color}" '
+                f'fill-opacity="{fill_opacity}" '
+                f'stroke="{color}" stroke-width="1.5" '
+                f'rx="1"{stroke_dash}/>'
+            )
 
         if has_dims and zone_w >= 40 and zone_h >= 25:
             cx = zone_w / 2
@@ -915,18 +1313,21 @@ class SketchPdfService:
                 base_lbl = f"{base_lbl} ({st_lbl})"
             label = html_lib.escape(base_lbl)
             parts.append(
-                f'<text x="{cx:.1f}" y="{cy - 9:.1f}" text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="{color}" font-weight="600">'
-                f'{label}</text>'
+                f'<text x="{cx:.1f}" y="{cy - 9:.1f}" '
+                f'text-anchor="middle" font-size="{dls}" '
+                f'font-family="{ff}" fill="{color}" '
+                f'font-weight="600">{label}</text>'
             )
             parts.append(
-                f'<text x="{cx:.1f}" y="{cy + 3:.1f}" text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="#555">'
+                f'<text x="{cx:.1f}" y="{cy + 3:.1f}" '
+                f'text-anchor="middle" font-size="{dls}" '
+                f'font-family="{ff}" fill="{ddc}">'
                 f'{d1:.1f}&apos;×{d2:.1f}&apos;</text>'
             )
             parts.append(
-                f'<text x="{cx:.1f}" y="{cy + 14:.1f}" text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="#666">'
+                f'<text x="{cx:.1f}" y="{cy + 14:.1f}" '
+                f'text-anchor="middle" font-size="{dls}" '
+                f'font-family="{ff}" fill="{dsc}">'
                 f'{sqft:.0f} SF</text>'
             )
 
@@ -952,10 +1353,13 @@ class SketchPdfService:
         ]
         label = z.get("label") or z.get("containment_type", "")
         if label and length_px > 40:
+            sv = self._svg
             mx, my = (x1 + x2) / 2, (y1 + y2) / 2
             parts.append(
-                f'<text x="{mx:.1f}" y="{my - 8:.1f}" text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="{color}">'
+                f'<text x="{mx:.1f}" y="{my - 8:.1f}" '
+                f'text-anchor="middle" font-size="10" '
+                f'font-family="{sv.get("font_primary", "Arial")}" '
+                f'fill="{color}">'
                 f'{html_lib.escape(label)}</text>'
             )
         return parts
@@ -1019,65 +1423,141 @@ class SketchPdfService:
             parts += [
                 f'<rect x="{cx - 28:.1f}" y="{cy - 8:.1f}" width="56" height="14" '
                 f'fill="rgba(255,255,255,0.85)" rx="2"/>',
-                f'<text x="{cx:.1f}" y="{cy + 3:.1f}" text-anchor="middle" '
-                f'font-size="9" font-family="Arial" fill="#C2410C">{label_esc}</text>',
+                f'<text x="{cx:.1f}" y="{cy + 3:.1f}" '
+                f'text-anchor="middle" font-size="9" '
+                f'font-family="{self._svg.get("font_primary", "Arial")}" '
+                f'fill="#C2410C">{label_esc}</text>',
             ]
         parts.append('</g>')
         return parts
 
-    def _render_equipment_from_dict(self, equip: Dict[str, Any]) -> List[str]:
+    def _render_equipment_from_dict(
+        self, equip: Dict[str, Any]
+    ) -> List[str]:
         """SVG for an equipment icon from JSONB dict."""
+        sv = self._svg
+        eq_mode = sv.get("equip_mode", "filled")
         eq_type = equip.get("equipment_type", "air_mover")
         cfg = EQUIPMENT_CONFIG.get(eq_type, {})
         color = equip.get("color") or cfg.get("color", "#999999")
-        shape = equip.get("icon_shape") or cfg.get("shape", "circle")
         abbr = cfg.get("abbreviation", "")
+        display = cfg.get("display", eq_type)
         x, y = float(equip.get("x", 0)), float(equip.get("y", 0))
+        r = sv.get("equip_radius", 11)
+        es = sv.get("equip_stroke", "#fff")
+        esw = sv.get("equip_stroke_width", "1.5")
+        efs = sv.get("equip_font_size", "10")
+        ff = sv.get("font_primary", "Arial")
         parts: List[str] = []
 
-        if shape == "circle":
+        if eq_mode == "outline":
+            # ── Outlined hollow icons (all same shape = circle) ──
             parts += [
-                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="11" '
-                f'fill="{color}" fill-opacity="0.88" stroke="#fff" stroke-width="1.5"/>',
-                f'<text x="{x:.1f}" y="{y + 4:.1f}" text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="#fff" font-weight="700">{abbr}</text>',
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" '
+                f'r="{r}" fill="none" '
+                f'stroke="{color}" stroke-width="2.5"/>',
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" '
+                f'r="{r - 4}" fill="none" '
+                f'stroke="{color}" stroke-width="0.8"/>',
+                f'<text x="{x:.1f}" y="{y + 4:.1f}" '
+                f'text-anchor="middle" font-size="{efs}" '
+                f'font-family="{ff}" fill="{color}" '
+                f'font-weight="700">{abbr}</text>',
             ]
-        elif shape == "triangle":
-            pts = f"{x:.1f},{y - 11:.1f} {x - 10:.1f},{y + 8:.1f} {x + 10:.1f},{y + 8:.1f}"
+
+        elif eq_mode == "badge":
+            # ── Rounded square badge ──
+            bw = r * 2
+            bh = r * 1.6
             parts += [
-                f'<polygon points="{pts}" fill="{color}" fill-opacity="0.88" '
-                f'stroke="#fff" stroke-width="1.5"/>',
-                f'<text x="{x:.1f}" y="{y + 6:.1f}" text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="#fff" font-weight="700">{abbr}</text>',
+                f'<rect x="{x - bw / 2:.1f}" '
+                f'y="{y - bh / 2:.1f}" '
+                f'width="{bw:.1f}" height="{bh:.1f}" '
+                f'rx="4" fill="{color}" '
+                f'fill-opacity="0.9" '
+                f'stroke="{es}" stroke-width="{esw}"/>',
+                f'<text x="{x:.1f}" y="{y + 4:.1f}" '
+                f'text-anchor="middle" font-size="{efs}" '
+                f'font-family="{ff}" fill="#fff" '
+                f'font-weight="700">{abbr}</text>',
             ]
+
         else:
-            parts += [
-                f'<rect x="{x - 10:.1f}" y="{y - 8:.1f}" width="20" height="14" '
-                f'fill="{color}" fill-opacity="0.88"/>',
-                f'<ellipse cx="{x:.1f}" cy="{y - 8:.1f}" rx="10" ry="4" '
-                f'fill="{color}" fill-opacity="0.7" stroke="#fff" stroke-width="1"/>',
-                f'<ellipse cx="{x:.1f}" cy="{y + 6:.1f}" rx="10" ry="4" '
-                f'fill="{color}" fill-opacity="0.95" stroke="#fff" stroke-width="1"/>',
-                f'<text x="{x:.1f}" y="{y + 3:.1f}" text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="#fff" font-weight="700">{abbr}</text>',
-            ]
+            # ── Default: filled shapes (original) ──
+            shape = equip.get("icon_shape") or cfg.get(
+                "shape", "circle"
+            )
+            if shape == "circle":
+                parts += [
+                    f'<circle cx="{x:.1f}" cy="{y:.1f}" '
+                    f'r="{r}" fill="{color}" '
+                    f'fill-opacity="0.88" '
+                    f'stroke="{es}" '
+                    f'stroke-width="{esw}"/>',
+                    f'<text x="{x:.1f}" y="{y + 4:.1f}" '
+                    f'text-anchor="middle" '
+                    f'font-size="{efs}" '
+                    f'font-family="{ff}" fill="#fff" '
+                    f'font-weight="700">{abbr}</text>',
+                ]
+            elif shape == "triangle":
+                pts = (
+                    f"{x:.1f},{y - r:.1f} "
+                    f"{x - r + 1:.1f},{y + r - 3:.1f} "
+                    f"{x + r - 1:.1f},{y + r - 3:.1f}"
+                )
+                parts += [
+                    f'<polygon points="{pts}" '
+                    f'fill="{color}" fill-opacity="0.88" '
+                    f'stroke="{es}" '
+                    f'stroke-width="{esw}"/>',
+                    f'<text x="{x:.1f}" y="{y + 6:.1f}" '
+                    f'text-anchor="middle" '
+                    f'font-size="{efs}" '
+                    f'font-family="{ff}" fill="#fff" '
+                    f'font-weight="700">{abbr}</text>',
+                ]
+            else:
+                parts += [
+                    f'<rect x="{x - 10:.1f}" '
+                    f'y="{y - 8:.1f}" '
+                    f'width="20" height="14" '
+                    f'fill="{color}" fill-opacity="0.88"/>',
+                    f'<ellipse cx="{x:.1f}" '
+                    f'cy="{y - 8:.1f}" rx="10" ry="4" '
+                    f'fill="{color}" fill-opacity="0.7" '
+                    f'stroke="{es}" stroke-width="1"/>',
+                    f'<ellipse cx="{x:.1f}" '
+                    f'cy="{y + 6:.1f}" rx="10" ry="4" '
+                    f'fill="{color}" fill-opacity="0.95" '
+                    f'stroke="{es}" stroke-width="1"/>',
+                    f'<text x="{x:.1f}" y="{y + 3:.1f}" '
+                    f'text-anchor="middle" '
+                    f'font-size="{efs}" '
+                    f'font-family="{ff}" fill="#fff" '
+                    f'font-weight="700">{abbr}</text>',
+                ]
 
         label = (equip.get("label") or "").strip()
         if label:
             parts.append(
-                f'<text x="{x:.1f}" y="{y + 24:.1f}" text-anchor="middle" '
-                f'font-size="10" font-family="Arial" fill="#555">{html_lib.escape(label)}</text>'
+                f'<text x="{x:.1f}" y="{y + 24:.1f}" '
+                f'text-anchor="middle" font-size="{efs}" '
+                f'font-family="{ff}" '
+                f'fill="{sv.get("demo_dim_color", "#555")}">'
+                f'{html_lib.escape(label)}</text>'
             )
         return parts
 
     def _render_wall(self, wall: Dict[str, Any]) -> List[str]:
         """SVG for a floor plan wall segment."""
+        s = self._svg
         sx = float(wall.get("start_x", 0))
         sy = float(wall.get("start_y", 0))
         ex = float(wall.get("end_x", 0))
         ey = float(wall.get("end_y", 0))
         thickness = float(wall.get("thickness", 4))
-        color = wall.get("color", "#333333")
+        color = wall.get("color", s.get("wall_default_color", "#333333"))
         length_ft = float(wall.get("length_ft", 0))
 
         parts: List[str] = [
@@ -1091,18 +1571,79 @@ class SketchPdfService:
         if length_ft > 0:
             mx = (sx + ex) / 2
             my = (sy + ey) / 2 - 6
-            parts.append(
-                f'<text x="{mx:.1f}" y="{my:.1f}" '
-                f'font-size="10" fill="#595959" '
-                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
-                f'text-anchor="middle">'
-                f'{length_ft:.1f}\'</text>'
+            lbl_mode = s.get("wall_label_mode", "plain")
+            lbl_size = s.get("wall_label_size", "10")
+            lbl_color = s.get("wall_label_color", "#595959")
+            lbl_ff = s.get(
+                "font_label",
+                "Inter, Segoe UI, Arial, sans-serif"
             )
+            lbl_text = f"{length_ft:.1f}'"
+
+            if lbl_mode == "boxed":
+                # ── Text on background box ──
+                tw = max(28, len(lbl_text) * 6 + 8)
+                parts.append(
+                    f'<rect x="{mx - tw / 2:.1f}" '
+                    f'y="{my - 10:.1f}" '
+                    f'width="{tw}" height="14" rx="2" '
+                    f'fill="#fff" fill-opacity="0.85" '
+                    f'stroke="{lbl_color}" '
+                    f'stroke-width="0.5"/>'
+                )
+                parts.append(
+                    f'<text x="{mx:.1f}" y="{my + 1:.1f}" '
+                    f'font-size="{lbl_size}" '
+                    f'fill="{lbl_color}" '
+                    f'font-family="{lbl_ff}" '
+                    f'text-anchor="middle">'
+                    f'{lbl_text}</text>'
+                )
+            elif lbl_mode == "offset":
+                # ── Offset with leader line ──
+                import math
+                dx = ex - sx
+                dy = ey - sy
+                wall_len = math.hypot(dx, dy)
+                if wall_len > 0:
+                    nx = -dy / wall_len * 14
+                    ny = dx / wall_len * 14
+                else:
+                    nx, ny = 0, -14
+                tx = mx + nx
+                ty = my + ny
+                parts.append(
+                    f'<line x1="{mx:.1f}" y1="{my + 4:.1f}" '
+                    f'x2="{tx:.1f}" y2="{ty + 4:.1f}" '
+                    f'stroke="{lbl_color}" '
+                    f'stroke-width="0.6" '
+                    f'stroke-dasharray="2 2"/>'
+                )
+                parts.append(
+                    f'<text x="{tx:.1f}" y="{ty:.1f}" '
+                    f'font-size="{lbl_size}" '
+                    f'fill="{lbl_color}" '
+                    f'font-family="{lbl_ff}" '
+                    f'text-anchor="middle" '
+                    f'font-weight="600">'
+                    f'{lbl_text}</text>'
+                )
+            else:
+                # ── Default: plain text ──
+                parts.append(
+                    f'<text x="{mx:.1f}" y="{my:.1f}" '
+                    f'font-size="{lbl_size}" '
+                    f'fill="{lbl_color}" '
+                    f'font-family="{lbl_ff}" '
+                    f'text-anchor="middle">'
+                    f'{lbl_text}</text>'
+                )
 
         return parts
 
     def _render_room(self, room: Dict[str, Any]) -> List[str]:
         """SVG for a room polygon fill."""
+        s = self._svg
         boundary = room.get("boundary", [])
         if not boundary or len(boundary) < 3:
             return []
@@ -1115,7 +1656,9 @@ class SketchPdfService:
 
         parts: List[str] = [
             f'<polygon points="{points_str}" '
-            f'fill="{color}" stroke="#0066cc" stroke-width="1" opacity="0.6"/>'
+            f'fill="{color}" stroke="{s.get("room_stroke_color", "#0066cc")}" '
+            f'stroke-width="{s.get("room_stroke_width", "1")}" '
+            f'opacity="{s.get("room_opacity", "0.6")}"/>'
         ]
 
         # Centroid for labels
@@ -1125,16 +1668,18 @@ class SketchPdfService:
         if name:
             parts.append(
                 f'<text x="{cx:.1f}" y="{cy - 4:.1f}" '
-                f'font-size="13" font-weight="700" fill="#333" '
-                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
+                f'font-size="{s.get("room_name_size", "13")}" font-weight="700" '
+                f'fill="{s.get("room_name_color", "#333")}" '
+                f'font-family="{s.get("font_label", "Inter, Segoe UI, Arial, sans-serif")}" '
                 f'text-anchor="middle">'
                 f'{html_lib.escape(name)}</text>'
             )
         if area > 0:
             parts.append(
                 f'<text x="{cx:.1f}" y="{cy + 12:.1f}" '
-                f'font-size="11" fill="#666" '
-                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
+                f'font-size="{s.get("room_area_size", "11")}" '
+                f'fill="{s.get("room_area_color", "#666")}" '
+                f'font-family="{s.get("font_label", "Inter, Segoe UI, Arial, sans-serif")}" '
                 f'text-anchor="middle">'
                 f'{area:.0f} SF</text>'
             )
@@ -1247,10 +1792,14 @@ class SketchPdfService:
             lx = w / 2
             ly = h / 2 + 4
             escaped = html_lib.escape(label)
+            sf = self._svg.get(
+                "font_label",
+                "Inter, Segoe UI, Arial, sans-serif"
+            )
             parts.append(
                 f'<text x="{lx:.1f}" y="{ly:.1f}" '
                 f'font-size="11" font-weight="700" '
-                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
+                f'font-family="{sf}" '
                 f'fill="{stroke}" text-anchor="middle">'
                 f'{escaped}</text>'
             )
@@ -1265,6 +1814,8 @@ class SketchPdfService:
         text_val = (ta.get("text") or "").strip()
         if not text_val:
             return []
+        ff = self._svg.get("font_label",
+                           "Inter, Segoe UI, Arial, sans-serif")
         x = float(ta.get("x", 0))
         y = float(ta.get("y", 0))
         font_size = float(ta.get("font_size", 16))
@@ -1279,7 +1830,7 @@ class SketchPdfService:
             return [
                 f'<text x="{x:.1f}" y="{y + font_size:.1f}" '
                 f'font-size="{font_size:.0f}" '
-                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
+                f'font-family="{ff}" '
                 f'fill="{color}" {weight}>'
                 f'{escaped}</text>'
             ]
@@ -1290,7 +1841,7 @@ class SketchPdfService:
             parts.append(
                 f'<text x="{x:.1f}" y="{ly:.1f}" '
                 f'font-size="{font_size:.0f}" '
-                f'font-family="Inter, Segoe UI, Arial, sans-serif" '
+                f'font-family="{ff}" '
                 f'fill="{color}" {weight}>'
                 f'{line}</text>'
             )
@@ -1459,7 +2010,11 @@ class SketchPdfService:
 
         env.filters["fmt_date"] = _fmt_date
 
-        template = env.get_template("sketch_report.html")
+        variant = getattr(self, "_template_variant", "a")
+        variant_suffix = f"_{variant}" if variant and variant != "a" else ""
+        template_name = f"sketch_report{variant_suffix}.html"
+        logger.info("Using sketch template: %s (variant=%s)", template_name, variant)
+        template = env.get_template(template_name)
         return template.render(
             job=job,
             floor_data=floor_data,

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 
 
 def sanitize_surrogates(text: str) -> str:
@@ -1044,7 +1044,11 @@ async def generate_invoice_html(invoice_id: str, db=Depends(get_db)):
 
 
 @router.post("/{invoice_id}/pdf")
-async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
+async def generate_invoice_pdf(
+    invoice_id: str,
+    template_variant: str = Query("a", description="Template variant: a (default), b (formal), c (modern)"),
+    db=Depends(get_db),
+):
     """Generate PDF for an invoice"""
     from app.core.database_factory import get_database
     database = get_database()
@@ -1185,7 +1189,7 @@ async def generate_invoice_pdf(invoice_id: str, db=Depends(get_db)):
     with temp_file_handler(suffix=".pdf", prefix="invoice_") as temp_path:
         try:
             # Generate PDF
-            pdf_path = get_pdf_service().generate_invoice_pdf(pdf_data, str(temp_path))
+            pdf_path = get_pdf_service().generate_invoice_pdf(pdf_data, str(temp_path), template_variant=template_variant)
 
             # Validate the PDF path to prevent path traversal attacks
             try:

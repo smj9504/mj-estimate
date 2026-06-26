@@ -422,9 +422,10 @@ class PDFService:
         if 'company' in context and isinstance(context['company'], dict):
             context['company']['logo'] = None
 
-        # Load template - default to modern template
-        template_path = f"invoice/general_invoice.html"
-        logger.info(f"Loading template: {template_path}")
+        # Load template - select based on variant
+        variant_suffix = f"_{template_variant}" if template_variant and template_variant != "a" else ""
+        template_path = f"invoice/general_invoice{variant_suffix}.html"
+        logger.info(f"Loading template: {template_path} (variant={template_variant})")
         template = self.env.get_template(template_path)
         html_content = template.render(**context)
         logger.info(f"Template rendered, HTML length: {len(html_content)}")
@@ -585,12 +586,13 @@ print(os.path.getsize(output_path))
                     except Exception:
                         pass
 
-    def generate_invoice_html(self, data: Dict[str, Any]) -> str:
+    def generate_invoice_html(self, data: Dict[str, Any], template_variant: str = "a") -> str:
         """
         Generate invoice HTML from data (without converting to PDF)
 
         Args:
             data: Invoice data dictionary
+            template_variant: Template variant ('a', 'b', or 'c')
 
         Returns:
             HTML content as string
@@ -611,9 +613,10 @@ print(os.path.getsize(output_path))
 
         # Load template
         try:
-            template_path = "invoice/general_invoice.html"
+            variant_suffix = f"_{template_variant}" if template_variant and template_variant != "a" else ""
+            template_path = f"invoice/general_invoice{variant_suffix}.html"
             template = self.env.get_template(template_path)
-            logger.info(f"Using {template_path} template")
+            logger.info(f"Using {template_path} template (variant={template_variant})")
         except Exception as e:
             logger.error(f"Could not load template: {e}")
             raise
@@ -2008,6 +2011,127 @@ def generate_images_pdf(
     return str(output_path)
 
 
+def _get_report_style(template_variant: str = "a") -> Dict[str, Any]:
+    """Return style configuration for a photo report variant.
+
+    Each variant produces a visually distinct PDF so that reports from
+    different companies do not look identical.
+
+    Variants:
+        a (default) - Professional grayscale with Helvetica
+        b           - Serif / warm tones with Georgia-like fonts
+        c           - Modern blue accent with clean sans-serif
+    """
+    styles = {
+        "a": {
+            # ── fonts & sizes ──
+            "font_title": "Helvetica-Bold",
+            "font_body": "Helvetica",
+            "font_body_bold": "Helvetica-Bold",
+            "title_size": 24,
+            "section_title_size": 16,
+            # ── colors ──
+            "color_black": "#000000",
+            "color_dark": "#333333",
+            "color_medium": "#666666",
+            "color_light": "#CCCCCC",
+            "color_very_light": "#F5F5F5",
+            "color_accent": "#000000",
+            # ── layout modes ──
+            "cover_title_align": "center",
+            "cover_line_style": "single",
+            "cover_info_layout": "vertical",   # vertical | two_column | card
+            "cover_prepared_pos": "center",     # center | bottom_left | top_right
+            "section_header_mode": "underline", # underline | filled_box | left_bar
+            "section_header_bg": None,
+            "footer_style": "center",           # center | split | full_bar
+            "logo_grayscale": True,
+            "logo_position": "center",          # center | top_left | top_right
+            # ── content / wording ──
+            "default_title": "Water Mitigation Report",
+            "info_heading": "JOB INFORMATION",
+            "prepared_label": "PREPARED BY",
+            "footer_date_label": "Report Generated",
+            "label_property": "Property Address:",
+            "label_client": "Client Name:",
+            "label_dol": "Date of Loss:",
+            "label_mitigation": "Water Mitigation Period:",
+            "photo_date_prefix": "Captured",
+        },
+        "b": {
+            # ── fonts & sizes ──
+            "font_title": "Courier-Bold",
+            "font_body": "Courier",
+            "font_body_bold": "Courier-Bold",
+            "title_size": 26,
+            "section_title_size": 15,
+            # ── colors ──
+            "color_black": "#1a1a1a",
+            "color_dark": "#2c2c2c",
+            "color_medium": "#555555",
+            "color_light": "#BBBBBB",
+            "color_very_light": "#F0EFEB",
+            "color_accent": "#6B4C3B",
+            # ── layout modes ──
+            "cover_title_align": "left",
+            "cover_line_style": "double",
+            "cover_info_layout": "two_column",
+            "cover_prepared_pos": "bottom_left",
+            "section_header_mode": "filled_box",
+            "section_header_bg": "#F0EFEB",
+            "footer_style": "split",
+            "logo_grayscale": False,
+            "logo_position": "top_right",
+            # ── content / wording ──
+            "default_title": "Moisture Remediation Documentation",
+            "info_heading": "Project Details",
+            "prepared_label": "Submitted by",
+            "footer_date_label": "Document Date",
+            "label_property": "Site Address:",
+            "label_client": "Homeowner:",
+            "label_dol": "Loss Date:",
+            "label_mitigation": "Remediation Period:",
+            "photo_date_prefix": "Date",
+        },
+        "c": {
+            # ── fonts & sizes ──
+            "font_title": "Helvetica-Bold",
+            "font_body": "Helvetica",
+            "font_body_bold": "Helvetica-Bold",
+            "title_size": 22,
+            "section_title_size": 14,
+            # ── colors ──
+            "color_black": "#0D47A1",
+            "color_dark": "#1565C0",
+            "color_medium": "#42A5F5",
+            "color_light": "#BBDEFB",
+            "color_very_light": "#E3F2FD",
+            "color_accent": "#0D47A1",
+            # ── layout modes ──
+            "cover_title_align": "left",
+            "cover_line_style": "thick",
+            "cover_info_layout": "card",
+            "cover_prepared_pos": "top_right",
+            "section_header_mode": "left_bar",
+            "section_header_bg": "#E3F2FD",
+            "footer_style": "full_bar",
+            "logo_grayscale": False,
+            "logo_position": "top_left",
+            # ── content / wording ──
+            "default_title": "Water Damage Restoration Report",
+            "info_heading": "Claim Information",
+            "prepared_label": "Documented by",
+            "footer_date_label": "Date of Report",
+            "label_property": "Property:",
+            "label_client": "Insured Name:",
+            "label_dol": "Date of Loss:",
+            "label_mitigation": "Restoration Period:",
+            "photo_date_prefix": "Taken",
+        },
+    }
+    return styles.get(template_variant, styles["a"])
+
+
 def generate_water_mitigation_report_pdf(
     job_data: Dict[str, Any],
     config: Dict[str, Any],
@@ -2015,7 +2139,8 @@ def generate_water_mitigation_report_pdf(
     output_path: str,
     company_data: Optional[Dict[str, Any]] = None,
     report_date: Optional[str] = None,
-    compress: bool = False
+    compress: bool = False,
+    template_variant: str = "a",
 ) -> str:
     """
     Generate professional Water Mitigation photo report PDF using ReportLab
@@ -2059,7 +2184,10 @@ def generate_water_mitigation_report_pdf(
     from reportlab.platypus import Paragraph, Table, TableStyle
 
     logger = logging.getLogger(__name__)
-    logger.info(f"Generating photo report for job {job_data.get('id', 'unknown')} (compress={compress})")
+    logger.info(f"Generating photo report for job {job_data.get('id', 'unknown')} (compress={compress}, variant={template_variant})")
+
+    # Load style variant
+    style = _get_report_style(template_variant)
 
     # Compression settings - balanced quality and file size
     if compress:
@@ -2088,13 +2216,21 @@ def generate_water_mitigation_report_pdf(
     page_width, page_height = letter
     margin = 0.4 * inch  # Reduced margin for wider photo display area
 
-    # Professional grayscale color palette
-    COLOR_BLACK = colors.HexColor('#000000')
-    COLOR_DARK_GRAY = colors.HexColor('#333333')
-    COLOR_MEDIUM_GRAY = colors.HexColor('#666666')
-    COLOR_LIGHT_GRAY = colors.HexColor('#CCCCCC')
-    COLOR_VERY_LIGHT_GRAY = colors.HexColor('#F5F5F5')
+    # Color palette from style variant
+    COLOR_BLACK = colors.HexColor(style["color_black"])
+    COLOR_DARK_GRAY = colors.HexColor(style["color_dark"])
+    COLOR_MEDIUM_GRAY = colors.HexColor(style["color_medium"])
+    COLOR_LIGHT_GRAY = colors.HexColor(style["color_light"])
+    COLOR_VERY_LIGHT_GRAY = colors.HexColor(style["color_very_light"])
+    COLOR_ACCENT = colors.HexColor(style["color_accent"])
     COLOR_WHITE = colors.white
+
+    # Font configuration from style variant
+    FONT_TITLE = style["font_title"]
+    FONT_BODY = style["font_body"]
+    FONT_BODY_BOLD = style["font_body_bold"]
+    TITLE_SIZE = style["title_size"]
+    SECTION_TITLE_SIZE = style["section_title_size"]
 
     # Create PDF writer
     writer = PdfWriter()
@@ -2127,114 +2263,63 @@ def generate_water_mitigation_report_pdf(
     cover_buffer = io.BytesIO()
     c = pdf_canvas.Canvas(cover_buffer, pagesize=letter)
 
-    # Company logo (if available) - converted to grayscale
-    logo_height = 0
-    if company_data and company_data.get('logo'):
+    # ── Helper: draw company logo, returns (logo_width, logo_h) or None ──
+    def _draw_logo(lx, ly, max_w=2.5 * inch):
+        if not (company_data and company_data.get('logo')):
+            return None
         logo_path = Path(company_data['logo'])
-        if logo_path.exists():
-            try:
-                logo_img = Image.open(logo_path).convert('L')  # Convert to grayscale
-                logo_width, logo_h = logo_img.size
-                # Scale logo to fit width (max 2.5 inches for more refined look)
-                max_logo_width = 2.5 * inch
-                if logo_width > max_logo_width:
-                    scale = max_logo_width / logo_width
-                    logo_width = max_logo_width
-                    logo_h = logo_h * scale
-                else:
-                    logo_width = logo_width * (inch / 100)  # Convert to reasonable size
-                    logo_h = logo_h * (inch / 100)
-
-                logo_x = (page_width - logo_width) / 2
-                logo_y = page_height - margin - logo_h - 0.5 * inch
-
-                # Save grayscale logo to temp file
-                temp_logo = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
-                logo_img.save(temp_logo.name, 'JPEG')
-                c.drawImage(temp_logo.name, logo_x, logo_y, width=logo_width, height=logo_h)
-                temp_logo.close()
-                logo_height = logo_h + 1.2 * inch
-            except Exception as e:
-                logger.warning(f"Failed to load company logo: {e}")
-
-    # Clean top section
-    y_position = page_height - margin - logo_height - 0.5 * inch
-
-    # Title with sophisticated typography
-    title = config.get('cover_title', 'Water Mitigation Report')
-    c.setFillColor(COLOR_BLACK)
-    c.setFont("Helvetica-Bold", 24)
-    c.drawCentredString(page_width / 2, y_position, title)
-    y_position -= 0.25 * inch
-
-    # Single elegant line under title
-    c.setStrokeColor(COLOR_MEDIUM_GRAY)
-    c.setLineWidth(0.5)
-    line_margin = 2 * inch
-    c.line(line_margin, y_position, page_width - line_margin, y_position)
-    y_position -= 0.6 * inch
-
-    # Description (if provided) - dark gray, with newline support
-    description = config.get('cover_description', '')
-    if description:
-        c.setFillColor(COLOR_DARK_GRAY)
-        c.setFont("Helvetica", 11)
-
-        # Split by newlines first to preserve user's line breaks
-        paragraphs = description.split('\n')
-        all_lines = []
-
-        for paragraph in paragraphs:
-            paragraph = paragraph.strip()
-            if not paragraph:
-                # Empty line - add spacing
-                all_lines.append('')
-                continue
-
-            # Wrap long paragraphs
-            if len(paragraph) > 80:
-                words = paragraph.split()
-                current_line = []
-                for word in words:
-                    current_line.append(word)
-                    if len(' '.join(current_line)) > 80:
-                        if len(current_line) > 1:
-                            current_line.pop()
-                            all_lines.append(' '.join(current_line))
-                            current_line = [word]
-                        else:
-                            all_lines.append(word)
-                            current_line = []
-                if current_line:
-                    all_lines.append(' '.join(current_line))
+        if not logo_path.exists():
+            return None
+        try:
+            logo_img = Image.open(logo_path)
+            if style["logo_grayscale"]:
+                logo_img = logo_img.convert('L')
+            lw, lh = logo_img.size
+            if lw > max_w:
+                s = max_w / lw
+                lw, lh = max_w, lh * s
             else:
-                all_lines.append(paragraph)
+                lw = lw * (inch / 100)
+                lh = lh * (inch / 100)
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.jpg')
+            logo_img.save(tmp.name, 'JPEG')
+            c.drawImage(tmp.name, lx, ly, width=lw, height=lh)
+            tmp.close()
+            return lw, lh
+        except Exception as e:
+            logger.warning(f"Failed to load company logo: {e}")
+            return None
 
-        # Draw all lines
-        for line in all_lines:
-            if line:  # Non-empty line
-                c.drawCentredString(page_width / 2, y_position, line)
-            y_position -= 0.22 * inch
+    # ── Helper: wrap description text ──
+    def _wrap_lines(text, max_chars=80):
+        result = []
+        for para in text.split('\n'):
+            para = para.strip()
+            if not para:
+                result.append('')
+                continue
+            if len(para) <= max_chars:
+                result.append(para)
+                continue
+            words = para.split()
+            cur = []
+            for w in words:
+                cur.append(w)
+                if len(' '.join(cur)) > max_chars:
+                    if len(cur) > 1:
+                        cur.pop()
+                        result.append(' '.join(cur))
+                        cur = [w]
+                    else:
+                        result.append(w)
+                        cur = []
+            if cur:
+                result.append(' '.join(cur))
+        return result
 
-        y_position -= 0.3 * inch  # Extra spacing after description
-
-    # Job information section
-    y_position -= 0.6 * inch
-
-    # Section header with subtle background
-    c.setFillColor(COLOR_VERY_LIGHT_GRAY)
-    c.rect(margin - 0.1 * inch, y_position, page_width - 2 * margin + 0.2 * inch, 0.4 * inch, fill=1, stroke=0)
-
-    c.setFillColor(COLOR_BLACK)
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(margin + 0.1 * inch, y_position + 0.12 * inch, "JOB INFORMATION")
-    y_position -= 0.3 * inch
-
-    # Professional table layout for job info
-    # Format mitigation period
+    # ── Build job info rows using variant labels ──
     mitigation_start = job_data.get('mitigation_start_date')
     mitigation_end = job_data.get('mitigation_end_date')
-
     mitigation_period = ''
     if mitigation_start or mitigation_end:
         start_str = format_date(mitigation_start) if mitigation_start else 'N/A'
@@ -2242,79 +2327,348 @@ def generate_water_mitigation_report_pdf(
         mitigation_period = f"{start_str} - {end_str}"
 
     job_info = [
-        ("Property Address:", job_data.get('property_address', 'N/A')),
-        ("Client Name:", job_data.get('homeowner_name', 'N/A')),
-        ("Date of Loss:", format_date(job_data.get('date_of_loss'))),
+        (style.get("label_property", "Property Address:"),
+         job_data.get('property_address', 'N/A')),
+        (style.get("label_client", "Client Name:"),
+         job_data.get('homeowner_name', 'N/A')),
+        (style.get("label_dol", "Date of Loss:"),
+         format_date(job_data.get('date_of_loss'))),
     ]
-
-    # Add mitigation period only if at least one date exists
     if mitigation_period:
-        job_info.append(("Water Mitigation Period:", mitigation_period))
+        job_info.append((
+            style.get("label_mitigation", "Water Mitigation Period:"),
+            mitigation_period,
+        ))
+    job_info = [(l, v) for l, v in job_info if v and v != 'N/A']
 
-    # Filter out empty values (but keep mitigation_period if it exists)
-    job_info = [(label, value) for label, value in job_info if value and value != 'N/A']
+    title = config.get('cover_title', style.get(
+        "default_title", "Water Mitigation Report"
+    ))
+    description = config.get('cover_description', '')
+    info_heading = style.get("info_heading", "JOB INFORMATION")
+    prepared_label = style.get("prepared_label", "PREPARED BY")
+    company_name = (company_data or {}).get('name', '')
 
-    if job_info:
-        # Calculate table dimensions - left aligned
-        table_data = [[label, value] for label, value in job_info]
-        col_widths = [2.2 * inch, 4 * inch]
+    # ─────────────────────────────────────────────────────
+    # Variant A: centered layout (original)
+    # ─────────────────────────────────────────────────────
+    if template_variant == "a" or template_variant not in ("b", "c"):
+        # Logo (centered)
+        logo_height = 0
+        logo_result = _draw_logo(
+            0, 0, max_w=2.5 * inch  # dummy position, measure first
+        )
+        # Re-draw at correct position
+        if logo_result:
+            lw, lh = logo_result
+            logo_x = (page_width - lw) / 2
+            logo_y = page_height - margin - lh - 0.5 * inch
+            # Clear and redraw
+            c = pdf_canvas.Canvas(cover_buffer, pagesize=letter)
+            _draw_logo(logo_x, logo_y, max_w=2.5 * inch)
+            logo_height = lh + 1.2 * inch
 
-        # Create table with professional styling - all left aligned
-        table = Table(table_data, colWidths=col_widths)
-        table.setStyle(TableStyle([
-            # Header row styling
-            ('FONT', (0, 0), (0, -1), 'Helvetica-Bold', 10),
-            ('FONT', (1, 0), (1, -1), 'Helvetica', 10),
-            ('TEXTCOLOR', (0, 0), (0, -1), COLOR_DARK_GRAY),
-            ('TEXTCOLOR', (1, 0), (1, -1), COLOR_DARK_GRAY),
-            ('ALIGN', (0, 0), (0, -1), 'LEFT'),  # Changed from RIGHT to LEFT
-            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            # Borders - only between rows, not at bottom
-            ('LINEBELOW', (0, 0), (-1, -2), 0.5, COLOR_VERY_LIGHT_GRAY),
-            # Padding - reduced top padding for first row
-            ('TOPPADDING', (0, 0), (-1, 0), 4),  # Tighter spacing for first row after divider
-            ('TOPPADDING', (0, 1), (-1, -1), 8),  # Normal spacing for other rows
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('LEFTPADDING', (0, 0), (0, -1), 0),
-            ('RIGHTPADDING', (1, 0), (1, -1), 0),
-        ]))
+        y_position = page_height - margin - logo_height - 0.5 * inch
 
-        # Draw table - left aligned at margin
-        table_width, table_height = table.wrapOn(c, page_width, page_height)
-        table.drawOn(c, margin, y_position - table_height)
-        y_position -= table_height
+        # Title (centered)
+        c.setFillColor(COLOR_ACCENT)
+        c.setFont(FONT_TITLE, TITLE_SIZE)
+        c.drawCentredString(page_width / 2, y_position, title)
+        y_position -= 0.25 * inch
 
-        # Draw bottom line matching the gray header width
-        c.setStrokeColor(COLOR_LIGHT_GRAY)
-        c.setLineWidth(1)
-        c.line(margin - 0.1 * inch, y_position, page_width - margin + 0.1 * inch, y_position)
+        # Single line
+        c.setStrokeColor(COLOR_MEDIUM_GRAY)
+        c.setLineWidth(0.5)
+        lm = 2 * inch
+        c.line(lm, y_position, page_width - lm, y_position)
         y_position -= 0.6 * inch
 
-    # Company info section - clean and minimal
-    if company_data and company_data.get('name'):
-        y_position -= 0.8 * inch
+        # Description
+        if description:
+            c.setFillColor(COLOR_DARK_GRAY)
+            c.setFont(FONT_BODY, 11)
+            for line in _wrap_lines(description):
+                if line:
+                    c.drawCentredString(page_width / 2, y_position, line)
+                y_position -= 0.22 * inch
+            y_position -= 0.3 * inch
 
-        # "Prepared By" with refined typography
-        c.setFillColor(COLOR_MEDIUM_GRAY)
-        c.setFont("Helvetica", 10)
-        c.drawCentredString(page_width / 2, y_position, "PREPARED BY")
+        # Job info header
+        y_position -= 0.6 * inch
+        c.setFillColor(COLOR_VERY_LIGHT_GRAY)
+        c.rect(margin - 0.1 * inch, y_position,
+               page_width - 2 * margin + 0.2 * inch,
+               0.4 * inch, fill=1, stroke=0)
+        c.setFillColor(COLOR_ACCENT)
+        c.setFont(FONT_BODY_BOLD, 14)
+        c.drawString(margin + 0.1 * inch,
+                     y_position + 0.12 * inch, info_heading)
         y_position -= 0.3 * inch
 
-        c.setFillColor(COLOR_BLACK)
-        c.setFont("Helvetica-Bold", 13)
-        c.drawCentredString(page_width / 2, y_position, company_data['name'])
+        # Job info table (vertical)
+        if job_info:
+            table_data = [[l, v] for l, v in job_info]
+            table = Table(table_data,
+                          colWidths=[2.2 * inch, 4 * inch])
+            table.setStyle(TableStyle([
+                ('FONT', (0, 0), (0, -1), FONT_BODY_BOLD, 10),
+                ('FONT', (1, 0), (1, -1), FONT_BODY, 10),
+                ('TEXTCOLOR', (0, 0), (-1, -1), COLOR_DARK_GRAY),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LINEBELOW', (0, 0), (-1, -2), 0.5,
+                 COLOR_VERY_LIGHT_GRAY),
+                ('TOPPADDING', (0, 0), (-1, 0), 4),
+                ('TOPPADDING', (0, 1), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('LEFTPADDING', (0, 0), (0, -1), 0),
+                ('RIGHTPADDING', (1, 0), (1, -1), 0),
+            ]))
+            tw, th = table.wrapOn(c, page_width, page_height)
+            table.drawOn(c, margin, y_position - th)
+            y_position -= th
+            c.setStrokeColor(COLOR_LIGHT_GRAY)
+            c.setLineWidth(1)
+            c.line(margin - 0.1 * inch, y_position,
+                   page_width - margin + 0.1 * inch, y_position)
 
-    # Simple footer with single line
+        # Prepared By (centered)
+        if company_name:
+            y_position -= 1.4 * inch
+            c.setFillColor(COLOR_MEDIUM_GRAY)
+            c.setFont(FONT_BODY, 10)
+            c.drawCentredString(page_width / 2, y_position,
+                                prepared_label)
+            y_position -= 0.3 * inch
+            c.setFillColor(COLOR_ACCENT)
+            c.setFont(FONT_TITLE, 13)
+            c.drawCentredString(page_width / 2, y_position,
+                                company_name)
+
+    # ─────────────────────────────────────────────────────
+    # Variant B: formal / left-aligned / two-column info
+    # ─────────────────────────────────────────────────────
+    elif template_variant == "b":
+        y_position = page_height - margin - 0.5 * inch
+
+        # Logo (top-right)
+        if company_data and company_data.get('logo'):
+            _draw_logo(page_width - margin - 1.8 * inch,
+                       y_position - 0.6 * inch, max_w=1.8 * inch)
+
+        # Title (left-aligned, large)
+        c.setFillColor(COLOR_ACCENT)
+        c.setFont(FONT_TITLE, TITLE_SIZE)
+        c.drawString(margin, y_position, title)
+        y_position -= 0.3 * inch
+
+        # Double line
+        c.setStrokeColor(COLOR_MEDIUM_GRAY)
+        c.setLineWidth(0.5)
+        c.line(margin, y_position, page_width - margin, y_position)
+        c.line(margin, y_position - 3,
+               page_width - margin, y_position - 3)
+        y_position -= 0.7 * inch
+
+        # Description (left-aligned)
+        if description:
+            c.setFillColor(COLOR_DARK_GRAY)
+            c.setFont(FONT_BODY, 11)
+            for line in _wrap_lines(description):
+                if line:
+                    c.drawString(margin, y_position, line)
+                y_position -= 0.22 * inch
+            y_position -= 0.3 * inch
+
+        # Job info heading
+        y_position -= 0.3 * inch
+        c.setFillColor(COLOR_ACCENT)
+        c.setFont(FONT_BODY_BOLD, 13)
+        c.drawString(margin, y_position, info_heading)
+        y_position -= 0.08 * inch
+        c.setStrokeColor(COLOR_ACCENT)
+        c.setLineWidth(0.8)
+        c.line(margin, y_position,
+               margin + 2.5 * inch, y_position)
+        y_position -= 0.25 * inch
+
+        # Two-column job info table
+        if job_info:
+            # Split into two columns
+            mid = (len(job_info) + 1) // 2
+            col1 = job_info[:mid]
+            col2 = job_info[mid:]
+            max_rows = max(len(col1), len(col2))
+            table_data = []
+            for i in range(max_rows):
+                row = []
+                if i < len(col1):
+                    row += [col1[i][0], col1[i][1]]
+                else:
+                    row += ['', '']
+                if i < len(col2):
+                    row += [col2[i][0], col2[i][1]]
+                else:
+                    row += ['', '']
+                table_data.append(row)
+
+            table = Table(table_data, colWidths=[
+                1.8 * inch, 2 * inch, 1.8 * inch, 2 * inch
+            ])
+            table.setStyle(TableStyle([
+                ('FONT', (0, 0), (0, -1), FONT_BODY_BOLD, 9),
+                ('FONT', (1, 0), (1, -1), FONT_BODY, 10),
+                ('FONT', (2, 0), (2, -1), FONT_BODY_BOLD, 9),
+                ('FONT', (3, 0), (3, -1), FONT_BODY, 10),
+                ('TEXTCOLOR', (0, 0), (-1, -1), COLOR_DARK_GRAY),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('TOPPADDING', (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('LINEBELOW', (0, 0), (-1, -1), 0.3,
+                 COLOR_VERY_LIGHT_GRAY),
+            ]))
+            tw, th = table.wrapOn(c, page_width, page_height)
+            table.drawOn(c, margin, y_position - th)
+            y_position -= th + 0.2 * inch
+
+        # Prepared By (bottom-left block)
+        if company_name:
+            by = 1.5 * inch
+            c.setStrokeColor(COLOR_LIGHT_GRAY)
+            c.setLineWidth(0.5)
+            c.line(margin, by + 0.4 * inch,
+                   margin + 3 * inch, by + 0.4 * inch)
+            c.setFillColor(COLOR_MEDIUM_GRAY)
+            c.setFont(FONT_BODY, 9)
+            c.drawString(margin, by + 0.5 * inch, prepared_label)
+            c.setFillColor(COLOR_ACCENT)
+            c.setFont(FONT_BODY_BOLD, 12)
+            c.drawString(margin, by + 0.15 * inch, company_name)
+
+    # ─────────────────────────────────────────────────────
+    # Variant C: modern / blue accent / card info
+    # ─────────────────────────────────────────────────────
+    elif template_variant == "c":
+        # Full-width accent bar at top
+        c.setFillColor(COLOR_ACCENT)
+        c.rect(0, page_height - 0.35 * inch,
+               page_width, 0.35 * inch, fill=1, stroke=0)
+
+        y_position = page_height - 0.35 * inch - margin
+
+        # Logo + company name on same line (top-left)
+        logo_offset = 0
+        if company_data and company_data.get('logo'):
+            res = _draw_logo(margin, y_position - 0.5 * inch,
+                             max_w=1.2 * inch)
+            if res:
+                logo_offset = res[0] + 0.15 * inch
+
+        if company_name:
+            c.setFillColor(COLOR_DARK_GRAY)
+            c.setFont(FONT_BODY, 10)
+            c.drawString(margin + logo_offset,
+                         y_position - 0.2 * inch,
+                         f"{prepared_label}:")
+            c.setFont(FONT_BODY_BOLD, 12)
+            c.drawString(margin + logo_offset,
+                         y_position - 0.4 * inch, company_name)
+
+        y_position -= 0.9 * inch
+
+        # Title (left-aligned, large)
+        c.setFillColor(COLOR_ACCENT)
+        c.setFont(FONT_TITLE, TITLE_SIZE)
+        c.drawString(margin, y_position, title)
+        y_position -= 0.15 * inch
+
+        # Thick accent line
+        c.setStrokeColor(COLOR_ACCENT)
+        c.setLineWidth(3)
+        c.line(margin, y_position,
+               page_width - margin, y_position)
+        y_position -= 0.6 * inch
+
+        # Description (left-aligned)
+        if description:
+            c.setFillColor(COLOR_DARK_GRAY)
+            c.setFont(FONT_BODY, 11)
+            for line in _wrap_lines(description):
+                if line:
+                    c.drawString(margin, y_position, line)
+                y_position -= 0.22 * inch
+            y_position -= 0.2 * inch
+
+        # Job info as "cards" with left accent bar
+        y_position -= 0.3 * inch
+        c.setFillColor(COLOR_ACCENT)
+        c.setFont(FONT_BODY_BOLD, 13)
+        c.drawString(margin + 0.15 * inch, y_position, info_heading)
+        y_position -= 0.3 * inch
+
+        if job_info:
+            card_h = 0.45 * inch
+            for label, value in job_info:
+                # Card background
+                c.setFillColor(COLOR_VERY_LIGHT_GRAY)
+                c.rect(margin, y_position - 0.05 * inch,
+                       page_width - 2 * margin, card_h,
+                       fill=1, stroke=0)
+                # Left accent bar
+                c.setFillColor(COLOR_ACCENT)
+                c.rect(margin, y_position - 0.05 * inch,
+                       4, card_h, fill=1, stroke=0)
+                # Label
+                c.setFillColor(COLOR_MEDIUM_GRAY)
+                c.setFont(FONT_BODY, 8)
+                c.drawString(margin + 0.15 * inch,
+                             y_position + 0.22 * inch, label)
+                # Value
+                c.setFillColor(COLOR_DARK_GRAY)
+                c.setFont(FONT_BODY_BOLD, 11)
+                c.drawString(margin + 0.15 * inch,
+                             y_position + 0.04 * inch, value)
+                y_position -= card_h + 0.08 * inch
+
+    # Cover page footer
+    _fdate_label = style.get(
+        "footer_date_label", "Report Generated"
+    )
     footer_y = 0.8 * inch
-    c.setStrokeColor(COLOR_LIGHT_GRAY)
-    c.setLineWidth(0.5)
-    c.line(margin, footer_y, page_width - margin, footer_y)
+    ft_mode = style.get("footer_style", "center")
 
-    # Footer text
-    c.setFillColor(COLOR_MEDIUM_GRAY)
-    c.setFont("Helvetica", 9)
-    c.drawCentredString(page_width / 2, 0.4 * inch, f"Report Generated: {report_date_formatted}")
+    if ft_mode == "full_bar":
+        c.setFillColor(COLOR_ACCENT)
+        c.rect(0, footer_y - 0.1 * inch,
+               page_width, 0.35 * inch,
+               fill=1, stroke=0)
+        c.setFillColor(colors.white)
+        c.setFont(FONT_BODY, 9)
+        c.drawCentredString(
+            page_width / 2, footer_y - 0.02 * inch,
+            f"{_fdate_label}: {report_date_formatted}")
+    elif ft_mode == "split":
+        c.setStrokeColor(COLOR_ACCENT)
+        c.setLineWidth(1)
+        c.line(margin, footer_y,
+               page_width - margin, footer_y)
+        c.setFillColor(COLOR_DARK_GRAY)
+        c.setFont(FONT_BODY, 9)
+        c.drawString(
+            margin, 0.4 * inch,
+            f"{_fdate_label}: {report_date_formatted}")
+    else:
+        c.setStrokeColor(COLOR_LIGHT_GRAY)
+        c.setLineWidth(0.5)
+        c.line(margin, footer_y,
+               page_width - margin, footer_y)
+        c.setFillColor(COLOR_MEDIUM_GRAY)
+        c.setFont(FONT_BODY, 9)
+        c.drawCentredString(
+            page_width / 2, 0.4 * inch,
+            f"{_fdate_label}: {report_date_formatted}")
 
     c.save()
     cover_buffer.seek(0)
@@ -2424,57 +2778,80 @@ def generate_water_mitigation_report_pdf(
 
             # Only show section header with description on first page of each section
             if page_num == 1:
-                # Section title - larger, prominent
-                c.setFillColor(COLOR_BLACK)
-                c.setFont("Helvetica-Bold", 16)
-                c.drawString(margin, page_height - margin - 0.25 * inch, section_title)
+                sh_mode = style.get(
+                    "section_header_mode", "underline"
+                )
+                title_y = page_height - margin - 0.25 * inch
 
-                # Section description (if exists)
+                if sh_mode == "filled_box":
+                    # ── Filled box behind title ──
+                    bg = style.get("section_header_bg")
+                    if bg:
+                        c.setFillColor(colors.HexColor(bg))
+                    else:
+                        c.setFillColor(COLOR_VERY_LIGHT_GRAY)
+                    c.rect(
+                        margin - 0.1 * inch,
+                        page_height - margin - 0.4 * inch,
+                        page_width - 2 * margin + 0.2 * inch,
+                        0.4 * inch, fill=1, stroke=0,
+                    )
+                    c.setFillColor(COLOR_ACCENT)
+                    c.setFont(FONT_TITLE, SECTION_TITLE_SIZE)
+                    c.drawString(
+                        margin + 0.1 * inch, title_y,
+                        section_title,
+                    )
+                elif sh_mode == "left_bar":
+                    # ── Left accent bar + title ──
+                    c.setFillColor(COLOR_ACCENT)
+                    c.rect(
+                        margin - 0.05 * inch,
+                        title_y - 0.05 * inch,
+                        4, 0.25 * inch,
+                        fill=1, stroke=0,
+                    )
+                    c.setFont(FONT_TITLE, SECTION_TITLE_SIZE)
+                    c.drawString(
+                        margin + 0.15 * inch, title_y,
+                        section_title,
+                    )
+                else:
+                    # ── Default: underline ──
+                    c.setFillColor(COLOR_ACCENT)
+                    c.setFont(FONT_TITLE, SECTION_TITLE_SIZE)
+                    c.drawString(margin, title_y, section_title)
+
+                # Section description
                 if section_summary:
                     c.setFillColor(COLOR_DARK_GRAY)
-                    c.setFont("Helvetica", 10)
-
-                    # Wrap summary text
-                    summary_lines = []
-                    words = section_summary.split()
-                    current_line = []
-                    max_chars = 100
-                    for word in words:
-                        current_line.append(word)
-                        if len(' '.join(current_line)) > max_chars:
-                            if len(current_line) > 1:
-                                current_line.pop()
-                                summary_lines.append(' '.join(current_line))
-                                current_line = [word]
-                            else:
-                                summary_lines.append(word)
-                                current_line = []
-                    if current_line:
-                        summary_lines.append(' '.join(current_line))
-
+                    c.setFont(FONT_BODY, 10)
+                    summary_lines = _wrap_lines(
+                        section_summary, max_chars=100
+                    )
                     y_pos = page_height - margin - 0.5 * inch
-                    for line in summary_lines[:3]:  # Max 3 lines
-                        c.drawString(margin, y_pos, line)
+                    for line in summary_lines[:3]:
+                        if line:
+                            c.drawString(margin, y_pos, line)
                         y_pos -= 0.15 * inch
 
-                    # Add separator line
                     separator_y = y_pos - 0.1 * inch
                     c.setStrokeColor(COLOR_LIGHT_GRAY)
                     c.setLineWidth(0.5)
-                    c.line(margin, separator_y, page_width - margin, separator_y)
-
-                    # Calculate header height correctly: from top of page to separator line
+                    c.line(margin, separator_y,
+                           page_width - margin, separator_y)
                     header_height = page_height - separator_y
                 else:
-                    # Just separator line after title
+                    sep_y = page_height - margin - 0.35 * inch
                     c.setStrokeColor(COLOR_LIGHT_GRAY)
                     c.setLineWidth(0.5)
-                    c.line(margin, page_height - margin - 0.35 * inch, page_width - margin, page_height - margin - 0.35 * inch)
+                    c.line(margin, sep_y,
+                           page_width - margin, sep_y)
                     header_height = 0.5 * inch
             else:
                 # Continuation pages: section name with divider
                 c.setFillColor(COLOR_DARK_GRAY)
-                c.setFont("Helvetica", 11)  # Larger font for better visibility
+                c.setFont(FONT_BODY_BOLD, 11)
                 c.drawString(margin, page_height - margin - 0.25 * inch, section_title)
 
                 # Add divider line below section name
@@ -2563,14 +2940,15 @@ def generate_water_mitigation_report_pdf(
                         mask='auto'
                     )
 
-                    # Draw date overlay at bottom-right of image (if enabled)
+                    # Draw date overlay at bottom-right of image
                     if photo_item.get('show_date') and photo_item.get('captured_date'):
                         date_str = format_date(photo_item['captured_date'])
-                        date_text = f"Captured: {date_str}"
+                        _dp = style.get("photo_date_prefix", "Captured")
+                        date_text = f"{_dp}: {date_str}"
 
                         # Date overlay styling
-                        c.setFont("Helvetica", 7)
-                        date_text_width = c.stringWidth(date_text, "Helvetica", 7)
+                        c.setFont(FONT_BODY, 7)
+                        date_text_width = c.stringWidth(date_text, FONT_BODY, 7)
 
                         # Position at bottom-right corner of actual image
                         date_padding = 4  # padding in points
@@ -2591,8 +2969,8 @@ def generate_water_mitigation_report_pdf(
                     # Caption below image (centered under the image)
                     caption_text = photo_item.get('caption', '') or photo_item.get('description', '')
                     if caption_text:
-                        c.setFillColor(COLOR_BLACK)
-                        c.setFont("Helvetica", 8)
+                        c.setFillColor(colors.HexColor(style["color_black"]))
+                        c.setFont(FONT_BODY, 8)
 
                         # Calculate caption area
                         caption_y = y + caption_reserve - 0.12 * inch
@@ -2620,7 +2998,7 @@ def generate_water_mitigation_report_pdf(
 
                         # Draw caption lines (max 2 lines), centered under image
                         for line in lines[:2]:
-                            line_width = c.stringWidth(line, "Helvetica", 8)
+                            line_width = c.stringWidth(line, FONT_BODY, 8)
                             line_x = img_x + (scaled_width - line_width) / 2
                             c.drawString(line_x, caption_y, line)
                             caption_y -= line_height
@@ -2632,32 +3010,65 @@ def generate_water_mitigation_report_pdf(
                     c.setFillColor(COLOR_VERY_LIGHT_GRAY)
                     c.rect(x, y + 0.3 * inch, photo_width, photo_height - 0.3 * inch, fill=1)
                     c.setFillColor(COLOR_MEDIUM_GRAY)
-                    c.setFont("Helvetica", 10)
+                    c.setFont(FONT_BODY, 10)
                     c.drawCentredString(x + photo_width / 2, y + photo_height / 2, "Image not available")
-                    c.setFillColor(COLOR_BLACK)
+                    c.setFillColor(colors.HexColor(style["color_black"]))
 
-            # Professional page footer - compact
+            # Page footer — variant layout
             total_pages += 1
+            ft_mode = style.get("footer_style", "center")
+            footer_y = 0.65 * inch
+            footer_text_y = 0.4 * inch
+            prop_addr = job_data.get('property_address', '')
 
-            # Footer separator line (thin)
-            footer_y = 0.65 * inch  # Reduced spacing
-            c.setStrokeColor(COLOR_LIGHT_GRAY)
-            c.setLineWidth(0.5)
-            c.line(margin, footer_y, page_width - margin, footer_y)
-
-            # Footer text - closer to divider
-            footer_text_y = 0.4 * inch  # Reduced gap from divider
-            c.setFillColor(COLOR_MEDIUM_GRAY)
-            c.setFont("Helvetica", 8)
-            c.drawString(margin, footer_text_y, f"Page {total_pages}")
-
-            # Center text - section title (increased font size to match other footer text)
-            c.setFont("Helvetica", 8)  # Changed from 7 to 8
-            c.drawCentredString(page_width / 2, footer_text_y, section_title)
-
-            # Right text - property address
-            c.setFont("Helvetica", 8)
-            c.drawRightString(page_width - margin, footer_text_y, job_data.get('property_address', ''))
+            if ft_mode == "full_bar":
+                # ── Full accent bar + 3 columns ──
+                c.setFillColor(COLOR_ACCENT)
+                c.rect(0, footer_y - 0.05 * inch,
+                       page_width, 0.35 * inch,
+                       fill=1, stroke=0)
+                c.setFillColor(colors.white)
+                c.setFont(FONT_BODY, 8)
+                c.drawString(margin, footer_text_y,
+                             f"Page {total_pages}")
+                c.drawCentredString(
+                    page_width / 2, footer_text_y,
+                    section_title)
+                c.drawRightString(
+                    page_width - margin, footer_text_y,
+                    prop_addr)
+            elif ft_mode == "split":
+                # ── Split: page left, address right, no center ──
+                c.setStrokeColor(COLOR_ACCENT)
+                c.setLineWidth(1)
+                c.line(margin, footer_y,
+                       page_width - margin, footer_y)
+                c.setFillColor(COLOR_DARK_GRAY)
+                c.setFont(FONT_BODY, 8)
+                c.drawString(
+                    margin, footer_text_y,
+                    f"Page {total_pages} — {section_title}")
+                c.setFont(FONT_BODY, 8)
+                c.drawRightString(
+                    page_width - margin, footer_text_y,
+                    prop_addr)
+            else:
+                # ── Default center ──
+                c.setStrokeColor(COLOR_LIGHT_GRAY)
+                c.setLineWidth(0.5)
+                c.line(margin, footer_y,
+                       page_width - margin, footer_y)
+                c.setFillColor(COLOR_MEDIUM_GRAY)
+                c.setFont(FONT_BODY, 8)
+                c.drawString(
+                    margin, footer_text_y,
+                    f"Page {total_pages}")
+                c.drawCentredString(
+                    page_width / 2, footer_text_y,
+                    section_title)
+                c.drawRightString(
+                    page_width - margin, footer_text_y,
+                    prop_addr)
 
             c.save()
             page_buffer.seek(0)

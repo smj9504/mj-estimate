@@ -2885,7 +2885,8 @@ async def generate_photo_report(
             output_path=str(output_path),
             company_data=company_data,
             report_date=request.report_date,
-            compress=request.compress
+            compress=request.compress,
+            template_variant=request.template_variant,
         )
 
         logger.info(f"Report generated: {output_path}")
@@ -4486,4 +4487,51 @@ async def send_to_adjuster(job_id: UUID, data: SendToAdjusterRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to send: {str(e)}",
+        )
+
+
+# ============================================================
+# Follow-Up Email Endpoints
+# ============================================================
+
+@router.post("/jobs/{job_id}/generate-followup-email")
+async def generate_followup_email(
+    job_id: UUID,
+    custom_notes: str = Query("", description="Additional notes to include"),
+):
+    """Generate follow-up email template for adjuster who hasn't responded."""
+    service = get_adjuster_email_service()
+    result = service.generate_followup_email(str(job_id), custom_notes)
+    if not result.get("subject"):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return result
+
+
+class FollowUpEmailRequest(BaseModel):
+    to_addresses: List[str]
+    cc_addresses: Optional[List[str]] = []
+    bcc_addresses: Optional[List[str]] = []
+    subject: str
+    body_html: str
+    email_account_id: Optional[str] = None
+    from_address: Optional[str] = None
+    selected_documents: Optional[List[str]] = []
+
+
+@router.post("/jobs/{job_id}/send-followup")
+async def send_followup_email(job_id: UUID, data: FollowUpEmailRequest):
+    """Send follow-up email to adjuster. Does NOT update documents_sent_date.
+    Optionally re-attach selected documents.
+    """
+    service = get_adjuster_email_service()
+    try:
+        result = service.send_followup(str(job_id), data.dict())
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error sending follow-up: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send follow-up: {str(e)}",
         )

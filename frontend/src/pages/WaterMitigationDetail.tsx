@@ -33,6 +33,7 @@ import {
   SwapOutlined,
   InfoCircleOutlined,
   SendOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { useQueryClient } from '@tanstack/react-query';
 import waterMitigationService from '../services/waterMitigationService';
@@ -50,6 +51,7 @@ import WaterMitigationScopeTab from '../components/water-mitigation/WaterMitigat
 import EditableSection from '../components/water-mitigation/EditableSection';
 import WMSketchTab from '../components/water-mitigation/sketch/WMSketchTab';
 import SendToAdjusterModal from '../components/water-mitigation/SendToAdjusterModal';
+import FollowUpAdjusterModal from '../components/water-mitigation/FollowUpAdjusterModal';
 import WMFinancialComparisonCard from '../components/water-mitigation/WMFinancialComparison';
 import WMContractTab from '../components/water-mitigation/WMContractTab';
 
@@ -63,6 +65,7 @@ const WaterMitigationDetail: React.FC = () => {
   const isMobile = !screens.md;
   const [activeTab, setActiveTab] = useState('details');
   const [sendToAdjusterOpen, setSendToAdjusterOpen] = useState(false);
+  const [followUpOpen, setFollowUpOpen] = useState(false);
 
   // Background refresh job data when switching back to details tab
   const handleTabChange = useCallback((key: string) => {
@@ -441,6 +444,15 @@ const WaterMitigationDetail: React.FC = () => {
                 >
                   Send
                 </Button>
+                {job.documents_sent_date && (
+                  <Button
+                    icon={<ReloadOutlined />}
+                    onClick={() => setFollowUpOpen(true)}
+                    size="small"
+                  >
+                    Follow Up
+                  </Button>
+                )}
                 <Button
                   type="primary"
                   icon={<EditOutlined />}
@@ -480,6 +492,14 @@ const WaterMitigationDetail: React.FC = () => {
                 >
                   Send to Adjuster
                 </Button>
+                {job.documents_sent_date && (
+                  <Button
+                    icon={<ReloadOutlined />}
+                    onClick={() => setFollowUpOpen(true)}
+                  >
+                    Follow Up
+                  </Button>
+                )}
                 <Button
                   type="primary"
                   icon={<EditOutlined />}
@@ -1077,6 +1097,18 @@ const WaterMitigationDetail: React.FC = () => {
               status: result.status as any,
               documents_sent_date: result.documents_sent_date,
             } : prev);
+          }}
+        />
+      )}
+
+      {/* Follow-Up Email Modal */}
+      {id && (
+        <FollowUpAdjusterModal
+          open={followUpOpen}
+          onClose={() => setFollowUpOpen(false)}
+          jobId={id}
+          onSent={() => {
+            message.info('Follow-up email sent successfully');
           }}
         />
       )}

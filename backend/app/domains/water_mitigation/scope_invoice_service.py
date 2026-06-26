@@ -219,7 +219,7 @@ class ScopeInvoiceService:
                 "type": "add",
                 "percentage": 30,  # 30% surcharge
                 "order": 1,
-                "note": "Holiday Special Labor rates (130% of standard rate)",
+                "note": "Holiday Special Labor rates (30% holiday premium applied)",
             })
 
         # Parse the property address into components
@@ -787,7 +787,7 @@ class ScopeInvoiceService:
         if holiday_premium:
             header_note += (
                 "<p><strong>Holiday Special Labor rates were applied; "
-                "130% of the standard service rate</strong></p>"
+                "30% holiday premium surcharge</strong></p>"
             )
 
         return header_note

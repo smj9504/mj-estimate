@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Water Mitigation Sketch Report</title>
+  <style>
+    @page {
+      size: letter;
+      margin: 1.5cm 2cm 2cm 2cm;
+      @bottom-left {
+        content: "Confidential — For Insurance Purposes Only";
+        font-size: 7px;
+        color: #aaa;
+        font-family: 'Trebuchet MS', 'Calibri', sans-serif;
+      }
+      @bottom-right {
+        content: "Page " counter(page);
+        font-size: 8px;
+        color: #aaa;
+        font-family: 'Trebuchet MS', 'Calibri', sans-serif;
+      }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Trebuchet MS', 'Calibri', 'Segoe UI', sans-serif;
+      font-size: 10px;
+      color: #333;
+      line-height: 1.5;
+      background: #fff;
+    }
+
+    /* ── Header ──────────────────────────────────────── */
+    .report-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding-bottom: 10px;
+      margin-bottom: 18px;
+      border-bottom: 2px solid #444;
+    }
+    .header-left {}
+    .company-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: #2c2c2c;
+    }
+    .company-detail {
+      font-size: 9px;
+      color: #777;
+      line-height: 1.5;
+    }
+    .header-right {
+      text-align: right;
+    }
+    .report-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #2c2c2c;
+      margin-bottom: 2px;
+    }
+    .report-subtitle {
+      font-size: 9px;
+      color: #999;
+    }
+    .report-date {
+      font-size: 9px;
+      color: #777;
+      margin-top: 4px;
+    }
+
+    /* ── Info Cards ────────────────────────────────────── */
+    .section {
+      margin-bottom: 18px;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: #2c2c2c;
+      margin-bottom: 8px;
+      padding-left: 8px;
+      border-left: 3px solid #555;
+    }
+
+    .info-cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .info-card {
+      background: #f7f7f7;
+      border-radius: 3px;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+    }
+    .info-card .card-label {
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #666;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .info-card .card-value {
+      font-size: 10px;
+      color: #333;
+    }
+    .info-card .card-value.empty {
+      color: #bbb;
+      font-style: italic;
+    }
+    .info-card.full-width {
+      grid-column: 1 / -1;
+    }
+
+    /* ── Floor Sections ───────────────────────────────── */
+    .floor-section {
+      page-break-before: always;
+    }
+    .floor-section:first-of-type {
+      page-break-before: auto;
+    }
+
+    .floor-header {
+      background: #3a3a3a;
+      color: #fff;
+      padding: 8px 14px;
+      margin-bottom: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .floor-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .floor-address {
+      font-size: 9px;
+      color: rgba(255,255,255,0.7);
+    }
+
+    /* ── Sketch Canvas ────────────────────────────────── */
+    .sketch-canvas-wrapper {
+      width: 100%;
+      border: 1px solid #ddd;
+      border-top: none;
+      overflow: hidden;
+      margin-bottom: 14px;
+      background: #fcfcfc;
+    }
+    .sketch-canvas-wrapper svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .sketch-empty {
+      padding: 40px;
+      text-align: center;
+      color: #bbb;
+      font-size: 10px;
+      font-style: italic;
+    }
+    .no-data {
+      color: #bbb;
+      font-size: 10px;
+      font-style: italic;
+      padding: 8px 0;
+    }
+
+    /* ── Legend ────────────────────────────────────────── */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 6px 10px;
+      margin-bottom: 10px;
+      background: #f5f5f5;
+      border: 1px solid #e0e0e0;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 9px;
+      color: #555;
+    }
+    .legend-swatch {
+      width: 14px;
+      height: 8px;
+      border-radius: 1px;
+    }
+    .legend-swatch.containment {
+      border: 2px dashed #0066FF;
+      background: rgba(0,102,255,0.05);
+    }
+    .legend-swatch.protection {
+      background: rgba(255,215,0,0.5);
+      border: 1px solid #FFD700;
+    }
+
+    /* ── Summary: 3-column dashboard layout ─────────── */
+    .summary-dashboard {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .dash-section-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: #333;
+      margin-bottom: 6px;
+      padding: 4px 8px;
+      background: #eee;
+      border-left: 3px solid #555;
+      display: inline-block;
+    }
+    .text-right { text-align: right; }
+
+    /* ── Demo cards ────────────────────────────────────── */
+    .demo-cards {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .demo-card {
+      flex: 1 1 140px;
+      max-width: 200px;
+      background: #f9f9f9;
+      border: 1px solid #ddd;
+      border-radius: 2px;
+      padding: 8px 10px;
+      border-left: 3px solid #888;
+    }
+    .demo-card .dc-material {
+      font-size: 10px;
+      font-weight: 700;
+      color: #333;
+      margin-bottom: 2px;
+    }
+    .demo-card .dc-surface {
+      font-size: 8px;
+      color: #777;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .demo-card .dc-value {
+      font-size: 14px;
+      font-weight: 700;
+      color: #2c2c2c;
+      margin-top: 4px;
+    }
+    .demo-card .dc-unit {
+      font-size: 9px;
+      color: #777;
+    }
+    .demo-card .dc-zones {
+      font-size: 8px;
+      color: #999;
+      margin-top: 2px;
+    }
+    .demo-totals {
+      display: flex;
+      gap: 12px;
+      margin-top: 6px;
+      padding: 6px 0;
+      border-top: 1px solid #999;
+    }
+    .demo-total-item {
+      font-size: 10px;
+      color: #333;
+      font-weight: 700;
+    }
+    .demo-total-item span { color: #555; font-weight: 400; }
+    .demo-addons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .demo-addon {
+      font-size: 9px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      display: inline-block;
+    }
+
+    /* ── Compact grid summary ─────────────────────────── */
+    .compact-grid {
+      display: grid;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .compact-grid.cols-4 {
+      grid-template-columns: repeat(4, 1fr);
+    }
+    .compact-grid.cols-2 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .compact-cell {
+      background: #f7f7f7;
+      border: 1px solid #e0e0e0;
+      padding: 5px 8px;
+      font-size: 10px;
+    }
+    .compact-cell .cc-label {
+      color: #777;
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .compact-cell .cc-value {
+      font-weight: 700;
+      color: #333;
+      font-size: 12px;
+    }
+    .compact-cell.total-cell {
+      background: #3a3a3a;
+      border-color: #222;
+    }
+    .compact-cell.total-cell .cc-label {
+      color: #aaa;
+    }
+    .compact-cell.total-cell .cc-value {
+      color: #fff;
+    }
+
+    /* ── Notes ─────────────────────────────────────────── */
+    .notes-box {
+      border-left: 3px solid #888;
+      padding: 8px 12px;
+      font-size: 9px;
+      color: #555;
+      background: #f7f7f7;
+      margin-top: 10px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Report Header ──────────────────────────────── -->
+  <div class="report-header">
+    <div class="header-left">
+      {% if job.company %}
+      <div class="company-name">{{ job.company.name }}</div>
+      {% if job.company.address or job.company.city %}
+      <div class="company-detail">{{ [job.company.address, job.company.city, job.company.state, job.company.zipcode]|select|join(', ') }}</div>
+      {% endif %}
+      {% if job.company.phone or job.company.email %}
+      <div class="company-detail">{{ [job.company.phone, job.company.email]|select|join(' · ') }}</div>
+      {% endif %}
+      {% endif %}
+    </div>
+    <div class="header-right">
+      <div class="report-title">Sketch Report</div>
+      <div class="report-subtitle">Water Mitigation — Floor Plan &amp; Materials</div>
+      <div class="report-date">
+        {{ report_date | fmt_date }}
+        {% if job.claim_number %} · Claim #{{ job.claim_number }}{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Jobsite Information ──────────────────────────── -->
+  <div class="section">
+    <div class="section-title">Jobsite Information</div>
+    <div class="info-cards">
+      <div class="info-card">
+        <div class="card-label">Property Address</div>
+        <div class="card-value {% if not job.property_address %}empty{% endif %}">{{ job.property_address or 'N/A' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="card-label">Insurance Company</div>
+        <div class="card-value {% if not job.insurance_company %}empty{% endif %}">{{ job.insurance_company or '—' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="card-label">Homeowner</div>
+        <div class="card-value {% if not job.homeowner_name %}empty{% endif %}">{{ job.homeowner_name or '—' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="card-label">Policy #</div>
+        <div class="card-value {% if not job.insurance_policy_number %}empty{% endif %}">{{ job.insurance_policy_number or '—' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="card-label">Contact</div>
+        <div class="card-value {% if not job.homeowner_phone %}empty{% endif %}">
+          {{ job.homeowner_phone or '—' }}{% if job.homeowner_email %} · {{ job.homeowner_email }}{% endif %}
+        </div>
+      </div>
+      <div class="info-card">
+        <div class="card-label">Claim #</div>
+        <div class="card-value {% if not job.claim_number %}empty{% endif %}">{{ job.claim_number or '—' }}</div>
+      </div>
+      <div class="info-card">
+        <div class="card-label">Date of Loss</div>
+        <div class="card-value {% if not job.date_of_loss %}empty{% endif %}">{{ job.date_of_loss | fmt_date }}</div>
+      </div>
+      {% if job.mitigation_start_date or job.mitigation_end_date %}
+      <div class="info-card">
+        <div class="card-label">Mitigation Period</div>
+        <div class="card-value">
+          {{ job.mitigation_start_date | fmt_date('%B %d, %Y') }}
+          &rarr;
+          {% if job.mitigation_end_date %}{{ job.mitigation_end_date | fmt_date('%B %d, %Y') }}{% else %}Ongoing{% endif %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Floor Sketches ───────────────────────────────── -->
+  {% for item in floor_data %}
+  <div class="floor-section {% if not loop.first %}page-break{% endif %}">
+
+    <div class="floor-header">
+      <div class="floor-title">{{ item.floor_label }}</div>
+      <div class="floor-address">{{ job.property_address }}</div>
+    </div>
+
+    <!-- Sketch Canvas -->
+    <div class="sketch-canvas-wrapper">
+      {% if item.svg %}
+        {{ item.svg | safe }}
+      {% else %}
+        <div class="sketch-empty">No sketch data available for this floor.</div>
+      {% endif %}
+    </div>
+
+    <!-- Legend -->
+    <div class="legend">
+      {% for mat in item.summary.demo_by_material %}
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:{{ mat.color }}40; border:1.5px solid {{ mat.color }};"></div>
+        <span>{{ mat.material_name|default(mat.material) }}</span>
+      </div>
+      {% endfor %}
+      {% if item.summary.containment_sqft > 0 %}
+      <div class="legend-item">
+        <div class="legend-swatch containment"></div>
+        <span>Containment</span>
+      </div>
+      {% endif %}
+      {% if item.summary.protection_sqft > 0 %}
+      <div class="legend-item">
+        <div class="legend-swatch protection"></div>
+        <span>Floor Protection</span>
+      </div>
+      {% endif %}
+      {% if item.summary.content_protection_sqft > 0 %}
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#8B5CF6;opacity:0.5;"></div>
+        <span>Content Protection</span>
+      </div>
+      {% endif %}
+      {% if item.summary.content_manipulation_hours > 0 %}
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#F97316;opacity:0.4;border:1.5px dashed #F97316;box-sizing:border-box;"></div>
+        <span>Content Manipulation</span>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- ═══ Dashboard-style Summary ═══ -->
+    <div class="summary-dashboard">
+
+      <!-- ── Demolition: card grid ── -->
+      <div>
+        <div class="dash-section-title">Demolition Summary</div>
+        {% if item.summary.demo_by_material %}
+        <div class="demo-cards">
+          {% for mat in item.summary.demo_by_material %}
+          <div class="demo-card" style="border-left-color:{{ mat.color }};">
+            <div class="dc-material">{{ mat.material_name|default(mat.material) }}</div>
+            <div class="dc-surface">{{ mat.surface | capitalize }}</div>
+            <div class="dc-value">{% if mat.unit == 'EA' %}{{ "%.0f"|format(mat.total_sqft) }}{% else %}{{ "%.1f"|format(mat.total_sqft) }}{% endif %} <span class="dc-unit">{{ mat.unit|default('SF') }}</span></div>
+            <div class="dc-zones">{{ mat.count }} zone{{ 's' if mat.count > 1 else '' }}</div>
+          </div>
+          {% endfor %}
+        </div>
+
+        {% if item.summary.carpet_pad_sqft > 0 or item.summary.insulation_sqft > 0 or item.summary.glue_down_carpet_sqft|default(0) > 0 or item.summary.glue_down_floor_sqft|default(0) > 0 %}
+        <div class="demo-addons">
+          {% if item.summary.carpet_pad_sqft > 0 %}
+          <span class="demo-addon" style="background:#e8f5e9;color:#2e7d32;">Carpet Pad {{ "%.1f"|format(item.summary.carpet_pad_sqft) }} SF</span>
+          {% endif %}
+          {% if item.summary.insulation_sqft > 0 %}
+          <span class="demo-addon" style="background:#fce4ec;color:#c62828;">Insulation {{ "%.1f"|format(item.summary.insulation_sqft) }} SF</span>
+          {% endif %}
+          {% if item.summary.glue_down_carpet_sqft|default(0) > 0 %}
+          <span class="demo-addon" style="background:#fff3e0;color:#E65100;">Glue Down Carpet {{ "%.1f"|format(item.summary.glue_down_carpet_sqft) }} SF</span>
+          {% endif %}
+          {% if item.summary.glue_down_floor_sqft|default(0) > 0 %}
+          <span class="demo-addon" style="background:#fff3e0;color:#E65100;">Glue Down Floor {{ "%.1f"|format(item.summary.glue_down_floor_sqft) }} SF</span>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="demo-totals">
+          {% if item.summary.total_demo_sf|default(0) > 0 %}
+          <div class="demo-total-item"><span>Area: </span>{{ "%.1f"|format(item.summary.total_demo_sf) }} SF</div>
+          {% endif %}
+          {% if item.summary.total_demo_lf|default(0) > 0 %}
+          <div class="demo-total-item"><span>Linear: </span>{{ "%.1f"|format(item.summary.total_demo_lf) }} LF</div>
+          {% endif %}
+          {% if item.summary.total_demo_ea|default(0) > 0 %}
+          <div class="demo-total-item"><span>Units: </span>{{ "%.0f"|format(item.summary.total_demo_ea) }} EA</div>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="no-data">No demolition zones recorded.</div>
+        {% endif %}
+      </div>
+
+      <!-- ── Equipment: compact grid ── -->
+      <div>
+        <div class="dash-section-title">Equipment Placement</div>
+        {% if item.summary.equip_counts %}
+        <div class="compact-grid">
+          {% for equip_name, equip_count in item.summary.equip_counts.items() %}
+          <div class="compact-cell">
+            <div class="cc-label">{{ equip_name }}</div>
+            <div class="cc-value">{{ equip_count }}</div>
+          </div>
+          {% endfor %}
+          <div class="compact-cell total-cell">
+            <div class="cc-label">Total</div>
+            <div class="cc-value">{{ item.summary.equip_counts.values() | sum }}</div>
+          </div>
+        </div>
+        {% else %}
+        <div class="no-data">No equipment placed.</div>
+        {% endif %}
+      </div>
+
+      <!-- ── Additional Areas: progress bars ── -->
+      {% if item.summary.containment_sqft > 0 or item.summary.protection_sqft > 0 or item.summary.content_protection_sqft > 0 or item.summary.content_manipulation_hours > 0 %}
+      <div>
+        <div class="dash-section-title">Additional Areas</div>
+        <div class="compact-grid">
+          {% if item.summary.containment_sqft > 0 %}
+          <div class="compact-cell">
+            <div class="cc-label">Containment</div>
+            <div class="cc-value">{{ "%.1f"|format(item.summary.containment_sqft) }} SF</div>
+          </div>
+          {% endif %}
+          {% if item.summary.protection_sqft > 0 %}
+          <div class="compact-cell">
+            <div class="cc-label">Floor Protection</div>
+            <div class="cc-value">{{ "%.1f"|format(item.summary.protection_sqft) }} SF</div>
+          </div>
+          {% endif %}
+          {% if item.summary.content_protection_sqft > 0 %}
+          <div class="compact-cell">
+            <div class="cc-label">Content Protection</div>
+            <div class="cc-value">{{ "%.1f"|format(item.summary.content_protection_sqft) }} SF</div>
+          </div>
+          {% endif %}
+          {% if item.summary.content_manipulation_hours > 0 %}
+          <div class="compact-cell">
+            <div class="cc-label">Content Manipulation</div>
+            <div class="cc-value">{{ "%.1f"|format(item.summary.content_manipulation_hours) }} HR</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+
+    <!-- Notes -->
+    {% if item.notes %}
+    <div style="margin-top:6px;">
+      <div class="summary-block-title">Notes</div>
+      <div class="notes-box">{{ item.notes }}</div>
+    </div>
+    {% endif %}
+
+  </div>
+  {% endfor %}
+
+  {% if not floor_data %}
+  <div style="text-align:center; color:#aaa; font-size:12px; padding:60px 0; font-style:italic;">
+    No floor sketches have been created for this job.
+  </div>
+  {% endif %}
+
+</body>
+</html>

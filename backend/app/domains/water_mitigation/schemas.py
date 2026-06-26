@@ -391,6 +391,7 @@ class GenerateReportRequest(BaseModel):
     config: Optional[ReportConfigCreate] = None  # Inline config
     report_date: Optional[str] = None  # Custom report date (ISO format: YYYY-MM-DD)
     compress: bool = False  # Compress PDF (reduce image quality for smaller file size)
+    template_variant: str = "a"  # Template variant: 'a' (default), 'b' (formal), 'c' (modern)
 
 
 class GenerateReportResponse(BaseModel):

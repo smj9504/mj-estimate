@@ -185,6 +185,7 @@ export interface HiddenCostFlags {
   auto_exhaust_fan?: boolean;
   auto_tub_valve?: boolean;
   auto_shower_valve?: boolean;
+  exclude_trim_kit?: boolean;
   auto_vanity_light?: boolean;
   auto_ceiling_paint?: boolean;
   mold_resistant_drywall?: boolean;

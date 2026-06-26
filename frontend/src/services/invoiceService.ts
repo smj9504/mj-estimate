@@ -217,12 +217,13 @@ class InvoiceService {
     await apiClient.delete(`/api/invoices/${id}`);
   }
 
-  async generatePDF(id: string): Promise<Blob> {
+  async generatePDF(id: string, templateVariant: string = 'a'): Promise<Blob> {
     const response = await apiClient.post(
       `/api/invoices/${id}/pdf`,
       {},
       {
         responseType: 'blob',
+        params: { template_variant: templateVariant },
       }
     );
     return response.data;

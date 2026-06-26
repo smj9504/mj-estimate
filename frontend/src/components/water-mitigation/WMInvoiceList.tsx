@@ -17,8 +17,10 @@ import {
   Row,
   Col,
   Card,
-  Spin
+  Spin,
+  Dropdown,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   FileTextOutlined,
   DollarOutlined,
@@ -74,13 +76,13 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
       navigate(`/invoices/${invoiceId}/edit`);
     };
 
-    const handleDownloadPdf = async (invoice: WMScopeInvoiceResponse) => {
+    const handleDownloadPdf = async (invoice: WMScopeInvoiceResponse, templateVariant: string = 'a') => {
       setDownloading(invoice.invoice_id);
       try {
         const addr = (jobAddress || '').split(',')[0].trim();
         const invNum = invoice.invoice_number || 'unknown';
         const filename = `WM - ${addr} - ${invNum}.pdf`;
-        await waterMitigationService.scopeInvoice.downloadPdf(invoice.invoice_id, filename);
+        await waterMitigationService.scopeInvoice.downloadPdf(invoice.invoice_id, filename, templateVariant);
         message.success('Invoice PDF downloaded');
       } catch (error) {
         console.error('Failed to download invoice PDF:', error);
@@ -89,6 +91,12 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
         setDownloading(null);
       }
     };
+
+    const pdfVariantMenu = (invoice: WMScopeInvoiceResponse): MenuProps['items'] => [
+      { key: 'a', label: 'Format A — Standard', onClick: () => handleDownloadPdf(invoice, 'a') },
+      { key: 'b', label: 'Format B — Formal', onClick: () => handleDownloadPdf(invoice, 'b') },
+      { key: 'c', label: 'Format C — Modern', onClick: () => handleDownloadPdf(invoice, 'c') },
+    ];
 
     const handleDeleteInvoice = async (invoiceId: string) => {
       setDeleting(invoiceId);
@@ -185,15 +193,19 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
                 >
                   View
                 </Button>,
-                <Button
+                <Dropdown
                   key="download"
-                  type="link"
-                  icon={<DownloadOutlined />}
-                  loading={downloading === invoice.invoice_id}
-                  onClick={() => handleDownloadPdf(invoice)}
+                  menu={{ items: pdfVariantMenu(invoice) }}
+                  trigger={['click']}
                 >
-                  PDF
-                </Button>,
+                  <Button
+                    type="link"
+                    icon={<DownloadOutlined />}
+                    loading={downloading === invoice.invoice_id}
+                  >
+                    PDF ▾
+                  </Button>
+                </Dropdown>,
                 <Popconfirm
                   key="delete"
                   title="Delete Invoice"

@@ -145,6 +145,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   const [photoSelectorVisible, setPhotoSelectorVisible] = useState(false);
   const [pdfPreviewVisible, setPdfPreviewVisible] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfTemplateVariant, setPdfTemplateVariant] = useState<string>('a');
   const [templateSelectorVisible, setTemplateSelectorVisible] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [autoAssigning, setAutoAssigning] = useState(false);
@@ -291,7 +292,8 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
 
       const requestData = {
         config_id: config.id,
-        report_date: reportDate ? reportDate.format('YYYY-MM-DD') : undefined
+        report_date: reportDate ? reportDate.format('YYYY-MM-DD') : undefined,
+        template_variant: pdfTemplateVariant,
       };
 
       const blob = await waterMitigationService.report.generateReport(jobId, requestData);
@@ -472,7 +474,8 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
       const requestData = {
         config_id: config.id,
         report_date: reportDate ? reportDate.format('YYYY-MM-DD') : undefined,
-        compress: compress
+        compress: compress,
+        template_variant: pdfTemplateVariant,
       };
 
       const blob = await waterMitigationService.report.generateReport(jobId, requestData);
@@ -889,6 +892,16 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
           >
             Save
           </Button>
+          <Select
+            value={pdfTemplateVariant}
+            onChange={(val) => setPdfTemplateVariant(val)}
+            style={{ width: isMobile ? 95 : 120 }}
+            size={isMobile ? 'small' : 'middle'}
+          >
+            <Select.Option value="a">Format A</Select.Option>
+            <Select.Option value="b">Format B</Select.Option>
+            <Select.Option value="c">Format C</Select.Option>
+          </Select>
           <Button
             type="default"
             icon={<FileImageOutlined />}
@@ -979,6 +992,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
             placeholder="Report Date"
             size={isMobile ? 'small' : 'middle'}
           />
+
         </div>
       </div>
 
@@ -1306,19 +1320,19 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
               items: [
                 {
                   key: 'original',
-                  label: 'Original Quality (Best for printing)',
+                  label: `Original Quality — Format ${pdfTemplateVariant.toUpperCase()}`,
                   onClick: () => handleDownloadPdf(false)
                 },
                 {
                   key: 'compressed',
-                  label: 'Compressed (Smaller file size)',
+                  label: `Compressed — Format ${pdfTemplateVariant.toUpperCase()}`,
                   onClick: () => handleDownloadPdf(true)
                 }
               ]
             }}
           >
             <Button type="primary" icon={<DownloadOutlined />}>
-              Download PDF <DownOutlined />
+              Download (Format {pdfTemplateVariant.toUpperCase()}) <DownOutlined />
             </Button>
           </Dropdown>
         ]}

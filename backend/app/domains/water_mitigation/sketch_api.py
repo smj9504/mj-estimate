@@ -9,7 +9,7 @@ import io
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -609,6 +609,7 @@ def generate_scope_from_sketch(
 )
 def generate_sketch_report(
     job_id: UUID,
+    template_variant: str = Query("a", description="Template variant: a (default), b (formal), c (modern)"),
     db: Session = Depends(get_db),
     current_user: Staff = Depends(get_current_user),
 ):
@@ -632,7 +633,7 @@ def generate_sketch_report(
 
     try:
         pdf_service = SketchPdfService(db)
-        pdf_bytes = pdf_service.generate_sketch_report(job_id)
+        pdf_bytes = pdf_service.generate_sketch_report(job_id, template_variant=template_variant)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except RuntimeError as exc:

@@ -1047,9 +1047,10 @@ export const waterMitigationService = {
     },
 
     // Download invoice PDF
-    downloadPdf: async (invoiceId: string, filename?: string): Promise<void> => {
+    downloadPdf: async (invoiceId: string, filename?: string, templateVariant: string = 'a'): Promise<void> => {
       const response = await api.post(`/api/invoices/${invoiceId}/pdf`, {}, {
         responseType: 'blob',
+        params: { template_variant: templateVariant },
       });
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
@@ -1391,6 +1392,28 @@ export const adjusterEmailService = {
     documents_sent_date: string;
   }> => {
     const response = await api.post(`${BASE_URL}/jobs/${jobId}/send-to-adjuster`, payload);
+    return response.data;
+  },
+
+  generateFollowUp: async (jobId: string, customNotes: string = ''): Promise<{
+    subject: string;
+    body_html: string;
+    followup_count: number;
+    days_since_sent: number | null;
+    documents_sent_date: string;
+  }> => {
+    const response = await api.post(
+      `${BASE_URL}/jobs/${jobId}/generate-followup-email?custom_notes=${encodeURIComponent(customNotes)}`
+    );
+    return response.data;
+  },
+
+  sendFollowUp: async (jobId: string, payload: SendToAdjusterPayload): Promise<{
+    success: boolean;
+    email_id: string;
+    attachments_count: number;
+  }> => {
+    const response = await api.post(`${BASE_URL}/jobs/${jobId}/send-followup`, payload);
     return response.data;
   },
 };

@@ -31,12 +31,15 @@ import {
   Typography,
   Card,
   Tooltip,
+  Dropdown,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   PlusOutlined,
   EnvironmentOutlined,
   FilePdfOutlined,
   FileTextOutlined,
+  DownOutlined,
 } from '@ant-design/icons';
 import wmSketchService from '../../../services/wmSketchService';
 import type {
@@ -355,11 +358,11 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
     [activeFloorId]
   );
 
-  const handleGeneratePdf = useCallback(async () => {
+  const handleGeneratePdf = useCallback(async (templateVariant: string = 'a') => {
     setPdfGenerating(true);
     try {
       const address = jobAddress.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 40);
-      await wmSketchService.downloadSketchReport(jobId, `sketch_report_${address}.pdf`);
+      await wmSketchService.downloadSketchReport(jobId, `sketch_report_${address}.pdf`, templateVariant);
       message.success('PDF report downloaded.');
     } catch {
       message.error('Failed to generate PDF report. Please try again.');
@@ -367,6 +370,12 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
       setPdfGenerating(false);
     }
   }, [jobId, jobAddress]);
+
+  const pdfVariantMenu: MenuProps['items'] = [
+    { key: 'a', label: 'Format A — Standard' },
+    { key: 'b', label: 'Format B — Formal' },
+    { key: 'c', label: 'Format C — Modern' },
+  ];
 
   const handleGenerateScope = useCallback(() => {
     Modal.confirm({
@@ -499,15 +508,19 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
             </Button>
           </Tooltip>
           <Tooltip title={floors.length === 0 ? 'Add a floor sketch first' : 'Download PDF Report'}>
-            <Button
-              icon={<FilePdfOutlined />}
+            <Dropdown.Button
+              icon={<DownOutlined />}
               size="small"
               loading={pdfGenerating}
               disabled={floors.length === 0}
-              onClick={handleGeneratePdf}
+              onClick={() => handleGeneratePdf('a')}
+              menu={{
+                items: pdfVariantMenu,
+                onClick: ({ key }) => handleGeneratePdf(key),
+              }}
             >
-              PDF Report
-            </Button>
+              <FilePdfOutlined /> PDF Report
+            </Dropdown.Button>
           </Tooltip>
         </div>
       </div>
