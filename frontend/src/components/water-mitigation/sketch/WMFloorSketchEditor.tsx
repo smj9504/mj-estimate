@@ -82,6 +82,7 @@ import {
   EA_ITEM_PIXEL_SIZES,
   getEffectiveRenderMode,
 } from '../../../types/wmSketch';
+import wmSketchService from '../../../services/wmSketchService';
 import WMBackgroundImageLayer, { type ImageLoadStatus } from './canvas/WMBackgroundImageLayer';
 import WMOverlayLayer from './canvas/WMOverlayLayer';
 import { useWMSketchState } from './hooks/useWMSketchState';
@@ -391,6 +392,71 @@ if (typeof document !== 'undefined' && !document.getElementById(SPINNER_STYLE_ID
 }
 
 // ============================================================================
+// Wall ↔ Room sync helpers
+// ============================================================================
+
+const _ROOM_SYNC_EPS = 8;
+
+/** When a wall is dragged (both endpoints move by dx,dy), update rooms that share those endpoints. */
+function _syncRoomsFromWallMove(
+  rooms: WMRoom[],
+  wallEndpoints: { x: number; y: number }[],
+  dx: number,
+  dy: number,
+  updateRoom: (patch: Partial<WMRoom> & { id: string }) => void,
+  scale: number,
+) {
+  for (const room of rooms) {
+    if (!room.boundary?.length) continue;
+    let changed = false;
+    const newBoundary = room.boundary.map((bp) => {
+      const matches = wallEndpoints.some(
+        (ep) => Math.abs(bp.x - ep.x) < _ROOM_SYNC_EPS && Math.abs(bp.y - ep.y) < _ROOM_SYNC_EPS
+      );
+      if (matches) { changed = true; return { x: bp.x + dx, y: bp.y + dy }; }
+      return bp;
+    });
+    if (changed) {
+      const area = Math.abs(_polyArea(newBoundary)) / (scale * scale);
+      updateRoom({ id: room.id, boundary: newBoundary, area_sqft: area });
+    }
+  }
+}
+
+/** When a single wall endpoint moves from oldPt to newPt, update matching room boundary points. */
+function _syncRoomsFromPointMove(
+  rooms: WMRoom[],
+  oldPt: { x: number; y: number },
+  newPt: { x: number; y: number },
+  updateRoom: (patch: Partial<WMRoom> & { id: string }) => void,
+  scale: number,
+) {
+  for (const room of rooms) {
+    if (!room.boundary?.length) continue;
+    let changed = false;
+    const newBoundary = room.boundary.map((bp) => {
+      if (Math.abs(bp.x - oldPt.x) < _ROOM_SYNC_EPS && Math.abs(bp.y - oldPt.y) < _ROOM_SYNC_EPS) {
+        changed = true;
+        return { x: newPt.x, y: newPt.y };
+      }
+      return bp;
+    });
+    if (changed) {
+      const area = Math.abs(_polyArea(newBoundary)) / (scale * scale);
+      updateRoom({ id: room.id, boundary: newBoundary, area_sqft: area });
+    }
+  }
+}
+
+function _polyArea(pts: { x: number; y: number }[]): number {
+  let area = 0;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    area += (pts[j].x + pts[i].x) * (pts[j].y - pts[i].y);
+  }
+  return area / 2;
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -465,12 +531,33 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     bringForward,
     sendBackward,
     loadOverlayData,
+    mergeAiWallsRooms,
     markSaved,
     undo,
     redo,
     canUndo,
     canRedo,
   } = useWMSketchState(floorSketch.overlay_data);
+
+  // Remove room and its associated walls
+  const removeRoomWithWalls = useCallback(
+    (roomId: string) => {
+      const room = (state.overlayData.rooms ?? []).find((r) => r.id === roomId);
+      if (room?.boundary?.length) {
+        const walls = state.overlayData.walls ?? [];
+        const EPS = 10;
+        const onBoundary = (px: number, py: number) =>
+          room.boundary.some((bp) => Math.abs(bp.x - px) < EPS && Math.abs(bp.y - py) < EPS);
+        for (const w of walls) {
+          if (onBoundary(w.start_x, w.start_y) && onBoundary(w.end_x, w.end_y)) {
+            removeWall(w.id);
+          }
+        }
+      }
+      removeRoom(roomId);
+    },
+    [state.overlayData.rooms, state.overlayData.walls, removeWall, removeRoom]
+  );
 
   // Floor summary (for sidebar)
   const floorSummary = useWMCalculations(state.overlayData);
@@ -799,8 +886,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
 
       const existingRooms = state.overlayData.rooms ?? [];
 
-      // Build adjacency graph
-      const EPS = 5;
+      // Build adjacency graph (EPS=10 to handle AI-generated slight misalignment)
+      const EPS = 10;
       const pointKey = (p: { x: number; y: number }) =>
         `${Math.round(p.x / EPS) * EPS},${Math.round(p.y / EPS) * EPS}`;
 
@@ -1350,7 +1437,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
               else if (element_type === 'text') removeTextAnnotation(element_id);
               else if (element_type === 'shape') removeShape(element_id);
               else if (element_type === 'wall') removeWall(element_id);
-              else if (element_type === 'room') removeRoom(element_id);
+              else if (element_type === 'room') removeRoomWithWalls(element_id);
             }
           },
         },
@@ -1358,7 +1445,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     }
 
     return items;
-  }, [state.selections, state.overlayData.demolition_zones, state.overlayData.shapes, bringToFront, bringForward, sendBackward, sendToBack, removeDemolitionZone, removeEquipment, removeContainment, removeFloorProtection, removeContentProtection, removeTextAnnotation, removeShape, removeWall, removeRoom, combineSelectedZones, ungroupZone, updateShape]);
+  }, [state.selections, state.overlayData.demolition_zones, state.overlayData.shapes, bringToFront, bringForward, sendBackward, sendToBack, removeDemolitionZone, removeEquipment, removeContainment, removeFloorProtection, removeContentProtection, removeTextAnnotation, removeShape, removeWall, removeRoomWithWalls, combineSelectedZones, ungroupZone, updateShape]);
 
   // ------------------------------------------------------------------
   // Mouse event handlers on Stage
@@ -2246,7 +2333,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           else if (element_type === 'text') removeTextAnnotation(element_id);
           else if (element_type === 'shape') removeShape(element_id);
           else if (element_type === 'wall') removeWall(element_id);
-          else if (element_type === 'room') removeRoom(element_id);
+          else if (element_type === 'room') removeRoomWithWalls(element_id);
         }
       }
     };
@@ -2276,7 +2363,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     removeTextAnnotation,
     removeShape,
     removeWall,
-    removeRoom,
+    removeRoomWithWalls,
     wallDrawStart,
     state.overlayData,
     addDemolitionZone,
@@ -2297,6 +2384,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   // Image import / removal
   // ------------------------------------------------------------------
   const [imageSourceType, setImageSourceType] = useState(floorSketch.source_type);
+  // Reference image: show imported background as semi-transparent trace layer in sketch mode
+  const [showReferenceImage, setShowReferenceImage] = useState(false);
+  const [referenceOpacity, setReferenceOpacity] = useState(0.3);
   /**
    * Resolve the background image URL.
    * Cloud-stored images (e.g. Google Drive viewer URLs) cannot be
@@ -2374,6 +2464,38 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   }, [onImageRemoved]);
 
   // ------------------------------------------------------------------
+  // AI image → drawing conversion
+  // ------------------------------------------------------------------
+  const [isConverting, setIsConverting] = useState(false);
+  const [hideOverlays, setHideOverlays] = useState(false);
+
+  const handleConvertToDrawing = useCallback(async () => {
+    setIsConverting(true);
+    try {
+      const result = await wmSketchService.analyzeFloorPlanImage(floorSketch.id);
+      if (result.success && result.walls.length > 0) {
+        // Only merge walls — rooms are auto-detected from connected walls
+        mergeAiWallsRooms(result.walls as any, []);
+        // Auto-detect rooms from the new walls
+        setTimeout(() => autoDetectRooms(result.walls as any), 100);
+        // Switch to sketch mode with reference image visible
+        setImageSourceType('sketch');
+        setShowReferenceImage(true);
+        setReferenceOpacity(0.3);
+        setHideOverlays(true);
+        message.success(`Detected ${result.walls.length} walls. Rooms auto-detected from connected walls.`);
+      } else {
+        message.warning('AI could not detect walls from the image. Try a clearer floor plan.');
+      }
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.message || 'Unknown error';
+      message.error(`Conversion failed: ${detail}`);
+    } finally {
+      setIsConverting(false);
+    }
+  }, [floorSketch.id, mergeAiWallsRooms, autoDetectRooms]);
+
+  // ------------------------------------------------------------------
   // Active material color for rubber-band preview
   // ------------------------------------------------------------------
   const activeMaterialColor = React.useMemo(() => {
@@ -2427,6 +2549,19 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
         onCalibrateScale={() => setIsCalibrating(true)}
         isCalibrated={floorSketch.scale_pixels_per_foot !== 20}
         scalePixelsPerFoot={floorSketch.scale_pixels_per_foot}
+        hasBackgroundImage={!!backgroundImageUrl}
+        showReferenceImage={showReferenceImage}
+        onShowReferenceImageChange={setShowReferenceImage}
+        referenceOpacity={referenceOpacity}
+        onReferenceOpacityChange={setReferenceOpacity}
+        onConvertToDrawing={backgroundImageUrl ? handleConvertToDrawing : undefined}
+        isConverting={isConverting}
+        hideOverlays={hideOverlays}
+        onHideOverlaysChange={setHideOverlays}
+        onClearFloorPlan={() => {
+          mergeAiWallsRooms([], []);
+          message.success('Floor plan cleared.');
+        }}
       />
 
       {/* Toolbar */}
@@ -2536,7 +2671,7 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
             }}
             style={{ display: 'block' }}
           >
-            {/* Layer 1 — Background image (fitted to fixed canvas, not viewport) */}
+            {/* Layer 1a — Background image (full opacity in image mode) */}
             {imageSourceType === 'image' && (
               <Layer listening={false}>
                 <WMBackgroundImageLayer
@@ -2544,6 +2679,18 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                   canvasWidth={canvasWidth}
                   canvasHeight={canvasHeight}
                   onStatusChange={setBgImageStatus}
+                />
+              </Layer>
+            )}
+
+            {/* Layer 1b — Reference image (semi-transparent in sketch mode for tracing) */}
+            {imageSourceType === 'sketch' && showReferenceImage && backgroundImageUrl && (
+              <Layer listening={false}>
+                <WMBackgroundImageLayer
+                  imageUrl={backgroundImageUrl}
+                  canvasWidth={canvasWidth}
+                  canvasHeight={canvasHeight}
+                  opacity={referenceOpacity}
                 />
               </Layer>
             )}
@@ -2593,6 +2740,9 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                   const pt = snap.point;
                   const wall = (state.overlayData.walls ?? []).find((w) => w.id === wallId);
                   if (!wall) return;
+                  const oldPt = endpoint === 'start'
+                    ? { x: wall.start_x, y: wall.start_y }
+                    : { x: wall.end_x, y: wall.end_y };
                   const otherX = endpoint === 'start' ? wall.end_x : wall.start_x;
                   const otherY = endpoint === 'start' ? wall.end_y : wall.start_y;
                   const newLength = pixelsToFeet(
@@ -2607,7 +2757,13 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                     length_ft: newLength,
                   });
 
-                  // Auto-detect rooms after wall endpoint is moved
+                  // Sync room boundary points that match the moved endpoint
+                  _syncRoomsFromPointMove(
+                    state.overlayData.rooms ?? [],
+                    oldPt, pt, updateRoom, floorSketch.scale_pixels_per_foot,
+                  );
+
+                  // Auto-detect new rooms after wall endpoint is moved
                   const updatedWalls = (state.overlayData.walls ?? []).map((w) =>
                     w.id === wallId
                       ? {
@@ -2621,8 +2777,114 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                   );
                   autoDetectRooms(updatedWalls);
                 }}
+                onWallDragEnd={(wallId, dx, dy) => {
+                  const wall = (state.overlayData.walls ?? []).find((w) => w.id === wallId);
+                  if (!wall) return;
+                  const EPS = 8;
+                  const endpoints = [
+                    { x: wall.start_x, y: wall.start_y },
+                    { x: wall.end_x, y: wall.end_y },
+                  ];
+                  // Move this wall
+                  updateWall({
+                    id: wallId,
+                    start_x: wall.start_x + dx, start_y: wall.start_y + dy,
+                    end_x: wall.end_x + dx, end_y: wall.end_y + dy,
+                  });
+                  // Move connected walls (share an endpoint)
+                  const walls = state.overlayData.walls ?? [];
+                  for (const w of walls) {
+                    if (w.id === wallId) continue;
+                    const startMatch = endpoints.some(
+                      (ep) => Math.abs(w.start_x - ep.x) < EPS && Math.abs(w.start_y - ep.y) < EPS
+                    );
+                    const endMatch = endpoints.some(
+                      (ep) => Math.abs(w.end_x - ep.x) < EPS && Math.abs(w.end_y - ep.y) < EPS
+                    );
+                    if (startMatch || endMatch) {
+                      updateWall({
+                        id: w.id,
+                        ...(startMatch ? { start_x: w.start_x + dx, start_y: w.start_y + dy } : {}),
+                        ...(endMatch ? { end_x: w.end_x + dx, end_y: w.end_y + dy } : {}),
+                      });
+                    }
+                  }
+                  // Sync rooms
+                  _syncRoomsFromWallMove(
+                    state.overlayData.rooms ?? [],
+                    endpoints, dx, dy, updateRoom, floorSketch.scale_pixels_per_foot,
+                  );
+                }}
+                onRoomDragEnd={(roomId, dx, dy) => {
+                  const room = (state.overlayData.rooms ?? []).find((r) => r.id === roomId);
+                  if (!room) return;
+                  // Move room boundary
+                  const newBoundary = room.boundary.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+                  const area = Math.abs(_polyArea(newBoundary)) / (floorSketch.scale_pixels_per_foot ** 2);
+                  updateRoom({ id: roomId, boundary: newBoundary, area_sqft: area });
+                  // Move walls that have BOTH endpoints on this room's boundary
+                  const walls = state.overlayData.walls ?? [];
+                  const EPS = 8;
+                  const onBoundary = (px: number, py: number) =>
+                    room.boundary.some((bp) => Math.abs(bp.x - px) < EPS && Math.abs(bp.y - py) < EPS);
+                  for (const w of walls) {
+                    const startOn = onBoundary(w.start_x, w.start_y);
+                    const endOn = onBoundary(w.end_x, w.end_y);
+                    if (startOn && endOn) {
+                      // Both endpoints on this room — move entire wall
+                      updateWall({
+                        id: w.id,
+                        start_x: w.start_x + dx, start_y: w.start_y + dy,
+                        end_x: w.end_x + dx, end_y: w.end_y + dy,
+                      });
+                    } else if (startOn || endOn) {
+                      // Shared wall — duplicate it: original stays, copy moves with room
+                      const newWall: WMWall = {
+                        ...w,
+                        id: generateOverlayId(),
+                        start_x: w.start_x + dx,
+                        start_y: w.start_y + dy,
+                        end_x: w.end_x + dx,
+                        end_y: w.end_y + dy,
+                      };
+                      addWall(newWall);
+                    }
+                  }
+                }}
+                onRoomVertexDrag={(roomId, vertexIndex, x, y) => {
+                  const room = (state.overlayData.rooms ?? []).find((r) => r.id === roomId);
+                  if (!room) return;
+                  const oldPt = room.boundary[vertexIndex];
+                  if (!oldPt) return;
+                  const newBoundary = room.boundary.map((p, i) =>
+                    i === vertexIndex ? { x, y } : p
+                  );
+                  const scale = floorSketch.scale_pixels_per_foot;
+                  const area = Math.abs(_polyArea(newBoundary)) / (scale * scale);
+                  updateRoom({ id: roomId, boundary: newBoundary, area_sqft: area });
+                  // Move wall endpoints matching the old vertex position
+                  const walls = state.overlayData.walls ?? [];
+                  const EPS = 10;
+                  for (const w of walls) {
+                    const startMatch = Math.abs(w.start_x - oldPt.x) < EPS && Math.abs(w.start_y - oldPt.y) < EPS;
+                    const endMatch = Math.abs(w.end_x - oldPt.x) < EPS && Math.abs(w.end_y - oldPt.y) < EPS;
+                    if (startMatch || endMatch) {
+                      updateWall({
+                        id: w.id,
+                        ...(startMatch ? { start_x: x, start_y: y } : {}),
+                        ...(endMatch ? { end_x: x, end_y: y } : {}),
+                      });
+                    }
+                  }
+                  // Update other rooms that share this vertex
+                  _syncRoomsFromPointMove(
+                    (state.overlayData.rooms ?? []).filter((r) => r.id !== roomId),
+                    oldPt, { x, y }, updateRoom, scale,
+                  );
+                }}
                 onMoveGroup={moveDemolitionGroup}
                 onRotateGroup={rotateDemolitionGroup}
+                hideOverlays={hideOverlays}
                 polygonPreviewPoints={polygonDrawPoints.length > 0 ? polygonDrawPoints : undefined}
                 polygonPreviewCursor={polygonDrawCursor}
                 wallPreview={

@@ -78,6 +78,11 @@ export interface WMOverlayLayerProps {
   onMoveGroup?: (groupId: string, dx: number, dy: number) => void;
   onRotateGroup?: (groupId: string, pivotX: number, pivotY: number, deltaDeg: number) => void;
   onWallDragEndpoint?: (wallId: string, endpoint: 'start' | 'end', x: number, y: number) => void;
+  onWallDragEnd?: (wallId: string, dx: number, dy: number) => void;
+  onRoomDragEnd?: (roomId: string, dx: number, dy: number) => void;
+  onRoomVertexDrag?: (roomId: string, vertexIndex: number, x: number, y: number) => void;
+  /** Hide all overlay elements except walls and rooms (floor plan edit mode) */
+  hideOverlays?: boolean;
 
   // Polygon drawing preview (click-to-place vertices)
   polygonPreviewPoints?: { x: number; y: number }[];
@@ -158,6 +163,10 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   onMoveGroup,
   onRotateGroup,
   onWallDragEndpoint,
+  onWallDragEnd,
+  onRoomDragEnd,
+  onRoomVertexDrag,
+  hideOverlays,
   polygonPreviewPoints,
   polygonPreviewCursor,
   wallPreview,
@@ -278,7 +287,20 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
     (wallId: string, endpoint: 'start' | 'end', x: number, y: number) => onWallDragEndpoint?.(wallId, endpoint, x, y),
     [onWallDragEndpoint]
   );
+  const wallDragHandler = useCallback(
+    (wallId: string, dx: number, dy: number) => onWallDragEnd?.(wallId, dx, dy),
+    [onWallDragEnd]
+  );
   const selectRoomHandler = useCallback((id: string, ctrlKey?: boolean) => onSelectElement(id, 'room', ctrlKey), [onSelectElement]);
+  const roomDragHandler = useCallback(
+    (roomId: string, dx: number, dy: number) => onRoomDragEnd?.(roomId, dx, dy),
+    [onRoomDragEnd]
+  );
+  const roomVertexDragHandler = useCallback(
+    (roomId: string, vertexIndex: number, x: number, y: number) =>
+      onRoomVertexDrag?.(roomId, vertexIndex, x, y),
+    [onRoomVertexDrag]
+  );
 
   // ---------------------------------------------------------------------------
   // Build unified element list sorted by element_order (z-order)
@@ -348,6 +370,8 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
           room={room}
           isSelected={isSelected(room.id)}
           onSelect={selectRoomHandler}
+          onRoomDragEnd={roomDragHandler}
+          onRoomVertexDrag={roomVertexDragHandler}
         />
       ))}
 
@@ -359,11 +383,12 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
           isSelected={isSelected(wall.id)}
           onSelect={selectWallHandler}
           onDragEndpoint={wallDragEndpointHandler}
+          onWallDragEnd={wallDragHandler}
         />
       ))}
 
       {/* Overlay elements — rendered in element_order (z-order) */}
-      {sortedItems.map((item) => {
+      {!hideOverlays && sortedItems.map((item) => {
         switch (item.kind) {
           case 'floor_protection': {
             const fp = fpMap.get(item.id);

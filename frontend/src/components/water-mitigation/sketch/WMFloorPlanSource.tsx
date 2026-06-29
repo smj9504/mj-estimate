@@ -25,6 +25,8 @@ import {
   Image,
   Tooltip,
   Alert,
+  Slider,
+  Switch,
 } from 'antd';
 import {
   EditOutlined,
@@ -33,6 +35,10 @@ import {
   DeleteOutlined,
   ScissorOutlined,
   AimOutlined,
+  EyeOutlined,
+  EyeInvisibleOutlined,
+  RobotOutlined,
+  ClearOutlined,
 } from '@ant-design/icons';
 import type { FloorPlanSourceType } from '../../../types/wmSketch';
 import { useImageImport } from './hooks/useImageImport';
@@ -53,6 +59,22 @@ export interface WMFloorPlanSourceProps {
   isCalibrated?: boolean;
   /** Current scale value in px/ft */
   scalePixelsPerFoot?: number;
+  /** Whether a background image exists (for reference controls in sketch mode) */
+  hasBackgroundImage?: boolean;
+  /** Whether to show the reference image overlay in sketch mode */
+  showReferenceImage?: boolean;
+  onShowReferenceImageChange?: (show: boolean) => void;
+  /** Opacity of the reference image (0.0 - 1.0) */
+  referenceOpacity?: number;
+  onReferenceOpacityChange?: (opacity: number) => void;
+  /** AI-based image-to-drawing conversion */
+  onConvertToDrawing?: () => void;
+  isConverting?: boolean;
+  /** Hide overlays to focus on floor plan editing */
+  hideOverlays?: boolean;
+  onHideOverlaysChange?: (hide: boolean) => void;
+  /** Clear all walls and rooms */
+  onClearFloorPlan?: () => void;
 }
 
 // ============================================================================
@@ -70,6 +92,16 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
   onCalibrateScale,
   isCalibrated,
   scalePixelsPerFoot,
+  hasBackgroundImage,
+  showReferenceImage,
+  onShowReferenceImageChange,
+  referenceOpacity = 0.3,
+  onReferenceOpacityChange,
+  onConvertToDrawing,
+  isConverting,
+  hideOverlays,
+  onHideOverlaysChange,
+  onClearFloorPlan,
 }) => {
   const {
     fileInputRef,
@@ -118,6 +150,65 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
         ]}
         size="small"
       />
+
+      {/* Floor plan edit mode — hide overlays */}
+      {onHideOverlaysChange && (
+        <Tooltip title={hideOverlays ? 'Show all overlays' : 'Hide overlays to edit floor plan only'}>
+          <Button
+            size="small"
+            type={hideOverlays ? 'primary' : 'default'}
+            ghost={hideOverlays}
+            icon={hideOverlays ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+            onClick={() => onHideOverlaysChange(!hideOverlays)}
+          >
+            {hideOverlays ? 'Floor Plan Only' : 'All Layers'}
+          </Button>
+        </Tooltip>
+      )}
+      {onClearFloorPlan && (
+        <Tooltip title="Clear all walls and rooms">
+          <Button
+            size="small"
+            icon={<ClearOutlined />}
+            danger
+            onClick={onClearFloorPlan}
+          >
+            Clear Floor Plan
+          </Button>
+        </Tooltip>
+      )}
+
+      {/* Reference image controls — shown in sketch mode when background image exists */}
+      {sourceType === 'sketch' && hasBackgroundImage && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 1, height: 20, background: '#d9d9d9' }} />
+          <Tooltip title={showReferenceImage ? 'Hide reference image' : 'Show imported image as trace reference'}>
+            <Button
+              size="small"
+              type={showReferenceImage ? 'primary' : 'default'}
+              ghost={showReferenceImage}
+              icon={showReferenceImage ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+              onClick={() => onShowReferenceImageChange?.(!showReferenceImage)}
+            >
+              Reference
+            </Button>
+          </Tooltip>
+          {showReferenceImage && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Text style={{ fontSize: 11, color: '#8c8c8c', whiteSpace: 'nowrap' }}>Opacity</Text>
+              <Slider
+                min={0.05}
+                max={0.8}
+                step={0.05}
+                value={referenceOpacity}
+                onChange={(val) => onReferenceOpacityChange?.(val)}
+                style={{ width: 80, margin: 0 }}
+                tooltip={{ formatter: (val) => `${Math.round((val ?? 0) * 100)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Image controls — shown only when in image mode */}
       {sourceType === 'image' && (
@@ -170,6 +261,23 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
                       onClick={onCalibrateScale}
                     >
                       {isCalibrated ? `${scalePixelsPerFoot?.toFixed(1)} px/ft` : 'Calibrate Scale'}
+                    </Button>
+                  </Tooltip>
+                </>
+              )}
+              {onConvertToDrawing && (
+                <>
+                  <div style={{ width: 1, height: 20, background: '#d9d9d9' }} />
+                  <Tooltip title="AI가 이미지를 분석하여 벽과 방을 자동으로 감지합니다">
+                    <Button
+                      size="small"
+                      icon={<RobotOutlined />}
+                      onClick={onConvertToDrawing}
+                      loading={isConverting}
+                      type="primary"
+                      ghost
+                    >
+                      Convert to Drawing
                     </Button>
                   </Tooltip>
                 </>

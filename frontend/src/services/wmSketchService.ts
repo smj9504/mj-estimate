@@ -155,6 +155,40 @@ const wmSketchService = {
     );
     return response.data;
   },
+
+  /** Analyze floor plan image with AI to extract walls and rooms */
+  analyzeFloorPlanImage: async (
+    floorSketchId: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    walls: Array<{
+      id: string;
+      floor_sketch_id: string;
+      start_x: number;
+      start_y: number;
+      end_x: number;
+      end_y: number;
+      thickness: number;
+      color: string;
+      length_ft: number;
+    }>;
+    rooms: Array<{
+      id: string;
+      floor_sketch_id: string;
+      name: string;
+      boundary: Array<{ x: number; y: number }>;
+      color: string;
+      height_ft: number;
+      area_sqft: number;
+      wall_ids: string[];
+    }>;
+  }> => {
+    const response = await api.post(
+      `${BASE_URL}/floors/${floorSketchId}/analyze-image`
+    );
+    return response.data;
+  },
 };
 
 export default wmSketchService;

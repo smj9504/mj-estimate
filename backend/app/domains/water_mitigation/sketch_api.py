@@ -554,6 +554,110 @@ async def preview_background_image(
 
 
 # ---------------------------------------------------------------------------
+# AI Floor Plan Analysis (Image → Drawing conversion)
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/floors/{floor_sketch_id}/analyze-image",
+    summary="Analyze floor plan image with AI to extract walls and rooms",
+)
+async def analyze_floor_plan_image(
+    floor_sketch_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """
+    Use AI (GPT-4o Vision) to analyze the background image of a floor sketch
+    and extract wall segments and room boundaries.
+
+    Returns walls and rooms that can be merged into the sketch overlay data.
+    The frontend is responsible for merging and saving the result.
+    """
+    import logging
+    _logger = logging.getLogger(__name__)
+
+    service = SketchService(db)
+    sketch = service.repository.get_floor_sketch(floor_sketch_id)
+    if not sketch:
+        raise HTTPException(
+            status_code=404, detail="Floor sketch not found"
+        )
+
+    if not sketch.background_image_url:
+        raise HTTPException(
+            status_code=400,
+            detail="No background image to analyze. Upload an image first.",
+        )
+
+    # Load the image bytes from storage
+    image_bytes = await _load_image_bytes(sketch, db)
+
+    from app.domains.water_mitigation.sketch_ai_service import (
+        analyze_floor_plan,
+    )
+
+    try:
+        result = await analyze_floor_plan(
+            image_bytes=image_bytes,
+            canvas_width=sketch.canvas_width or 1200,
+            canvas_height=sketch.canvas_height or 900,
+            scale_pixels_per_foot=sketch.scale_pixels_per_foot or 20.0,
+            floor_sketch_id=str(floor_sketch_id),
+        )
+        return {
+            "success": True,
+            "walls": result["walls"],
+            "rooms": result["rooms"],
+            "message": (
+                f"Detected {len(result['walls'])} walls "
+                f"and {len(result['rooms'])} rooms"
+            ),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        _logger.exception(
+            "AI floor plan analysis failed for sketch %s",
+            floor_sketch_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI analysis failed: {str(exc)}",
+        )
+
+
+async def _load_image_bytes(sketch: WMFloorSketch, db: Session) -> bytes:
+    """Load background image bytes from the storage provider."""
+    provider = getattr(sketch, "storage_provider", "local") or "local"
+    file_id = getattr(sketch, "storage_file_id", None)
+    bg_url = sketch.background_image_url or ""
+
+    if provider != "local" and file_id:
+        storage = StorageFactory().get_instance()
+        data = storage.download(file_id)
+        if hasattr(data, "read"):
+            return data.read()
+        return data
+
+    # Local storage
+    if bg_url.startswith("/uploads/"):
+        from pathlib import Path
+        from app.core.config import settings as app_settings
+
+        rel = bg_url.replace("/uploads/", "", 1)
+        base = getattr(app_settings, "STORAGE_BASE_DIR", "uploads")
+        local_path = Path(base) / rel
+        if not local_path.exists():
+            local_path = (
+                Path(__file__).parent.parent.parent / "uploads" / rel
+            )
+        if local_path.exists():
+            return local_path.read_bytes()
+
+    raise ValueError("Could not load background image from storage")
+
+
+# ---------------------------------------------------------------------------
 # Generate Scope of Work from Sketch
 # ---------------------------------------------------------------------------
 

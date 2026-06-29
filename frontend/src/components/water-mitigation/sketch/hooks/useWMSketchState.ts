@@ -132,6 +132,7 @@ type WMSketchAction =
 
   // Persistence
   | { type: 'LOAD_OVERLAY_DATA'; payload: WMOverlayData }
+  | { type: 'MERGE_AI_WALLS_ROOMS'; payload: { walls: WMWall[]; rooms: WMRoom[] } }
   | { type: 'MARK_SAVED' }
 
   // Undo / redo
@@ -987,6 +988,21 @@ function wmSketchReducer(
         selection: null,
       };
 
+    case 'MERGE_AI_WALLS_ROOMS': {
+      // Replace existing AI walls/rooms with new ones (with undo)
+      const newOverlay: WMOverlayData = {
+        ...state.overlayData,
+        walls: action.payload.walls,
+        rooms: action.payload.rooms,
+      };
+      return {
+        ...state,
+        ...pushUndo(state),
+        overlayData: newOverlay,
+        isDirty: true,
+      };
+    }
+
     case 'MARK_SAVED':
       return { ...state, isDirty: false };
 
@@ -1122,6 +1138,9 @@ export interface WMSketchStateReturn {
   addRoom: (room: WMRoom) => void;
   updateRoom: (patch: Partial<WMRoom> & { id: string }) => void;
   removeRoom: (id: string) => void;
+
+  // AI merge
+  mergeAiWallsRooms: (walls: WMWall[], rooms: WMRoom[]) => void;
 
   // Z-order
   bringToFront: (id: string) => void;
@@ -1442,6 +1461,12 @@ export function useWMSketchState(
     []
   );
 
+  const mergeAiWallsRooms = useCallback(
+    (walls: WMWall[], rooms: WMRoom[]) =>
+      dispatch({ type: 'MERGE_AI_WALLS_ROOMS', payload: { walls, rooms } }),
+    []
+  );
+
   const markSaved = useCallback(() => dispatch({ type: 'MARK_SAVED' }), []);
 
   // Undo / redo
@@ -1505,6 +1530,7 @@ export function useWMSketchState(
     bringForward,
     sendBackward,
     loadOverlayData,
+    mergeAiWallsRooms,
     markSaved,
     undo,
     redo,

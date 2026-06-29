@@ -469,26 +469,35 @@ class SketchPdfService:
 
         parts: List[str] = []
 
-        # Background: uploaded image or plain fill
-        has_bg_image = False
-        try:
-            bg_result = self._load_background_image_data_uri(floor)
-        except Exception as exc:
-            logger.warning("Failed to load background image: %s", exc)
-            bg_result = None
+        # Determine if floor plan was drawn (has walls/rooms)
+        _overlay_check = getattr(floor, "overlay_data", None)
+        _has_floor_plan = (
+            isinstance(_overlay_check, dict)
+            and (len(_overlay_check.get("walls", [])) > 0
+                 or len(_overlay_check.get("rooms", [])) > 0)
+        )
 
-        if bg_result:
-            has_bg_image = True
-            bg_data_uri, img_w, img_h = bg_result
-            # Use the same fitContain logic as the Konva canvas
-            fit = self._fit_contain(img_w, img_h, canvas_w, canvas_h)
-            parts.append(
-                f'<image href="{bg_data_uri}" '
-                f'x="{fit["x"]:.1f}" y="{fit["y"]:.1f}" '
-                f'width="{fit["width"]:.1f}" height="{fit["height"]:.1f}" '
-                f'preserveAspectRatio="none"/>'
-            )
-        else:
+        # Background: show uploaded image ONLY if no floor plan was drawn
+        has_bg_image = False
+        if not _has_floor_plan:
+            try:
+                bg_result = self._load_background_image_data_uri(floor)
+            except Exception as exc:
+                logger.warning("Failed to load background image: %s", exc)
+                bg_result = None
+
+            if bg_result:
+                has_bg_image = True
+                bg_data_uri, img_w, img_h = bg_result
+                fit = self._fit_contain(img_w, img_h, canvas_w, canvas_h)
+                parts.append(
+                    f'<image href="{bg_data_uri}" '
+                    f'x="{fit["x"]:.1f}" y="{fit["y"]:.1f}" '
+                    f'width="{fit["width"]:.1f}" height="{fit["height"]:.1f}" '
+                    f'preserveAspectRatio="none"/>'
+                )
+
+        if not has_bg_image:
             s = self._svg
             parts.append(
                 f'<rect width="{canvas_w}" height="{canvas_h}" '

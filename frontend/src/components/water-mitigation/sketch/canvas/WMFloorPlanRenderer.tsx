@@ -8,7 +8,7 @@
  * Also renders the wall-drawing preview (ghost line from start to cursor).
  */
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { Group, Line, Circle, Text } from 'react-konva';
 import type { WMWall, WMRoom } from '../../../../types/wmSketch';
 import { DEFAULT_WALL_COLOR, DEFAULT_ROOM_COLOR } from '../../../../types/wmSketch';
@@ -22,6 +22,8 @@ interface WMWallRendererProps {
   isSelected: boolean;
   onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEndpoint: (wallId: string, endpoint: 'start' | 'end', x: number, y: number) => void;
+  /** Drag the entire wall (both endpoints move together) */
+  onWallDragEnd?: (wallId: string, dx: number, dy: number) => void;
 }
 
 const WMWallRendererInner: React.FC<WMWallRendererProps> = ({
@@ -29,6 +31,7 @@ const WMWallRendererInner: React.FC<WMWallRendererProps> = ({
   isSelected,
   onSelect,
   onDragEndpoint,
+  onWallDragEnd,
 }) => {
   const { id, start_x, start_y, end_x, end_y, thickness, color } = wall;
 
@@ -38,6 +41,20 @@ const WMWallRendererInner: React.FC<WMWallRendererProps> = ({
       onSelect(id, e.evt?.ctrlKey || e.evt?.metaKey);
     },
     [id, onSelect]
+  );
+
+  // Drag entire wall — compute delta and reset group position
+  const handleGroupDragEnd = useCallback(
+    (e: any) => {
+      const dx = e.target.x();
+      const dy = e.target.y();
+      // Reset group position (coordinates are stored on wall endpoints)
+      e.target.position({ x: 0, y: 0 });
+      if (dx !== 0 || dy !== 0) {
+        onWallDragEnd?.(id, dx, dy);
+      }
+    },
+    [id, onWallDragEnd]
   );
 
   const handleStartDragEnd = useCallback(
@@ -78,7 +95,10 @@ const WMWallRendererInner: React.FC<WMWallRendererProps> = ({
     : '';
 
   return (
-    <Group>
+    <Group
+      draggable={isSelected}
+      onDragEnd={handleGroupDragEnd}
+    >
       {/* Wall line */}
       <Line
         points={[start_x, start_y, end_x, end_y]}
@@ -161,14 +181,21 @@ interface WMRoomRendererProps {
   room: WMRoom;
   isSelected: boolean;
   onSelect: (id: string, ctrlKey?: boolean) => void;
+  /** Drag the entire room (all boundary points move together) */
+  onRoomDragEnd?: (roomId: string, dx: number, dy: number) => void;
+  /** Drag a single boundary vertex to reshape the room */
+  onRoomVertexDrag?: (roomId: string, vertexIndex: number, x: number, y: number) => void;
 }
 
 const WMRoomRendererInner: React.FC<WMRoomRendererProps> = ({
   room,
   isSelected,
   onSelect,
+  onRoomDragEnd,
+  onRoomVertexDrag,
 }) => {
   const { id, boundary, name, color, area_sqft } = room;
+  const isVertexDragging = useRef(false);
 
   const handleClick = useCallback(
     (e: any) => {
@@ -177,6 +204,33 @@ const WMRoomRendererInner: React.FC<WMRoomRendererProps> = ({
     },
     [id, onSelect]
   );
+
+  // Drag entire room — compute delta and reset group position
+  const handleGroupDragEnd = useCallback(
+    (e: any) => {
+      // Skip if a vertex/edge handle triggered this
+      if (isVertexDragging.current) {
+        e.target.position({ x: 0, y: 0 });
+        return;
+      }
+      const dx = e.target.x();
+      const dy = e.target.y();
+      e.target.position({ x: 0, y: 0 });
+      if (dx !== 0 || dy !== 0) {
+        onRoomDragEnd?.(id, dx, dy);
+      }
+    },
+    [id, onRoomDragEnd]
+  );
+
+  // Edge midpoints for side-resize handles (must be before early return)
+  const edgeMidpoints = useMemo(() => {
+    if (!boundary || boundary.length < 3) return [];
+    return boundary.map((p, i) => {
+      const next = boundary[(i + 1) % boundary.length];
+      return { x: (p.x + next.x) / 2, y: (p.y + next.y) / 2, i1: i, i2: (i + 1) % boundary.length };
+    });
+  }, [boundary]);
 
   if (!boundary || boundary.length < 3) return null;
 
@@ -193,7 +247,10 @@ const WMRoomRendererInner: React.FC<WMRoomRendererProps> = ({
   const roomWidth = maxX - minX;
 
   return (
-    <Group>
+    <Group
+      draggable={isSelected}
+      onDragEnd={handleGroupDragEnd}
+    >
       {/* Room fill */}
       <Line
         points={flatPoints}
@@ -236,6 +293,72 @@ const WMRoomRendererInner: React.FC<WMRoomRendererProps> = ({
           listening={false}
         />
       )}
+
+      {/* Vertex handles (corner resize — shown when selected) */}
+      {isSelected && boundary.map((pt, idx) => (
+        <Circle
+          key={`v-${idx}`}
+          x={pt.x}
+          y={pt.y}
+          radius={6}
+          fill="#fff"
+          stroke="#1890ff"
+          strokeWidth={2}
+          draggable
+          onDragStart={(e) => { e.cancelBubble = true; isVertexDragging.current = true; }}
+          onDragEnd={(e) => {
+            e.cancelBubble = true;
+            const newX = e.target.x();
+            const newY = e.target.y();
+            e.target.position({ x: pt.x, y: pt.y });
+            onRoomVertexDrag?.(id, idx, newX, newY);
+            setTimeout(() => { isVertexDragging.current = false; }, 0);
+          }}
+          onMouseEnter={(e) => {
+            const s = e.target.getStage();
+            if (s) s.container().style.cursor = 'move';
+          }}
+          onMouseLeave={(e) => {
+            const s = e.target.getStage();
+            if (s) s.container().style.cursor = '';
+          }}
+        />
+      ))}
+
+      {/* Edge midpoint handles (side resize — shown when selected) */}
+      {isSelected && edgeMidpoints.map((mp, idx) => (
+        <Circle
+          key={`e-${idx}`}
+          x={mp.x}
+          y={mp.y}
+          radius={4}
+          fill="#1890ff"
+          stroke="#fff"
+          strokeWidth={1.5}
+          draggable
+          onDragStart={(e) => { e.cancelBubble = true; isVertexDragging.current = true; }}
+          onDragEnd={(e) => {
+            e.cancelBubble = true;
+            const newX = e.target.x();
+            const newY = e.target.y();
+            const dx = newX - mp.x;
+            const dy = newY - mp.y;
+            e.target.position({ x: mp.x, y: mp.y });
+            // Move both vertices of this edge
+            onRoomVertexDrag?.(id, mp.i1, boundary[mp.i1].x + dx, boundary[mp.i1].y + dy);
+            onRoomVertexDrag?.(id, mp.i2, boundary[mp.i2].x + dx, boundary[mp.i2].y + dy);
+            setTimeout(() => { isVertexDragging.current = false; }, 0);
+          }}
+          onMouseEnter={(e) => {
+            const s = e.target.getStage();
+            if (s) s.container().style.cursor = 'pointer';
+          }}
+          onMouseLeave={(e) => {
+            const s = e.target.getStage();
+            if (s) s.container().style.cursor = '';
+          }}
+        />
+      ))}
     </Group>
   );
 };

@@ -256,11 +256,6 @@
       font-size: 9px;
       color: #777;
     }
-    .demo-card .dc-zones {
-      font-size: 8px;
-      color: #999;
-      margin-top: 2px;
-    }
     .demo-totals {
       display: flex;
       gap: 12px;
@@ -476,7 +471,6 @@
             <div class="dc-material">{{ mat.material_name|default(mat.material) }}</div>
             <div class="dc-surface">{{ mat.surface | capitalize }}</div>
             <div class="dc-value">{% if mat.unit == 'EA' %}{{ "%.0f"|format(mat.total_sqft) }}{% else %}{{ "%.1f"|format(mat.total_sqft) }}{% endif %} <span class="dc-unit">{{ mat.unit|default('SF') }}</span></div>
-            <div class="dc-zones">{{ mat.count }} zone{{ 's' if mat.count > 1 else '' }}</div>
           </div>
           {% endfor %}
         </div>
@@ -518,7 +512,7 @@
       <div>
         <div class="dash-section-title">Equipment Placement</div>
         {% if item.summary.equip_counts %}
-        <div class="compact-grid">
+        <div class="compact-grid cols-4">
           {% for equip_name, equip_count in item.summary.equip_counts.items() %}
           <div class="compact-cell">
             <div class="cc-label">{{ equip_name }}</div>
@@ -539,7 +533,12 @@
       {% if item.summary.containment_sqft > 0 or item.summary.protection_sqft > 0 or item.summary.content_protection_sqft > 0 or item.summary.content_manipulation_hours > 0 %}
       <div>
         <div class="dash-section-title">Additional Areas</div>
-        <div class="compact-grid">
+        {% set _area_count = [0] %}
+          {% if item.summary.containment_sqft > 0 %}{% set _ = _area_count.append(1) %}{% endif %}
+          {% if item.summary.protection_sqft > 0 %}{% set _ = _area_count.append(1) %}{% endif %}
+          {% if item.summary.content_protection_sqft > 0 %}{% set _ = _area_count.append(1) %}{% endif %}
+          {% if item.summary.content_manipulation_hours > 0 %}{% set _ = _area_count.append(1) %}{% endif %}
+        <div class="compact-grid {% if _area_count|length - 1 > 2 %}cols-4{% else %}cols-2{% endif %}">
           {% if item.summary.containment_sqft > 0 %}
           <div class="compact-cell">
             <div class="cc-label">Containment</div>
