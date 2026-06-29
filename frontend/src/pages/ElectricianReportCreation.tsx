@@ -2545,28 +2545,30 @@ REPORT REQUIREMENTS:
        NM cable (Romex) — condition,
        Conduit / raceway — condition,
        Outlet / switch boxes — condition
-     * "Circuits & Testing":
+     * "Circuits & Testing (Affected Area)":
        Breaker(s) — tripped / functional,
        Circuit continuity test,
        Insulation resistance (megger) test,
        Ground fault test,
        AFCI breaker function (if applicable),
        GFCI outlets — trip test,
-       Outlets — polarity / ground verification
+       Outlets — polarity / ground (affected area)
      * "Panel & Service":
        Main panel — general condition,
        Bus bars & breaker connections,
        Grounding / bonding system,
        Panel labeling / circuit directory,
-       Service entrance / meter base
+       Service entrance / meter base (N/A if not inspected)
      * "Safety & Detection":
        Smoke detectors — functional,
        CO detectors — functional,
        Exhaust fans (bath / kitchen) — operational,
        Arc / burn marks at any device or junction
-   - Mark items N/A if not present
+   - Mark items N/A if not present OR not inspected during this visit
+   - ONLY mark OK if you actually inspected/tested that item. Never mark OK on something not checked.
+   - This is an affected-area inspection, not a whole-house audit — scope is limited
    - Smoke detectors: "N/A" unless specified in JOB DETAILS; never DEFICIENT unless user said damaged
-   - Label text is fixed (don't change labels even if they say "corrosion")
+   - Label text is fixed (don't change labels)
 
 8. OVERALL ASSESSMENT (→ overall_assessment, extent_and_limitations)
    - overall_assessment: "satisfactory" / "unsatisfactory" (ANY DEFICIENT → "unsatisfactory")
@@ -2668,7 +2670,7 @@ Use \\n for line breaks within fields. Keep each bullet SHORT.
       ]
     },
     {
-      "title": "Circuits & Testing",
+      "title": "Circuits & Testing (Affected Area)",
       "items": [
         { "label": "Breaker(s) — tripped / functional", "status": "DEFICIENT", "note": "Breakers will not hold, tripped on fault" },
         { "label": "Circuit continuity test", "status": "DEFICIENT", "note": "Open paths on affected circuits" },
@@ -2676,7 +2678,7 @@ Use \\n for line breaks within fields. Keep each bullet SHORT.
         { "label": "Ground fault test", "status": "DEFICIENT", "note": "Ground fault present on affected circuits" },
         { "label": "AFCI breaker function (if applicable)", "status": "OK" },
         { "label": "GFCI outlets — trip test", "status": "OK" },
-        { "label": "Outlets — polarity / ground verification", "status": "OK" }
+        { "label": "Outlets — polarity / ground (affected area)", "status": "N/A", "note": "Pending re-wire" }
       ]
     },
     {
@@ -2686,7 +2688,7 @@ Use \\n for line breaks within fields. Keep each bullet SHORT.
         { "label": "Bus bars & breaker connections", "status": "OK" },
         { "label": "Grounding / bonding system", "status": "OK" },
         { "label": "Panel labeling / circuit directory", "status": "OK" },
-        { "label": "Service entrance / meter base", "status": "OK" }
+        { "label": "Service entrance / meter base", "status": "N/A" }
       ]
     },
     {

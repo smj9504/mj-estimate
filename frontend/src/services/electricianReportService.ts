@@ -215,7 +215,7 @@ export const DEFAULT_INSPECTION_CHECKLIST: ChecklistSection[] = [
     ],
   },
   {
-    title: 'Circuits & Testing',
+    title: 'Circuits & Testing (Affected Area)',
     items: [
       { label: 'Breaker(s) — tripped / functional', status: 'N/A' },
       { label: 'Circuit continuity test', status: 'N/A' },
@@ -223,7 +223,7 @@ export const DEFAULT_INSPECTION_CHECKLIST: ChecklistSection[] = [
       { label: 'Ground fault test', status: 'N/A' },
       { label: 'AFCI breaker function (if applicable)', status: 'N/A' },
       { label: 'GFCI outlets — trip test', status: 'N/A' },
-      { label: 'Outlets — polarity / ground verification', status: 'N/A' },
+      { label: 'Outlets — polarity / ground (affected area)', status: 'N/A' },
     ],
   },
   {
@@ -233,7 +233,7 @@ export const DEFAULT_INSPECTION_CHECKLIST: ChecklistSection[] = [
       { label: 'Bus bars & breaker connections', status: 'OK' },
       { label: 'Grounding / bonding system', status: 'OK' },
       { label: 'Panel labeling / circuit directory', status: 'OK' },
-      { label: 'Service entrance / meter base', status: 'OK' },
+      { label: 'Service entrance / meter base', status: 'N/A' },
     ],
   },
   {
