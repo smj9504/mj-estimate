@@ -116,6 +116,7 @@ const ElectricianReportCreation: React.FC = () => {
     water_source: '',
     state: 'MD',
     total_amount: '',
+    mitigation_status: 'completed',
     smoke_detectors: '',
     drywall_cuts: '',
     photo_description: '',
@@ -2270,6 +2271,7 @@ const ElectricianReportCreation: React.FC = () => {
               const jobDetails = [
                 `- Affected areas & non-working items:\n${affectedList}`,
                 `- Source of water: ${p.water_source || '(not specified)'}`,
+                `- Mitigation status: ${p.mitigation_status || 'completed'}`,
                 `- State: ${p.state || 'MD'}`,
                 p.total_amount ? `- Total invoice amount: $${p.total_amount}` : '- Total invoice amount: (use your best judgment based on scope)',
                 p.smoke_detectors ? `- Smoke detectors affected: ${p.smoke_detectors}` : '- Smoke detectors affected: NONE (do NOT add smoke detectors to report)',
@@ -2280,18 +2282,16 @@ const ElectricianReportCreation: React.FC = () => {
 
               const hasPhotos = p.photo_description.trim();
               const photoInstruction = hasPhotos
-                ? `\nIMPORTANT: I am attaching photos of the damage. Analyze them carefully and incorporate what you see into the findings, checklist status, and recommendations. Reference specific photo observations in your report (e.g. "as shown in attached photos, corrosion is visible on...").\n`
+                ? `\nIMPORTANT: I am attaching photos of the damage. Analyze them carefully and incorporate what you see into the findings, checklist status, and recommendations. Reference specific photo observations in your report. Use claim-safe language (no banned gradual-damage words).\n`
                 : '';
 
               const fullPrompt = `You are an experienced licensed master electrician in the DMV area (DC, Maryland, Virginia).
 Write a professional electrical inspection report for a water-damage-related service call at a single-family home or townhouse.
----
-SCENARIO:
-The property experienced water damage (e.g. burst pipe, roof leak, flooding).
-As a result, certain electrical components — primarily recessed lights (cans),
-ceiling fixtures, switches, and/or outlets in the affected area — are no longer
-operational. The homeowner or restoration company has called for an electrical
-inspection to assess the damage and provide a repair estimate.
+
+This report is shown to the HOMEOWNER and is also shared with the insurance ADJUSTER.
+Tone: objective professional diagnosis + scope of needed repairs. Not a defensive claim
+document, not a loose estimate. State observed facts and measurable test results; let the
+findings justify the scope.
 ---
 JOB DETAILS:
 ${jobDetails}
@@ -2374,6 +2374,18 @@ ${document.getElementById('electrician-prompt-requirements')?.textContent || ''}
                 value={promptInputs.water_source}
                 onChange={(e) => setPromptInputs(prev => ({ ...prev, water_source: e.target.value }))}
               />
+            </Col>
+            <Col xs={24} md={6}>
+              <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Mitigation Status</label>
+              <Select
+                value={promptInputs.mitigation_status}
+                onChange={(val) => setPromptInputs(prev => ({ ...prev, mitigation_status: val }))}
+                style={{ width: '100%' }}
+              >
+                <Option value="completed">Completed</Option>
+                <Option value="in progress">In Progress</Option>
+                <Option value="none">None</Option>
+              </Select>
             </Col>
             <Col xs={24} md={6}>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>State</label>
@@ -2461,71 +2473,63 @@ ${document.getElementById('electrician-prompt-requirements')?.textContent || ''}
               whiteSpace: 'pre-wrap',
               fontFamily: 'monospace',
             }}
-          >{`REPORT REQUIREMENTS:
+          >{`SCENARIO FLAGS (read from JOB DETAILS):
+- claim_type: default "sudden water event" unless stated otherwise
+- mitigation_status: "completed" / "in progress" / "none"
+  * If completed or in progress: do NOT describe standing water, wet boxes, or active moisture
+    as if fresh. Report only what remains and what tests show.
+
+REPORT REQUIREMENTS:
 
 1. CAUSE OF DAMAGE (→ site_findings)
-   - Briefly describe the water event that caused the electrical issue
-   - State that the water damage resulted in loss of power to specific
-     fixtures/circuits in the affected area
-   - Use factual, field technician language
+   - Briefly describe the water event (state it as a SUDDEN water event)
+   - State the water event resulted in loss of power to specific fixtures/circuits
+   - Factual, field language. This is the ONE place the cause is stated.
    - Do NOT mention age of wiring, wear and tear, or maintenance history
    - Do NOT imply fault or omission on the homeowner's part
+   - Do NOT reference the mitigation company or vouch for dry-out status
 
 2. ELECTRICAL FINDINGS (→ electrical_findings)
-   - Describe what was found during inspection:
-     * Which recessed lights / fixtures are non-operational
-     * Moisture or corrosion observed in junction boxes, wire connectors
-     * Condition of Romex/NM cable in the affected area
-     * Results of circuit testing (continuity, insulation resistance)
-     * Breaker status (tripped, functional)
-   - Reference specific areas/rooms
-   - Mention if insulation or drywall removal was needed for access
+   - Which fixtures/cans are non-operational, by room (use room names exactly as given)
+   - Condition of J-boxes, wire connectors, NM cable in affected area
+   - Circuit test results: continuity (open/closed), insulation resistance (megger)
+   - Breaker status (will not hold / dead)
+   - Mention drywall/insulation access cuts if access was needed
+   - Tie measurable results to scope (e.g. "tests open along the run, not a single device")
 
 3. SAFETY CONCERNS (→ safety_concerns)
-   - Any immediate safety hazards found (short circuit risk, shock hazard)
-   - Whether circuits were de-energized for safety
-   - Smoke/CO detector status in affected area
+   - Immediate hazards (shock/short if re-energized as-is)
+   - Circuits de-energized / locked out for safety
+   - Smoke/CO detector status ONLY if in JOB DETAILS
 
 4. WORK PERFORMED (→ work_performed)
-   - Describe the inspection work done:
-     * De-energized circuits, removed fixtures/trim for inspection
-     * Tested circuits with meter/megger
-     * Documented findings and photographed damage
-   - If repairs were done on-site, describe them
-   - Written as a field technician narrative
+   - De-energized circuits, removed fixtures/trim, tested w/ meter/megger, photographed
+   - Any on-site work is a TEMPORARY safety measure (cap/secure conductors).
+     NEVER write "replaced" or "repaired" for on-site work — this is inspection, not the repair job.
 
 5. RECOMMENDATIONS (→ recommendations)
-   - List specific repairs needed with quantities:
-     * Replace X recessed light housings + trim
-     * Replace X junction boxes and wire connectors
-     * Re-pull X feet of Romex/NM cable
-     * Replace X outlets/switches
-     * Smoke detectors ONLY if specified in JOB DETAILS
-     * Drywall cut & patch if specified in JOB DETAILS
-   - If drywall cuts are specified, include patching in recommendations
-   - Note: large drywall/insulation restoration by separate trade
-   - Recommend re-inspection after drying period if applicable
+   - Specific repairs w/ quantities: recessed housings+trim, J-boxes/connectors,
+     re-pull feet of NM, outlets/switches
+   - Justify re-pull and outlet replacement against test results (open circuit / megger fail /
+     splicing not code-compliant) — not just "water touched it"
+   - Smoke detectors / drywall cut & patch ONLY if specified in JOB DETAILS
+   - Note: large drywall/insulation/finish restoration by separate trade
 
 6. INVOICE (→ invoice_items)
-   - 5-10 line items typical for this scope:
-     * Inspection / Service Call Fee
-     * Labor — Fixture Removal & Circuit Testing
-     * Labor — Recessed Light Replacement (X units)
-     * Labor — Wiring Repair / Re-pull
-     * Materials — Recessed light housings, trim kits
-     * Materials — Wire, connectors, junction boxes
-     * Materials — Outlets, switches, cover plates (if needed)
-     * Labor — Drywall Cut & Patch (ONLY if specified in JOB DETAILS)
-     * Materials — Drywall patch, joint compound, tape (ONLY if drywall specified)
-     * Smoke detectors (ONLY if specified in JOB DETAILS)
-   - Do NOT add smoke detector line items unless user specified them
-   - Do NOT add drywall line items unless user specified them
+   - 5-10 line items typical for this scope
+   - Smoke detector / drywall line items ONLY if specified in JOB DETAILS
+   - Do NOT fabricate line items to hit a total; pad with legitimate electrical scope
+     (final test/re-energization, consumables) if needed
    - tax_amount and total must match the specified invoice amount
 
 7. INSPECTION CHECKLIST (→ inspection_checklist)
-   - Fill in status for each item based on findings
-   - Status values: "OK", "DEFICIENT", "N/A"
-   - Add notes for DEFICIENT items explaining the issue
+   - Status: "OK", "DEFICIENT", "N/A"
+   - NOTES RULE: notes state ONLY observed/measured facts — dead, no power, open path,
+     below threshold, moisture present, staining, connection failed, will not hold.
+     Do NOT write the CAUSE in notes (no "water damage", "water intrusion", "water-damaged").
+     Cause belongs in site_findings only. The checklist reports condition, not diagnosis.
+   - If a DEFICIENT item has no real deficiency note, fix the status (don't mark DEFICIENT
+     then write an OK-sounding note, and don't mark OK then write a deficiency)
    - Sections & items (use EXACT labels):
      * "Affected Lighting — Recessed Lights & Fixtures":
        Recessed lights (cans) — operational test,
@@ -2561,33 +2565,55 @@ ${document.getElementById('electrician-prompt-requirements')?.textContent || ''}
        CO detectors — functional,
        Exhaust fans (bath / kitchen) — operational,
        Arc / burn marks at any device or junction
-   - Mark items as N/A if not present in the property
-   - Only include sections/items that are relevant
-   - Smoke detectors: mark as "N/A" unless user specified them in JOB DETAILS
-   - Do NOT mark smoke detectors as DEFICIENT unless user explicitly said they're damaged
+   - Mark items N/A if not present
+   - Smoke detectors: "N/A" unless specified in JOB DETAILS; never DEFICIENT unless user said damaged
+   - Label text is fixed (don't change labels even if they say "corrosion")
 
 8. OVERALL ASSESSMENT (→ overall_assessment, extent_and_limitations)
-   - overall_assessment: "satisfactory" or "unsatisfactory"
-     * If ANY item is DEFICIENT → must be "unsatisfactory"
-   - extent_and_limitations: 1-2 sentences about what was inspected and
-     any limitations (e.g. "Inspection limited to water-affected areas.
-     Areas behind intact drywall not accessible.")
+   - overall_assessment: "satisfactory" / "unsatisfactory" (ANY DEFICIENT → "unsatisfactory")
+   - extent_and_limitations: 1-2 sentences on what was inspected + limits.
+     Do NOT state "areas dry at time of inspection" or vouch for dry-out — it weakens the
+     causal link and invites dispute. Just state scope + access limits.
 
 9. WARRANTY & NOTES (→ warranty_info, notes)
-   - warranty_info: 1-year labor warranty on all electrical work performed
-   - notes: Follow-up advisory (e.g. "Allow affected areas to fully dry
-     before ceiling/wall restoration. Re-inspection recommended if
-     additional water-damaged wiring is discovered during drywall work.")
+   - warranty_info: 1-year workmanship warranty on electrical work
+   - notes: follow-up advisory (electrical to complete before finish restoration;
+     re-inspect any newly exposed wiring during finish demo). Do NOT tell homeowner to
+     "let it dry" if mitigation_status is completed.
+
+CLAIM-SAFE WORDING — CRITICAL (sudden water event claims):
+This is a SUDDEN & ACCIDENTAL loss. Words implying GRADUAL / long-term damage give the
+adjuster grounds to deny. In ALL fields:
+- BANNED: corrosion, corroded, oxidation, oxidized, "green oxidation", rust, rusted,
+  deterioration, degraded (as a cause), wear, "over time", "long-standing"
+- USE INSTEAD: "water damage", "water intrusion", "water-affected", OR better, the
+  measurable result: "tests open", "fails megger / below threshold", "will not hold",
+  "no power", "dead", "moisture present", "staining"
+- Describe damage as the result of one event, never an ongoing process
+- Objective test results (megger fail, open continuity, dead circuit) are the strongest
+  evidence — lead with those
+
+FIXTURE NAMING — normalize field slang to standard names in OUTPUT:
+- "boob light" → "flush-mount ceiling fixture (dome)" or "dome fixture"
+- "can light" → "recessed light / can"
+- keep standard names as-is: wrap fixture, vanity light, recessed
+- Input may use slang; output report must use professional fixture names
+
+ROOM / LOCATION:
+- Use room names EXACTLY as given in JOB DETAILS
+- Do NOT assign rooms to floors/levels unless JOB DETAILS specifies the floor
+- If JOB DETAILS says damage spans multiple levels, state that at the summary level only;
+  do NOT guess which room is on which level
 
 WRITING STYLE — CRITICAL:
-Write like a real field electrician filling out a report on a tablet, NOT like an AI writing an essay.
+Write like a real field electrician filling out a report on a tablet, NOT like an AI essay.
 
 DO:
-- Use short, direct bullet points. One fact per line.
-- Start sentences with the thing, not "Upon arrival" or "Inspection revealed"
-- Use abbreviations naturally: "qty", "approx", "w/", "J-box", "NM-B"
+- Short, direct bullet points. One fact per line.
+- Start with the thing, not "Upon arrival" / "Inspection revealed"
+- Natural abbreviations: "qty", "approx", "w/", "J-box", "NM-B"
 - Be specific: room names, fixture counts, wire gauges, breaker numbers
-- Write what you SAW, not what "was observed" or "was noted"
+- Write what you SAW / MEASURED, not what "was observed"
 - Keep notes under 15 words per bullet
 - Vary sentence structure — mix fragments with short sentences
 
@@ -2595,75 +2621,63 @@ DO NOT:
 - Start with "Upon arrival at the property, technician was informed/advised..."
 - Use "Inspection of the affected area revealed the following:"
 - Write long flowing paragraphs — use \\n bullet lists
-- Use passive voice ("was found", "was observed", "were noted")
+- Use passive voice ("was found", "was observed")
 - Repeat the same sentence pattern for every bullet
 - Use filler: "as a direct result of", "consistent with", "at the time of inspection"
-- Sound like a legal document or insurance report
+- Sound like a legal document
 - Use the word "technician" — just describe what was done
-- FABRICATE items not mentioned in JOB DETAILS. Especially:
-  * Do NOT add smoke detectors unless explicitly listed
-  * Do NOT add drywall work unless explicitly listed
-  * Do NOT invent extra fixtures or outlets beyond what was provided
-  * Only report what the user actually described
+- FABRICATE items not in JOB DETAILS (no extra smoke detectors, drywall, fixtures, outlets)
+- Use any BANNED gradual-damage word above
 
-GOOD EXAMPLE style:
-  "Water from 2nd floor bathroom came down through ceiling into basement. Damaged wiring and fixtures in bar area, bedroom, hallway."
-  NOT: "Upon arrival at the property, technician was advised by the homeowner and restoration company that a water event originating from a supply/drain failure at the second-floor bathroom had released water down through the wall and ceiling cavities into the lower levels of the home."
-
-GOOD EXAMPLE bullet style:
-  "- Bar area: 2 recessed cans dead, corrosion on sockets\\n- Bedroom: 2 cans out, 7 outlets no power\\n- Hallway: 1 can out, 1 outlet dead"
-  NOT: "- 9 recessed light housings (4-inch and 6-inch cans) were non-operational: 1 above the bar, 2 near the bar, 1 above the pool table, 2 in the bedroom, 1 in the hallway, and 2 in the dining room. Housings showed moisture intrusion with corrosion on socket bases and at wire connections."
-
-Avoid these words/phrases entirely:
+Avoid these phrases entirely:
 - "upon arrival", "was advised", "was informed"
 - "revealed the following", "as noted above"
 - "consistent with", "at the time of inspection"
 - "as a direct result of the water intrusion"
-- "present a potential", "must remain"
 - wear and tear, deterioration, age-related, neglect, deferred maintenance
 - any language implying homeowner fault
 ---
 OUTPUT FORMAT: Return ONLY a valid JSON object (no markdown, no code fences).
 Use \\n for line breaks within fields. Keep each bullet SHORT.
 {
-  "site_findings": "Water from 2nd floor bathroom (supply line failure) came down through ceiling/walls into basement.\\nDamaged fixtures and wiring in bar area, bedroom, hallway, dining room, laundry, closet, bathroom.\\nMultiple lighting circuits and receptacle circuits lost power from water intrusion.",
-  "electrical_findings": "- Bar area: 1 recessed can dead, corroded socket and wire nuts\\n- Near bar: 2 cans out, moisture in J-boxes\\n- Pool table area: 1 can out, water staining in housing\\n- Bedroom: 2 cans dead, 7 outlets no power — corrosion at terminals\\n- Hallway: 1 can out, 1 outlet dead\\n- Dining room: 2 cans out, corroded connections\\n- Laundry: wrap fixture dead, water in canopy\\n- Closet: surface-mount fixture out, moisture in box\\n- Bathroom: 4-light vanity dead, corrosion at mounting strap\\n- Bar area: 4 outlets no power, water staining in boxes\\n\\nWiring: 14/2 and 12/2 NM-B in affected ceiling/walls shows discolored insulation, moisture wicking into conductors.\\nJ-boxes: corroded wire nuts, green oxidation on copper throughout.\\nMegger test: insulation resistance below threshold on affected circuits.\\nHad to open some ceiling/wall sections to access J-boxes and trace cable runs.",
-  "safety_concerns": "- Affected breakers found tripped (moisture-induced fault)\\n- All affected circuits locked out before inspection\\n- No arc marks or burn damage found",
-  "work_performed": "- Locked out all affected circuits at main panel\\n- Pulled recessed trims/housings, fixture canopies, cover plates\\n- Opened ceiling/wall access points to trace NM cable\\n- Voltage, continuity, and megger testing on all affected circuits\\n- Photographed damage at each location\\n- Replaced worst corroded wire nuts, capped exposed conductors\\n- Left affected circuits de-energized until full repair + dry-out",
-  "recommendations": "Repairs needed:\\n- 9 recessed housings (IC-rated) + LED trim kits\\n- 1 laundry wrap fixture, 1 closet ceiling fixture, 1 bathroom vanity (4-light)\\n- All corroded wire nuts and affected J-boxes in ceiling/wall cavities\\n- Re-pull approx 90ft of 14/2 and 12/2 NM-B\\n- 12 receptacles (7 bedroom, 1 hallway, 4 bar) + cover plates\\n- Cut and patch drywall at 5 access points (3 basement ceiling, 2 hallway wall)\\n- Final circuit test, megger, and re-energize\\n\\nLarge drywall/insulation/finish restoration by separate trade. Re-inspect any newly exposed wiring after demo.",
+  "site_findings": "Sudden water event from 2nd floor bathroom supply line came down through ceiling/walls into lower level.\\nWater intrusion damaged fixtures and wiring in bar area, bedroom, hallway, dining room, laundry, closet, bathroom.\\nMultiple lighting and receptacle circuits lost power.",
+  "electrical_findings": "- Bar area: 1 recessed can dead, no power at socket\\n- Near bar: 2 cans out, moisture present in J-boxes\\n- Pool table area: 1 can out, staining in housing\\n- Bedroom: 2 cans dead, 7 outlets no power — fails megger\\n- Hallway: 1 can out, 1 outlet dead\\n- Dining room: 2 cans out, connections failed\\n- Laundry: wrap fixture dead, moisture in canopy\\n- Closet: dome fixture out, moisture in box\\n- Bathroom: 4-light vanity dead, connections will not hold\\n- Bar area: 4 outlets no power, staining in boxes\\n\\nWiring: 14/2 and 12/2 NM-B in affected ceiling/walls — insulation discolored, tests open along multiple runs.\\nJ-boxes: connections failed, wire nuts will not hold.\\nMegger: insulation resistance below threshold on affected circuits.\\nOpened ceiling/wall sections to access J-boxes and trace cable runs.",
+  "safety_concerns": "- Affected breakers will not hold — tripped on fault\\n- All affected circuits locked out before inspection\\n- No arc marks or burn damage found",
+  "work_performed": "- Locked out all affected circuits at main panel\\n- Pulled recessed trims/housings, fixture canopies, cover plates\\n- Opened ceiling/wall access points to trace NM cable\\n- Voltage, continuity, and megger testing on all affected circuits\\n- Photographed damage at each location\\n- Capped and secured exposed conductors as temporary safety measure\\n- Left affected circuits de-energized pending full repair",
+  "recommendations": "Repairs needed:\\n- 9 recessed housings (IC-rated) + LED trim kits\\n- 1 laundry wrap fixture, 1 closet dome fixture, 1 bathroom vanity (4-light)\\n- All failed connections and affected J-boxes in ceiling/wall cavities\\n- Re-pull approx 90ft of 14/2 and 12/2 NM-B (tests open, not single-device failure)\\n- 12 receptacles (7 bedroom, 1 hallway, 4 bar) + cover plates — all fail megger\\n- Final circuit test, megger verification, and re-energize\\n\\nLarge drywall/insulation/finish restoration by separate trade. Re-inspect any newly exposed wiring during finish demo.",
   "inspection_checklist": [
     {
       "title": "Affected Lighting — Recessed Lights & Fixtures",
       "items": [
-        { "label": "Recessed lights (cans) — operational test", "status": "DEFICIENT", "note": "9 cans dead across bar, bedroom, hallway, dining" },
-        { "label": "Recessed light housings — moisture / corrosion", "status": "DEFICIENT", "note": "Corroded sockets, moisture in housings" },
-        { "label": "Recessed light wiring & connectors", "status": "DEFICIENT", "note": "Corroded wire nuts, oxidized copper — shock hazard" },
-        { "label": "Recessed light trim & lens condition", "status": "OK", "note": "Water-stained trims, need replacement" },
-        { "label": "Surface-mount ceiling fixtures — operational", "status": "DEFICIENT", "note": "Laundry wrap + closet fixture dead" },
+        { "label": "Recessed lights (cans) — operational test", "status": "DEFICIENT", "note": "9 cans dead — no power across bar, bedroom, hallway, dining" },
+        { "label": "Recessed light housings — moisture / corrosion", "status": "DEFICIENT", "note": "Moisture present in housings, staining on sockets" },
+        { "label": "Recessed light wiring & connectors", "status": "DEFICIENT", "note": "Connections failed, wire nuts will not hold" },
+        { "label": "Recessed light trim & lens condition", "status": "DEFICIENT", "note": "Stained trims, need replacement" },
+        { "label": "Surface-mount ceiling fixtures — operational", "status": "DEFICIENT", "note": "Laundry wrap + closet dome fixture dead" },
         { "label": "Pendant / chandelier fixtures", "status": "N/A" },
         { "label": "Ceiling fan / light combo units", "status": "N/A" },
-        { "label": "Under-cabinet / vanity lighting", "status": "DEFICIENT", "note": "Bathroom vanity (4-light) dead, corroded strap" }
+        { "label": "Under-cabinet / vanity lighting", "status": "DEFICIENT", "note": "Bathroom vanity (4-light) dead, connections failed" }
       ]
     },
     {
       "title": "Water Damage Assessment — Electrical",
       "items": [
-        { "label": "Ceiling junction boxes — moisture intrusion", "status": "DEFICIENT", "note": "Water residue + corroded wire nuts" },
-        { "label": "Wall outlet boxes — water staining / corrosion", "status": "DEFICIENT", "note": "Bedroom/hallway/bar boxes water-stained" },
+        { "label": "Ceiling junction boxes — moisture intrusion", "status": "DEFICIENT", "note": "Moisture residue, connections failed in J-boxes" },
+        { "label": "Wall outlet boxes — water staining / corrosion", "status": "DEFICIENT", "note": "Staining at terminals, fails megger" },
         { "label": "Switch boxes — moisture / corrosion", "status": "OK" },
-        { "label": "Wire insulation — discoloration / degradation", "status": "DEFICIENT", "note": "NM-B insulation discolored, moisture wicking" },
-        { "label": "Wire connectors (wire nuts) — corrosion", "status": "DEFICIENT", "note": "Corroded throughout affected J-boxes" },
-        { "label": "Romex / NM cable in affected area — condition", "status": "DEFICIENT", "note": "14/2 + 12/2 degraded, needs re-pull" },
+        { "label": "Wire insulation — discoloration / degradation", "status": "DEFICIENT", "note": "NM-B insulation discolored, tests open" },
+        { "label": "Wire connectors (wire nuts) — corrosion", "status": "DEFICIENT", "note": "Connections failed throughout affected J-boxes" },
+        { "label": "Romex / NM cable in affected area — condition", "status": "DEFICIENT", "note": "14/2 + 12/2 fails megger, needs re-pull" },
         { "label": "Conduit / raceway — water accumulation", "status": "N/A" }
       ]
     },
     {
       "title": "Circuits & Breakers — Affected Area",
       "items": [
-        { "label": "Breaker(s) serving affected area — tripped / functional", "status": "DEFICIENT", "note": "Lighting + receptacle breakers tripped" },
+        { "label": "Breaker(s) serving affected area — tripped / functional", "status": "DEFICIENT", "note": "Breakers will not hold, tripped on fault" },
         { "label": "Circuit continuity test — affected circuits", "status": "DEFICIENT", "note": "Open paths on affected circuits" },
         { "label": "Insulation resistance (megger) test", "status": "DEFICIENT", "note": "Below threshold on affected runs" },
-        { "label": "Ground fault on affected circuits", "status": "DEFICIENT", "note": "Moisture-induced fault" },
+        { "label": "Ground fault on affected circuits", "status": "DEFICIENT", "note": "Ground fault present on affected circuits" },
         { "label": "AFCI breaker function (if applicable)", "status": "OK" },
         { "label": "GFCI outlets in wet areas — trip test", "status": "OK" }
       ]
@@ -2756,7 +2770,7 @@ Use \\n for line breaks within fields. Keep each bullet SHORT.
   "overall_assessment": "unsatisfactory",
   "extent_and_limitations": "Inspection limited to water-affected areas of basement and first floor. Areas behind intact drywall not accessible without demolition.",
   "warranty_info": "1-year workmanship warranty on all electrical work from date of completion.",
-  "notes": "Let affected areas dry fully before ceiling/wall restoration. If more damaged wiring found during demo, supplemental estimate may be needed. Drywall/insulation/paint by separate trade."
+  "notes": "Electrical work to be completed before finish restoration. Re-inspect any newly exposed wiring during finish demo. If additional water-affected wiring is discovered, supplemental estimate may be required. Drywall/insulation/paint by separate trade."
 }`}</div>
         </details>
       </Modal>
