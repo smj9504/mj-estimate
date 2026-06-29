@@ -2531,37 +2531,36 @@ REPORT REQUIREMENTS:
    - If a DEFICIENT item has no real deficiency note, fix the status (don't mark DEFICIENT
      then write an OK-sounding note, and don't mark OK then write a deficiency)
    - Sections & items (use EXACT labels):
-     * "Affected Lighting — Recessed Lights & Fixtures":
+     * "Lighting & Fixtures":
        Recessed lights (cans) — operational test,
-       Recessed light housings — moisture / corrosion,
-       Recessed light wiring & connectors,
-       Recessed light trim & lens condition,
-       Surface-mount ceiling fixtures — operational,
+       Surface-mount / flush ceiling fixtures,
        Pendant / chandelier fixtures,
        Ceiling fan / light combo units,
-       Under-cabinet / vanity lighting
-     * "Water Damage Assessment — Electrical":
-       Ceiling junction boxes — moisture intrusion,
-       Wall outlet boxes — water staining / corrosion,
-       Switch boxes — moisture / corrosion,
-       Wire insulation — discoloration / degradation,
-       Wire connectors (wire nuts) — corrosion,
-       Romex / NM cable in affected area — condition,
-       Conduit / raceway — water accumulation
-     * "Circuits & Breakers — Affected Area":
-       Breaker(s) serving affected area — tripped / functional,
-       Circuit continuity test — affected circuits,
+       Under-cabinet / vanity lighting,
+       Exterior / porch lighting
+     * "Wiring & Connections":
+       Junction boxes — condition / accessibility,
+       Wire connectors (wire nuts) — condition,
+       Wire insulation — condition,
+       NM cable (Romex) — condition,
+       Conduit / raceway — condition,
+       Outlet / switch boxes — condition
+     * "Circuits & Testing":
+       Breaker(s) — tripped / functional,
+       Circuit continuity test,
        Insulation resistance (megger) test,
-       Ground fault on affected circuits,
+       Ground fault test,
        AFCI breaker function (if applicable),
-       GFCI outlets in wet areas — trip test
-     * "Panel & Service (General Condition)":
-       Main panel — signs of moisture / corrosion,
+       GFCI outlets — trip test,
+       Outlets — polarity / ground verification
+     * "Panel & Service":
+       Main panel — general condition,
        Bus bars & breaker connections,
        Grounding / bonding system,
-       Panel labeling / circuit directory
-     * "Safety & Smoke / CO Detection":
-       Smoke detectors in affected area — functional,
+       Panel labeling / circuit directory,
+       Service entrance / meter base
+     * "Safety & Detection":
+       Smoke detectors — functional,
        CO detectors — functional,
        Exhaust fans (bath / kitchen) — operational,
        Arc / burn marks at any device or junction
@@ -2647,54 +2646,53 @@ Use \\n for line breaks within fields. Keep each bullet SHORT.
   "recommendations": "Repairs needed:\\n- 9 recessed housings (IC-rated) + LED trim kits\\n- 1 laundry wrap fixture, 1 closet dome fixture, 1 bathroom vanity (4-light)\\n- All failed connections and affected J-boxes in ceiling/wall cavities\\n- Re-pull approx 90ft of 14/2 and 12/2 NM-B (tests open, not single-device failure)\\n- 12 receptacles (7 bedroom, 1 hallway, 4 bar) + cover plates — all fail megger\\n- Final circuit test, megger verification, and re-energize\\n\\nLarge drywall/insulation/finish restoration by separate trade. Re-inspect any newly exposed wiring during finish demo.",
   "inspection_checklist": [
     {
-      "title": "Affected Lighting — Recessed Lights & Fixtures",
+      "title": "Lighting & Fixtures",
       "items": [
         { "label": "Recessed lights (cans) — operational test", "status": "DEFICIENT", "note": "9 cans dead — no power across bar, bedroom, hallway, dining" },
-        { "label": "Recessed light housings — moisture / corrosion", "status": "DEFICIENT", "note": "Moisture present in housings, staining on sockets" },
-        { "label": "Recessed light wiring & connectors", "status": "DEFICIENT", "note": "Connections failed, wire nuts will not hold" },
-        { "label": "Recessed light trim & lens condition", "status": "DEFICIENT", "note": "Stained trims, need replacement" },
-        { "label": "Surface-mount ceiling fixtures — operational", "status": "DEFICIENT", "note": "Laundry wrap + closet dome fixture dead" },
+        { "label": "Surface-mount / flush ceiling fixtures", "status": "DEFICIENT", "note": "Laundry wrap + closet dome fixture dead" },
         { "label": "Pendant / chandelier fixtures", "status": "N/A" },
         { "label": "Ceiling fan / light combo units", "status": "N/A" },
-        { "label": "Under-cabinet / vanity lighting", "status": "DEFICIENT", "note": "Bathroom vanity (4-light) dead, connections failed" }
+        { "label": "Under-cabinet / vanity lighting", "status": "DEFICIENT", "note": "Bathroom vanity (4-light) dead, connections failed" },
+        { "label": "Exterior / porch lighting", "status": "OK" }
       ]
     },
     {
-      "title": "Water Damage Assessment — Electrical",
+      "title": "Wiring & Connections",
       "items": [
-        { "label": "Ceiling junction boxes — moisture intrusion", "status": "DEFICIENT", "note": "Moisture residue, connections failed in J-boxes" },
-        { "label": "Wall outlet boxes — water staining / corrosion", "status": "DEFICIENT", "note": "Staining at terminals, fails megger" },
-        { "label": "Switch boxes — moisture / corrosion", "status": "OK" },
-        { "label": "Wire insulation — discoloration / degradation", "status": "DEFICIENT", "note": "NM-B insulation discolored, tests open" },
-        { "label": "Wire connectors (wire nuts) — corrosion", "status": "DEFICIENT", "note": "Connections failed throughout affected J-boxes" },
-        { "label": "Romex / NM cable in affected area — condition", "status": "DEFICIENT", "note": "14/2 + 12/2 fails megger, needs re-pull" },
-        { "label": "Conduit / raceway — water accumulation", "status": "N/A" }
+        { "label": "Junction boxes — condition / accessibility", "status": "DEFICIENT", "note": "Moisture residue, connections failed in J-boxes" },
+        { "label": "Wire connectors (wire nuts) — condition", "status": "DEFICIENT", "note": "Connections failed, will not hold" },
+        { "label": "Wire insulation — condition", "status": "DEFICIENT", "note": "NM-B insulation discolored, tests open" },
+        { "label": "NM cable (Romex) — condition", "status": "DEFICIENT", "note": "14/2 + 12/2 fails megger, needs re-pull" },
+        { "label": "Conduit / raceway — condition", "status": "N/A" },
+        { "label": "Outlet / switch boxes — condition", "status": "DEFICIENT", "note": "Staining at terminals, fails megger" }
       ]
     },
     {
-      "title": "Circuits & Breakers — Affected Area",
+      "title": "Circuits & Testing",
       "items": [
-        { "label": "Breaker(s) serving affected area — tripped / functional", "status": "DEFICIENT", "note": "Breakers will not hold, tripped on fault" },
-        { "label": "Circuit continuity test — affected circuits", "status": "DEFICIENT", "note": "Open paths on affected circuits" },
+        { "label": "Breaker(s) — tripped / functional", "status": "DEFICIENT", "note": "Breakers will not hold, tripped on fault" },
+        { "label": "Circuit continuity test", "status": "DEFICIENT", "note": "Open paths on affected circuits" },
         { "label": "Insulation resistance (megger) test", "status": "DEFICIENT", "note": "Below threshold on affected runs" },
-        { "label": "Ground fault on affected circuits", "status": "DEFICIENT", "note": "Ground fault present on affected circuits" },
+        { "label": "Ground fault test", "status": "DEFICIENT", "note": "Ground fault present on affected circuits" },
         { "label": "AFCI breaker function (if applicable)", "status": "OK" },
-        { "label": "GFCI outlets in wet areas — trip test", "status": "OK" }
+        { "label": "GFCI outlets — trip test", "status": "OK" },
+        { "label": "Outlets — polarity / ground verification", "status": "OK" }
       ]
     },
     {
-      "title": "Panel & Service (General Condition)",
+      "title": "Panel & Service",
       "items": [
-        { "label": "Main panel — signs of moisture / corrosion", "status": "OK" },
+        { "label": "Main panel — general condition", "status": "OK" },
         { "label": "Bus bars & breaker connections", "status": "OK" },
         { "label": "Grounding / bonding system", "status": "OK" },
-        { "label": "Panel labeling / circuit directory", "status": "OK" }
+        { "label": "Panel labeling / circuit directory", "status": "OK" },
+        { "label": "Service entrance / meter base", "status": "OK" }
       ]
     },
     {
-      "title": "Safety & Smoke / CO Detection",
+      "title": "Safety & Detection",
       "items": [
-        { "label": "Smoke detectors in affected area — functional", "status": "N/A" },
+        { "label": "Smoke detectors — functional", "status": "N/A" },
         { "label": "CO detectors — functional", "status": "N/A" },
         { "label": "Exhaust fans (bath / kitchen) — operational", "status": "N/A" },
         { "label": "Arc / burn marks at any device or junction", "status": "OK" }
