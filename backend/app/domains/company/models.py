@@ -56,6 +56,7 @@ class Company(Base, BaseModel):
     invoices = relationship("Invoice", back_populates="company", foreign_keys="Invoice.company_id", cascade="all, delete-orphan", lazy='select')
     estimates = relationship("Estimate", back_populates="company", cascade="all, delete-orphan", lazy='select')
     plumber_reports = relationship("PlumberReport", back_populates="company", cascade="all, delete-orphan", lazy='select')
+    electrician_reports = relationship("ElectricianReport", back_populates="company", cascade="all, delete-orphan", lazy='select')
     sketches = relationship("Sketch", back_populates="company", cascade="all, delete-orphan", lazy='select')
     receipts = relationship("Receipt", back_populates="company", cascade="all, delete-orphan", lazy='select')
     receipt_templates = relationship("ReceiptTemplate", back_populates="company", cascade="all, delete-orphan", lazy='select')

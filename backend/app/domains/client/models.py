@@ -89,6 +89,10 @@ class Claim(Base, BaseModel):
     plumber_report_id = Column(
         UUIDType(), ForeignKey("plumber_reports.id", ondelete="SET NULL"), nullable=True
     )
+    # Optional electrician report link
+    electrician_report_id = Column(
+        UUIDType(), ForeignKey("electrician_reports.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Claim identification
     claim_number = Column(String(100), nullable=False, index=True)
@@ -173,6 +177,9 @@ class Claim(Base, BaseModel):
     )
     plumber_report = relationship(
         "PlumberReport", foreign_keys=[plumber_report_id], lazy='select'
+    )
+    electrician_report = relationship(
+        "ElectricianReport", foreign_keys=[electrician_report_id], lazy='select'
     )
     contracts = relationship(
         "ContractInstance", back_populates="claim",
