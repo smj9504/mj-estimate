@@ -133,6 +133,7 @@ from app.domains.plumber_report.api import router as plumber_report_router
 from app.domains.plumber_report.templates.api import (
     router as plumber_report_template_router,
 )
+from app.domains.electrician_report.api import router as electrician_report_router
 from app.domains.receipt.api import router as receipt_router
 from app.domains.reconstruction_estimate.api import (
     router as reconstruction_estimate_router,
@@ -738,6 +739,7 @@ app.include_router(invoice_router, prefix="/api/invoices", tags=["Invoices"])
 app.include_router(estimate_router, prefix="/api/estimates", tags=["Estimates"])
 app.include_router(plumber_report_router, prefix="/api/plumber-reports", tags=["Plumber Reports"])
 app.include_router(plumber_report_template_router, prefix="/api", tags=["Plumber Report Templates"])
+app.include_router(electrician_report_router, prefix="/api/electrician-reports", tags=["Electrician Reports"])
 app.include_router(document_router, prefix="/api/documents", tags=["Documents"])
 
 # New Work Order System endpoints

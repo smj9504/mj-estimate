@@ -120,6 +120,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             key: '/documents/plumber_report',
             label: 'Plumber Reports',
           },
+          {
+            key: '/documents/electrician_report',
+            label: 'Electrician Reports',
+          },
         ],
       },
       {

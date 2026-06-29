@@ -1,0 +1,236 @@
+/* Electrician's Report - Invoice-style layout */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  color: #000;
+  margin: 0;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* Screen wrapper */
+@media screen {
+  body { background: #e8e8e8; margin: 0; }
+  .page-wrapper {
+    background: white;
+    max-width: 8.5in;
+    margin: 20px auto;
+    padding: 0.15in 0.4in 0.2in 0.4in;
+    box-shadow: 0 0 15px rgba(0,0,0,0.25);
+  }
+}
+
+/* Header */
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.report-meta { line-height: 1.3; }
+.report-meta h1 { font-size: 24px; margin-bottom: 5px; }
+.report-meta p { margin: 2px 0; font-size: 13px; }
+
+.company-right { text-align: right; font-size: 13px; line-height: 1.4; }
+.company-right p { margin: 2px 0; }
+
+.logo {
+  max-width: 100px; max-height: 60px;
+  width: auto; height: auto; object-fit: contain;
+  display: block; margin-left: auto; margin-bottom: 6px;
+}
+
+/* Address / Client section */
+.address-section {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px; margin-bottom: 6px;
+}
+.address-section p { margin: 2px 0; font-size: 13px; }
+.client-col { width: 45%; }
+
+/* Section title */
+.section-title {
+  margin-top: 12px; margin-bottom: 3px;
+  font-weight: bold; font-size: 14px; color: #000;
+  border-bottom: 1px solid #333; padding-bottom: 4px;
+}
+
+/* Safety header (red accent) */
+.safety-header { color: #c00; border-bottom-color: #c00; }
+.safety-box { border-left: 3px solid #c00; padding-left: 10px; }
+
+/* Rich text content box */
+.content-box {
+  font-size: 13px; color: #333;
+  margin-top: 5px; line-height: 1.5;
+  font-weight: 400;
+}
+.content-box p { margin-bottom: 4px; }
+
+/* Checklist */
+.checklist-section { margin-top: 8px; margin-bottom: 6px; }
+.checklist-section-title {
+  font-weight: bold; font-size: 12px;
+  background: #f5f5f5; padding: 4px 6px;
+  border-left: 3px solid #333;
+}
+
+.checklist-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 12px; margin-top: 2px;
+}
+.checklist-table th {
+  text-align: left; padding: 4px 6px;
+  border-bottom: 1px solid #ccc; font-size: 11px;
+  color: #666; background: #fafafa;
+}
+.checklist-table td {
+  padding: 4px 6px; border-bottom: 1px solid #f0f0f0;
+}
+.checklist-table .status-cell { width: 80px; text-align: center; }
+.checklist-table .note-cell { width: 35%; font-size: 11px; color: #555; }
+
+.badge {
+  display: inline-block; padding: 2px 8px;
+  border-radius: 3px; font-size: 10px; font-weight: bold;
+}
+.badge.ok { background: #e6f4e6; color: #1a7a1a; }
+.badge.deficient { background: #fde8e8; color: #c00; }
+.badge.na { background: #f0f0f0; color: #666; }
+
+tr.status-deficient td { background: #fff8f8; }
+
+/* Overall Assessment */
+.overall-assessment {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; margin: 10px 0;
+  border: 2px solid #ccc; border-radius: 4px;
+}
+.overall-assessment.satisfactory {
+  border-color: #1a7a1a; background: #f0faf0;
+}
+.overall-assessment.unsatisfactory {
+  border-color: #c00; background: #fff5f5;
+}
+.assessment-label { font-weight: bold; font-size: 14px; }
+.assessment-value {
+  font-size: 16px; font-weight: bold; letter-spacing: 1px;
+}
+.satisfactory .assessment-value { color: #1a7a1a; }
+.unsatisfactory .assessment-value { color: #c00; }
+.next-inspection { font-size: 12px; color: #555; margin-left: auto; }
+
+/* Circuit Test Results */
+.circuit-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 11px; margin-top: 4px;
+}
+.circuit-table th {
+  text-align: left; padding: 4px 6px;
+  border-bottom: 1px solid #ccc; font-size: 10px;
+  color: #666; background: #fafafa;
+}
+.circuit-table td {
+  padding: 4px 6px; border-bottom: 1px solid #f0f0f0;
+}
+
+/* Line items */
+.line-header {
+  font-weight: bold; border-bottom: 1px solid #ccc;
+  margin-top: 8px; padding-bottom: 3px; display: flex;
+}
+.line-item-group { border-bottom: 1px solid #f0f0f0; }
+.line-row { display: flex; padding: 5px 0; font-size: 13px; }
+
+.col-item  { width: 44%; }
+.col-qty   { width: 9%;  text-align: right; }
+.col-unit  { width: 9%;  text-align: right; }
+.col-price { width: 19%; text-align: right; }
+.col-total { width: 19%; text-align: right; }
+
+.col-desc {
+  font-style: italic; font-size: 12px; color: #555;
+  margin-left: 20px; padding-bottom: 5px;
+}
+
+/* Totals */
+.footer-total {
+  display: flex; justify-content: flex-end;
+  margin-top: 10px; margin-bottom: 10px;
+}
+.totals-container { width: 300px; }
+.total-row {
+  display: flex; justify-content: space-between;
+  padding: 4px 0; font-size: 13px;
+}
+.total-row.grand-total {
+  border-top: 1px solid #000;
+  padding-top: 8px; margin-top: 4px;
+  font-size: 14px; font-weight: bold;
+}
+.total-row.balance-due { font-size: 14px; font-weight: bold; }
+.total-label { color: #555; }
+.total-value { color: #000; font-weight: 500; }
+.grand-total .total-label,
+.grand-total .total-value { color: #000; font-weight: bold; }
+
+/* Paid in Full */
+.paid-in-full .total-value { color: #666; }
+.paid-stamp {
+  margin-top: 10px; padding: 6px 0; text-align: center;
+  font-size: 18px; font-weight: bold; color: #1a7a1a;
+  letter-spacing: 2px; border: 2px solid #1a7a1a; border-radius: 4px;
+}
+
+/* Notes / terms */
+.note { font-size: 13px; color: #333; margin-top: 10px; line-height: 1.5; }
+
+/* Photo grid — 2 columns, preserve aspect ratio */
+.photo-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+.photo-card { width: 48%; break-inside: avoid; }
+.photo-card img {
+  width: 100%; max-height: 300px; object-fit: contain;
+  background: #f5f5f5;
+  border: 1px solid #ddd; border-radius: 3px;
+  display: block;
+}
+.photo-card p { font-size: 11px; color: #555; margin-top: 3px; text-align: center; }
+
+/* Footer (screen only) */
+.report-footer {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: #666;
+  border-top: 1px solid #ccc; padding-top: 4px; margin-top: 24px;
+}
+
+/* Print */
+@page {
+  size: letter;
+  margin: 0.5in 0.4in 0.5in 0.4in;
+}
+
+@media print {
+  .print-btn { display: none !important; }
+  body { background: white; margin: 0; }
+  .page-wrapper {
+    box-shadow: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Footer at end of report (flows with content) */
+  .report-footer {
+    margin-top: 20px;
+    border-top: 1px solid #ccc;
+    padding-top: 6px;
+  }
+}

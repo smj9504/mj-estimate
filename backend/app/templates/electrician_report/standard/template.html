@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Electrician's Report{% if report_number %} #{{ report_number }}{% endif %}{% if property and property.address %} - {{ property.address }}{% endif %}</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="page-wrapper">
+
+  <!-- Header -->
+  <div class="header-top">
+    <div class="report-meta">
+      <h1>Electrical Inspection Report</h1>
+      {% if report_number %}<p><strong>Report #</strong> {{ report_number }}</p>{% endif %}
+      <p>Service Date: {{ service_date | date }}</p>
+      {% if technician_name %}<p>Technician: {{ technician_name }}</p>{% endif %}
+      {% if license_number %}<p>License #: {{ license_number }}</p>{% endif %}
+    </div>
+    <div class="company-right">
+      {% if company_data %}
+        {% if company_data.logo %}
+          <img src="{{ company_data.logo }}" alt="{{ company_data.name }}" class="logo">
+        {% endif %}
+        {% if company_data.name %}<p><strong>{{ company_data.name }}</strong></p>{% endif %}
+        {% if company_data.address %}<p>{{ company_data.address }}</p>{% endif %}
+        {% if company_data.city or company_data.state %}
+          <p>{{ company_data.city }}{% if company_data.city and company_data.state %}, {% endif %}{{ company_data.state }} {{ company_data.zipcode }}</p>
+        {% endif %}
+        {% if company_data.phone %}<p>{{ company_data.phone }}</p>{% endif %}
+        {% if company_data.email %}<p>{{ company_data.email }}</p>{% endif %}
+        {% if company_data.license %}<p>License #: {{ company_data.license }}</p>{% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Client Information -->
+  {% if client.name or client.address or client.phone or client.email %}
+  <div class="address-section">
+    <div class="client-col">
+      <p><strong>Client</strong></p>
+      {% if client.name %}<p>{{ client.name }}</p>{% endif %}
+      {% if client.address %}<p>{{ client.address }}</p>{% endif %}
+      {% if client.city or client.state %}
+        <p>{{ client.city }}{% if client.city and client.state %}, {% endif %}{{ client.state }} {{ client.zipcode }}</p>
+      {% endif %}
+      {% if client.phone %}<p>{{ client.phone }}</p>{% endif %}
+      {% if client.email %}<p>{{ client.email }}</p>{% endif %}
+    </div>
+    {% if panel_type or panel_amperage or system_voltage or building_type %}
+    <div class="client-col">
+      <p><strong>Electrical System Info</strong></p>
+      {% if building_type %}<p>Building Type: {{ building_type }}</p>{% endif %}
+      {% if panel_type %}<p>Panel Type: {{ panel_type }}</p>{% endif %}
+      {% if panel_location %}<p>Panel Location: {{ panel_location }}</p>{% endif %}
+      {% if panel_amperage %}<p>Panel Amperage: {{ panel_amperage }}</p>{% endif %}
+      {% if system_voltage %}<p>System Voltage: {{ system_voltage }}</p>{% endif %}
+      {% if meter_number %}<p>Meter #: {{ meter_number }}</p>{% endif %}
+      {% if earthing_type %}<p>Earthing: {{ earthing_type }}</p>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Purpose & Extent -->
+  {% if purpose_of_report or extent_and_limitations %}
+  <div class="section-title">Purpose & Extent of Report</div>
+  <div class="content-box">
+    {% if purpose_of_report %}<p><strong>Purpose:</strong> {{ purpose_of_report }}</p>{% endif %}
+    {% if extent_and_limitations %}<p><strong>Extent & Limitations:</strong> {{ extent_and_limitations }}</p>{% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Cause of Damage / Assessment -->
+  {% if cause_of_damage %}
+  <div class="section-title">Cause of Damage / Assessment</div>
+  <div class="content-box">{{ cause_of_damage | safe }}</div>
+  {% endif %}
+
+  <!-- Electrical Findings -->
+  {% if electrical_findings %}
+  <div class="section-title">Electrical Findings</div>
+  <div class="content-box">{{ electrical_findings | safe }}</div>
+  {% endif %}
+
+  <!-- Safety Concerns -->
+  {% if safety_concerns %}
+  <div class="section-title safety-header">Safety Concerns</div>
+  <div class="content-box safety-box">{{ safety_concerns | safe }}</div>
+  {% endif %}
+
+  <!-- Code Violations -->
+  {% if code_violations %}
+  <div class="section-title">NEC Code Violations</div>
+  <div class="content-box">{{ code_violations | safe }}</div>
+  {% endif %}
+
+  <!-- Inspection Checklist -->
+  {% if inspection_checklist %}
+  <div class="section-title">Inspection Checklist</div>
+  {% for section in inspection_checklist %}
+  <div class="checklist-section">
+    <div class="checklist-section-title">{{ section['title'] }}</div>
+    <table class="checklist-table">
+      <thead>
+        <tr><th>Item</th><th>Status</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        {% for item in section['items'] %}
+        <tr class="status-{{ item.status | lower }}">
+          <td>{{ item.label }}</td>
+          <td class="status-cell">
+            {% if item.status == 'OK' %}<span class="badge ok">OK</span>
+            {% elif item.status == 'DEFICIENT' %}<span class="badge deficient">Deficient</span>
+            {% elif item.status == 'N/A' %}<span class="badge na">N/A</span>
+            {% else %}<span class="badge">{{ item.status }}</span>
+            {% endif %}
+          </td>
+          <td class="note-cell">{{ item.note or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <!-- Schedule of Circuit Test Results -->
+  {% if circuit_test_results %}
+  <div class="section-title">Schedule of Circuit Test Results</div>
+  <table class="circuit-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Circuit</th>
+        <th>Device</th>
+        <th>Wire</th>
+        <th>Insulation (MΩ)</th>
+        <th>Continuity (Ω)</th>
+        <th>GFCI</th>
+        <th>Code</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ct in circuit_test_results %}
+      <tr class="status-{{ ct.status | lower }}">
+        <td>{{ ct.circuit_id }}</td>
+        <td>{{ ct.circuit_description }}</td>
+        <td>{{ ct.protective_device }}</td>
+        <td>{{ ct.conductor_size }}</td>
+        <td>{{ ct.insulation_resistance or '—' }}</td>
+        <td>{{ ct.continuity or '—' }}</td>
+        <td>{{ ct.gfci_test or '—' }}</td>
+        <td class="status-cell">
+          {% if ct.status == 'OK' %}<span class="badge ok">OK</span>
+          {% elif ct.status == 'C1' %}<span class="badge c1">C1</span>
+          {% elif ct.status == 'C2' %}<span class="badge c2">C2</span>
+          {% elif ct.status == 'C3' %}<span class="badge c3">C3</span>
+          {% elif ct.status == 'FI' %}<span class="badge fi">FI</span>
+          {% else %}<span class="badge na">{{ ct.status }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <!-- Scope of Work -->
+  {% if work_performed %}
+  <div class="section-title">Scope of Work</div>
+  <div class="content-box">{{ work_performed | safe }}</div>
+  {% endif %}
+
+  <!-- Repair Estimate + Totals -->
+  {% if invoice_items or (include_financial and financial) %}
+  <div class="section-title">Repair Estimate</div>
+
+  {% if invoice_items %}
+  <div class="line-header">
+    <div class="col-item">Item</div>
+    <div class="col-qty">Qty</div>
+    <div class="col-unit">Unit</div>
+    <div class="col-price">Unit Price</div>
+    <div class="col-total">Total</div>
+  </div>
+
+  {% for item in invoice_items %}
+  {% set desc_text = (item.description or '') | replace('<br>', '') | replace('<br/>', '') | replace('<br />', '') | replace('&nbsp;', '') | trim %}
+  <div class="line-item-group">
+    <div class="line-row">
+      <div class="col-item">{{ item.name }}</div>
+      <div class="col-qty">{{ item.quantity }}</div>
+      <div class="col-unit">{{ item.unit or 'ea' }}</div>
+      <div class="col-price">${{ item.unit_cost | currency }}</div>
+      <div class="col-total">${{ item.total_cost | currency }}</div>
+    </div>
+    {% if desc_text %}
+    <div class="col-desc">{{ item.description | safe }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <!-- Totals -->
+  {% if include_financial and financial %}
+  <div class="footer-total">
+    <div class="totals-container">
+      {% if financial.tax_amount > 0 or financial.discount > 0 %}
+      <div class="total-row">
+        <span class="total-label">Subtotal</span>
+        <span class="total-value">${{ financial.subtotal | currency }}</span>
+      </div>
+      {% endif %}
+      {% if financial.discount > 0 %}
+      <div class="total-row">
+        <span class="total-label">Discount</span>
+        <span class="total-value">-${{ financial.discount | currency }}</span>
+      </div>
+      {% endif %}
+      {% if financial.tax_amount > 0 %}
+      <div class="total-row">
+        <span class="total-label">Tax</span>
+        <span class="total-value">${{ financial.tax_amount | currency }}</span>
+      </div>
+      {% endif %}
+      <div class="total-row grand-total">
+        <span class="total-label">Total</span>
+        <span class="total-value">${{ financial.total_amount | currency }}</span>
+      </div>
+
+      {% if payments %}
+        {% for payment in payments %}
+        <div class="total-row">
+          <span class="total-label">Payment{% if show_payment_dates and payment.date %} ({{ payment.date | date }}){% endif %}{% if payment.method %} &ndash; {{ payment.method }}{% endif %}</span>
+          <span class="total-value">-${{ payment.amount | currency }}</span>
+        </div>
+        {% endfor %}
+        {% if financial.balance_due <= 0 %}
+        <div class="total-row grand-total paid-in-full">
+          <span class="total-label">Balance Due</span>
+          <span class="total-value">$0.00</span>
+        </div>
+        <div class="paid-stamp">PAID IN FULL</div>
+        {% else %}
+        <div class="total-row grand-total balance-due">
+          <span class="total-label">Balance Due</span>
+          <span class="total-value">${{ financial.balance_due | currency }}</span>
+        </div>
+        {% endif %}
+      {% else %}
+        <div class="total-row grand-total balance-due">
+          <span class="total-label">Estimated Total</span>
+          <span class="total-value">${{ financial.total_amount | currency }}</span>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+  {% endif %}
+
+  <!-- Recommendations -->
+  {% if recommendations %}
+  <div class="section-title">Recommendations</div>
+  <div class="content-box">{{ recommendations | safe }}</div>
+  {% endif %}
+
+  <!-- Photos -->
+  {% if photos and include_photos %}
+  <div class="section-title">Photo Documentation</div>
+  <div class="photo-grid">
+    {% for photo in photos %}
+    <div class="photo-card">
+      <img src="{{ photo.url }}" alt="{{ photo.caption or 'Photo' }}">
+      {% set cat_labels = {'damage':'Water Damage','panel':'Electrical Panel','fixture':'Light Fixture','wiring':'Wiring / Junction Box','outlet':'Outlet / Switch','moisture':'Moisture / Staining','before':'Before','after':'After Repair','other':'Other'} %}
+      <p><strong>{{ cat_labels.get(photo.category, photo.category) }}</strong>{% if photo.caption %}: {{ photo.caption }}{% endif %}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Warranty Information -->
+  {% if warranty_info %}
+  <div class="section-title">Warranty Information</div>
+  <div class="content-box note">{{ warranty_info | safe }}</div>
+  {% endif %}
+
+  <!-- Terms & Conditions -->
+  {% if terms_conditions %}
+  <div class="section-title">Terms &amp; Conditions</div>
+  <div class="content-box note" style="font-size:11px;">{{ terms_conditions | safe }}</div>
+  {% endif %}
+
+  <!-- Additional Notes -->
+  {% if notes %}
+  <div class="section-title">Additional Notes</div>
+  <div class="content-box note">{{ notes | safe }}</div>
+  {% endif %}
+
+  <!-- Footer -->
+  <div class="report-footer">
+    <span>{% if report_number %}Report #{{ report_number }}{% endif %}</span>
+    <span>{{ service_date | date }}</span>
+    <span>{% if company_data and company_data.name %}{{ company_data.name }}{% endif %}</span>
+  </div>
+
+</div>
+</body>
+</html>

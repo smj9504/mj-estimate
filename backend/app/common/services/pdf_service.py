@@ -1768,6 +1768,259 @@ print(os.path.getsize(output_path))
 
         return html_content
 
+    # ================================================================
+    # Electrician Inspection Report
+    # ================================================================
+
+    @staticmethod
+    def generate_electrician_report_pdf(
+        report_data: Dict[str, Any],
+        include_photos: bool = True,
+        include_financial: bool = True
+    ) -> bytes:
+        """Generate PDF for Electrician Inspection Report (same pattern as plumber)"""
+        _ensure_weasyprint()
+        if not WEASYPRINT_AVAILABLE:
+            raise RuntimeError("WeasyPrint is not available")
+
+        template_dir = TEMPLATE_DIR / "electrician_report" / "standard"
+        env = Environment(loader=FileSystemLoader(str(template_dir)))
+
+        def date_filter(value):
+            if isinstance(value, datetime):
+                return _format_date_en(value)
+            if isinstance(value, date):
+                return f"{_EN_MONTHS[value.month - 1]} {value.day}, {value.year}"
+            if isinstance(value, str):
+                try:
+                    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                    return _format_date_en(dt)
+                except (ValueError, TypeError):
+                    return value
+            return value
+
+        def nl2br_filter(value):
+            return value.replace('\n', '<br>') if value else value
+
+        def currency_filter(value):
+            try:
+                return f"{float(value):,.2f}"
+            except (ValueError, TypeError):
+                return value
+
+        env.filters['date'] = date_filter
+        env.filters['nl2br'] = nl2br_filter
+        env.filters['safe'] = lambda v: v
+        env.filters['currency'] = currency_filter
+
+        context = report_data.copy()
+        context['include_photos'] = include_photos
+        context['include_financial'] = include_financial
+        context['generated_date'] = datetime.now().strftime("%B %d, %Y")
+
+        # Compress photos for PDF to avoid timeout
+        if include_photos and context.get('photos'):
+            import base64 as b64
+            from io import BytesIO
+            try:
+                from PIL import Image as PILImage
+                compressed = []
+                for photo in context['photos']:
+                    url = photo.get('url', '')
+                    if url.startswith('data:image'):
+                        try:
+                            header, data = url.split(',', 1)
+                            img_bytes = b64.b64decode(data)
+                            img = PILImage.open(BytesIO(img_bytes))
+                            img.thumbnail((800, 800), PILImage.LANCZOS)
+                            if img.mode in ('RGBA', 'P'):
+                                img = img.convert('RGB')
+                            buf = BytesIO()
+                            img.save(buf, format='JPEG', quality=60, optimize=True)
+                            new_data = b64.b64encode(buf.getvalue()).decode()
+                            photo = {**photo, 'url': f'data:image/jpeg;base64,{new_data}'}
+                        except Exception:
+                            pass
+                    compressed.append(photo)
+                context['photos'] = compressed
+            except ImportError:
+                pass  # PIL not available, use original photos
+
+        template = env.get_template('template.html')
+        html_content = template.render(**context)
+        html_content = html_content.replace('<link rel="stylesheet" href="style.css">', '')
+
+        css_path = template_dir / 'style.css'
+        stylesheets = []
+        if css_path.exists():
+            with open(css_path, 'r', encoding='utf-8') as f:
+                stylesheets.append(CSS(string=f.read()))
+
+        report_number = report_data.get('report_number', '')
+        report_label = f"Report #{report_number}" if report_number else ''
+        prop = report_data.get('property', {}) or {}
+        if isinstance(prop, dict):
+            addr_parts = [p for p in [
+                prop.get('address', ''), prop.get('city', ''),
+                prop.get('state', ''), prop.get('zipcode', '')
+            ] if p]
+            property_address = ', '.join(addr_parts)
+        else:
+            property_address = ''
+
+        page_css = f"""
+        @page {{
+            size: letter;
+            margin: 0.2in 0.4in 0.5in 0.4in;
+            @bottom-left {{
+                content: "{report_label}";
+                font-size: 8pt; color: #666;
+                border-top: 0.5pt solid #ccc; padding-top: 3px;
+            }}
+            @bottom-center {{
+                content: "Page " counter(page) "/" counter(pages);
+                font-size: 8pt; color: #666;
+                border-top: 0.5pt solid #ccc; padding-top: 3px;
+            }}
+            @bottom-right {{
+                content: "{property_address}";
+                font-size: 8pt; color: #666;
+                border-top: 0.5pt solid #ccc; padding-top: 3px;
+            }}
+        }}
+        @page :first {{
+            margin: 0.2in 0.4in 0.3in 0.4in;
+            @bottom-left {{ content: none; }}
+            @bottom-center {{ content: none; }}
+            @bottom-right {{ content: none; }}
+        }}
+        .report-footer {{ display: none !important; }}
+        """
+        stylesheets.append(CSS(string=page_css))
+
+        pdf_document = HTML(
+            string=html_content, base_url=str(template_dir)
+        ).write_pdf(stylesheets=stylesheets)
+        return pdf_document
+
+    @staticmethod
+    def generate_electrician_report_html(
+        report_data: Dict[str, Any],
+        include_photos: bool = True,
+        include_financial: bool = True
+    ) -> str:
+        """Generate HTML for Electrician Report (browser preview)"""
+        template_dir = TEMPLATE_DIR / "electrician_report" / "standard"
+        env = Environment(loader=FileSystemLoader(str(template_dir)))
+
+        def date_filter(value):
+            if isinstance(value, datetime):
+                return _format_date_en(value)
+            if isinstance(value, date):
+                return f"{_EN_MONTHS[value.month - 1]} {value.day}, {value.year}"
+            if isinstance(value, str):
+                try:
+                    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                    return _format_date_en(dt)
+                except (ValueError, TypeError):
+                    return value
+            return value
+
+        def nl2br_filter(value):
+            return value.replace('\n', '<br>') if value else value
+
+        def currency_filter(value):
+            try:
+                return f"{float(value):,.2f}"
+            except (ValueError, TypeError):
+                return value
+
+        env.filters['date'] = date_filter
+        env.filters['nl2br'] = nl2br_filter
+        env.filters['safe'] = lambda v: v
+        env.filters['currency'] = currency_filter
+
+        context = report_data.copy()
+        context['include_photos'] = include_photos
+        context['include_financial'] = include_financial
+        context['generated_date'] = datetime.now().strftime("%B %d, %Y")
+
+        template = env.get_template('template.html')
+        html_content = template.render(**context)
+
+        css_path = template_dir / 'style.css'
+        css_content = css_path.read_text(encoding='utf-8', errors='replace') if css_path.exists() else ''
+
+        report_number = report_data.get('report_number', '')
+        report_label = f"Report #{report_number}" if report_number else ''
+        prop = report_data.get('property', {}) or {}
+        if isinstance(prop, dict):
+            addr_parts = [p for p in [
+                prop.get('address', ''), prop.get('city', ''),
+                prop.get('state', ''), prop.get('zipcode', '')
+            ] if p]
+            property_address = ', '.join(addr_parts)
+        else:
+            property_address = ''
+
+        report_label_safe = html_escape(report_label)
+        property_address_safe = html_escape(property_address)
+
+        print_btn_style = """
+        .print-btn {
+            position: fixed; top: 12px; right: 16px; z-index: 9999;
+            background: #1f2937; color: white; border: none;
+            padding: 9px 18px; font-size: 13px; font-family: Arial, sans-serif;
+            cursor: pointer; border-radius: 4px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+        .print-btn:hover { background: #374151; }
+        """
+
+        print_hf_css = """
+        .print-running-footer {
+            display: none;
+        }
+        @media print {
+            .print-running-footer {
+                display: flex; justify-content: space-between; align-items: center;
+                position: fixed; bottom: 0; left: 0.4in; right: 0.4in;
+                height: 18px;
+                border-top: 0.5pt solid #ccc;
+                padding-top: 3px;
+                font-size: 8pt; color: #888;
+            }
+            .report-footer { display: none !important; }
+            .page-wrapper {
+                box-shadow: none;
+                padding: 0 0.4in 0 0.4in !important;
+            }
+        }
+        @page { size: letter; margin: 0.4in 0 0.5in 0; }
+        """
+
+        html_content = html_content.replace(
+            '<link rel="stylesheet" href="style.css">',
+            f'<style>{css_content}\n{print_btn_style}\n{print_hf_css}</style>'
+        )
+        html_content = html_content.replace(
+            '<body>',
+            '<body><button class="print-btn" onclick="window.print()">&#128438; Print / Save as PDF</button>'
+        )
+
+        footer_div = (
+            f'<div class="print-running-footer">'
+            f'<span>{report_label_safe}</span>'
+            f'<span>{property_address_safe}</span>'
+            f'</div>'
+        )
+        html_content = html_content.replace(
+            '<div class="page-wrapper">',
+            f'{footer_div}<div class="page-wrapper">'
+        )
+        html_content = html_content.encode('utf-8', errors='replace').decode('utf-8')
+        return html_content
+
     def generate_receipt_html(self, data: Dict[str, Any]) -> str:
         """
         Generate receipt HTML from data (without converting to PDF)

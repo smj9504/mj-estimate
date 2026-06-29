@@ -81,7 +81,7 @@ export interface CompanyFilter {
 }
 
 // Document Types
-export type DocumentType = 'estimate' | 'invoice' | 'insurance_estimate' | 'plumber_report' | 'work_order';
+export type DocumentType = 'estimate' | 'invoice' | 'insurance_estimate' | 'plumber_report' | 'electrician_report' | 'work_order';
 // Invoice statuses
 export type InvoiceStatus = 'pending' | 'paid' | 'overdue' | 'cancelled';
 

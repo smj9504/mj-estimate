@@ -63,6 +63,8 @@ const WorkOrderDetail = lazy(() => import('./pages/WorkOrderDetail'));
 
 // Plumber Report Pages
 const PlumberReportCreation = lazy(() => import('./pages/PlumberReportCreation'));
+// Electrician Report Pages
+const ElectricianReportCreation = lazy(() => import('./pages/ElectricianReportCreation'));
 
 // Line Item Pages
 const LineItemManagement = lazy(() => import('./pages/LineItemManagement'));
@@ -479,6 +481,30 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <PlumberReportCreation />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/create/electrician-report",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <ElectricianReportCreation />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/electrician-reports/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <ElectricianReportCreation />
           </Suspense>
         </Layout>
       </ProtectedRoute>

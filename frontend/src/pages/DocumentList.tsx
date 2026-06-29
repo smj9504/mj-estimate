@@ -33,6 +33,7 @@ import { documentService } from '../services/documentService';
 import { invoiceService, InvoiceResponse } from '../services/invoiceService';
 import { estimateService } from '../services/estimateService';
 import { plumberReportService } from '../services/plumberReportService';
+import { electricianReportService } from '../services/electricianReportService';
 import { Document, DocumentFilter, DocumentType, DocumentStatus, InvoiceStatus, EstimateStatus, EstimateType, EstimateTypeLabels } from '../types';
 import dayjs from 'dayjs';
 
@@ -176,6 +177,30 @@ const DocumentList: React.FC = () => {
           })),
           total: result.total,
         };
+      } else if (type === 'electrician_report') {
+        const result = await electricianReportService.getReports({
+          skip: (currentPage - 1) * pageSize,
+          limit: pageSize,
+          status: filter.status,
+          search: filter.search,
+        });
+
+        return {
+          items: result.reports.map((report: any): TableDocument => ({
+            id: report.id,
+            document_number: report.report_number || '',
+            type: 'electrician_report' as DocumentType,
+            company_id: report.company_id || '',
+            client_name: report.client?.name || '',
+            client_address: report.property?.address || report.client?.address || '',
+            client_city: report.property?.city || report.client?.city || '',
+            total_amount: report.total_amount || 0,
+            status: report.status as DocumentStatus,
+            created_at: report.created_at,
+            updated_at: report.updated_at,
+          })),
+          total: result.total,
+        };
       } else {
         // Use document service for other types
         const result = await documentService.getDocuments(filter, currentPage, pageSize);
@@ -209,6 +234,8 @@ const DocumentList: React.FC = () => {
         return estimateService.deleteEstimate(id);
       } else if (type === 'plumber_report') {
         return plumberReportService.deleteReport(id);
+      } else if (type === 'electrician_report') {
+        return electricianReportService.deleteReport(id);
       } else {
         return documentService.deleteDocument(id);
       }
@@ -233,6 +260,8 @@ const DocumentList: React.FC = () => {
         return await estimateService.duplicateEstimate(id);
       } else if (type === 'plumber_report') {
         return await plumberReportService.duplicateReport(id);
+      } else if (type === 'electrician_report') {
+        return await electricianReportService.duplicateReport(id);
       } else {
         return await documentService.duplicateDocument(id);
       }
@@ -340,6 +369,9 @@ const DocumentList: React.FC = () => {
       } else if (type === 'plumber_report') {
         blob = await plumberReportService.generatePDF(id);
         filename = `plumber_report_${record.document_number || id}.pdf`;
+      } else if (type === 'electrician_report') {
+        blob = await electricianReportService.generatePDF(id);
+        filename = `electrician_report_${record.document_number || id}.pdf`;
       } else {
         blob = await documentService.generatePDF(id);
         filename = `document_${id}.pdf`;
@@ -412,6 +444,8 @@ const DocumentList: React.FC = () => {
               navigate(`/insurance-estimate/${record.id}`);
             } else if (record.type === 'plumber_report') {
               navigate(`/plumber-reports/${record.id}`);
+            } else if (record.type === 'electrician_report') {
+              navigate(`/electrician-reports/${record.id}`);
             }
           }}
           style={{ cursor: 'pointer' }}
@@ -439,6 +473,7 @@ const DocumentList: React.FC = () => {
           invoice: 'Invoice',
           insurance_estimate: 'Insurance Estimate',
           plumber_report: 'Plumber Report',
+          electrician_report: 'Electrician Report',
           work_order: 'Work Order',
         };
         return typeMap[documentType] || documentType;
@@ -527,6 +562,8 @@ const DocumentList: React.FC = () => {
                 navigate(`/insurance-estimate/${record.id}`);
               } else if (record.type === 'plumber_report') {
                 navigate(`/plumber-reports/${record.id}`);
+              } else if (record.type === 'electrician_report') {
+                navigate(`/electrician-reports/${record.id}`);
               }
             },
           },
@@ -586,12 +623,15 @@ const DocumentList: React.FC = () => {
           {type === 'invoice' && 'Invoice List'}
           {type === 'insurance_estimate' && 'Insurance Estimate List'}
           {type === 'plumber_report' && 'Plumber Report List'}
+          {type === 'electrician_report' && 'Electrician Report List'}
           {!type && 'All Documents'}
         </Title>
         <Button type="primary" onClick={() => {
             let createPath: string;
             if (type === 'plumber_report') {
               createPath = '/create/plumber-report';
+            } else if (type === 'electrician_report') {
+              createPath = '/create/electrician-report';
             } else if (type === 'insurance_estimate') {
               createPath = '/create/insurance-estimate';
             } else {
