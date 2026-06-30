@@ -8,6 +8,11 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
+import base64
+import io
+import logging
+import uuid as _uuid
+
 from app.domains.electrician_report.models import ElectricianReport
 from app.domains.company.models import Company
 from app.domains.electrician_report.schemas import (
@@ -16,6 +21,8 @@ from app.domains.electrician_report.schemas import (
     ElectricianReportResponse,
     FinancialSummary
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ElectricianReportService:
@@ -196,7 +203,7 @@ class ElectricianReportService:
 
             payments=[payment.dict() for payment in report_data.payments],
             show_payment_dates=report_data.show_payment_dates,
-            photos=[photo.dict() for photo in report_data.photos],
+            photos=[photo.dict() for photo in report_data.photos],  # will be replaced after flush
 
             warranty_info=report_data.warranty_info,
             terms_conditions=report_data.terms_conditions,
@@ -206,6 +213,12 @@ class ElectricianReportService:
 
         db.add(db_report)
         db.flush()
+
+        # Upload base64 photos to GCS now that we have report_id
+        if db_report.photos:
+            db_report.photos = ElectricianReportService._upload_photos_to_gcs(
+                db_report.photos, str(db_report.id)
+            )
 
         claim_id = getattr(report_data, 'claim_id', None)
         if claim_id:
@@ -226,6 +239,88 @@ class ElectricianReportService:
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Failed to link electrician report to claim: {e}")
+
+    @staticmethod
+    def _upload_photos_to_gcs(photos: list, report_id: str) -> list:
+        """Upload base64 photos to GCS, return list with URLs.
+        Photos already stored as URLs are passed through unchanged.
+        """
+        try:
+            from app.domains.storage.factory import StorageFactory
+            storage = StorageFactory.get_instance()
+        except Exception as e:
+            logger.warning(f"Storage unavailable, keeping photos as-is: {e}")
+            return photos
+
+        result = []
+        for photo in photos:
+            p = photo if isinstance(photo, dict) else photo.dict()
+            url = p.get("url", "")
+
+            if not url.startswith("data:image"):
+                result.append(p)
+                continue
+
+            try:
+                header, b64_data = url.split(",", 1)
+                img_bytes = base64.b64decode(b64_data)
+                ext = "png" if "png" in header else "jpg"
+                ct = "image/png" if ext == "png" else "image/jpeg"
+                pid = p.get("id", _uuid.uuid4().hex[:8])
+                filename = f"{pid}.{ext}"
+
+                upload_result = storage.upload(
+                    file_data=io.BytesIO(img_bytes),
+                    filename=filename,
+                    context="electrician-report",
+                    context_id=str(report_id),
+                    category="photos",
+                    content_type=ct,
+                )
+                result.append({
+                    **p,
+                    "url": upload_result.file_url,
+                    "file_id": upload_result.file_id,
+                })
+                logger.info(f"Photo {pid} uploaded to GCS")
+            except Exception as e:
+                logger.error(f"Photo upload failed for {p.get('id')}: {e}")
+                result.append(p)
+
+        return result
+
+    @staticmethod
+    def resolve_photo_urls(report_dict: dict) -> dict:
+        """Convert gs:// photo URLs to signed URLs for browser access."""
+        photos = report_dict.get("photos")
+        if not photos:
+            return report_dict
+
+        has_gs = any(
+            p.get("url", "").startswith("gs://") for p in photos
+        )
+        if not has_gs:
+            return report_dict
+
+        try:
+            from app.domains.storage.factory import StorageFactory
+            storage = StorageFactory.get_instance()
+        except Exception:
+            return report_dict
+
+        resolved = []
+        for p in photos:
+            url = p.get("url", "")
+            if url.startswith("gs://"):
+                try:
+                    signed = storage.get_url(url, expires_in=3600)
+                    resolved.append({**p, "url": signed})
+                except Exception:
+                    resolved.append(p)
+            else:
+                resolved.append(p)
+        report_dict["photos"] = resolved
+        return report_dict
 
     @staticmethod
     def get_claim_id_for_report(db: Session, report_id) -> Optional[str]:
@@ -305,10 +400,15 @@ class ElectricianReportService:
         for arr_field in ["invoice_items", "payments", "photos", "inspection_checklist"]:
             if arr_field in update_data:
                 items = update_data.pop(arr_field)
-                setattr(db_report, arr_field, [
+                converted = [
                     item.dict() if hasattr(item, 'dict') else item
                     for item in items
-                ])
+                ]
+                if arr_field == "photos":
+                    converted = ElectricianReportService._upload_photos_to_gcs(
+                        converted, str(report_id)
+                    )
+                setattr(db_report, arr_field, converted)
 
         if "materials_equipment_text" in update_data:
             db_report.materials_equipment_text = update_data.pop("materials_equipment_text")

@@ -61,7 +61,8 @@ async def create_electrician_report(
         raise HTTPException(status_code=500, detail=f"Failed to create report: {str(e)}")
 
     try:
-        return ElectricianReportResponse.model_validate(db_report.to_dict())
+        report_dict = ElectricianReportService.resolve_photo_urls(db_report.to_dict())
+        return ElectricianReportResponse.model_validate(report_dict)
     except Exception as e:
         logger.error(f"Report created but serialization failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Report created but response serialization failed: {str(e)}")
@@ -97,7 +98,8 @@ async def get_electrician_report(
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     claim_id = ElectricianReportService.get_claim_id_for_report(db, report_id)
-    return ElectricianReportResponse.model_validate(report.to_dict(claim_id=claim_id))
+    report_dict = ElectricianReportService.resolve_photo_urls(report.to_dict(claim_id=claim_id))
+    return ElectricianReportResponse.model_validate(report_dict)
 
 
 @router.put("/{report_id}", response_model=ElectricianReportResponse)
@@ -113,7 +115,8 @@ async def update_electrician_report(
     )
     if not updated_report:
         raise HTTPException(status_code=404, detail="Report not found")
-    return ElectricianReportResponse.model_validate(updated_report.to_dict())
+    report_dict = ElectricianReportService.resolve_photo_urls(updated_report.to_dict())
+    return ElectricianReportResponse.model_validate(report_dict)
 
 
 @router.delete("/{report_id}")
@@ -128,21 +131,53 @@ async def delete_electrician_report(
     return {"message": "Report deleted successfully"}
 
 
-@router.post("/{report_id}/upload-photo")
+@router.post("/upload-photo")
 async def upload_report_photo(
-    report_id: UUID,
     file: UploadFile = File(...),
-    category: str = Form(...),
+    category: str = Form("damage"),
     caption: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
+    report_id: Optional[str] = Form(None),
 ):
-    """Upload a photo for an electrician report"""
-    return {
-        "id": "photo_123",
-        "url": f"/api/photos/{report_id}/photo_123.jpg",
-        "category": category,
-        "caption": caption
-    }
+    """Upload a photo to GCS storage and return URL.
+    Works before or after report is saved (report_id is optional).
+    """
+    import io
+    import uuid
+    from app.domains.storage.factory import StorageFactory
+
+    try:
+        storage = StorageFactory.get_instance()
+    except Exception as e:
+        logger.error(f"Storage not available: {e}")
+        raise HTTPException(status_code=500, detail="Storage service unavailable")
+
+    file_content = await file.read()
+    if not file_content:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    context_id = report_id or f"temp-{uuid.uuid4().hex[:12]}"
+    filename = file.filename or f"photo_{uuid.uuid4().hex[:8]}.jpg"
+
+    try:
+        result = storage.upload(
+            file_data=io.BytesIO(file_content),
+            filename=filename,
+            context="electrician-report",
+            context_id=context_id,
+            category="photos",
+            content_type=file.content_type or "image/jpeg",
+        )
+        photo_id = f"photo_{uuid.uuid4().hex[:12]}"
+        return {
+            "id": photo_id,
+            "url": result.file_url,
+            "file_id": result.file_id,
+            "category": category,
+            "caption": caption,
+        }
+    except Exception as e:
+        logger.error(f"Photo upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @router.post("/{report_id}/generate-pdf")

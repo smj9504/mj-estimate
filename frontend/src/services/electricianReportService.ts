@@ -38,6 +38,7 @@ export interface PaymentRecord {
 export interface PhotoRecord {
   id: string;
   url: string;
+  file_id?: string;
   category: 'before' | 'during' | 'after' | 'damage' | 'panel' | 'wiring' | 'other';
   caption?: string;
   timestamp?: string;
@@ -284,19 +285,17 @@ class ElectricianReportService {
     await api.delete(`${this.baseUrl}/${id}`);
   }
 
-  async uploadPhoto(
-    reportId: string,
-    file: File,
-    category: string,
-    caption?: string
-  ): Promise<PhotoRecord> {
+  async uploadPhoto(file: File, category: string = 'damage', caption?: string, reportId?: string): Promise<{
+    id: string; url: string; file_id: string; category: string; caption: string | null;
+  }> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('category', category);
     if (caption) formData.append('caption', caption);
-
-    const response = await api.post(`${this.baseUrl}/${reportId}/upload-photo`, formData, {
+    if (reportId) formData.append('report_id', reportId);
+    const response = await api.post(`${this.baseUrl}/upload-photo`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
     });
     return response.data;
   }

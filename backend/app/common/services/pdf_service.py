@@ -1818,33 +1818,17 @@ print(os.path.getsize(output_path))
         context['include_financial'] = include_financial
         context['generated_date'] = datetime.now().strftime("%B %d, %Y")
 
-        # Compress photos for PDF to avoid timeout
+        # Strip base64 logo — crashes WeasyPrint on Windows
+        if context.get('company_data') and isinstance(context['company_data'], dict):
+            logo = context['company_data'].get('logo', '')
+            if logo and logo.startswith('data:'):
+                context['company_data'] = {**context['company_data'], 'logo': None}
+
+        # Extract photos — WeasyPrint renders text only, photos appended via reportlab
+        photos_for_append = []
         if include_photos and context.get('photos'):
-            import base64 as b64
-            from io import BytesIO
-            try:
-                from PIL import Image as PILImage
-                compressed = []
-                for photo in context['photos']:
-                    url = photo.get('url', '')
-                    if url.startswith('data:image'):
-                        try:
-                            header, data = url.split(',', 1)
-                            img_bytes = b64.b64decode(data)
-                            img = PILImage.open(BytesIO(img_bytes))
-                            img.thumbnail((800, 800), PILImage.LANCZOS)
-                            if img.mode in ('RGBA', 'P'):
-                                img = img.convert('RGB')
-                            buf = BytesIO()
-                            img.save(buf, format='JPEG', quality=60, optimize=True)
-                            new_data = b64.b64encode(buf.getvalue()).decode()
-                            photo = {**photo, 'url': f'data:image/jpeg;base64,{new_data}'}
-                        except Exception:
-                            pass
-                    compressed.append(photo)
-                context['photos'] = compressed
-            except ImportError:
-                pass  # PIL not available, use original photos
+            photos_for_append = context['photos']
+        context['include_photos'] = False  # always exclude from WeasyPrint HTML
 
         template = env.get_template('template.html')
         html_content = template.render(**context)
@@ -1871,7 +1855,7 @@ print(os.path.getsize(output_path))
         page_css = f"""
         @page {{
             size: letter;
-            margin: 0.2in 0.4in 0.5in 0.4in;
+            margin: 0.5in 0.4in 0.65in 0.4in;
             @bottom-left {{
                 content: "{report_label}";
                 font-size: 8pt; color: #666;
@@ -1889,7 +1873,7 @@ print(os.path.getsize(output_path))
             }}
         }}
         @page :first {{
-            margin: 0.2in 0.4in 0.3in 0.4in;
+            margin: 0.4in 0.4in 0.3in 0.4in;
             @bottom-left {{ content: none; }}
             @bottom-center {{ content: none; }}
             @bottom-right {{ content: none; }}
@@ -1901,7 +1885,133 @@ print(os.path.getsize(output_path))
         pdf_document = HTML(
             string=html_content, base_url=str(template_dir)
         ).write_pdf(stylesheets=stylesheets)
+
+        # Append photo pages using reportlab (much faster than WeasyPrint)
+        if photos_for_append:
+            pdf_document = PDFService._append_photo_pages(
+                pdf_document, photos_for_append
+            )
+
         return pdf_document
+
+    @staticmethod
+    def _append_photo_pages(
+        pdf_bytes: bytes,
+        photos: list
+    ) -> bytes:
+        """Append photo pages to PDF using reportlab+pypdf."""
+        _ensure_pypdf()
+        if not PYPDF_AVAILABLE:
+            return pdf_bytes
+
+        import base64 as b64
+        from reportlab.pdfgen import canvas as pdf_canvas
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.units import inch
+
+        try:
+            from PIL import Image as PILImage
+        except ImportError:
+            return pdf_bytes
+
+        cat_labels = {
+            'damage': 'Water Damage', 'panel': 'Electrical Panel',
+            'fixture': 'Light Fixture', 'wiring': 'Wiring / Junction Box',
+            'outlet': 'Outlet / Switch', 'moisture': 'Moisture / Staining',
+            'before': 'Before', 'during': 'During',
+            'after': 'After Repair', 'other': 'Other',
+        }
+
+        writer = PdfWriter()
+
+        # Add existing report pages
+        main_reader = PdfReader(io.BytesIO(pdf_bytes))
+        for p in main_reader.pages:
+            writer.add_page(p)
+
+        # Build photo pages — 2 photos per page
+        W, H = letter
+        margin = 0.4 * inch
+        usable_w = W - 2 * margin
+        slot_h = (H - 2 * margin - 0.6 * inch) / 2  # 2 slots + title
+
+        for i in range(0, len(photos), 2):
+            buf = io.BytesIO()
+            c = pdf_canvas.Canvas(buf, pagesize=letter)
+
+            # Page title
+            if i == 0:
+                c.setFont("Helvetica-Bold", 14)
+                c.drawString(margin, H - margin - 14,
+                             "Photo Documentation")
+                y_start = H - margin - 32
+            else:
+                y_start = H - margin
+
+            for j, photo in enumerate(photos[i:i + 2]):
+                url = photo.get('url', '')
+                caption = photo.get('caption', '')
+                category = cat_labels.get(
+                    photo.get('category', ''), photo.get('category', '')
+                )
+
+                slot_y = y_start - j * (slot_h + 10)
+
+                try:
+                    if url.startswith('data:image'):
+                        _, data = url.split(',', 1)
+                        img_bytes = b64.b64decode(data)
+                        img = PILImage.open(io.BytesIO(img_bytes))
+                    elif url.startswith('http'):
+                        import urllib.request
+                        req = urllib.request.Request(
+                            url, headers={'User-Agent': 'Mozilla/5.0'}
+                        )
+                        with urllib.request.urlopen(req, timeout=15) as resp:
+                            img = PILImage.open(io.BytesIO(resp.read()))
+                    else:
+                        continue
+
+                    # Resize for PDF
+                    img.thumbnail((600, 600), PILImage.LANCZOS)
+                    if img.mode in ('RGBA', 'P'):
+                        img = img.convert('RGB')
+
+                    img_w, img_h = img.size
+                    max_img_w = usable_w
+                    max_img_h = slot_h - 20
+                    scale = min(max_img_w / img_w, max_img_h / img_h, 1)
+                    draw_w = img_w * scale
+                    draw_h = img_h * scale
+
+                    img_buf = io.BytesIO()
+                    img.save(img_buf, format='JPEG', quality=50)
+                    img_buf.seek(0)
+
+                    from reportlab.lib.utils import ImageReader
+                    x = margin + (usable_w - draw_w) / 2
+                    y = slot_y - draw_h
+                    c.drawImage(ImageReader(img_buf),
+                                x, y, draw_w, draw_h)
+
+                    # Caption
+                    label = f"{category}: {caption}" if caption else category
+                    c.setFont("Helvetica", 8)
+                    c.drawCentredString(
+                        W / 2, y - 12, label[:100]
+                    )
+                except Exception:
+                    continue
+
+            c.save()
+            buf.seek(0)
+            page_reader = PdfReader(buf)
+            if page_reader.pages:
+                writer.add_page(page_reader.pages[0])
+
+        out = io.BytesIO()
+        writer.write(out)
+        return out.getvalue()
 
     @staticmethod
     def generate_electrician_report_html(
@@ -1966,6 +2076,21 @@ print(os.path.getsize(output_path))
         report_label_safe = html_escape(report_label)
         property_address_safe = html_escape(property_address)
 
+        # Override <title> for PDF filename (Jinja may have empty values)
+        street = (prop.get('address') or '') if isinstance(prop, dict) else ''
+        title_parts = ['Electrical Inspection Report']
+        if report_number:
+            title_parts.append(f'#{report_number}')
+        if street:
+            title_parts.append(html_escape(street))
+        new_title = ' - '.join(title_parts)
+        html_content = re.sub(
+            r'<title>.*?</title>',
+            f'<title>{new_title}</title>',
+            html_content,
+            count=1
+        )
+
         print_btn_style = """
         .print-btn {
             position: fixed; top: 12px; right: 16px; z-index: 9999;
@@ -1978,25 +2103,38 @@ print(os.path.getsize(output_path))
         """
 
         print_hf_css = """
-        .print-running-footer {
-            display: none;
-        }
+        .print-running-footer { display: none; }
+
         @media print {
             .print-running-footer {
-                display: flex; justify-content: space-between; align-items: center;
-                position: fixed; bottom: 0; left: 0.4in; right: 0.4in;
-                height: 18px;
+                display: none;
+            }
+            .print-running-footer.footer-active {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                position: fixed;
+                bottom: 0;
+                left: 0.3in;
+                right: 0.3in;
+                padding: 4px 0 0.2in 0;
                 border-top: 0.5pt solid #ccc;
-                padding-top: 3px;
-                font-size: 8pt; color: #888;
+                font-size: 8pt;
+                color: #666;
             }
             .report-footer { display: none !important; }
             .page-wrapper {
                 box-shadow: none;
-                padding: 0 0.4in 0 0.4in !important;
+                max-width: none;
+                margin: 0;
+                padding: 0 !important;
             }
         }
-        @page { size: letter; margin: 0.4in 0 0.5in 0; }
+
+        @page {
+            size: letter;
+            margin: 0.4in 0.4in 0.5in 0.4in;
+        }
         """
 
         html_content = html_content.replace(
@@ -2018,6 +2156,32 @@ print(os.path.getsize(output_path))
             '<div class="page-wrapper">',
             f'{footer_div}<div class="page-wrapper">'
         )
+
+        # JS: show footer only when content spans multiple pages
+        js_snippet = (
+            '<script>'
+            '(function(){'
+            'var PH=1056;'
+            'function rf(){'
+            'var f=document.querySelector(".print-running-footer");'
+            'var w=document.querySelector(".page-wrapper");'
+            'if(!f||!w)return;'
+            'if(w.scrollHeight>PH*0.9){'
+            'f.classList.add("footer-active");'
+            '}else{'
+            'f.classList.remove("footer-active");'
+            '}'
+            '}'
+            'window.onbeforeprint=rf;'
+            'window.onafterprint=function(){'
+            'var f=document.querySelector(".print-running-footer");'
+            'if(f)f.classList.remove("footer-active");'
+            '};'
+            '})();'
+            '</script>'
+        )
+        html_content = html_content.replace('</body>', js_snippet + '</body>')
+
         html_content = html_content.encode('utf-8', errors='replace').decode('utf-8')
         return html_content
 

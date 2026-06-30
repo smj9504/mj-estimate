@@ -795,16 +795,113 @@ const ElectricianReportCreation: React.FC = () => {
     }, 300);
   };
 
-  const handleDownloadPdf = async () => {
+  const handleDownloadPdf = async (withPhotos = false) => {
     if (!previewReportData) return;
     try {
       setIsDownloadingPdf(true);
       message.loading({ content: 'Generating PDF...', key: 'pdf-download', duration: 0 });
-      const pdfBlob = await electricianReportService.previewPDF(previewReportData, {
+
+      // Strip photos from request to keep payload small
+      const reportWithoutPhotos = { ...previewReportData, photos: [] };
+      const pdfBlob = await electricianReportService.previewPDF(reportWithoutPhotos, {
         include_photos: false,
         include_financial: true,
       });
-      const url = URL.createObjectURL(pdfBlob);
+
+      let finalBlob = pdfBlob;
+
+      // Append photo pages client-side using pdf-lib
+      if (withPhotos && previewReportData.photos?.length) {
+        const { PDFDocument } = await import('pdf-lib');
+        const pdfDoc = await PDFDocument.load(await pdfBlob.arrayBuffer());
+
+        const catLabels: Record<string, string> = {
+          damage: 'Water Damage', panel: 'Electrical Panel',
+          fixture: 'Light Fixture', wiring: 'Wiring / Junction Box',
+          outlet: 'Outlet / Switch', moisture: 'Moisture / Staining',
+          before: 'Before', during: 'During',
+          after: 'After Repair', other: 'Other',
+        };
+
+        const photoList = previewReportData.photos;
+        for (let i = 0; i < photoList.length; i += 2) {
+          const page = pdfDoc.addPage([612, 792]); // letter size
+          const { width: pw, height: ph } = page.getSize();
+          const margin = 36;
+
+          // Title on first photo page
+          if (i === 0) {
+            const { rgb } = await import('pdf-lib');
+            page.drawText('Photo Documentation', {
+              x: margin, y: ph - margin - 14, size: 14,
+              color: rgb(0, 0, 0),
+            });
+          }
+          const yStart = i === 0 ? ph - margin - 32 : ph - margin;
+          const slotH = (yStart - margin) / 2 - 10;
+
+          for (let j = 0; j < 2 && i + j < photoList.length; j++) {
+            const photo = photoList[i + j];
+            const url = photo.url;
+            if (!url.startsWith('data:')) continue;
+
+            try {
+              // Compress photo
+              const imgBytes = await new Promise<Uint8Array>((resolve) => {
+                const img = new window.Image();
+                img.onload = () => {
+                  const canvas = document.createElement('canvas');
+                  let w = img.width, h = img.height;
+                  const max = 500;
+                  if (w > max || h > max) {
+                    if (w > h) { h = Math.round((h * max) / w); w = max; }
+                    else { w = Math.round((w * max) / h); h = max; }
+                  }
+                  canvas.width = w;
+                  canvas.height = h;
+                  canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
+                  canvas.toBlob((blob) => {
+                    blob!.arrayBuffer().then(buf => resolve(new Uint8Array(buf)));
+                  }, 'image/jpeg', 0.5);
+                };
+                img.onerror = () => resolve(new Uint8Array());
+                img.src = url;
+              });
+
+              if (!imgBytes.length) continue;
+
+              const embeddedImg = await pdfDoc.embedJpg(imgBytes);
+              const imgW = embeddedImg.width;
+              const imgH = embeddedImg.height;
+              const maxW = pw - 2 * margin;
+              const maxH = slotH - 18;
+              const scale = Math.min(maxW / imgW, maxH / imgH, 1);
+              const drawW = imgW * scale;
+              const drawH = imgH * scale;
+
+              const slotY = yStart - j * (slotH + 10);
+              const x = margin + (maxW - drawW) / 2;
+              const y = slotY - drawH;
+
+              page.drawImage(embeddedImg, { x, y, width: drawW, height: drawH });
+
+              // Caption
+              const label = catLabels[photo.category || ''] || photo.category || '';
+              const captionText = photo.caption ? `${label}: ${photo.caption}` : label;
+              const { rgb } = await import('pdf-lib');
+              page.drawText(captionText.slice(0, 80), {
+                x: margin, y: y - 12, size: 8, color: rgb(0.3, 0.3, 0.3),
+              });
+            } catch {
+              continue;
+            }
+          }
+        }
+
+        const mergedBytes = await pdfDoc.save();
+        finalBlob = new Blob([mergedBytes], { type: 'application/pdf' });
+      }
+      const url = URL.createObjectURL(finalBlob);
       const a = document.createElement('a');
       a.href = url;
       const addr = form.getFieldValue('address') || 'report';
@@ -2649,89 +2746,21 @@ JOB DETAILS.
         footer={[
           <Button key="close" onClick={handleClosePreview}>Close</Button>,
           <Button
-            key="print-no-photo"
-            icon={<EyeOutlined />}
-            onClick={() => {
-              const iframe = document.getElementById('report-preview-iframe') as HTMLIFrameElement;
-              if (iframe?.contentWindow) {
-                iframe.contentWindow.print();
-              }
-            }}
+            key="download-pdf"
+            icon={<DownloadOutlined />}
+            loading={isDownloadingPdf}
+            onClick={() => handleDownloadPdf(false)}
           >
-            Print (no photos)
+            PDF Download
           </Button>,
           <Button
-            key="print-photos"
+            key="download-pdf-photos"
             type="primary"
-            icon={<EyeOutlined />}
+            icon={<DownloadOutlined />}
             loading={isDownloadingPdf}
-            onClick={async () => {
-              if (!previewReportData) return;
-              setIsDownloadingPdf(true);
-              try {
-                // Compress photos for print (shrink base64 for fast browser rendering)
-                const compressForPrint = (dataUrl: string): Promise<string> => {
-                  return new Promise((resolve) => {
-                    const img = new Image();
-                    img.onload = () => {
-                      const canvas = document.createElement('canvas');
-                      let w = img.width, h = img.height;
-                      const max = 600;
-                      if (w > max || h > max) {
-                        if (w > h) { h = Math.round((h * max) / w); w = max; }
-                        else { w = Math.round((w * max) / h); h = max; }
-                      }
-                      canvas.width = w;
-                      canvas.height = h;
-                      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
-                      resolve(canvas.toDataURL('image/jpeg', 0.45));
-                    };
-                    img.onerror = () => resolve(dataUrl);
-                    img.src = dataUrl;
-                  });
-                };
-
-                const compressedPhotos = await Promise.all(
-                  (previewReportData.photos || []).map(async (p) => ({
-                    ...p,
-                    url: p.url.startsWith('data:') ? await compressForPrint(p.url) : p.url,
-                  }))
-                );
-
-                // Get HTML without photos from server, inject compressed photos client-side
-                const reportNoPhotos = { ...previewReportData, photos: [] };
-                const htmlContent = await electricianReportService.previewHTML(reportNoPhotos, {
-                  include_photos: false,
-                  include_financial: true,
-                });
-
-                const photoHtml = `
-                  <div style="margin-top:12px;border-bottom:1px solid #333;padding-bottom:4px;font-weight:bold;font-size:14px;">Photo Documentation</div>
-                  <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;">
-                    ${compressedPhotos.map(p => `
-                      <div style="width:48%;break-inside:avoid;margin-bottom:8px;">
-                        <img src="${p.url}" style="width:100%;max-height:280px;object-fit:contain;background:#f5f5f5;border:1px solid #ddd;border-radius:3px;display:block;" />
-                        <p style="font-size:11px;color:#555;margin-top:3px;text-align:center;"><strong>${({damage:'Water Damage',panel:'Electrical Panel',fixture:'Light Fixture',wiring:'Wiring / Junction Box',outlet:'Outlet / Switch',moisture:'Moisture / Staining',before:'Before',during:'During',after:'After Repair',other:'Other'} as Record<string,string>)[p.category || ''] || p.category || ''}</strong>${p.caption ? ': ' + p.caption : ''}</p>
-                      </div>
-                    `).join('')}
-                  </div>`;
-
-                let finalHtml = htmlContent.replace('</div>\n</body>', photoHtml + '</div>\n</body>');
-                if (!finalHtml.includes('Photo Documentation')) {
-                  finalHtml = htmlContent.replace('</body>', photoHtml + '</body>');
-                }
-
-                const blob = new Blob([finalHtml], { type: 'text/html' });
-                const url = URL.createObjectURL(blob);
-                window.open(url, '_blank');
-              } catch {
-                message.error('Failed to generate report with photos');
-              } finally {
-                setIsDownloadingPdf(false);
-              }
-            }}
+            onClick={() => handleDownloadPdf(true)}
           >
-            Print with Photos
+            PDF with Photos
           </Button>,
         ]}
         width="90vw"

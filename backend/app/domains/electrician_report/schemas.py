@@ -50,6 +50,7 @@ class PhotoRecord(BaseModel):
     """Photo record schema"""
     id: str
     url: str
+    file_id: Optional[str] = None
     category: str = Field(..., description="before, during, after, damage, panel, wiring, other")
     caption: Optional[str] = None
     timestamp: Optional[datetime] = None
