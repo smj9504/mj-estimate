@@ -11,6 +11,38 @@ module.exports = {
         poll: 500,
         aggregateTimeout: 300,
       };
+
+      // Optimize chunk splitting for better caching and faster loads
+      webpackConfig.optimization = {
+        ...webpackConfig.optimization,
+        runtimeChunk: 'single',
+        splitChunks: {
+          chunks: 'all',
+          cacheGroups: {
+            antd: {
+              test: /[\\/]node_modules[\\/](antd|@ant-design)[\\/]/,
+              name: 'vendor-antd',
+              priority: 20,
+            },
+            konva: {
+              test: /[\\/]node_modules[\\/](konva|react-konva)[\\/]/,
+              name: 'vendor-konva',
+              priority: 20,
+            },
+            recharts: {
+              test: /[\\/]node_modules[\\/]recharts[\\/]/,
+              name: 'vendor-recharts',
+              priority: 20,
+            },
+            vendor: {
+              test: /[\\/]node_modules[\\/]/,
+              name: 'vendor',
+              priority: 10,
+            },
+          },
+        },
+      };
+
       return webpackConfig;
     },
   },

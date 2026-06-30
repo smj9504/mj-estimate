@@ -7,7 +7,6 @@ import uuid
 import hashlib
 from typing import List, Optional, Dict, Any, BinaryIO
 from pathlib import Path
-from PIL import Image
 import logging
 import io
 
@@ -263,6 +262,8 @@ class FileService(BaseService[File, str]):
     ) -> Optional[str]:
         """Generate thumbnail for image files"""
         try:
+            from PIL import Image
+
             with Image.open(image_path) as img:
                 # Convert to RGB if necessary
                 if img.mode != 'RGB':

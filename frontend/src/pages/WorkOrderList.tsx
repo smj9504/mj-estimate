@@ -34,8 +34,6 @@ import { companyService } from '../services/companyService';
 import WorkOrderFilters from '../components/work-order/WorkOrderFilters';
 import WorkOrderStats from '../components/work-order/WorkOrderStats';
 import type { ColumnsType } from 'antd/es/table';
-import { saveAs } from 'file-saver';
-import { utils as XLSXUtils, write as XLSXWrite } from 'xlsx';
 
 const { Title } = Typography;
 const { confirm } = Modal;
@@ -224,11 +222,16 @@ const WorkOrderList: React.FC = () => {
   }, [statusMutation]);
 
   // Export to Excel
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
     if (workOrders.length === 0) {
       message.warning('No data to export.');
       return;
     }
+
+    const [{ utils, write }, { saveAs }] = await Promise.all([
+      import('xlsx'),
+      import('file-saver'),
+    ]);
 
     const exportData = workOrders.map((order: WorkOrder) => ({
       'Work Order Number': order.work_order_number,
@@ -241,11 +244,11 @@ const WorkOrderList: React.FC = () => {
       'Created By': order.created_by_staff_name || '-',
     }));
 
-    const ws = XLSXUtils.json_to_sheet(exportData);
-    const wb = XLSXUtils.book_new();
-    XLSXUtils.book_append_sheet(wb, ws, 'Work Order List');
+    const ws = utils.json_to_sheet(exportData);
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, 'Work Order List');
 
-    const excelBuffer = XLSXWrite(wb, { bookType: 'xlsx', type: 'array' });
+    const excelBuffer = write(wb, { bookType: 'xlsx', type: 'array' });
     const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     saveAs(blob, `work_order_list_${new Date().toISOString().split('T')[0]}.xlsx`);
   }, [workOrders, getCompanyName]);

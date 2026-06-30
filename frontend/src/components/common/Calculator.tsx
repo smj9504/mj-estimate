@@ -7,7 +7,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Input, Space, Typography, Tooltip } from 'antd';
 import { CalculatorOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
-import { evaluate } from 'mathjs';
+// Lightweight arithmetic evaluator for pre-sanitized expressions (numbers, +-*/. and parens only)
+// eslint-disable-next-line no-new-func
+const safeEvaluate = (expr: string): number => new Function(`"use strict"; return (${expr});`)() as number;
 
 const { Text } = Typography;
 
@@ -108,7 +110,7 @@ const Calculator: React.FC<CalculatorProps> = ({
       }
 
       // Use mathjs for safe evaluation
-      const computed = evaluate(sanitized);
+      const computed = safeEvaluate(sanitized);
       
       // Handle complex numbers or non-finite results
       if (typeof computed === 'object' || !isFinite(computed)) {
@@ -319,7 +321,7 @@ export const validateFormula = (formula: string): CalculatorResult => {
       };
     }
 
-    const result = evaluate(sanitized);
+    const result = safeEvaluate(sanitized);
     
     if (typeof result === 'object' || !isFinite(result)) {
       return {

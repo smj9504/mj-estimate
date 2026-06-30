@@ -6,10 +6,6 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from pypdf import PdfReader, PdfWriter
-from reportlab.lib.colors import HexColor
-from reportlab.pdfgen import canvas
-
 from app.core.database_factory import get_database
 from app.domains.file.service import FileService, get_storage_provider
 from app.domains.pdf_editor.schemas import PDFEditRequest, TextEditOperation
@@ -150,6 +146,8 @@ class PDFEditorService:
             Edited PDF bytes
         """
         try:
+            from pypdf import PdfReader, PdfWriter
+
             # Read original PDF
             pdf_reader = PdfReader(io.BytesIO(pdf_bytes))
             pdf_writer = PdfWriter()
@@ -210,6 +208,9 @@ class PDFEditorService:
             PDF bytes with text overlay
         """
         try:
+            from reportlab.lib.colors import HexColor
+            from reportlab.pdfgen import canvas
+
             # Get page dimensions
             page_media_box = original_page.mediabox
             page_width = float(page_media_box.width)

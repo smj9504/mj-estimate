@@ -11,12 +11,6 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.domains.file.models import File
 from app.domains.file.service import get_storage_provider
-from app.domains.insurance_extraction.extractors.ocr_fallback_extractor import OcrFallbackExtractor
-from app.domains.insurance_extraction.extractors.pdf_text_extractor import PdfTextExtractor
-from app.domains.insurance_extraction.mappers.extraction_mapper import InsuranceExtractionMapper
-from app.domains.insurance_extraction.normalizers.item_normalizer import InsuranceItemNormalizer
-from app.domains.insurance_extraction.orchestrator.pipeline import InsuranceExtractionOrchestrator
-from app.domains.insurance_extraction.parsers.resolver import InsuranceParserResolver
 from app.domains.insurance_extraction.repository import InsuranceExtractionRepository
 from app.domains.storage.local_provider import LocalStorageProvider
 
@@ -27,6 +21,14 @@ class InsuranceExtractionService:
     def __init__(self, db: Session):
         self.db = db
         self.repository = InsuranceExtractionRepository(db)
+
+        from app.domains.insurance_extraction.extractors.ocr_fallback_extractor import OcrFallbackExtractor
+        from app.domains.insurance_extraction.extractors.pdf_text_extractor import PdfTextExtractor
+        from app.domains.insurance_extraction.mappers.extraction_mapper import InsuranceExtractionMapper
+        from app.domains.insurance_extraction.normalizers.item_normalizer import InsuranceItemNormalizer
+        from app.domains.insurance_extraction.orchestrator.pipeline import InsuranceExtractionOrchestrator
+        from app.domains.insurance_extraction.parsers.resolver import InsuranceParserResolver
+
         self.orchestrator = InsuranceExtractionOrchestrator(
             text_extractor=PdfTextExtractor(),
             ocr_extractor=OcrFallbackExtractor(),

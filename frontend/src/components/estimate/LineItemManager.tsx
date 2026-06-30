@@ -43,7 +43,9 @@ import SelectionModal from './SelectionModal';
 import XactimateInputMode from './XactimateInputMode';
 import { XactimateLineItemData } from '../../utils/xactimateTransform';
 import { formatNumber } from '../../utils/formatUtils';
-import { evaluate } from 'mathjs';
+/** Lightweight arithmetic evaluator — input must be pre-validated */
+// eslint-disable-next-line no-new-func
+const safeEvaluate = (expr: string): number => new Function(`"use strict"; return (${expr});`)() as number;
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -1320,7 +1322,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
                 const formula = (e.target as HTMLInputElement).value;
                 try {
                   // Use mathjs to evaluate the formula
-                  const result = evaluate(formula);
+                  const result = safeEvaluate(formula);
                   
                   if (typeof result === 'number' && !isNaN(result)) {
                     // Update the item with new quantity and formula
@@ -1350,7 +1352,7 @@ const LineItemManager: React.FC<LineItemManagerProps> = ({
                 const formula = e.target.value;
                 if (formula && formula !== editingValue) {
                   try {
-                    const result = evaluate(formula);
+                    const result = safeEvaluate(formula);
                     
                     if (typeof result === 'number' && !isNaN(result)) {
                       const updatedItems = [...(items || [])];

@@ -36,10 +36,11 @@ import {
   PlusOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
-import FieldMappingEditor from '../components/contract/FieldMappingEditor';
 import { contractTemplateService } from '../services/contractService';
 import { companyService } from '../services/companyService';
 import type { ContractTemplate, DocumentType } from '../types/contract';
+
+const FieldMappingEditor = React.lazy(() => import('../components/contract/FieldMappingEditor'));
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -513,6 +514,7 @@ const ContractTemplateManagement: React.FC = () => {
 
       {/* Field Mapping Editor */}
       {fieldMappingTemplate && (
+        <React.Suspense fallback={<Spin size="large" />}>
         <FieldMappingEditor
           open={!!fieldMappingTemplate}
           templateId={fieldMappingTemplate.id}
@@ -521,6 +523,7 @@ const ContractTemplateManagement: React.FC = () => {
           onClose={() => setFieldMappingTemplate(null)}
           onSaved={() => queryClient.invalidateQueries({ queryKey: ['contract-templates'] })}
         />
+        </React.Suspense>
       )}
     </div>
   );

@@ -6,7 +6,6 @@ Google Sheets 자동 동기화 스케줄러
 - 그 외 시간 (비근무 시간): 3시간마다 동기화
 """
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime
 import logging
@@ -14,12 +13,10 @@ import pytz
 
 from app.core.database_factory import get_database
 from app.core.config import settings
+from app.core.scheduler import shared_scheduler as scheduler
 from app.domains.integrations.google_sheets.sync_service import GoogleSheetsSyncService
 
 logger = logging.getLogger(__name__)
-
-# 스케줄러 인스턴스
-scheduler = AsyncIOScheduler()
 
 # 미국 Eastern 시간대 (뉴욕)
 US_EASTERN_TZ = pytz.timezone('America/New_York')
@@ -156,22 +153,19 @@ def start_scheduler():
         replace_existing=True
     )
 
-    scheduler.start()
     us_time = datetime.now(US_EASTERN_TZ)
     tz_name = us_time.tzname() or "ET"
     am_pm = "PM" if us_time.hour >= 12 else "AM"
     schedule_info = "15min interval" if is_business else "180min interval"
     logger.info(
-        f"Google Sheets sync scheduler started - "
+        f"Google Sheets sync job registered - "
         f"US Time: {us_time.strftime('%I:%M')} {am_pm} {tz_name}, "
         f"Current mode: {schedule_info}"
     )
 
 
 def stop_scheduler():
-    """
-    스케줄러 중지
-    """
-    if scheduler.running:
-        scheduler.shutdown()
-        logger.info("Google Sheets sync scheduler stopped")
+    """Google Sheets 동기화 job 제거"""
+    if scheduler.get_job('google_sheets_sync'):
+        scheduler.remove_job('google_sheets_sync')
+        logger.info("Google Sheets sync job removed")

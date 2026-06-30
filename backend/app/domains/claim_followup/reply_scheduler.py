@@ -11,12 +11,11 @@ import logging
 from datetime import datetime
 
 import pytz
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-logger = logging.getLogger(__name__)
+from app.core.scheduler import shared_scheduler
 
-reply_scheduler = AsyncIOScheduler()
+logger = logging.getLogger(__name__)
 
 US_EASTERN_TZ = pytz.timezone("America/New_York")
 
@@ -66,20 +65,19 @@ async def _run_check_in_background():
 
 
 def start_reply_scheduler():
-    """Start reply check scheduler - every 10 minutes."""
-    reply_scheduler.add_job(
+    """Register reply check job - every 10 minutes."""
+    shared_scheduler.add_job(
         check_replies_job,
         trigger=IntervalTrigger(minutes=10),
         id="reply_check",
         name="Email Reply Auto-Check",
         replace_existing=True,
     )
-    reply_scheduler.start()
-    logger.info("Reply check scheduler started - runs every 10 minutes")
+    logger.info("Reply check job registered - runs every 10 minutes")
 
 
 def stop_reply_scheduler():
-    """Stop reply check scheduler."""
-    if reply_scheduler.running:
-        reply_scheduler.shutdown()
-        logger.info("Reply check scheduler stopped")
+    """Remove reply check job."""
+    if shared_scheduler.get_job("reply_check"):
+        shared_scheduler.remove_job("reply_check")
+        logger.info("Reply check job removed")

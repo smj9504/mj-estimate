@@ -49,11 +49,12 @@ import WaterMitigationReportTab from '../components/water-mitigation/WaterMitiga
 import WaterMitigationTrashTab from '../components/water-mitigation/WaterMitigationTrashTab';
 import WaterMitigationScopeTab from '../components/water-mitigation/WaterMitigationScopeTab';
 import EditableSection from '../components/water-mitigation/EditableSection';
-import WMSketchTab from '../components/water-mitigation/sketch/WMSketchTab';
 import SendToAdjusterModal from '../components/water-mitigation/SendToAdjusterModal';
 import FollowUpAdjusterModal from '../components/water-mitigation/FollowUpAdjusterModal';
 import WMFinancialComparisonCard from '../components/water-mitigation/WMFinancialComparison';
 import WMContractTab from '../components/water-mitigation/WMContractTab';
+
+const WMSketchTab = React.lazy(() => import('../components/water-mitigation/sketch/WMSketchTab'));
 
 const { useBreakpoint } = Grid;
 
@@ -1008,11 +1009,13 @@ const WaterMitigationDetail: React.FC = () => {
               key: 'sketch',
               label: 'Sketch',
               children: id ? (
-                <WMSketchTab
-                  jobId={id}
-                  jobAddress={job.property_address || 'Unknown Address'}
-                  isActive={activeTab === 'sketch'}
-                />
+                <React.Suspense fallback={<Spin size="large" />}>
+                  <WMSketchTab
+                    jobId={id}
+                    jobAddress={job.property_address || 'Unknown Address'}
+                    isActive={activeTab === 'sketch'}
+                  />
+                </React.Suspense>
               ) : null
             },
             {

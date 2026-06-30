@@ -40,6 +40,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.rate_limiter import limiter, rate_limit_exceeded_handler
+from app.core.scheduler import start_shared_scheduler, stop_shared_scheduler
 
 # Conditional model imports (only if Material Detection enabled)
 from app.core.config import settings as _early_settings
@@ -424,27 +425,29 @@ async def lifespan(app: FastAPI):
         # Everything lazy-loads on first API request
         print("[STARTUP] Ultra-fast startup - services initialize on demand")
 
-        # Only start scheduler (lightweight, non-blocking)
+        # Register all scheduled jobs, then start the single shared scheduler
         if settings.ENABLE_INTEGRATIONS:
             try:
                 start_scheduler()
-                print("[STARTUP] Background scheduler started")
+                print("[STARTUP] Google Sheets sync job registered")
             except Exception as e:
-                print(f"[STARTUP] Scheduler skipped: {e}")
+                print(f"[STARTUP] Google Sheets scheduler skipped: {e}")
 
-        # Start trash cleanup scheduler (always active, independent of integrations)
         try:
             start_trash_scheduler()
-            print("[STARTUP] Trash cleanup scheduler started (daily at 3AM ET)")
+            print("[STARTUP] Trash cleanup job registered (daily at 3AM ET)")
         except Exception as e:
             print(f"[STARTUP] Trash scheduler skipped: {e}")
 
-        # Start reply check scheduler (auto-detect email replies)
         try:
             start_reply_scheduler()
-            print("[STARTUP] Reply check scheduler started (every 10 min)")
+            print("[STARTUP] Reply check job registered (every 10 min)")
         except Exception as e:
             print(f"[STARTUP] Reply scheduler skipped: {e}")
+
+        # Start the single shared scheduler (1 thread for all jobs)
+        start_shared_scheduler()
+        print("[STARTUP] Shared scheduler started")
 
         # Defer heavy initialization to background thread so port binds quickly
         # This prevents Render's port scan timeout during deployment
@@ -509,16 +512,14 @@ async def lifespan(app: FastAPI):
         # Cleanup on shutdown
         logger.info("Shutting down application...")
         try:
-            # Stop integration services if enabled
+            # Remove individual jobs
             if settings.ENABLE_INTEGRATIONS:
                 stop_scheduler()
-                logger.info("Integration services stopped")
-
-            # Stop trash cleanup scheduler
             stop_trash_scheduler()
-
-            # Stop reply check scheduler
             stop_reply_scheduler()
+
+            # Stop the single shared scheduler
+            stop_shared_scheduler()
 
             db_factory.reset()
             # Services cleanup handled individually
