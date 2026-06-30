@@ -347,7 +347,20 @@ class BathroomEstimateService:
             overhead = 0
             profit = 0
 
-        total = subtotal + overhead + profit
+        total = round((subtotal + overhead + profit) / 10) * 10
+        # Absorb rounding difference into largest line item
+        _raw = subtotal + overhead + profit
+        _diff = round(total - _raw, 2)
+        if _diff != 0 and estimate.line_items:
+            _lg = max(estimate.line_items, key=lambda x: x.total)
+            _lg.total = round(_lg.total + _diff, 2)
+            if _lg.quantity:
+                _lg.unit_price = round(_lg.total / _lg.quantity, 2)
+            subtotal = sum(li.total for li in estimate.line_items)
+            if include_op:
+                overhead = round(subtotal * overhead_pct, 2)
+                profit = round(subtotal * profit_pct, 2)
+            total = round(subtotal + overhead + profit, 2)
         self.estimate_repo.update(estimate_id, {
             "subtotal": subtotal,
             "overhead": overhead,

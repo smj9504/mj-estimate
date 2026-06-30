@@ -712,6 +712,10 @@ import threading
 
 
 def _init_sqladmin():
+    # Skip SQLAdmin in production to save ~30-50MB RAM
+    if settings.ENVIRONMENT == "production" and not os.getenv("ENABLE_SQLADMIN", "").lower() == "true":
+        logger.info("SQLAdmin disabled in production (set ENABLE_SQLADMIN=true to enable)")
+        return
     try:
         database = get_database()
         if hasattr(database, 'engine'):

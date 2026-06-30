@@ -2456,6 +2456,29 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     total = round(subtotal + overhead_amount + profit_amount + tax_amount, 2)
 
     # ────────────────────────────────────────
+    # Round total to nearest $10 for clean pricing
+    # Absorb difference into largest line item so sums stay exact
+    # ────────────────────────────────────────
+    rounded_total = round(total / 10) * 10
+    _round_diff = round(rounded_total - total, 2)
+    if _round_diff != 0 and line_items:
+        _lg = max(line_items, key=lambda x: x["total"])
+        _lg["total"] = round(_lg["total"] + _round_diff, 2)
+        if _lg["quantity"]:
+            _lg["unit_price"] = round(
+                _lg["total"] / _lg["quantity"], 2
+            )
+        subtotal = sum(item["total"] for item in line_items)
+        if include_op:
+            overhead_amount = round(subtotal * overhead_pct, 2)
+            profit_amount = round(subtotal * profit_pct, 2)
+        material_portion = subtotal * 0.50
+        tax_amount = round(material_portion * tax_rate, 2)
+        total = round(
+            subtotal + overhead_amount + profit_amount + tax_amount, 2
+        )
+
+    # ────────────────────────────────────────
     # Target total adjustment (reverse pricing)
     # ────────────────────────────────────────
     adjustment_factor = None

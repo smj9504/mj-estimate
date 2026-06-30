@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from jinja2 import Environment, FileSystemLoader
-from weasyprint import CSS
+CSS = None  # Lazy-loaded to avoid heavy import at startup
 
 
 class UnifiedTemplateManager:
@@ -142,12 +142,13 @@ class UnifiedTemplateManager:
         stylesheets = []
         css_files = template_info.get("css_files", [])
         
+        from weasyprint import CSS as _CSS
         for css_file in css_files:
             css_path = self.template_base_dir / css_file
             if css_path.exists():
                 try:
                     with open(css_path, 'r', encoding='utf-8') as f:
-                        stylesheets.append(CSS(string=f.read()))
+                        stylesheets.append(_CSS(string=f.read()))
                 except Exception as e:
                     print(f"Failed to load CSS file {css_file}: {e}")
         
