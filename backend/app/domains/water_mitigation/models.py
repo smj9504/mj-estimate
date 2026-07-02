@@ -123,7 +123,7 @@ class WaterMitigationJob(Base, BaseModel):
     company = relationship(
         "Company",
         foreign_keys=[company_id],
-        lazy="joined"
+        lazy="select"
     )
     photos = relationship(
         "WMPhoto",

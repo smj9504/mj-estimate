@@ -231,32 +231,38 @@ export const waterMitigationService = {
       return response.data;
     },
 
-    // Upload multiple photos to job
+    // Upload multiple photos to job (concurrent batches)
     uploadMultiple: async (jobId: string, files: File[], category?: string): Promise<{
       results: any[];
       failed: { name: string; error: string }[];
     }> => {
       const results: any[] = [];
       const failed: { name: string; error: string }[] = [];
+      const CONCURRENCY = 5;
 
-      // Upload files one by one to use the existing backend endpoint
-      for (const file of files) {
-        try {
-          const formData = new FormData();
-          formData.append('file', file);
-          if (category) formData.append('category', category);
+      const uploadOne = async (file: File) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        if (category) formData.append('category', category);
+        const response = await api.post(`${BASE_URL}/jobs/${jobId}/photos`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        return response.data;
+      };
 
-          const response = await api.post(`${BASE_URL}/jobs/${jobId}/photos`, formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            },
-          });
-          results.push(response.data);
-        } catch (error: any) {
-          const errMsg = error?.response?.data?.detail || error.message || 'Unknown error';
-          console.error(`Failed to upload ${file.name}:`, errMsg);
-          failed.push({ name: file.name, error: errMsg });
-        }
+      for (let i = 0; i < files.length; i += CONCURRENCY) {
+        const batch = files.slice(i, i + CONCURRENCY);
+        const settled = await Promise.allSettled(batch.map(f => uploadOne(f)));
+        settled.forEach((result, idx) => {
+          if (result.status === 'fulfilled') {
+            results.push(result.value);
+          } else {
+            const file = batch[idx];
+            const errMsg = result.reason?.response?.data?.detail || result.reason?.message || 'Unknown error';
+            console.error(`Failed to upload ${file.name}:`, errMsg);
+            failed.push({ name: file.name, error: errMsg });
+          }
+        });
       }
 
       return { results, failed };

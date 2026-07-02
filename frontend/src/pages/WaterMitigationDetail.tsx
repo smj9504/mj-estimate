@@ -4,7 +4,7 @@
  * Responsive: optimized for mobile and desktop
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -375,6 +375,28 @@ const WaterMitigationDetail: React.FC = () => {
     return '-';
   };
 
+  const getStatusColor = useCallback((status: JobStatus): string => {
+    const colors: Record<JobStatus, string> = {
+      'Lead': 'blue',
+      'Doc prepping': 'cyan',
+      'Sent to adjuster': 'geekblue',
+      'Follow up': 'orange',
+      'Paperwork received': 'purple',
+      'Check received': 'green',
+      'Complete': 'success'
+    };
+    return colors[status] || 'default';
+  }, []);
+
+  // Memoize company select options
+  const companyOptions = useMemo(() =>
+    companies.map(c => ({
+      value: c.id,
+      label: c.name + (c.company_code ? ` (${c.company_code})` : '')
+    })),
+    [companies]
+  );
+
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: isMobile ? '50px 16px' : '100px' }}>
@@ -391,19 +413,6 @@ const WaterMitigationDetail: React.FC = () => {
       </div>
     );
   }
-
-  const getStatusColor = (status: JobStatus): string => {
-    const colors: Record<JobStatus, string> = {
-      'Lead': 'blue',
-      'Doc prepping': 'cyan',
-      'Sent to adjuster': 'geekblue',
-      'Follow up': 'orange',
-      'Paperwork received': 'purple',
-      'Check received': 'green',
-      'Complete': 'success'
-    };
-    return colors[status] || 'default';
-  };
 
   // Responsive column count for Descriptions
   const descColumn = isMobile ? 1 : 2;
@@ -576,10 +585,7 @@ const WaterMitigationDetail: React.FC = () => {
                                 filterOption={(input, option) =>
                                   (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
                                 }
-                                options={companies.map(company => ({
-                                  value: company.id,
-                                  label: company.name + (company.company_code ? ` (${company.company_code})` : '')
-                                }))}
+                                options={companyOptions}
                               />
                             ) : (
                               job.company ? (

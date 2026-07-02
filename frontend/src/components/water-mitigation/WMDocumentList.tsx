@@ -3,9 +3,10 @@
  * Supports inline editing of invoice amount for Invoice-type documents
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { List, Button, Popconfirm, message, Tag, Typography, Checkbox, Space, InputNumber, Tooltip } from 'antd';
 import { FilePdfOutlined, FileImageOutlined, FileOutlined, DownloadOutlined, DeleteOutlined, EyeOutlined, EditOutlined, DollarOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import waterMitigationService from '../../services/waterMitigationService';
 
 const { Text } = Typography;
@@ -33,8 +34,12 @@ interface Document {
 
 const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListProps>(
   ({ jobId, onDelete, onEditAnnotation, onInvoiceAmountChange }, ref) => {
-    const [documents, setDocuments] = useState<Document[]>([]);
-    const [loading, setLoading] = useState(false);
+    const queryClient = useQueryClient();
+    const { data: documents = [], isLoading: loading } = useQuery({
+      queryKey: ['wm-documents', jobId],
+      queryFn: () => waterMitigationService.documents.getByJob(jobId),
+      staleTime: 2 * 60 * 1000,
+    });
     const [deleting, setDeleting] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -43,27 +48,13 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     const [editingAmountValue, setEditingAmountValue] = useState<number | null>(null);
     const [savingAmount, setSavingAmount] = useState(false);
 
-    const fetchDocuments = useCallback(async () => {
-      setLoading(true);
-      try {
-        const docs = await waterMitigationService.documents.getByJob(jobId);
-        setDocuments(docs);
-        setSelectedIds([]);
-      } catch (error) {
-        console.error('Failed to fetch documents:', error);
-        message.error('Failed to load documents');
-      } finally {
-        setLoading(false);
-      }
-    }, [jobId]);
+    const invalidateDocs = useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ['wm-documents', jobId] });
+    }, [queryClient, jobId]);
 
-  useEffect(() => {
-    fetchDocuments();
-  }, [fetchDocuments]);
-
-  React.useImperativeHandle(ref, () => ({
-    refresh: fetchDocuments
-  }), [fetchDocuments]);
+    React.useImperativeHandle(ref, () => ({
+      refresh: invalidateDocs
+    }), [invalidateDocs]);
 
   const handleDownload = (documentId: string, filename: string) => {
     const downloadUrl = waterMitigationService.documents.getDownloadUrl(documentId);
@@ -85,7 +76,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     try {
       await waterMitigationService.documents.delete(documentId);
       message.success('Document deleted successfully');
-      fetchDocuments();
+      invalidateDocs();
       onDelete?.();
     } catch (error) {
       console.error('Failed to delete document:', error);
@@ -116,7 +107,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
     try {
       await Promise.all(selectedIds.map(id => waterMitigationService.documents.delete(id)));
       message.success(`${selectedIds.length} document(s) deleted successfully`);
-      fetchDocuments();
+      invalidateDocs();
       onDelete?.();
     } catch (error) {
       console.error('Failed to delete documents:', error);
@@ -156,14 +147,7 @@ const WMDocumentList = React.forwardRef<{ refresh: () => void }, WMDocumentListP
         editingAmountValue
       );
       message.success('Invoice amount updated');
-      // Update local state immediately
-      setDocuments(prev =>
-        prev.map(d =>
-          d.id === editingAmountId
-            ? { ...d, invoice_amount: editingAmountValue }
-            : d
-        )
-      );
+      invalidateDocs();
       setEditingAmountId(null);
       setEditingAmountValue(null);
       onInvoiceAmountChange?.();

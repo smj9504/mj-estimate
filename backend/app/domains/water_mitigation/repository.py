@@ -70,7 +70,7 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
         Optimized to fetch photo_count in a single query using subquery
         to avoid N+1 query problem.
         """
-        from sqlalchemy.orm import aliased
+        from sqlalchemy.orm import aliased, joinedload
 
         # Subquery to count photos per job (exclude trashed photos)
         photo_count_subquery = (
@@ -83,14 +83,14 @@ class WaterMitigationJobRepository(SQLAlchemyRepository[WaterMitigationJob, UUID
             .subquery()
         )
 
-        # Main query with photo count joined
+        # Main query with photo count joined + eager-load company
         query = self.db_session.query(
             WaterMitigationJob,
             func.coalesce(photo_count_subquery.c.photo_count, 0).label('photo_count')
         ).outerjoin(
             photo_count_subquery,
             WaterMitigationJob.id == photo_count_subquery.c.job_id
-        )
+        ).options(joinedload(WaterMitigationJob.company))
 
         # Apply filters
         conditions = []

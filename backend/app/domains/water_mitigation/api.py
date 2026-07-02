@@ -962,7 +962,8 @@ async def preview_photo(
             #  available on non-GCP hosting like Render)
             storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else photo.storage_file_id
             if storage_provider in ('gdrive', 'gcs') and hasattr(storage, 'download') and storage_file_id:
-                photo_bytes = storage.download(storage_file_id)
+                import asyncio
+                photo_bytes = await asyncio.to_thread(storage.download, storage_file_id)
                 return StreamingResponse(
                     io.BytesIO(photo_bytes),
                     media_type=media_type,
@@ -999,10 +1000,11 @@ async def preview_photo(
                 from app.core.config import settings as app_settings_cs
                 configured_provider = app_settings_cs.STORAGE_PROVIDER.lower()
                 if configured_provider != 'local':
+                    import asyncio as _aio
                     logger.info(f"Local file missing for photo {photo_id}, trying {configured_provider} with file_id {storage_file_id}")
                     storage = StorageFactory.get_instance(configured_provider)
                     if hasattr(storage, 'download'):
-                        photo_bytes = storage.download(storage_file_id)
+                        photo_bytes = await _aio.to_thread(storage.download, storage_file_id)
                         return StreamingResponse(
                             io.BytesIO(photo_bytes),
                             media_type=media_type,
@@ -1150,11 +1152,13 @@ async def download_photo(
     # Cloud storage
     if storage_provider and storage_provider != 'local':
         try:
+            import asyncio
+
             from ..storage.factory import StorageFactory
             storage = StorageFactory.get_instance(storage_provider)
             storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else photo.storage_file_id
             if storage_file_id and hasattr(storage, 'download'):
-                photo_bytes = storage.download(storage_file_id)
+                photo_bytes = await asyncio.to_thread(storage.download, storage_file_id)
                 return StreamingResponse(
                     io.BytesIO(photo_bytes),
                     media_type=media_type,
@@ -1171,6 +1175,8 @@ async def download_photo(
         local_file_path = Path(app_settings.STORAGE_BASE_DIR) / file_path
     if not local_file_path.exists():
         # Fallback to cloud storage
+        import asyncio
+
         storage_file_id = photo.get('storage_file_id') if isinstance(photo, dict) else getattr(photo, 'storage_file_id', None)
         if storage_file_id:
             try:
@@ -1180,7 +1186,7 @@ async def download_photo(
                 if configured_provider != 'local':
                     storage = StorageFactory.get_instance(configured_provider)
                     if hasattr(storage, 'download'):
-                        photo_bytes = storage.download(storage_file_id)
+                        photo_bytes = await asyncio.to_thread(storage.download, storage_file_id)
                         return StreamingResponse(
                             io.BytesIO(photo_bytes),
                             media_type=media_type,
@@ -1290,25 +1296,29 @@ def bulk_set_categories(
     Set individual categories for multiple photos in a single request.
     Each item has its own photo_id and category.
     """
+    from collections import defaultdict
+
     from .models import WMPhoto
 
-    applied = 0
-    failed = 0
-
     try:
+        # Group photo IDs by category for batch updates
+        by_category: dict = defaultdict(list)
+        failed = 0
         for item in request.updates:
             photo_id = item.get("photo_id")
             category = item.get("category")
             if not photo_id or not category:
                 failed += 1
                 continue
-            try:
-                db.query(WMPhoto).filter(
-                    WMPhoto.id == photo_id
-                ).update({"category": category})
-                applied += 1
-            except Exception:
-                failed += 1
+            by_category[category].append(photo_id)
+
+        # One UPDATE per distinct category
+        applied = 0
+        for category, ids in by_category.items():
+            count = db.query(WMPhoto).filter(
+                WMPhoto.id.in_(ids)
+            ).update({"category": category}, synchronize_session='fetch')
+            applied += count
 
         db.commit()
         _invalidate_photo_list_cache()
@@ -1375,53 +1385,28 @@ def bulk_update_date(
         request.new_date: New date to set (time will be preserved from existing data)
     """
     try:
-        updated_photos = []
+        from app.domains.water_mitigation.models import WMPhoto
 
-        for photo_id in request.photo_ids:
-            photo = service.photo_repo.get_by_id(str(photo_id))
-            if photo:
-                # Get photo dict for easier access
-                photo_dict = service.photo_repo._convert_to_dict(photo)
+        # Fetch all photos in one query
+        photo_ids_str = [str(pid) for pid in request.photo_ids]
+        photos = db.query(WMPhoto).filter(
+            WMPhoto.id.in_(photo_ids_str)
+        ).all()
 
-                # Determine the time component to use
-                # Determine which datetime to use for time component
-                existing_datetime = None
-                if photo_dict.get('captured_date'):
-                    # Use existing captured_date's time
-                    captured = photo_dict['captured_date']
-                    if isinstance(captured, str):
-                        existing_datetime = datetime.fromisoformat(captured.replace('Z', '+00:00'))
-                    else:
-                        existing_datetime = captured
-                elif photo_dict.get('created_at'):
-                    # Fallback to created_at's time
-                    created = photo_dict['created_at']
-                    if isinstance(created, str):
-                        existing_datetime = datetime.fromisoformat(created.replace('Z', '+00:00'))
-                    else:
-                        existing_datetime = created
-                else:
-                    # Default to midnight if no datetime available
-                    existing_datetime = datetime.min
-
-                # Combine new date with existing time
-                new_datetime = datetime.combine(
-                    request.new_date,
-                    existing_datetime.time()
-                )
-
-                # Update the photo
-                updated = service.photo_repo.update(
-                    str(photo_id),
-                    {"captured_date": new_datetime}
-                )
-                updated_photos.append(service.photo_repo._convert_to_dict(updated))
+        # Compute new datetime for each photo and batch update
+        for photo in photos:
+            existing_dt = photo.captured_date or photo.created_at or datetime.min
+            if isinstance(existing_dt, str):
+                existing_dt = datetime.fromisoformat(existing_dt.replace('Z', '+00:00'))
+            photo.captured_date = datetime.combine(
+                request.new_date, existing_dt.time()
+            )
 
         db.commit()
 
         return {
-            "updated_count": len(updated_photos),
-            "photos": updated_photos
+            "updated_count": len(photos),
+            "photos": [service.photo_repo._convert_to_dict(p) for p in photos]
         }
     except Exception as e:
         db.rollback()

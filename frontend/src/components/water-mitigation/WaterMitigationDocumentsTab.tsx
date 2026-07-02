@@ -4,7 +4,7 @@
  * Supports PDF annotation (text + signature) with re-editing capability
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Grid, Radio, Table, Tag, Empty } from 'antd';
 import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined, EditOutlined, FormOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
@@ -147,15 +147,18 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     });
   };
 
-  // Get thumbnail URL for a photo
-  const getPhotoThumbnail = (photoId: string) => {
-    const photo = allPhotos.find((p: any) => p.id === photoId) as any;
-    // Try both naming conventions (snake_case from API, camelCase from hook mapping)
-    const thumbUrl = photo?.thumbnail_url || photo?.thumbnailUrl;
-    if (thumbUrl) {
-      return thumbUrl;
+  // Build photo thumbnail map for O(1) lookup
+  const photoThumbnailMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of allPhotos as any[]) {
+      const url = p.thumbnail_url || p.thumbnailUrl || `/api/water-mitigation/photos/${p.id}/preview?size=thumbnail`;
+      m.set(p.id, url);
     }
-    return `/api/water-mitigation/photos/${photoId}/preview?size=thumbnail`;
+    return m;
+  }, [allPhotos]);
+
+  const getPhotoThumbnail = (photoId: string) => {
+    return photoThumbnailMap.get(photoId) || `/api/water-mitigation/photos/${photoId}/preview?size=thumbnail`;
   };
 
   const handlePhotoSelection = (fileIds: string[]) => {
