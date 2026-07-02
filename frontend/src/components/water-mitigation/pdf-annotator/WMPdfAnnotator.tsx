@@ -190,7 +190,7 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buffer = await res.arrayBuffer();
-      setPdfBytes(buffer);
+      setPdfBytes(buffer.slice(0));
       await renderPdfPages(buffer);
     } catch (err: any) {
       message.error(`Failed to load PDF: ${err.message}`);
@@ -202,7 +202,7 @@ const WMPdfAnnotator: React.FC<WMPdfAnnotatorProps> = ({
   const handleFileUpload = async (file: File) => {
     setPdfFilename(file.name);
     const buffer = await file.arrayBuffer();
-    setPdfBytes(buffer);
+    setPdfBytes(buffer.slice(0));
     await renderPdfPages(buffer);
     return false; // prevent antd auto upload
   };

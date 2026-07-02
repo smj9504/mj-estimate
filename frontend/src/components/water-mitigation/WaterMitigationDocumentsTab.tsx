@@ -5,8 +5,10 @@
  */
 
 import React, { useState, useRef, useCallback } from 'react';
-import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Grid } from 'antd';
-import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined, EditOutlined } from '@ant-design/icons';
+import { Button, Modal, Select, Space, message, Spin, Typography, Card, Tooltip, Input, Checkbox, Grid, Radio, Table, Tag, Empty } from 'antd';
+import { FilePdfOutlined, PlusOutlined, UploadOutlined, RotateRightOutlined, CloseOutlined, FileTextOutlined, DollarOutlined, EditOutlined, FormOutlined } from '@ant-design/icons';
+import { useQuery } from '@tanstack/react-query';
+import { contractTemplateService } from '../../services/contractService';
 import FileGallery from '../common/FileGallery/FileGallery';
 import WMDocumentList from './WMDocumentList';
 import WMDocumentUploadModal from './WMDocumentUploadModal';
@@ -23,6 +25,7 @@ interface WaterMitigationDocumentsTabProps {
   jobAddress: string;
   dateOfLoss?: string;  // Date of loss from job data
   mitigationStartDate?: string;  // Mitigation start date (required for EWA)
+  companyId?: string;  // Assigned company ID for fetching contract templates
   isActive?: boolean;
   onJobDataChange?: () => void;  // Callback when job data changes (e.g., invoice amount sync)
 }
@@ -63,6 +66,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   jobAddress,
   dateOfLoss,
   mitigationStartDate,
+  companyId,
   isActive,
   onJobDataChange,
 }) => {
@@ -80,8 +84,22 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const [editingDocumentId, setEditingDocumentId] = useState<string | undefined>(undefined);
   const [editingAnnotations, setEditingAnnotations] = useState<PdfAnnotationData | null>(null);
   const [editingSourceUrl, setEditingSourceUrl] = useState<string | undefined>(undefined);
+  const [createSource, setCreateSource] = useState<'photos' | 'template'>('photos');
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [generatingFromTemplate, setGeneratingFromTemplate] = useState(false);
   const documentListRef = useRef<any>(null);
   const invoiceListRef = useRef<any>(null);
+
+  // Fetch contract templates for assigned company (always fetch so we can decide default mode)
+  const { data: templatesData } = useQuery({
+    queryKey: ['contract-templates', companyId],
+    queryFn: () => contractTemplateService.list(companyId),
+    enabled: !!companyId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const contractTemplates = (templatesData?.templates ?? []).filter(
+    (t: any) => t.is_active && t.field_mappings
+  );
 
   // Background refresh when tab becomes active
   const prevActiveRef = useRef(isActive);
@@ -93,19 +111,22 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     prevActiveRef.current = isActive;
   }, [isActive]);
 
-  // Load photos for displaying selected photos with rotation controls
+  // Load photos only when photo mode is active
   const { data: allPhotos = [] } = useWaterMitigationPhotos(jobId, {
-    enabled: createModalVisible,
+    enabled: createModalVisible && createSource === 'photos',
     pageSize: 200
   });
 
   const handleCreateDocument = () => {
+    const hasTemplates = companyId && contractTemplates.length > 0;
     setCreateModalVisible(true);
+    setCreateSource(hasTemplates ? 'template' : 'photos');
     setSelectedDocType(null);
     setSelectedPhotoIds([]);
     setPhotoRotations({});
     setCustomFilename('');
     setCompressPdf(false);
+    setSelectedTemplateId(null);
   };
 
   // Rotate a photo by 90 degrees clockwise
@@ -223,6 +244,42 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
     }
   };
 
+  const handleGenerateFromTemplate = async () => {
+    if (!selectedTemplateId) {
+      message.error('Please select a template');
+      return;
+    }
+    try {
+      setGeneratingFromTemplate(true);
+      message.loading('Generating prefilled PDF...', 0);
+
+      const { blob, annotations } = await waterMitigationService.documents.generateFromTemplate(
+        jobId,
+        selectedTemplateId,
+      );
+
+      // Create blob URL and open in annotator with prefill annotations
+      const blobUrl = window.URL.createObjectURL(blob);
+      setEditingDocumentId(undefined);
+      setEditingAnnotations(annotations || null);
+      setEditingSourceUrl(blobUrl);
+      setAnnotatorOpen(true);
+
+      // Close create modal
+      setCreateModalVisible(false);
+      setSelectedTemplateId(null);
+      setSelectedDocType(null);
+
+      message.destroy();
+    } catch (error: any) {
+      message.destroy();
+      console.error('Failed to generate from template:', error);
+      message.error(error?.response?.data?.detail || 'Failed to generate document from template');
+    } finally {
+      setGeneratingFromTemplate(false);
+    }
+  };
+
   const getSelectedDocumentType = () => {
     return DOCUMENT_TYPES.find(dt => dt.value === selectedDocType);
   };
@@ -330,6 +387,7 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
           setPhotoRotations({});
           setCustomFilename('');
           setCompressPdf(false);
+          setSelectedTemplateId(null);
         }}
         width={isMobile ? '95vw' : 1000}
         footer={[
@@ -342,24 +400,62 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               setPhotoRotations({});
               setCustomFilename('');
               setCompressPdf(false);
+              setSelectedTemplateId(null);
             }}
           >
             Cancel
           </Button>,
-          <Button
-            key="generate"
-            type="primary"
-            icon={<FilePdfOutlined />}
-            onClick={handleGeneratePdf}
-            disabled={!selectedDocType || selectedPhotoIds.length === 0}
-            loading={creatingPdf}
-          >
-            Generate PDF ({selectedPhotoIds.length} photo{selectedPhotoIds.length !== 1 ? 's' : ''})
-          </Button>
+          createSource === 'photos' ? (
+            <Button
+              key="generate"
+              type="primary"
+              icon={<FilePdfOutlined />}
+              onClick={handleGeneratePdf}
+              disabled={!selectedDocType || selectedPhotoIds.length === 0}
+              loading={creatingPdf}
+            >
+              Generate PDF ({selectedPhotoIds.length} photo{selectedPhotoIds.length !== 1 ? 's' : ''})
+            </Button>
+          ) : (
+            <Button
+              key="generate-template"
+              type="primary"
+              icon={<FormOutlined />}
+              onClick={handleGenerateFromTemplate}
+              disabled={!selectedTemplateId}
+              loading={generatingFromTemplate}
+            >
+              Open in Annotator
+            </Button>
+          )
         ]}
       >
         <Space direction="vertical" style={{ width: '100%' }} size="large">
-          {/* Document Type Selection */}
+          {/* Source Selection */}
+          {companyId && contractTemplates.length > 0 && (
+            <Radio.Group
+              value={createSource}
+              onChange={(e) => {
+                setCreateSource(e.target.value);
+                setSelectedDocType(null);
+                setSelectedPhotoIds([]);
+                setSelectedTemplateId(null);
+              }}
+              optionType="button"
+              buttonStyle="solid"
+              style={{ width: '100%', display: 'flex' }}
+            >
+              <Radio.Button value="photos" style={{ flex: 1, textAlign: 'center' }}>
+                <FilePdfOutlined /> From Photos
+              </Radio.Button>
+              <Radio.Button value="template" style={{ flex: 1, textAlign: 'center' }}>
+                <FormOutlined /> From Contract Template
+              </Radio.Button>
+            </Radio.Group>
+          )}
+
+          {/* Document Type Selection - only for photo mode */}
+          {createSource === 'photos' && (
           <div>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>Document Type</Text>
             <Select
@@ -379,9 +475,74 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               }))}
             />
           </div>
+          )}
 
+          {/* === Template Source === */}
+          {createSource === 'template' && (
+            <div>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>Select Contract Template</Text>
+              {contractTemplates.length === 0 ? (
+                <Empty
+                  description="No templates with field mappings found for this company"
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
+              ) : (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                  gap: 8,
+                }}>
+                  {contractTemplates.map((tmpl: any) => {
+                    const isSelected = selectedTemplateId === tmpl.id;
+                    const mappingCount = (() => {
+                      try { return JSON.parse(tmpl.field_mappings || '[]').length; }
+                      catch { return 0; }
+                    })();
+                    return (
+                      <Card
+                        key={tmpl.id}
+                        size="small"
+                        hoverable
+                        onClick={() => {
+                          setSelectedTemplateId(tmpl.id);
+                          // Auto-set document type from template type
+                          const typeMap: Record<string, string> = {
+                            certificate_of_satisfaction: 'COS',
+                            authorization: 'EWA',
+                          };
+                          if (!selectedDocType) {
+                            setSelectedDocType(typeMap[tmpl.document_type] || 'Other');
+                          }
+                        }}
+                        style={{
+                          border: isSelected ? '2px solid #1890ff' : '1px solid #d9d9d9',
+                          background: isSelected ? '#e6f4ff' : undefined,
+                        }}
+                      >
+                        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                          <Text strong>{tmpl.name}</Text>
+                          <Space size={4} wrap>
+                            <Tag>{tmpl.document_type?.replace(/_/g, ' ')}</Tag>
+                            <Tag color="blue">{mappingCount} fields mapped</Tag>
+                          </Space>
+                          {tmpl.file_name && (
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              <FilePdfOutlined style={{ marginRight: 4 }} />
+                              {tmpl.file_name}
+                            </Text>
+                          )}
+                        </Space>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* === Photo Source === */}
           {/* Custom Filename Input - only for Custom type */}
-          {selectedDocType === 'Custom' && (
+          {createSource === 'photos' && selectedDocType === 'Custom' && (
             <div>
               <Text strong style={{ display: 'block', marginBottom: 8 }}>
                 Custom Filename
@@ -406,19 +567,22 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
           )}
 
           {/* Compress PDF Option */}
-          <div>
-            <Checkbox
-              checked={compressPdf}
-              onChange={(e) => setCompressPdf(e.target.checked)}
-            >
-              <Text>Compress PDF</Text>
-            </Checkbox>
-            <Text type="secondary" style={{ display: 'block', fontSize: 12, marginLeft: 24 }}>
-              Reduce file size by compressing images (lower quality)
-            </Text>
-          </div>
+          {createSource === 'photos' && (
+            <div>
+              <Checkbox
+                checked={compressPdf}
+                onChange={(e) => setCompressPdf(e.target.checked)}
+              >
+                <Text>Compress PDF</Text>
+              </Checkbox>
+              <Text type="secondary" style={{ display: 'block', fontSize: 12, marginLeft: 24 }}>
+                Reduce file size by compressing images (lower quality)
+              </Text>
+            </div>
+          )}
 
           {/* Photo Selection */}
+          {createSource === 'photos' && (
           <div>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>Select Photos</Text>
             <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
@@ -500,9 +664,10 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
               )}
             </div>
           </div>
+          )}
 
           {/* Selected Photos with Rotation Controls */}
-          {selectedPhotoIds.length > 0 && !creatingPdf && (
+          {createSource === 'photos' && selectedPhotoIds.length > 0 && !creatingPdf && (
             <div>
               <Text strong style={{ display: 'block', marginBottom: 8 }}>
                 Selected Photos ({selectedPhotoIds.length}) - Click rotate to adjust orientation

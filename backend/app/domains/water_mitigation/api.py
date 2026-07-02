@@ -2587,6 +2587,160 @@ async def bulk_upload_documents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/jobs/{job_id}/documents/generate-from-template")
+async def generate_document_from_template(
+    job_id: UUID,
+    request: dict,
+    service: WaterMitigationService = Depends(get_wm_service),
+    db: DatabaseSession = Depends(get_db_session)
+):
+    """Generate a prefilled PDF from a contract template and return as blob.
+
+    The frontend opens this in the PDF annotator so the user can add
+    signatures/text before saving as a WMDocument.
+    """
+    try:
+        import json as _json
+        from datetime import datetime as _dt
+        from pathlib import Path as _Path
+
+        from app.domains.contract.models import ContractTemplate
+        from app.domains.contract.service import ContractInstanceService
+
+        template_id = request.get('template_id')
+        if not template_id:
+            raise HTTPException(status_code=400, detail="template_id is required")
+
+        # Get the template
+        template = db.query(ContractTemplate).filter(
+            ContractTemplate.id == template_id
+        ).first()
+        if not template:
+            raise HTTPException(status_code=404, detail="Contract template not found")
+
+        if not template.field_mappings:
+            raise HTTPException(status_code=400, detail="Template has no field mappings configured")
+
+        mappings = _json.loads(template.field_mappings)
+        if not mappings:
+            raise HTTPException(status_code=400, detail="Template has no field mappings configured")
+
+        # Get WM job
+        job = service.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # Build prefill data from WM job
+        contract_svc = ContractInstanceService()
+        data: dict = {'wm_job_id': str(job_id)}
+        if job.get('client_id'):
+            data['client_id'] = str(job['client_id'])
+        if job.get('claim_id'):
+            data['claim_id'] = str(job['claim_id'])
+        if job.get('company_id'):
+            data['company_id'] = str(job['company_id'])
+        prefill_data = contract_svc._build_prefill(db, data)
+        prefill_data['meta'] = {
+            'current_date': _dt.utcnow().strftime('%m/%d/%Y'),
+            'contract_number': '',
+        }
+
+        # Resolve template PDF bytes (return original, no text merge)
+        import base64
+
+        backend_dir = _Path(__file__).resolve().parents[3]
+        template_file_url = template.file_url or ''
+        template_pdf_bytes = None
+
+        if template_file_url.startswith('/uploads/'):
+            local_path = backend_dir / template_file_url.lstrip('/')
+            if local_path.exists():
+                with open(local_path, 'rb') as f:
+                    template_pdf_bytes = f.read()
+
+        if not template_pdf_bytes:
+            storage_provider = template.storage_provider or 'local'
+            if storage_provider != 'local':
+                try:
+                    from app.domains.storage.factory import StorageFactory
+                    storage = StorageFactory.get_instance(storage_provider)
+                    template_pdf_bytes = storage.download(template_file_url)
+                except Exception as e:
+                    logger.error(f"Failed to download template from {storage_provider}: {e}")
+
+        if not template_pdf_bytes:
+            raise HTTPException(status_code=404, detail=f"Template PDF file not found: {template_file_url}")
+
+        # Build text annotations from field mappings + prefill data
+        # Need page dimensions to convert fontSize (pt) to ratio for vertical centering
+        from io import BytesIO as _BytesIO
+
+        from pypdf import PdfReader as _PdfReader
+
+        import uuid as _uuid
+        pdf_reader = _PdfReader(_BytesIO(template_pdf_bytes))
+        page_heights: dict = {}
+        for i, pg in enumerate(pdf_reader.pages):
+            page_heights[i] = float(pg.mediabox.height)
+
+        annotations_by_page: dict = {}
+        filled_count = 0
+
+        for mapping in mappings:
+            field_key = mapping.get('fieldKey', '')
+            value = contract_svc._resolve_field_value(prefill_data, field_key)
+            if not value:
+                continue
+
+            filled_count += 1
+            page_idx = mapping.get('pageIndex', 0)
+            if page_idx not in annotations_by_page:
+                annotations_by_page[page_idx] = {'texts': [], 'signatures': []}
+
+            # Vertically center text within the field box
+            field_y = mapping.get('y', 0)
+            field_h = mapping.get('height', 0.03)
+            font_size = mapping.get('fontSize', 12)
+            pg_h = page_heights.get(page_idx, 792)
+            font_ratio = font_size / pg_h  # fontSize in page ratio
+            centered_y = field_y + (field_h - font_ratio) / 2
+
+            annotations_by_page[page_idx]['texts'].append({
+                'id': f'prefill_{_uuid.uuid4().hex[:8]}',
+                'pageIndex': page_idx,
+                'x': mapping.get('x', 0),
+                'y': centered_y,
+                'text': value,
+                'fontSize': font_size,
+                'fontFamily': 'Helvetica',
+                'color': mapping.get('fontColor', '#000000'),
+                'bold': False,
+                'italic': False,
+            })
+
+        logger.info(f"Built {filled_count} text annotations from prefill data")
+
+        property_address = job.get('property_address', 'Property')
+        filename = f"{property_address} - {template.name}.pdf"
+
+        return {
+            'pdf_base64': base64.b64encode(template_pdf_bytes).decode('ascii'),
+            'annotations': {
+                'pages': annotations_by_page,
+                'originalFilename': filename,
+                'version': 1,
+            },
+            'filename': filename,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to generate document from template: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/jobs/{job_id}/documents/upload-annotated-pdf", response_model=WMDocumentResponse)
 async def upload_annotated_pdf(
     job_id: UUID,

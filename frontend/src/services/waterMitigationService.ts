@@ -567,6 +567,26 @@ export const waterMitigationService = {
       return response.data;
     },
 
+    // Generate prefilled template: returns original PDF + text annotations
+    generateFromTemplate: async (
+      jobId: string,
+      templateId: string,
+    ): Promise<{ blob: Blob; annotations: any; filename: string }> => {
+      const response = await api.post(
+        `${BASE_URL}/jobs/${jobId}/documents/generate-from-template`,
+        { template_id: templateId },
+      );
+      const { pdf_base64, annotations, filename } = response.data;
+      // Convert base64 to Blob
+      const byteChars = atob(pdf_base64);
+      const byteArray = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) {
+        byteArray[i] = byteChars.charCodeAt(i);
+      }
+      const blob = new Blob([byteArray], { type: 'application/pdf' });
+      return { blob, annotations, filename };
+    },
+
     // Upload document file manually
     uploadDocument: async (
       jobId: string,

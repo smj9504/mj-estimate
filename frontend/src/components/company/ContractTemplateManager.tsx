@@ -35,6 +35,8 @@ import {
 import { contractTemplateService } from '../../services/contractService';
 import type { ContractTemplate, DocumentType } from '../../types/contract';
 
+const FieldMappingEditor = React.lazy(() => import('../contract/FieldMappingEditor'));
+
 const { Text } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
@@ -81,6 +83,7 @@ const ContractTemplateManager: React.FC<ContractTemplateManagerProps> = ({
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ContractTemplate | null>(null);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [fieldMappingTemplate, setFieldMappingTemplate] = useState<ContractTemplate | null>(null);
 
   const { data: templatesData, isLoading } = useQuery({
     queryKey: ['contract-templates', companyId],
@@ -267,21 +270,41 @@ const ContractTemplateManager: React.FC<ContractTemplateManagerProps> = ({
     {
       title: '',
       key: 'actions',
-      width: 120,
+      width: 150,
       align: 'right',
       render: (_: unknown, record) => (
         <Space size={4}>
-          {record.file_url && (
-            <Tooltip title={record.file_available === false ? 'PDF file is missing. Please re-upload.' : 'View PDF'}>
+          {record.file_url && record.file_available !== false && (
+            <Tooltip title="View PDF">
               <Button
                 icon={<FilePdfOutlined />}
                 size="small"
                 type="text"
-                href={record.file_available === false ? undefined : record.file_url}
+                href={record.file_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                disabled={record.file_available === false}
-                danger={record.file_available === false}
+              />
+            </Tooltip>
+          )}
+          {record.file_url && record.file_available === false && (
+            <Tooltip title="PDF file is missing. Please re-upload.">
+              <Button
+                icon={<FilePdfOutlined />}
+                size="small"
+                type="text"
+                disabled
+                danger
+              />
+            </Tooltip>
+          )}
+          {record.file_url && record.file_available !== false && (
+            <Tooltip title="Map Fields for Auto-Fill">
+              <Button
+                icon={<FormOutlined />}
+                size="small"
+                type="text"
+                onClick={() => setFieldMappingTemplate(record)}
+                disabled={disabled}
               />
             </Tooltip>
           )}
@@ -350,6 +373,21 @@ const ContractTemplateManager: React.FC<ContractTemplateManagerProps> = ({
           pagination={false}
           size="small"
         />
+      )}
+
+      {fieldMappingTemplate && (
+        <React.Suspense fallback={<Spin />}>
+        <FieldMappingEditor
+          open={!!fieldMappingTemplate}
+          templateId={fieldMappingTemplate.id}
+          templateName={fieldMappingTemplate.name}
+          fileUrl={fieldMappingTemplate.file_url || ''}
+          onClose={() => setFieldMappingTemplate(null)}
+          onSaved={() => {
+            queryClient.invalidateQueries({ queryKey: ['contract-templates', companyId] });
+          }}
+        />
+        </React.Suspense>
       )}
 
       <Modal

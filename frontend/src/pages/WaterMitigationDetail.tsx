@@ -466,24 +466,38 @@ const WaterMitigationDetail: React.FC = () => {
             </div>
           ) : (
             /* Desktop: horizontal layout */
-            <Space style={{ justifyContent: 'space-between', width: '100%' }}>
-              <Space>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              flexWrap: 'wrap', justifyContent: 'space-between',
+            }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                minWidth: 0, flex: '1 1 auto',
+              }}>
                 <Button
                   icon={<ArrowLeftOutlined />}
                   onClick={() => navigate('/water-mitigation')}
                 >
                   Back
                 </Button>
-                <h2 style={{ margin: 0 }}>{job.property_address}</h2>
-              </Space>
-              <Space>
+                <h2 style={{
+                  margin: 0, whiteSpace: 'nowrap',
+                  overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {job.property_address}
+                </h2>
+              </div>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                flexWrap: 'wrap', flexShrink: 0,
+              }}>
                 <Tag color={job.active ? 'success' : 'default'}>
                   {job.active ? 'ACTIVE' : 'INACTIVE'}
                 </Tag>
                 <Select
                   value={job.status}
                   onChange={handleStatusChange}
-                  style={{ width: 200 }}
+                  style={{ width: 180 }}
                   options={JOB_STATUS_OPTIONS}
                   suffixIcon={<SwapOutlined />}
                 />
@@ -508,8 +522,8 @@ const WaterMitigationDetail: React.FC = () => {
                 >
                   Edit
                 </Button>
-              </Space>
-            </Space>
+              </div>
+            </div>
           )}
         </Card>
 
@@ -982,6 +996,7 @@ const WaterMitigationDetail: React.FC = () => {
                   jobAddress={job.property_address || 'Unknown Address'}
                   dateOfLoss={job.date_of_loss}
                   mitigationStartDate={job.mitigation_start_date}
+                  companyId={job.company_id}
                   isActive={activeTab === 'documents'}
                   onJobDataChange={loadJob}
                 />

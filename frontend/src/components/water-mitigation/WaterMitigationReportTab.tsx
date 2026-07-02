@@ -40,7 +40,6 @@ import {
   CloseCircleOutlined,
   AppstoreAddOutlined,
   ThunderboltOutlined,
-  CalendarOutlined,
   LayoutOutlined,
   DownOutlined,
   SwapOutlined
@@ -149,7 +148,6 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   const [templateSelectorVisible, setTemplateSelectorVisible] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [autoAssigning, setAutoAssigning] = useState(false);
-  const [updatingPhotoDates, setUpdatingPhotoDates] = useState(false);
   const [autoUpdatePhotoDates, setAutoUpdatePhotoDates] = useState(true);
   // Default report date: mitigation end date + 1, fallback to today
   const [reportDate, setReportDate] = useState<dayjs.Dayjs | null>(
@@ -259,6 +257,28 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
       }
 
       await refetchConfig();
+
+      // Auto-update photo dates after save
+      if (autoUpdatePhotoDates && mitigationStartDate && mitigationEndDate && availablePhotos.length > 0) {
+        try {
+          const formatDateForApi = (dateStr: string) => {
+            const d = new Date(dateStr);
+            return d.toISOString().split('T')[0];
+          };
+          const result = await waterMitigationService.photos.bulkUpdateDatesByCategory(
+            jobId,
+            formatDateForApi(mitigationStartDate),
+            formatDateForApi(mitigationEndDate)
+          );
+          if (result.success) {
+            message.success(result.message);
+            queryClient.invalidateQueries({ queryKey: ['water-mitigation-photos', jobId] });
+          }
+        } catch (error) {
+          console.error('Failed to auto-update photo dates:', error);
+          message.warning('Config saved, but failed to update photo dates');
+        }
+      }
     } catch (error) {
       console.error('Failed to save report config:', error);
       message.error('Failed to save report configuration');
@@ -735,110 +755,6 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
     }
   };
 
-  /**
-   * Update photo dates based on category matching
-   * Day 2 -> mitigation_start_date + 1
-   * Day 3 -> mitigation_end_date
-   * Others -> mitigation_start_date
-   */
-  const handleUpdatePhotoDates = async () => {
-    // Validate dates are available
-    if (!mitigationStartDate || !mitigationEndDate) {
-      message.warning('Please set mitigation start and end dates before updating photo dates.');
-      return;
-    }
-
-    if (availablePhotos.length === 0) {
-      message.info('No photos available to update.');
-      return;
-    }
-
-    // Count photos by category for display
-    const categorizedPhotos = availablePhotos.filter(p => p.category);
-    const normalize = (s: string) => s.toLowerCase().replace(/[\s\-_]/g, '');
-    const day2Photos = categorizedPhotos.filter(p =>
-      normalize(p.category || '').includes('day2')
-    );
-    const day3Photos = categorizedPhotos.filter(p =>
-      normalize(p.category || '').includes('day3')
-    );
-    const otherPhotos = categorizedPhotos.filter(p => {
-      const cat = normalize(p.category || '');
-      return !cat.includes('day2') && !cat.includes('day3');
-    });
-
-    // Format dates for display
-    const formatDate = (dateStr: string) => {
-      try {
-        const d = new Date(dateStr);
-        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      } catch {
-        return dateStr;
-      }
-    };
-
-    // Calculate Day 2 date (start + 1)
-    const startDate = new Date(mitigationStartDate);
-    const day2Date = new Date(startDate);
-    day2Date.setDate(day2Date.getDate() + 1);
-
-    Modal.confirm({
-      title: 'Update Photo Dates by Category',
-      width: 500,
-      content: (
-        <div style={{ marginTop: 16 }}>
-          <p>This will update photo dates based on their categories:</p>
-          <ul style={{ marginTop: 12, marginBottom: 16 }}>
-            <li>
-              <strong>Day 2</strong> photos ({day2Photos.length}): {formatDate(day2Date.toISOString())}
-            </li>
-            <li>
-              <strong>Day 3</strong> photos ({day3Photos.length}): {formatDate(mitigationEndDate)}
-            </li>
-            <li>
-              <strong>Other</strong> categorized photos ({otherPhotos.length}): {formatDate(mitigationStartDate)}
-            </li>
-          </ul>
-          <p style={{ color: '#666', fontSize: 13 }}>
-            Total: {categorizedPhotos.length} photos will be updated.
-            <br />
-            Photos without categories will not be affected.
-          </p>
-        </div>
-      ),
-      okText: 'Update Dates',
-      cancelText: 'Cancel',
-      onOk: async () => {
-        setUpdatingPhotoDates(true);
-        try {
-          // Format dates as YYYY-MM-DD
-          const formatDateForApi = (dateStr: string) => {
-            const d = new Date(dateStr);
-            return d.toISOString().split('T')[0];
-          };
-
-          const result = await waterMitigationService.photos.bulkUpdateDatesByCategory(
-            jobId,
-            formatDateForApi(mitigationStartDate),
-            formatDateForApi(mitigationEndDate)
-          );
-
-          if (result.success) {
-            message.success(result.message);
-            // Invalidate photos cache to refresh the data
-            queryClient.invalidateQueries({ queryKey: ['water-mitigation-photos', jobId] });
-          } else {
-            message.error('Failed to update photo dates');
-          }
-        } catch (error) {
-          console.error('Failed to update photo dates:', error);
-          message.error('Failed to update photo dates');
-        } finally {
-          setUpdatingPhotoDates(false);
-        }
-      }
-    });
-  };
 
   // Create a Map for O(1) photo lookup (fixes N+1 pattern)
   const photoMap = useMemo(() => {
@@ -893,6 +809,15 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
           >
             Save
           </Button>
+          <Tooltip title="Automatically update photo dates by category (Day 1/2/3) when saving">
+            <Checkbox
+              checked={autoUpdatePhotoDates}
+              onChange={(e) => setAutoUpdatePhotoDates(e.target.checked)}
+              disabled={!mitigationStartDate || !mitigationEndDate}
+            >
+              {!isMobile && 'Update Photo Dates'}
+            </Checkbox>
+          </Tooltip>
           <Select
             value={pdfTemplateVariant}
             onChange={(val) => setPdfTemplateVariant(val)}
@@ -923,11 +848,6 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                     key: 'autoAssign', icon: <ThunderboltOutlined />, label: 'Auto-Assign Photos',
                     onClick: handleAutoAssignPhotos, disabled: sections.length === 0 || availablePhotos.length === 0
                   },
-                  {
-                    key: 'updateDates', icon: <CalendarOutlined />, label: 'Update Photo Dates',
-                    onClick: handleUpdatePhotoDates,
-                    disabled: !mitigationStartDate || !mitigationEndDate || availablePhotos.length === 0
-                  },
                 ]
               }}
             >
@@ -944,20 +864,6 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                   disabled={sections.length === 0 || availablePhotos.length === 0}
                 >
                   Auto-Assign Photos
-                </Button>
-              </Tooltip>
-              <Tooltip title={
-                !mitigationStartDate || !mitigationEndDate
-                  ? "Set mitigation start/end dates first"
-                  : "Update photo dates based on category (Day 2, Day 3, etc.)"
-              }>
-                <Button
-                  icon={<CalendarOutlined />}
-                  onClick={handleUpdatePhotoDates}
-                  loading={updatingPhotoDates}
-                  disabled={!mitigationStartDate || !mitigationEndDate || availablePhotos.length === 0}
-                >
-                  Update Photo Dates
                 </Button>
               </Tooltip>
             </>

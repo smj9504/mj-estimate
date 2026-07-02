@@ -276,53 +276,101 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
     def _build_prefill(self, session, data: Dict[str, Any]) -> Dict[str, Any]:
         """Capture client/claim/company info at time of contract generation"""
         prefill = {}
+        from app.domains.client.models import Client, Claim
+        from app.domains.company.models import Company
+
+        def _safe(obj, attr):
+            return getattr(obj, attr, None)
+
+        def _safe_str(obj, attr):
+            v = getattr(obj, attr, None)
+            return str(v) if v is not None else None
+
+        # Client
         try:
-            from app.domains.client.models import Client, Claim
-            from app.domains.company.models import Company
+            client_id = data.get('client_id')
+            if client_id:
+                client = session.query(Client).filter(
+                    Client.id == client_id
+                ).first()
+                if client:
+                    addr = _safe(client, 'address') or ''
+                    city = _safe(client, 'city') or ''
+                    state = _safe(client, 'state') or ''
+                    zipcode = _safe(client, 'zipcode') or ''
+                    prefill['client'] = {
+                        'display_name': _safe(client, 'display_name'),
+                        'address': addr,
+                        'city': city,
+                        'state': state,
+                        'zipcode': zipcode,
+                        'phone': _safe(client, 'phone'),
+                        'email': _safe(client, 'email'),
+                        'full_address': f"{addr}, {city}, {state} {zipcode}".strip(', '),
+                    }
+        except Exception as e:
+            logger.warning(f"Error building client prefill: {e}")
 
-            client = session.query(Client).filter(Client.id == data.get('client_id')).first()
-            if client:
-                prefill['client'] = {
-                    'display_name': client.display_name,
-                    'address': client.address,
-                    'city': client.city,
-                    'state': client.state,
-                    'zipcode': client.zipcode,
-                    'phone': client.phone,
-                    'email': client.email,
-                    'full_address': f"{client.address or ''}, {client.city or ''}, {client.state or ''} {client.zipcode or ''}".strip(', '),
-                }
+        # Claim
+        try:
+            claim_id = data.get('claim_id')
+            if claim_id:
+                claim = session.query(Claim).filter(
+                    Claim.id == claim_id
+                ).first()
+                if claim:
+                    dol = _safe(claim, 'date_of_loss')
+                    ded = (
+                        _safe(claim, 'insurance_deductible')
+                        or _safe(claim, 'deductible')
+                    )
+                    def _fmt(dt):
+                        if not dt:
+                            return None
+                        if hasattr(dt, 'strftime'):
+                            return dt.strftime('%m/%d/%Y')
+                        return str(dt).split(' ')[0].split('T')[0]
 
-            claim = session.query(Claim).filter(Claim.id == data.get('claim_id')).first()
-            if claim:
-                prefill['claim'] = {
-                    'claim_number': claim.claim_number,
-                    'insurance_company': claim.insurance_company,
-                    'insurance_policy_number': claim.insurance_policy_number,
-                    'date_of_loss': str(claim.date_of_loss) if claim.date_of_loss else None,
-                    'loss_description': claim.loss_description,
-                    'adjuster_name': claim.adjuster_name,
-                    'adjuster_phone': getattr(claim, 'adjuster_phone', None),
-                    'adjuster_email': getattr(claim, 'adjuster_email', None),
-                    'deductible': str(claim.deductible) if claim.deductible else None,
-                }
+                    prefill['claim'] = {
+                        'claim_number': _safe(claim, 'claim_number'),
+                        'insurance_company': _safe(claim, 'insurance_company'),
+                        'insurance_policy_number': _safe(claim, 'insurance_policy_number'),
+                        'date_of_loss': _fmt(dol),
+                        'loss_description': _safe(claim, 'loss_description'),
+                        'adjuster_name': _safe(claim, 'adjuster_name'),
+                        'adjuster_phone': _safe(claim, 'adjuster_phone'),
+                        'adjuster_email': _safe(claim, 'adjuster_email'),
+                        'deductible': str(ded) if ded else None,
+                    }
+        except Exception as e:
+            logger.warning(f"Error building claim prefill: {e}")
 
-            company = session.query(Company).filter(Company.id == data.get('company_id')).first()
-            if company:
-                prefill['company'] = {
-                    'name': company.name,
-                    'address': company.address,
-                    'phone': company.phone,
-                    'email': company.email,
-                    'license_number': company.license_number,
-                }
+        # Company
+        try:
+            company_id = data.get('company_id')
+            if company_id:
+                company = session.query(Company).filter(
+                    Company.id == company_id
+                ).first()
+                if company:
+                    prefill['company'] = {
+                        'name': _safe(company, 'name'),
+                        'address': _safe(company, 'address'),
+                        'phone': _safe(company, 'phone'),
+                        'email': _safe(company, 'email'),
+                        'license_number': _safe(company, 'license_number'),
+                    }
+        except Exception as e:
+            logger.warning(f"Error building company prefill: {e}")
 
-            # WM Job data
+        # WM Job data
+        try:
             wm_job_id = data.get('wm_job_id')
             if wm_job_id:
                 self._add_wm_prefill(session, prefill, wm_job_id)
         except Exception as e:
-            logger.warning(f"Error building prefill: {e}")
+            logger.warning(f"Error building WM job prefill: {e}")
+
         return prefill
 
     def _add_wm_prefill(self, session, prefill: Dict[str, Any], wm_job_id: str):
@@ -372,6 +420,35 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
                 'adjuster_email': job.adjuster_email,
                 'today': today.strftime('%m/%d/%Y'),
             }
+
+            # Fallback: populate client from WM job if not already set
+            if 'client' not in prefill:
+                addr = job.property_address or ''
+                city = getattr(job, 'property_city', '') or ''
+                state = getattr(job, 'property_state', '') or ''
+                zipcode = getattr(job, 'property_zipcode', '') or ''
+                prefill['client'] = {
+                    'display_name': job.homeowner_name,
+                    'address': addr,
+                    'city': city,
+                    'state': state,
+                    'zipcode': zipcode,
+                    'phone': job.homeowner_phone,
+                    'email': job.homeowner_email,
+                    'full_address': f"{addr}, {city}, {state} {zipcode}".strip(', '),
+                }
+
+            # Fallback: populate claim from WM job if not already set
+            if 'claim' not in prefill:
+                prefill['claim'] = {
+                    'claim_number': job.claim_number,
+                    'insurance_company': job.insurance_company,
+                    'insurance_policy_number': job.insurance_policy_number,
+                    'date_of_loss': fmt_date(dol),
+                    'adjuster_name': job.adjuster_name,
+                    'adjuster_phone': job.adjuster_phone,
+                    'adjuster_email': job.adjuster_email,
+                }
         except Exception as e:
             logger.warning(f"Error adding WM prefill: {e}")
 
@@ -391,7 +468,7 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
     def _generate_filled_pdf(self, template_file_url: str, mappings: list, prefill: dict) -> Optional[str]:
         """Generate a filled PDF by overlaying text on the template PDF using reportlab"""
         try:
-            from PyPDF2 import PdfReader, PdfWriter
+            from pypdf import PdfReader, PdfWriter
             from reportlab.pdfgen import canvas as rl_canvas
 
             # Resolve template file path
