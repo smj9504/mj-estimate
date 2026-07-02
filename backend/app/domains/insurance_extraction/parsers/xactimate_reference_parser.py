@@ -7,7 +7,10 @@ Text-based regex parsing (robust) — no coordinate dependence.
 
 from __future__ import annotations
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -38,10 +41,16 @@ SUBROOM_RE = re.compile(
 )
 CONTINUED_RE = re.compile(r"^CONTINUED\s*[-\u2013]\s*(.+)$", re.IGNORECASE)
 
+# 5-group totals: tax op rcv dep acv
 TOTALS_RE = re.compile(
     r"^Totals?:\s*.+?\s+"
     r"([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+"
     r"\(?([\d,]+\.\d+)\)?\s+([\d,]+\.\d+)$"
+)
+# 3-group totals (5-col PDFs): op rcv acv
+TOTALS_3COL_RE = re.compile(
+    r"^Totals?:\s*.+?\s+"
+    r"([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)$"
 )
 TOTAL_LEVEL_RE = re.compile(
     r"^Total:\s+.+?\s+"
@@ -54,6 +63,18 @@ LAYOUT_A_INLINE_RE = re.compile(
     r"(.+?)\s+"
     r"([\d,]+\.?\d*)\s*(EA|SF|LF|HR|SY|SQ|DA|WK|LB|BX|RL|GL|TB|SH)\s+"
     r"([\d,]+\.?\d*)\s+"
+    r"([\d,]+\.?\d*)\s+"
+    r"([\d,]+\.?\d*)\s+"
+    r"([\d,]+\.?\d*)\s+"
+    r"\(?([\d,]+\.?\d*)\)?\s+"
+    r"([\d,]+\.?\d*)$"
+)
+
+# 5-column variant: qty UNIT price op rcv dep acv  (no tax column)
+LAYOUT_A_5COL_RE = re.compile(
+    r"^(\d+)\.\s+"
+    r"(.+?)\s+"
+    r"([\d,]+\.?\d*)\s*(EA|SF|LF|HR|SY|SQ|DA|WK|LB|BX|RL|GL|TB|SH)\s+"
     r"([\d,]+\.?\d*)\s+"
     r"([\d,]+\.?\d*)\s+"
     r"([\d,]+\.?\d*)\s+"
@@ -244,22 +265,39 @@ def _make_empty_item(num: int, desc: str) -> dict:
 
 
 def parse_item_a(line: str) -> Optional[dict]:
+    # Try standard 6-column layout first (price tax op rcv dep acv)
     m = LAYOUT_A_INLINE_RE.match(line)
-    if not m:
-        return None
-    return {
-        "item_number": int(m.group(1)),
-        "description": clean_desc(m.group(2)),
-        "quantity": parse_num(m.group(3)),
-        "unit": m.group(4),
-        "unit_price": parse_num(m.group(5)),
-        "tax": parse_num(m.group(6)),
-        "op": parse_num(m.group(7)),
-        "rcv": parse_num(m.group(8)),
-        "depreciation": -abs(parse_num(m.group(9))),
-        "acv": parse_num(m.group(10)),
-        "note": None,
-    }
+    if m:
+        return {
+            "item_number": int(m.group(1)),
+            "description": clean_desc(m.group(2)),
+            "quantity": parse_num(m.group(3)),
+            "unit": m.group(4),
+            "unit_price": parse_num(m.group(5)),
+            "tax": parse_num(m.group(6)),
+            "op": parse_num(m.group(7)),
+            "rcv": parse_num(m.group(8)),
+            "depreciation": -abs(parse_num(m.group(9))),
+            "acv": parse_num(m.group(10)),
+            "note": None,
+        }
+    # Try 5-column variant (price op rcv dep acv — no tax column)
+    m5 = LAYOUT_A_5COL_RE.match(line)
+    if m5:
+        return {
+            "item_number": int(m5.group(1)),
+            "description": clean_desc(m5.group(2)),
+            "quantity": parse_num(m5.group(3)),
+            "unit": m5.group(4),
+            "unit_price": parse_num(m5.group(5)),
+            "tax": 0.0,
+            "op": parse_num(m5.group(6)),
+            "rcv": parse_num(m5.group(7)),
+            "depreciation": -abs(parse_num(m5.group(8))),
+            "acv": parse_num(m5.group(9)),
+            "note": None,
+        }
+    return None
 
 
 def parse_data_b(line: str) -> Optional[dict]:
@@ -469,7 +507,9 @@ def _ocr_page(pdf_path: str, page_idx: int) -> str:
         return ""
 
 
-def _extract_text_lines(pdf_path: str) -> Tuple[List[str], List[str]]:
+def _extract_text_lines(
+    pdf_path: str, max_pages: int = 40
+) -> Tuple[List[str], List[str]]:
     """Extract text lines from PDF. Returns (lines, page_texts)."""
     import pdfplumber
 
@@ -477,7 +517,13 @@ def _extract_text_lines(pdf_path: str) -> Tuple[List[str], List[str]]:
     page_texts: List[str] = []
 
     with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
+        for i, page in enumerate(pdf.pages):
+            if i >= max_pages:
+                logger.warning(
+                    "Truncating PDF at %d pages (total %d)",
+                    max_pages, len(pdf.pages),
+                )
+                break
             t = page.extract_text() or ""
             if _is_cid_encoded(t):
                 t = _ocr_page(pdf_path, page.page_number - 1)
@@ -669,7 +715,7 @@ def _parse_body(lines: list, layout: str) -> dict:
             i += 1
             continue
 
-        # Totals row
+        # Totals row (5-col or 3-col)
         mt = TOTALS_RE.match(line)
         if mt:
             tots = {
@@ -679,6 +725,19 @@ def _parse_body(lines: list, layout: str) -> dict:
                 "depreciation": -abs(parse_num(mt.group(4))),
                 "acv": parse_num(mt.group(5)),
             }
+        else:
+            mt3 = TOTALS_3COL_RE.match(line)
+            if mt3:
+                tots = {
+                    "tax": 0.0,
+                    "op": parse_num(mt3.group(1)),
+                    "rcv": parse_num(mt3.group(2)),
+                    "depreciation": 0.0,
+                    "acv": parse_num(mt3.group(3)),
+                }
+            else:
+                tots = None
+        if tots is not None:
             if current_appendix and not current_room:
                 _finalize(current_appendix)
                 current_appendix["totals"] = tots
@@ -727,6 +786,13 @@ def _parse_body(lines: list, layout: str) -> dict:
             _finalize(current_section)
             current_section = _make_section(line)
             standalone_sections.append(current_section)
+            i += 1
+            continue
+
+        # Skip unmatched Totals rows (e.g. unusual column count)
+        if line.startswith("Totals:") or line.startswith("Total:"):
+            _finalize(current_room)
+            current_room = None
             i += 1
             continue
 
@@ -857,13 +923,40 @@ def _clean_notes_with_header(body: dict, header_lines: set) -> None:
                 item["note"] = _clean_note(item.get("note"))
 
 
-def parse_estimate(pdf_path: str) -> dict:
+def parse_estimate(pdf_path: str, max_pages: int = 40) -> dict:
     """Main entry point — parse a Xactimate PDF and return structured result."""
-    all_lines, page_texts = _extract_text_lines(pdf_path)
+    all_lines, page_texts = _extract_text_lines(pdf_path, max_pages)
     layout = detect_layout(all_lines)
     header = _parse_header(all_lines)
     body = _parse_body(all_lines, layout)
     summary = _parse_summary(all_lines)
+
+    # Debug: count total line items across all containers
+    total_items = 0
+    for sec in body.get("standalone_sections", []):
+        total_items += len(sec.get("line_items", []))
+    for lv in body.get("levels", []):
+        for rm in lv.get("rooms", []):
+            total_items += len(rm.get("line_items", []))
+    for sec in body.get("appendix_sections", []):
+        total_items += len(sec.get("line_items", []))
+
+    logger.info(
+        "reference_parser result: layout=%s, levels=%d, rooms=%d, appendix=%d, total_items=%d, lines=%d",
+        layout,
+        len(body.get("levels", [])),
+        sum(len(lv.get("rooms", [])) for lv in body.get("levels", [])),
+        len(body.get("appendix_sections", [])),
+        total_items,
+        len(all_lines),
+    )
+    if total_items == 0 and all_lines:
+        # Log sample lines for debugging parse failures
+        sample = [l for l in all_lines[:200] if l.strip() and not is_junk(l)][:30]
+        logger.warning(
+            "reference_parser: 0 items extracted. Sample non-junk lines:\n%s",
+            "\n".join(f"  [{i}] {l}" for i, l in enumerate(sample)),
+        )
 
     # Post-process: remove page-header text that leaked into notes
     header_lines = _collect_page_header_lines(page_texts)
@@ -993,7 +1086,7 @@ def _build_hierarchy_from_result(
 
 
 def parse_with_reference(
-    pdf_path: str,
+    pdf_path: str, max_pages: int = 40,
 ) -> Tuple[List[ParsedItemDTO], List[str], Dict[str, Any]]:
     """Parse PDF with reference parser and return pipeline-compatible output.
 
@@ -1002,7 +1095,7 @@ def parse_with_reference(
     diagnostics: Dict[str, Any] = {"strategy": "xactimate_reference"}
 
     try:
-        result = parse_estimate(pdf_path)
+        result = parse_estimate(pdf_path, max_pages=max_pages)
     except Exception as e:
         diagnostics["reference_error"] = str(e)
         return [], [], diagnostics

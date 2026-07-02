@@ -1349,7 +1349,7 @@ class ClaimFollowUpService:
                         WaterMitigationJob.id == str(wm_job_id)
                     ).first()
                     if job:
-                        wm_attachments = wm_service._collect_attachments(
+                        wm_attachments, _failed = wm_service._collect_attachments(
                             session, job, wm_documents
                         )
                         raw_attachments.extend(wm_attachments)

@@ -82,7 +82,7 @@ const WMInvoiceList = React.forwardRef<{ refresh: () => void }, WMInvoiceListPro
         const addr = (jobAddress || '').split(',')[0].trim();
         const invNum = invoice.invoice_number || 'unknown';
         const filename = `WM - ${addr} - ${invNum}.pdf`;
-        await waterMitigationService.scopeInvoice.downloadPdf(invoice.invoice_id, filename, templateVariant);
+        await waterMitigationService.scopeInvoice.downloadPdf(jobId, invoice.invoice_id, filename, templateVariant);
         message.success('Invoice PDF downloaded');
       } catch (error) {
         console.error('Failed to download invoice PDF:', error);

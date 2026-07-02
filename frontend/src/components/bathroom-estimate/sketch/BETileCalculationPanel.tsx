@@ -127,13 +127,23 @@ const BETileCalculationPanel: React.FC<BETileCalculationPanelProps> = ({ api }) 
   const { data, updateTileZone } = api;
   const zones = data.tileZones;
 
-  // ── Calculations ──
-  const calculations = useMemo(() => {
-    return zones.map((z) => ({ zone: z, calc: calculateTileForZone(z) }));
-  }, [zones]);
+  // ── Separate tile vs glass zones ──
+  const GLASS_TYPES: Set<TileZoneType> = new Set(['shower_glass_panel', 'shower_door']);
 
-  const totals = useMemo(() => {
-    return calculations.reduce(
+  const tileZones = useMemo(() => zones.filter((z) => !GLASS_TYPES.has(z.type)), [zones]);
+  const glassZones = useMemo(() => zones.filter((z) => GLASS_TYPES.has(z.type)), [zones]);
+
+  // ── Calculations ──
+  const tileCalcs = useMemo(() => {
+    return tileZones.map((z) => ({ zone: z, calc: calculateTileForZone(z) }));
+  }, [tileZones]);
+
+  const glassCalcs = useMemo(() => {
+    return glassZones.map((z) => ({ zone: z, calc: calculateTileForZone(z) }));
+  }, [glassZones]);
+
+  const tileTotals = useMemo(() => {
+    return tileCalcs.reduce(
       (acc, { calc }) => ({
         areaSF: acc.areaSF + calc.totalAreaSF,
         materialCost: acc.materialCost + calc.materialCost,
@@ -142,7 +152,7 @@ const BETileCalculationPanel: React.FC<BETileCalculationPanelProps> = ({ api }) 
       }),
       { areaSF: 0, materialCost: 0, laborCost: 0, totalCost: 0 },
     );
-  }, [calculations]);
+  }, [tileCalcs]);
 
   // ── Update zone tile spec ──
   const handleSpecChange = useCallback(
@@ -171,45 +181,35 @@ const BETileCalculationPanel: React.FC<BETileCalculationPanelProps> = ({ api }) 
     );
   }
 
-  return (
-    <div style={{ padding: '8px 0' }}>
-      {/* ── Summary Totals ── */}
-      <Card size="small" style={{ marginBottom: 8, backgroundColor: '#f6ffed', border: '1px solid #b7eb8f' }}>
-        <Statistic
-          title={<Text style={{ fontSize: 10 }}>Total Area</Text>}
-          value={totals.areaSF}
-          suffix="SF"
-          valueStyle={{ fontSize: 16 }}
-          precision={1}
-        />
-      </Card>
-
-      {/* ── Per-Zone Details ── */}
-      <Collapse size="small" defaultActiveKey={zones.slice(0, 3).map((z) => z.id)}>
-        {calculations.map(({ zone, calc }) => (
-          <Panel
-            key={zone.id}
-            header={
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                <Space size={4}>
-                  <div
-                    style={{
-                      width: 10,
-                      height: 10,
-                      borderRadius: 2,
-                      backgroundColor: zone.color.replace(/[\d.]+\)$/, '0.6)'),
-                      border: '1px solid rgba(0,0,0,0.2)',
-                    }}
-                  />
-                  <Text strong style={{ fontSize: 11 }}>
-                    {ZONE_TYPE_LABELS[zone.type] ?? zone.label}
-                  </Text>
-                </Space>
-                <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>{zone.areaSF} SF</Tag>
-              </div>
-            }
-          >
-            <div style={{ fontSize: 11 }}>
+  // ── Shared zone panel renderer ──
+  const renderZonePanel = ({ zone, calc }: { zone: BETileZone; calc: TileCalcResult }) => {
+    const isGlass = GLASS_TYPES.has(zone.type);
+    return (
+      <Panel
+        key={zone.id}
+        header={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <Space size={4}>
+              <div
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 2,
+                  backgroundColor: zone.color.replace(/[\d.]+\)$/, '0.6)'),
+                  border: '1px solid rgba(0,0,0,0.2)',
+                }}
+              />
+              <Text strong style={{ fontSize: 11 }}>
+                {ZONE_TYPE_LABELS[zone.type] ?? zone.label}
+              </Text>
+            </Space>
+            <Tag color={isGlass ? 'cyan' : 'blue'} style={{ fontSize: 10, margin: 0 }}>{zone.areaSF} SF</Tag>
+          </div>
+        }
+      >
+        <div style={{ fontSize: 11 }}>
+          {!isGlass && (
+            <>
               {/* Material */}
               <div style={{ marginBottom: 6 }}>
                 <Text type="secondary">Material:</Text>
@@ -285,10 +285,50 @@ const BETileCalculationPanel: React.FC<BETileCalculationPanelProps> = ({ api }) 
                 <Text type="secondary">Boxes (~):</Text>
                 <Text strong>{calc.boxesNeeded}</Text>
               </div>
+            </>
+          )}
+          {isGlass && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px' }}>
+              <Text type="secondary">Area:</Text>
+              <Text strong>{zone.areaSF} SF</Text>
             </div>
-          </Panel>
-        ))}
-      </Collapse>
+          )}
+        </div>
+      </Panel>
+    );
+  };
+
+  return (
+    <div style={{ padding: '8px 0' }}>
+      {/* ── Tile Summary ── */}
+      <Card size="small" style={{ marginBottom: 8, backgroundColor: '#f6ffed', border: '1px solid #b7eb8f' }}>
+        <Statistic
+          title={<Text style={{ fontSize: 10 }}>Tile Area</Text>}
+          value={tileTotals.areaSF}
+          suffix="SF"
+          valueStyle={{ fontSize: 16 }}
+          precision={1}
+        />
+      </Card>
+
+      {/* ── Tile Zones ── */}
+      {tileCalcs.length > 0 && (
+        <Collapse size="small" defaultActiveKey={tileZones.slice(0, 3).map((z) => z.id)}>
+          {tileCalcs.map(renderZonePanel)}
+        </Collapse>
+      )}
+
+      {/* ── Glass / Door Section ── */}
+      {glassCalcs.length > 0 && (
+        <>
+          <Divider style={{ margin: '12px 0 8px' }}>
+            <Text type="secondary" style={{ fontSize: 11 }}>Glass & Door</Text>
+          </Divider>
+          <Collapse size="small" defaultActiveKey={glassZones.map((z) => z.id)}>
+            {glassCalcs.map(renderZonePanel)}
+          </Collapse>
+        </>
+      )}
     </div>
   );
 };

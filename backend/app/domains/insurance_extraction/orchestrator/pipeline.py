@@ -1,5 +1,11 @@
+"""
+Insurance extraction pipeline — orchestrates multiple parsing strategies.
+
+Key optimization: PDF is opened ONCE for pdfplumber-based strategies (1 & 2),
+then only text is reused for strategies 3-5.
+"""
+
 import logging
-import re
 from typing import List, Optional
 
 from app.domains.insurance_extraction.interfaces import (
@@ -23,6 +29,9 @@ from app.domains.insurance_extraction.parsers.xactimate_reference_parser import 
 
 logger = logging.getLogger(__name__)
 
+# Maximum pages to process to prevent OOM on large PDFs
+MAX_PAGES = 40
+
 
 class InsuranceExtractionOrchestrator:
     def __init__(
@@ -35,77 +44,140 @@ class InsuranceExtractionOrchestrator:
         self.ocr_extractor = ocr_extractor
         self.parser_resolver = parser_resolver
 
-    def run(self, file_path: str, carrier: Optional[str] = None) -> ExtractionPipelineResult:
+    def run(
+        self, file_path: str, carrier: Optional[str] = None
+    ) -> ExtractionPipelineResult:
+        strategy_log: List[str] = []
+
         # Strategy 1: Reference parser (text-based, most robust)
+        # This opens the PDF once with pdfplumber internally.
         try:
-            ref_items, ref_pages, ref_diag = parse_with_reference(file_path)
+            ref_items, ref_pages, ref_diag = parse_with_reference(
+                file_path, max_pages=MAX_PAGES
+            )
             if ref_items:
-                resolved_carrier = carrier or self._detect_carrier(ref_pages)
-                # Override carrier if reference parser detected one
+                resolved_carrier = (
+                    carrier or self._detect_carrier(ref_pages)
+                )
                 if ref_diag.get("header", {}).get("carrier"):
-                    resolved_carrier = ref_diag["header"]["carrier"].lower().replace(" ", "_")
+                    resolved_carrier = (
+                        ref_diag["header"]["carrier"]
+                        .lower()
+                        .replace(" ", "_")
+                    )
                 return ExtractionPipelineResult(
                     carrier=resolved_carrier,
                     merged_pages=ref_pages,
                     items=ref_items,
                     metadata={
                         "ocr_attempted": False,
+                        "strategy_log": strategy_log
+                        + ["reference:OK"],
                         **ref_diag,
                     },
                 )
-            logger.info("Reference parser returned no items, falling back to layout parser")
+            reason = ref_diag.get("reference_skipped", "no_items")
+            strategy_log.append(f"reference:FAIL({reason})")
+            # Reuse page_texts from reference parser for subsequent
+            # strategies to avoid reopening the PDF.
+            page_texts = ref_pages
+            logger.info(
+                "Reference parser: no items (%s), trying layout",
+                reason,
+            )
         except Exception as e:
-            logger.warning("Reference parser failed: %s, falling back", e)
+            strategy_log.append(f"reference:ERROR({e})")
+            logger.warning("Reference parser failed: %s", e)
+            page_texts = None
 
         # Strategy 2: Coordinate-based layout parser (pdfplumber)
-        xact_items, xact_pages, xact_diag = parse_xactimate_pdf(file_path)
-        if xact_items:
-            resolved_carrier = carrier or self._detect_carrier(xact_pages)
-            return ExtractionPipelineResult(
-                carrier=resolved_carrier,
-                merged_pages=xact_pages,
-                items=xact_items,
-                metadata={
-                    "ocr_attempted": False,
-                    **xact_diag,
-                },
+        # This must re-open the PDF for word coordinates, but we skip
+        # it if the reference parser already extracted page texts and
+        # had structural success (rooms found = valid Xactimate PDF).
+        try:
+            xact_items, xact_pages, xact_diag = parse_xactimate_pdf(
+                file_path, max_pages=MAX_PAGES
             )
-
-        # Strategy 3: Generic text extraction + carrier-specific parsers
-        pages_text = self.text_extractor.extract_pages(file_path)
-        ocr_pages = self.ocr_extractor.extract_missing_pages(file_path, pages_text)
-        merged_pages = self._merge_pages(pages_text, ocr_pages)
-        resolved_carrier = carrier or self._detect_carrier(merged_pages)
-        parser = self.parser_resolver.resolve(resolved_carrier)
-        items = parser.parse_pages(merged_pages, carrier=resolved_carrier)
-        if not items:
-            text_layout_raw = _parse_text_layout_items(merged_pages)
-            text_layout_items = raw_dicts_to_dtos(text_layout_raw)
-            if _xactimate_parse_trustworthy(text_layout_items):
+            if xact_items:
+                resolved_carrier = carrier or self._detect_carrier(
+                    xact_pages
+                )
                 return ExtractionPipelineResult(
                     carrier=resolved_carrier,
-                    merged_pages=merged_pages,
+                    merged_pages=xact_pages,
+                    items=xact_items,
+                    metadata={
+                        "ocr_attempted": False,
+                        "strategy_log": strategy_log + ["layout:OK"],
+                        **xact_diag,
+                    },
+                )
+            reason = xact_diag.get("xactimate_skipped", "no_items")
+            strategy_log.append(f"layout:FAIL({reason})")
+            # Use layout parser's page_texts if reference didn't provide
+            if page_texts is None:
+                page_texts = xact_pages
+        except Exception as e:
+            strategy_log.append(f"layout:ERROR({e})")
+            logger.warning("Layout parser failed: %s", e)
+
+        # Strategy 3: Generic text-based carrier parsers
+        # Reuse already-extracted page_texts — no PDF re-open needed.
+        if page_texts is None:
+            # Fallback: extract with lightweight pypdf
+            try:
+                page_texts = self.text_extractor.extract_pages(file_path)
+            except Exception as e:
+                logger.error("Text extraction failed: %s", e)
+                return ExtractionPipelineResult(
+                    carrier=carrier or "generic",
+                    merged_pages=[],
+                    items=[],
+                    metadata={
+                        "strategy": "extraction_failed",
+                        "strategy_log": strategy_log
+                        + [f"text_extract:ERROR({e})"],
+                    },
+                )
+
+        resolved_carrier = carrier or self._detect_carrier(page_texts)
+        parser = self.parser_resolver.resolve(resolved_carrier)
+        items = parser.parse_pages(page_texts, carrier=resolved_carrier)
+
+        if not items:
+            # Sub-strategy: text layout items
+            text_layout_raw = _parse_text_layout_items(page_texts)
+            text_layout_items = raw_dicts_to_dtos(text_layout_raw)
+            if _xactimate_parse_trustworthy(text_layout_items):
+                strategy_log.append("text_layout:OK")
+                return ExtractionPipelineResult(
+                    carrier=resolved_carrier,
+                    merged_pages=page_texts,
                     items=text_layout_items,
                     metadata={
-                        "ocr_attempted": bool(ocr_pages),
-                        "strategy": "xactimate_text_layout_ocr",
+                        "ocr_attempted": False,
+                        "strategy": "xactimate_text_layout",
+                        "strategy_log": strategy_log,
                     },
                 )
 
         if items:
+            strategy_log.append("generic:OK")
             return ExtractionPipelineResult(
                 carrier=resolved_carrier,
-                merged_pages=merged_pages,
+                merged_pages=page_texts,
                 items=items,
                 metadata={
-                    "ocr_attempted": bool(ocr_pages),
-                    "strategy": "text_then_ocr_fallback",
+                    "ocr_attempted": False,
+                    "strategy": "generic_parser",
+                    "strategy_log": strategy_log,
                 },
             )
+        strategy_log.append("generic:FAIL")
 
-        # Strategy 5: AI/LLM fallback for unknown formats
+        # Strategy 4: AI/LLM fallback for unknown formats
         try:
-            ai_items, ai_meta = parse_with_ai(merged_pages)
+            ai_items, ai_meta = parse_with_ai(page_texts)
             if ai_items:
                 if ai_meta.get("ai_carrier"):
                     resolved_carrier = (
@@ -113,56 +185,38 @@ class InsuranceExtractionOrchestrator:
                         .lower()
                         .replace(" ", "_")
                     )
+                strategy_log.append("ai:OK")
                 return ExtractionPipelineResult(
                     carrier=resolved_carrier,
-                    merged_pages=merged_pages,
+                    merged_pages=page_texts,
                     items=ai_items,
                     metadata={
-                        "ocr_attempted": bool(ocr_pages),
+                        "ocr_attempted": False,
                         "strategy": "ai_fallback",
+                        "strategy_log": strategy_log,
                         **ai_meta,
                     },
                 )
+            reason = ai_meta.get("ai_error", "no_items")
+            strategy_log.append(f"ai:FAIL({reason})")
         except Exception as e:
+            strategy_log.append(f"ai:ERROR({e})")
             logger.warning("AI fallback parser failed: %s", e)
 
+        logger.warning(
+            "All extraction strategies exhausted: %s",
+            " -> ".join(strategy_log),
+        )
         return ExtractionPipelineResult(
             carrier=resolved_carrier,
-            merged_pages=merged_pages,
+            merged_pages=page_texts,
             items=[],
             metadata={
-                "ocr_attempted": bool(ocr_pages),
+                "ocr_attempted": False,
                 "strategy": "all_strategies_exhausted",
+                "strategy_log": strategy_log,
             },
         )
-
-    def _merge_pages(self, pages_text: List[str], ocr_pages: List[str]) -> List[str]:
-        merged: List[str] = []
-        for idx, page in enumerate(pages_text):
-            ocr = ocr_pages[idx] if idx < len(ocr_pages) else ""
-            source = page or ""
-            if self._prefer_ocr(source, ocr):
-                merged.append(ocr)
-            else:
-                merged.append(source if source.strip() else ocr)
-        return merged
-
-    def _prefer_ocr(self, source: str, ocr: str) -> bool:
-        if not ocr or not ocr.strip():
-            return False
-        s = (source or "").strip()
-        if len(s) < 20:
-            return True
-        if "(cid:" in s:
-            return True
-        alpha_words = re.findall(r"[A-Za-z]{2,}", s)
-        if len(alpha_words) < 5:
-            return True
-        # pypdf CID extraction often yields many '/12 /45 /7 ...' tokens.
-        slash_num_tokens = re.findall(r"/\d{1,4}\b", s)
-        if len(slash_num_tokens) >= 15:
-            return True
-        return False
 
     def _detect_carrier(self, pages_text: List[str]) -> str:
         joined = "\n".join(pages_text).lower()

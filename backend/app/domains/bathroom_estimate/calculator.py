@@ -756,19 +756,26 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         pat_mult = TILE_PATTERN_MULTIPLIER.get(pattern, 1.0)
         size_mult = TILE_SIZE_MULTIPLIER.get(tile_size, 1.0)
         waste = TILE_EXTRAS["waste_factor"]
-        supply_rate = TILE_EXTRAS["grout_per_sf"] + TILE_EXTRAS["thinset_per_sf"]
+        supply_rate = (TILE_EXTRAS["grout_per_sf"]
+                       + TILE_EXTRAS["thinset_per_sf"])
 
-        ft_mat_cost = round(tile_floor_sf * (1 + waste) * mat_rate, 2)
-        ft_labor_cost = round(tile_floor_sf * labor_rate * pat_mult * size_mult, 2)
+        ft_mat_cost = round(
+            tile_floor_sf * (1 + waste) * mat_rate, 2)
+        ft_labor_cost = round(
+            tile_floor_sf * labor_rate * pat_mult * size_mult, 2)
         ft_supply_cost = round(tile_floor_sf * supply_rate, 2)
         ft_sealer_cost = 0
         if tile_mat == "natural_stone":
-            ft_sealer_cost = round(tile_floor_sf * TILE_EXTRAS["sealer_per_sf"], 2)
+            ft_sealer_cost = round(
+                tile_floor_sf * TILE_EXTRAS["sealer_per_sf"], 2)
 
-        ft_total = ft_mat_cost + ft_labor_cost + ft_supply_cost + ft_sealer_cost
+        ft_total = (ft_mat_cost + ft_labor_cost
+                    + ft_supply_cost + ft_sealer_cost)
 
         ft_parts = [
-            f"Material: {tile_mat} ${mat_rate:.2f}/SF allowance, {tile_floor_sf*(1+waste):.0f}SF ${ft_mat_cost:,.2f} (incl {int(waste*100)}% waste)",
+            f"Material: {tile_mat} ${mat_rate:.2f}/SF allowance, "
+            f"{tile_floor_sf*(1+waste):.0f}SF ${ft_mat_cost:,.2f} "
+            f"(incl {int(waste*100)}% waste)",
             f"Install: {pattern} ${ft_labor_cost:,.2f}",
             f"Supplies: ${ft_supply_cost:,.2f}",
         ]
@@ -777,11 +784,14 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         if tile_floor_sf < floor_sf:
             ft_parts.append(
                 f"Tile area: {tile_floor_sf:.1f}SF "
-                f"(room {floor_sf:.0f}SF minus fixture footprints)")
+                f"(total {floor_sf:.0f}SF minus fixture "
+                f"footprints)")
 
         _add(line_items, 4,
-             f"Floor tile complete - {tile_mat} ({tile_size}, {pattern})",
-             tile_floor_sf, "SF", round(ft_total / tile_floor_sf, 2), "tile",
+             f"Floor tile complete - {tile_mat} "
+             f"({tile_size}, {pattern})",
+             tile_floor_sf, "SF",
+             round(ft_total / tile_floor_sf, 2), "tile",
              notes=" | ".join(ft_parts))
 
     # Shower wall tile (consolidated)
@@ -998,20 +1008,30 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     if estimate.replace_tub and tub_spec.get("deck_tile"):
         deck_sf = tub_spec.get("deck_tile_sf", 0) or 0
         deck_sides = tub_spec.get("deck_tile_sides", 2)
+        deck_w_in = tub_spec.get("deck_width_in", 0) or 0
         if deck_sf > 0:
+            _dk_notes = [
+                f"Deck top surface — {deck_sides} exposed"
+                f" side(s), {deck_w_in}\" wide",
+                "Includes bullnose edge trim",
+            ]
             _add(line_items, 4,
                  f"Bathtub deck tile ({deck_sides} sides)",
-                 deck_sf, "SF", round(14.00 * labor_mult, 2), "tile",
-                 notes=f"Deck top surface, bullnose edges")
+                 deck_sf, "SF",
+                 round(14.00 * labor_mult, 2), "tile",
+                 notes=" | ".join(_dk_notes))
 
     # Bathtub front panel tile (vertical face)
     if estimate.replace_tub and tub_spec.get("front_panel_tile"):
         panel_sf = tub_spec.get("front_panel_sf", 0) or 0
+        deck_h_in = tub_spec.get("deck_height_in", 0) or 0
         if panel_sf > 0:
             _add(line_items, 4,
                  "Bathtub front panel tile",
-                 panel_sf, "SF", round(16.00 * labor_mult, 2), "tile",
-                 notes="Vertical face of platform/deck")
+                 panel_sf, "SF",
+                 round(16.00 * labor_mult, 2), "tile",
+                 notes=f"Vertical face of deck/platform"
+                       f" — {deck_h_in}\" height")
 
     if floor_spec.get("heated_floor") and tile_floor_sf > 0:
         _add(line_items, 4, "Heated floor mat + installation", tile_floor_sf, "SF",
@@ -1440,14 +1460,17 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         panel_count = 0
 
         if layout in ("corner", "corner_right"):
-            panel_width_in += s_d  # full side glass
+            # Corner: one full side is glass (no additional front panels)
+            panel_width_in += s_d
             panel_count += 1
-        if panel_cfg == "left" or panel_cfg == "both":
-            panel_width_in += s_w * 0.25
-            panel_count += 1
-        if panel_cfg == "right" or panel_cfg == "both":
-            panel_width_in += s_w * 0.25
-            panel_count += 1
+        else:
+            # Alcove: front fixed panels from config
+            if panel_cfg in ("left", "both"):
+                panel_width_in += s_w * 0.25
+                panel_count += 1
+            if panel_cfg in ("right", "both"):
+                panel_width_in += s_w * 0.25
+                panel_count += 1
 
         if panel_count > 0 and panel_width_in > 0:
             panel_sf = round(panel_width_in * 72 / 144, 1)  # 72" standard height
@@ -1855,6 +1878,15 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
         _add(line_items, 2, "Electrical inspection fee", 1, "EA",
              ELECTRICAL_RATES["electrical_inspection_fee"], "electrical")
 
+    if elec.get("megohmmeter_check", True):
+        _add(line_items, 2,
+             "Megohmmeter check - electrical circuits",
+             1, "EA",
+             ELECTRICAL_RATES["megohmmeter_check"],
+             "electrical",
+             notes="Insulation resistance test on all "
+                   "circuits in water-damaged area")
+
     # ────────────────────────────────────────
     # Phase 6: Finish (Paint, Trim, Caulk)
     # ────────────────────────────────────────
@@ -1867,8 +1899,9 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     do_tile_walls = wall_finish in ("tile", "paint_and_tile")
 
     # Room label for paint line items (from sketch rooms or designation)
-    _sketch_rooms = (estimate.sketch_data or {}).get("rooms", [])
-    _room_names = [r.get("name", "Bathroom") for r in _sketch_rooms if not r.get("parentRoomId")]
+    _sketch_rooms_p6 = (estimate.sketch_data or {}).get("rooms", [])
+    _room_names = [r.get("name", "Bathroom")
+                   for r in _sketch_rooms_p6 if not r.get("parentRoomId")]
     _room_label = _room_names[0] if _room_names else (
         (estimate.designation or "").replace("_", " ").title() or "Bathroom"
     )
@@ -1944,7 +1977,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
                 parts.append(f"= Paintable {paint_wall_sf:.0f} SF")
                 deduct_note = " | ".join(parts)
             _add(line_items, 6,
-                 f"{_room_label} - Wall painting ({paint_grade} grade)",
+                 f"Wall painting ({paint_grade} grade)",
                  paint_wall_sf, "SF",
                  PAINT_RATES["wall_per_sf"] * pg_mult * labor_mult,
                  "finish", notes=deduct_note)
@@ -1990,16 +2023,17 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     full_paint_wall_sf = walls.get("full_paint_wall_sf", 0) or 0
     if full_paint_wall_sf > 0 and paint_grade:
         _add(line_items, 6,
-             f"{_room_label} - Wall painting, 2 coats ({paint_grade} grade)",
+             f"Wall painting, 2 coats ({paint_grade} grade)",
              round(full_paint_wall_sf, 1), "SF",
              PAINT_RATES["wall_per_sf"] * pg_mult * labor_mult,
              "finish",
-             notes="Full wall paint (excl. tub/shower areas) — required when any wall drywall repair")
+             notes="Full wall paint (excl. tub/shower areas)"
+                   " — required when any wall drywall repair")
         _wall_paint_added = True
     elif do_paint and paint_grade and wall_sf > 0 and not _wall_paint_added:
         # Fallback: no drywall repair, no deduction paint — use wall_sf directly
         _add(line_items, 6,
-             f"{_room_label} - Wall painting ({paint_grade} grade)",
+             f"Wall painting ({paint_grade} grade)",
              wall_sf, "SF",
              PAINT_RATES["wall_per_sf"] * pg_mult * labor_mult,
              "finish")
@@ -2008,17 +2042,44 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
     full_paint_ceil_sf = walls.get("full_paint_ceiling_sf", 0) or 0
     if full_paint_ceil_sf > 0 and paint_grade:
         _add(line_items, 6,
-             f"{_room_label} - Ceiling painting, 2 coats ({paint_grade} grade)",
+             f"Ceiling painting, 2 coats ({paint_grade} grade)",
              round(full_paint_ceil_sf, 1), "SF",
              PAINT_RATES["ceiling_per_sf"] * pg_mult * labor_mult,
              "finish",
-             notes="Full ceiling paint — required when any ceiling drywall repair")
+             notes="Full ceiling paint"
+                   " — required when any ceiling drywall repair")
     elif paint_ceiling and paint_grade and floor_sf > 0:
+        _moisture = (estimate.water_damage
+                     or estimate.mold_suspected)
+        _ceil_mult = 1.20 if _moisture else 1.0
+        _ceil_label = ("moisture-resistant"
+                       if _moisture else paint_grade)
         _add(line_items, 6,
-             f"{_room_label} - Ceiling painting ({paint_grade} grade)",
+             f"Ceiling painting ({_ceil_label} grade)",
              floor_sf, "SF",
-             PAINT_RATES["ceiling_per_sf"] * pg_mult * labor_mult,
-             "finish")
+             PAINT_RATES["ceiling_per_sf"]
+             * pg_mult * _ceil_mult * labor_mult,
+             "finish",
+             notes=("Moisture-resistant paint per code"
+                    " for wet area" if _moisture else None))
+
+    # ── Door/window trim paint ──
+    _door_trim = walls.get("door_trim_count", 0) or 0
+    _win_trim = walls.get("window_trim_count", 0) or 0
+    if _door_trim > 0:
+        _add(line_items, 6,
+             f"Door trim paint ({_door_trim} pc)",
+             _door_trim, "EA",
+             round(30.00 * labor_mult, 2),
+             "finish",
+             notes="Prep, prime & paint door trim casing")
+    if _win_trim > 0:
+        _add(line_items, 6,
+             f"Window trim paint ({_win_trim} pc)",
+             _win_trim, "EA",
+             round(30.00 * labor_mult, 2),
+             "finish",
+             notes="Prep, prime & paint window trim casing")
 
     # ── Paint prep: masking + floor protection ──
     _any_paint = _wall_paint_added or paint_ceiling or (full_paint_ceil_sf > 0)
@@ -2057,76 +2118,125 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
         deductions = []
         # Door: from sketch or default 3'
-        doors = [f for f in sketch_fixtures if f.get("type") == "door"]
+        doors = [f for f in sketch_fixtures
+                 if f.get("type") == "door"]
         if doors:
             for d in doors:
-                d_w = round((d.get("dimensions", {}).get("width", 36)) / 12, 1)
+                d_w = round(
+                    (d.get("dimensions", {}).get("width", 36))
+                    / 12, 1)
                 deductions.append(("door", d_w))
         else:
             deductions.append(("door", 3.0))
 
-        # Bathtub: long side (wall contact) or spec or default 60"
-        if estimate.replace_tub or getattr(estimate, 'detach_reset_tub', False):
-            sk_tub = next((f for f in sketch_fixtures if f.get("type") == "bathtub"), None)
+        # Bathtub: long side (wall contact)
+        if (estimate.replace_tub
+                or getattr(estimate, 'detach_reset_tub', False)):
+            sk_tub = next(
+                (f for f in sketch_fixtures
+                 if f.get("type") == "bathtub"), None)
             if sk_tub:
                 sk_d = sk_tub.get("dimensions", {})
-                tub_w = round(max(sk_d.get("width", 60), sk_d.get("height", 32)) / 12, 1)
+                tub_w = round(max(
+                    sk_d.get("width", 60),
+                    sk_d.get("height", 32)) / 12, 1)
             else:
-                tub_w = round(((estimate.bathtub_spec or {}).get("tub_length_in") or 60) / 12, 1)
+                tub_w = round(
+                    ((estimate.bathtub_spec or {})
+                     .get("tub_length_in") or 60) / 12, 1)
             deductions.append(("bathtub", tub_w))
 
         # Shower: sketch width or spec or default 36"
-        if estimate.replace_shower or getattr(estimate, 'detach_reset_shower', False):
-            sk_shower = next((f for f in sketch_fixtures if f.get("type") == "shower"), None)
+        if (estimate.replace_shower
+                or getattr(estimate,
+                           'detach_reset_shower', False)):
+            sk_shower = next(
+                (f for f in sketch_fixtures
+                 if f.get("type") == "shower"), None)
             if sk_shower:
-                sh_w = round(sk_shower.get("dimensions", {}).get("width", 36) / 12, 1)
+                sh_w = round(
+                    sk_shower.get("dimensions", {})
+                    .get("width", 36) / 12, 1)
             else:
-                sh_w = round(((estimate.shower_spec or {}).get("width_in") or 36) / 12, 1)
+                sh_w = round(
+                    ((estimate.shower_spec or {})
+                     .get("width_in") or 36) / 12, 1)
             deductions.append(("shower", sh_w))
 
         # Vanity: each from sketch or spec or default 36"
-        if estimate.replace_vanity or getattr(estimate, 'detach_reset_vanity', False):
-            sk_vanities = [f for f in sketch_fixtures if f.get("type") == "vanity"]
+        if (estimate.replace_vanity
+                or getattr(estimate,
+                           'detach_reset_vanity', False)):
+            sk_vanities = [f for f in sketch_fixtures
+                           if f.get("type") == "vanity"]
             if sk_vanities:
                 for sv in sk_vanities:
-                    v_w = round(sv.get("dimensions", {}).get("width", 36) / 12, 1)
+                    v_w = round(
+                        sv.get("dimensions", {})
+                        .get("width", 36) / 12, 1)
                     deductions.append(("vanity", v_w))
             else:
-                van_items = (estimate.vanity_spec or {}).get("items", [])
+                van_items = ((estimate.vanity_spec or {})
+                             .get("items", []))
                 for vi in (van_items or [{}]):
-                    v_w = round((vi.get("width") or 36) / 12, 1)
+                    v_w = round(
+                        (vi.get("width") or 36) / 12, 1)
                     deductions.append(("vanity", v_w))
 
         total_deduct = sum(d[1] for d in deductions)
         bb_lf = round(max(perimeter - total_deduct, 0), 1)
-        deduct_parts = ", ".join(f"{n} {v:.1f}'" for n, v in deductions)
-        bb_notes = (f"Perimeter {perimeter:.1f}' - {deduct_parts} = {bb_lf}' net")
+        deduct_parts = ", ".join(
+            f"{n} {v:.1f}'" for n, v in deductions)
+
+        bb_notes = (f"Perimeter {perimeter:.1f}'"
+                    f" - {deduct_parts} = {bb_lf}' net")
 
         if bb_lf > 0 and bb_mat == "tile":
-            floor_tile_mat = (estimate.floor_spec or {}).get("material", "porcelain")
-            tb_rate = TILE_BASEBOARD_PRICES.get(floor_tile_mat, 12.00)
-            tile_label = floor_tile_mat.replace("_", " ").title()
-            _add(line_items, 6, f"Tile base - {tile_label} (supply + install)", bb_lf, "LF",
+            floor_tile_mat = (estimate.floor_spec or {}
+                              ).get("material", "porcelain")
+            tb_rate = TILE_BASEBOARD_PRICES.get(
+                floor_tile_mat, 12.00)
+            tile_label = floor_tile_mat.replace(
+                "_", " ").title()
+            _add(line_items, 6,
+                 f"Tile base - {tile_label} (supply + install)",
+                 bb_lf, "LF",
                  tb_rate * labor_mult, "finish",
                  notes=bb_notes)
-            _add(line_items, 6, "Tile base supplies (thinset, grout)", bb_lf, "LF",
+            _add(line_items, 6,
+                 "Tile base supplies (thinset, grout)",
+                 bb_lf, "LF",
                  1.50 * labor_mult, "finish")
         elif bb_lf > 0:
             bb_rate = BASEBOARD_PRICES.get(bb_mat, 6.50)
-            bb_label = {"pvc": "PVC", "mdf": "MDF"}.get(bb_mat, bb_mat.replace('_', ' ').title())
-            _add(line_items, 6, f"Baseboard - {bb_label} (supply + install)", bb_lf, "LF",
+            bb_label = {"pvc": "PVC", "mdf": "MDF"}.get(
+                bb_mat, bb_mat.replace('_', ' ').title())
+            _add(line_items, 6,
+                 f"Baseboard - {bb_label} (supply + install)",
+                 bb_lf, "LF",
                  bb_rate * labor_mult, "finish",
                  notes=bb_notes)
-            bb_pg_mult = PAINT_GRADE_MULTIPLIER.get(paint_grade, 1.0) if paint_grade else 1.0
-            _add(line_items, 6, "Baseboard painting", bb_lf, "LF",
-                 PAINT_RATES["trim_per_lf"] * bb_pg_mult * labor_mult, "finish")
+            bb_pg_mult = (PAINT_GRADE_MULTIPLIER.get(
+                paint_grade, 1.0) if paint_grade else 1.0)
+            _add(line_items, 6, "Baseboard painting",
+                 bb_lf, "LF",
+                 PAINT_RATES["trim_per_lf"]
+                 * bb_pg_mult * labor_mult, "finish")
             if add_quarter_round:
-                qr_rate = QUARTER_ROUND_PRICES.get(bb_mat, 3.75)
-                _add(line_items, 6, f"Quarter round - {bb_label} (supply + install)", bb_lf, "LF",
+                qr_rate = QUARTER_ROUND_PRICES.get(
+                    bb_mat, 3.75)
+                _add(line_items, 6,
+                     f"Quarter round - {bb_label}"
+                     f" (supply + install)",
+                     bb_lf, "LF",
                      qr_rate * labor_mult, "finish",
-                     notes="Covers floor-to-baseboard gap; moisture seal at floor transition")
-                _add(line_items, 6, "Quarter round painting", bb_lf, "LF",
-                     PAINT_RATES["trim_per_lf"] * bb_pg_mult * labor_mult, "finish")
+                     notes="Covers floor-to-baseboard gap;"
+                           " moisture seal at floor transition")
+                _add(line_items, 6,
+                     "Quarter round painting",
+                     bb_lf, "LF",
+                     PAINT_RATES["trim_per_lf"]
+                     * bb_pg_mult * labor_mult, "finish")
 
     # ────────────────────────────────────────
     # Phase 7: Accessories + Punch/Cleanup
@@ -2220,7 +2330,10 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
 
     if hc.get("mobilization", False):
         _add(line_items, 1, "Mobilization / setup", 1, "LS",
-             HIDDEN_COSTS["mobilization"], "demo")
+             HIDDEN_COSTS["mobilization"], "demo",
+             notes="Equipment transport to job site"
+                   " (tile saw, demo tools, scaffold,"
+                   " mixing station)")
 
     # Phase 3: Substrate — drywall patch/replacement (hidden cost)
     #   Skip when repair_drywall_walls is set — Path A already covers it.
@@ -2398,25 +2511,7 @@ def calculate_estimate(estimate) -> Dict[str, Any]:
             # Group A like-for-like exempt: no cost, just note
             warnings.append(permit_info["note"])
 
-    # 7) Auto-include ceiling paint for bathroom remodels
-    #    Bathrooms almost always need ceiling paint (moisture prevention per code).
-    #    Use moisture-resistant if water_damage or mold_suspected.
-    walls_spec = estimate.walls_spec or {}
-    paint_ceiling_explicit = walls_spec.get("paint_ceiling", False)
-    if (not paint_ceiling_explicit and has_demo
-            and floor_sf > 0 and hc.get("auto_ceiling_paint") is True):
-        if estimate.water_damage or estimate.mold_suspected:
-            ceil_rate = PAINT_RATES["ceiling_per_sf"] * 1.20  # moisture-resistant premium
-            _add(line_items, 6,
-                 "Ceiling painting (moisture-resistant)",
-                 floor_sf, "SF", ceil_rate * labor_mult, "finish",
-                 notes="Moisture-resistant paint per code for wet area")
-        else:
-            _add(line_items, 6,
-                 "Ceiling painting (bathroom grade)",
-                 floor_sf, "SF",
-                 PAINT_RATES["ceiling_per_sf"] * labor_mult, "finish",
-                 notes="Moisture-resistant ceiling paint")
+    # (Ceiling paint handled in Phase 6 via walls_spec.paint_ceiling)
 
     # 8) Moisture-resistant drywall for ceiling
     #    Skip if repair_drywall_ceiling is explicitly set (handled in repair section)

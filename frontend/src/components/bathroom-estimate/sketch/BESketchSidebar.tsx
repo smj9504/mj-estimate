@@ -377,7 +377,7 @@ const BESketchSidebar: React.FC<BESketchSidebarProps> = ({ api, width = 280 }) =
           },
           {
             key: 'tile_calc',
-            label: <Text strong>Tile Estimate ({data.tileZones.length} zones)</Text>,
+            label: <Text strong>Tile Estimate ({data.tileZones.filter(z => z.type !== 'shower_glass_panel' && z.type !== 'shower_door').length} zones)</Text>,
             children: <BETileCalculationPanel api={api} />,
           },
           {

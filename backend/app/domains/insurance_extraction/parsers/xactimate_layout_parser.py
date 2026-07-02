@@ -85,6 +85,18 @@ LAYOUT_A_INLINE_RE = re.compile(
     r"([\d,]+\.?\d*)$",
     re.IGNORECASE,
 )
+# 5-column variant: qty UNIT price op rcv dep acv (no tax column)
+LAYOUT_A_5COL_RE = re.compile(
+    r"^(\d+)\.\s+"
+    r"(.+?)\s+"
+    r"([\d,]+\.?\d*)\s*(EA|SF|LF|HR|SY|SQ|DA|WK|LB|BX|RL|GL|TB|SH)\s+"
+    r"([\d,]+\.?\d*)\s+"
+    r"([\d,]+\.?\d*)\s+"
+    r"([\d,]+\.?\d*)\s+"
+    r"\(?([\d,]+\.?\d*)\)?\s+"
+    r"([\d,]+\.?\d*)$",
+    re.IGNORECASE,
+)
 CONTINUED_RE = re.compile(r"^CONTINUED\s*[-–]\s*(.+)$", re.IGNORECASE)
 
 NON_OP_PHRASES = (
@@ -354,22 +366,40 @@ def _parse_data_b(line: str) -> Optional[Dict[str, Any]]:
 
 
 def _parse_item_a_inline(line: str) -> Optional[Dict[str, Any]]:
-    m = LAYOUT_A_INLINE_RE.match(line.strip())
-    if not m:
-        return None
-    return {
-        "item_number": int(m.group(1)),
-        "description": m.group(2).strip().rstrip("*").strip(),
-        "quantity": _parse_num_loose(m.group(3)),
-        "unit": m.group(4).upper(),
-        "unit_price": _parse_num_loose(m.group(5)),
-        "tax": _parse_num_loose(m.group(6)),
-        "op": _parse_num_loose(m.group(7)),
-        "rcv": _parse_num_loose(m.group(8)),
-        "depreciation": -abs(_parse_num_loose(m.group(9))),
-        "acv": _parse_num_loose(m.group(10)),
-        "note": None,
-    }
+    s = line.strip()
+    # Try standard 6-column layout first (price tax op rcv dep acv)
+    m = LAYOUT_A_INLINE_RE.match(s)
+    if m:
+        return {
+            "item_number": int(m.group(1)),
+            "description": m.group(2).strip().rstrip("*").strip(),
+            "quantity": _parse_num_loose(m.group(3)),
+            "unit": m.group(4).upper(),
+            "unit_price": _parse_num_loose(m.group(5)),
+            "tax": _parse_num_loose(m.group(6)),
+            "op": _parse_num_loose(m.group(7)),
+            "rcv": _parse_num_loose(m.group(8)),
+            "depreciation": -abs(_parse_num_loose(m.group(9))),
+            "acv": _parse_num_loose(m.group(10)),
+            "note": None,
+        }
+    # Try 5-column variant (price op rcv dep acv — no tax column)
+    m5 = LAYOUT_A_5COL_RE.match(s)
+    if m5:
+        return {
+            "item_number": int(m5.group(1)),
+            "description": m5.group(2).strip().rstrip("*").strip(),
+            "quantity": _parse_num_loose(m5.group(3)),
+            "unit": m5.group(4).upper(),
+            "unit_price": _parse_num_loose(m5.group(5)),
+            "tax": 0.0,
+            "op": _parse_num_loose(m5.group(6)),
+            "rcv": _parse_num_loose(m5.group(7)),
+            "depreciation": -abs(_parse_num_loose(m5.group(8))),
+            "acv": _parse_num_loose(m5.group(9)),
+            "note": None,
+        }
+    return None
 
 
 def _extract_lines_from_pages(page_texts: List[str]) -> List[str]:
@@ -766,7 +796,9 @@ def raw_dicts_to_dtos(raw_items: List[Dict[str, Any]]) -> List[ParsedItemDTO]:
     return out
 
 
-def parse_xactimate_pdf(file_path: str) -> Tuple[List[ParsedItemDTO], List[str], Dict[str, Any]]:
+def parse_xactimate_pdf(
+    file_path: str, max_pages: int = 40,
+) -> Tuple[List[ParsedItemDTO], List[str], Dict[str, Any]]:
     diagnostics: Dict[str, Any] = {"strategy": "xactimate_layout"}
     try:
         import pdfplumber
@@ -783,6 +815,8 @@ def parse_xactimate_pdf(file_path: str) -> Tuple[List[ParsedItemDTO], List[str],
     try:
         with pdfplumber.open(file_path) as pdf:
             for page_no, page in enumerate(pdf.pages, start=1):
+                if page_no > max_pages:
+                    break
                 text = page.extract_text() or ""
                 page_texts.append(text)
                 words = page.extract_words() or []

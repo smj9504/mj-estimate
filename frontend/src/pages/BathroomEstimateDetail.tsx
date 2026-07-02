@@ -216,8 +216,15 @@ const BathroomEstimateDetail: React.FC = () => {
       estimate.toilet_spec = estimate.toilet_spec || {};
       estimate.accessories_spec = estimate.accessories_spec || {};
       estimate.plumbing_spec = estimate.plumbing_spec || {};
-      estimate.electrical_spec = estimate.electrical_spec || {};
+      estimate.electrical_spec = {
+        ...(estimate.electrical_spec || {}),
+        megohmmeter_check: (estimate.electrical_spec || {}).megohmmeter_check ?? true,
+      };
       estimate.substrate_spec = estimate.substrate_spec || {};
+      estimate.walls_spec = {
+        ...(estimate.walls_spec || {}),
+        paint_ceiling: (estimate.walls_spec || {}).paint_ceiling ?? true,
+      };
 
       const hc = estimate.hidden_costs || {};
       estimate.hidden_costs = {
@@ -874,16 +881,47 @@ const BathroomEstimateDetail: React.FC = () => {
                     </Form.Item>
                   </Col>
                   <Col xs={12} sm={8} md={4}>
-                    <Form.Item label="Floor SF (override)" name="floor_sf">
+                    <Form.Item label="Floor SF" name="floor_sf">
                       <InputNumber style={{ width: '100%' }} min={0} />
                     </Form.Item>
                   </Col>
                   <Col xs={12} sm={8} md={4}>
-                    <Form.Item label="Wall SF (override)" name="wall_sf">
+                    <Form.Item label="Wall SF" name="wall_sf">
                       <InputNumber style={{ width: '100%' }} min={0} />
                     </Form.Item>
                   </Col>
                 </Row>
+                {/* Room breakdown from sketch */}
+                <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                  prev?.sketch_data !== cur?.sketch_data ||
+                  prev?.floor_sf !== cur?.floor_sf ||
+                  prev?.wall_sf !== cur?.wall_sf
+                }>
+                  {({ getFieldValue }) => {
+                    const sketchRooms = (getFieldValue('sketch_data') || {}).rooms || [];
+                    const allRooms = sketchRooms.filter((r: any) => !r.parentRoomId);
+                    if (allRooms.length < 2) return null;
+                    const primary = allRooms.find((r: any) => r.roomType === 'bathroom') || allRooms[0];
+                    return (
+                      <div style={{ background: '#f5f5f5', borderRadius: 6, padding: '8px 12px', marginBottom: 16, fontSize: 12 }}>
+                        {allRooms.map((r: any) => {
+                          const name = (r.name || r.roomType || 'Room').replace(/_/g, ' ');
+                          const fl = Math.round((r.netFloorAreaSF || r.floorAreaSF || 0) * 10) / 10;
+                          const wl = Math.round((r.wallAreaSF || 0) * 10) / 10;
+                          const isPrimary = r.id === primary?.id;
+                          return (
+                            <div key={r.id} style={{ color: isPrimary ? '#262626' : '#595959' }}>
+                              {isPrimary ? '' : '+ '}{name}: Floor {fl} SF, Wall {wl} SF
+                            </div>
+                          );
+                        })}
+                        <div style={{ fontWeight: 600, marginTop: 4, borderTop: '1px solid #d9d9d9', paddingTop: 4 }}>
+                          Total: Floor {getFieldValue('floor_sf') || 0} SF, Wall {getFieldValue('wall_sf') || 0} SF
+                        </div>
+                      </div>
+                    );
+                  }}
+                </Form.Item>
               </Card>
             ),
           },
@@ -1714,6 +1752,16 @@ const BathroomEstimateDetail: React.FC = () => {
                           <Checkbox>Paint Ceiling</Checkbox>
                         </Form.Item>
                       </Col>
+                      <Col xs={12} sm={6} md={3}>
+                        <Form.Item label="Door Trim" name={['walls_spec', 'door_trim_count']}>
+                          <InputNumber style={{ width: '100%' }} min={0} max={10} placeholder="0" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={6} md={3}>
+                        <Form.Item label="Window Trim" name={['walls_spec', 'window_trim_count']}>
+                          <InputNumber style={{ width: '100%' }} min={0} max={10} placeholder="0" />
+                        </Form.Item>
+                      </Col>
                       <Col xs={12} sm={12} md={6}>
                         <Form.Item label="Baseboard" name={['walls_spec', 'baseboard_material']}>
                           <Select allowClear options={[
@@ -1778,23 +1826,59 @@ const BathroomEstimateDetail: React.FC = () => {
                         );
                       }}
                     </Form.Item>
-                    <Row gutter={16}>
-                      <Form.Item noStyle shouldUpdate={(prev, cur) =>
-                        prev?.walls_spec?.baseboard_material !== cur?.walls_spec?.baseboard_material
-                      }>
-                        {({ getFieldValue }) => {
-                          const bbMat = getFieldValue(['walls_spec', 'baseboard_material']);
-                          const hidden = !bbMat || bbMat === 'tile';
-                          return (
-                            <Col xs={12} sm={8} md={4} style={{ display: hidden ? 'none' : undefined }}>
-                              <Form.Item name={['walls_spec', 'quarter_round']} valuePropName="checked">
-                                <Checkbox>+ Quarter Round</Checkbox>
+                    <Form.Item noStyle shouldUpdate={(prev, cur) =>
+                      prev?.walls_spec?.baseboard_material !== cur?.walls_spec?.baseboard_material
+                    }>
+                      {({ getFieldValue }) => {
+                        const bbMat = getFieldValue(['walls_spec', 'baseboard_material']);
+                        if (!bbMat) return null;
+                        return (
+                          <Row gutter={16}>
+                            {bbMat !== 'tile' && (
+                              <Col xs={12} sm={8} md={4}>
+                                <Form.Item name={['walls_spec', 'quarter_round']} valuePropName="checked">
+                                  <Checkbox>+ Quarter Round</Checkbox>
+                                </Form.Item>
+                              </Col>
+                            )}
+                            <Col xs={12} sm={8} md={5}>
+                              <Form.Item name={['hidden_costs', 'trim_paint']} valuePropName="checked">
+                                <Checkbox onChange={(e) => {
+                                  if (e.target.checked && !form.getFieldValue(['hidden_costs', 'trim_paint_lf'])) {
+                                    const skRooms = (form.getFieldValue('sketch_data') || {}).rooms || [];
+                                    let totalPerimeter = 0;
+                                    for (const rm of skRooms) {
+                                      if (rm.parentRoomId) continue;
+                                      totalPerimeter += rm.perimeterLF || 0;
+                                    }
+                                    if (!totalPerimeter) {
+                                      const l = form.getFieldValue('length_ft') || 0;
+                                      const w = form.getFieldValue('width_ft') || 0;
+                                      totalPerimeter = 2 * (l + w);
+                                    }
+                                    if (totalPerimeter > 0) {
+                                      form.setFieldValue(['hidden_costs', 'trim_paint_lf'], Math.round(totalPerimeter));
+                                    }
+                                  }
+                                }}>+ Trim Touch-up</Checkbox>
                               </Form.Item>
                             </Col>
-                          );
-                        }}
-                      </Form.Item>
-                    </Row>
+                            <Form.Item noStyle shouldUpdate={(p, c) =>
+                              p?.hidden_costs?.trim_paint !== c?.hidden_costs?.trim_paint
+                            }>
+                              {({ getFieldValue: gfv }) => gfv(['hidden_costs', 'trim_paint']) ? (
+                                <Col xs={8} sm={6} md={3}>
+                                  <Form.Item label="LF" name={['hidden_costs', 'trim_paint_lf']}
+                                    tooltip="Baseboard perimeter — auto-filled from room dimensions">
+                                    <InputNumber style={{ width: '100%' }} min={0} />
+                                  </Form.Item>
+                                </Col>
+                              ) : null}
+                            </Form.Item>
+                          </Row>
+                        );
+                      }}
+                    </Form.Item>
                     <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
                       <Form.Item noStyle shouldUpdate={(prev, cur) =>
                         prev?.repair_drywall_walls !== cur?.repair_drywall_walls ||
@@ -1833,18 +1917,6 @@ const BathroomEstimateDetail: React.FC = () => {
                           );
                         }}
                       </Form.Item>
-                      <Row gutter={16}>
-                        <Col xs={12} sm={8} md={5}>
-                          <Form.Item name={['hidden_costs', 'trim_paint']} valuePropName="checked" style={{ marginBottom: 8 }}>
-                            <Checkbox>Trim Paint</Checkbox>
-                          </Form.Item>
-                        </Col>
-                        <Col xs={8} sm={6} md={4}>
-                          <Form.Item label="LF" name={['hidden_costs', 'trim_paint_lf']} style={{ marginBottom: 8 }}>
-                            <InputNumber style={{ width: '100%' }} min={0} />
-                          </Form.Item>
-                        </Col>
-                      </Row>
                     </div>
                     <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
                       <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Insulation</Text>
@@ -1953,14 +2025,6 @@ const BathroomEstimateDetail: React.FC = () => {
                     <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 12, paddingTop: 12 }}>
                       <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Auto-include (uncheck to disable)</Text>
                       <Row gutter={[16, 4]}>
-                        <Col xs={12} sm={8} md={6}>
-                          <Form.Item name={['hidden_costs', 'auto_ceiling_paint']} valuePropName="checked"
-                            style={{ marginBottom: 2 }}
-                            tooltip="Auto-include ceiling paint when demo scope is set"
-                          >
-                            <Checkbox><Text style={{ fontSize: 12 }}>Ceiling paint</Text></Checkbox>
-                          </Form.Item>
-                        </Col>
                         <Col xs={12} sm={8} md={6}>
                           <Form.Item name={['hidden_costs', 'drywall_skim_coat']} valuePropName="checked" style={{ marginBottom: 2 }}>
                             <Checkbox><Text style={{ fontSize: 12 }}>Drywall skim coat</Text></Checkbox>
@@ -2197,6 +2261,11 @@ const BathroomEstimateDetail: React.FC = () => {
                       <Col xs={12} sm={8} md={4}>
                         <Form.Item name={['electrical_spec', 'inspection']} valuePropName="checked">
                           <Checkbox>Inspection</Checkbox>
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={8} md={5}>
+                        <Form.Item name={['electrical_spec', 'megohmmeter_check']} valuePropName="checked">
+                          <Checkbox>Megohmmeter Check</Checkbox>
                         </Form.Item>
                       </Col>
                     </Row>

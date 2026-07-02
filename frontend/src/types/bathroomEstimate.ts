@@ -109,6 +109,8 @@ export interface WallsSpec {
   tile_size?: string;
   baseboard_material?: string;
   quarter_round?: boolean;
+  door_trim_count?: number;
+  window_trim_count?: number;
   colors?: number;
   /** Seal & prime area SF (drywall repair areas only) */
   seal_prime_wall_sf?: number;
@@ -155,6 +157,7 @@ export interface ElectricalSpec {
   exhaust_fan_switch?: string;
   heated_floor?: boolean;
   inspection?: boolean;
+  megohmmeter_check?: boolean;
 }
 
 export interface SubstrateSpec {

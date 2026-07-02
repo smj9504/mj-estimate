@@ -1046,12 +1046,16 @@ export const waterMitigationService = {
       return response.data;
     },
 
-    // Download invoice PDF
-    downloadPdf: async (invoiceId: string, filename?: string, templateVariant: string = 'a'): Promise<void> => {
-      const response = await api.post(`/api/invoices/${invoiceId}/pdf`, {}, {
-        responseType: 'blob',
-        params: { template_variant: templateVariant },
-      });
+    // Download invoice PDF (also saves as WMDocument)
+    downloadPdf: async (jobId: string, invoiceId: string, filename?: string, templateVariant: string = 'a'): Promise<void> => {
+      const response = await api.post(
+        `${BASE_URL}/scope/jobs/${jobId}/invoice-pdf/${invoiceId}`,
+        {},
+        {
+          responseType: 'blob',
+          params: { template_variant: templateVariant },
+        }
+      );
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');

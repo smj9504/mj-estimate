@@ -1,47 +1,60 @@
 const path = require('path');
 
+const isProd = process.env.NODE_ENV === 'production';
+
 module.exports = {
   // Webpack configuration
   webpack: {
     configure: (webpackConfig) => {
       // Set public path for proper routing
       webpackConfig.output.publicPath = '/';
-      // Enable polling on Windows where native file watchers miss external editor changes
-      webpackConfig.watchOptions = {
-        poll: 500,
-        aggregateTimeout: 300,
-      };
 
-      // Optimize chunk splitting for better caching and faster loads
-      webpackConfig.optimization = {
-        ...webpackConfig.optimization,
-        runtimeChunk: 'single',
-        splitChunks: {
-          chunks: 'all',
-          cacheGroups: {
-            antd: {
-              test: /[\\/]node_modules[\\/](antd|@ant-design)[\\/]/,
-              name: 'vendor-antd',
-              priority: 20,
-            },
-            konva: {
-              test: /[\\/]node_modules[\\/](konva|react-konva)[\\/]/,
-              name: 'vendor-konva',
-              priority: 20,
-            },
-            recharts: {
-              test: /[\\/]node_modules[\\/]recharts[\\/]/,
-              name: 'vendor-recharts',
-              priority: 20,
-            },
-            vendor: {
-              test: /[\\/]node_modules[\\/]/,
-              name: 'vendor',
-              priority: 10,
+      if (!isProd) {
+        // Dev: use native file watchers (faster than polling)
+        webpackConfig.watchOptions = {
+          aggregateTimeout: 600,
+          ignored: /node_modules/,
+        };
+
+        // Remove ForkTsCheckerWebpackPlugin — IDE handles type checking
+        // This is the biggest bottleneck for dev server startup
+        webpackConfig.plugins = webpackConfig.plugins.filter(
+          (plugin) => plugin.constructor.name !== 'ForkTsCheckerWebpackPlugin'
+        );
+      }
+
+      // Only apply chunk splitting in production builds
+      if (isProd) {
+        webpackConfig.optimization = {
+          ...webpackConfig.optimization,
+          runtimeChunk: 'single',
+          splitChunks: {
+            chunks: 'all',
+            cacheGroups: {
+              antd: {
+                test: /[\\/]node_modules[\\/](antd|@ant-design)[\\/]/,
+                name: 'vendor-antd',
+                priority: 20,
+              },
+              konva: {
+                test: /[\\/]node_modules[\\/](konva|react-konva)[\\/]/,
+                name: 'vendor-konva',
+                priority: 20,
+              },
+              recharts: {
+                test: /[\\/]node_modules[\\/]recharts[\\/]/,
+                name: 'vendor-recharts',
+                priority: 20,
+              },
+              vendor: {
+                test: /[\\/]node_modules[\\/]/,
+                name: 'vendor',
+                priority: 10,
+              },
             },
           },
-        },
-      };
+        };
+      }
 
       return webpackConfig;
     },

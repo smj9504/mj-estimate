@@ -150,6 +150,7 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [updatingPhotoDates, setUpdatingPhotoDates] = useState(false);
+  const [autoUpdatePhotoDates, setAutoUpdatePhotoDates] = useState(true);
   // Default report date: mitigation end date + 1, fallback to today
   const [reportDate, setReportDate] = useState<dayjs.Dayjs | null>(
     mitigationEndDate ? dayjs(mitigationEndDate).add(1, 'day') : dayjs()
@@ -927,12 +928,6 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                     onClick: handleUpdatePhotoDates,
                     disabled: !mitigationStartDate || !mitigationEndDate || availablePhotos.length === 0
                   },
-                  { type: 'divider' as const },
-                  { key: 'layout1', label: '1 photo/page', onClick: () => handleApplyLayoutToAll('single'), disabled: sections.length === 0 },
-                  { key: 'layout2', label: '2 photos/page', onClick: () => handleApplyLayoutToAll('two'), disabled: sections.length === 0 },
-                  { key: 'layout3', label: '3 photos/page', onClick: () => handleApplyLayoutToAll('three'), disabled: sections.length === 0 },
-                  { key: 'layout4', label: '4 photos/page', onClick: () => handleApplyLayoutToAll('four'), disabled: sections.length === 0 },
-                  { key: 'layout6', label: '6 photos/page', onClick: () => handleApplyLayoutToAll('six'), disabled: sections.length === 0 },
                 ]
               }}
             >
@@ -964,21 +959,6 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                 >
                   Update Photo Dates
                 </Button>
-              </Tooltip>
-              <Tooltip title="Apply selected layout to all sections">
-                <Select
-                  placeholder={<span><LayoutOutlined /> Apply Layout to All</span>}
-                  style={{ width: 180 }}
-                  onChange={handleApplyLayoutToAll}
-                  value={undefined}
-                  disabled={sections.length === 0}
-                >
-                  <Select.Option value="single">1 photo per page</Select.Option>
-                  <Select.Option value="two">2 photos per page</Select.Option>
-                  <Select.Option value="three">3 photos per page</Select.Option>
-                  <Select.Option value="four">4 photos per page</Select.Option>
-                  <Select.Option value="six">6 photos per page</Select.Option>
-                </Select>
               </Tooltip>
             </>
           )}

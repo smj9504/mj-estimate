@@ -91,6 +91,7 @@ ELECTRICAL_RATES = {
     "heated_floor_thermostat": 175,   # programmable thermostat
     "heated_floor_circuit": 350,      # dedicated 20A circuit
     "electrical_inspection_fee": 125, # county inspection
+    "megohmmeter_check": 150,         # insulation resistance test on circuits
 }
 
 # ──────────────────────────────────────────────

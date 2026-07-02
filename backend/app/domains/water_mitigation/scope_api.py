@@ -1054,3 +1054,257 @@ def seed_general_conditions_template(
 
     service = InvoiceConfigService(db)
     return service.seed_general_conditions_template()
+
+
+# =============================================================================
+# WM Invoice PDF Download (with WMDocument upsert)
+# =============================================================================
+
+@router.post(
+    "/jobs/{job_id}/invoice-pdf/{invoice_id}",
+    summary="Download invoice PDF and save as WMDocument"
+)
+def download_invoice_pdf_with_document(
+    job_id: UUID,
+    invoice_id: UUID,
+    template_variant: str = Query(
+        "a", description="Template variant: a, b, c"
+    ),
+    db: Session = Depends(get_db),
+    current_user: Staff = Depends(get_current_user),
+):
+    """Download invoice PDF and upsert it as a WMDocument.
+
+    On re-download the existing Invoice WMDocument is replaced
+    so only the latest version is kept.
+    """
+    import io
+    import logging
+    from pathlib import Path
+    from fastapi.responses import StreamingResponse
+    from app.domains.invoice.service import InvoiceService
+    from app.common.services.pdf_service import get_pdf_service
+    from app.domains.water_mitigation.models import (
+        WaterMitigationJob, WMDocument,
+    )
+    from app.domains.water_mitigation.document_repository import (
+        WMDocumentRepository,
+    )
+
+    _logger = logging.getLogger(__name__)
+
+    # Validate job exists
+    job = db.query(WaterMitigationJob).filter(
+        WaterMitigationJob.id == job_id
+    ).first()
+    if not job:
+        raise HTTPException(
+            status_code=404, detail="Job not found"
+        )
+
+    # Get invoice data
+    from app.core.database_factory import get_database
+    database = get_database()
+    inv_service = InvoiceService(database)
+    invoice = inv_service.get_with_items(str(invoice_id))
+    if not invoice:
+        raise HTTPException(
+            status_code=404, detail="Invoice not found"
+        )
+
+    # Ensure company info
+    if invoice.get('company_id') and not invoice.get('company_name'):
+        from app.domains.company.repository import get_company_repository
+        company_repo = get_company_repository(db)
+        company_info = company_repo.get_by_id(
+            str(invoice['company_id'])
+        )
+        if company_info:
+            invoice['company_name'] = company_info.get('name')
+            invoice['company_address'] = company_info.get('address')
+            invoice['company_city'] = company_info.get('city')
+            invoice['company_state'] = company_info.get('state')
+            invoice['company_zip'] = company_info.get('zipcode')
+            invoice['company_phone'] = company_info.get('phone')
+            invoice['company_email'] = company_info.get('email')
+            invoice['company_logo'] = company_info.get('logo')
+
+    # Build PDF data
+    from collections import OrderedDict
+    all_items = invoice.get('items', [])
+    sorted_items = sorted(
+        all_items, key=lambda x: x.get('sort_order', 0) or 0
+    )
+    items_by_section = OrderedDict()
+    for item in sorted_items:
+        section_name = item.get('primary_group') or 'Items'
+        if section_name not in items_by_section:
+            items_by_section[section_name] = []
+        items_by_section[section_name].append({
+            "name": item.get('name', ''),
+            "description": item.get('description'),
+            "note": item.get('note'),
+            "quantity": item.get('quantity', 0),
+            "unit": item.get('unit', ''),
+            "rate": item.get('rate', 0),
+            "amount": (
+                item.get('quantity', 0) * item.get('rate', 0)
+            ),
+        })
+
+    sections = []
+    for sec_name, sec_items in items_by_section.items():
+        subtotal = sum(i['amount'] for i in sec_items)
+        sections.append({
+            "title": sec_name,
+            "items": sec_items,
+            "subtotal": subtotal,
+        })
+
+    pdf_data = {
+        "invoice_number": invoice.get('invoice_number', ''),
+        "date": str(
+            invoice.get('invoice_date', invoice.get('date', ''))
+        ),
+        "due_date": str(invoice.get('due_date', '')),
+        "company": {
+            "name": invoice.get('company_name', ''),
+            "address": invoice.get('company_address', ''),
+            "city": invoice.get('company_city', ''),
+            "state": invoice.get('company_state', ''),
+            "zip": invoice.get('company_zip', ''),
+            "phone": invoice.get('company_phone', ''),
+            "email": invoice.get('company_email', ''),
+            "logo": None,
+        },
+        "client": {
+            "name": invoice.get('client_name', ''),
+            "address": invoice.get('client_address', ''),
+            "city": invoice.get('client_city', ''),
+            "state": invoice.get('client_state', ''),
+            "zip": invoice.get(
+                'client_zipcode', invoice.get('client_zip', '')
+            ),
+        },
+        "items": all_items,
+        "sections": sections,
+        "subtotal": float(invoice.get('subtotal', 0) or 0),
+        "adjustments": invoice.get('adjustments', []),
+        "tax_amount": float(invoice.get('tax_amount', 0) or 0),
+        "total": float(
+            invoice.get('total_amount', 0) or 0
+        ),
+        "payments": invoice.get('payments', []),
+        "balance_due": float(
+            invoice.get(
+                'balance_due',
+                invoice.get('total_amount', 0)
+            ) or 0
+        ),
+        "notes": invoice.get('notes', ''),
+    }
+
+    # Generate PDF
+    import tempfile
+    pdf_service = get_pdf_service()
+    if not pdf_service:
+        raise HTTPException(
+            status_code=500, detail="PDF service not available"
+        )
+
+    with tempfile.NamedTemporaryFile(
+        suffix='.pdf', delete=False
+    ) as tmp:
+        temp_path = tmp.name
+
+    try:
+        pdf_path = pdf_service.generate_invoice_pdf(
+            pdf_data, temp_path,
+            template_variant=template_variant,
+        )
+        pdf_bytes = Path(pdf_path).read_bytes()
+    except Exception as e:
+        _logger.error(f"Invoice PDF generation failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate PDF: {e}",
+        )
+    finally:
+        try:
+            Path(temp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    # --- Upsert WMDocument (replace existing Invoice doc) ---
+    try:
+        address = (
+            job.property_address or ""
+        ).split(",")[0].strip()
+        inv_num = invoice.get('invoice_number', 'invoice')
+        filename = f"Invoice {inv_num} - {address}.pdf"
+
+        # Save to local storage
+        output_dir = (
+            Path("storage/water-mitigation/documents")
+            / str(job_id)
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / filename
+
+        with open(output_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        file_size = len(pdf_bytes)
+
+        # Upsert: deactivate existing Invoice documents
+        doc_repo = WMDocumentRepository(db)
+        existing_docs = doc_repo.get_by_type(
+            str(job_id), "Invoice", is_active=True
+        )
+        # Also check lowercase
+        existing_docs += doc_repo.get_by_type(
+            str(job_id), "invoice", is_active=True
+        )
+
+        if existing_docs:
+            for old_doc in existing_docs:
+                old_doc.is_active = False
+                db.add(old_doc)
+            _logger.info(
+                f"Deactivated {len(existing_docs)} old "
+                f"Invoice WMDocument(s) for job {job_id}"
+            )
+
+        # Create new document
+        doc_repo.create({
+            "job_id": str(job_id),
+            "document_type": "Invoice",
+            "filename": filename,
+            "file_path": str(output_path),
+            "file_size": file_size,
+            "mime_type": "application/pdf",
+            "title": f"Invoice {inv_num}",
+            "is_active": True,
+            "generated_by_id": (
+                str(current_user.id) if current_user else None
+            ),
+        })
+        _logger.info(
+            f"Created Invoice WMDocument for job {job_id}"
+        )
+        db.commit()
+    except Exception as doc_exc:
+        _logger.warning(
+            f"Failed to save invoice as WMDocument: {doc_exc}"
+        )
+        # Don't fail the download
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Length": str(len(pdf_bytes)),
+    }
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers=headers,
+    )

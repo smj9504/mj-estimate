@@ -111,9 +111,10 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
   const ppf = data.settings.pixelsPerFoot;
   const sync: SketchFixtureSync = {};
 
-  // ── Room dimensions (use primary bathroom room) ──
+  // ── Room dimensions (all rooms combined) ──
   const bathroom = rooms.find(r => r.roomType === 'bathroom') || rooms[0];
   if (bathroom && bathroom.boundary.length >= 3) {
+    // Primary bathroom bounding box → length/width fields
     const xs = bathroom.boundary.map(p => p.x);
     const ys = bathroom.boundary.map(p => p.y);
     const widthPx = Math.max(...xs) - Math.min(...xs);
@@ -122,19 +123,40 @@ function buildSketchSync(data: BESketchData): SketchFixtureSync {
     const depthFt = Math.round((depthPx / ppf) * 4) / 4;
     sync.length_ft = widthFt;
     sync.width_ft = depthFt;
-    // Floor SF = room area minus fixture footprints (bathtub, shower, vanity)
-    const grossFloorSF = widthFt * depthFt;
+
+    // Floor SF: primary room minus fixture footprints + additional rooms
+    const primaryFloorSF = widthFt * depthFt;
     let fixtureFootprintSF = 0;
     for (const fix of fixtures) {
       if (fix.type !== 'bathtub' && fix.type !== 'shower' && fix.type !== 'vanity') continue;
       fixtureFootprintSF += (fix.dimensions.width / 12) * (fix.dimensions.height / 12);
     }
-    sync.floor_sf = Math.round(Math.max(0, grossFloorSF - fixtureFootprintSF) * 10) / 10;
+    let totalFloorSF = Math.max(0, primaryFloorSF - fixtureFootprintSF);
 
+    // Wall SF: primary room + additional rooms, minus door/window openings
     const heightFt = (bathroom.heightInches || 96) / 12;
     const perimeterFt = 2 * (widthFt + depthFt);
     const grossWallSF = perimeterFt * heightFt;
-    sync.wall_sf = Math.round(grossWallSF * 10) / 10;
+
+    // Deduct door/window openings from wall area
+    let doorWindowDeductSF = 0;
+    for (const fix of fixtures) {
+      if (fix.type !== 'door' && fix.type !== 'window') continue;
+      const fW = fix.dimensions.width / 12;  // ft
+      const fH = fix.dimensions.height / 12; // ft
+      doorWindowDeductSF += fW * fH;
+    }
+    let totalWallSF = Math.max(0, grossWallSF - doorWindowDeductSF);
+
+    // Add additional rooms (non-sub-rooms)
+    for (const rm of rooms) {
+      if (rm.id === bathroom.id || rm.parentRoomId) continue;
+      totalFloorSF += rm.netFloorAreaSF || rm.floorAreaSF || 0;
+      totalWallSF += rm.wallAreaSF || 0;
+    }
+
+    sync.floor_sf = Math.round(totalFloorSF * 10) / 10;
+    sync.wall_sf = Math.round(totalWallSF * 10) / 10;
 
     // ── Per-wall finish: calculate paint SF vs tile SF ──
     // Walls with finish='tile' → tile_wall_sf, rest → paint_wall_sf

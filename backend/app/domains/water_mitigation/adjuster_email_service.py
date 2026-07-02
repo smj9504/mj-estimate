@@ -56,12 +56,30 @@ class AdjusterEmailService:
                 .first()
             )
 
-            # 2. Invoice - check WMScopeInvoice existence
+            # 2. Invoice - check WMScopeInvoice or uploaded WMDocument
             invoice_link = (
                 session.query(WMScopeInvoice)
                 .filter(WMScopeInvoice.job_id == job_id)
                 .order_by(WMScopeInvoice.generated_at.desc())
                 .first()
+            )
+            # Fallback: uploaded invoice document
+            invoice_doc = None
+            if not invoice_link:
+                invoice_doc = (
+                    session.query(WMDocument)
+                    .filter(
+                        WMDocument.job_id == job_id,
+                        WMDocument.is_active == True,
+                        WMDocument.document_type.in_(
+                            ['Invoice', 'invoice']
+                        ),
+                    )
+                    .order_by(WMDocument.created_at.desc())
+                    .first()
+                )
+            invoice_ready = (
+                invoice_link is not None or invoice_doc is not None
             )
 
             # 3. W9 - check company w9_file_id
@@ -129,8 +147,9 @@ class AdjusterEmailService:
                     "document": _doc_info(photo_report_doc),
                 },
                 "invoice": {
-                    "ready": invoice_link is not None,
+                    "ready": invoice_ready,
                     "invoice_id": str(invoice_link.invoice_id) if invoice_link else None,
+                    "document": _doc_info(invoice_doc) if invoice_doc else None,
                 },
                 "w9": {
                     "ready": w9_ready,
@@ -148,7 +167,7 @@ class AdjusterEmailService:
                 },
                 "all_ready": all([
                     photo_report_doc is not None,
-                    invoice_link is not None,
+                    invoice_ready,
                     w9_ready,
                     cos_doc is not None,
                     ewa_doc is not None,
@@ -181,6 +200,26 @@ class AdjusterEmailService:
                 "email": job.adjuster_email or "",
                 "phone": job.adjuster_phone or "",
             }
+
+            # Fallback: if job has no adjuster info, try from linked Claim
+            if job.claim_id and not adjuster_info["email"]:
+                from app.domains.client.models import Claim as ClaimModel
+                claim_for_adj = session.query(ClaimModel).filter(
+                    ClaimModel.id == job.claim_id
+                ).first()
+                if claim_for_adj:
+                    if not adjuster_info["email"]:
+                        adjuster_info["email"] = getattr(
+                            claim_for_adj, 'adjuster_email', ''
+                        ) or ""
+                    if not adjuster_info["name"]:
+                        adjuster_info["name"] = getattr(
+                            claim_for_adj, 'adjuster_name', ''
+                        ) or ""
+                    if not adjuster_info["phone"]:
+                        adjuster_info["phone"] = getattr(
+                            claim_for_adj, 'adjuster_phone', ''
+                        ) or ""
 
             # PA info for BCC - resolve via sheet_name → WMSheetPAMapping → CompanyContact
             pa_info = {
@@ -479,7 +518,23 @@ class AdjusterEmailService:
                 raise ValueError("No recipient email address provided")
 
             # Collect attachments based on selected documents
-            attachments = self._collect_attachments(session, job, selected_docs)
+            attachments, failed_docs = self._collect_attachments(session, job, selected_docs)
+
+            # Block send if any selected document failed to attach
+            if failed_docs:
+                doc_labels = {
+                    "photo_report": "Photo Report",
+                    "invoice": "Invoice",
+                    "w9": "W-9",
+                    "cos": "COS",
+                    "ewa": "EWA",
+                    "sketch": "Sketch",
+                }
+                failed_names = [doc_labels.get(d, d) for d in failed_docs]
+                raise ValueError(
+                    f"Failed to generate attachment(s): {', '.join(failed_names)}. "
+                    f"Email was NOT sent. Please check the documents and try again."
+                )
 
             # Send via claim_followup email service
             from app.domains.claim_followup.service import ClaimFollowUpService
@@ -586,7 +641,7 @@ class AdjusterEmailService:
             # Collect attachments only if user selected documents to re-attach
             attachments = []
             if selected_docs:
-                attachments = self._collect_attachments(session, job, selected_docs)
+                attachments, _failed = self._collect_attachments(session, job, selected_docs)
 
             # Send via claim_followup email service
             from app.domains.claim_followup.service import ClaimFollowUpService
@@ -644,12 +699,17 @@ class AdjusterEmailService:
 
     def _collect_attachments(
         self, session, job, selected_docs: List[str]
-    ) -> List[Dict[str, Any]]:
-        """Collect file attachments for email based on selected document types."""
+    ) -> tuple:
+        """Collect file attachments for email based on selected document types.
+
+        Returns:
+            Tuple of (attachments_list, failed_docs_list)
+        """
         from .models import WMDocument, WMScopeInvoice
 
         logger.info(f"Collecting attachments for selected_docs={selected_docs}")
         attachments = []
+        failed_docs = []
         address_short = (job.property_address or "property").split(",")[0].strip()
 
         # 1. Photo Report
@@ -668,18 +728,26 @@ class AdjusterEmailService:
                 att = self._attachment_from_wm_document(doc, f"Photo Report - {address_short}.pdf")
                 if att:
                     attachments.append(att)
+                else:
+                    failed_docs.append("photo_report")
+            else:
+                failed_docs.append("photo_report")
 
         # 2. Invoice
         if "invoice" in selected_docs:
             att = self._get_invoice_attachment(session, job, address_short)
             if att:
                 attachments.append(att)
+            else:
+                failed_docs.append("invoice")
 
         # 3. W9
         if "w9" in selected_docs:
             att = self._get_w9_attachment(session, job)
             if att:
                 attachments.append(att)
+            else:
+                failed_docs.append("w9")
 
         # 4. COS
         if "cos" in selected_docs:
@@ -697,6 +765,10 @@ class AdjusterEmailService:
                 att = self._attachment_from_wm_document(doc, f"COS - {address_short}.pdf")
                 if att:
                     attachments.append(att)
+                else:
+                    failed_docs.append("cos")
+            else:
+                failed_docs.append("cos")
 
         # 5. EWA
         if "ewa" in selected_docs:
@@ -714,14 +786,26 @@ class AdjusterEmailService:
                 att = self._attachment_from_wm_document(doc, f"EWA - {address_short}.pdf")
                 if att:
                     attachments.append(att)
+                else:
+                    failed_docs.append("ewa")
+            else:
+                failed_docs.append("ewa")
 
         # 6. Sketch
         if "sketch" in selected_docs:
             att = self._get_sketch_attachment(session, job, address_short)
             if att:
                 attachments.append(att)
+            else:
+                failed_docs.append("sketch")
 
-        return attachments
+        if failed_docs:
+            logger.warning(
+                f"Failed to collect attachments for: {failed_docs} "
+                f"(selected={selected_docs}, succeeded={len(attachments)})"
+            )
+
+        return attachments, failed_docs
 
     def _attachment_from_wm_document(
         self, doc, display_filename: str
@@ -765,11 +849,37 @@ class AdjusterEmailService:
     def _get_invoice_attachment(
         self, session, job, address_short: str
     ) -> Optional[Dict[str, Any]]:
-        """Generate invoice PDF on-the-fly and return as attachment."""
+        """Use uploaded invoice WMDocument first; fall back to
+        on-the-fly PDF generation from WMScopeInvoice."""
         try:
-            from .models import WMScopeInvoice
+            from .models import WMScopeInvoice, WMDocument
             from app.domains.invoice.service import InvoiceService
 
+            # --- Priority 1: uploaded invoice document ---
+            inv_doc = (
+                session.query(WMDocument)
+                .filter(
+                    WMDocument.job_id == str(job.id),
+                    WMDocument.is_active == True,
+                    WMDocument.document_type.in_(
+                        ['Invoice', 'invoice']
+                    ),
+                )
+                .order_by(WMDocument.created_at.desc())
+                .first()
+            )
+            if inv_doc:
+                logger.info(
+                    f"Invoice attachment: Using uploaded "
+                    f"WMDocument {inv_doc.id} "
+                    f"({inv_doc.filename})"
+                )
+                return self._attachment_from_wm_document(
+                    inv_doc,
+                    f"Invoice - {address_short}.pdf",
+                )
+
+            # --- Priority 2: generate from WMScopeInvoice ---
             invoice_link = (
                 session.query(WMScopeInvoice)
                 .filter(WMScopeInvoice.job_id == str(job.id))
@@ -777,11 +887,27 @@ class AdjusterEmailService:
                 .first()
             )
             if not invoice_link:
+                logger.warning(
+                    f"Invoice attachment: No uploaded invoice and "
+                    f"no WMScopeInvoice for job_id={job.id}"
+                )
                 return None
 
+            logger.info(
+                f"Invoice attachment: Found WMScopeInvoice "
+                f"invoice_id={invoice_link.invoice_id} "
+                f"for job_id={job.id}"
+            )
+
             invoice_service = InvoiceService(self.database)
-            invoice = invoice_service.get_with_items(str(invoice_link.invoice_id))
+            invoice = invoice_service.get_with_items(
+                str(invoice_link.invoice_id)
+            )
             if not invoice:
+                logger.warning(
+                    f"Invoice attachment: Invoice record not found "
+                    f"for invoice_id={invoice_link.invoice_id}"
+                )
                 return None
 
             # Generate PDF
@@ -870,7 +996,7 @@ class AdjusterEmailService:
             with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
                 temp_path = tmp.name
 
-            pdf_path = get_pdf_service().generate_invoice_pdf(pdf_data, temp_path)
+            pdf_path = get_pdf_service().generate_invoice_pdf(pdf_data, temp_path, template_variant="a")
             pdf_bytes = Path(pdf_path).read_bytes()
 
             # Cleanup temp file
@@ -886,7 +1012,11 @@ class AdjusterEmailService:
                 "mime_type": "application/pdf",
             }
         except Exception as e:
-            logger.error(f"Error generating invoice attachment: {e}")
+            import traceback
+            logger.error(
+                f"Error generating invoice attachment for job {job.id}: {e}\n"
+                f"{traceback.format_exc()}"
+            )
             return None
 
     def _get_w9_attachment(self, session, job) -> Optional[Dict[str, Any]]:

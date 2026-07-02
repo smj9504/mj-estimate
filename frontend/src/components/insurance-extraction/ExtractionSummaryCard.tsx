@@ -14,13 +14,23 @@ const ExtractionSummaryCard: React.FC<ExtractionSummaryCardProps> = ({ extractio
   const sectionCount = hierarchy?.sections?.length || 0;
   const header = extraction.parser_metadata?.header as Record<string, unknown> | undefined;
   const summary = extraction.parser_metadata?.summary as Record<string, number> | undefined;
+  const strategyLog = extraction.parser_metadata?.strategy_log as string[] | undefined;
+  const strategy = extraction.parser_metadata?.strategy as string | undefined;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <Alert
-        type="info"
+        type={extraction.items.length === 0 ? 'warning' : 'info'}
         showIcon
         message={`Carrier: ${extraction.carrier || 'generic'} | Pages: ${extraction.pages} | Items: ${extraction.items.length} | Levels: ${levelCount} | Sections: ${sectionCount}`}
+        description={
+          (strategyLog || strategy) ? (
+            <span style={{ fontSize: 12, color: '#888' }}>
+              Strategy: {strategy || '—'}
+              {strategyLog?.length ? ` | Pipeline: ${strategyLog.join(' → ')}` : ''}
+            </span>
+          ) : undefined
+        }
       />
       {(header || summary) && (
         <Descriptions

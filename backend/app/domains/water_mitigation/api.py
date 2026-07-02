@@ -20,7 +20,7 @@ from fastapi import (
     Query,
     UploadFile,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from app.core.database_factory import get_db_session
@@ -2315,15 +2315,37 @@ def download_document(
             raise HTTPException(status_code=404, detail="Document not found")
 
         document_dict = service.document_repo._convert_to_dict(document)
-        file_path = Path(document_dict['file_path'])
+        file_path_str = document_dict.get('file_path', '')
+        storage_provider = document_dict.get('storage_provider', 'local')
+        storage_file_id = document_dict.get('storage_file_id', '')
+        mime_type = document_dict.get('mime_type', 'application/pdf')
+        filename = document_dict.get('filename', 'document')
 
-        if not file_path.exists():
+        # Cloud storage (GCS, GDrive, etc.)
+        if storage_provider and storage_provider not in ('local', ''):
+            from ..storage.factory import StorageFactory
+            storage = StorageFactory.get_instance(storage_provider)
+            download_key = storage_file_id or file_path_str
+            if download_key and hasattr(storage, 'download'):
+                file_bytes = storage.download(download_key)
+                return Response(
+                    content=file_bytes,
+                    media_type=mime_type,
+                    headers={
+                        'Content-Disposition': f'attachment; filename="{filename}"'
+                    }
+                )
+            raise HTTPException(status_code=404, detail="Document file not found in cloud storage")
+
+        # Local storage
+        local_path = Path(file_path_str)
+        if not local_path.exists():
             raise HTTPException(status_code=404, detail="Document file not found on disk")
 
         return FileResponse(
-            path=str(file_path),
-            media_type=document_dict.get('mime_type', 'application/pdf'),
-            filename=document_dict['filename']
+            path=str(local_path),
+            media_type=mime_type,
+            filename=filename
         )
     except HTTPException:
         raise
@@ -2344,24 +2366,41 @@ def preview_document(
             raise HTTPException(status_code=404, detail="Document not found")
 
         document_dict = service.document_repo._convert_to_dict(document)
-        file_path = Path(document_dict['file_path'])
+        file_path_str = document_dict.get('file_path', '')
+        storage_provider = document_dict.get('storage_provider', 'local')
+        storage_file_id = document_dict.get('storage_file_id', '')
+        mime_type = document_dict.get('mime_type', 'application/pdf')
+        filename = document_dict.get('filename', 'document')
 
-        if not file_path.exists():
+        # Cloud storage (GCS, GDrive, etc.)
+        if storage_provider and storage_provider not in ('local', ''):
+            from ..storage.factory import StorageFactory
+            storage = StorageFactory.get_instance(storage_provider)
+            download_key = storage_file_id or file_path_str
+            if download_key and hasattr(storage, 'download'):
+                file_bytes = storage.download(download_key)
+                return Response(
+                    content=file_bytes,
+                    media_type=mime_type,
+                    headers={
+                        'Content-Disposition': f'inline; filename="{filename}"'
+                    }
+                )
+            raise HTTPException(status_code=404, detail="Document file not found in cloud storage")
+
+        # Local storage
+        local_path = Path(file_path_str)
+        if not local_path.exists():
             raise HTTPException(status_code=404, detail="Document file not found on disk")
 
-        # Return with inline disposition for browser preview
-        import mimetypes
-
-        from fastapi.responses import Response
-
-        with open(file_path, 'rb') as f:
+        with open(local_path, 'rb') as f:
             content = f.read()
 
         return Response(
             content=content,
-            media_type=document_dict.get('mime_type', 'application/pdf'),
+            media_type=mime_type,
             headers={
-                'Content-Disposition': f'inline; filename="{document_dict["filename"]}"'
+                'Content-Disposition': f'inline; filename="{filename}"'
             }
         )
     except HTTPException:
@@ -2868,8 +2907,7 @@ async def generate_photo_report(
 
         # Generate filename
         property_address = job.get('property_address', 'Property')
-        report_date = datetime.now().strftime('%Y-%m-%d')
-        filename = f"{property_address} - Water Mitigation Report - {report_date}.pdf"
+        filename = f"{property_address} - Water Mitigation Report.pdf"
 
         # Create output directory
         output_dir = Path("storage/water-mitigation/reports") / str(job_id)
