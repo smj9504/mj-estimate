@@ -1,5 +1,10 @@
 import { apiClient } from '../api/config';
-import { InsuranceExtraction, InsuranceExtractionUpdatePayload } from '../types/insuranceExtraction';
+import {
+  ExtractionAnalysisResponse,
+  InsuranceExtraction,
+  InsuranceExtractionSummary,
+  InsuranceExtractionUpdatePayload,
+} from '../types/insuranceExtraction';
 
 class InsuranceExtractionService {
   async extractFromFile(fileId: string): Promise<InsuranceExtraction> {
@@ -12,7 +17,7 @@ class InsuranceExtractionService {
     return response.data;
   }
 
-  async listExtractions(limit = 50): Promise<InsuranceExtraction[]> {
+  async listExtractions(limit = 50): Promise<InsuranceExtractionSummary[]> {
     const response = await apiClient.get('/api/insurance-extractions', { params: { limit } });
     return response.data;
   }
@@ -24,6 +29,15 @@ class InsuranceExtractionService {
 
   async deleteExtraction(extractionId: string): Promise<void> {
     await apiClient.delete(`/api/insurance-extractions/${extractionId}`);
+  }
+
+  async getAnalysis(extractionId: string): Promise<ExtractionAnalysisResponse> {
+    const response = await apiClient.get(`/api/insurance-extractions/${extractionId}/analysis`);
+    return response.data;
+  }
+
+  async bulkDeleteExtractions(ids: string[]): Promise<void> {
+    await apiClient.post('/api/insurance-extractions/bulk-delete', { ids });
   }
 }
 

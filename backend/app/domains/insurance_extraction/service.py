@@ -306,6 +306,24 @@ class InsuranceExtractionService:
             raise ValueError("Extraction not found")
         self.repository.delete_extraction(extraction)
 
+    def bulk_delete_extractions(self, ids: List[UUID]) -> None:
+        self.repository.bulk_delete_extractions(ids)
+
+    def get_analysis(self, extraction_id: UUID) -> Dict[str, Any]:
+        """Return surface-category analysis for all rooms in this extraction."""
+        from app.domains.insurance_extraction.analyzer import analyze_extraction
+
+        extraction = self.repository.get_extraction(extraction_id)
+        if not extraction:
+            raise ValueError("Extraction not found")
+
+        hierarchy = (extraction.parser_metadata or {}).get("hierarchy")
+        # Items must be sorted by sort_order to match index-based hierarchy
+        sorted_items = sorted(extraction.items, key=lambda it: it.sort_order)
+        result = analyze_extraction(sorted_items, hierarchy)
+        result["extraction_id"] = str(extraction.id)
+        return result
+
     def to_estimate_items(self, extraction_id: UUID) -> List[Dict[str, Any]]:
         extraction = self.repository.get_extraction(extraction_id)
         if not extraction:

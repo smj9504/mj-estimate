@@ -1,11 +1,14 @@
+from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database_factory import get_db
 from app.domains.auth.dependencies import get_current_staff
 from app.domains.insurance_extraction.schemas import (
+    ExtractionAnalysisResponse,
+    InsuranceExtractionListResponse,
     InsuranceExtractionResponse,
     InsuranceExtractionToEstimateResponse,
     InsuranceExtractionUpdateRequest,
@@ -36,7 +39,7 @@ def extract_from_file(
     return extraction
 
 
-@router.get("/", response_model=list[InsuranceExtractionResponse])
+@router.get("/", response_model=list[InsuranceExtractionListResponse])
 def list_extractions(
     limit: int = 50,
     db: Session = Depends(get_db),
@@ -84,6 +87,30 @@ def delete_extraction(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return None
+
+
+@router.post("/bulk-delete", status_code=status.HTTP_204_NO_CONTENT)
+def bulk_delete_extractions(
+    ids: List[UUID] = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff),
+):
+    service = InsuranceExtractionService(db)
+    service.bulk_delete_extractions(ids)
+
+
+@router.get("/{extraction_id}/analysis", response_model=ExtractionAnalysisResponse)
+def get_extraction_analysis(
+    extraction_id: UUID,
+    db: Session = Depends(get_db),
+    current_staff: Staff = Depends(get_current_staff),
+):
+    service = InsuranceExtractionService(db)
+    try:
+        result = service.get_analysis(extraction_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return result
 
 
 @router.post("/{extraction_id}/to-estimate", response_model=InsuranceExtractionToEstimateResponse)

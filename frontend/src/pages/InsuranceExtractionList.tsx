@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   Button,
   Card,
+  Checkbox,
   Grid,
   List,
   message,
@@ -25,7 +26,7 @@ import dayjs from 'dayjs';
 
 import { fileService } from '../services/fileService';
 import { insuranceExtractionService } from '../services/insuranceExtractionService';
-import { InsuranceExtraction } from '../types/insuranceExtraction';
+import { InsuranceExtractionSummary } from '../types/insuranceExtraction';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -44,8 +45,9 @@ const InsuranceExtractionList: React.FC = () => {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
-  const { data: extractions = [], isLoading } = useQuery<InsuranceExtraction[]>({
+  const { data: extractions = [], isLoading } = useQuery<InsuranceExtractionSummary[]>({
     queryKey: ['insurance-extractions'],
     queryFn: () => insuranceExtractionService.listExtractions(50),
   });
@@ -59,6 +61,16 @@ const InsuranceExtractionList: React.FC = () => {
     onError: () => message.error('Failed to delete'),
   });
 
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) => insuranceExtractionService.bulkDeleteExtractions(ids),
+    onSuccess: (_data, ids) => {
+      queryClient.invalidateQueries({ queryKey: ['insurance-extractions'] });
+      setSelectedRowKeys([]);
+      message.success(`${ids.length} extraction(s) deleted`);
+    },
+    onError: () => message.error('Failed to delete'),
+  });
+
   const handleDelete = (id: string) => {
     Modal.confirm({
       title: 'Delete Extraction?',
@@ -66,6 +78,16 @@ const InsuranceExtractionList: React.FC = () => {
       okText: 'Delete',
       okType: 'danger',
       onOk: () => deleteMutation.mutateAsync(id),
+    });
+  };
+
+  const handleBulkDelete = () => {
+    Modal.confirm({
+      title: `Delete ${selectedRowKeys.length} extraction(s)?`,
+      content: 'This will permanently delete selected extractions and all their items.',
+      okText: 'Delete All',
+      okType: 'danger',
+      onOk: () => bulkDeleteMutation.mutateAsync(selectedRowKeys as string[]),
     });
   };
 
@@ -94,16 +116,23 @@ const InsuranceExtractionList: React.FC = () => {
     }
   };
 
-  const getEstimateLabel = (ext: InsuranceExtraction) => {
+  const getEstimateLabel = (ext: InsuranceExtractionSummary) => {
     const header = ext.parser_metadata?.header;
     if (header?.estimate_id) return String(header.estimate_id);
     if (header?.insured) return String(header.insured);
     return ext.id.slice(0, 8);
   };
 
-  const getSummaryRcv = (ext: InsuranceExtraction) => {
+  const getSummaryRcv = (ext: InsuranceExtractionSummary) => {
     const summary = ext.parser_metadata?.summary;
     return summary?.rcv ?? summary?.net_claim ?? null;
+  };
+
+  // Mobile: toggle selection
+  const toggleMobileSelect = (id: string) => {
+    setSelectedRowKeys((prev) =>
+      prev.includes(id) ? prev.filter((k) => k !== id) : [...prev, id]
+    );
   };
 
   // Desktop table columns
@@ -111,8 +140,12 @@ const InsuranceExtractionList: React.FC = () => {
     {
       title: 'Estimate',
       key: 'estimate',
-      render: (_: unknown, row: InsuranceExtraction) => (
-        <Text strong style={{ cursor: 'pointer' }} onClick={() => navigate(`/insurance-extractions/${row.id}`)}>
+      render: (_: unknown, row: InsuranceExtractionSummary) => (
+        <Text
+          strong
+          style={{ cursor: 'pointer' }}
+          onClick={() => navigate(`/insurance-extractions/${row.id}`)}
+        >
           {getEstimateLabel(row)}
         </Text>
       ),
@@ -139,26 +172,26 @@ const InsuranceExtractionList: React.FC = () => {
       title: 'Items',
       key: 'items',
       width: 80,
-      render: (_: unknown, row: InsuranceExtraction) => row.items.length,
+      render: (_: unknown, row: InsuranceExtractionSummary) => row.item_count,
     },
     {
       title: 'RCV',
       key: 'rcv',
       width: 130,
-      render: (_: unknown, row: InsuranceExtraction) => fmt(getSummaryRcv(row)),
+      render: (_: unknown, row: InsuranceExtractionSummary) => fmt(getSummaryRcv(row)),
     },
     {
       title: 'Date',
       key: 'created_at',
       width: 120,
-      render: (_: unknown, row: InsuranceExtraction) =>
+      render: (_: unknown, row: InsuranceExtractionSummary) =>
         row.created_at ? dayjs(row.created_at).format('MM/DD/YYYY') : '—',
     },
     {
       title: '',
       key: 'actions',
       width: 90,
-      render: (_: unknown, row: InsuranceExtraction) => (
+      render: (_: unknown, row: InsuranceExtractionSummary) => (
         <Space size={4}>
           <Button
             type="text"
@@ -179,80 +212,114 @@ const InsuranceExtractionList: React.FC = () => {
   ];
 
   // Mobile card renderer
-  const renderMobileItem = (ext: InsuranceExtraction) => (
-    <List.Item
-      style={{ padding: '12px 0', cursor: 'pointer' }}
-      onClick={() => navigate(`/insurance-extractions/${ext.id}`)}
-      actions={[
-        <Button
-          key="delete"
-          type="text"
-          size="small"
-          danger
-          icon={<DeleteOutlined />}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleDelete(ext.id);
-          }}
-        />,
-      ]}
-    >
-      <List.Item.Meta
-        title={
-          <Space size={[6, 4]} wrap>
-            <Text strong>{getEstimateLabel(ext)}</Text>
-            <Tag color={ext.status === 'completed' ? 'green' : ext.status === 'failed' ? 'red' : 'blue'}>
-              {ext.status}
-            </Tag>
-          </Space>
-        }
-        description={
-          <Space direction="vertical" size={2} style={{ width: '100%' }}>
-            <Space size={[8, 4]} wrap>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {ext.carrier || 'generic'}
-              </Text>
-              <Text style={{ fontSize: 12 }}>
-                {ext.items.length} items
-              </Text>
-              {getSummaryRcv(ext) != null && (
-                <Tag color="green" style={{ fontSize: 11 }}>
-                  RCV: {fmt(getSummaryRcv(ext))}
+  const renderMobileItem = (ext: InsuranceExtractionSummary) => {
+    const isSelected = selectedRowKeys.includes(ext.id);
+    return (
+      <List.Item
+        style={{ padding: '12px 0', cursor: 'pointer' }}
+        onClick={() => navigate(`/insurance-extractions/${ext.id}`)}
+        actions={[
+          <Button
+            key="delete"
+            type="text"
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDelete(ext.id);
+            }}
+          />,
+        ]}
+      >
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', width: '100%' }}>
+          <Checkbox
+            checked={isSelected}
+            onClick={(e) => e.stopPropagation()}
+            onChange={() => toggleMobileSelect(ext.id)}
+            style={{ marginTop: 4 }}
+          />
+          <List.Item.Meta
+            title={
+              <Space size={[6, 4]} wrap>
+                <Text strong>{getEstimateLabel(ext)}</Text>
+                <Tag
+                  color={
+                    ext.status === 'completed'
+                      ? 'green'
+                      : ext.status === 'failed'
+                        ? 'red'
+                        : 'blue'
+                  }
+                >
+                  {ext.status}
                 </Tag>
-              )}
-            </Space>
-            {ext.created_at && (
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                {dayjs(ext.created_at).format('MM/DD/YYYY h:mm A')}
-              </Text>
-            )}
-          </Space>
-        }
-      />
-    </List.Item>
-  );
+              </Space>
+            }
+            description={
+              <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                <Space size={[8, 4]} wrap>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {ext.carrier || 'generic'}
+                  </Text>
+                  <Text style={{ fontSize: 12 }}>{ext.item_count} items</Text>
+                  {getSummaryRcv(ext) != null && (
+                    <Tag color="green" style={{ fontSize: 11 }}>
+                      RCV: {fmt(getSummaryRcv(ext))}
+                    </Tag>
+                  )}
+                </Space>
+                {ext.created_at && (
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {dayjs(ext.created_at).format('MM/DD/YYYY h:mm A')}
+                  </Text>
+                )}
+              </Space>
+            }
+          />
+        </div>
+      </List.Item>
+    );
+  };
+
+  const hasSelected = selectedRowKeys.length > 0;
 
   return (
     <div>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 16,
-        flexWrap: 'wrap',
-        gap: 8,
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 16,
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
         <Title level={isMobile ? 4 : 3} style={{ margin: 0 }}>
           Insurance Extractions
         </Title>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setUploadModalOpen(true)}
-          size={isMobile ? 'middle' : 'large'}
-        >
-          {isMobile ? 'New' : 'New Extraction'}
-        </Button>
+        <Space size={8}>
+          {hasSelected && (
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              onClick={handleBulkDelete}
+              loading={bulkDeleteMutation.isPending}
+              size={isMobile ? 'small' : 'middle'}
+            >
+              {isMobile ? `(${selectedRowKeys.length})` : `Delete (${selectedRowKeys.length})`}
+            </Button>
+          )}
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setUploadModalOpen(true)}
+            size={isMobile ? 'middle' : 'large'}
+          >
+            {isMobile ? 'New' : 'New Extraction'}
+          </Button>
+        </Space>
       </div>
 
       <Card
@@ -275,6 +342,10 @@ const InsuranceExtractionList: React.FC = () => {
             columns={tableColumns}
             pagination={{ pageSize: 15 }}
             locale={{ emptyText: 'No extractions yet. Upload a PDF to get started.' }}
+            rowSelection={{
+              selectedRowKeys,
+              onChange: setSelectedRowKeys,
+            }}
           />
         )}
       </Card>

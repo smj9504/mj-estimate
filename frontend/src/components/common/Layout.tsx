@@ -407,8 +407,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     } else if (key === 'settings') {
       navigate('/settings');
     } else {
-      // Use push navigation to ensure history works properly
       navigate(key);
+    }
+    // Auto-close sidebar on mobile after navigation
+    if (isMobile) {
+      setCollapsed(true);
     }
   };
 

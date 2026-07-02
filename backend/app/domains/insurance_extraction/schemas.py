@@ -44,6 +44,21 @@ class InsuranceExtractionResponse(BaseModel):
         from_attributes = True
 
 
+class InsuranceExtractionListResponse(BaseModel):
+    """Lightweight response for list endpoint — no items, no raw_text."""
+    id: UUID
+    file_id: str
+    carrier: Optional[str] = None
+    status: str
+    pages: int
+    item_count: int = 0
+    parser_metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class InsuranceExtractionItemUpdate(BaseModel):
     id: Optional[UUID] = None
     room: Optional[str] = None
@@ -67,6 +82,47 @@ class InsuranceExtractionUpdateRequest(BaseModel):
     raw_text_excerpt: Optional[str] = None
     parser_metadata: Optional[Dict[str, Any]] = None
     items: List[InsuranceExtractionItemUpdate] = Field(default_factory=list)
+
+
+# ── Analysis response schemas ──
+
+
+class CategorizedItem(BaseModel):
+    item_id: str
+    line_item: str
+    surface_category: str  # wall, floor, ceiling, general
+    quantity: Optional[Decimal] = None
+    unit: Optional[str] = None
+    unit_price: Optional[Decimal] = None
+
+
+class RoomAnalysisResponse(BaseModel):
+    room_name: str
+    level_name: str = ""
+    dimensions: Dict[str, float] = Field(default_factory=dict)
+    height_ft: Optional[float] = None
+    items_by_surface: Dict[str, List[CategorizedItem]] = Field(default_factory=dict)
+    item_count: int = 0
+
+
+class SectionAnalysisResponse(BaseModel):
+    section_name: str
+    kind: str = "section"
+    items_by_surface: Dict[str, List[CategorizedItem]] = Field(default_factory=dict)
+    item_count: int = 0
+
+
+class AnalysisSummary(BaseModel):
+    total_items: int = 0
+    by_category: Dict[str, int] = Field(default_factory=dict)
+
+
+class ExtractionAnalysisResponse(BaseModel):
+    extraction_id: UUID
+    rooms: List[RoomAnalysisResponse] = Field(default_factory=list)
+    sections: List[SectionAnalysisResponse] = Field(default_factory=list)
+    unassigned_items: Dict[str, List[CategorizedItem]] = Field(default_factory=dict)
+    summary: AnalysisSummary = Field(default_factory=AnalysisSummary)
 
 
 class InsuranceExtractionToEstimateItem(BaseModel):

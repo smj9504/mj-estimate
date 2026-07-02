@@ -1,7 +1,7 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.domains.insurance_extraction.models import (
@@ -33,14 +33,38 @@ class InsuranceExtractionRepository:
         )
         return self.db.execute(stmt).scalar_one_or_none()
 
-    def list_extractions(self, limit: int = 50) -> List[InsurancePdfExtraction]:
+    def list_extractions(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """List extractions with item_count — does NOT load items."""
+        count_sub = (
+            select(func.count(InsurancePdfExtractionItem.id))
+            .where(
+                InsurancePdfExtractionItem.extraction_id
+                == InsurancePdfExtraction.id
+            )
+            .correlate(InsurancePdfExtraction)
+            .scalar_subquery()
+            .label("item_count")
+        )
         stmt = (
-            select(InsurancePdfExtraction)
+            select(InsurancePdfExtraction, count_sub)
             .order_by(InsurancePdfExtraction.created_at.desc())
             .limit(limit)
-            .options(selectinload(InsurancePdfExtraction.items))
         )
-        return list(self.db.execute(stmt).scalars().all())
+        results = []
+        for row in self.db.execute(stmt):
+            extraction = row[0]
+            item_count = row[1]
+            results.append({
+                "id": extraction.id,
+                "file_id": extraction.file_id,
+                "carrier": extraction.carrier,
+                "status": extraction.status,
+                "pages": extraction.pages,
+                "item_count": item_count,
+                "parser_metadata": extraction.parser_metadata or {},
+                "created_at": extraction.created_at,
+            })
+        return results
 
     def replace_items(self, extraction_id: UUID, items: List[dict]) -> None:
         self.db.execute(
@@ -52,4 +76,19 @@ class InsuranceExtractionRepository:
 
     def delete_extraction(self, extraction: InsurancePdfExtraction) -> None:
         self.db.delete(extraction)
+        self.db.flush()
+
+    def bulk_delete_extractions(self, ids: List[UUID]) -> None:
+        if not ids:
+            return
+        self.db.execute(
+            delete(InsurancePdfExtractionItem).where(
+                InsurancePdfExtractionItem.extraction_id.in_(ids)
+            )
+        )
+        self.db.execute(
+            delete(InsurancePdfExtraction).where(
+                InsurancePdfExtraction.id.in_(ids)
+            )
+        )
         self.db.flush()

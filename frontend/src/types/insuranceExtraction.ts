@@ -48,6 +48,7 @@ export interface ExtractionHierarchy {
   unassigned_item_indices: number[];
 }
 
+/** Full extraction with items — used on detail page */
 export interface InsuranceExtraction {
   id: string;
   file_id: string;
@@ -62,6 +63,61 @@ export interface InsuranceExtraction {
   };
   items: InsuranceExtractionItem[];
   created_at?: string;
+}
+
+/** Lightweight extraction for list — no items, just count */
+export interface InsuranceExtractionSummary {
+  id: string;
+  file_id: string;
+  carrier?: string;
+  status: string;
+  pages: number;
+  item_count: number;
+  parser_metadata: Record<string, unknown> & {
+    header?: Record<string, unknown>;
+    summary?: Record<string, number>;
+  };
+  created_at?: string;
+}
+
+// ── Analysis types ──
+
+export type SurfaceCategoryType = 'wall' | 'floor' | 'ceiling' | 'general';
+
+export interface CategorizedItem {
+  item_id: string;
+  line_item: string;
+  surface_category: SurfaceCategoryType;
+  quantity?: number | null;
+  unit?: string | null;
+  unit_price?: number | null;
+}
+
+export interface RoomAnalysis {
+  room_name: string;
+  level_name: string;
+  dimensions: Record<string, number>;
+  height_ft?: number | null;
+  items_by_surface: Record<SurfaceCategoryType, CategorizedItem[]>;
+  item_count: number;
+}
+
+export interface SectionAnalysis {
+  section_name: string;
+  kind: string;
+  items_by_surface: Record<SurfaceCategoryType, CategorizedItem[]>;
+  item_count: number;
+}
+
+export interface ExtractionAnalysisResponse {
+  extraction_id: string;
+  rooms: RoomAnalysis[];
+  sections: SectionAnalysis[];
+  unassigned_items: Record<SurfaceCategoryType, CategorizedItem[]>;
+  summary: {
+    total_items: number;
+    by_category: Record<SurfaceCategoryType, number>;
+  };
 }
 
 export interface InsuranceExtractionUpdatePayload {

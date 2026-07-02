@@ -43,7 +43,7 @@ import {
   ExtractionSummaryCard,
   ExtractionUploadPanel,
 } from '../components/insurance-extraction';
-import { InsuranceExtraction } from '../types/insuranceExtraction';
+import { InsuranceExtraction, InsuranceExtractionSummary } from '../types/insuranceExtraction';
 import { Company } from '../types';
 
 const { Title, Text } = Typography;
@@ -85,7 +85,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
   const [insurancePdfFile, setInsurancePdfFile] = useState<File | null>(null);
   const [isExtractingInsurancePdf, setIsExtractingInsurancePdf] = useState(false);
   const [extractionResult, setExtractionResult] = useState<InsuranceExtraction | null>(null);
-  const [extractionList, setExtractionList] = useState<InsuranceExtraction[]>([]);
+  const [extractionList, setExtractionList] = useState<InsuranceExtractionSummary[]>([]);
   const [isLoadingExtractions, setIsLoadingExtractions] = useState(false);
   const [isSavingExtraction, setIsSavingExtraction] = useState(false);
   const [editedExtractionItems, setEditedExtractionItems] = useState<InsuranceExtraction['items']>([]);
@@ -963,7 +963,7 @@ const InsuranceEstimateCreation: React.FC<InsuranceEstimateCreationProps> = ({ i
               { title: 'ID', dataIndex: 'id', key: 'id', width: 260 },
               { title: 'Carrier', dataIndex: 'carrier', key: 'carrier', width: 120 },
               { title: 'Status', dataIndex: 'status', key: 'status', width: 100 },
-              { title: 'Items', key: 'items', width: 80, render: (_, record) => record.items.length },
+              { title: 'Items', key: 'items', width: 80, render: (_, record) => record.item_count },
               {
                 title: 'Actions',
                 key: 'actions',

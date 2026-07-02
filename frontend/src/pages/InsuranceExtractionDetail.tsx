@@ -1,10 +1,14 @@
-import React from 'react';
-import { Button, Card, Grid, Result, Space, Spin, Typography } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import React, { useState } from 'react';
+import { Button, Card, Grid, Result, Space, Spin, Tabs, Typography } from 'antd';
+import { ArrowLeftOutlined, BarChartOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 
-import { ExtractionHierarchyView, ExtractionSummaryCard } from '../components/insurance-extraction';
+import {
+  ExtractionAnalysisView,
+  ExtractionHierarchyView,
+  ExtractionSummaryCard,
+} from '../components/insurance-extraction';
 import { insuranceExtractionService } from '../services/insuranceExtractionService';
 import { InsuranceExtraction } from '../types/insuranceExtraction';
 
@@ -16,6 +20,7 @@ const InsuranceExtractionDetail: React.FC = () => {
   const navigate = useNavigate();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
+  const [activeTab, setActiveTab] = useState('items');
 
   const { data: extraction, isLoading, error } = useQuery<InsuranceExtraction>({
     queryKey: ['insurance-extraction', id],
@@ -79,13 +84,40 @@ const InsuranceExtractionDetail: React.FC = () => {
         size={isMobile ? 'small' : 'default'}
         styles={{ body: { padding: isMobile ? 8 : undefined } }}
       >
-        <Space direction="vertical" style={{ width: '100%' }} size={isMobile ? 8 : 16}>
-          <ExtractionSummaryCard extraction={extraction} />
-          <ExtractionHierarchyView
-            items={extraction.items}
-            hierarchy={extraction.parser_metadata?.hierarchy}
-          />
-        </Space>
+        <ExtractionSummaryCard extraction={extraction} />
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          size={isMobile ? 'small' : 'middle'}
+          style={{ marginTop: 16 }}
+          items={[
+            {
+              key: 'items',
+              label: (
+                <span>
+                  <UnorderedListOutlined /> Items
+                </span>
+              ),
+              children: (
+                <ExtractionHierarchyView
+                  items={extraction.items}
+                  hierarchy={extraction.parser_metadata?.hierarchy}
+                />
+              ),
+            },
+            {
+              key: 'analysis',
+              label: (
+                <span>
+                  <BarChartOutlined /> Analysis
+                </span>
+              ),
+              children: activeTab === 'analysis' ? (
+                <ExtractionAnalysisView extractionId={extraction.id} />
+              ) : null,
+            },
+          ]}
+        />
       </Card>
     </div>
   );
