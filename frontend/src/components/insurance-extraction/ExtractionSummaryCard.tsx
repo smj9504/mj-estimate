@@ -1,12 +1,15 @@
 import React from 'react';
-import { Alert, Descriptions } from 'antd';
+import { Alert, Descriptions, Space, Tag } from 'antd';
 import { InsuranceExtraction } from '../../types/insuranceExtraction';
 
 interface ExtractionSummaryCardProps {
   extraction: InsuranceExtraction;
 }
 
-const fmt = (v?: number | null) => (v != null ? `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—');
+const fmt = (v?: number | null) =>
+  v != null
+    ? `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : '—';
 
 const ExtractionSummaryCard: React.FC<ExtractionSummaryCardProps> = ({ extraction }) => {
   const hierarchy = extraction.parser_metadata?.hierarchy;
@@ -22,10 +25,18 @@ const ExtractionSummaryCard: React.FC<ExtractionSummaryCardProps> = ({ extractio
       <Alert
         type={extraction.items.length === 0 ? 'warning' : 'info'}
         showIcon
-        message={`Carrier: ${extraction.carrier || 'generic'} | Pages: ${extraction.pages} | Items: ${extraction.items.length} | Levels: ${levelCount} | Sections: ${sectionCount}`}
+        message={
+          <Space size={[6, 4]} wrap>
+            <Tag>{extraction.carrier || 'generic'}</Tag>
+            <Tag>Pages: {extraction.pages}</Tag>
+            <Tag color="blue">Items: {extraction.items.length}</Tag>
+            <Tag>Levels: {levelCount}</Tag>
+            <Tag>Sections: {sectionCount}</Tag>
+          </Space>
+        }
         description={
           (strategyLog || strategy) ? (
-            <span style={{ fontSize: 12, color: '#888' }}>
+            <span style={{ fontSize: 12, color: '#888', wordBreak: 'break-word' }}>
               Strategy: {strategy || '—'}
               {strategyLog?.length ? ` | Pipeline: ${strategyLog.join(' → ')}` : ''}
             </span>

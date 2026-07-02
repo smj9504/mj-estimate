@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Space, Typography, message } from 'antd';
+import { Card, Grid, Space, Typography, message } from 'antd';
 
 import { ExtractionHierarchyView, ExtractionSummaryCard, ExtractionUploadPanel } from '../components/insurance-extraction';
 import { fileService } from '../services/fileService';
@@ -7,11 +7,14 @@ import { insuranceExtractionService } from '../services/insuranceExtractionServi
 import { InsuranceExtraction } from '../types/insuranceExtraction';
 
 const { Title, Text } = Typography;
+const { useBreakpoint } = Grid;
 
 const InsuranceExtractionPage: React.FC = () => {
   const [insurancePdfFile, setInsurancePdfFile] = useState<File | null>(null);
   const [isExtractingInsurancePdf, setIsExtractingInsurancePdf] = useState(false);
   const [extractionResult, setExtractionResult] = useState<InsuranceExtraction | null>(null);
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   const handleRunInsuranceExtraction = async () => {
     if (!insurancePdfFile) {
@@ -46,10 +49,12 @@ const InsuranceExtractionPage: React.FC = () => {
   return (
     <div>
       <Space direction="vertical" size={4} style={{ marginBottom: 16 }}>
-        <Title level={3} style={{ margin: 0 }}>
+        <Title level={isMobile ? 4 : 3} style={{ margin: 0 }}>
           Insurance Extraction
         </Title>
-        <Text type="secondary">Upload insurance estimate PDF, extract line items, and review normalized results.</Text>
+        <Text type="secondary" style={{ fontSize: isMobile ? 12 : 14 }}>
+          Upload insurance estimate PDF, extract line items, and review normalized results.
+        </Text>
       </Space>
 
       <ExtractionUploadPanel
@@ -60,8 +65,11 @@ const InsuranceExtractionPage: React.FC = () => {
       />
 
       {extractionResult && (
-        <Card>
-          <Space direction="vertical" style={{ width: '100%' }}>
+        <Card
+          size={isMobile ? 'small' : 'default'}
+          styles={{ body: { padding: isMobile ? 8 : undefined } }}
+        >
+          <Space direction="vertical" style={{ width: '100%' }} size={isMobile ? 8 : 16}>
             <ExtractionSummaryCard extraction={extractionResult} />
             <ExtractionHierarchyView
               items={extractionResult.items}

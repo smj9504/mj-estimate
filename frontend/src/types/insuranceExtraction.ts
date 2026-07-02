@@ -57,8 +57,11 @@ export interface InsuranceExtraction {
   raw_text_excerpt?: string;
   parser_metadata: Record<string, unknown> & {
     hierarchy?: ExtractionHierarchy;
+    header?: Record<string, unknown>;
+    summary?: Record<string, number>;
   };
   items: InsuranceExtractionItem[];
+  created_at?: string;
 }
 
 export interface InsuranceExtractionUpdatePayload {

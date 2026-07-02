@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -37,6 +38,7 @@ class InsuranceExtractionResponse(BaseModel):
     raw_text_excerpt: Optional[str] = None
     parser_metadata: Dict[str, Any] = Field(default_factory=dict)
     items: List[InsuranceExtractionItemResponse] = Field(default_factory=list)
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

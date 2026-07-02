@@ -57,6 +57,11 @@ TOTAL_LEVEL_RE = re.compile(
     r"([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+"
     r"\(?([\d,]+\.\d+)\)?\s+([\d,]+\.\d+)$"
 )
+# 3-group level total for Layout C: tax op total
+TOTAL_LEVEL_3COL_RE = re.compile(
+    r"^Total:\s+.+?\s+"
+    r"([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)$"
+)
 
 LAYOUT_A_INLINE_RE = re.compile(
     r"^(\d+)\.\s+"
@@ -82,6 +87,18 @@ LAYOUT_A_5COL_RE = re.compile(
     r"([\d,]+\.?\d*)$"
 )
 
+# Layout C: num. desc qty UNIT remove replace tax op total (7 numeric groups)
+LAYOUT_C_INLINE_RE = re.compile(
+    r"^(\d+)\.\s+"                                              # item number
+    r"(.+?)\s+"                                                 # description
+    r"([\d,]+\.?\d*)\s*(EA|SF|LF|HR|SY|SQ|DA|WK|LB|BX|RL|GL|TB|SH)\s+"  # qty unit
+    r"([\d,]+\.?\d*)\s+"                                        # remove
+    r"([\d,]+\.?\d*)\s+"                                        # replace
+    r"([\d,]+\.?\d*)\s+"                                        # tax
+    r"([\d,]+\.?\d*)\s+"                                        # o&p
+    r"([\d,]+\.?\d*)$"                                          # total
+)
+
 AGE_LIFE_RE = re.compile(r"\b\d+/(?:\d+|NA)\s*yrs?\b|\b0/NA\b", re.IGNORECASE)
 
 LAYOUT_B_DATA_START = re.compile(
@@ -92,6 +109,11 @@ COND_DEP_LINE = re.compile(
 )
 
 HEADER_A = re.compile(r"DESCRIPTION\s+QUANTITY\s+UNIT\s+PRICE", re.IGNORECASE)
+# Layout C header: DESCRIPTION QTY REMOVE REPLACE TAX O&P TOTAL
+HEADER_C = re.compile(
+    r"DESCRIPTION\s+QTY\s+REMOVE\s+REPLACE\s+TAX\s+O\s*&\s*P\s+TOTAL",
+    re.IGNORECASE,
+)
 HEADER_B = re.compile(
     r"QUANTITY\s+UNIT(?:\s+PRICE)?\s+TAX\s+(?:GC)?O.P\s+RCV\s+AGE",
     re.IGNORECASE,
@@ -234,6 +256,8 @@ def detect_layout(lines: list) -> str:
     for line in lines:
         if HEADER_B.search(line) or HEADER_B2.match(line.strip()):
             return "B"
+        if HEADER_C.search(line):
+            return "C"
         if HEADER_A.search(line):
             return "A"
     return "A"
@@ -300,6 +324,29 @@ def parse_item_a(line: str) -> Optional[dict]:
     return None
 
 
+def parse_item_c(line: str) -> Optional[dict]:
+    """Parse a Layout C line item: num. desc qty UNIT remove replace tax o&p total."""
+    m = LAYOUT_C_INLINE_RE.match(line)
+    if not m:
+        return None
+    remove = parse_num(m.group(5))
+    replace = parse_num(m.group(6))
+    return {
+        "item_number": int(m.group(1)),
+        "description": clean_desc(m.group(2)),
+        "quantity": parse_num(m.group(3)),
+        "unit": m.group(4),
+        "unit_price": replace,  # replace price is the primary unit price
+        "tax": parse_num(m.group(7)),
+        "op": parse_num(m.group(8)),
+        "rcv": parse_num(m.group(9)),  # total column = RCV
+        "depreciation": 0.0,
+        "acv": parse_num(m.group(9)),  # no dep/acv split in this layout
+        "note": None,
+        "_remove_price": remove,  # preserve remove price
+    }
+
+
 def parse_data_b(line: str) -> Optional[dict]:
     line = line.replace("*", "")
     m = LAYOUT_B_DATA_START.match(line.strip())
@@ -358,12 +405,75 @@ def _flush_pending(container: dict) -> None:
         container["_pending"] = None
 
 
+def _is_desc_continuation(lines: list, i: int, desc: str) -> bool:
+    """Check if lines[i+1] is a description continuation for a parsed item.
+
+    Uses two signals:
+    1. Description looks incomplete (ends with -, preposition, comma, open paren)
+    2. Next line looks like a continuation (starts with lowercase or open paren)
+
+    Either signal alone is sufficient — this avoids hard-coding every edge case.
+    """
+    if i + 1 >= len(lines):
+        return False
+    nxt = lines[i + 1].strip()
+    if not nxt or is_junk(nxt):
+        return False
+    # Structural markers are never continuations
+    if (re.match(r"^\d+\.\s+", nxt)
+            or HEADER_A.search(nxt)
+            or HEADER_C.search(nxt)
+            or nxt.startswith("Totals:")
+            or nxt.startswith("Total:")
+            or ROOM_HEIGHT_RE.match(nxt)
+            or LEVEL_MARKERS.match(nxt)
+            or APPENDIX_MARKERS.match(nxt)
+            or CONTINUED_RE.match(nxt)
+            or re.match(
+                r"^[\d,]+\.?\d*\s+"
+                r"(EA|SF|LF|HR|SY|SQ|DA|WK|LB|BX|RL|GL|TB|SH)",
+                nxt,
+            )
+            or not is_note(nxt)):
+        return False
+
+    # Signal 1: next line starts with lowercase or open paren → continuation
+    if nxt[0].islower() or nxt.startswith("("):
+        return True
+
+    # Signal 2: description looks incomplete
+    d = desc.rstrip()
+    if d:
+        # Ends with dash/hyphen
+        if d.endswith("-") or d.endswith("\u2013"):
+            return True
+        # Ends with comma
+        if d.endswith(","):
+            return True
+        # Unbalanced open paren
+        if d.count("(") > d.count(")"):
+            return True
+        # Ends with preposition/article/conjunction
+        last_word = d.split()[-1].lower().rstrip(".,;:")
+        if last_word in {
+            "from", "for", "of", "the", "a", "an", "and", "or",
+            "to", "in", "on", "with", "per", "by", "&",
+        }:
+            return True
+
+    return False
+
+
 def _advance_a(lines: list, i: int, container: dict) -> int:
     line = lines[i].strip()
 
     item = parse_item_a(line)
     if item:
         _flush_pending(container)
+        if _is_desc_continuation(lines, i, item["description"]):
+            item["description"] += " " + lines[i + 1].strip()
+            container["line_items"].append(item)
+            return i + 2
         container["line_items"].append(item)
         return i + 1
 
@@ -440,6 +550,94 @@ def _advance_b(lines: list, i: int, container: dict) -> int:
         target = p if p else (container["line_items"][-1] if container["line_items"] else None)
         if target:
             target["note"] = ((target.get("note") or "") + " " + line).strip()
+
+    return i + 1
+
+
+# Room sub-section labels that should NOT create new sections/rooms
+ROOM_SUBSECTION_RE = re.compile(
+    r"^(Floor|Walls?|Ceiling|General|Trim|Doors?|Windows?|"
+    r"Cabinets?|Countertop|Electrical|Plumbing|HVAC|Stairs?)$",
+    re.IGNORECASE,
+)
+
+
+def _advance_c(lines: list, i: int, container: dict) -> int:
+    """Advance through Layout C lines (QTY REMOVE REPLACE TAX O&P TOTAL)."""
+    line = lines[i].strip()
+
+    # Skip sub-section headers within rooms (Floor, Walls, Ceiling, etc.)
+    if ROOM_SUBSECTION_RE.match(line):
+        return i + 1
+
+    # Try single-line parse first
+    item = parse_item_c(line)
+    if item:
+        _flush_pending(container)
+        if _is_desc_continuation(lines, i, item["description"]):
+            nxt = lines[i + 1].strip()
+            if not ROOM_SUBSECTION_RE.match(nxt):
+                item["description"] += " " + nxt
+                container["line_items"].append(item)
+                return i + 2
+        container["line_items"].append(item)
+        return i + 1
+
+    # Multi-line: item number + desc starts on this line, data may be on same or next line
+    m = re.match(r"^(\d+)\.\s+(.+)$", line)
+    if m:
+        # Try combining with next line
+        if i + 1 < len(lines):
+            combined = line + " " + lines[i + 1].strip()
+            item = parse_item_c(combined)
+            if item:
+                _flush_pending(container)
+                container["line_items"].append(item)
+                return i + 2
+        # Pending item — data might be on a continuation line
+        _flush_pending(container)
+        container["_pending"] = _make_empty_item(int(m.group(1)), clean_desc(m.group(2)))
+        return i + 1
+
+    # Handle pending item — look for qty+unit+data continuation
+    p = container.get("_pending")
+    if p:
+        if p["quantity"] is None:
+            qm = re.match(r"^([\d,]+\.?\d*)\s*" + UNITS, line)
+            if qm:
+                rest_line = line[qm.end():].strip()
+                nums = re.findall(r"\([\d,]+\.?\d*\)|[\d,]+\.?\d*", rest_line)
+                p["quantity"] = parse_num(qm.group(1))
+                p["unit"] = qm.group(2)
+                if len(nums) >= 5:
+                    # remove, replace, tax, op, total
+                    p["_remove_price"] = parse_num(nums[0])
+                    p["unit_price"] = parse_num(nums[1])  # replace
+                    p["tax"] = parse_num(nums[2])
+                    p["op"] = parse_num(nums[3])
+                    p["rcv"] = parse_num(nums[4])  # total
+                    p["depreciation"] = 0.0
+                    p["acv"] = parse_num(nums[4])
+                elif len(nums) >= 3:
+                    # Fewer columns — best effort
+                    p["unit_price"] = parse_num(nums[0])
+                    p["tax"] = parse_num(nums[1]) if len(nums) > 1 else 0.0
+                    p["op"] = parse_num(nums[2]) if len(nums) > 2 else 0.0
+                    p["rcv"] = parse_num(nums[-1])
+                    p["depreciation"] = 0.0
+                    p["acv"] = parse_num(nums[-1])
+                _flush_pending(container)
+            else:
+                # Continuation of description text
+                p["description"] += " " + line
+        elif is_note(line):
+            p["note"] = ((p.get("note") or "") + " " + line).strip()
+        return i + 1
+
+    # Note line after a completed item
+    if container["line_items"] and is_note(line):
+        last = container["line_items"][-1]
+        last["note"] = ((last.get("note") or "") + " " + line).strip()
 
     return i + 1
 
@@ -595,7 +793,7 @@ def _parse_body(lines: list, layout: str) -> dict:
                 return ln
         return ""
 
-    adv = _advance_a if layout == "A" else _advance_b
+    adv = _advance_c if layout == "C" else (_advance_a if layout == "A" else _advance_b)
 
     i = 0
     while i < len(lines):
@@ -619,8 +817,12 @@ def _parse_body(lines: list, layout: str) -> dict:
             i += 1
             continue
 
-        # APPENDIX
+        # APPENDIX — but in Layout C, sub-section labels inside rooms are NOT appendix
         if APPENDIX_MARKERS.match(line):
+            if layout == "C" and current_room and ROOM_SUBSECTION_RE.match(line):
+                # Sub-section label inside a room — skip it
+                i += 1
+                continue
             _finalize(current_room)
             current_room = None
             _finalize(current_section)
@@ -662,7 +864,7 @@ def _parse_body(lines: list, layout: str) -> dict:
                 if is_junk(sl):
                     j += 1
                     continue
-                if HEADER_A.search(sl) or HEADER_B.search(sl):
+                if HEADER_A.search(sl) or HEADER_B.search(sl) or HEADER_C.search(sl):
                     break
                 if re.match(r"^(\d+)\.", sl):
                     break
@@ -699,7 +901,7 @@ def _parse_body(lines: list, layout: str) -> dict:
             continue
 
         # Column header
-        if HEADER_A.search(line) or HEADER_B.search(line) or HEADER_B2.match(line):
+        if HEADER_A.search(line) or HEADER_B.search(line) or HEADER_B2.match(line) or HEADER_C.search(line):
             if current_room and current_room.get("_dim_text"):
                 d = parse_dimensions(current_room["_dim_text"])
                 current_room["dimensions"] = {**d, **current_room["dimensions"]}
@@ -711,9 +913,19 @@ def _parse_body(lines: list, layout: str) -> dict:
 
         # Dimension collection (room dim zone)
         if current_room and current_room.get("_in_dim"):
-            current_room["_dim_text"] += " " + line
-            i += 1
-            continue
+            # Force exit dim mode if we see a numbered line item
+            if re.match(r"^\d+\.\s+", line):
+                if current_room.get("_dim_text"):
+                    d = parse_dimensions(current_room["_dim_text"])
+                    current_room["dimensions"] = {
+                        **d, **current_room["dimensions"],
+                    }
+                current_room["_in_dim"] = False
+                # Fall through to line item parsing below
+            else:
+                current_room["_dim_text"] += " " + line
+                i += 1
+                continue
 
         # Totals row (5-col or 3-col)
         mt = TOTALS_RE.match(line)
@@ -753,7 +965,7 @@ def _parse_body(lines: list, layout: str) -> dict:
             i += 1
             continue
 
-        # Total: Level
+        # Total: Level (5-col or 3-col)
         ml = TOTAL_LEVEL_RE.match(line)
         if ml and current_level:
             current_level["level_totals"] = {
@@ -762,6 +974,17 @@ def _parse_body(lines: list, layout: str) -> dict:
                 "rcv": parse_num(ml.group(3)),
                 "depreciation": -abs(parse_num(ml.group(4))),
                 "acv": parse_num(ml.group(5)),
+            }
+            i += 1
+            continue
+        ml3 = TOTAL_LEVEL_3COL_RE.match(line)
+        if ml3 and current_level:
+            current_level["level_totals"] = {
+                "tax": parse_num(ml3.group(1)),
+                "op": parse_num(ml3.group(2)),
+                "rcv": parse_num(ml3.group(3)),
+                "depreciation": 0.0,
+                "acv": parse_num(ml3.group(3)),
             }
             i += 1
             continue
@@ -779,7 +1002,7 @@ def _parse_body(lines: list, layout: str) -> dict:
             and "," not in line
             and not re.search(r"\d{4,}", line)
             and current_appendix is None
-            and (HEADER_A.search(nxt) or HEADER_B.search(nxt))
+            and (HEADER_A.search(nxt) or HEADER_B.search(nxt) or HEADER_C.search(nxt))
             and current_room is None
         )
         if is_section_name:
@@ -993,6 +1216,8 @@ def _item_to_dto(
     for k in ("tax", "op", "rcv", "depreciation", "acv"):
         if item.get(k) is not None:
             xact[k] = item[k]
+    if item.get("_remove_price") is not None:
+        xact["remove_price"] = item["_remove_price"]
     xact["section_type"] = section_type
 
     if is_first_in_room and room_meta:

@@ -51,6 +51,8 @@ const DocumentList = lazy(() => import('./pages/DocumentList'));
 const EstimateCreation = lazy(() => import('./pages/EstimateCreation'));
 const InsuranceEstimateCreation = lazy(() => import('./pages/InsuranceEstimateCreation'));
 const InsuranceExtraction = lazy(() => import('./pages/InsuranceExtraction'));
+const InsuranceExtractionList = lazy(() => import('./pages/InsuranceExtractionList'));
+const InsuranceExtractionDetail = lazy(() => import('./pages/InsuranceExtractionDetail'));
 const EstimateEditWrapper = lazy(() => import('./pages/EstimateEditWrapper'));
 
 // Invoice Pages
@@ -408,7 +410,19 @@ const router = createBrowserRouter([
       <ProtectedRoute>
         <Layout>
           <Suspense fallback={<PageLoader />}>
-            <InsuranceExtraction />
+            <InsuranceExtractionList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/insurance-extractions/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <InsuranceExtractionDetail />
           </Suspense>
         </Layout>
       </ProtectedRoute>
