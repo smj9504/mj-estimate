@@ -120,6 +120,8 @@ from app.domains.estimate.api import router as estimate_router
 from app.domains.file.api import router as file_router
 from app.domains.file.service import initialize_storage
 from app.domains.insurance_extraction.api import router as insurance_extraction_router
+from app.domains.repair_spec.api import condition_router as repair_condition_router
+from app.domains.repair_spec.api import template_router as repair_template_router
 from app.domains.invoice.api import router as invoice_router
 from app.domains.line_items.api import router as line_items_router
 from app.domains.pack_calculation.api import router as pack_calculation_router
@@ -479,6 +481,21 @@ async def lifespan(app: FastAPI):
                         print("[STARTUP] Column migration done")
 
                     _db._tables_initialized = True
+
+                    # Seed default repair spec data
+                    try:
+                        from app.domains.repair_spec.seed import seed_default_data
+                        seed_session = _db.SessionLocal()
+                        try:
+                            seed_default_data(seed_session)
+                            seed_session.commit()
+                        except Exception as seed_err:
+                            seed_session.rollback()
+                            print(f"[STARTUP] Repair spec seed skipped: {seed_err}")
+                        finally:
+                            seed_session.close()
+                    except Exception as seed_import_err:
+                        print(f"[STARTUP] Repair spec seed import failed: {seed_import_err}")
             except Exception as e:
                 print(f"[STARTUP] Table/migration skipped: {e}")
 
@@ -777,6 +794,8 @@ app.include_router(
     prefix="/api/insurance-extractions",
     tags=["Insurance Extractions"],
 )
+app.include_router(repair_condition_router, prefix="/api/repair-conditions", tags=["Repair Conditions"])
+app.include_router(repair_template_router, prefix="/api/repair-templates", tags=["Repair Templates"])
 
 # Interior Sketch System endpoints
 app.include_router(sketch_router, prefix="/api/sketches", tags=["Interior Sketches"])

@@ -248,6 +248,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             label: 'Insurance Extraction',
           },
           {
+            key: '/repair-templates',
+            icon: <ToolOutlined />,
+            label: 'Repair Templates',
+          },
+          {
+            key: '/repair-estimate-wizard',
+            icon: <FileTextOutlined />,
+            label: 'Repair Estimate',
+          },
+          {
             key: '/tools/photo-metadata',
             icon: <FileImageOutlined />,
             label: 'Photo Metadata',

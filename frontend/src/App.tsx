@@ -53,6 +53,9 @@ const InsuranceEstimateCreation = lazy(() => import('./pages/InsuranceEstimateCr
 const InsuranceExtraction = lazy(() => import('./pages/InsuranceExtraction'));
 const InsuranceExtractionList = lazy(() => import('./pages/InsuranceExtractionList'));
 const InsuranceExtractionDetail = lazy(() => import('./pages/InsuranceExtractionDetail'));
+const RepairTemplateList = lazy(() => import('./pages/RepairTemplateList'));
+const RepairTemplateEditor = lazy(() => import('./pages/RepairTemplateEditor'));
+const RepairEstimateWizard = lazy(() => import('./pages/RepairEstimateWizard'));
 const EstimateEditWrapper = lazy(() => import('./pages/EstimateEditWrapper'));
 
 // Invoice Pages
@@ -423,6 +426,42 @@ const router = createBrowserRouter([
         <Layout>
           <Suspense fallback={<PageLoader />}>
             <InsuranceExtractionDetail />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/repair-templates",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RepairTemplateList />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/repair-templates/:id",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RepairTemplateEditor />
+          </Suspense>
+        </Layout>
+      </ProtectedRoute>
+    )
+  },
+  {
+    path: "/repair-estimate-wizard",
+    element: (
+      <ProtectedRoute>
+        <Layout>
+          <Suspense fallback={<PageLoader />}>
+            <RepairEstimateWizard />
           </Suspense>
         </Layout>
       </ProtectedRoute>
