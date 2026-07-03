@@ -518,7 +518,7 @@ const WMContractTab: React.FC<WMContractTabProps> = ({
                 size="small"
                 type="text"
                 icon={<FileTextOutlined />}
-                href={record.filled_pdf_url}
+                href={`/api/contracts/contracts/${record.id}/pdf`}
                 target="_blank"
               />
             </Tooltip>

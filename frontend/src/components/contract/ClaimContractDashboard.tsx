@@ -215,7 +215,7 @@ const ClaimContractDashboard: React.FC<ClaimContractDashboardProps> = ({
                               type="text"
                               size="small"
                               icon={<FilePdfOutlined />}
-                              href={contract.filled_pdf_url || contract.file_url}
+                              href={`/api/contracts/contracts/${contract.id}/pdf`}
                               target="_blank"
                             />
                           </Tooltip>

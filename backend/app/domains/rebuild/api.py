@@ -220,3 +220,47 @@ async def photos_to_pdf(
     except Exception as e:
         logger.error(f"Photos to PDF error: {e}")
         raise HTTPException(status_code=500, detail="Failed to create PDF from photos")
+
+
+# ============================================================
+# Document PDF Serve (cloud storage support)
+# ============================================================
+
+@router.get("/rebuild/projects/{project_id}/docs/{doc_id}/pdf")
+async def serve_completion_doc_pdf(project_id: str, doc_id: str):
+    """Serve completion doc PDF from cloud or local storage."""
+    from pathlib import Path
+    from starlette.responses import Response
+
+    service = _get_service()
+    docs = service.get_completion_docs(project_id)
+    doc = next((d for d in docs if str(d.get('id')) == doc_id), None)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_url = doc.get('file_url', '')
+    if not file_url:
+        raise HTTPException(status_code=404, detail="No PDF file")
+
+    # Try cloud storage
+    if not file_url.startswith('/uploads/'):
+        try:
+            from app.domains.storage.factory import StorageFactory
+            storage = StorageFactory.get_instance()
+            pdf_bytes = storage.download(file_url)
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'inline; filename="{doc.get("file_name", "document.pdf")}"'}
+            )
+        except Exception:
+            pass
+
+    # Fallback to local
+    backend_dir = Path(__file__).resolve().parents[3]
+    local_path = backend_dir / file_url.lstrip('/')
+    if local_path.exists():
+        from starlette.responses import FileResponse
+        return FileResponse(path=str(local_path), media_type="application/pdf")
+
+    raise HTTPException(status_code=404, detail="PDF file not found")

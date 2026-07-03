@@ -763,15 +763,15 @@ def generate_sketch_report(
         base_name = f"{address} - Sketch Report" if address else f"Sketch Report"
         filename = f"{base_name}.pdf"
 
-        # Save to storage directory
-        output_dir = Path("storage/water-mitigation/documents") / str(job_id)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / filename
-
-        with open(output_path, "wb") as f:
-            f.write(pdf_bytes)
-
-        file_size = len(pdf_bytes)
+        # Upload to cloud storage
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        storage_info = upload_bytes_to_storage(
+            file_bytes=pdf_bytes,
+            filename=filename,
+            context="water-mitigation",
+            context_id=str(job_id),
+            category="documents",
+        )
 
         # Upsert: find existing sketch_report document for this job
         doc_repo = WMDocumentRepository(db)
@@ -779,17 +779,12 @@ def generate_sketch_report(
         existing_doc = existing_docs[0] if existing_docs else None
 
         if existing_doc:
-            # Update existing document — delete old file if path changed
-            old_path = existing_doc.file_path
-            if old_path and old_path != str(output_path) and os.path.exists(old_path):
-                try:
-                    os.unlink(old_path)
-                except Exception:
-                    pass
             doc_repo.update(str(existing_doc.id), {
                 "filename": filename,
-                "file_path": str(output_path),
-                "file_size": file_size,
+                "file_path": storage_info["file_path"],
+                "file_size": storage_info["file_size"],
+                "storage_provider": storage_info["storage_provider"],
+                "storage_file_id": storage_info["storage_file_id"],
                 "title": base_name,
                 "generated_by_id": str(current_user.id) if current_user else None,
             })
@@ -800,10 +795,12 @@ def generate_sketch_report(
                 "job_id": str(job_id),
                 "document_type": "sketch_report",
                 "filename": filename,
-                "file_path": str(output_path),
-                "file_size": file_size,
+                "file_path": storage_info["file_path"],
+                "file_size": storage_info["file_size"],
                 "mime_type": "application/pdf",
                 "title": base_name,
+                "storage_provider": storage_info["storage_provider"],
+                "storage_file_id": storage_info["storage_file_id"],
                 "is_active": True,
                 "generated_by_id": str(current_user.id) if current_user else None,
             })

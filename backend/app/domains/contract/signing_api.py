@@ -52,6 +52,9 @@ async def get_contract_for_signing(token: str):
                 'viewed_at': datetime.utcnow(),
             })
 
+        # Use proxy URL for PDF serving (works with cloud storage)
+        proxy_pdf_url = f"/api/contracts/contracts/{contract['id']}/pdf"
+
         return ContractViewResponse(
             contract_id=contract['id'],
             title=contract.get('title'),
@@ -59,8 +62,8 @@ async def get_contract_for_signing(token: str):
             client_name=contract.get('client_name'),
             template_name=contract.get('template_name'),
             document_type=contract.get('document_type'),
-            file_url=contract.get('file_url'),
-            filled_pdf_url=contract.get('filled_pdf_url'),
+            file_url=proxy_pdf_url,
+            filled_pdf_url=proxy_pdf_url if contract.get('filled_pdf_url') else None,
             status=contract.get('status', 'draft'),
             requires_signature=contract.get('requires_signature', True),
             signature_roles=contract.get('signature_roles'),

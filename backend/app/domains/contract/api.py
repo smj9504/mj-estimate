@@ -85,18 +85,18 @@ async def create_template(
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
-        # Save file
-        upload_dir = Path(__file__).resolve().parents[3] / "uploads" / "contracts"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-
-        file_id = str(uuid.uuid4())
-        ext = os.path.splitext(file.filename)[1]
-        saved_name = f"{file_id}{ext}"
-        file_path = upload_dir / saved_name
-
+        # Upload file to cloud storage
         content = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
+
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        storage_info = upload_bytes_to_storage(
+            file_bytes=content,
+            filename=file.filename,
+            context="contracts",
+            context_id=str(uuid.uuid4()),
+            category="templates",
+            content_type="application/pdf",
+        )
 
         # Create template record
         template_data = {
@@ -106,10 +106,11 @@ async def create_template(
             'description': description,
             'requires_signature': requires_signature,
             'signature_roles': signature_roles,
-            'file_url': f"/uploads/contracts/{saved_name}",
+            'file_url': storage_info["file_path"],
             'file_name': file.filename,
-            'file_size': len(content),
-            'storage_provider': 'local',
+            'file_size': storage_info["file_size"],
+            'storage_provider': storage_info["storage_provider"],
+            'storage_file_id': storage_info["storage_file_id"],
         }
 
         result = service.create(template_data)
@@ -165,22 +166,24 @@ async def replace_template_pdf(
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
-        upload_dir = Path(__file__).resolve().parents[3] / "uploads" / "contracts"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-
-        file_id = str(uuid.uuid4())
-        ext = os.path.splitext(file.filename)[1]
-        saved_name = f"{file_id}{ext}"
-        file_path = upload_dir / saved_name
-
         content = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
+
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        storage_info = upload_bytes_to_storage(
+            file_bytes=content,
+            filename=file.filename,
+            context="contracts",
+            context_id=template_id,
+            category="templates",
+            content_type="application/pdf",
+        )
 
         result = service.update(template_id, {
-            'file_url': f"/uploads/contracts/{saved_name}",
+            'file_url': storage_info["file_path"],
             'file_name': file.filename,
-            'file_size': len(content),
+            'file_size': storage_info["file_size"],
+            'storage_provider': storage_info["storage_provider"],
+            'storage_file_id': storage_info["storage_file_id"],
         })
         if not result:
             raise HTTPException(status_code=404, detail="Template not found")
@@ -582,3 +585,113 @@ async def get_wm_job_available_templates(
     except Exception as e:
         logger.error(f"Error getting available templates: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# PDF Serve Endpoints (cloud storage support)
+# ============================================================
+
+@router.get("/templates/{template_id}/pdf")
+async def serve_template_pdf(
+    template_id: str,
+    service: ContractTemplateService = Depends(_get_template_service),
+):
+    """Serve template PDF from cloud or local storage."""
+    from starlette.responses import Response
+
+    try:
+        template = service.get_by_id(template_id)
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        file_url = template.get('file_url') if isinstance(template, dict) else getattr(template, 'file_url', '')
+        storage_prov = template.get('storage_provider', 'local') if isinstance(template, dict) else getattr(template, 'storage_provider', 'local')
+        file_name = template.get('file_name', 'template.pdf') if isinstance(template, dict) else getattr(template, 'file_name', 'template.pdf')
+
+        pdf_bytes = _resolve_contract_pdf(file_url, storage_prov)
+        if not pdf_bytes:
+            raise HTTPException(status_code=404, detail="Template PDF not found")
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{file_name}"'}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving template PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/contracts/{contract_id}/pdf")
+async def serve_contract_pdf(
+    contract_id: str,
+    service: ContractInstanceService = Depends(_get_instance_service),
+):
+    """Serve filled contract PDF from cloud or local storage."""
+    from starlette.responses import Response
+
+    try:
+        contract = service.get_by_id(contract_id)
+        if not contract:
+            raise HTTPException(status_code=404, detail="Contract not found")
+
+        filled_url = contract.get('filled_pdf_url') if isinstance(contract, dict) else getattr(contract, 'filled_pdf_url', '')
+        file_url = contract.get('file_url', '') if isinstance(contract, dict) else getattr(contract, 'file_url', '')
+        pdf_url = filled_url or file_url
+
+        if not pdf_url:
+            raise HTTPException(status_code=404, detail="No PDF available")
+
+        pdf_bytes = _resolve_contract_pdf(pdf_url)
+        if not pdf_bytes:
+            raise HTTPException(status_code=404, detail="Contract PDF not found")
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="contract.pdf"'}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving contract PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _resolve_contract_pdf(
+    file_url: str, storage_provider: str = None
+) -> bytes:
+    """Download contract PDF from cloud storage or read from local."""
+    if not file_url:
+        return None
+
+    # Try cloud storage first
+    if storage_provider and storage_provider not in ('local', ''):
+        try:
+            from app.domains.storage.factory import StorageFactory
+            storage = StorageFactory.get_instance(storage_provider)
+            return storage.download(file_url)
+        except Exception as e:
+            logger.warning(f"Cloud download failed for {file_url}: {e}")
+
+    # Try without explicit provider (use default)
+    if not file_url.startswith('/uploads/'):
+        try:
+            from app.domains.storage.factory import StorageFactory
+            storage = StorageFactory.get_instance()
+            return storage.download(file_url)
+        except Exception:
+            pass
+
+    # Fallback to local filesystem
+    backend_dir = Path(__file__).resolve().parents[3]
+    if file_url.startswith('/uploads/'):
+        local_path = backend_dir / file_url.lstrip('/')
+    else:
+        local_path = Path(file_url)
+    if local_path.exists():
+        return local_path.read_bytes()
+
+    return None

@@ -554,21 +554,20 @@ class RebuildService:
             c.save()
             pdf_bytes = pdf_buffer.getvalue()
 
-            # Save PDF file
-            backend_dir = Path(__file__).resolve().parents[3]
-            upload_dir = backend_dir / "uploads" / "rebuild" / "docs"
-            upload_dir.mkdir(parents=True, exist_ok=True)
+            # Upload to cloud storage
+            from app.common.utils.storage_helpers import upload_bytes_to_storage
 
             address_short = (project.property_address or 'project').split(',')[0].strip().replace(' ', '_')[:30]
             file_name = f"{doc_type.upper()}_{address_short}_{datetime.utcnow().strftime('%Y%m%d')}.pdf"
             file_id = str(uuid.uuid4())
-            saved_name = f"{file_id}.pdf"
-            file_path = upload_dir / saved_name
 
-            with open(file_path, 'wb') as f:
-                f.write(pdf_bytes)
-
-            file_url = f"/uploads/rebuild/docs/{saved_name}"
+            storage_info = upload_bytes_to_storage(
+                file_bytes=pdf_bytes,
+                filename=file_name,
+                context="rebuild",
+                context_id=str(project_id),
+                category="docs",
+            )
 
             # Create completion doc
             doc_data = {
@@ -576,7 +575,7 @@ class RebuildService:
                 'doc_type': doc_type,
                 'title': title,
                 'file_id': file_id,
-                'file_url': file_url,
+                'file_url': storage_info["file_path"],
                 'file_name': file_name,
                 'mime_type': 'application/pdf',
                 'status': 'final',
@@ -676,14 +675,36 @@ class RebuildService:
             from reportlab.pdfgen import canvas as rl_canvas
             from reportlab.pdfbase.pdfmetrics import stringWidth
 
-            backend_dir = Path(__file__).resolve().parents[3]
-            if template_file_url.startswith('/uploads/'):
-                template_path = backend_dir / template_file_url.lstrip('/')
-            else:
-                template_path = Path(template_file_url)
+            # Resolve template — try cloud storage first, then local
+            import tempfile as _tempfile
+            temp_template_path = None
+            template_path = None
 
-            if not template_path.exists():
-                logger.warning(f"Template PDF not found: {template_path}")
+            if not template_file_url.startswith('/uploads/'):
+                try:
+                    from app.domains.storage.factory import StorageFactory
+                    storage = StorageFactory.get_instance()
+                    file_bytes = storage.download(template_file_url)
+                    with _tempfile.NamedTemporaryFile(
+                        suffix='.pdf', delete=False
+                    ) as tmp:
+                        tmp.write(file_bytes)
+                        temp_template_path = tmp.name
+                    template_path = temp_template_path
+                except Exception:
+                    pass
+
+            if not template_path:
+                backend_dir = Path(__file__).resolve().parents[3]
+                if template_file_url.startswith('/uploads/'):
+                    local_path = backend_dir / template_file_url.lstrip('/')
+                else:
+                    local_path = Path(template_file_url)
+                if local_path.exists():
+                    template_path = str(local_path)
+
+            if not template_path:
+                logger.warning(f"Template PDF not found: {template_file_url}")
                 return None
 
             reader = PdfReader(str(template_path))
@@ -784,17 +805,35 @@ class RebuildService:
 
                 writer.add_page(page)
 
-            # Save
-            upload_dir = backend_dir / "uploads" / "rebuild" / "docs"
-            upload_dir.mkdir(parents=True, exist_ok=True)
+            # Write to buffer and upload to cloud storage
+            pdf_buffer = BytesIO()
+            writer.write(pdf_buffer)
+            pdf_bytes = pdf_buffer.getvalue()
+
+            from app.common.utils.storage_helpers import upload_bytes_to_storage
             filled_name = f"filled_{uuid.uuid4()}.pdf"
-            filled_path = upload_dir / filled_name
+            storage_info = upload_bytes_to_storage(
+                file_bytes=pdf_bytes,
+                filename=filled_name,
+                context="rebuild",
+                context_id=str(uuid.uuid4()),
+                category="docs",
+            )
 
-            with open(filled_path, "wb") as f:
-                writer.write(f)
+            # Clean up temp template file
+            if temp_template_path:
+                try:
+                    Path(temp_template_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
 
-            return f"/uploads/rebuild/docs/{filled_name}"
+            return storage_info["file_path"]
 
         except Exception as e:
             logger.error(f"Error generating filled PDF: {e}")
+            if temp_template_path:
+                try:
+                    Path(temp_template_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
             return None

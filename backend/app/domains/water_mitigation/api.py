@@ -2187,10 +2187,11 @@ async def generate_document_pdf(
             doc_name = doc_type_names.get(request.document_type, request.document_type)
             filename = f"{request.job_address} - {doc_name}.pdf"
 
-        # Create output directory
-        output_dir = Path("storage/water-mitigation/documents") / str(job_id)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / filename
+        # Generate PDF to temp file, then upload to cloud storage
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            temp_output = tmp.name
 
         # Generate PDF based on document type
         if request.document_type == 'EWA':
@@ -2211,31 +2212,46 @@ async def generate_document_pdf(
                 job_address=request.job_address,
                 date_of_loss=request.date_of_loss,
                 photo_path=photo_paths[0],  # EWA requires exactly 1 photo (validated in schema)
-                output_path=str(output_path),
+                output_path=temp_output,
                 rotation=ewa_rotation,
                 company_code=company_code,
                 compress=request.compress
             )
         else:
             # COS: Images only (multiple photos)
-            generate_images_pdf(photo_paths, str(output_path), rotations=rotations)
+            generate_images_pdf(photo_paths, temp_output, rotations=rotations)
 
-        logger.info(f"Generated PDF: {output_path}")
+        pdf_bytes = Path(temp_output).read_bytes()
+        try:
+            Path(temp_output).unlink()
+        except Exception:
+            pass
 
-        # Get file size
-        file_size = os.path.getsize(output_path)
+        logger.info(f"Generated PDF: {filename} ({len(pdf_bytes)} bytes)")
+
+        # Upload to cloud storage
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        storage_info = upload_bytes_to_storage(
+            file_bytes=pdf_bytes,
+            filename=filename,
+            context="water-mitigation",
+            context_id=str(job_id),
+            category="documents",
+        )
 
         # Create WMDocument record
         document_data = {
             "job_id": str(job_id),
             "document_type": request.document_type,
             "filename": filename,
-            "file_path": str(output_path),
-            "file_size": file_size,
+            "file_path": storage_info["file_path"],
+            "file_size": storage_info["file_size"],
             "mime_type": "application/pdf",
             "title": doc_name,
             "source_photo_ids": json.dumps(request.photo_ids),
             "photo_count": len(request.photo_ids),
+            "storage_provider": storage_info["storage_provider"],
+            "storage_file_id": storage_info["storage_file_id"],
             "is_active": True
         }
 
@@ -2749,19 +2765,19 @@ async def upload_annotated_pdf(
         if not pdf_file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
-        # Create output directory
-        output_dir = Path("storage/water-mitigation/documents") / str(job_id)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
         safe_filename = filename if filename.endswith('.pdf') else f"{filename}.pdf"
-        output_path = output_dir / safe_filename
 
-        # Write PDF file
+        # Read PDF content and upload to cloud storage
         content = await pdf_file.read()
-        with open(output_path, 'wb') as f:
-            f.write(content)
 
-        file_size = os.path.getsize(output_path)
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        storage_info = upload_bytes_to_storage(
+            file_bytes=content,
+            filename=safe_filename,
+            context="water-mitigation",
+            context_id=str(job_id),
+            category="documents",
+        )
 
         if document_id:
             # Update existing document
@@ -2769,19 +2785,12 @@ async def upload_annotated_pdf(
             if not existing:
                 raise HTTPException(status_code=404, detail="Document not found")
 
-            # Delete old file if path changed
-            existing_dict = service.document_repo._convert_to_dict(existing)
-            old_path = Path(existing_dict.get('file_path', ''))
-            if old_path.exists() and str(old_path) != str(output_path):
-                try:
-                    os.unlink(old_path)
-                except Exception:
-                    pass
-
             update_data = {
                 "filename": safe_filename,
-                "file_path": str(output_path),
-                "file_size": file_size,
+                "file_path": storage_info["file_path"],
+                "file_size": storage_info["file_size"],
+                "storage_provider": storage_info["storage_provider"],
+                "storage_file_id": storage_info["storage_file_id"],
                 "annotation_data": annotation_data,
             }
             updated = service.document_repo.update(document_id, update_data)
@@ -2793,12 +2802,14 @@ async def upload_annotated_pdf(
                 "job_id": str(job_id),
                 "document_type": "annotated_pdf",
                 "filename": safe_filename,
-                "file_path": str(output_path),
-                "file_size": file_size,
+                "file_path": storage_info["file_path"],
+                "file_size": storage_info["file_size"],
                 "mime_type": "application/pdf",
                 "title": safe_filename,
                 "annotation_data": annotation_data,
                 "photo_count": 0,
+                "storage_provider": storage_info["storage_provider"],
+                "storage_file_id": storage_info["storage_file_id"],
                 "is_active": True,
             }
             created = service.document_repo.create(document_data)
@@ -2822,32 +2833,30 @@ async def upload_source_pdf(
 ):
     """Upload a source PDF for annotation. Returns the PDF as a proxied URL.
 
-    Stores the file temporarily so the frontend can access it via URL.
+    Uploads to cloud storage so it persists across deployments.
     """
-    import os
-
     try:
         if not pdf_file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
-        # Store in a temp/source directory
-        output_dir = Path("storage/water-mitigation/documents") / str(job_id) / "source"
-        output_dir.mkdir(parents=True, exist_ok=True)
-
         safe_filename = pdf_file.filename or "upload.pdf"
-        output_path = output_dir / safe_filename
-
         content = await pdf_file.read()
-        with open(output_path, 'wb') as f:
-            f.write(content)
 
-        file_size = os.path.getsize(output_path)
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        storage_info = upload_bytes_to_storage(
+            file_bytes=content,
+            filename=safe_filename,
+            context="water-mitigation",
+            context_id=str(job_id),
+            category="source",
+        )
 
         return {
             "filename": safe_filename,
-            "file_path": str(output_path),
-            "file_size": file_size,
-            "url": f"/api/water-mitigation/jobs/{job_id}/documents/source-pdf/{safe_filename}"
+            "file_path": storage_info["file_path"],
+            "file_size": storage_info["file_size"],
+            "storage_file_id": storage_info["storage_file_id"],
+            "url": f"/api/water-mitigation/jobs/{job_id}/documents/source-pdf/{storage_info['storage_file_id']}"
         }
     except HTTPException:
         raise
@@ -2856,22 +2865,32 @@ async def upload_source_pdf(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/jobs/{job_id}/documents/source-pdf/{filename}")
+@router.get("/jobs/{job_id}/documents/source-pdf/{file_id_or_name}")
 def serve_source_pdf(
     job_id: UUID,
-    filename: str
+    file_id_or_name: str
 ):
     """Serve a source PDF file for annotation viewer."""
-    file_path = Path("storage/water-mitigation/documents") / str(job_id) / "source" / filename
+    try:
+        from ..storage.factory import StorageFactory
+        storage = StorageFactory.get_instance()
+        file_bytes = storage.download(file_id_or_name)
 
-    if not file_path.exists():
+        return Response(
+            content=file_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="source.pdf"'}
+        )
+    except Exception:
+        # Fallback: try as local path (legacy)
+        file_path = Path("storage/water-mitigation/documents") / str(job_id) / "source" / file_id_or_name
+        if file_path.exists():
+            return FileResponse(
+                path=str(file_path),
+                media_type="application/pdf",
+                filename=file_id_or_name
+            )
         raise HTTPException(status_code=404, detail="Source PDF not found")
-
-    return FileResponse(
-        path=str(file_path),
-        media_type="application/pdf",
-        filename=filename
-    )
 
 
 # Report config endpoints
@@ -3048,33 +3067,48 @@ async def generate_photo_report(
         property_address = job.get('property_address', 'Property')
         filename = f"{property_address} - Water Mitigation Report.pdf"
 
-        # Create output directory
-        output_dir = Path("storage/water-mitigation/reports") / str(job_id)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / filename
+        # Generate PDF to a temp file, then upload to cloud storage
+        import tempfile
 
-        # Generate PDF
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            temp_path = tmp.name
+
         logger.info(f"Generating photo report for job {job_id} (compress={request.compress})")
         generate_water_mitigation_report_pdf(
             job_data=job,
             config=config_dict,
             photos=photos_list,
-            output_path=str(output_path),
+            output_path=temp_path,
             company_data=company_data,
             report_date=request.report_date,
             compress=request.compress,
             template_variant=request.template_variant,
         )
 
-        logger.info(f"Report generated: {output_path}")
+        pdf_bytes = Path(temp_path).read_bytes()
+
+        # Clean up temp file
+        try:
+            Path(temp_path).unlink()
+        except Exception:
+            pass
+
+        logger.info(f"Report generated: {len(pdf_bytes)} bytes")
+
+        # Upload to cloud storage
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        storage_info = upload_bytes_to_storage(
+            file_bytes=pdf_bytes,
+            filename=filename,
+            context="water-mitigation",
+            context_id=str(job_id),
+            category="reports",
+        )
 
         # Create/update file record in database
-        import os
-
         from app.domains.file.repository import FileRepository
 
         file_repo = FileRepository(db)
-        file_size = os.path.getsize(output_path)
 
         file_data = {
             "context": "water-mitigation",
@@ -3082,8 +3116,8 @@ async def generate_photo_report(
             "filename": filename,
             "original_name": filename,
             "content_type": "application/pdf",
-            "size": file_size,
-            "url": str(output_path),
+            "size": storage_info["file_size"],
+            "url": storage_info["file_path"],
             "category": "report",
             "is_active": True
         }
@@ -3102,8 +3136,10 @@ async def generate_photo_report(
             # Update existing document (avoid duplicates on regeneration)
             existing_doc = existing_docs[0]
             existing_doc.filename = filename
-            existing_doc.file_path = str(output_path)
-            existing_doc.file_size = file_size
+            existing_doc.file_path = storage_info["file_path"]
+            existing_doc.file_size = storage_info["file_size"]
+            existing_doc.storage_provider = storage_info["storage_provider"]
+            existing_doc.storage_file_id = storage_info["storage_file_id"]
             existing_doc.is_active = True
             db.add(existing_doc)
             logger.info(f"Updated existing WMDocument {existing_doc.id} for photo_report")
@@ -3113,22 +3149,25 @@ async def generate_photo_report(
                 "job_id": str(job_id),
                 "document_type": "photo_report",
                 "filename": filename,
-                "file_path": str(output_path),
-                "file_size": file_size,
+                "file_path": storage_info["file_path"],
+                "file_size": storage_info["file_size"],
                 "mime_type": "application/pdf",
                 "title": "Water Mitigation Photo Report",
+                "storage_provider": storage_info["storage_provider"],
+                "storage_file_id": storage_info["storage_file_id"],
                 "is_active": True,
             })
             logger.info(f"Created new WMDocument for photo_report")
 
         db.commit()
 
-        # Return the PDF file directly for preview/download
-        return FileResponse(
-            path=str(output_path),
+        # Return the PDF bytes directly for preview/download
+        from starlette.responses import Response
+        return Response(
+            content=pdf_bytes,
             media_type="application/pdf",
-            filename=filename,
             headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
                 "X-File-Id": str(file_id),
                 "X-Config-Id": str(config_id) if config_id else ""
             }

@@ -1243,18 +1243,15 @@ def download_invoice_pdf_with_document(
         inv_num = invoice.get('invoice_number', 'invoice')
         filename = f"Invoice {inv_num} - {address}.pdf"
 
-        # Save to local storage
-        output_dir = (
-            Path("storage/water-mitigation/documents")
-            / str(job_id)
+        # Upload to cloud storage
+        from app.common.utils.storage_helpers import upload_bytes_to_storage
+        storage_info = upload_bytes_to_storage(
+            file_bytes=pdf_bytes,
+            filename=filename,
+            context="water-mitigation",
+            context_id=str(job_id),
+            category="documents",
         )
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / filename
-
-        with open(output_path, "wb") as f:
-            f.write(pdf_bytes)
-
-        file_size = len(pdf_bytes)
 
         # Upsert: deactivate existing Invoice documents
         doc_repo = WMDocumentRepository(db)
@@ -1280,10 +1277,12 @@ def download_invoice_pdf_with_document(
             "job_id": str(job_id),
             "document_type": "Invoice",
             "filename": filename,
-            "file_path": str(output_path),
-            "file_size": file_size,
+            "file_path": storage_info["file_path"],
+            "file_size": storage_info["file_size"],
             "mime_type": "application/pdf",
             "title": f"Invoice {inv_num}",
+            "storage_provider": storage_info["storage_provider"],
+            "storage_file_id": storage_info["storage_file_id"],
             "is_active": True,
             "generated_by_id": (
                 str(current_user.id) if current_user else None

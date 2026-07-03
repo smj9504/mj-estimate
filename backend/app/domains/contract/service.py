@@ -471,15 +471,43 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
             from pypdf import PdfReader, PdfWriter
             from reportlab.pdfgen import canvas as rl_canvas
 
-            # Resolve template file path
-            backend_dir = Path(__file__).resolve().parents[3]
-            if template_file_url.startswith('/uploads/'):
-                template_path = backend_dir / template_file_url.lstrip('/')
-            else:
-                template_path = Path(template_file_url)
+            # Resolve template file — try cloud storage first, then local
+            import tempfile
+            temp_template_path = None
+            template_path = None
 
-            if not template_path.exists():
-                logger.warning(f"Template PDF not found: {template_path}")
+            # Try cloud storage download
+            if not template_file_url.startswith('/uploads/'):
+                try:
+                    from app.domains.storage.factory import StorageFactory
+                    storage = StorageFactory.get_instance()
+                    file_bytes = storage.download(template_file_url)
+                    with tempfile.NamedTemporaryFile(
+                        suffix='.pdf', delete=False
+                    ) as tmp:
+                        tmp.write(file_bytes)
+                        temp_template_path = tmp.name
+                    template_path = temp_template_path
+                except Exception as dl_err:
+                    logger.debug(
+                        f"Cloud download failed for template, "
+                        f"trying local: {dl_err}"
+                    )
+
+            # Fallback to local file
+            if not template_path:
+                backend_dir = Path(__file__).resolve().parents[3]
+                if template_file_url.startswith('/uploads/'):
+                    local_path = backend_dir / template_file_url.lstrip('/')
+                else:
+                    local_path = Path(template_file_url)
+                if local_path.exists():
+                    template_path = str(local_path)
+
+            if not template_path:
+                logger.warning(
+                    f"Template PDF not found: {template_file_url}"
+                )
                 return None
 
             # Read template PDF
@@ -556,19 +584,39 @@ class ContractInstanceService(BaseService[Dict[str, Any], str]):
 
                 writer.add_page(page)
 
-            # Save filled PDF
-            upload_dir = backend_dir / "uploads" / "contracts" / "filled"
-            upload_dir.mkdir(parents=True, exist_ok=True)
+            # Write to buffer and upload to cloud storage
+            from io import BytesIO
+            pdf_buffer = BytesIO()
+            writer.write(pdf_buffer)
+            pdf_bytes = pdf_buffer.getvalue()
 
+            from app.common.utils.storage_helpers import upload_bytes_to_storage
             filled_name = f"filled_{uuid.uuid4()}.pdf"
-            filled_path = upload_dir / filled_name
-            with open(filled_path, "wb") as f:
-                writer.write(f)
+            storage_info = upload_bytes_to_storage(
+                file_bytes=pdf_bytes,
+                filename=filled_name,
+                context="contracts",
+                context_id=str(uuid.uuid4()),
+                category="filled",
+            )
 
-            return f"/uploads/contracts/filled/{filled_name}"
+            # Clean up temp template file
+            if temp_template_path:
+                try:
+                    Path(temp_template_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+            return storage_info["file_path"]
 
         except Exception as e:
             logger.error(f"Error generating filled PDF: {e}")
+            # Clean up temp template file on error
+            if temp_template_path:
+                try:
+                    Path(temp_template_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
             return None
 
     def get_prefill_preview(

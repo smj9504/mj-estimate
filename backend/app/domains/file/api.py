@@ -277,18 +277,36 @@ async def preview_wm_photo(
         if not photo:
             raise HTTPException(status_code=404, detail="Photo not found")
 
-        # Get file path
-        file_path = Path(photo.get('file_path') if isinstance(photo, dict) else photo.file_path)
+        # Get file path and storage info
+        file_path_str = photo.get('file_path') if isinstance(photo, dict) else photo.file_path
+        storage_provider = (photo.get('storage_provider') if isinstance(photo, dict) else getattr(photo, 'storage_provider', None)) or 'local'
+        storage_file_id = (photo.get('storage_file_id') if isinstance(photo, dict) else getattr(photo, 'storage_file_id', None)) or ''
+        mime_type = (photo.get('mime_type') if isinstance(photo, dict) else photo.mime_type) or 'image/jpeg'
 
+        # Cloud storage
+        if storage_provider not in ('local', ''):
+            try:
+                from app.domains.storage.factory import StorageFactory
+                storage = StorageFactory.get_instance(storage_provider)
+                download_key = storage_file_id or file_path_str
+                file_bytes = storage.download(download_key)
+                from starlette.responses import Response
+                return Response(
+                    content=file_bytes,
+                    media_type=mime_type,
+                    headers={"Content-Disposition": "inline"}
+                )
+            except Exception as e:
+                logger.warning(f"Cloud download failed for WM photo {photo_id}: {e}")
+
+        # Fallback to local
+        file_path = Path(file_path_str)
         if not file_path.exists():
-            raise HTTPException(status_code=404, detail="Photo file not found on disk")
-
-        mime_type = photo.get('mime_type') if isinstance(photo, dict) else photo.mime_type
-        media_type = mime_type or 'image/jpeg'
+            raise HTTPException(status_code=404, detail="Photo file not found")
 
         return FastAPIFileResponse(
             path=str(file_path),
-            media_type=media_type,
+            media_type=mime_type,
             headers={"Content-Disposition": "inline"}
         )
 
