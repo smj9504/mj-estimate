@@ -210,6 +210,7 @@ const CabinetEstimateDetail: React.FC = () => {
         include_backsplash: estimate.include_backsplash,
         backsplash_type: estimate.backsplash_type,
         backsplash_sqft: estimate.backsplash_sqft,
+        backsplash_height_inches: 18,
         include_toe_kick: estimate.include_toe_kick ?? true,
         include_countertop: estimate.include_countertop,
         include_drywall_repair: estimate.include_drywall_repair,
@@ -295,7 +296,7 @@ const CabinetEstimateDetail: React.FC = () => {
   // ── Save handler ──
   const handleSave = useCallback(async () => {
     try {
-      const values = await form.validateFields();
+      const { backsplash_height_inches: _, ...values } = await form.validateFields();
       const payload: CabinetEstimateUpdate = {
         ...values,
         overhead_pct: (values.overhead_pct ?? 0) / 100,
@@ -311,7 +312,7 @@ const CabinetEstimateDetail: React.FC = () => {
   // ── Save & Calculate (single API call) ──
   const handleCalculate = useCallback(async () => {
     try {
-      const values = await form.validateFields();
+      const { backsplash_height_inches: _, ...values } = await form.validateFields();
       const payload: CabinetEstimateUpdate = {
         ...values,
         overhead_pct: (values.overhead_pct ?? 0) / 100,
@@ -1030,18 +1031,25 @@ const CabinetEstimateDetail: React.FC = () => {
                     <Checkbox>Include Backsplash</Checkbox>
                   </Form.Item>
                   <Form.Item noStyle shouldUpdate={(prev, cur) =>
-                    prev.include_backsplash !== cur.include_backsplash
+                    prev.include_backsplash !== cur.include_backsplash ||
+                    prev.backsplash_height_inches !== cur.backsplash_height_inches
                   }>
                     {({ getFieldValue }) => {
                       if (!getFieldValue('include_backsplash')) return null;
                       const baseLf = allBoxes
                         .filter((b) => b.cab_type === 'base')
                         .reduce((sum, b) => sum + (b.width_inches * b.qty) / 12, 0);
-                      const suggestedSf = Math.round(baseLf * 1.5 * 10) / 10; // 18" height
+                      const heightInches = getFieldValue('backsplash_height_inches') || 18;
+                      const computedSf = Math.round(baseLf * (heightInches / 12) * 10) / 10;
+                      // Sync computed SF to hidden form field
+                      const currentSf = getFieldValue('backsplash_sqft');
+                      if (computedSf > 0 && currentSf !== computedSf) {
+                        setTimeout(() => form.setFieldsValue({ backsplash_sqft: computedSf }), 0);
+                      }
                       return (
                         <div>
                           <Row gutter={16}>
-                            <Col xs={12}>
+                            <Col xs={24} md={8}>
                               <Form.Item name="backsplash_type" label="Backsplash Type" preserve>
                                 <Select
                                   placeholder="Select type"
@@ -1052,34 +1060,32 @@ const CabinetEstimateDetail: React.FC = () => {
                                 />
                               </Form.Item>
                             </Col>
-                            <Col xs={12}>
-                              <Form.Item name="backsplash_sqft" label="Area (sqft)" preserve>
+                            <Col xs={12} md={8}>
+                              <Form.Item name="backsplash_height_inches" label="Height (inches)" preserve>
                                 <InputNumber
-                                  min={0}
-                                  max={500}
-                                  step={0.5}
+                                  min={4}
+                                  max={48}
+                                  step={1}
                                   style={{ width: '100%' }}
-                                  placeholder="e.g. 30"
-                                  addonAfter="SF"
+                                  addonAfter="in"
                                 />
                               </Form.Item>
-                              {suggestedSf > 0 && (
-                                <Space size={4}>
-                                  <Text type="secondary" style={{ fontSize: 11 }}>
-                                    Base LF({baseLf.toFixed(1)}) x 1.5ft =
-                                  </Text>
-                                  <Button
-                                    type="link"
-                                    size="small"
-                                    style={{ padding: 0, fontSize: 11, height: 'auto' }}
-                                    onClick={() => form.setFieldsValue({ backsplash_sqft: suggestedSf })}
-                                  >
-                                    {suggestedSf} SF 적용
-                                  </Button>
-                                </Space>
-                              )}
+                            </Col>
+                            <Col xs={12} md={8}>
+                              <div style={{ paddingTop: 30 }}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  Base LF: <Text strong style={{ fontSize: 12 }}>{baseLf.toFixed(1)}</Text>
+                                  {' × '}
+                                  {heightInches}"
+                                  {' = '}
+                                  <Text strong style={{ fontSize: 12 }}>{computedSf} SF</Text>
+                                </Text>
+                              </div>
                             </Col>
                           </Row>
+                          <Form.Item name="backsplash_sqft" hidden preserve>
+                            <InputNumber />
+                          </Form.Item>
                         </div>
                       );
                     }}

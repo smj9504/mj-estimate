@@ -39,6 +39,7 @@ import {
   EyeInvisibleOutlined,
   RobotOutlined,
   ClearOutlined,
+  CloudDownloadOutlined,
 } from '@ant-design/icons';
 import type { FloorPlanSourceType } from '../../../types/wmSketch';
 import { useImageImport } from './hooks/useImageImport';
@@ -75,6 +76,9 @@ export interface WMFloorPlanSourceProps {
   onHideOverlaysChange?: (hide: boolean) => void;
   /** Clear all walls and rooms */
   onClearFloorPlan?: () => void;
+  /** Import floor plan from MagicPlan */
+  onImportFromMagicPlan?: () => void;
+  isMagicPlanImporting?: boolean;
 }
 
 // ============================================================================
@@ -102,6 +106,8 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
   hideOverlays,
   onHideOverlaysChange,
   onClearFloorPlan,
+  onImportFromMagicPlan,
+  isMagicPlanImporting,
 }) => {
   const {
     fileInputRef,
@@ -285,39 +291,54 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
             </Space>
           ) : (
             // Drop zone / upload prompt
-            <div
-              onClick={openFilePicker}
-              style={{
-                flex: 1,
-                minWidth: 200,
-                maxWidth: 420,
-                border: '1.5px dashed #d9d9d9',
-                borderRadius: 6,
-                padding: '6px 14px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                background: '#fff',
-                transition: 'border-color 0.2s',
-              }}
-              onMouseEnter={(e) =>
-                ((e.currentTarget as HTMLDivElement).style.borderColor = '#4096ff')
-              }
-              onMouseLeave={(e) =>
-                ((e.currentTarget as HTMLDivElement).style.borderColor = '#d9d9d9')
-              }
-            >
-              <UploadOutlined style={{ color: '#8c8c8c', fontSize: 16 }} />
-              <Text style={{ fontSize: 12, color: '#595959' }}>
-                Click to upload
-              </Text>
-              <Text style={{ fontSize: 11, color: '#bfbfbf' }}>or</Text>
-              <Space size={4}>
-                <ScissorOutlined style={{ color: '#8c8c8c', fontSize: 12 }} />
-                <Text style={{ fontSize: 11, color: '#8c8c8c' }}>Paste (Ctrl+V)</Text>
-              </Space>
-            </div>
+            <>
+              <div
+                onClick={openFilePicker}
+                style={{
+                  flex: 1,
+                  minWidth: 200,
+                  maxWidth: 420,
+                  border: '1.5px dashed #d9d9d9',
+                  borderRadius: 6,
+                  padding: '6px 14px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: '#fff',
+                  transition: 'border-color 0.2s',
+                }}
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLDivElement).style.borderColor = '#4096ff')
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLDivElement).style.borderColor = '#d9d9d9')
+                }
+              >
+                <UploadOutlined style={{ color: '#8c8c8c', fontSize: 16 }} />
+                <Text style={{ fontSize: 12, color: '#595959' }}>
+                  Click to upload
+                </Text>
+                <Text style={{ fontSize: 11, color: '#bfbfbf' }}>or</Text>
+                <Space size={4}>
+                  <ScissorOutlined style={{ color: '#8c8c8c', fontSize: 12 }} />
+                  <Text style={{ fontSize: 11, color: '#8c8c8c' }}>Paste (Ctrl+V)</Text>
+                </Space>
+              </div>
+              {onImportFromMagicPlan && (
+                <Tooltip title="Import floor plan from MagicPlan project">
+                  <Button
+                    size="small"
+                    icon={<CloudDownloadOutlined />}
+                    onClick={onImportFromMagicPlan}
+                    loading={isMagicPlanImporting}
+                    style={{ color: '#722ed1', borderColor: '#722ed1' }}
+                  >
+                    From MagicPlan
+                  </Button>
+                </Tooltip>
+              )}
+            </>
           )}
 
           {error && (

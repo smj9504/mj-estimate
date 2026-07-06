@@ -270,6 +270,9 @@ if settings.ENABLE_INTEGRATIONS:
         start_scheduler,
         stop_scheduler,
     )
+    from app.domains.integrations.magicplan.api import (
+        router as magicplan_router,
+    )
 
 # Configure logging system
 from app.core.logging_config import get_access_logger, get_error_logger, setup_logging
@@ -368,6 +371,8 @@ _NEEDED_COLUMNS = [
     ("email_accounts", "oauth_access_token", "TEXT"),
     ("email_accounts", "oauth_refresh_token", "TEXT"),
     ("email_accounts", "oauth_token_expiry", "TIMESTAMPTZ"),
+    # MagicPlan metadata for WM photos
+    ("wm_photos", "magicplan_metadata", "JSONB"),
 ]
 
 
@@ -882,7 +887,8 @@ app.include_router(
 if settings.ENABLE_INTEGRATIONS:
     app.include_router(integrations_router, prefix="/api/integrations", tags=["External Integrations"])
     app.include_router(google_sheets_router, prefix="/api/integrations/google-sheets", tags=["Google Sheets Integration"])
-    logger.info("Integration routes registered (CompanyCam, Google Sheets, Slack)")
+    app.include_router(magicplan_router, prefix="/api/integrations/magicplan", tags=["MagicPlan Integration"])
+    logger.info("Integration routes registered (CompanyCam, Google Sheets, Slack, MagicPlan)")
     logger.info(f"Webhook endpoint available at: /api/integrations/companycam/webhook")
 else:
     logger.warning("⚠️ ENABLE_INTEGRATIONS is False - Integration endpoints disabled")

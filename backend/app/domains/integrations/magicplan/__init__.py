@@ -1,0 +1,1 @@
+# MagicPlan Integration Module

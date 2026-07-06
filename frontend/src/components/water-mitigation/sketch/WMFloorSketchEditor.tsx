@@ -125,6 +125,8 @@ export interface WMFloorSketchEditorProps {
   onImageUploaded: (file: File) => Promise<void>;
   onImageRemoved: () => Promise<void>;
   onScaleChanged?: (scalePixelsPerFoot: number) => void;
+  onImportFromMagicPlan?: () => void;
+  isMagicPlanImporting?: boolean;
 }
 
 // ============================================================================
@@ -468,6 +470,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
   onImageUploaded,
   onImageRemoved,
   onScaleChanged,
+  onImportFromMagicPlan,
+  isMagicPlanImporting,
 }) => {
   const { token } = theme.useToken();
 
@@ -2562,6 +2566,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
           mergeAiWallsRooms([], []);
           message.success('Floor plan cleared.');
         }}
+        onImportFromMagicPlan={onImportFromMagicPlan}
+        isMagicPlanImporting={isMagicPlanImporting}
       />
 
       {/* Toolbar */}

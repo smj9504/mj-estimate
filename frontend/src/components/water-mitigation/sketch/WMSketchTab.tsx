@@ -42,6 +42,7 @@ import {
   DownOutlined,
 } from '@ant-design/icons';
 import wmSketchService from '../../../services/wmSketchService';
+import { magicPlanService } from '../../../services/waterMitigationService';
 import type {
   WMFloorSketch,
   WMOverlayData,
@@ -112,6 +113,8 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const [scopeGenerating, setScopeGenerating] = useState(false);
+  const [mpImporting, setMpImporting] = useState(false);
+  const [mpFloorPlanModal, setMpFloorPlanModal] = useState(false);
 
   // Material types are constant for now; could be customised per-job later
   const materialTypes = DEFAULT_DEMO_MATERIAL_TYPES;
@@ -334,6 +337,60 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
       )
     );
   }, [activeFloorId]);
+
+  // MagicPlan floor plan import
+  const handleImportFromMagicPlan = useCallback(async () => {
+    if (!activeFloorId) return;
+    setMpImporting(true);
+    try {
+      // Search for MagicPlan projects matching this job
+      const searchResult = await magicPlanService.searchProjects(jobId);
+      if (!searchResult.auto_match && searchResult.candidates.length === 0) {
+        message.warning('No MagicPlan projects found for this job');
+        return;
+      }
+
+      const project = searchResult.auto_match || searchResult.candidates[0];
+      // Get floor plans
+      const floorPlans = await magicPlanService.getFloorPlans(project.project_id);
+      if (floorPlans.length === 0) {
+        message.warning('No floor plans found in MagicPlan project');
+        return;
+      }
+
+      // Find matching floor by order
+      const activeFloor = floors.find(f => f.id === activeFloorId);
+      const floorIndex = activeFloor ? activeFloor.floor_order : 0;
+
+      // Import the floor plan
+      const plan = floorPlans[0];
+      const result = await magicPlanService.importFloorPlan(
+        jobId,
+        project.project_id,
+        plan.plan_id,
+        floorIndex,
+        activeFloorId,
+      );
+
+      if (result.success && result.image_url) {
+        // Update local state with the new background image
+        setFloors((prev) =>
+          prev.map((f) =>
+            f.id === activeFloorId
+              ? { ...f, background_image_url: result.image_url!, source_type: 'image' as FloorPlanSourceType }
+              : f
+          )
+        );
+        message.success(`Floor plan imported: ${result.floor_label || 'Floor'}`);
+      } else {
+        message.error(result.error_message || 'Failed to import floor plan');
+      }
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'Failed to import from MagicPlan');
+    } finally {
+      setMpImporting(false);
+    }
+  }, [activeFloorId, jobId, floors]);
 
   const handleScaleChanged = useCallback(
     async (scalePixelsPerFoot: number) => {
@@ -583,6 +640,8 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
             onImageUploaded={handleImageUploaded}
             onImageRemoved={handleImageRemoved}
             onScaleChanged={handleScaleChanged}
+            onImportFromMagicPlan={handleImportFromMagicPlan}
+            isMagicPlanImporting={mpImporting}
           />
         ) : (
           <div

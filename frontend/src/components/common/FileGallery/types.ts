@@ -77,6 +77,9 @@ export interface FileGalleryProps {
   enableInfiniteScroll?: boolean;
   pageSize?: number;
 
+  // Source filter (for water-mitigation: 'companycam' | 'magicplan' | 'manual_upload')
+  sourceFilter?: string;
+
   // Document-specific features
   showDocumentPreview?: boolean;
   enableDocumentSearch?: boolean;

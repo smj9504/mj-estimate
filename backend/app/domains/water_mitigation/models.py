@@ -199,7 +199,7 @@ class WMPhoto(Base, BaseModel):
 
     job_id = Column(UUIDType(), ForeignKey("water_mitigation_jobs.id"), nullable=False)
 
-    source = Column(String(50), nullable=False)  # 'companycam' | 'manual_upload'
+    source = Column(String(50), nullable=False)  # 'companycam' | 'manual_upload' | 'magicplan'
     external_id = Column(String(255), unique=True)
 
     # File information
@@ -230,6 +230,9 @@ class WMPhoto(Base, BaseModel):
     longitude = Column(Float, nullable=True)
     device_model = Column(String(200), nullable=True)
     upload_link_id = Column(UUIDType(), ForeignKey("upload_links.id"), nullable=True)
+
+    # MagicPlan metadata (floor, room info - nullable for non-magicplan photos)
+    magicplan_metadata = Column(JSONB, nullable=True)  # {floor_name, room_name, floor_id, ...}
 
     # Trash/Deletion tracking
     is_trashed = Column(Boolean, default=False)

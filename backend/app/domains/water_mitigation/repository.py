@@ -269,7 +269,8 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
         sort_order: str = 'desc',
         category_filter: Optional[List[str]] = None,
         uncategorized_only: bool = False,
-        skip: Optional[int] = None
+        skip: Optional[int] = None,
+        source_filter: Optional[str] = None
     ) -> tuple[List[WMPhoto], Optional[int]]:
         """Find photos for a job with pagination and optional category filtering
 
@@ -320,6 +321,10 @@ class WMPhotoRepository(SQLAlchemyRepository[WMPhoto, UUID]):
             logger.info(
                 f"📸 Category filter: {category_filter} → {normalized_cats}"
             )
+
+        # Apply source filter
+        if source_filter:
+            query = query.filter(WMPhoto.source == source_filter)
 
         # Get total count (after filters) - only for first page
         # Skip count for later pages to significantly improve performance

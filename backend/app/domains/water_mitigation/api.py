@@ -385,6 +385,7 @@ async def list_photos(
     job_id: UUID,
     category_filter: Optional[str] = None,
     uncategorized_only: bool = False,
+    source_filter: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
     sort_by: str = 'captured_date',
@@ -397,6 +398,7 @@ async def list_photos(
         job_id: Job UUID
         category_filter: Comma-separated list of categories to filter by (OR logic)
         uncategorized_only: If True, only return photos without category
+        source_filter: Filter by source (companycam, magicplan, manual_upload)
         page: Page number (1-indexed)
         page_size: Number of items per page (default: 50, max: 200)
         sort_by: Field to sort by (default: captured_date)
@@ -410,7 +412,7 @@ async def list_photos(
         list_photos._cache = {}
         list_photos._cache_ts = {}
 
-    cache_key = f"{job_id}:{page}:{page_size}:{sort_by}:{sort_order}:{category_filter}:{uncategorized_only}"
+    cache_key = f"{job_id}:{page}:{page_size}:{sort_by}:{sort_order}:{category_filter}:{uncategorized_only}:{source_filter}"
     cached = list_photos._cache.get(cache_key)
     cached_ts = list_photos._cache_ts.get(cache_key, 0)
     if cached and (_time.time() - cached_ts) < 30:
@@ -435,7 +437,8 @@ async def list_photos(
         sort_by=sort_by,
         sort_order=sort_order,
         category_filter=categories,
-        uncategorized_only=uncategorized_only
+        uncategorized_only=uncategorized_only,
+        source_filter=source_filter
     )
 
     # Calculate total pages (handle None total for performance optimization)

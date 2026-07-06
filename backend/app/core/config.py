@@ -145,6 +145,10 @@ class Settings(BaseSettings):
     COMPANYCAM_API_KEY: str = os.getenv("COMPANYCAM_API_KEY", "")
     COMPANYCAM_WEBHOOK_TOKEN: str = os.getenv("COMPANYCAM_WEBHOOK_TOKEN", "")
 
+    # MagicPlan Integration
+    MAGICPLAN_API_KEY: str = os.getenv("MAGICPLAN_API_KEY", "")
+    MAGICPLAN_CUSTOMER_ID: str = os.getenv("MAGICPLAN_CUSTOMER_ID", "")
+
     # Slack Integration
     SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
     SLACK_CHANNEL: str = os.getenv("SLACK_CHANNEL", "#work-orders")

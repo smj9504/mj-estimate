@@ -243,7 +243,7 @@ export interface JobFilters {
 export interface WMPhoto {
   id: string;
   job_id: string;
-  source: string;  // 'companycam' | 'manual_upload'
+  source: string;  // 'companycam' | 'manual_upload' | 'magicplan'
   external_id?: string;
 
   // File information
@@ -267,6 +267,17 @@ export interface WMPhoto {
 
   // Categories (if using many-to-many relationship)
   categories?: PhotoCategory[];
+
+  // MagicPlan metadata (floor, room info)
+  magicplan_metadata?: {
+    floor_name?: string;
+    floor_id?: string;
+    floor_order?: number;
+    room_name?: string;
+    room_id?: string;
+    plan_title?: string;
+    notes?: string;
+  };
 }
 
 // Status History
@@ -356,6 +367,56 @@ export interface CompanyCamSyncResult {
   errors: string[];
   message: string;
   cancelled?: boolean;
+}
+
+// MagicPlan Types
+export interface MagicPlanProjectMatch {
+  project_id: string;
+  project_name: string;
+  address?: string;
+  match_score: number;
+  match_type: string;
+  photo_count?: number;
+  plan_count?: number;
+  created_at?: string;
+}
+
+export interface MagicPlanProjectSearchResponse {
+  auto_match?: MagicPlanProjectMatch;
+  candidates: MagicPlanProjectMatch[];
+  total_projects: number;
+}
+
+export interface MagicPlanSyncResult {
+  success: boolean;
+  photos_synced: number;
+  photos_skipped: number;
+  floor_plans_synced: number;
+  errors: string[];
+  magicplan_project_id: string;
+  magicplan_project_name: string;
+}
+
+export interface MagicPlanFloorPlanInfo {
+  plan_id: string;
+  plan_title?: string;
+  floors: Array<{
+    index: number;
+    id: string;
+    name: string;
+    room_count: number;
+    has_image: boolean;
+    image_url?: string;
+  }>;
+  file_urls: Record<string, string>;
+}
+
+export interface MagicPlanFloorPlanImportResult {
+  success: boolean;
+  wm_floor_id?: string;
+  floor_label?: string;
+  image_url?: string;
+  error_message?: string;
 }
 
 // Template Types

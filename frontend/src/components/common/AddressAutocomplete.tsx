@@ -82,6 +82,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
   const [fetching, setFetching] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
   const abortRef = useRef<AbortController>();
+  const justSelected = useRef(false);
 
   const fetchSuggestions = useCallback(async (query: string) => {
     if (query.length < 3) {
@@ -162,6 +163,10 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
 
   const handleSearch = useCallback(
     (query: string) => {
+      if (justSelected.current) {
+        justSelected.current = false;
+        return;
+      }
       onChange?.(query);
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       debounceTimer.current = setTimeout(() => fetchSuggestions(query), DEBOUNCE_MS);
@@ -170,9 +175,10 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
   );
 
   const handleSelect = useCallback(
-    (_val: string, option: any) => {
+    (val: string, option: any) => {
+      justSelected.current = true;
       const parsed: ParsedAddress = option.data;
-      onChange?.(parsed.streetAddress);
+      onChange?.(val);
       onSelect?.(parsed);
       setOptions([]);
     },

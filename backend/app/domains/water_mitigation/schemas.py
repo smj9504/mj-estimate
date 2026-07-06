@@ -3,7 +3,7 @@ Water Mitigation domain Pydantic schemas
 """
 
 from datetime import date, datetime
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field, validator
@@ -278,6 +278,9 @@ class PhotoResponse(BaseModel):
     # Preview URL for quick loading (optimized)
     preview_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
+
+    # MagicPlan metadata (floor, room info)
+    magicplan_metadata: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

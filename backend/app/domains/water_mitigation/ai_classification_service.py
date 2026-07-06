@@ -169,7 +169,8 @@ def _resize_image(image_data: bytes, max_size: int = 1024) -> tuple[bytes, str]:
 def _parse_json_response(response_text: str) -> dict:
     """
     Parse JSON from Gemini response with robust cleanup.
-    Handles markdown code blocks, trailing commas, and other common issues.
+    Handles markdown code blocks, trailing commas, truncated output,
+    and other common issues.
     """
     text = response_text.strip()
 
@@ -186,11 +187,36 @@ def _parse_json_response(response_text: str) -> dict:
     # Remove trailing commas before } or ]
     text = re.sub(r',\s*([}\]])', r'\1', text)
 
+    # Remove literal newlines inside JSON string values
+    # (unescaped newlines within "..." cause parse errors)
+    text = re.sub(r'(?<=": ")(.*?)(?=")', lambda m: m.group(0).replace('\n', ' '), text)
+
     # Try parsing
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # Replace single quotes with double quotes as last resort
+        pass
+
+    # Fix truncated JSON (output cut off by max_output_tokens)
+    # Count unmatched braces/brackets and close them
+    truncated = text
+    open_braces = truncated.count('{') - truncated.count('}')
+    open_brackets = truncated.count('[') - truncated.count(']')
+
+    if open_braces > 0 or open_brackets > 0:
+        # Check if we're inside an unterminated string
+        # Simple heuristic: odd number of unescaped quotes
+        quote_count = len(re.findall(r'(?<!\\)"', truncated))
+        if quote_count % 2 == 1:
+            truncated += '"'
+        # Remove any trailing partial key-value pair
+        truncated = re.sub(r',\s*"[^"]*"?\s*:?\s*[^,}\]]*$', '', truncated)
+        truncated += ']' * open_brackets + '}' * open_braces
+
+    try:
+        return json.loads(truncated)
+    except json.JSONDecodeError:
+        # Last resort: replace single quotes with double quotes
         fixed = text.replace("'", '"')
         return json.loads(fixed)
 
@@ -533,12 +559,20 @@ class AIClassificationService:
             )
 
             # Call Gemini Vision API
+            # thinking_budget=0: gemini-2.5-flash is a thinking model;
+            #   without this, thinking tokens consume output budget
+            #   and thinking text can leak into response.text
+            # response_mime_type: forces valid JSON output
             response = client.models.generate_content(
                 model=self.model_name,
                 contents=[CLASSIFICATION_PROMPT, image_part],
                 config=types.GenerateContentConfig(
                     temperature=0.1,
                     max_output_tokens=1024,
+                    response_mime_type="application/json",
+                    thinking_config=types.ThinkingConfig(
+                        thinking_budget=0
+                    ),
                 ),
             )
 
@@ -655,6 +689,7 @@ class AIClassificationService:
                 config=types.GenerateContentConfig(
                     temperature=0.1,
                     max_output_tokens=512,
+                    response_mime_type="application/json",
                     thinking_config=types.ThinkingConfig(
                         thinking_budget=0
                     ),

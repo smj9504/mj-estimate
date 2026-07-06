@@ -14,7 +14,12 @@ import waterMitigationService, {
   AI_CATEGORY_COLORS,
   type AIClassifyResult,
 } from '../../services/waterMitigationService';
-import type { CompanyCamSyncResult } from '../../types/waterMitigation';
+import type {
+  CompanyCamSyncResult,
+  MagicPlanProjectMatch,
+  MagicPlanSyncResult,
+} from '../../types/waterMitigation';
+import { magicPlanService } from '../../services/waterMitigationService';
 
 const { Text, Title } = Typography;
 
@@ -340,6 +345,18 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
   const [jobAddress, setJobAddress] = useState<string>('');
   const [selectedProject, setSelectedProject] = useState<CompanyCamProject | null>(null);
   const [manualInput, setManualInput] = useState(false);
+
+  // MagicPlan sync state
+  const [mpModalVisible, setMpModalVisible] = useState(false);
+  const [mpSearching, setMpSearching] = useState(false);
+  const [mpCandidates, setMpCandidates] = useState<MagicPlanProjectMatch[]>([]);
+  const [mpAutoMatch, setMpAutoMatch] = useState<MagicPlanProjectMatch | null>(null);
+  const [mpSelectedProject, setMpSelectedProject] = useState<MagicPlanProjectMatch | null>(null);
+  const [mpSyncing, setMpSyncing] = useState(false);
+  const [mpSyncResult, setMpSyncResult] = useState<MagicPlanSyncResult | null>(null);
+
+  // Photo source filter state
+  const [sourceFilter, setSourceFilter] = useState<string | undefined>(undefined);
 
   // Google Drive export state
   const [exportModalVisible, setExportModalVisible] = useState(false);
@@ -1038,6 +1055,52 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
     cancelMutation.mutate();
   };
 
+  // ── MagicPlan handlers ──────────────────────────────────
+  const handleMagicPlanClick = async () => {
+    setMpModalVisible(true);
+    setMpSearching(true);
+    setMpSyncResult(null);
+    setMpSelectedProject(null);
+    try {
+      const result = await magicPlanService.searchProjects(jobId);
+      setMpAutoMatch(result.auto_match || null);
+      setMpCandidates(result.candidates || []);
+      if (result.auto_match) {
+        setMpSelectedProject(result.auto_match);
+      }
+    } catch (err: any) {
+      message.error('Failed to search MagicPlan projects');
+    } finally {
+      setMpSearching(false);
+    }
+  };
+
+  const handleMagicPlanSync = async () => {
+    if (!mpSelectedProject) {
+      message.error('Please select a MagicPlan project');
+      return;
+    }
+    setMpSyncing(true);
+    try {
+      const result = await magicPlanService.syncPhotos(
+        jobId,
+        mpSelectedProject.project_id,
+        mpSelectedProject.project_name
+      );
+      setMpSyncResult(result);
+      if (result.success) {
+        message.success(`Synced ${result.photos_synced} photos from MagicPlan`);
+        queryClient.invalidateQueries({ queryKey: ['files-infinite', 'water-mitigation', jobId] });
+      } else {
+        message.error('MagicPlan sync failed');
+      }
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || 'MagicPlan sync failed');
+    } finally {
+      setMpSyncing(false);
+    }
+  };
+
   // Calculate progress
   const getProgressInfo = () => {
     if (syncStatus.status !== 'running') return null;
@@ -1230,6 +1293,26 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             </Button>
           )}
 
+          {/* MagicPlan Sync Button */}
+          <Tooltip title="Sync photos & floor plans from MagicPlan">
+            <Button
+              type="default"
+              icon={<CloudDownloadOutlined />}
+              onClick={handleMagicPlanClick}
+              loading={mpSyncing}
+              size={isMobile ? 'small' : 'middle'}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                border: '1px solid rgba(255,255,255,0.3)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                fontWeight: 500,
+                color: 'white'
+              }}
+            >
+              {isMobile ? 'MagicPlan' : 'Sync MagicPlan'}
+            </Button>
+          </Tooltip>
+
           {/* Google Drive Export Button */}
           {isExporting ? (
             (() => {
@@ -1415,6 +1498,36 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
         />
       )}
 
+      {/* Source Filter Tabs */}
+      <div style={{
+        padding: '8px 16px 0',
+        background: 'white',
+        display: 'flex',
+        gap: '4px',
+        flexWrap: 'wrap'
+      }}>
+        {[
+          { key: undefined, label: 'All Sources' },
+          { key: 'companycam', label: 'CompanyCam' },
+          { key: 'magicplan', label: 'MagicPlan' },
+          { key: 'manual_upload', label: 'Manual Upload' },
+        ].map(tab => (
+          <Button
+            key={tab.key || 'all'}
+            type={sourceFilter === tab.key ? 'primary' : 'default'}
+            size="small"
+            onClick={() => setSourceFilter(tab.key)}
+            style={{
+              borderRadius: '16px',
+              fontSize: '12px',
+              ...(sourceFilter === tab.key ? {} : { color: '#666' })
+            }}
+          >
+            {tab.label}
+          </Button>
+        ))}
+      </div>
+
       {/* Main Content Area */}
       <div style={{
         flex: 1,
@@ -1492,6 +1605,9 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
 
           // Enable date grouping for water mitigation photos
           enableDateGrouping={true}
+
+          // Source filter (companycam, magicplan, manual_upload)
+          sourceFilter={sourceFilter}
 
           // Enhanced styling
           className="wm-photo-gallery"
@@ -1998,6 +2114,126 @@ const WaterMitigationPhotosTab: React.FC<WaterMitigationPhotosTabProps> = ({
             message="No uncategorized photos found"
             description="All photos in this job already have categories assigned."
           />
+        )}
+      </Modal>
+
+      {/* MagicPlan Sync Modal */}
+      <Modal
+        title={
+          <Space>
+            <CloudDownloadOutlined style={{ color: '#722ed1' }} />
+            <span>Sync from MagicPlan</span>
+          </Space>
+        }
+        open={mpModalVisible}
+        onCancel={() => { setMpModalVisible(false); setMpSyncResult(null); }}
+        footer={mpSyncResult ? [
+          <Button key="close" onClick={() => { setMpModalVisible(false); setMpSyncResult(null); }}>
+            Close
+          </Button>
+        ] : [
+          <Button key="cancel" onClick={() => setMpModalVisible(false)}>
+            Cancel
+          </Button>,
+          <Button
+            key="sync"
+            type="primary"
+            loading={mpSyncing}
+            disabled={!mpSelectedProject}
+            onClick={handleMagicPlanSync}
+            style={{ background: '#722ed1', borderColor: '#722ed1' }}
+          >
+            Sync Photos
+          </Button>
+        ]}
+        width={600}
+      >
+        {mpSyncResult ? (
+          <Alert
+            type={mpSyncResult.success ? 'success' : 'error'}
+            message={mpSyncResult.success ? 'Sync Complete' : 'Sync Failed'}
+            description={
+              <div>
+                <div>Photos synced: <strong>{mpSyncResult.photos_synced}</strong></div>
+                <div>Photos skipped (existing): <strong>{mpSyncResult.photos_skipped}</strong></div>
+                {mpSyncResult.errors.length > 0 && (
+                  <div style={{ marginTop: 8, color: '#ff4d4f' }}>
+                    Errors: {mpSyncResult.errors.slice(0, 3).join(', ')}
+                  </div>
+                )}
+              </div>
+            }
+          />
+        ) : mpSearching ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <Spin size="large" />
+            <div style={{ marginTop: 12 }}>
+              <Text>Searching MagicPlan projects...</Text>
+            </div>
+          </div>
+        ) : (
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            {mpAutoMatch && (
+              <Alert
+                type="success"
+                message="Auto-matched project found"
+                description={
+                  <div>
+                    <strong>{mpAutoMatch.project_name}</strong>
+                    {mpAutoMatch.address && <div style={{ color: '#666' }}>{mpAutoMatch.address}</div>}
+                    <Tag color="green" style={{ marginTop: 4 }}>
+                      {Math.round(mpAutoMatch.match_score * 100)}% match
+                    </Tag>
+                  </div>
+                }
+                style={{ cursor: 'pointer', border: mpSelectedProject?.project_id === mpAutoMatch.project_id ? '2px solid #52c41a' : undefined }}
+                onClick={() => setMpSelectedProject(mpAutoMatch)}
+              />
+            )}
+
+            {mpCandidates.length > 0 && (
+              <div>
+                <Text strong style={{ marginBottom: 8, display: 'block' }}>
+                  {mpAutoMatch ? 'Other candidates:' : 'Select a MagicPlan project:'}
+                </Text>
+                <List
+                  size="small"
+                  dataSource={mpCandidates.filter(c => c.project_id !== mpAutoMatch?.project_id).slice(0, 10)}
+                  renderItem={(item) => (
+                    <List.Item
+                      style={{
+                        cursor: 'pointer',
+                        background: mpSelectedProject?.project_id === item.project_id ? '#f0f5ff' : undefined,
+                        borderLeft: mpSelectedProject?.project_id === item.project_id ? '3px solid #1890ff' : '3px solid transparent',
+                        paddingLeft: 12,
+                      }}
+                      onClick={() => setMpSelectedProject(item)}
+                    >
+                      <List.Item.Meta
+                        title={item.project_name}
+                        description={
+                          <Space size={4}>
+                            {item.address && <Text type="secondary" style={{ fontSize: 12 }}>{item.address}</Text>}
+                            <Tag color="blue" style={{ fontSize: 10 }}>
+                              {Math.round(item.match_score * 100)}%
+                            </Tag>
+                          </Space>
+                        }
+                      />
+                    </List.Item>
+                  )}
+                />
+              </div>
+            )}
+
+            {mpCandidates.length === 0 && !mpAutoMatch && (
+              <Alert
+                type="warning"
+                message="No matching projects found"
+                description="No MagicPlan projects match this job's address. Make sure you have projects in MagicPlan."
+              />
+            )}
+          </Space>
         )}
       </Modal>
     </div>

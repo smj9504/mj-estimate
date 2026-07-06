@@ -14,6 +14,7 @@ interface UseFileGalleryProps {
   enableInfiniteScroll?: boolean;
   pageSize?: number;
   categoryFilter?: string | string[];  // Category filter for server-side filtering
+  sourceFilter?: string;  // Source filter (companycam, magicplan, manual_upload)
 }
 
 export const useFileGallery = ({
@@ -24,7 +25,8 @@ export const useFileGallery = ({
   onDelete,
   enableInfiniteScroll = false,
   pageSize = 20,  // Optimized default: smaller initial load for faster perceived performance
-  categoryFilter  // Category filter passed to API
+  categoryFilter,  // Category filter passed to API
+  sourceFilter  // Source filter passed to API
 }: UseFileGalleryProps) => {
   const queryClient = useQueryClient();
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
@@ -94,7 +96,7 @@ export const useFileGallery = ({
 
   // Infinite scroll query for water-mitigation photos
   const infiniteQuery = useInfiniteQuery({
-    queryKey: ['files-infinite', context, contextId, fileCategory, pageSize, normalizedCategoryFilter],
+    queryKey: ['files-infinite', context, contextId, fileCategory, pageSize, normalizedCategoryFilter, sourceFilter],
     queryFn: async ({ pageParam = 1 }) => {
       if (!contextId) return { items: [], total: 0, page: 1, page_size: pageSize, total_pages: 1 };
 
@@ -114,6 +116,11 @@ export const useFileGallery = ({
           params.category_filter = Array.isArray(normalizedCategoryFilter)
             ? normalizedCategoryFilter.join(',')
             : normalizedCategoryFilter;
+        }
+
+        // Add source filter (companycam, magicplan, manual_upload)
+        if (sourceFilter) {
+          params.source_filter = sourceFilter;
         }
 
         const response = await api.get(`/api/water-mitigation/jobs/${contextId}/photos`, { params });
@@ -140,6 +147,20 @@ export const useFileGallery = ({
           // Always use the preview endpoint with size=original to ensure highest quality
           const originalUrl = `${baseURL}/api/water-mitigation/photos/${photo.id}/preview?size=original`;
 
+          // Build description with MagicPlan metadata if available
+          let description = photo.description || '';
+          const mpMeta = photo.magicplan_metadata;
+          if (mpMeta) {
+            const parts: string[] = [];
+            if (mpMeta.floor_name) parts.push(`Floor: ${mpMeta.floor_name}`);
+            if (mpMeta.room_name) parts.push(`Room: ${mpMeta.room_name}`);
+            if (parts.length > 0) {
+              description = description
+                ? `${description} | ${parts.join(' · ')}`
+                : parts.join(' · ');
+            }
+          }
+
           return {
             id: photo.id,
             filename: photo.file_name,
@@ -151,10 +172,12 @@ export const useFileGallery = ({
             mimeType: photo.mime_type,
             size: photo.file_size || 0,
             category: photo.category || '',
-            description: photo.description || '',
+            description,
             uploadDate: photo.captured_date || photo.created_at,
             createdAt: photo.created_at,
-            updatedAt: photo.updated_at
+            updatedAt: photo.updated_at,
+            // Preserve source info for UI display
+            uploadedBy: photo.source === 'magicplan' ? 'MagicPlan' : photo.source === 'companycam' ? 'CompanyCam' : undefined,
           };
         });
 

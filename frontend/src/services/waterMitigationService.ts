@@ -19,6 +19,10 @@ import type {
   ReportConfigUpdate,
   GenerateReportRequest,
   CompanyCamSyncResult,
+  MagicPlanProjectSearchResponse,
+  MagicPlanSyncResult,
+  MagicPlanFloorPlanInfo,
+  MagicPlanFloorPlanImportResult,
   ReportTemplate,
   TemplateCreate,
   TemplateUpdate,
@@ -1461,5 +1465,78 @@ export interface SheetPAMapping {
     company_name?: string;
   } | null;
 }
+
+// ── MagicPlan Integration ────────────────────────────────────
+
+export const magicPlanService = {
+  searchProjects: async (
+    jobId: string,
+    query?: string
+  ): Promise<MagicPlanProjectSearchResponse> => {
+    const params = query
+      ? `?job_id=${jobId}&query=${encodeURIComponent(query)}`
+      : `?job_id=${jobId}`;
+    const response = await api.get(
+      `/api/integrations/magicplan/projects/search${params}`
+    );
+    return response.data;
+  },
+
+  syncPhotos: async (
+    jobId: string,
+    projectId: string,
+    projectName?: string
+  ): Promise<MagicPlanSyncResult> => {
+    const response = await api.post(
+      `/api/integrations/magicplan/jobs/${jobId}/sync`,
+      {
+        magicplan_project_id: projectId,
+        magicplan_project_name: projectName || '',
+        sync_photos: true,
+        sync_floor_plans: true,
+      }
+    );
+    return response.data;
+  },
+
+  getFloorPlans: async (
+    projectId: string
+  ): Promise<MagicPlanFloorPlanInfo[]> => {
+    const response = await api.get(
+      `/api/integrations/magicplan/projects/${projectId}/floor-plans`
+    );
+    return response.data;
+  },
+
+  importFloorPlan: async (
+    jobId: string,
+    projectId: string,
+    planId: string,
+    floorIndex: number = 0,
+    targetWmFloorId?: string
+  ): Promise<MagicPlanFloorPlanImportResult> => {
+    const response = await api.post(
+      `/api/integrations/magicplan/jobs/${jobId}/import-floor-plan`,
+      {
+        magicplan_project_id: projectId,
+        plan_id: planId,
+        floor_index: floorIndex,
+        target_wm_floor_id: targetWmFloorId,
+      }
+    );
+    return response.data;
+  },
+
+  healthCheck: async (): Promise<{
+    service: string;
+    configured: boolean;
+    healthy: boolean;
+  }> => {
+    const response = await api.get(
+      '/api/integrations/magicplan/health'
+    );
+    return response.data;
+  },
+};
 
 export default waterMitigationService;
