@@ -16,6 +16,7 @@ import WMInvoiceList from './WMInvoiceList';
 import WMPdfAnnotator from './pdf-annotator/WMPdfAnnotator';
 import type { PdfAnnotationData } from './pdf-annotator/types';
 import waterMitigationService from '../../services/waterMitigationService';
+import api from '../../services/api';
 import { useWaterMitigationPhotos } from '../../hooks/useWaterMitigationPhotos';
 
 const { Title, Text } = Typography;
@@ -151,14 +152,15 @@ const WaterMitigationDocumentsTab: React.FC<WaterMitigationDocumentsTabProps> = 
   const photoThumbnailMap = useMemo(() => {
     const m = new Map<string, string>();
     for (const p of allPhotos as any[]) {
-      const url = p.thumbnail_url || p.thumbnailUrl || `/api/water-mitigation/photos/${p.id}/preview?size=thumbnail`;
+      const baseURL = api.defaults.baseURL || '';
+      const url = p.thumbnail_url || p.thumbnailUrl || `${baseURL}/api/water-mitigation/photos/${p.id}/preview?size=thumbnail`;
       m.set(p.id, url);
     }
     return m;
   }, [allPhotos]);
 
   const getPhotoThumbnail = (photoId: string) => {
-    return photoThumbnailMap.get(photoId) || `/api/water-mitigation/photos/${photoId}/preview?size=thumbnail`;
+    return photoThumbnailMap.get(photoId) || `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photoId}/preview?size=thumbnail`;
   };
 
   const handlePhotoSelection = (fileIds: string[]) => {

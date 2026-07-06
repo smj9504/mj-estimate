@@ -32,6 +32,7 @@ import {
   ClockCircleOutlined
 } from '@ant-design/icons';
 import waterMitigationService from '../../services/waterMitigationService';
+import api from '../../services/api';
 import dayjs from 'dayjs';
 
 const { Text, Title } = Typography;
@@ -341,7 +342,7 @@ const WaterMitigationTrashTab: React.FC<WaterMitigationTrashTabProps> = ({ jobId
                       onClick={() => toggleSelection(photo.id)}
                     >
                       <Image
-                        src={photo.storage_thumbnail_url || photo.storage_web_url || photo.thumbnail_url || `/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`}
+                        src={photo.storage_thumbnail_url || photo.storage_web_url || photo.thumbnail_url || `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`}
                         alt={photo.file_name}
                         style={{
                           position: 'absolute',

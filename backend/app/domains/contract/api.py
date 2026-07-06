@@ -676,16 +676,7 @@ def _resolve_contract_pdf(
         except Exception as e:
             logger.warning(f"Cloud download failed for {file_url}: {e}")
 
-    # Try without explicit provider (use default)
-    if not file_url.startswith('/uploads/'):
-        try:
-            from app.domains.storage.factory import StorageFactory
-            storage = StorageFactory.get_instance()
-            return storage.download(file_url)
-        except Exception:
-            pass
-
-    # Fallback to local filesystem
+    # Try local filesystem
     backend_dir = Path(__file__).resolve().parents[3]
     if file_url.startswith('/uploads/'):
         local_path = backend_dir / file_url.lstrip('/')
@@ -693,5 +684,24 @@ def _resolve_contract_pdf(
         local_path = Path(file_url)
     if local_path.exists():
         return local_path.read_bytes()
+
+    # Fallback: try configured storage provider
+    # (handles case where files were uploaded as 'local' but only exist
+    #  on cloud storage, e.g. deployed environment without /uploads/)
+    from app.core.config import settings
+    configured = settings.STORAGE_PROVIDER.lower()
+    if configured not in ('local', ''):
+        try:
+            from app.domains.storage.factory import StorageFactory
+            storage = StorageFactory.get_instance(configured)
+            # Try with file_url as-is (blob path)
+            return storage.download(file_url)
+        except Exception:
+            # Try stripping /uploads/ prefix
+            if file_url.startswith('/uploads/'):
+                try:
+                    return storage.download(file_url.lstrip('/'))
+                except Exception as e:
+                    logger.warning(f"Fallback download from {configured} failed: {e}")
 
     return None

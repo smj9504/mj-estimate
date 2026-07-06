@@ -2652,25 +2652,25 @@ async def generate_document_from_template(
         # Resolve template PDF bytes (return original, no text merge)
         import base64
 
-        backend_dir = _Path(__file__).resolve().parents[3]
         template_file_url = template.file_url or ''
-        template_pdf_bytes = None
+        template_storage = template.storage_provider or 'local'
 
-        if template_file_url.startswith('/uploads/'):
-            local_path = backend_dir / template_file_url.lstrip('/')
-            if local_path.exists():
-                with open(local_path, 'rb') as f:
-                    template_pdf_bytes = f.read()
+        # Use contract domain's resolver (handles cloud, default provider, and local fallback)
+        from app.domains.contract.api import _resolve_contract_pdf
+        template_pdf_bytes = _resolve_contract_pdf(template_file_url, template_storage)
 
         if not template_pdf_bytes:
-            storage_provider = template.storage_provider or 'local'
-            if storage_provider != 'local':
+            # Last resort: try configured storage provider (e.g. template was uploaded
+            # as 'local' but files were later migrated to GCS)
+            from app.core.config import settings as _settings
+            configured = _settings.STORAGE_PROVIDER.lower()
+            if configured != 'local' and configured != template_storage:
                 try:
                     from app.domains.storage.factory import StorageFactory
-                    storage = StorageFactory.get_instance(storage_provider)
+                    storage = StorageFactory.get_instance(configured)
                     template_pdf_bytes = storage.download(template_file_url)
                 except Exception as e:
-                    logger.error(f"Failed to download template from {storage_provider}: {e}")
+                    logger.warning(f"Fallback download from {configured} failed: {e}")
 
         if not template_pdf_bytes:
             raise HTTPException(status_code=404, detail=f"Template PDF file not found: {template_file_url}")

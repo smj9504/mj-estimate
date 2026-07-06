@@ -47,6 +47,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import waterMitigationService, { AI_CATEGORY_LABELS, AI_CATEGORY_COLORS } from '../../services/waterMitigationService';
+import api from '../../services/api';
 import { useWaterMitigationPhotos } from '../../hooks/useWaterMitigationPhotos';
 import PhotoSelectorModal from './PhotoSelectorModal';
 import type {
@@ -1107,11 +1108,11 @@ const WaterMitigationReportTab: React.FC<WaterMitigationReportTabProps> = ({
                             cover={
                               <div style={{ position: 'relative', height: 150, overflow: 'hidden' }}>
                                 <Image
-                                  src={photo.thumbnail_url || `/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`}
+                                  src={photo.thumbnail_url || `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`}
                                   alt={photo.caption || 'Photo'}
                                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                   preview={photo ? {
-                                    src: photo.preview_url || `/api/water-mitigation/photos/${photo.id}/preview?size=web`
+                                    src: photo.preview_url || `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photo.id}/preview?size=web`
                                   } : false}
                                 />
                                 <Tooltip title="Remove from section">

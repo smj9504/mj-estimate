@@ -22,6 +22,7 @@ import {
 } from 'antd';
 import { SearchOutlined, CheckCircleFilled, FilterOutlined } from '@ant-design/icons';
 import type { PhotoMetadata } from '../../types/waterMitigation';
+import api from '../../services/api';
 import { useWaterMitigationPhotos } from '../../hooks/useWaterMitigationPhotos';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 
@@ -163,7 +164,7 @@ const PhotoSelectorModal: React.FC<PhotoSelectorModalProps> = ({
       return photo.thumbnail_url;
     }
     // Fallback to preview endpoint
-    return `/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`;
+    return `${api.defaults.baseURL || ''}/api/water-mitigation/photos/${photo.id}/preview?size=thumbnail`;
   };
 
   return (

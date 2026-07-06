@@ -24,7 +24,12 @@ interface UseWaterMitigationPhotosOptions {
   categoryFilter?: string;  // Filter by category
 }
 
-const mapPhotoResponse = (photo: any): WMPhoto => ({
+const resolveUrl = (url: string | undefined, baseURL: string): string | undefined => {
+  if (!url) return undefined;
+  return url.startsWith('http') ? url : `${baseURL}${url}`;
+};
+
+const mapPhotoResponse = (photo: any, baseURL: string): WMPhoto => ({
   id: photo.id,
   file_path: photo.file_path,
   caption: photo.title || photo.caption,
@@ -33,8 +38,9 @@ const mapPhotoResponse = (photo: any): WMPhoto => ({
   captured_date: photo.captured_date,
   description: photo.description,
   // Use thumbnail_url from API (CompanyCam CDN) - fastest option
-  thumbnail_url: photo.thumbnail_url || photo.storage_thumbnail_url,
-  preview_url: photo.preview_url,
+  // Prepend baseURL for relative paths (production: backend on different domain)
+  thumbnail_url: resolveUrl(photo.thumbnail_url || photo.storage_thumbnail_url, baseURL),
+  preview_url: resolveUrl(photo.preview_url, baseURL),
 });
 
 export const useWaterMitigationPhotos = (
@@ -79,7 +85,8 @@ export const useWaterMitigationPhotos = (
         page++;
       } while (page <= totalPages);
 
-      return allItems.map(mapPhotoResponse);
+      const baseURL = api.defaults.baseURL || '';
+      return allItems.map((p) => mapPhotoResponse(p, baseURL));
     },
     staleTime: 5 * 60 * 1000,        // 5분간 신선한 데이터로 간주
     gcTime: 10 * 60 * 1000,          // 10분간 캐시 보관
