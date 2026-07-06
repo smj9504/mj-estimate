@@ -4685,6 +4685,7 @@ class SendToAdjusterRequest(BaseModel):
     subject: str
     body_html: str
     email_account_id: Optional[str] = None
+    from_address: Optional[str] = None
     selected_documents: Optional[List[str]] = None
 
 

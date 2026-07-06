@@ -812,19 +812,42 @@ class AdjusterEmailService:
     ) -> Optional[Dict[str, Any]]:
         """Create attachment dict from a WMDocument (local or cloud storage)."""
         try:
+            import os
             file_data = None
             file_path_str = doc.file_path or ''
-            storage_provider = getattr(doc, 'storage_provider', 'local') or 'local'
+            storage_file_id = getattr(doc, 'storage_file_id', None) or ''
+            storage_provider = getattr(doc, 'storage_provider', None) or ''
+
+            # Fallback to env STORAGE_PROVIDER when doc has no provider set
+            if not storage_provider:
+                storage_provider = os.getenv('STORAGE_PROVIDER', 'local').lower()
+
+            logger.info(
+                f"Attachment resolve: doc={doc.id}, provider={storage_provider}, "
+                f"file_path={file_path_str[:80]}, storage_file_id={storage_file_id[:80]}"
+            )
 
             if storage_provider != 'local':
                 # Cloud storage (GCS, GDrive, S3, etc.)
+                # Try file_path first, then storage_file_id as fallback
+                download_key = file_path_str or storage_file_id
+                if not download_key:
+                    logger.warning(f"WMDocument {doc.id}: no file_path or storage_file_id for cloud download")
+                    return None
                 try:
                     from app.domains.storage.factory import StorageFactory
                     storage = StorageFactory.get_instance()
-                    file_data = storage.download(file_path_str)
-                    logger.info(f"Downloaded WMDocument {doc.id} from {storage_provider}: {file_path_str}")
+                    file_data = storage.download(download_key)
+                    logger.info(f"Downloaded WMDocument {doc.id} from {storage_provider}: {download_key}")
                 except Exception as e:
                     logger.warning(f"Cloud download failed for WMDocument {doc.id}: {e}")
+                    # If file_path failed, try storage_file_id as fallback
+                    if download_key == file_path_str and storage_file_id and storage_file_id != file_path_str:
+                        try:
+                            file_data = storage.download(storage_file_id)
+                            logger.info(f"Fallback download succeeded with storage_file_id: {storage_file_id}")
+                        except Exception as e2:
+                            logger.warning(f"Fallback download also failed: {e2}")
             else:
                 # Local filesystem
                 local_path = Path(file_path_str)
