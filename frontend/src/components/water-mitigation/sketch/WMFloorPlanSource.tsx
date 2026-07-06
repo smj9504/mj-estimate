@@ -288,6 +288,22 @@ const WMFloorPlanSource: React.FC<WMFloorPlanSourceProps> = ({
                   </Tooltip>
                 </>
               )}
+              {onImportFromMagicPlan && (
+                <>
+                  <div style={{ width: 1, height: 20, background: '#d9d9d9' }} />
+                  <Tooltip title="Replace with a floor plan from MagicPlan">
+                    <Button
+                      size="small"
+                      icon={<CloudDownloadOutlined />}
+                      onClick={onImportFromMagicPlan}
+                      loading={isMagicPlanImporting}
+                      style={{ color: '#722ed1', borderColor: '#722ed1' }}
+                    >
+                      MagicPlan
+                    </Button>
+                  </Tooltip>
+                </>
+              )}
             </Space>
           ) : (
             // Drop zone / upload prompt

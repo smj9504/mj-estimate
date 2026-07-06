@@ -2422,7 +2422,8 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
     if (url.startsWith('http')) {
       return `${backendOrigin}${proxyPath}`;
     }
-    return url;
+    // Storage-relative path (e.g. "water-mitigation/...") — use proxy endpoint
+    return `${backendOrigin}${proxyPath}`;
   };
 
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(

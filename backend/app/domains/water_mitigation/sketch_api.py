@@ -484,6 +484,8 @@ async def preview_background_image(
                 content_type = "image/webp"
             elif file_id.endswith(".png"):
                 content_type = "image/png"
+            elif file_id.endswith(".svg"):
+                content_type = "image/svg+xml"
 
             logger.info(
                 "Serving background image for sketch %s: "

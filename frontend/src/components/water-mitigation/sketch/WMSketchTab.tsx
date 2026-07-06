@@ -55,6 +55,8 @@ import type { FloorPlanSourceType } from '../../../types/wmSketch';
 import { generateOverlayId } from './utils/wmCalculations';
 import WMFloorSelector from './WMFloorSelector';
 import WMFloorSketchEditor from './WMFloorSketchEditor';
+import MagicPlanFloorPlanSelectModal from './MagicPlanFloorPlanSelectModal';
+import type { MagicPlanFloorSelection } from './MagicPlanFloorPlanSelectModal';
 
 /**
  * Ensure all overlay elements have `id` fields.
@@ -338,42 +340,25 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
     );
   }, [activeFloorId]);
 
-  // MagicPlan floor plan import
-  const handleImportFromMagicPlan = useCallback(async () => {
+  // MagicPlan floor plan import — open modal for user selection
+  const handleOpenMagicPlanModal = useCallback(() => {
+    if (!activeFloorId) return;
+    setMpFloorPlanModal(true);
+  }, [activeFloorId]);
+
+  const handleMagicPlanFloorSelect = useCallback(async (selection: MagicPlanFloorSelection) => {
     if (!activeFloorId) return;
     setMpImporting(true);
     try {
-      // Search for MagicPlan projects matching this job
-      const searchResult = await magicPlanService.searchProjects(jobId);
-      if (!searchResult.auto_match && searchResult.candidates.length === 0) {
-        message.warning('No MagicPlan projects found for this job');
-        return;
-      }
-
-      const project = searchResult.auto_match || searchResult.candidates[0];
-      // Get floor plans
-      const floorPlans = await magicPlanService.getFloorPlans(project.project_id);
-      if (floorPlans.length === 0) {
-        message.warning('No floor plans found in MagicPlan project');
-        return;
-      }
-
-      // Find matching floor by order
-      const activeFloor = floors.find(f => f.id === activeFloorId);
-      const floorIndex = activeFloor ? activeFloor.floor_order : 0;
-
-      // Import the floor plan
-      const plan = floorPlans[0];
       const result = await magicPlanService.importFloorPlan(
         jobId,
-        project.project_id,
-        plan.plan_id,
-        floorIndex,
+        selection.projectId,
+        selection.planId,
+        selection.floorIndex,
         activeFloorId,
       );
 
       if (result.success && result.image_url) {
-        // Update local state with the new background image
         setFloors((prev) =>
           prev.map((f) =>
             f.id === activeFloorId
@@ -381,7 +366,8 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
               : f
           )
         );
-        message.success(`Floor plan imported: ${result.floor_label || 'Floor'}`);
+        message.success(`Floor plan imported: ${selection.floorName}`);
+        setMpFloorPlanModal(false);
       } else {
         message.error(result.error_message || 'Failed to import floor plan');
       }
@@ -390,7 +376,7 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
     } finally {
       setMpImporting(false);
     }
-  }, [activeFloorId, jobId, floors]);
+  }, [activeFloorId, jobId]);
 
   const handleScaleChanged = useCallback(
     async (scalePixelsPerFoot: number) => {
@@ -640,7 +626,7 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
             onImageUploaded={handleImageUploaded}
             onImageRemoved={handleImageRemoved}
             onScaleChanged={handleScaleChanged}
-            onImportFromMagicPlan={handleImportFromMagicPlan}
+            onImportFromMagicPlan={handleOpenMagicPlanModal}
             isMagicPlanImporting={mpImporting}
           />
         ) : (
@@ -659,6 +645,16 @@ const WMSketchTab: React.FC<WMSketchTabProps> = ({ jobId, jobAddress, isActive }
           </div>
         )}
       </div>
+
+      {/* MagicPlan floor plan selection modal */}
+      <MagicPlanFloorPlanSelectModal
+        open={mpFloorPlanModal}
+        onClose={() => setMpFloorPlanModal(false)}
+        onSelect={handleMagicPlanFloorSelect}
+        jobId={jobId}
+        currentFloorLabel={activeFloor?.floor_label || 'Current Floor'}
+        loading={mpImporting}
+      />
     </div>
   );
 };

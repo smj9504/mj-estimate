@@ -2909,44 +2909,62 @@ def generate_water_mitigation_report_pdf(
                margin + 2.5 * inch, y_position)
         y_position -= 0.25 * inch
 
-        # Two-column job info table
+        # Two-column job info — draw as label/value pairs stacked vertically per column
         if job_info:
             # Split into two columns
             mid = (len(job_info) + 1) // 2
             col1 = job_info[:mid]
             col2 = job_info[mid:]
+
+            # Use Paragraph for automatic text wrapping (Courier is wide)
+            label_style = ParagraphStyle(
+                'info_label_b', fontName=FONT_BODY_BOLD, fontSize=9,
+                textColor=COLOR_DARK_GRAY, leading=12,
+            )
+            value_style = ParagraphStyle(
+                'info_value_b', fontName=FONT_BODY, fontSize=10,
+                textColor=COLOR_DARK_GRAY, leading=13,
+            )
+
             max_rows = max(len(col1), len(col2))
             table_data = []
+            content_width = page_width - 2 * margin
+            col_gap = 0.3 * inch
+            half_width = (content_width - col_gap) / 2
+            label_w = half_width * 0.42
+            value_w = half_width * 0.58
+
             for i in range(max_rows):
                 row = []
                 if i < len(col1):
-                    row += [col1[i][0], col1[i][1]]
+                    row.append(Paragraph(col1[i][0], label_style))
+                    row.append(Paragraph(col1[i][1], value_style))
                 else:
                     row += ['', '']
                 if i < len(col2):
-                    row += [col2[i][0], col2[i][1]]
+                    row.append(Paragraph(col2[i][0], label_style))
+                    row.append(Paragraph(col2[i][1], value_style))
                 else:
                     row += ['', '']
                 table_data.append(row)
 
             table = Table(table_data, colWidths=[
-                1.8 * inch, 2 * inch, 1.8 * inch, 2 * inch
-            ])
+                label_w, value_w, label_w, value_w,
+            ], spaceBefore=0, spaceAfter=0)
             table.setStyle(TableStyle([
-                ('FONT', (0, 0), (0, -1), FONT_BODY_BOLD, 9),
-                ('FONT', (1, 0), (1, -1), FONT_BODY, 10),
-                ('FONT', (2, 0), (2, -1), FONT_BODY_BOLD, 9),
-                ('FONT', (3, 0), (3, -1), FONT_BODY, 10),
                 ('TEXTCOLOR', (0, 0), (-1, -1), COLOR_DARK_GRAY),
                 ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                 ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('TOPPADDING', (0, 0), (-1, -1), 5),
                 ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
                 ('LEFTPADDING', (0, 0), (-1, -1), 0),
-                ('LINEBELOW', (0, 0), (-1, -1), 0.3,
+                ('LEFTPADDING', (2, 0), (2, -1), col_gap),
+                ('LINEBELOW', (0, 0), (1, -1), 0.3,
+                 COLOR_VERY_LIGHT_GRAY),
+                ('LINEBELOW', (2, 0), (3, -1), 0.3,
                  COLOR_VERY_LIGHT_GRAY),
             ]))
-            tw, th = table.wrapOn(c, page_width, page_height)
+            tw, th = table.wrapOn(c, content_width, page_height)
             table.drawOn(c, margin, y_position - th)
             y_position -= th + 0.2 * inch
 
@@ -3246,7 +3264,7 @@ def generate_water_mitigation_report_pdf(
                     summary_lines = _wrap_lines(
                         section_summary, max_chars=100
                     )
-                    y_pos = page_height - margin - 0.5 * inch
+                    y_pos = page_height - margin - 0.65 * inch
                     for line in summary_lines[:3]:
                         if line:
                             c.drawString(margin, y_pos, line)
@@ -3384,7 +3402,17 @@ def generate_water_mitigation_report_pdf(
                         c.drawString(date_x + date_padding, date_y + 3, date_text)
 
                     # Caption below image (centered under the image)
+                    # Skip filename-like captions (UUIDs, raw filenames)
                     caption_text = photo_item.get('caption', '') or photo_item.get('description', '')
+                    if caption_text:
+                        import re
+                        _is_filename = bool(re.match(
+                            r'^[0-9a-fA-F\-]{20,}\.\w{2,4}$', caption_text.strip()
+                        )) or bool(re.match(
+                            r'^.+\.(jpg|jpeg|png|gif|bmp|webp|tiff?)$', caption_text.strip(), re.IGNORECASE
+                        ))
+                        if _is_filename:
+                            caption_text = ''
                     if caption_text:
                         c.setFillColor(colors.HexColor(style["color_black"]))
                         c.setFont(FONT_BODY, 8)
