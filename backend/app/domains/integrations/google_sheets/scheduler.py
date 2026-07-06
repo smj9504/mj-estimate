@@ -2,8 +2,8 @@
 Google Sheets 자동 동기화 스케줄러
 
 스케줄 전략:
-- 미국 시간 오전 9시 ~ 오후 6시 (근무 시간): 15분마다 동기화
-- 그 외 시간 (비근무 시간): 3시간마다 동기화
+- 미국 시간 오전 9시 ~ 오후 6시 (근무 시간): 60분마다 동기화
+- 그 외 시간 (비근무 시간): 6시간마다 동기화
 """
 
 from apscheduler.triggers.interval import IntervalTrigger
@@ -34,8 +34,8 @@ def is_business_hours() -> bool:
 async def sync_google_sheets_job():
     """
     정기 동기화 작업 (백그라운드 실행)
-    - 근무 시간 (9am-6pm ET): 15분마다
-    - 비근무 시간: 3시간마다
+    - 근무 시간 (9am-6pm ET): 1시간마다
+    - 비근무 시간: 6시간마다
 
     Note: asyncio.create_task()로 백그라운드 실행하여 API 블로킹 방지
     """
@@ -49,7 +49,7 @@ async def sync_google_sheets_job():
     import asyncio
     asyncio.create_task(_run_sync_in_background(is_business))
 
-    schedule_type = "business hours (15min)" if is_business else "off-hours (180min)"
+    schedule_type = "business hours (60min)" if is_business else "off-hours (360min)"
     logger.info(f"Google Sheets sync task started in background [{schedule_type}]")
 
     # 다음 실행 스케줄 조정 (동적 변경)
@@ -65,7 +65,7 @@ async def _run_sync_in_background(is_business: bool):
     """
     try:
         us_time = datetime.now(US_EASTERN_TZ)
-        schedule_type = "business hours (15min)" if is_business else "off-hours (3hr)"
+        schedule_type = "business hours (1hr)" if is_business else "off-hours (6hr)"
         sheet_names = settings.water_mitigation_sheet_names
         am_pm = "PM" if us_time.hour >= 12 else "AM"
         logger.info(
@@ -109,11 +109,11 @@ async def _run_sync_in_background(is_business: bool):
 def _update_schedule_if_needed():
     """
     시간대 변화에 따라 스케줄 동적 업데이트
-    - 근무 시간 전환: 15분 간격
-    - 비근무 시간 전환: 180분 간격
+    - 근무 시간 전환: 60분 간격
+    - 비근무 시간 전환: 360분 간격
     """
     is_business = is_business_hours()
-    interval_minutes = 15 if is_business else 180
+    interval_minutes = 60 if is_business else 360
 
     # 기존 job 가져오기
     existing_job = scheduler.get_job('google_sheets_sync')
@@ -126,15 +126,15 @@ def _update_schedule_if_needed():
                 'google_sheets_sync',
                 trigger=IntervalTrigger(minutes=interval_minutes)
             )
-            schedule_type = "business hours (15min)" if is_business else "off-hours (180min)"
+            schedule_type = "business hours (60min)" if is_business else "off-hours (360min)"
             logger.info(f"Schedule updated to {schedule_type}")
 
 
 def start_scheduler():
     """
     스케줄러 시작
-    - 근무 시간 (9am-6pm ET): 15분마다 동기화
-    - 비근무 시간: 3시간(180분)마다 동기화
+    - 근무 시간 (9am-6pm ET): 60분마다 동기화
+    - 비근무 시간: 6시간(360분)마다 동기화
     - 시간대 전환 시 자동으로 간격 조정
     """
     if not settings.GOOGLE_SHEETS_WATER_MITIGATION_ID:
@@ -143,7 +143,7 @@ def start_scheduler():
 
     # 초기 실행 간격 결정
     is_business = is_business_hours()
-    initial_interval = 15 if is_business else 180
+    initial_interval = 60 if is_business else 360
 
     scheduler.add_job(
         sync_google_sheets_job,
@@ -156,7 +156,7 @@ def start_scheduler():
     us_time = datetime.now(US_EASTERN_TZ)
     tz_name = us_time.tzname() or "ET"
     am_pm = "PM" if us_time.hour >= 12 else "AM"
-    schedule_info = "15min interval" if is_business else "180min interval"
+    schedule_info = "60min interval" if is_business else "360min interval"
     logger.info(
         f"Google Sheets sync job registered - "
         f"US Time: {us_time.strftime('%I:%M')} {am_pm} {tz_name}, "

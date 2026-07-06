@@ -81,6 +81,7 @@ export interface WMOverlayLayerProps {
   onWallDragEnd?: (wallId: string, dx: number, dy: number) => void;
   onRoomDragEnd?: (roomId: string, dx: number, dy: number) => void;
   onRoomVertexDrag?: (roomId: string, vertexIndex: number, x: number, y: number) => void;
+  onFlipShape?: (id: string) => void;
   /** Hide all overlay elements except walls and rooms (floor plan edit mode) */
   hideOverlays?: boolean;
 
@@ -166,6 +167,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
   onWallDragEnd,
   onRoomDragEnd,
   onRoomVertexDrag,
+  onFlipShape,
   hideOverlays,
   polygonPreviewPoints,
   polygonPreviewCursor,
@@ -456,7 +458,7 @@ const WMOverlayLayer: React.FC<WMOverlayLayerProps> = ({
           case 'shape': {
             const s = shapeMap.get(item.id);
             return s ? (
-              <WMShapeRenderer key={s.id} shape={s} isSelected={isSelected(s.id)} onSelect={selectShapeHandler} onDragEnd={dragShapeHandler} onTransformEnd={transformShapeHandler} />
+              <WMShapeRenderer key={s.id} shape={s} isSelected={isSelected(s.id)} onSelect={selectShapeHandler} onDragEnd={dragShapeHandler} onTransformEnd={transformShapeHandler} onFlip={onFlipShape} />
             ) : null;
           }
           case 'text': {

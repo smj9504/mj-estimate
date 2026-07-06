@@ -21,6 +21,7 @@ export interface WMShapeRendererProps {
   onSelect: (id: string, ctrlKey?: boolean) => void;
   onDragEnd: (id: string, x: number, y: number) => void;
   onTransformEnd?: (id: string, width: number, height: number, rotation?: number) => void;
+  onFlip?: (id: string) => void;
 }
 
 const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
@@ -29,6 +30,7 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
   onSelect,
   onDragEnd,
   onTransformEnd,
+  onFlip,
 }) => {
   const groupRef = useRef<Konva.Group>(null);
   const shapeNodeRef = useRef<Konva.Rect | Konva.Ellipse>(null);
@@ -74,6 +76,12 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
     },
     [shape.id, onSelect],
   );
+
+  const handleDblClick = useCallback(() => {
+    if (shape.preset_id === 'door' && onFlip) {
+      onFlip(shape.id);
+    }
+  }, [shape.id, shape.preset_id, onFlip]);
 
   const handleDragEnd = useCallback(
     (e: Konva.KonvaEventObject<DragEvent>) => {
@@ -240,6 +248,8 @@ const WMShapeRenderer: React.FC<WMShapeRendererProps> = ({
         draggable
         onClick={handleClick}
         onTap={handleClick}
+        onDblClick={handleDblClick}
+        onDblTap={handleDblClick}
         onDragEnd={handleDragEnd}
       >
         {shape.shape_type === 'circle' ? (

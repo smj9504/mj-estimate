@@ -2892,6 +2892,10 @@ const WMFloorSketchEditor: React.FC<WMFloorSketchEditorProps> = ({
                 onMoveGroup={moveDemolitionGroup}
                 onRotateGroup={rotateDemolitionGroup}
                 hideOverlays={hideOverlays}
+                onFlipShape={(id) => {
+                  const s = (state.overlayData.shapes ?? []).find((sh) => sh.id === id);
+                  if (s) updateShape({ id, flip_x: !s.flip_x });
+                }}
                 polygonPreviewPoints={polygonDrawPoints.length > 0 ? polygonDrawPoints : undefined}
                 polygonPreviewCursor={polygonDrawCursor}
                 wallPreview={
