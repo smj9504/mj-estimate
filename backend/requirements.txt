@@ -1,6 +1,6 @@
 # FastAPI and dependencies
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+fastapi==0.115.14
+uvicorn[standard]==0.34.3
 python-multipart==0.0.6
 pydantic==2.9.2  # Updated for better Python 3.12/3.13 compatibility with pre-built wheels
 pydantic-settings==2.1.0
@@ -32,7 +32,7 @@ python-dateutil==2.8.2  # Flexible date parsing for various input formats
 
 # AI/ML - Photo Analysis
 openai==1.54.0  # OpenAI GPT-4 Vision for room photo analysis
-google-genai>=1.14.0  # Gemini Vision for water mitigation photo classification (>=1.14 for ThinkingConfig)
+# google-genai removed — using Gemini REST API directly via httpx (saves ~50MB memory)
 
 # Google Drive Integration
 google-auth==2.23.4

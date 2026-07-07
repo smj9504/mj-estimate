@@ -22,6 +22,7 @@ Cost optimization:
 - Cache layer avoids duplicate API calls
 """
 
+import base64
 import io
 import json
 import logging
@@ -29,9 +30,13 @@ import re
 from datetime import datetime
 from typing import Optional
 
+import httpx
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+
+# Gemini REST API endpoint
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 logger = logging.getLogger(__name__)
 
@@ -508,24 +513,67 @@ def validate_and_correct(ai_result: dict) -> dict:
 
 
 class AIClassificationService:
-    """AI Photo Classification Service using Gemini Vision API."""
+    """AI Photo Classification Service using Gemini Vision REST API (no SDK)."""
 
     def __init__(self):
         self.enabled = settings.ENABLE_AI_PHOTO_CLASSIFICATION
         self.api_key = settings.GEMINI_API_KEY
         self.model_name = settings.GEMINI_MODEL
-        self._client = None
 
-    def _get_client(self):
-        """Lazy load Gemini client (new google-genai SDK)."""
-        if self._client is None:
-            if not self.api_key:
-                raise ValueError("GEMINI_API_KEY is not configured")
+    async def _call_gemini(
+        self,
+        prompt: str,
+        image_data: bytes,
+        mime_type: str = "image/jpeg",
+        max_output_tokens: int = 1024,
+    ) -> str:
+        """Call Gemini REST API directly with httpx (no SDK needed)."""
+        if not self.api_key:
+            raise ValueError("GEMINI_API_KEY is not configured")
 
-            from google import genai
-            self._client = genai.Client(api_key=self.api_key)
+        url = f"{GEMINI_API_URL}/{self.model_name}:generateContent?key={self.api_key}"
 
-        return self._client
+        image_b64 = base64.b64encode(image_data).decode("utf-8")
+
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt},
+                        {
+                            "inlineData": {
+                                "mimeType": mime_type,
+                                "data": image_b64,
+                            }
+                        },
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.1,
+                "maxOutputTokens": max_output_tokens,
+                "responseMimeType": "application/json",
+                "thinkingConfig": {"thinkingBudget": 0},
+            },
+        }
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+
+        data = resp.json()
+
+        # Extract text from response
+        candidates = data.get("candidates", [])
+        if not candidates:
+            raise ValueError(f"No candidates in Gemini response: {data}")
+
+        parts = candidates[0].get("content", {}).get("parts", [])
+        for part in parts:
+            if "text" in part:
+                return part["text"].strip()
+
+        raise ValueError(f"No text in Gemini response parts: {parts}")
 
     async def classify_photo(
         self,
@@ -535,7 +583,7 @@ class AIClassificationService:
         """
         Classify a single photo using Gemini Vision API.
 
-        Images are resized to 1024px max before sending to reduce costs.
+        Images are resized to 1280px max before sending to reduce costs.
         """
         if not self.enabled:
             return {
@@ -546,43 +594,15 @@ class AIClassificationService:
             }
 
         try:
-            client = self._get_client()
-
             # Resize image (1280px for better meter LCD reading accuracy)
             resized_data, resized_mime = _resize_image(image_data, max_size=1280)
 
-            from google.genai import types
-
-            image_part = types.Part.from_bytes(
-                data=resized_data,
+            response_text = await self._call_gemini(
+                prompt=CLASSIFICATION_PROMPT,
+                image_data=resized_data,
                 mime_type=resized_mime,
-            )
-
-            # Call Gemini Vision API
-            # thinking_budget=0: gemini-2.5-flash is a thinking model;
-            #   without this, thinking tokens consume output budget
-            #   and thinking text can leak into response.text
-            # response_mime_type: forces valid JSON output
-            config_kwargs = dict(
-                temperature=0.1,
                 max_output_tokens=1024,
-                response_mime_type="application/json",
             )
-            try:
-                config_kwargs["thinking_config"] = types.ThinkingConfig(
-                    thinking_budget=0
-                )
-            except (TypeError, Exception):
-                pass  # older google-genai SDK without ThinkingConfig support
-
-            response = client.models.generate_content(
-                model=self.model_name,
-                contents=[CLASSIFICATION_PROMPT, image_part],
-                config=types.GenerateContentConfig(**config_kwargs),
-            )
-
-            # Parse response
-            response_text = response.text.strip()
 
             ai_result = _parse_json_response(response_text)
 
@@ -672,41 +692,17 @@ class AIClassificationService:
         Returns verification result or None on failure.
         """
         try:
-            client = self._get_client()
-
             # Higher resolution for better surface detail
             resized_data, resized_mime = _resize_image(
                 image_data, max_size=1536
             )
 
-            from google.genai import types
-
-            image_part = types.Part.from_bytes(
-                data=resized_data,
+            response_text = await self._call_gemini(
+                prompt=METER_VERIFICATION_PROMPT,
+                image_data=resized_data,
                 mime_type=resized_mime,
-            )
-
-            config_kwargs = dict(
-                temperature=0.1,
                 max_output_tokens=512,
-                response_mime_type="application/json",
             )
-            try:
-                config_kwargs["thinking_config"] = types.ThinkingConfig(
-                    thinking_budget=0
-                )
-            except (TypeError, Exception):
-                pass
-
-            response = client.models.generate_content(
-                model=self.model_name,
-                contents=[
-                    METER_VERIFICATION_PROMPT, image_part
-                ],
-                config=types.GenerateContentConfig(**config_kwargs),
-            )
-
-            response_text = response.text.strip()
 
             return _parse_json_response(response_text)
 
