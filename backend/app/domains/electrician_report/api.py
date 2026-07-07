@@ -22,12 +22,44 @@ from app.domains.electrician_report.schemas import (
     ElectricianReportNumberResponse
 )
 from app.domains.electrician_report.service import ElectricianReportService
+from app.domains.electrician_report.ai_service import generate_electrician_report
 from app.common.services.pdf_service import PDFService
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class AIGenerateRequest(PydanticBaseModel):
+    affected_items: list = []
+    water_source: str = ""
+    state: str = "MD"
+    total_amount: str = ""
+    mitigation_status: str = "completed"
+    drywall_cuts: str = ""
+    additional_context: str = ""
+    photos: list = []  # list of {category, caption, location}
+
+
+@router.post("/generate-ai")
+async def generate_ai_report(request: AIGenerateRequest):
+    result = generate_electrician_report(
+        affected_items=request.affected_items,
+        water_source=request.water_source,
+        state=request.state,
+        total_amount=request.total_amount,
+        mitigation_status=request.mitigation_status,
+        drywall_cuts=request.drywall_cuts,
+        additional_context=request.additional_context,
+        photos=request.photos,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=500,
+            detail="AI report generation failed. Please try again or use manual entry."
+        )
+    return result
 
 
 @router.get("/generate-number", response_model=ElectricianReportNumberResponse)

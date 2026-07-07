@@ -20,6 +20,7 @@ import {
   Tooltip,
   Popconfirm,
   Spin,
+  Tag,
 } from 'antd';
 import {
   PlusOutlined,
@@ -85,6 +86,40 @@ const { Title, Text } = Typography;
 const { TextArea } = Input;
 const { Option } = Select;
 
+const ELECTRICAL_ITEM_OPTIONS = [
+  { label: '💡 Recessed light (can/pot)', value: 'Recessed light' },
+  { label: '💡 Canless recessed light', value: 'Canless recessed light' },
+  { label: '💡 Flush-mount ceiling light', value: 'Flush-mount ceiling light' },
+  { label: '💡 Wrap light', value: 'Wrap light' },
+  { label: '💡 Pendant light', value: 'Pendant light' },
+  { label: '💡 Chandelier', value: 'Chandelier' },
+  { label: '💡 Vanity light', value: 'Vanity light' },
+  { label: '💡 Under-cabinet light', value: 'Under-cabinet light' },
+  { label: '🔌 Outlet', value: 'Outlet' },
+  { label: '🔌 GFCI outlet', value: 'GFCI outlet' },
+  { label: '🔌 Light switch', value: 'Light switch' },
+  { label: '🔌 Dimmer switch', value: 'Dimmer switch' },
+  { label: '🌀 Ceiling fan w/ light', value: 'Ceiling fan w/ light' },
+  { label: '🌀 Exhaust fan (bath)', value: 'Exhaust fan' },
+  { label: '🔔 Smoke detector', value: 'Smoke detector' },
+  { label: '🔔 CO detector', value: 'CO detector' },
+  { label: '🌡️ Thermostat', value: 'Thermostat' },
+];
+
+type PromptItem = { name: string; qty: number };
+type PromptAffectedArea = { area: string; items: PromptItem[] };
+type PromptPhotoDesc = { description: string };
+type PromptInputsType = {
+  affected_items: PromptAffectedArea[];
+  water_source: string;
+  state: string;
+  total_amount: string;
+  mitigation_status: string;
+  drywall_cuts: string;
+  photo_descriptions: PromptPhotoDesc[];
+  additional_context: string;
+};
+
 const ElectricianReportCreation: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
@@ -111,17 +146,45 @@ const ElectricianReportCreation: React.FC = () => {
 
   // Prompt modal state
   const [promptModalVisible, setPromptModalVisible] = useState(false);
-  const [promptInputs, setPromptInputs] = useState({
-    affected_items: [{ area: '', items: '' }] as { area: string; items: string }[],
-    water_source: '',
-    state: 'MD',
-    total_amount: '',
-    mitigation_status: 'completed',
-    smoke_detectors: '',
-    drywall_cuts: '',
-    photo_description: '',
-    additional_context: '',
+  const promptStorageKey = `electrician_prompt_${id || 'new'}`;
+  const [promptInputs, setPromptInputs] = useState<PromptInputsType>(() => {
+    try {
+      const saved = localStorage.getItem(promptStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Migrate old format: items was string, now is array of {name, qty}
+        if (parsed.affected_items?.[0] && typeof parsed.affected_items[0].items === 'string') {
+          parsed.affected_items = parsed.affected_items.map((a: { area: string; items: string }) => ({
+            area: a.area,
+            items: [] as PromptItem[],
+          }));
+        }
+        // Migrate old format: photo_description (string) → photo_descriptions (array)
+        if (parsed.photo_description !== undefined && !parsed.photo_descriptions) {
+          parsed.photo_descriptions = parsed.photo_description ? [{ description: parsed.photo_description }] : [{ description: '' }];
+          delete parsed.photo_description;
+        }
+        // Migrate old format: remove smoke_detectors field
+        if (parsed.smoke_detectors !== undefined) {
+          delete parsed.smoke_detectors;
+        }
+        return parsed;
+      }
+    } catch { /* ignore */ }
+    return {
+      affected_items: [{ area: '', items: [] }],
+      water_source: '',
+      state: 'MD',
+      total_amount: '',
+      mitigation_status: 'completed',
+      drywall_cuts: '',
+      photo_descriptions: [{ description: '' }],
+      additional_context: '',
+    };
   });
+  useEffect(() => {
+    localStorage.setItem(promptStorageKey, JSON.stringify(promptInputs));
+  }, [promptInputs, promptStorageKey]);
   const [jsonPasteModalVisible, setJsonPasteModalVisible] = useState(false);
   const [jsonPasteValue, setJsonPasteValue] = useState('');
 
@@ -918,93 +981,121 @@ const ElectricianReportCreation: React.FC = () => {
     }
   };
 
-  const handleJsonImport = useCallback(() => {
-    try {
-      const data = JSON.parse(jsonPasteValue);
+  // AI generation state
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
 
-      // Convert \n to <br> for rich text fields
-      const nl2br = (text: string) => text.replace(/\n/g, '<br>');
+  // Shared logic: apply AI/JSON data to form
+  const applyAIData = useCallback((data: any) => {
+    const nl2br = (text: string) => text.replace(/\n/g, '<br>');
 
-      // Cause of Damage / Site Findings
-      if (data.site_findings) setSiteFindings(nl2br(data.site_findings));
-      if (data.cause_of_damage) setSiteFindings(nl2br(data.cause_of_damage));
+    if (data.site_findings) setSiteFindings(nl2br(data.site_findings));
+    if (data.cause_of_damage) setSiteFindings(nl2br(data.cause_of_damage));
+    if (data.electrical_findings) setElectricalFindings(nl2br(data.electrical_findings));
+    if (data.safety_concerns) setSafetyConcerns(nl2br(data.safety_concerns));
+    if (data.code_violations) setCodeViolations(nl2br(data.code_violations));
+    if (data.recommendations) form.setFieldsValue({ recommendations: nl2br(data.recommendations) });
+    if (data.technician_name) form.setFieldsValue({ technician_name: data.technician_name });
+    if (data.license_number) form.setFieldsValue({ license_number: data.license_number });
 
-      // Electrical-specific fields
-      if (data.electrical_findings) setElectricalFindings(nl2br(data.electrical_findings));
-      if (data.safety_concerns) setSafetyConcerns(nl2br(data.safety_concerns));
-      if (data.code_violations) setCodeViolations(nl2br(data.code_violations));
-      if (data.recommendations) form.setFieldsValue({ recommendations: nl2br(data.recommendations) });
+    const quoteData = data.quote_items || data.invoice_items;
+    if (quoteData && Array.isArray(quoteData)) {
+      const items: InvoiceItem[] = quoteData.map((item: any) => ({
+        id: crypto.randomUUID(),
+        name: item.name || '',
+        description: item.description || '',
+        quantity: item.quantity || 1,
+        unit: item.unit || 'EA',
+        unit_cost: item.unit_cost || 0,
+        total_cost: (item.quantity || 1) * (item.unit_cost || 0),
+      }));
+      setInvoiceItems(items);
+    }
 
-      // Work Performed
-      if (data.work_performed) setWorkPerformed(nl2br(data.work_performed));
+    if (data.tax_amount !== undefined) form.setFieldsValue({ tax_amount: data.tax_amount });
+    if (data.discount !== undefined) form.setFieldsValue({ discount: data.discount });
 
-      // Technician
-      if (data.technician_name) form.setFieldsValue({ technician_name: data.technician_name });
-      if (data.license_number) form.setFieldsValue({ license_number: data.license_number });
-
-      // Invoice items
-      if (data.invoice_items && Array.isArray(data.invoice_items)) {
-        const items: InvoiceItem[] = data.invoice_items.map((item: any) => ({
-          id: crypto.randomUUID(),
-          name: item.name || '',
-          description: item.description || '',
-          quantity: item.quantity || 1,
-          unit: item.unit || 'EA',
-          unit_cost: item.unit_cost || 0,
-          total_cost: (item.quantity || 1) * (item.unit_cost || 0),
-        }));
-        setInvoiceItems(items);
-      }
-
-      // Financial
-      if (data.tax_amount !== undefined) form.setFieldsValue({ tax_amount: data.tax_amount });
-      if (data.discount !== undefined) form.setFieldsValue({ discount: data.discount });
-
-      // Inspection checklist
-      if (data.inspection_checklist && Array.isArray(data.inspection_checklist)) {
-        // AI returns checklist → merge with default (update status/note by matching label)
-        const merged = JSON.parse(JSON.stringify(DEFAULT_INSPECTION_CHECKLIST)) as ChecklistSection[];
-        for (const aiSection of data.inspection_checklist) {
-          const matchedSection = merged.find(
-            (s) => s.title.toLowerCase() === (aiSection.title || '').toLowerCase()
-          );
-          if (matchedSection && Array.isArray(aiSection.items)) {
-            for (const aiItem of aiSection.items) {
-              const matchedItem = matchedSection.items.find(
-                (i) => i.label.toLowerCase() === (aiItem.label || '').toLowerCase()
-              );
-              if (matchedItem) {
-                if (aiItem.status) {
-                  // Map legacy/alt codes
-                  const statusMap: Record<string, string> = {
-                    'NOT_INSPECTED': 'N/A', 'C1': 'DEFICIENT', 'C2': 'DEFICIENT', 'C3': 'OK', 'FI': 'N/A',
-                  };
-                  matchedItem.status = (statusMap[aiItem.status] || aiItem.status) as RiskCode;
-                }
-                if (aiItem.note) matchedItem.note = aiItem.note;
+    if (data.inspection_checklist && Array.isArray(data.inspection_checklist)) {
+      const merged = JSON.parse(JSON.stringify(DEFAULT_INSPECTION_CHECKLIST)) as ChecklistSection[];
+      for (const aiSection of data.inspection_checklist) {
+        const matchedSection = merged.find(
+          (s) => s.title.toLowerCase() === (aiSection.title || '').toLowerCase()
+        );
+        if (matchedSection && Array.isArray(aiSection.items)) {
+          for (const aiItem of aiSection.items) {
+            const matchedItem = matchedSection.items.find(
+              (i) => i.label.toLowerCase() === (aiItem.label || '').toLowerCase()
+            );
+            if (matchedItem) {
+              if (aiItem.status) {
+                const statusMap: Record<string, string> = {
+                  'NOT_INSPECTED': 'N/A', 'C1': 'DEFICIENT', 'C2': 'DEFICIENT', 'C3': 'OK', 'FI': 'N/A',
+                };
+                matchedItem.status = (statusMap[aiItem.status] || aiItem.status) as RiskCode;
               }
+              if (aiItem.note) matchedItem.note = aiItem.note;
             }
           }
         }
-        setInspectionChecklist(merged);
       }
+      setInspectionChecklist(merged);
+    }
 
-      // Overall assessment & scope
-      if (data.overall_assessment) setOverallAssessment(data.overall_assessment);
-      if (data.extent_and_limitations) setExtentAndLimitations(data.extent_and_limitations);
+    if (data.overall_assessment) setOverallAssessment(data.overall_assessment);
+    if (data.extent_and_limitations) setExtentAndLimitations(data.extent_and_limitations);
+    if (data.warranty_info) setWarrantyInfo(nl2br(data.warranty_info));
+    if (data.terms_conditions) setTermsConditions(nl2br(data.terms_conditions));
+    if (data.notes) setNotes(nl2br(data.notes));
+  }, [form]);
 
-      // Warranty / Terms / Notes
-      if (data.warranty_info) setWarrantyInfo(nl2br(data.warranty_info));
-      if (data.terms_conditions) setTermsConditions(nl2br(data.terms_conditions));
-      if (data.notes) setNotes(nl2br(data.notes));
-
+  const handleJsonImport = useCallback(() => {
+    try {
+      const data = JSON.parse(jsonPasteValue);
+      applyAIData(data);
       setJsonPasteModalVisible(false);
       setJsonPasteValue('');
       message.success('JSON data imported successfully');
     } catch {
       message.error('Invalid JSON format. Please check and try again.');
     }
-  }, [jsonPasteValue, form]);
+  }, [jsonPasteValue, applyAIData]);
+
+  const handleAIGenerate = useCallback(async () => {
+    const p = promptInputs as PromptInputsType;
+    if (!p.affected_items.some((i: PromptAffectedArea) => i.area.trim())) {
+      message.warning('Please add at least one affected area.');
+      return;
+    }
+    setIsGeneratingAI(true);
+    try {
+      const photoDescriptions = photos
+        .filter(ph => ph.caption || ph.location)
+        .map(ph => ({
+          category: ph.category || 'damage',
+          caption: ph.caption || '',
+          location: ph.location || '',
+        }));
+      const result = await electricianReportService.generateAI({
+        affected_items: p.affected_items
+          .filter((i: PromptAffectedArea) => i.area.trim())
+          .map((i: PromptAffectedArea) => ({ area: i.area, items: i.items })),
+        water_source: p.water_source,
+        state: p.state,
+        total_amount: p.total_amount,
+        mitigation_status: p.mitigation_status,
+        drywall_cuts: p.drywall_cuts,
+        additional_context: p.additional_context,
+        ...(photoDescriptions.length > 0 && { photos: photoDescriptions }),
+      });
+      applyAIData(result);
+      setPromptModalVisible(false);
+      message.success('AI report generated and applied successfully!');
+    } catch (error: any) {
+      console.error('AI generation failed:', error);
+      message.error(error?.response?.data?.detail || 'AI generation failed. Please try again.');
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  }, [promptInputs, applyAIData]);
 
   const totals = calculateTotals();
 
@@ -1022,7 +1113,17 @@ const ElectricianReportCreation: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={2} style={{ margin: 0 }}>{id ? 'Edit' : 'Create'} Electrical Inspection Report</Title>
         <Space>
-          <Tooltip title="Import AI JSON Result">
+          <Tooltip title="Generate report from job details using AI">
+            <Button
+              icon={<RobotOutlined />}
+              onClick={() => setPromptModalVisible(true)}
+              size="small"
+              type="primary"
+            >
+              AI Generate
+            </Button>
+          </Tooltip>
+          <Tooltip title="Import JSON manually">
             <Button
               icon={<FileTextOutlined />}
               onClick={() => setJsonPasteModalVisible(true)}
@@ -1030,14 +1131,6 @@ const ElectricianReportCreation: React.FC = () => {
             >
               Import JSON
             </Button>
-          </Tooltip>
-          <Tooltip title="AI Prompt Template">
-            <Button
-              icon={<RobotOutlined />}
-              onClick={() => setPromptModalVisible(true)}
-              size="small"
-              type="text"
-            />
           </Tooltip>
         </Space>
       </div>
@@ -1626,21 +1719,13 @@ const ElectricianReportCreation: React.FC = () => {
                 />
               </Form.Item>
 
-              <Form.Item label="Work Performed">
-                <RichTextEditor
-                  value={workPerformed}
-                  onChange={setWorkPerformed}
-                  placeholder="Describe the electrical work performed..."
-                  minHeight={150}
-                />
-              </Form.Item>
             </Card>
           </Col>
 
-          {/* Invoice Items */}
+          {/* Repair Quote Items */}
           <Col xs={24}>
             <Card
-              title="Invoice Items"
+              title="Repair Quote"
               style={{ marginBottom: 24 }}
               extra={
                 <Button
@@ -1803,7 +1888,7 @@ const ElectricianReportCreation: React.FC = () => {
 
           {/* Financial Summary & Payments */}
           <Col xs={24} lg={12}>
-            <Card title="Invoice Summary" style={{ marginBottom: 24 }}>
+            <Card title="Quote Summary" style={{ marginBottom: 24 }}>
               <Row gutter={16}>
                 <Col span={12}>
                   <Form.Item name="tax_amount" label="Tax Amount">
@@ -1855,71 +1940,6 @@ const ElectricianReportCreation: React.FC = () => {
             </Card>
           </Col>
 
-          <Col xs={24} lg={12}>
-            <Card 
-              title={
-                <Space>
-                  <span>Payment Records</span>
-                  <Switch
-                    size="small"
-                    checked={showPaymentDates}
-                    onChange={setShowPaymentDates}
-                    checkedChildren="Show Dates"
-                    unCheckedChildren="Hide Dates"
-                  />
-                </Space>
-              }
-              style={{ marginBottom: 24 }}
-              extra={
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={handleAddPayment}
-                >
-                  Add Payment
-                </Button>
-              }
-            >
-              <Space direction="vertical" style={{ width: '100%' }}>
-                {payments.map((payment, index) => (
-                  <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: '#f5f5f5', borderRadius: '4px' }}>
-                    <Space>
-                      {showPaymentDates && payment.date && (
-                        <Text type="secondary">{payment.date}</Text>
-                      )}
-                      <Text strong>${payment.amount.toFixed(2)}</Text>
-                      {payment.method && <Text>({payment.method})</Text>}
-                      {payment.reference && <Text type="secondary">Ref: {payment.reference}</Text>}
-                    </Space>
-                    <Button
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={() => handleDeletePayment(index)}
-                    />
-                  </div>
-                ))}
-              </Space>
-
-              <Divider />
-              
-              <div style={{ fontSize: '16px' }}>
-                <Row justify="space-between" style={{ marginBottom: 8 }}>
-                  <Col>Total Amount:</Col>
-                  <Col>${totals.total_amount.toFixed(2)}</Col>
-                </Row>
-                <Row justify="space-between" style={{ marginBottom: 8 }}>
-                  <Col>Total Paid:</Col>
-                  <Col>${payments.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}</Col>
-                </Row>
-                <Divider />
-                <Row justify="space-between" style={{ fontWeight: 'bold', color: totals.balance_due > 0 ? '#ff4d4f' : '#52c41a' }}>
-                  <Col>Balance Due:</Col>
-                  <Col>${totals.balance_due.toFixed(2)}</Col>
-                </Row>
-              </div>
-            </Card>
-          </Col>
 
           {/* Photo Documentation */}
           <Col xs={24}>
@@ -2002,11 +2022,30 @@ const ElectricianReportCreation: React.FC = () => {
                           />
                         </Popconfirm>
                       </div>
-                      <div style={{ padding: '6px 8px' }}>
+                      <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <Select
+                          size="small"
+                          value={photo.location || undefined}
+                          placeholder="Location"
+                          style={{ width: '100%' }}
+                          allowClear
+                          onChange={(val) => {
+                            const updated = [...photos];
+                            updated[idx] = { ...updated[idx], location: val || '' };
+                            setPhotos(updated);
+                          }}
+                        >
+                          {(promptInputs.affected_items as PromptAffectedArea[])
+                            .filter(a => a.area.trim())
+                            .map((a, aIdx) => (
+                              <Option key={aIdx} value={a.area}>{a.area}</Option>
+                            ))
+                          }
+                        </Select>
                         <Select
                           size="small"
                           value={photo.category}
-                          style={{ width: '100%', marginBottom: 4 }}
+                          style={{ width: '100%' }}
                           onChange={(val) => {
                             const updated = [...photos];
                             updated[idx] = { ...updated[idx], category: val };
@@ -2263,85 +2302,13 @@ const ElectricianReportCreation: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* Payment Modal */}
-      <Modal
-        title="Add Payment"
-        open={paymentModalVisible}
-        onOk={handlePaymentSubmit}
-        onCancel={() => {
-          setPaymentModalVisible(false);
-          paymentForm.resetFields();
-        }}
-        width={500}
-      >
-        <Form
-          form={paymentForm}
-          layout="vertical"
-        >
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="amount"
-                label="Amount"
-                rules={[{ required: true }]}
-              >
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={0}
-                  step={0.01}
-                  formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={(value: any) => value!.replace(/\$\s?|(,*)/g, '') as any}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="date"
-                label="Payment Date"
-              >
-                <Input type="date" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="method"
-                label="Payment Method"
-              >
-                <Select placeholder="Select method">
-                  <Option value="cash">Cash</Option>
-                  <Option value="check">Check</Option>
-                  <Option value="credit_card">Credit Card</Option>
-                  <Option value="bank_transfer">Bank Transfer</Option>
-                  <Option value="other">Other</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="reference"
-                label="Reference/Check #"
-              >
-                <Input />
-              </Form.Item>
-            </Col>
-            <Col span={24}>
-              <Form.Item
-                name="notes"
-                label="Notes"
-              >
-                <TextArea rows={2} />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
 
       {/* AI Prompt Template Modal */}
       <Modal
         title={
           <Space>
             <RobotOutlined />
-            <span>AI Prompt — Job Details</span>
+            <span>AI Report Generator</span>
           </Space>
         }
         open={promptModalVisible}
@@ -2353,16 +2320,16 @@ const ElectricianReportCreation: React.FC = () => {
           </Button>,
           <Button
             key="copy"
-            type="primary"
             icon={<CopyOutlined />}
-            disabled={!promptInputs.affected_items.some(i => i.area.trim())}
+            disabled={!promptInputs.affected_items.some((i: PromptAffectedArea) => i.area.trim())}
             onClick={() => {
-              const p = promptInputs;
+              const p = promptInputs as PromptInputsType;
               const affectedList = p.affected_items
-                .filter(i => i.area.trim())
-                .map((i, idx) => {
+                .filter((i: PromptAffectedArea) => i.area.trim())
+                .map((i: PromptAffectedArea, idx: number) => {
                   const line = `  ${idx + 1}. ${i.area}`;
-                  return i.items.trim() ? `${line} — ${i.items}` : line;
+                  const itemsStr = i.items.map((it: PromptItem) => `${it.qty} ${it.name}${it.qty > 1 ? 's' : ''}`).join(', ');
+                  return itemsStr ? `${line} — ${itemsStr}` : line;
                 })
                 .join('\n');
               const jobDetails = [
@@ -2370,80 +2337,233 @@ const ElectricianReportCreation: React.FC = () => {
                 `- Source of water: ${p.water_source || '(not specified)'}`,
                 `- Mitigation status: ${p.mitigation_status || 'completed'}`,
                 `- State: ${p.state || 'MD'}`,
-                p.total_amount ? `- Total invoice amount: $${p.total_amount}` : '- Total invoice amount: (use your best judgment based on scope)',
-                p.smoke_detectors ? `- Smoke detectors affected: ${p.smoke_detectors}` : '- Smoke detectors affected: NONE (do NOT add smoke detectors to report)',
-                p.drywall_cuts ? `- Drywall cut & patch: ${p.drywall_cuts}` : '',
-                p.photo_description ? `- Attached photos: ${p.photo_description}` : '',
+                p.total_amount ? `- Total quote amount: $${p.total_amount}` : '- Total quote amount: (use your best judgment based on scope)',
                 p.additional_context ? `- Additional context: ${p.additional_context}` : '',
               ].filter(Boolean).join('\n');
 
-              const hasPhotos = p.photo_description.trim();
-              const photoInstruction = hasPhotos
-                ? `\nIMPORTANT: I am attaching photos of the damage. Analyze them carefully and incorporate what you see into the findings, checklist status, and recommendations. Reference specific photo observations in your report. Use claim-safe language (no banned gradual-damage words).\n`
-                : '';
-
-              const fullPrompt = `You are a licensed master electrician (DMV area). Write a water-damage electrical
-inspection report. The report goes to the HOMEOWNER and is shared with the insurance
-ADJUSTER, so it must read as an objective diagnosis whose findings justify the repair scope.
+              const fullPrompt = `You are a licensed master electrician (DMV area). Write a water-damage electrical inspection report. The report goes to the HOMEOWNER and is shared with the insurance ADJUSTER, so it must read as an objective diagnosis whose findings justify the repair scope.
 ---
 JOB DETAILS:
 ${jobDetails}
----${photoInstruction}
-${document.getElementById('electrician-prompt-requirements')?.textContent || ''}`;
+---
+=== CORE PRINCIPLES ===
+1. STATE THE CAUSE ONCE in site_findings only. Elsewhere report CONDITION and MEASUREMENT.
+2. CLAIM-SAFE WORDING. Banned: corrosion, corroded, oxidation, rust, deterioration, wear, staining, discolored. Use ONLY measured results: "tests open", "fails megger / below threshold", "will not hold", "no power", "dead". Do NOT describe visual observations like staining or discoloration — focus on test results and functional status.
+3. SCOPE HONESTY: interior affected-area only. Not inspected = N/A. Exterior lighting & service entrance → N/A.
+4. ROOMS: use names exactly as given.
+5. DRYWALL ACCESS CUT & PATCH: INCLUDE whenever re-pull or in-wall/in-ceiling J-box work is in scope — inherent to that work. Large finish restoration by separate trade.
+6. SMOKE/CO DETECTORS: INCLUDE only if listed in affected items. Never mark DEFICIENT unless listed as damaged.
+7. QUOTE: tax_amount + line totals must match total. Include drywall access cut & patch labor + materials as separate line items. Materials may be LOT lines.
+
+=== STYLE ===
+Field electrician on a tablet. Short bullets, one fact per line. Natural abbrevs (qty, approx, w/, J-box, NM-B). Room names, counts, wire gauge, breaker #. Notes under 15 words.
+Avoid: "upon arrival", "was advised/observed/found", passive voice, "technician", homeowner fault.
+
+=== FIXTURE NAMING ===
+"boob light" → "flush-mount ceiling fixture (dome)"; "can" → "recessed light".
+
+=== CHECKLIST (EXACT section titles & labels; status = OK / DEFICIENT / N/A) ===
+- "Lighting & Fixtures": Recessed lights (cans) — operational test | Surface-mount / flush ceiling fixtures | Pendant / chandelier fixtures | Ceiling fan / light combo units | Under-cabinet / vanity lighting | Exterior / porch lighting
+- "Wiring & Connections": Junction boxes — condition / accessibility | Wire connectors (wire nuts) — condition | Wire insulation — condition | NM cable (Romex) — condition | Conduit / raceway — condition | Outlet / switch boxes — condition
+- "Circuits & Testing (Affected Area)": Breaker(s) — tripped / functional | Circuit continuity test | Insulation resistance (megger) test | Ground fault test | AFCI breaker function (if applicable) | GFCI outlets — trip test | Outlets — polarity / ground (affected area)
+- "Panel & Service": Main panel — general condition | Bus bars & breaker connections | Grounding / bonding system | Panel labeling / circuit directory | Service entrance / meter base (N/A if not inspected)
+- "Safety & Detection": Smoke detectors — functional | CO detectors — functional | Exhaust fans (bath / kitchen) — operational | Arc / burn marks at any device or junction
+
+=== OUTPUT ===
+Return ONLY a valid JSON object (no markdown, no code fences). Use \\n for line breaks.
+The block below is a FORMAT/TONE reference only — its rooms and numbers are DUMMY DATA from a different job. Do NOT copy them. Pull all rooms, counts, and amounts from the actual JOB DETAILS.
+
+{
+  "site_findings": "Water from 2nd floor bathroom came through ceiling.\\nFixtures and outlets in affected areas non-functional.\\nLighting circuits lost power from the water event.",
+  "electrical_findings": "- Kitchen: 3 recessed cans dead — circuits test open\\n- Garage: 1 surface fixture out, 2 outlets no power — fails megger\\n\\nWiring: 12/2 NM-B on affected run tests open / fails insulation resistance.\\nJ-boxes: connections failed, wire nuts will not hold.\\nMegger: insulation resistance below threshold on affected circuit.",
+  "safety_concerns": "- Affected breaker will not hold — tripped on fault\\n- Affected circuit locked out before inspection\\n- Failed connections = shock/short hazard if re-energized as-is\\n- Circuit left de-energized pending repair\\n- No arc marks or burn damage found",
+  "recommendations": "Repairs needed:\\n- 3 recessed housings (IC-rated) + LED trim kits\\n- Re-pull approx 35ft of 12/2 NM-B\\n- Cut + patch drywall access openings for wire/J-box work\\n- Final circuit test, megger, and re-energize\\n\\nLarge drywall/finish restoration by separate trade.",
+  "inspection_checklist": [
+    {
+      "title": "Lighting & Fixtures",
+      "items": [
+        { "label": "Recessed lights (cans) — operational test", "status": "DEFICIENT", "note": "3 cans dead — no power" },
+        { "label": "Surface-mount / flush ceiling fixtures", "status": "N/A" },
+        { "label": "Pendant / chandelier fixtures", "status": "N/A" },
+        { "label": "Ceiling fan / light combo units", "status": "N/A" },
+        { "label": "Under-cabinet / vanity lighting", "status": "N/A" },
+        { "label": "Exterior / porch lighting", "status": "N/A" }
+      ]
+    },
+    {
+      "title": "Wiring & Connections",
+      "items": [
+        { "label": "Junction boxes — condition / accessibility", "status": "DEFICIENT", "note": "Connections failed, staining present" },
+        { "label": "Wire connectors (wire nuts) — condition", "status": "DEFICIENT", "note": "Will not hold" },
+        { "label": "Wire insulation — condition", "status": "DEFICIENT", "note": "Discolored, tests open" },
+        { "label": "NM cable (Romex) — condition", "status": "DEFICIENT", "note": "12/2 fails megger" },
+        { "label": "Conduit / raceway — condition", "status": "N/A" },
+        { "label": "Outlet / switch boxes — condition", "status": "DEFICIENT", "note": "Staining at terminals" }
+      ]
+    },
+    {
+      "title": "Circuits & Testing (Affected Area)",
+      "items": [
+        { "label": "Breaker(s) — tripped / functional", "status": "DEFICIENT", "note": "Will not hold" },
+        { "label": "Circuit continuity test", "status": "DEFICIENT", "note": "Open path" },
+        { "label": "Insulation resistance (megger) test", "status": "DEFICIENT", "note": "Below threshold" },
+        { "label": "Ground fault test", "status": "DEFICIENT", "note": "Ground fault present" },
+        { "label": "AFCI breaker function (if applicable)", "status": "OK" },
+        { "label": "GFCI outlets — trip test", "status": "OK" },
+        { "label": "Outlets — polarity / ground (affected area)", "status": "N/A" }
+      ]
+    },
+    {
+      "title": "Panel & Service",
+      "items": [
+        { "label": "Main panel — general condition", "status": "OK" },
+        { "label": "Bus bars & breaker connections", "status": "OK" },
+        { "label": "Grounding / bonding system", "status": "OK" },
+        { "label": "Panel labeling / circuit directory", "status": "OK" },
+        { "label": "Service entrance / meter base", "status": "N/A" }
+      ]
+    },
+    {
+      "title": "Safety & Detection",
+      "items": [
+        { "label": "Smoke detectors — functional", "status": "N/A" },
+        { "label": "CO detectors — functional", "status": "N/A" },
+        { "label": "Exhaust fans (bath / kitchen) — operational", "status": "N/A" },
+        { "label": "Arc / burn marks at any device or junction", "status": "OK" }
+      ]
+    }
+  ],
+  "quote_items": [
+    { "name": "Electrical Inspection / Service Call", "description": "Inspection, circuit testing, megger, photo doc", "quantity": 1, "unit": "EA", "unit_cost": 285.00 },
+    { "name": "Labor — Fixture Removal & Testing", "description": "Pull trims/housings/covers, de-energize, test", "quantity": 4, "unit": "HR", "unit_cost": 145.00 },
+    { "name": "Labor — Lighting Replacement", "description": "Install recessed + fixtures", "quantity": 5, "unit": "HR", "unit_cost": 145.00 },
+    { "name": "Labor — Drywall Access Cut & Patch", "description": "Cut access openings for wire/J-box work, patch + tape + mud", "quantity": 3, "unit": "HR", "unit_cost": 95.00 },
+    { "name": "Materials — Lighting", "description": "IC-rated housings + LED trims", "quantity": 1, "unit": "LOT", "unit_cost": 480.00 },
+    { "name": "Materials — Wire, Devices & Consumables", "description": "12/2 NM-B, wire nuts, J-boxes, drywall patch", "quantity": 1, "unit": "LOT", "unit_cost": 300.00 }
+  ],
+  "tax_amount": 0,
+  "overall_assessment": "unsatisfactory",
+  "extent_and_limitations": "Inspection covered interior fixtures, wiring, and circuits in the affected areas. Wiring behind intact drywall not accessible without demolition.",
+  "warranty_info": "1-year workmanship warranty on all electrical work from date of completion.",
+  "notes": "Electrical work to be completed before finish restoration. Re-inspect newly exposed wiring during finish demo. Large drywall/paint by separate trade."
+}`;
 
               navigator.clipboard.writeText(fullPrompt).then(() => {
-                message.success('Complete prompt copied to clipboard!');
+                message.success('Prompt copied! Paste into AI chat, then use "Import JSON" to apply the result.');
               });
             }}
           >
-            Copy Complete Prompt
+            Copy Prompt
+          </Button>,
+          <Button
+            key="generate"
+            type="primary"
+            icon={<RobotOutlined />}
+            loading={isGeneratingAI}
+            disabled={!promptInputs.affected_items.some((i: PromptAffectedArea) => i.area.trim())}
+            onClick={handleAIGenerate}
+          >
+            {isGeneratingAI ? 'Generating...' : 'Generate with AI'}
           </Button>,
         ]}
       >
         {/* Input Fields */}
         <div style={{ marginBottom: 16 }}>
           <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-            Fill in the job details below, then click "Copy Complete Prompt" to copy the full prompt with your inputs.
+            Fill in the job details below. Use "Copy Prompt" to paste into AI chat manually, or "Generate with AI" to auto-generate.
           </Text>
           <Row gutter={[12, 12]}>
             <Col xs={24}>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 6 }}>Affected Areas & Non-working Items *</label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {promptInputs.affected_items.map((item, idx) => (
-                  <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <Text type="secondary" style={{ fontSize: 12, minWidth: 20, textAlign: 'right' }}>{idx + 1}.</Text>
-                    <Input
-                      placeholder="Area (e.g. basement ceiling)"
-                      value={item.area}
-                      style={{ flex: 1 }}
-                      onChange={(e) => {
-                        const updated = [...promptInputs.affected_items];
-                        updated[idx] = { ...updated[idx], area: e.target.value };
-                        setPromptInputs(prev => ({ ...prev, affected_items: updated }));
-                      }}
-                    />
-                    <Input
-                      placeholder="Items (e.g. 3 recessed lights, 2 outlets)"
-                      value={item.items}
-                      style={{ flex: 1 }}
-                      onChange={(e) => {
-                        const updated = [...promptInputs.affected_items];
-                        updated[idx] = { ...updated[idx], items: e.target.value };
-                        setPromptInputs(prev => ({ ...prev, affected_items: updated }));
-                      }}
-                    />
-                    {promptInputs.affected_items.length > 1 && (
-                      <Button
-                        size="small"
-                        type="text"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={() => {
-                          const updated = promptInputs.affected_items.filter((_, i) => i !== idx);
-                          setPromptInputs(prev => ({ ...prev, affected_items: updated }));
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {(promptInputs.affected_items as PromptAffectedArea[]).map((item, idx) => (
+                  <div key={idx} style={{ background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 6, padding: '8px 10px' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                      <Text strong style={{ fontSize: 12, minWidth: 20, textAlign: 'right' }}>{idx + 1}.</Text>
+                      <Input
+                        placeholder="Location (e.g. basement, hallway, bathroom)"
+                        value={item.area}
+                        style={{ flex: 1 }}
+                        onChange={(e) => {
+                          const updated = [...promptInputs.affected_items] as PromptAffectedArea[];
+                          updated[idx] = { ...updated[idx], area: e.target.value };
+                          setPromptInputs((prev: PromptInputsType) => ({ ...prev, affected_items: updated }));
                         }}
                       />
-                    )}
+                      {(promptInputs.affected_items as PromptAffectedArea[]).length > 1 && (
+                        <Button
+                          size="small"
+                          type="text"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={() => {
+                            const updated = (promptInputs.affected_items as PromptAffectedArea[]).filter((_, i) => i !== idx);
+                            setPromptInputs((prev: PromptInputsType) => ({ ...prev, affected_items: updated }));
+                          }}
+                        />
+                      )}
+                    </div>
+                    <div style={{ marginLeft: 28 }}>
+                      {/* Added items display */}
+                      {item.items.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                          {item.items.map((it: PromptItem, itemIdx: number) => (
+                            <Tag
+                              key={itemIdx}
+                              closable
+                              onClose={() => {
+                                const updated = [...promptInputs.affected_items] as PromptAffectedArea[];
+                                updated[idx] = { ...updated[idx], items: updated[idx].items.filter((_, i) => i !== itemIdx) };
+                                setPromptInputs((prev: PromptInputsType) => ({ ...prev, affected_items: updated }));
+                              }}
+                              style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}
+                            >
+                              <InputNumber
+                                size="small"
+                                min={1}
+                                value={it.qty}
+                                style={{ width: 48 }}
+                                onChange={(val) => {
+                                  if (val && val > 0) {
+                                    const updated = [...promptInputs.affected_items] as PromptAffectedArea[];
+                                    const newItems = [...updated[idx].items];
+                                    newItems[itemIdx] = { ...newItems[itemIdx], qty: val };
+                                    updated[idx] = { ...updated[idx], items: newItems };
+                                    setPromptInputs((prev: PromptInputsType) => ({ ...prev, affected_items: updated }));
+                                  }
+                                }}
+                              />
+                              {it.name}
+                            </Tag>
+                          ))}
+                        </div>
+                      )}
+                      {/* Item selector */}
+                      <Select
+                        placeholder="+ Add item"
+                        style={{ width: '100%' }}
+                        value={undefined}
+                        showSearch
+                        optionFilterProp="label"
+                        options={ELECTRICAL_ITEM_OPTIONS}
+                        onSelect={(_val, option) => {
+                          const value = option.value as string;
+                          const updated = [...promptInputs.affected_items] as PromptAffectedArea[];
+                          const existing = updated[idx].items.find((it: PromptItem) => it.name === value);
+                          if (existing) {
+                            updated[idx] = {
+                              ...updated[idx],
+                              items: updated[idx].items.map((it: PromptItem) =>
+                                it.name === value ? { ...it, qty: it.qty + 1 } : it
+                              ),
+                            };
+                          } else {
+                            updated[idx] = { ...updated[idx], items: [...updated[idx].items, { name: value, qty: 1 }] };
+                          }
+                          setPromptInputs((prev: PromptInputsType) => ({ ...prev, affected_items: updated }));
+                        }}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2452,9 +2572,9 @@ ${document.getElementById('electrician-prompt-requirements')?.textContent || ''}
                 size="small"
                 icon={<PlusOutlined />}
                 style={{ marginTop: 6 }}
-                onClick={() => setPromptInputs(prev => ({
+                onClick={() => setPromptInputs((prev: PromptInputsType) => ({
                   ...prev,
-                  affected_items: [...prev.affected_items, { area: '', items: '' }],
+                  affected_items: [...prev.affected_items, { area: '', items: [] }],
                 }))}
               >
                 Add Area
@@ -2500,40 +2620,6 @@ ${document.getElementById('electrician-prompt-requirements')?.textContent || ''}
                 onChange={(e) => setPromptInputs(prev => ({ ...prev, total_amount: e.target.value.replace(/[^0-9.,]/g, '') }))}
               />
             </Col>
-            <Col xs={24} md={12}>
-              <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Smoke Detectors Affected</label>
-              <Input
-                placeholder="e.g. 2 in basement, 1 in hallway (leave blank if none)"
-                value={promptInputs.smoke_detectors}
-                onChange={(e) => setPromptInputs(prev => ({ ...prev, smoke_detectors: e.target.value }))}
-              />
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                Leave blank = AI will NOT include smoke detectors in the report
-              </Text>
-            </Col>
-            <Col xs={24} md={12}>
-              <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Drywall Cut & Patch</label>
-              <Input
-                placeholder="e.g. 3 access holes in basement ceiling, 2 in hallway wall"
-                value={promptInputs.drywall_cuts}
-                onChange={(e) => setPromptInputs(prev => ({ ...prev, drywall_cuts: e.target.value }))}
-              />
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                Drywall cuts needed for wiring access — will add patch labor/materials to invoice
-              </Text>
-            </Col>
-            <Col xs={24}>
-              <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Attached Photos Description (optional)</label>
-              <TextArea
-                rows={2}
-                placeholder="e.g. I'm attaching 12 photos showing: water-stained ceiling with exposed recessed light housings, corroded junction boxes, tripped breaker panel, damaged Romex wiring..."
-                value={promptInputs.photo_description}
-                onChange={(e) => setPromptInputs(prev => ({ ...prev, photo_description: e.target.value }))}
-              />
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                Describe the photos you'll attach to the AI chat. The AI will reference them in the report.
-              </Text>
-            </Col>
             <Col xs={24}>
               <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Additional Context (optional)</label>
               <TextArea
@@ -2546,28 +2632,9 @@ ${document.getElementById('electrician-prompt-requirements')?.textContent || ''}
           </Row>
         </div>
 
-        <Divider style={{ margin: '12px 0' }} />
-
-        {/* Prompt Preview (collapsible) */}
-        <details>
-          <summary style={{ cursor: 'pointer', fontSize: 13, color: '#666', marginBottom: 8 }}>
-            View full prompt template
-          </summary>
-          <div
-            id="electrician-prompt-requirements"
-            style={{
-              maxHeight: '40vh',
-              overflowY: 'auto',
-              background: '#f5f5f5',
-              borderRadius: 8,
-              padding: 16,
-              fontSize: 12,
-              lineHeight: 1.6,
-              whiteSpace: 'pre-wrap',
-              fontFamily: 'monospace',
-            }}
-          >{`INPUTS (from JOB DETAILS): affected rooms + non-working items, water source, state,
-total invoice amount. Optional flags: mitigation_status, claim_type (default = sudden
+      </Modal>
+      {/* dead template removed */}
+      {false && <div>{`
 water event), site_is_wet (default = no).
 
 === CORE PRINCIPLES (apply everywhere) ===
@@ -2649,8 +2716,8 @@ state a real deficiency.
 ---
 === OUTPUT ===
 Return ONLY a valid JSON object (no markdown, no code fences). \\n for line breaks. Keys:
-site_findings, electrical_findings, safety_concerns, work_performed, recommendations,
-inspection_checklist [{title, items:[{label, status, note}]}], invoice_items
+site_findings, electrical_findings, safety_concerns, recommendations,
+inspection_checklist [{title, items:[{label, status, note}]}], quote_items
 [{name, description, quantity, unit, unit_cost}], tax_amount, overall_assessment
 ("satisfactory"/"unsatisfactory" — any DEFICIENT → unsatisfactory), extent_and_limitations,
 warranty_info, notes.
@@ -2732,11 +2799,8 @@ JOB DETAILS.
   "tax_amount": 0,
   "overall_assessment": "unsatisfactory",
   "extent_and_limitations": "Inspection covered interior fixtures, wiring, and circuits in the affected areas. Wiring behind intact drywall not accessible without demolition.",
-  "warranty_info": "1-year workmanship warranty on all electrical work from date of completion.",
-  "notes": "Electrical work to be completed before finish restoration. Re-inspect newly exposed wiring during finish demo. Large drywall/paint by separate trade."
-}`}</div>
-        </details>
-      </Modal>
+  "warranty_info": "..."
+`}</div>}
 
       {/* Report Preview Modal */}
       <Modal
@@ -2809,13 +2873,13 @@ JOB DETAILS.
         ]}
       >
         <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          Paste the JSON output from AI below. It will auto-fill Site Findings, Work Performed, Invoice Items, and other fields.
+          Paste the JSON output from AI below. It will auto-fill Site Findings, Electrical Findings, Repair Quote, and other fields.
         </Text>
         <TextArea
           rows={14}
           value={jsonPasteValue}
           onChange={(e) => setJsonPasteValue(e.target.value)}
-          placeholder='Paste JSON here... e.g. { "site_findings": "...", "work_performed": "...", ... }'
+          placeholder='Paste JSON here... e.g. { "site_findings": "...", "electrical_findings": "...", ... }'
           style={{ fontFamily: 'monospace', fontSize: 12 }}
         />
       </Modal>

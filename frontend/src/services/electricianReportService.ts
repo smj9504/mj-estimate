@@ -41,6 +41,7 @@ export interface PhotoRecord {
   file_id?: string;
   category: 'before' | 'during' | 'after' | 'damage' | 'panel' | 'wiring' | 'other';
   caption?: string;
+  location?: string;
   timestamp?: string;
 }
 
@@ -381,6 +382,43 @@ class ElectricianReportService {
       console.error('Failed to generate report number from API, using fallback:', error);
       return this.generateReportNumberFallback();
     }
+  }
+
+  // Generate electrician report content using AI
+  async generateAI(params: {
+    affected_items: Array<{ area: string; items: Array<{ name: string; qty: number }> }>;
+    water_source?: string;
+    state?: string;
+    total_amount?: string;
+    mitigation_status?: string;
+    drywall_cuts?: string;
+    additional_context?: string;
+    photos?: Array<{ category: string; caption: string; location: string }>;
+  }): Promise<{
+    site_findings: string;
+    electrical_findings: string;
+    safety_concerns: string;
+    work_performed: string;
+    recommendations: string;
+    inspection_checklist: Array<{
+      title: string;
+      items: Array<{ label: string; status: string; note?: string }>;
+    }>;
+    invoice_items: Array<{
+      name: string;
+      description: string;
+      quantity: number;
+      unit: string;
+      unit_cost: number;
+    }>;
+    tax_amount: number;
+    overall_assessment: string;
+    extent_and_limitations: string;
+    warranty_info: string;
+    notes: string;
+  }> {
+    const response = await api.post(`${this.baseUrl}/generate-ai`, params);
+    return response.data;
   }
 
   private generateReportNumberFallback(): string {

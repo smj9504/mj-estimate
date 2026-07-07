@@ -166,15 +166,9 @@
   </table>
   {% endif %}
 
-  <!-- Scope of Work -->
-  {% if work_performed %}
-  <div class="section-title">Scope of Work</div>
-  <div class="content-box">{{ work_performed | safe }}</div>
-  {% endif %}
-
-  <!-- Repair Estimate + Totals -->
+  <!-- Repair Quote + Totals -->
   {% if invoice_items or (include_financial and financial) %}
-  <div class="section-title">Repair Estimate</div>
+  <div class="section-title">Repair Quote</div>
 
   {% if invoice_items %}
   <div class="line-header">
@@ -225,35 +219,9 @@
       </div>
       {% endif %}
       <div class="total-row grand-total">
-        <span class="total-label">Total</span>
+        <span class="total-label">Estimated Total</span>
         <span class="total-value">${{ financial.total_amount | currency }}</span>
       </div>
-
-      {% if payments %}
-        {% for payment in payments %}
-        <div class="total-row">
-          <span class="total-label">Payment{% if show_payment_dates and payment.date %} ({{ payment.date | date }}){% endif %}{% if payment.method %} &ndash; {{ payment.method }}{% endif %}</span>
-          <span class="total-value">-${{ payment.amount | currency }}</span>
-        </div>
-        {% endfor %}
-        {% if financial.balance_due <= 0 %}
-        <div class="total-row grand-total paid-in-full">
-          <span class="total-label">Balance Due</span>
-          <span class="total-value">$0.00</span>
-        </div>
-        <div class="paid-stamp">PAID IN FULL</div>
-        {% else %}
-        <div class="total-row grand-total balance-due">
-          <span class="total-label">Balance Due</span>
-          <span class="total-value">${{ financial.balance_due | currency }}</span>
-        </div>
-        {% endif %}
-      {% else %}
-        <div class="total-row grand-total balance-due">
-          <span class="total-label">Estimated Total</span>
-          <span class="total-value">${{ financial.total_amount | currency }}</span>
-        </div>
-      {% endif %}
     </div>
   </div>
   {% endif %}
