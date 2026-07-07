@@ -563,17 +563,22 @@ class AIClassificationService:
             #   without this, thinking tokens consume output budget
             #   and thinking text can leak into response.text
             # response_mime_type: forces valid JSON output
+            config_kwargs = dict(
+                temperature=0.1,
+                max_output_tokens=1024,
+                response_mime_type="application/json",
+            )
+            try:
+                config_kwargs["thinking_config"] = types.ThinkingConfig(
+                    thinking_budget=0
+                )
+            except (TypeError, Exception):
+                pass  # older google-genai SDK without ThinkingConfig support
+
             response = client.models.generate_content(
                 model=self.model_name,
                 contents=[CLASSIFICATION_PROMPT, image_part],
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    max_output_tokens=1024,
-                    response_mime_type="application/json",
-                    thinking_config=types.ThinkingConfig(
-                        thinking_budget=0
-                    ),
-                ),
+                config=types.GenerateContentConfig(**config_kwargs),
             )
 
             # Parse response
@@ -681,19 +686,24 @@ class AIClassificationService:
                 mime_type=resized_mime,
             )
 
+            config_kwargs = dict(
+                temperature=0.1,
+                max_output_tokens=512,
+                response_mime_type="application/json",
+            )
+            try:
+                config_kwargs["thinking_config"] = types.ThinkingConfig(
+                    thinking_budget=0
+                )
+            except (TypeError, Exception):
+                pass
+
             response = client.models.generate_content(
                 model=self.model_name,
                 contents=[
                     METER_VERIFICATION_PROMPT, image_part
                 ],
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    max_output_tokens=512,
-                    response_mime_type="application/json",
-                    thinking_config=types.ThinkingConfig(
-                        thinking_budget=0
-                    ),
-                ),
+                config=types.GenerateContentConfig(**config_kwargs),
             )
 
             response_text = response.text.strip()

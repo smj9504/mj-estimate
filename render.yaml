@@ -40,7 +40,7 @@ services:
       - key: LOG_LEVEL
         value: INFO
       - key: ENABLE_INTEGRATIONS
-        value: false
+        value: "true"
       - key: ENABLE_MATERIAL_DETECTION
         value: false
       # IMPORTANT: Set these in Render Dashboard (not here for security)
